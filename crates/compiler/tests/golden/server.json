@@ -1,0 +1,62 @@
+{
+  "experimental": {
+    "v2ray_api": {
+      "listen": "127.0.0.1:18085",
+      "stats": {
+        "enabled": true,
+        "users": [
+          "u1_n3",
+          "u2_n3"
+        ]
+      }
+    }
+  },
+  "inbounds": [
+    {
+      "listen": "::",
+      "listen_port": 20000,
+      "tag": "node-3",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.example.com",
+            "server_port": 443
+          },
+          "private_key": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+          "short_id": [
+            "1234abcd"
+          ]
+        },
+        "server_name": "www.example.com"
+      },
+      "type": "vless",
+      "users": [
+        {
+          "flow": "xtls-rprx-vision",
+          "name": "u1_n3",
+          "uuid": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "flow": "xtls-rprx-vision",
+          "name": "u2_n3",
+          "uuid": "00000000-0000-0000-0000-000000000002"
+        }
+      ]
+    }
+  ],
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "final": "direct"
+  }
+}
