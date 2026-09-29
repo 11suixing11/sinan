@@ -8,6 +8,7 @@ pub mod business;
 pub mod config;
 pub mod deployments;
 pub mod error;
+pub mod frontend;
 pub mod nodes;
 pub mod publisher;
 pub mod servers;
@@ -60,26 +61,49 @@ pub fn router(state: AppState) -> Router {
         .route("/api/logout", post(auth::logout))
         .route("/api/me", get(auth::me))
         .route("/api/servers", get(servers::list).post(servers::create))
-        .route("/api/servers/{id}", get(servers::get).patch(servers::update).delete(servers::remove))
-        .route("/api/servers/{id}/enrollment", post(servers::issue_enrollment))
+        .route(
+            "/api/servers/{id}",
+            get(servers::get)
+                .patch(servers::update)
+                .delete(servers::remove),
+        )
+        .route(
+            "/api/servers/{id}/enrollment",
+            post(servers::issue_enrollment),
+        )
         .route("/api/servers/{id}/deployments", get(deployments::get))
         .route("/api/nodes", get(nodes::list).post(nodes::create))
-        .route("/api/nodes/{id}", get(nodes::get).patch(nodes::update).delete(nodes::remove))
+        .route(
+            "/api/nodes/{id}",
+            get(nodes::get).patch(nodes::update).delete(nodes::remove),
+        )
         .route("/api/users", get(users::list).post(users::create))
-        .route("/api/users/{id}", get(users::get).patch(users::update).delete(users::remove))
-        .route("/api/users/{id}/accesses", get(accesses::list).post(accesses::grant))
-        .route("/api/users/{user_id}/accesses/{node_id}", axum::routing::delete(accesses::revoke))
+        .route(
+            "/api/users/{id}",
+            get(users::get).patch(users::update).delete(users::remove),
+        )
+        .route(
+            "/api/users/{id}/accesses",
+            get(accesses::list).post(accesses::grant),
+        )
+        .route(
+            "/api/users/{user_id}/accesses/{node_id}",
+            axum::routing::delete(accesses::revoke),
+        )
         .route("/api/usage", get(usage::summary))
         .route("/sub/{token}", get(subscriptions::get))
         .route("/api/agent/v1/enroll", post(servers::enroll))
         .route("/api/agent/v1/ws", get(agent_api::websocket))
         .route("/api/agent/v1/manifest", get(agent_api::manifest))
         .route("/api/agent/v1/bundles/{rev}", get(agent_api::bundle))
-        .route("/api/agent/v1/artifacts/{name}/{version}/{arch}", get(artifacts::download))
+        .route(
+            "/api/agent/v1/artifacts/{name}/{version}/{arch}",
+            get(artifacts::download),
+        )
         .route("/api/artifacts", get(artifacts::list))
         .route("/api/bootstrap/{version}/{arch}", get(artifacts::bootstrap))
         .route("/install.sh", get(artifacts::install_script))
-        .route("/", get(|| async { axum::response::Html("<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><title>司南</title><h1>司南</h1><p>面板 API 已启动。</p></html>") }))
+        .fallback(frontend::serve)
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
         .with_state(state)
 }

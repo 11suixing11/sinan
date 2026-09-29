@@ -36,8 +36,7 @@ pub async fn enroll(config: &Config, token: &str) -> anyhow::Result<i64> {
         !token.is_empty() && token.len() <= 512,
         "invalid enrollment token"
     );
-    fs::create_dir_all(&config.identity_dir)?;
-    private_permissions(&config.identity_dir, 0o700)?;
+    prepare_directory(&config.identity_dir)?;
     let origin_path = config.identity_dir.join("panel_origin");
     let origin = validate_panel_url(&config.panel_url)?
         .origin()
@@ -122,15 +121,27 @@ fn read_key(path: &Path) -> anyhow::Result<SigningKey> {
     Ok(SigningKey::from_bytes(&bytes))
 }
 
-fn private_permissions(path: &Path, mode: u32) -> anyhow::Result<()> {
+fn prepare_directory(path: &Path) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(path)?;
+        let metadata = fs::symlink_metadata(path)?;
+        anyhow::ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "identity directory must be an ordinary directory"
+        );
+        anyhow::ensure!(
+            metadata.permissions().mode() & 0o022 == 0,
+            "identity directory must not be writable by group or others"
+        );
     }
     #[cfg(not(unix))]
     {
-        let _ = (path, mode);
+        let _ = path;
         anyhow::bail!("private identity permissions require a Unix platform");
     }
     Ok(())
@@ -175,4 +186,44 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     result?;
     fs::File::open(path.parent().context("identity file has no parent")?)?.sync_all()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::{symlink, PermissionsExt};
+
+    #[test]
+    fn identity_directory_preserves_existing_modes_and_rejects_unsafe_locations(
+    ) -> anyhow::Result<()> {
+        let directory = std::env::temp_dir().join(format!("sn-identity-mode-{}", Uuid::new_v4()));
+        fs::create_dir(&directory)?;
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o755))?;
+        prepare_directory(&directory)?;
+        assert_eq!(
+            fs::metadata(&directory)?.permissions().mode() & 0o777,
+            0o755
+        );
+        let private = directory.join("new/identity");
+        prepare_directory(&private)?;
+        assert_eq!(fs::metadata(&private)?.permissions().mode() & 0o777, 0o700);
+        assert_eq!(
+            fs::metadata(private.parent().unwrap())?
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        let alias = directory.join("alias");
+        symlink(&private, &alias)?;
+        assert!(prepare_directory(&alias).is_err());
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o777))?;
+        assert!(prepare_directory(&directory).is_err());
+        assert_eq!(
+            fs::metadata(&directory)?.permissions().mode() & 0o777,
+            0o777
+        );
+        fs::remove_dir_all(directory)?;
+        Ok(())
+    }
 }

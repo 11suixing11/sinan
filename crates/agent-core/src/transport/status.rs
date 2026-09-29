@@ -27,8 +27,20 @@ impl Drop for BoundSocket {
 pub(super) async fn bind(path: &Path) -> Result<BoundSocket> {
     use std::os::unix::fs::{FileTypeExt, PermissionsExt};
     let parent = path.parent().context("status socket has no parent")?;
-    tokio::fs::create_dir_all(parent).await?;
-    tokio::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).await?;
+    tokio::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(parent)
+        .await?;
+    let parent_metadata = tokio::fs::symlink_metadata(parent).await?;
+    anyhow::ensure!(
+        parent_metadata.is_dir() && !parent_metadata.file_type().is_symlink(),
+        "status directory must be an ordinary directory"
+    );
+    anyhow::ensure!(
+        parent_metadata.permissions().mode() & 0o022 == 0,
+        "status directory must not be writable by group or others"
+    );
     if let Ok(metadata) = tokio::fs::symlink_metadata(path).await {
         anyhow::ensure!(
             metadata.file_type().is_socket(),
@@ -108,7 +120,7 @@ mod tests {
             std::path::PathBuf::from("/tmp").join(format!("sn-status-{}", uuid::Uuid::new_v4()));
         let socket = directory.join("status.sock");
         let runtime = Runtime {
-            state: Arc::new(Mutex::new(State::open(&directory.join("state.db"))?)),
+            state: Arc::new(Mutex::new(State::open(Path::new(":memory:"))?)),
             modules: Arc::new(vec![]),
             connected: Arc::new(AtomicBool::new(true)),
         };
@@ -131,6 +143,39 @@ mod tests {
         tasks.abort_all();
         while tasks.join_next().await.is_some() {}
         assert!(!socket.exists());
+        std::fs::remove_dir_all(directory)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn existing_status_parent_mode_is_preserved_and_unsafe_locations_rejected() -> Result<()>
+    {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let directory =
+            PathBuf::from("/tmp").join(format!("sn-status-mode-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory)?;
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755))?;
+        let socket = directory.join("status.sock");
+        let bound = bind(&socket).await?;
+        assert_eq!(
+            std::fs::metadata(&directory)?.permissions().mode() & 0o777,
+            0o755
+        );
+        assert_eq!(
+            std::fs::metadata(&socket)?.permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(bind(&socket).await.is_err());
+        drop(bound);
+        let alias = directory.join("alias");
+        symlink(&directory, &alias)?;
+        assert!(bind(&alias.join("status.sock")).await.is_err());
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o777))?;
+        assert!(bind(&socket).await.is_err());
+        assert_eq!(
+            std::fs::metadata(&directory)?.permissions().mode() & 0o777,
+            0o777
+        );
         std::fs::remove_dir_all(directory)?;
         Ok(())
     }
