@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Each run owns a unique Compose project, including the volumes removed by its trap.
+set -euo pipefail
+repository=$(cd "$(dirname "$0")/.." && pwd)
+cd "$repository"
+export COMPOSE_PROJECT_NAME="sinan-ci-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$"
+export SINAN_BIND_ADDRESS=127.0.0.1
+export SINAN_PORT=${SINAN_PORT:-18080}
+export SINAN_PUBLIC_URL="http://127.0.0.1:$SINAN_PORT"
+export SINAN_DB_PASSWORD=${SINAN_DB_PASSWORD:-$(python3 -c 'import secrets; print(secrets.token_hex(24))')}
+export SINAN_ADMIN_PASSWORD=${SINAN_ADMIN_PASSWORD:-$(python3 -c 'import secrets; print(secrets.token_hex(24))')}
+compose=(docker compose --env-file /dev/null -f deploy/docker-compose.yml)
+state_file=$(mktemp)
+cleanup() {
+  result=$?
+  trap - EXIT
+  if [ "$result" -ne 0 ]; then
+    "${compose[@]}" ps || true
+    "${compose[@]}" logs --no-color || true
+  fi
+  "${compose[@]}" down --volumes --remove-orphans || true
+  rm -f "$state_file"
+  exit "$result"
+}
+trap cleanup EXIT
+check_api() {
+  python3 - "$1" "$state_file" <<'PY'
+import http.cookiejar
+import json
+import os
+import re
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+phase, state_file = sys.argv[1:]
+base = 'http://127.0.0.1:' + os.environ['SINAN_PORT']
+client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+
+def request(path, data=None):
+    body = None if data is None else json.dumps(data).encode()
+    headers = {} if data is None else {'Content-Type': 'application/json'}
+    return client.open(urllib.request.Request(base + path, data=body, headers=headers), timeout=15)
+
+with request('/healthz') as response:
+    assert response.read() == b'ok'
+with request('/') as response:
+    assert response.headers.get_content_type() == 'text/html'
+    assert response.headers['Cache-Control'] == 'no-store'
+    html = response.read().decode()
+    assert '司南' in html
+assets = re.findall(r'(?:src|href)="(/assets/[^\"]+)"', html)
+assert any(path.endswith('.js') for path in assets)
+assert any(path.endswith('.css') for path in assets)
+for path in assets:
+    with request(path) as response:
+        body = response.read()
+        assert body and b'<!doctype html>' not in body.lower()
+        if path.endswith('.js'):
+            assert response.headers.get_content_type() == 'text/javascript'
+        elif path.endswith('.css'):
+            assert response.headers.get_content_type() == 'text/css'
+for path in ['/api/does-not-exist', '/assets/missing.js']:
+    try:
+        request(path)
+    except urllib.error.HTTPError as error:
+        assert error.code == 404
+    else:
+        raise AssertionError(path + ' must return 404')
+with request('/api/login', {'password': os.environ['SINAN_ADMIN_PASSWORD']}) as response:
+    assert 'HttpOnly' in response.headers['Set-Cookie']
+if phase == 'create':
+    with request('/api/servers', {'name': 'CI 持久化检查'}) as response:
+        assert response.status == 201
+        server = json.load(response)
+        Path(state_file).write_text(json.dumps({'server_id': server['id']}))
+else:
+    server_id = json.loads(Path(state_file).read_text())['server_id']
+    with request('/api/servers/' + str(server_id)) as response:
+        assert json.load(response)['name'] == 'CI 持久化检查'
+print('Compose HTTP and persistence smoke:', phase, 'passed')
+PY
+}
+"${compose[@]}" up --detach --build --wait --wait-timeout 180
+"${compose[@]}" exec -T panel sh -c '[ "$(id -u)" -eq 10001 ] && test -w /data && printf persisted > /data/.ci-write-probe'
+check_api create
+"${compose[@]}" up --detach --force-recreate --wait --wait-timeout 180
+"${compose[@]}" exec -T panel sh -c '[ "$(cat /data/.ci-write-probe)" = persisted ]'
+check_api verify

@@ -37,6 +37,51 @@ jobs:
         run: git diff --exit-code -- web/dist
       - name: Check core boundary
         run: '! grep -REin "singbox|sing-box" crates/agent-core'
+      - name: Verify artifact build script contracts
+        run: python3 tools/test-build-scripts.py
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+
+  compose-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and verify the complete Docker deployment
+        run: bash scripts/ci-compose-smoke.sh
+
+  agent-musl:
+    name: Agent musl (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Install the native musl compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools build-essential binutils python3 coreutils
+      - name: Build and verify the static Agent on its native architecture
+        run: bash tools/build-agent.sh '${{ matrix.arch }}' '${{ runner.temp }}/sinan-artifacts'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sinan-agent-linux-${{ matrix.arch }}
+          path: ${{ runner.temp }}/sinan-artifacts/
+          if-no-files-found: error
+          retention-days: 7

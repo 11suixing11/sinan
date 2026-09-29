@@ -1,0 +1,17 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+.local
+target
+**/target
+web/node_modules
+web/dist
+web/*.tsbuildinfo
+data
+artifacts
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/.DS_Store

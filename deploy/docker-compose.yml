@@ -1,0 +1,42 @@
+name: sinan
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sinan
+      POSTGRES_USER: sinan
+      POSTGRES_PASSWORD: ${SINAN_DB_PASSWORD:?Set SINAN_DB_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U sinan -d sinan"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  panel:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: sinan-panel:local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SINAN_DATABASE_URL: postgres://sinan:${SINAN_DB_PASSWORD:?Set SINAN_DB_PASSWORD in .env}@postgres:5432/sinan
+      SINAN_PUBLIC_URL: ${SINAN_PUBLIC_URL:?Set SINAN_PUBLIC_URL in .env}
+      SINAN_ADMIN_PASSWORD: ${SINAN_ADMIN_PASSWORD:?Set SINAN_ADMIN_PASSWORD in .env}
+      SINAN_LISTEN: 0.0.0.0:8080
+      SINAN_DATA_DIR: /data
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - "${SINAN_BIND_ADDRESS:-127.0.0.1}:${SINAN_PORT:-8080}:8080"
+    volumes:
+      - panel-data:/data
+
+volumes:
+  postgres-data:
+  panel-data:

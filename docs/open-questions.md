@@ -64,3 +64,11 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 - 提交体积较小的 `web/dist`，使新检出的仓库可以直接 `cargo build/run`。CI 使用 lockfile 重新构建并检查产物一致，修改前端必须同步提交构建结果。debug 与 release 都使用内嵌资源。
 - HTML 禁止缓存，带内容哈希的 JS/CSS 长期缓存；静态资源带正确 MIME 和 nosniff。
 - 审查发现自定义身份目录或 status socket 父目录可能指向已有共享目录。改为仅为新建目录设置私有权限，保留已有目录权限；密钥和 socket 仍保持 0600，并验证不安全目录条件。
+
+## G9：部署与构建边界
+
+- Compose 使用 PostgreSQL 16 和非 root 面板容器，分别使用命名卷；数据库不映射宿主端口，面板默认只映射到宿主回环地址。公开地址和密码由部署者提供，数据库密码示例使用十六进制，避免 URL 转义歧义。
+- 安装脚本将既有 TOML 的解析、路径覆盖保留和设备 origin 校验交给 Agent 注册命令，不使用精确文本 grep 判断面板地址。成功注册后才原子写配置并切换 Agent；升级需要为同一服务器重新生成一次性安装命令，已消费的旧命令不可复用。
+- 上游 `release/DEFAULT_BUILD_TAGS` 包含 `with_naive_outbound`，保留全部标签的 Linux 构建需要 CGO/glibc 和上游 Chromium 工具链。固定 Linux/amd64 构建容器，交叉输出 amd64/arm64；只追加 `with_v2ray_api`，不追加 purego/musl 标签，不修改上游源码。只有 Agent 要求 musl 静态链接。
+- sing-box 固定 v1.14.2 及对应提交，使用上游指定 cronet 工具链版本；GPG keyring 使用临时私有目录，避免影响构建者的默认密钥环。归档仅包含一个可执行文件，固定归档元数据；同版本同架构产物不可覆盖，添加另一架构时保留并核验既有校验和。
+- 本机为 macOS 且无 Docker；本地已启动真实 PostgreSQL、面板和浏览器，并验证真实上游运行时 check/统计/HUP。Docker 部署和 Linux musl 构建通过 GitHub CI 验证，结果在最终报告单列；真实 Debian systemd、公网 Reality 客户端与网络条件仍需执行手工验收。

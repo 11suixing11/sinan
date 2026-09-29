@@ -3,6 +3,8 @@
 /web/*.tsbuildinfo
 /.local/
 /.env
+/data/
+/artifacts/
 *.db
 *.db-shm
 *.db-wal
