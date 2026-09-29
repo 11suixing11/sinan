@@ -17,6 +17,7 @@ pub(super) async fn run(
     let mut sample = tokio::time::interval(Duration::from_secs(30));
     poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     sample.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut reported = sinan_protocol::AppliedRevisions::new();
     loop {
         tokio::select! {
             trigger = triggers.recv() => {
@@ -60,7 +61,18 @@ pub(super) async fn run(
                 },
             };
             // Results can be reconstructed on the next reconciliation if disconnected.
+            let applied = result.status == ApplyStatus::Applied;
             let _ = outgoing.try_send(Envelope::new("apply.result", result)?);
+            if applied {
+                let current = runtime.applied()?;
+                if current != reported
+                    && outgoing
+                        .try_send(Envelope::new("telemetry.static", runtime.static_info()?)?)
+                        .is_ok()
+                {
+                    reported = current;
+                }
+            }
         }
     }
 }

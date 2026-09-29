@@ -7,7 +7,6 @@ use anyhow::{Context, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use ed25519_dalek::Signer;
 use futures_util::{SinkExt, StreamExt};
-use sinan_adapter_sdk::Prepared;
 use sinan_protocol::{
     AuthResponse, Envelope, Heartbeat, Hello, HelloAck, Message, PROTOCOL_VERSION,
 };
@@ -51,20 +50,11 @@ pub(super) async fn run(
     )
     .await?;
     let mut collector = Collector::new();
-    let mut static_info = collector.static_info();
-    {
-        let state = runtime
-            .state
-            .lock()
-            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
-        for module in runtime.modules.iter() {
-            if let Some(prepared) = state.get_json::<Prepared>(&format!("applied:{module}"))? {
-                static_info.runtime_version = Some(prepared.spec.kernel_version);
-                break;
-            }
-        }
-    }
-    send(&mut socket, Envelope::new("telemetry.static", static_info)?).await?;
+    send(
+        &mut socket,
+        Envelope::new("telemetry.static", runtime.static_info()?)?,
+    )
+    .await?;
     client_tx.send_replace(Some(Arc::new(PanelClient::new(
         &config.panel_url,
         &ack.session_token,

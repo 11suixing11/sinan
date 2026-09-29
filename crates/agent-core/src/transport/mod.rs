@@ -30,6 +30,21 @@ struct Runtime {
 }
 
 impl Runtime {
+    fn static_info(&self) -> Result<sinan_protocol::StaticInfo> {
+        let mut info = crate::telemetry::Collector::new().static_info();
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+        for module in self.modules.iter() {
+            if let Some(prepared) = state.get_json::<Prepared>(&format!("applied:{module}"))? {
+                info.runtime_version = Some(prepared.spec.kernel_version);
+                break;
+            }
+        }
+        Ok(info)
+    }
+
     fn applied(&self) -> Result<AppliedRevisions> {
         let state = self
             .state

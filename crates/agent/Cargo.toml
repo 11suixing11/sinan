@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 sinan-agent-core.workspace = true
 sinan-adapter-sdk.workspace = true
+sinan-adapter-singbox.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
 tracing-subscriber.workspace = true
