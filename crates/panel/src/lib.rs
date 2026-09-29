@@ -1,11 +1,19 @@
 #![forbid(unsafe_code)]
 
+pub mod accesses;
 pub mod agent_api;
 pub mod artifacts;
 pub mod auth;
+pub mod business;
 pub mod config;
+pub mod deployments;
 pub mod error;
+pub mod nodes;
+pub mod publisher;
 pub mod servers;
+pub mod subscriptions;
+pub mod usage;
+pub mod users;
 
 use axum::{
     routing::{get, post},
@@ -54,6 +62,15 @@ pub fn router(state: AppState) -> Router {
         .route("/api/servers", get(servers::list).post(servers::create))
         .route("/api/servers/{id}", get(servers::get).patch(servers::update).delete(servers::remove))
         .route("/api/servers/{id}/enrollment", post(servers::issue_enrollment))
+        .route("/api/servers/{id}/deployments", get(deployments::get))
+        .route("/api/nodes", get(nodes::list).post(nodes::create))
+        .route("/api/nodes/{id}", get(nodes::get).patch(nodes::update).delete(nodes::remove))
+        .route("/api/users", get(users::list).post(users::create))
+        .route("/api/users/{id}", get(users::get).patch(users::update).delete(users::remove))
+        .route("/api/users/{id}/accesses", get(accesses::list).post(accesses::grant))
+        .route("/api/users/{user_id}/accesses/{node_id}", axum::routing::delete(accesses::revoke))
+        .route("/api/usage", get(usage::summary))
+        .route("/sub/{token}", get(subscriptions::get))
         .route("/api/agent/v1/enroll", post(servers::enroll))
         .route("/api/agent/v1/ws", get(agent_api::websocket))
         .route("/api/agent/v1/manifest", get(agent_api::manifest))

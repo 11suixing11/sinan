@@ -190,18 +190,32 @@ async fn reconcile_hint(
     server_id: i64,
     applied: AppliedRevisions,
 ) -> anyhow::Result<()> {
+    let mut tx = state.pool.begin().await?;
     let rows = sqlx::query(
-        "SELECT module,target_rev,applied_rev FROM server_module_status WHERE server_id=$1",
+        "SELECT module,target_rev,applied_rev FROM server_module_status WHERE server_id=$1 FOR UPDATE",
     )
     .bind(server_id)
-    .fetch_all(&state.pool)
+    .fetch_all(&mut *tx)
     .await?;
-    let differs = rows.iter().any(|row| {
+    let mut differs = false;
+    for row in rows {
         let module: String = row.get("module");
         let reported = applied.get(&module).copied().unwrap_or(0);
-        reported != row.get::<i64, _>("target_rev") as u64
-            || reported != row.get::<i64, _>("applied_rev") as u64
-    });
+        let known = row.get::<i64, _>("applied_rev") as u64;
+        differs |= reported != row.get::<i64, _>("target_rev") as u64 || reported != known;
+        if reported > known {
+            if let Ok(rev) = i64::try_from(reported) {
+                let published: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM deployments WHERE server_id=$1 AND module=$2 AND rev=$3)")
+                    .bind(server_id).bind(&module).bind(rev).fetch_one(&mut *tx).await?;
+                if published {
+                    // Applied checkpoints are durable on the device even if their result is lost.
+                    sqlx::query("UPDATE server_module_status SET applied_rev=$3,healthy=true,updated_at=$4 WHERE server_id=$1 AND module=$2")
+                        .bind(server_id).bind(&module).bind(rev).bind(now_timestamp()).execute(&mut *tx).await?;
+                }
+            }
+        }
+    }
+    tx.commit().await?;
     if differs {
         let rev: i64 = sqlx::query_scalar("SELECT manifest_rev FROM servers WHERE id=$1")
             .bind(server_id)
@@ -250,6 +264,7 @@ pub async fn process_message(
             tx.commit().await?;
         }
         Message::ApplyResult(result) => record_apply_result(state, server_id, result).await?,
+        Message::UsageBatch(batch) => crate::usage::ingest(state, server_id, batch).await?,
         Message::Unknown { message_type, .. } => {
             tracing::debug!(%message_type,"ignoring unknown device message")
         }
@@ -275,7 +290,7 @@ pub async fn record_apply_result(
     anyhow::ensure!(exists, "unpublished revision");
     let applied = result.status == ApplyStatus::Applied;
     anyhow::ensure!(!applied || result.healthy, "applied result must be healthy");
-    sqlx::query("UPDATE server_module_status SET applied_rev=CASE WHEN $4 THEN GREATEST(applied_rev,$3) ELSE applied_rev END,last_result_rev=$3,healthy=$5,last_error=$6,updated_at=$7 WHERE server_id=$1 AND module=$2 AND last_result_rev<=$3")
+    sqlx::query("UPDATE server_module_status SET applied_rev=CASE WHEN $4 THEN GREATEST(applied_rev,$3) ELSE applied_rev END,last_result_rev=$3,healthy=$5,last_error=$6,updated_at=$7 WHERE server_id=$1 AND module=$2 AND last_result_rev<=$3 AND applied_rev<=$3")
         .bind(server_id).bind(result.module).bind(rev).bind(applied).bind(result.healthy).bind(result.error.map(|error| error.chars().take(2048).collect::<String>())).bind(now_timestamp()).execute(&state.pool).await?;
     Ok(())
 }

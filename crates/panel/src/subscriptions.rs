@@ -1,0 +1,92 @@
+use crate::{
+    error::{ApiError, ApiResult},
+    AppState,
+};
+use axum::{
+    extract::{Path, Query, State},
+    http::header,
+    response::{IntoResponse, Response},
+};
+use serde::Deserialize;
+use sinan_compiler::Node;
+use sqlx::Row;
+use std::collections::BTreeMap;
+use uuid::Uuid;
+
+#[derive(Deserialize)]
+pub struct SubscriptionQuery {
+    pub format: Option<String>,
+}
+
+pub async fn get(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+    Query(query): Query<SubscriptionQuery>,
+) -> ApiResult<Response> {
+    let format = query.format.as_deref().unwrap_or("links");
+    if !matches!(format, "links" | "singbox") {
+        return Err(ApiError::BadRequest(
+            "订阅格式仅支持 links 或 singbox".into(),
+        ));
+    }
+    if token.is_empty() || token.len() > 512 {
+        return Err(ApiError::NotFound);
+    }
+    let mut tx = state.pool.begin().await?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        .execute(&mut *tx)
+        .await?;
+    let user_id: i64 = sqlx::query_scalar(
+        "SELECT id FROM users WHERE subscription_token=$1 AND deleted_at IS NULL",
+    )
+    .bind(token)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    let accesses = sqlx::query("SELECT a.node_id,a.uuid FROM accesses a JOIN nodes n ON n.id=a.node_id JOIN servers s ON s.id=n.server_id WHERE a.user_id=$1 AND n.deleted_at IS NULL AND s.deleted_at IS NULL")
+        .bind(user_id).fetch_all(&mut *tx).await?;
+    let current: BTreeMap<i64, Uuid> = accesses
+        .into_iter()
+        .map(|row| (row.get("node_id"), row.get("uuid")))
+        .collect();
+    let snapshots: Vec<serde_json::Value> = sqlx::query_scalar("SELECT d.source_json FROM deployments d JOIN server_module_status m ON m.server_id=d.server_id AND m.module=d.module AND m.applied_rev=d.rev JOIN servers s ON s.id=d.server_id WHERE m.module='singbox' AND m.healthy AND s.deleted_at IS NULL ORDER BY d.server_id")
+        .fetch_all(&mut *tx).await?;
+    tx.commit().await?;
+    let mut nodes = Vec::new();
+    for snapshot in snapshots {
+        let snapshot: Vec<Node> = serde_json::from_value(snapshot).map_err(anyhow::Error::from)?;
+        for mut node in snapshot {
+            node.users.retain(|access| {
+                access.user_id == user_id && current.get(&node.id) == Some(&access.uuid)
+            });
+            if !node.users.is_empty() {
+                nodes.push(node);
+            }
+        }
+    }
+    let (content_type, body) = if format == "links" {
+        (
+            "text/plain; charset=utf-8",
+            sinan_compiler::subscription_links(&nodes, user_id).map_err(anyhow::Error::from)?,
+        )
+    } else {
+        if nodes.is_empty() {
+            return Err(ApiError::Conflict(
+                "暂无已成功应用且健康的授权节点，请等待部署完成".into(),
+            ));
+        }
+        (
+            "application/json; charset=utf-8",
+            sinan_compiler::compile_client(&nodes, user_id).map_err(anyhow::Error::from)?,
+        )
+    };
+    Ok((
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CACHE_CONTROL, "no-store"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        body,
+    )
+        .into_response())
+}

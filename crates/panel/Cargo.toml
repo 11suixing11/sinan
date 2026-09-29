@@ -26,6 +26,13 @@ tracing-subscriber.workspace = true
 argon2 = "0.5"
 tower-http = { version = "0.6", features = ["trace", "limit", "set-header"] }
 
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+
 [dev-dependencies]
 reqwest.workspace = true
 tokio-tungstenite.workspace = true
+sinan-agent-core.workspace = true
+sinan-adapter-sdk.workspace = true
+tar = "0.4"
+flate2 = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
