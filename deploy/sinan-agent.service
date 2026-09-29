@@ -1,0 +1,13 @@
+[Unit]
+Description=Sinan Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/opt/sinan/core/current/sinan-agent run
+Restart=always
+RestartSec=5
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

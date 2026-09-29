@@ -1,0 +1,244 @@
+use crate::{
+    auth::{hash_token, random_token, require_admin},
+    error::{ApiError, ApiResult},
+    AppState,
+};
+use axum::{
+    extract::{Path, State},
+    http::{HeaderMap, StatusCode},
+    Json,
+};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use ed25519_dalek::VerifyingKey;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use sinan_protocol::{now_timestamp, EnrollRequest, EnrollResponse};
+use sqlx::{FromRow, PgPool, Row};
+
+const SERVER_COLUMNS: &str =
+    "id, name, device_public_key, static_info, last_seen, latest_metrics, manifest_rev";
+
+#[derive(Serialize, FromRow)]
+pub struct Server {
+    pub id: i64,
+    pub name: String,
+    pub device_public_key: Option<String>,
+    pub static_info: Value,
+    pub last_seen: Option<i64>,
+    pub latest_metrics: Value,
+    pub manifest_rev: i64,
+    #[sqlx(default)]
+    pub online: bool,
+}
+
+impl Server {
+    fn with_online(mut self) -> Self {
+        let now = now_timestamp();
+        self.online = self
+            .last_seen
+            .is_some_and(|seen| now.saturating_sub(seen) <= 60);
+        self
+    }
+}
+
+#[derive(Deserialize)]
+pub struct ServerRequest {
+    pub name: String,
+}
+
+pub async fn list(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Vec<Server>>> {
+    require_admin(&state, &headers).await?;
+    let query =
+        format!("SELECT {SERVER_COLUMNS} FROM servers WHERE deleted_at IS NULL ORDER BY id");
+    let servers = sqlx::query_as::<_, Server>(&query)
+        .fetch_all(&state.pool)
+        .await?;
+    Ok(Json(servers.into_iter().map(Server::with_online).collect()))
+}
+
+pub async fn create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<ServerRequest>,
+) -> ApiResult<(StatusCode, Json<Server>)> {
+    require_admin(&state, &headers).await?;
+    let name = valid_name(&request.name)?;
+    let query = format!("INSERT INTO servers (name) VALUES ($1) RETURNING {SERVER_COLUMNS}");
+    let server = sqlx::query_as::<_, Server>(&query)
+        .bind(name)
+        .fetch_one(&state.pool)
+        .await?;
+    Ok((StatusCode::CREATED, Json(server.with_online())))
+}
+
+pub async fn get(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> ApiResult<Json<Server>> {
+    require_admin(&state, &headers).await?;
+    let query =
+        format!("SELECT {SERVER_COLUMNS} FROM servers WHERE id = $1 AND deleted_at IS NULL");
+    let server = sqlx::query_as::<_, Server>(&query)
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    Ok(Json(server.with_online()))
+}
+
+pub async fn update(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Json(request): Json<ServerRequest>,
+) -> ApiResult<Json<Server>> {
+    require_admin(&state, &headers).await?;
+    let name = valid_name(&request.name)?;
+    let query = format!("UPDATE servers SET name = $2 WHERE id = $1 AND deleted_at IS NULL RETURNING {SERVER_COLUMNS}");
+    let server = sqlx::query_as::<_, Server>(&query)
+        .bind(id)
+        .bind(name)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    Ok(Json(server.with_online()))
+}
+
+pub async fn remove(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> ApiResult<StatusCode> {
+    require_admin(&state, &headers).await?;
+    let now = now_timestamp();
+    let mut transaction = state.pool.begin().await?;
+    let result =
+        sqlx::query("UPDATE servers SET deleted_at = $2 WHERE id = $1 AND deleted_at IS NULL")
+            .bind(id)
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
+    if result.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+    sqlx::query("DELETE FROM sessions WHERE server_id = $1")
+        .bind(id)
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("DELETE FROM enrollment_tokens WHERE server_id = $1")
+        .bind(id)
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
+    state.connections.write().await.remove(&id);
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn issue_enrollment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> ApiResult<Json<Value>> {
+    require_admin(&state, &headers).await?;
+    let token = random_token();
+    let expires_at = now_timestamp() + 86_400;
+    let mut transaction = state.pool.begin().await?;
+    let exists =
+        sqlx::query("SELECT id FROM servers WHERE id = $1 AND deleted_at IS NULL FOR UPDATE")
+            .bind(id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+    if exists.is_none() {
+        return Err(ApiError::NotFound);
+    }
+    sqlx::query(
+        "INSERT INTO enrollment_tokens (token_hash, server_id, expires_at) VALUES ($1, $2, $3)",
+    )
+    .bind(hash_token(&token))
+    .bind(id)
+    .bind(expires_at)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    let url = format!("{}/install.sh?token={token}", state.config.public_url);
+    let install_command = format!("curl -fsSL {} | sh", shell_quote(&url));
+    Ok(Json(
+        json!({"token": token, "expires_at": expires_at, "install_command": install_command}),
+    ))
+}
+
+pub async fn validate_enrollment(pool: &PgPool, token: &str) -> ApiResult<i64> {
+    if token.is_empty() || token.len() > 512 {
+        return Err(ApiError::Unauthorized);
+    }
+    sqlx::query_scalar::<_, i64>("SELECT enrollment_tokens.server_id FROM enrollment_tokens JOIN servers ON servers.id = enrollment_tokens.server_id WHERE enrollment_tokens.token_hash = $1 AND enrollment_tokens.expires_at > $2 AND enrollment_tokens.consumed_at IS NULL AND servers.deleted_at IS NULL")
+        .bind(hash_token(token)).bind(now_timestamp()).fetch_optional(pool).await?.ok_or(ApiError::Unauthorized)
+}
+
+pub async fn enroll(
+    State(state): State<AppState>,
+    Json(request): Json<EnrollRequest>,
+) -> ApiResult<Json<EnrollResponse>> {
+    validate_public_key(&request.device_public_key)?;
+    if request.token.is_empty() || request.token.len() > 512 {
+        return Err(ApiError::Unauthorized);
+    }
+    let now = now_timestamp();
+    let token_hash = hash_token(&request.token);
+    let mut transaction = state.pool.begin().await?;
+    let row = sqlx::query("SELECT e.server_id, s.device_public_key FROM enrollment_tokens e JOIN servers s ON s.id = e.server_id WHERE e.token_hash = $1 AND e.expires_at > $2 AND e.consumed_at IS NULL AND s.deleted_at IS NULL FOR UPDATE OF e, s")
+        .bind(&token_hash).bind(now).fetch_optional(&mut *transaction).await?.ok_or(ApiError::Unauthorized)?;
+    let id: i64 = row.try_get("server_id")?;
+    let previous_key: Option<String> = row.try_get("device_public_key")?;
+    if previous_key
+        .as_ref()
+        .is_some_and(|key| key != &request.device_public_key)
+    {
+        return Err(ApiError::Conflict(
+            "服务器已经注册，设备公钥不能更换".into(),
+        ));
+    }
+    sqlx::query("UPDATE servers SET device_public_key = $2, static_info = $3 WHERE id = $1")
+        .bind(id)
+        .bind(&request.device_public_key)
+        .bind(json!(request.static_info))
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("UPDATE enrollment_tokens SET consumed_at = $2 WHERE token_hash = $1")
+        .bind(token_hash)
+        .bind(now)
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
+    Ok(Json(EnrollResponse { server_id: id }))
+}
+
+fn valid_name(value: &str) -> ApiResult<&str> {
+    let value = value.trim();
+    if value.is_empty() || value.chars().count() > 128 || value.chars().any(char::is_control) {
+        return Err(ApiError::BadRequest(
+            "服务器名称需为 1 至 128 个字符，且不能包含控制字符".into(),
+        ));
+    }
+    Ok(value)
+}
+
+fn validate_public_key(value: &str) -> ApiResult<()> {
+    let error =
+        || ApiError::BadRequest("设备公钥必须是 URL-safe 无填充 base64 编码的 ed25519 公钥".into());
+    let bytes = URL_SAFE_NO_PAD.decode(value).map_err(|_| error())?;
+    let bytes: [u8; 32] = bytes.try_into().map_err(|_| error())?;
+    let key = VerifyingKey::from_bytes(&bytes).map_err(|_| error())?;
+    if key.is_weak() {
+        return Err(error());
+    }
+    Ok(())
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}

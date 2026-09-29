@@ -1,0 +1,68 @@
+#![forbid(unsafe_code)]
+
+pub mod agent_api;
+pub mod artifacts;
+pub mod auth;
+pub mod config;
+pub mod error;
+pub mod servers;
+
+use axum::{
+    routing::{get, post},
+    Router,
+};
+use config::Config;
+use sinan_protocol::Envelope;
+use sqlx::PgPool;
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::{mpsc, RwLock, Semaphore};
+use uuid::Uuid;
+
+#[derive(Clone)]
+pub struct AgentConnection {
+    pub id: Uuid,
+    pub sender: mpsc::Sender<Envelope>,
+}
+
+#[derive(Clone)]
+pub struct AppState {
+    pub pool: PgPool,
+    pub login_permits: Arc<Semaphore>,
+    pub config: Arc<Config>,
+    pub connections: Arc<RwLock<HashMap<i64, AgentConnection>>>,
+}
+
+impl AppState {
+    pub async fn new(pool: PgPool, config: Config) -> anyhow::Result<Self> {
+        sqlx::migrate!().run(&pool).await?;
+        auth::ensure_admin(&pool, config.admin_password.as_deref()).await?;
+        Ok(Self {
+            pool,
+            login_permits: Arc::new(Semaphore::new(4)),
+            config: Arc::new(config),
+            connections: Arc::default(),
+        })
+    }
+}
+
+pub fn router(state: AppState) -> Router {
+    Router::new()
+        .route("/healthz", get(|| async { "ok" }))
+        .route("/api/login", post(auth::login))
+        .route("/api/logout", post(auth::logout))
+        .route("/api/me", get(auth::me))
+        .route("/api/servers", get(servers::list).post(servers::create))
+        .route("/api/servers/{id}", get(servers::get).patch(servers::update).delete(servers::remove))
+        .route("/api/servers/{id}/enrollment", post(servers::issue_enrollment))
+        .route("/api/agent/v1/enroll", post(servers::enroll))
+        .route("/api/agent/v1/ws", get(agent_api::websocket))
+        .route("/api/agent/v1/manifest", get(agent_api::manifest))
+        .route("/api/agent/v1/bundles/{rev}", get(agent_api::bundle))
+        .route("/api/agent/v1/artifacts/{name}/{version}/{arch}", get(artifacts::download))
+        .route("/api/artifacts", get(artifacts::list))
+        .route("/api/bootstrap/{version}/{arch}", get(artifacts::bootstrap))
+        .route("/install.sh", get(artifacts::install_script))
+        .route("/", get(|| async { axum::response::Html("<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><title>司南</title><h1>司南</h1><p>面板 API 已启动。</p></html>") }))
+        .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
+        .with_state(state)
+}

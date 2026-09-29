@@ -1,3 +1,28 @@
 #![forbid(unsafe_code)]
 
-fn main() {}
+use sinan_panel::{config::Config, router, AppState};
+use sqlx::postgres::PgPoolOptions;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
+        .init();
+    let config = Config::from_env()?;
+    let listen = config.listen;
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .connect(&config.database_url)
+        .await?;
+    let state = AppState::new(pool, config).await?;
+    let listener = tokio::net::TcpListener::bind(listen).await?;
+    tracing::info!(address = %listener.local_addr()?, "panel started");
+    axum::serve(listener, router(state))
+        .with_graceful_shutdown(async {
+            let _ = tokio::signal::ctrl_c().await;
+        })
+        .await?;
+    Ok(())
+}
