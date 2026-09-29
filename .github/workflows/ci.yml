@@ -1,0 +1,33 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: sinan
+          POSTGRES_PASSWORD: sinan-test
+          POSTGRES_DB: sinan_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sinan"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://sinan:sinan-test@127.0.0.1:5432/sinan_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Check core boundary
+        run: '! grep -REin "singbox|sing-box" crates/agent-core'
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test

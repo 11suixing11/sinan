@@ -1,0 +1,36 @@
+[workspace]
+members = ["crates/protocol", "crates/compiler", "crates/panel", "crates/agent", "crates/agent-core", "crates/adapter-sdk", "crates/adapter-singbox"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+rust-version = "1.88"
+
+[workspace.dependencies]
+sinan-protocol = { path = "crates/protocol" }
+sinan-compiler = { path = "crates/compiler" }
+sinan-agent-core = { path = "crates/agent-core" }
+sinan-adapter-sdk = { path = "crates/adapter-sdk" }
+sinan-adapter-singbox = { path = "crates/adapter-singbox" }
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+sha2 = "0.10"
+base64 = "0.22"
+rand = "0.8"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.test]
+debug = 0
+incremental = false
