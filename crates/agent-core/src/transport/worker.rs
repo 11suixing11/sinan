@@ -1,0 +1,66 @@
+use super::Runtime;
+use crate::{artifacts::PanelClient, reconcile::Reconciler};
+use anyhow::Result;
+use sinan_protocol::{ApplyResult, ApplyStatus, Envelope};
+use std::{sync::Arc, time::Duration};
+use tokio::sync::{mpsc, watch};
+use uuid::Uuid;
+
+pub(super) async fn run(
+    reconcilers: Vec<(String, Reconciler)>,
+    runtime: Runtime,
+    client: watch::Receiver<Option<Arc<PanelClient>>>,
+    mut triggers: mpsc::Receiver<()>,
+    outgoing: mpsc::Sender<Envelope>,
+) -> Result<()> {
+    let mut poll = tokio::time::interval(Duration::from_secs(60));
+    let mut sample = tokio::time::interval(Duration::from_secs(30));
+    poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    sample.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            trigger = triggers.recv() => {
+                if trigger.is_none() { return Ok(()); }
+            }
+            _ = poll.tick() => {}
+            _ = sample.tick() => {
+                for (module, reconciler) in &reconcilers {
+                    if let Err(error) = reconciler.sample_usage().await {
+                        tracing::warn!(%module, %error, "usage sampling failed");
+                    }
+                }
+                runtime.state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?.cleanup_acknowledged()?;
+                continue;
+            }
+        }
+        let active_client = { client.borrow().clone() };
+        let Some(active_client) = active_client else {
+            continue;
+        };
+        let manifest = match active_client.manifest().await {
+            Ok(manifest) => manifest,
+            Err(error) => {
+                tracing::warn!(%error, "manifest fetch failed");
+                continue;
+            }
+        };
+        for (module, reconciler) in &reconcilers {
+            let Some(target) = manifest.modules.get(module) else {
+                continue;
+            };
+            let result = match reconciler.reconcile(target, &active_client).await {
+                Ok(result) => result,
+                Err(error) => ApplyResult {
+                    module: module.clone(),
+                    rev: target.config_rev,
+                    op_id: Uuid::new_v4(),
+                    status: ApplyStatus::Failed,
+                    healthy: false,
+                    error: Some(error.to_string()),
+                },
+            };
+            // Results can be reconstructed on the next reconciliation if disconnected.
+            let _ = outgoing.try_send(Envelope::new("apply.result", result)?);
+        }
+    }
+}
