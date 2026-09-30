@@ -53,6 +53,7 @@ jobs:
       - name: Verify real acceptance driver and runtime cache contracts
         run: |
           python3 scripts/test-e2e-driver.py
+          python3 scripts/test-e2e-traffic-evidence.py
           python3 scripts/test-e2e-runtime.py
           python3 scripts/test-ci-signed-release.py
           python3 -m unittest discover -s tests -p 'test_*.py'
