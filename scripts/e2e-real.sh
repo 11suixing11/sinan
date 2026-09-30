@@ -8,8 +8,10 @@ usage() {
 用法：
   bash scripts/e2e-real.sh guide
   sudo bash scripts/e2e-real.sh snapshot <标签> <证据目录>
+  python3 scripts/e2e-driver.py --help
 
 guide 仅打印完整人工流程；snapshot 只读收集本机状态，不安装、重启或修改服务。
+分阶段的真实面板驱动见 docs/e2e.md；由操作者控制专用设备与独立客户端。
 
 snapshot 可选环境变量（前三项须同时提供）：
   SINAN_PANEL_URL=https://panel.example.com
