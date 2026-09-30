@@ -683,31 +683,55 @@ async fn signed_four_file_provenance_is_installed_and_cache_tampering_is_rejecte
         ("Cargo.lock", b"TEST_ONLY locked dependencies"),
     ];
     let mut members = vec![("runtime", tar::EntryType::Regular, b"binary".as_slice())];
-    members.extend(auxiliary.iter().map(|(name, data)| (*name, tar::EntryType::Regular, *data)));
+    members.extend(
+        auxiliary
+            .iter()
+            .map(|(name, data)| (*name, tar::EntryType::Regular, *data)),
+    );
     let packed = archive(&members)?;
     let panel = HttpServer::new(packed.clone(), "200 OK", "").await?;
     let client = PanelClient::new(&panel.origin, "test-session")?
         .with_trusted_keys(release_support::trusted_keys());
-    let mut entry = release_support::entry("runtime", "1.0", "runtime", "tar.gz", &packed, b"binary");
+    let mut entry =
+        release_support::entry("runtime", "1.0", "runtime", "tar.gz", &packed, b"binary");
     for (name, content) in auxiliary {
-        entry.auxiliary_files.insert(name.into(), sinan_protocol::release::ReleaseFile {
-            sha256: checksum(content),
-            size: content.len() as u64,
-        });
+        entry.auxiliary_files.insert(
+            name.into(),
+            sinan_protocol::release::ReleaseFile {
+                sha256: checksum(content),
+                size: content.len() as u64,
+            },
+        );
     }
     let artifact = Artifact {
-        proof: Some(release_support::signed_release(vec![(entry, packed.clone())])),
-        url: format!("{}/api/agent/v1/artifacts/runtime/1.0/{}", panel.origin,
-                     sinan_protocol::release::native_arch()?),
+        proof: Some(release_support::signed_release(vec![(
+            entry,
+            packed.clone(),
+        )])),
+        url: format!(
+            "{}/api/agent/v1/artifacts/runtime/1.0/{}",
+            panel.origin,
+            sinan_protocol::release::native_arch()?
+        ),
         sha256: checksum(&packed),
     };
     let mut descriptor = descriptor();
-    descriptor.auxiliary_files = auxiliary.iter().map(|(name, _)| (*name).to_owned()).collect();
-    let binary = client.ensure_artifact(&artifact, "1.0", &descriptor, &temporary.0, &SystemOps).await?;
+    descriptor.auxiliary_files = auxiliary
+        .iter()
+        .map(|(name, _)| (*name).to_owned())
+        .collect();
+    let binary = client
+        .ensure_artifact(&artifact, "1.0", &descriptor, &temporary.0, &SystemOps)
+        .await?;
     for (name, content) in auxiliary {
         assert_eq!(std::fs::read(binary.parent().unwrap().join(name))?, content);
         std::fs::write(binary.parent().unwrap().join(name), b"tampered")?;
-        assert!(client.ensure_artifact(&artifact, "1.0", &descriptor, &temporary.0, &SystemOps).await.is_err());
+        assert!(
+            client
+                .ensure_artifact(&artifact, "1.0", &descriptor, &temporary.0, &SystemOps)
+                .await
+                .is_err()
+        );
         std::fs::write(binary.parent().unwrap().join(name), content)?;
     }
     assert_eq!(panel.requests.lock().await.len(), 1);

@@ -15,7 +15,10 @@ pub const SOURCE_COMMIT: Option<&str> = option_env!("SINAN_NATIVE_TCP_SOURCE_COM
 const _: () = {
     if let Some(commit) = SOURCE_COMMIT {
         let bytes = commit.as_bytes();
-        assert!(bytes.len() == 40, "source commit must have 40 hexadecimal digits");
+        assert!(
+            bytes.len() == 40,
+            "source commit must have 40 hexadecimal digits"
+        );
         let mut index = 0;
         while index < bytes.len() {
             assert!(

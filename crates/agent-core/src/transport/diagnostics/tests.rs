@@ -469,4 +469,5 @@ mod cancellation;
 #[path = "tests/report_sections.rs"]
 mod report_sections;
 
+#[path = "tests/provenance.rs"]
 mod provenance;

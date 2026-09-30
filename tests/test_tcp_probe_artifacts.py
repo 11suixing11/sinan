@@ -30,6 +30,8 @@ def repository(root):
     root.mkdir()
     for name in ["Cargo.toml", "Cargo.lock", "LICENSE", "crates/tcp-probe/Cargo.toml",
                  "crates/tcp-probe/src/lib.rs", "crates/tcp-probe/src/main.rs",
+                 "crates/tcp-probe/src/cli.rs", "crates/tcp-probe/src/engine.rs",
+                 "crates/tcp-probe/src/journal.rs", "crates/tcp-probe/src/model.rs",
                  "tools/build-tcp-probe.py", "tools/tcp_probe_artifact.py", "tools/artifact_manifest.py"]:
         target = root / name
         target.parent.mkdir(parents=True, exist_ok=True)
