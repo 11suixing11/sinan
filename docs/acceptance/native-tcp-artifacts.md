@@ -45,3 +45,5 @@ python3 tools/release.py assemble --source <制品根目录> --output <新输出
 正常保留作者 `00cfa9e` 并合入 main `2c3c1e5`（业务插件归位）。实际 [check job 110129554033](https://github.com/theLucius7/sinan/actions/runs/36786654457/job/110129554033) 在 Clippy 阶段因 `DiagnosticWorker::new` 未使用的辅助文件变量失败；本地删除多余读取，准备阶段仍只读取一次集合，并同时用于下载描述、签名集合验证及启动前重验，没有压制 warning。固定快照配方、locked 原生 musl 目标、完整五文件来源校验和旧三模块默认契约保留。
 
 本阶段 Python 来源/签名10项通过、旧Release32项中28通过/4既有root条件跳过、build-script5项通过，core门禁/六项行为、直接rustfmt、actionlint与差异检查通过。原生 bundle 本机条件不满足，1项明确跳过；作者PR的[双架构原生制品CI](https://github.com/theLucius7/sinan/actions/runs/36786654508)实际成功，但不替代本地补修后最终HEAD的Rust/Clippy验证。共享Cargo槽仍由前项使用，本阶段没有运行Cargo、实际musl构建或启动服务，后续须在正式main包含#68补修后集中验证；未持有正式签名私钥，也未发布Release或登记插件。
+
+继续正常保留作者 `7716fcf`、共用诊断主线 `e3a41ed` 与正式引擎主线 `2574a84`。新增第三方原文为第五辅助文件（共六文件），签名/精确集合与 Agent 缓存、启动前重验夹具同步保留；引擎 journal/engine 与正式 #68 原字节一致，main 只增加 build-info 入口，UID、DNS 家族选择、有界 stderr 和各自回归保留。新版 Python 来源/签名/原文11项通过，直接rustfmt、core门禁及actionlint通过；作者该版[双架构原生CI](https://github.com/theLucius7/sinan/actions/runs/36787615446)实际成功。本地仍未启动Cargo，最终合入后续主线再执行Rust专项及Clippy，不能把前版或作者CI转记为本地最终补修已验。
