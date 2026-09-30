@@ -91,6 +91,21 @@ async fn no_saved_output(spec: &DiagnosticSpec) -> Result<()> {
     }
     Ok(())
 }
+
+async fn saved_scope(input: &input::Validated<'_>, owner: u32, deadline: Instant) -> Result<()> {
+    if let Some(saved) = files::read(
+        &input.spec.job_dir.join("targets.json"),
+        input::INPUT_LIMIT,
+        owner,
+        deadline,
+    )
+    .await?
+    {
+        ensure!(saved == input.bytes, "saved frozen target snapshot differs");
+    }
+    Ok(())
+}
+
 impl DiagnosticAdapter for TcpQualityAdapter {
     fn capabilities(&self) -> Vec<String> {
         vec![CAPABILITY.into()]
@@ -113,10 +128,14 @@ impl DiagnosticAdapter for TcpQualityAdapter {
             let input = input::validate(spec)?;
             let timeout_secs = spec.timeout_secs.min(60);
             let deadline = Instant::now() + Duration::from_secs(u64::from(timeout_secs));
-            files::binary(&spec.binary_path, deadline).await?;
+            // Core installs the signed cache and job root through the same actor.
+            let owner = files::binary(&spec.binary_path, deadline).await?;
             identity(&input, privileged, deadline).await?;
             files::ancestors(&spec.job_dir, deadline).await?;
-            if files::workspace(&spec.job_dir, deadline).await? {
+            if files::workspace(&spec.job_dir, Some(owner), deadline)
+                .await?
+                .is_some()
+            {
                 timeout_at(
                     deadline.min(Instant::now() + files::IO_TIMEOUT),
                     no_saved_output(spec),
@@ -131,11 +150,13 @@ impl DiagnosticAdapter for TcpQualityAdapter {
             .await
             .context("create TCP workspace timed out")??;
             ensure!(
-                files::workspace(&spec.job_dir, deadline).await?,
+                files::workspace(&spec.job_dir, Some(owner), deadline)
+                    .await?
+                    .is_some(),
                 "TCP workspace was not created"
             );
             let targets = spec.job_dir.join("targets.json");
-            match files::read(&targets, input::INPUT_LIMIT, deadline).await? {
+            match files::read(&targets, input::INPUT_LIMIT, owner, deadline).await? {
                 Some(saved) => ensure!(
                     saved == input.bytes,
                     "existing frozen target snapshot differs"
@@ -148,7 +169,7 @@ impl DiagnosticAdapter for TcpQualityAdapter {
                 .context("write frozen targets timed out")??,
             }
             ensure!(
-                files::read(&targets, input::INPUT_LIMIT, deadline)
+                files::read(&targets, input::INPUT_LIMIT, owner, deadline)
                     .await?
                     .as_deref()
                     == Some(input.bytes),
@@ -190,12 +211,15 @@ impl DiagnosticAdapter for TcpQualityAdapter {
         Box::pin(async move {
             let input = input::validate(spec)?;
             let deadline = Instant::now() + files::IO_TIMEOUT;
-            if !files::workspace(&spec.job_dir, deadline).await? {
+            // Historical output does not depend on the old binary still existing.
+            let Some(owner) = files::workspace(&spec.job_dir, None, deadline).await? else {
                 return Ok(None);
-            }
+            };
+            saved_scope(&input, owner, deadline).await?;
             let Some(text) = files::read(
                 &spec.job_dir.join("result.json"),
                 input::OUTPUT_LIMIT,
+                owner,
                 deadline,
             )
             .await?
@@ -216,9 +240,11 @@ impl DiagnosticAdapter for TcpQualityAdapter {
         Box::pin(async move {
             let input = input::validate(spec)?;
             let deadline = Instant::now() + Duration::from_secs(5);
-            if !files::workspace(&spec.job_dir, deadline).await?
-                || !files::directory(&spec.job_dir.join("sections"), deadline).await?
-            {
+            let Some(owner) = files::workspace(&spec.job_dir, None, deadline).await? else {
+                return Ok(Vec::new());
+            };
+            saved_scope(&input, owner, deadline).await?;
+            if !files::directory(&spec.job_dir.join("sections"), owner, deadline).await? {
                 return Ok(Vec::new());
             }
             let mut expected = vec![
@@ -242,6 +268,7 @@ impl DiagnosticAdapter for TcpQualityAdapter {
                 let saved = match files::read(
                     &spec.job_dir.join("sections").join(format!("{name}.json")),
                     input::OUTPUT_LIMIT,
+                    owner,
                     deadline,
                 )
                 .await

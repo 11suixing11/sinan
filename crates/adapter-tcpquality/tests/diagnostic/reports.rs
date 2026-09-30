@@ -6,7 +6,13 @@ async fn partial_report_is_readable_after_new_adapter_and_remains_unknown_withou
     let spec = fixture.spec();
     fixture.workspace();
     let body = report(&spec, &fixture.scope);
+    fixture.write("targets.json", spec.options["targets"].as_bytes());
     fixture.write("result.json", body.to_string().as_bytes());
+    fixture.write(
+        "sections/tcp_summary.json",
+        &chapter("tcp_summary", &body, false),
+    );
+    std::fs::remove_file(&spec.binary_path).unwrap();
     for _ in 0..2 {
         let saved = TcpQualityAdapter::new()
             .collect(&spec)
@@ -16,6 +22,13 @@ async fn partial_report_is_readable_after_new_adapter_and_remains_unknown_withou
         assert_eq!(saved.report_url, None);
         let value: Value = serde_json::from_str(&saved.text).unwrap();
         assert_eq!(value, body);
+        let sections = TcpQualityAdapter::new()
+            .collect_sections(&spec)
+            .await
+            .unwrap();
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].name, "tcp_summary");
+        assert!(!sections[0].complete);
         assert_eq!(value["complete"], false);
         assert_eq!(
             value["targets"][0]["summary"]["latency_mean_ms"],

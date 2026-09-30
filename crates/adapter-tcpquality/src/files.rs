@@ -17,7 +17,25 @@ pub(crate) fn now_millis() -> Result<u64> {
     )?)
 }
 
-async fn metadata(path: &Path, directory: bool, private: bool) -> Result<std::fs::Metadata> {
+fn owner(value: &std::fs::Metadata) -> Result<u32> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(value.uid())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = value;
+        anyhow::bail!("private workspace verification requires Unix")
+    }
+}
+
+async fn metadata(
+    path: &Path,
+    directory: bool,
+    private: bool,
+    expected_owner: Option<u32>,
+) -> Result<std::fs::Metadata> {
     let value = fs::symlink_metadata(path).await?;
     ensure!(
         !value.file_type().is_symlink()
@@ -40,8 +58,18 @@ async fn metadata(path: &Path, directory: bool, private: bool) -> Result<std::fs
             "diagnostic hardlinks are not allowed"
         );
     }
+    if let Some(expected) = expected_owner {
+        ensure!(
+            owner(&value)? == expected,
+            "diagnostic owner differs from its trusted workspace"
+        );
+    }
     #[cfg(not(unix))]
-    anyhow::bail!("private workspace verification requires Unix");
+    {
+        let _ = private;
+        anyhow::bail!("private workspace verification requires Unix");
+    }
+    #[cfg(unix)]
     Ok(value)
 }
 pub(crate) async fn ancestors(path: &Path, deadline: Instant) -> Result<()> {
@@ -61,51 +89,60 @@ pub(crate) async fn ancestors(path: &Path, deadline: Instant) -> Result<()> {
     .await
     .context("workspace ancestor inspection timed out")?
 }
-pub(crate) async fn workspace(path: &Path, deadline: Instant) -> Result<bool> {
+pub(crate) async fn workspace(
+    path: &Path,
+    expected_owner: Option<u32>,
+    deadline: Instant,
+) -> Result<Option<u32>> {
     timeout_at(deadline.min(Instant::now() + IO_TIMEOUT), async {
         match fs::symlink_metadata(path).await {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.into()),
             Ok(_) => (),
         }
-        metadata(path, true, true).await?;
+        let metadata = metadata(path, true, true, expected_owner).await?;
         ensure!(
             fs::canonicalize(path).await? == path,
             "workspace ancestors must not be symlinks"
         );
-        Ok(true)
+        Ok(Some(owner(&metadata)?))
     })
     .await
     .context("workspace inspection timed out")?
 }
-pub(crate) async fn binary(path: &Path, deadline: Instant) -> Result<()> {
+pub(crate) async fn binary(path: &Path, deadline: Instant) -> Result<u32> {
     timeout_at(deadline.min(Instant::now() + IO_TIMEOUT), async {
-        metadata(path, false, false).await?;
+        let metadata = metadata(path, false, false, None).await?;
         ensure!(
             fs::canonicalize(path).await? == path,
             "binary ancestors must not be symlinks"
         );
-        Ok(())
+        owner(&metadata)
     })
     .await
     .context("binary inspection timed out")?
 }
-pub(crate) async fn directory(path: &Path, deadline: Instant) -> Result<bool> {
+pub(crate) async fn directory(path: &Path, expected_owner: u32, deadline: Instant) -> Result<bool> {
     timeout_at(deadline.min(Instant::now() + IO_TIMEOUT), async {
         match fs::symlink_metadata(path).await {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
             Err(error) => return Err(error.into()),
             Ok(_) => (),
         }
-        metadata(path, true, true).await?;
+        metadata(path, true, true, Some(expected_owner)).await?;
         Ok(true)
     })
     .await
     .context("section directory inspection timed out")?
 }
-pub(crate) async fn read(path: &Path, limit: usize, deadline: Instant) -> Result<Option<String>> {
+pub(crate) async fn read(
+    path: &Path,
+    limit: usize,
+    expected_owner: u32,
+    deadline: Instant,
+) -> Result<Option<String>> {
     timeout_at(deadline.min(Instant::now() + IO_TIMEOUT), async {
-        let before = match metadata(path, false, true).await {
+        let before = match metadata(path, false, true, Some(expected_owner)).await {
             Err(error)
                 if error
                     .downcast_ref::<std::io::Error>()
@@ -129,6 +166,7 @@ pub(crate) async fn read(path: &Path, limit: usize, deadline: Instant) -> Result
                 before.ino() == opened.ino()
                     && before.dev() == opened.dev()
                     && opened.nlink() == 1
+                    && opened.uid() == expected_owner
                     && opened.permissions().mode() & 0o077 == 0,
                 "diagnostic file identity changed"
             );
@@ -144,4 +182,67 @@ pub(crate) async fn read(path: &Path, limit: usize, deadline: Instant) -> Result
     })
     .await
     .context("diagnostic file read timed out")?
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::{
+        fs,
+        io::Write,
+        os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
+        path::PathBuf,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+
+    struct Fixture(PathBuf);
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[tokio::test]
+    async fn private_files_and_directories_reject_a_different_trusted_owner() {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let root = fs::canonicalize(std::env::temp_dir())
+            .unwrap()
+            .join(format!(
+                "sinan-tcp-owner-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::SeqCst)
+            ));
+        fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+        let fixture = Fixture(root);
+        let path = fixture.0.join("targets.json");
+        let mut output = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap();
+        output.write_all(b"saved private fixture").unwrap();
+        let actual = output.metadata().unwrap().uid();
+        let other = actual.wrapping_add(1);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        assert_eq!(binary(&path, deadline).await.unwrap(), actual);
+        assert_eq!(
+            workspace(&fixture.0, Some(actual), deadline).await.unwrap(),
+            Some(actual)
+        );
+        assert!(directory(&fixture.0, actual, deadline).await.unwrap());
+        assert_eq!(
+            read(&path, 128, actual, deadline).await.unwrap().as_deref(),
+            Some("saved private fixture")
+        );
+        for error in [
+            workspace(&fixture.0, Some(other), deadline)
+                .await
+                .unwrap_err(),
+            directory(&fixture.0, other, deadline).await.unwrap_err(),
+            read(&path, 128, other, deadline).await.unwrap_err(),
+        ] {
+            assert!(format!("{error:#}").contains("owner"));
+        }
+    }
 }
