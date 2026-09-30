@@ -646,14 +646,16 @@ work_dir=$workspace/.nodequalityfixture
     def test_unproven_exit_one_and_genuine_exit_seven_never_report_success(self):
         for mode, status in (("early-one", 1), ("failed", 7)):
             with self.subTest(mode=mode):
-                result = subprocess.run(self.runner(mode), env=self.environment, capture_output=True, timeout=10)
-                self.assertEqual(result.returncode, status, result.stderr.decode())
-                self.assertEqual((self.workspace / "upstream-exit.txt").read_text().strip(), str(status))
-                self.assertTrue((self.workspace / "result.txt").is_file())
-                self.assertEqual((self.workspace / "report.zip").read_bytes(), self.fixture_archive)
-                self.assertEqual(len(list(self.workspace.glob("section-*.json"))), 5)
-                for path in self.workspace.iterdir():
-                    path.unlink()
+                try:
+                    result = subprocess.run(self.runner(mode), env=self.environment, capture_output=True, timeout=10)
+                    self.assertEqual(result.returncode, status, result.stderr.decode())
+                    self.assertEqual((self.workspace / "upstream-exit.txt").read_text().strip(), str(status))
+                    self.assertTrue((self.workspace / "result.txt").is_file())
+                    self.assertEqual((self.workspace / "report.zip").read_bytes(), self.fixture_archive)
+                    self.assertEqual(len(list(self.workspace.glob("section-*.json"))), 5)
+                finally:
+                    for path in self.workspace.iterdir():
+                        path.unlink()
 
     def test_signal_cleanup_cannot_prove_normal_completion(self):
         result = subprocess.run(self.runner("signal-cleanup"), env=self.environment,
