@@ -53,7 +53,17 @@ try {{
         }}
     }}
     $sid='*'+$user.SID.Value
-    if($rights -notcontains $sid) {{
+    $granted=$rights -contains $sid
+    foreach($member in $rights) {{
+        if(-not $member.StartsWith('*')) {{
+            try {{
+                if(([Security.Principal.NTAccount]::new($member)).Translate([Security.Principal.SecurityIdentifier]).Value -eq $user.SID.Value) {{ $granted=$true }}
+            }} catch {{
+                # Preserve existing principals even when their names cannot be resolved.
+            }}
+        }}
+    }}
+    if(-not $granted) {{
         $rights+=$sid
         $lines=@('[Unicode]','Unicode=yes','[Version]','signature="$CHICAGO$"','Revision=1','[Privilege Rights]',('SeBatchLogonRight = '+($rights -join ',')))
         [IO.File]::WriteAllLines($template,$lines,[Text.Encoding]::Unicode)

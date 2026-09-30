@@ -39,7 +39,21 @@ def windows_rights(root):
         if separator and name.strip().startswith('Se'):
             rights[name.strip()] = {member.strip() for member in value.split(',') if member.strip()}
     path.unlink()
-    return rights
+    names = sorted({member for members in rights.values() for member in members if not member.startswith('*')})
+    resolved = {}
+    if names:
+        literals = ','.join("'" + name.replace("'", "''") + "'" for name in names)
+        output = powershell("$sids=@{}; foreach($name in @(" + literals + ")) { $sids[$name]=([Security.Principal.NTAccount]::new($name)).Translate([Security.Principal.SecurityIdentifier]).Value }; $sids | ConvertTo-Json -Compress")
+        resolved = json.loads(output.stdout)
+    return {name: {member[1:] if member.startswith('*') else resolved[member] for member in members}
+            for name, members in rights.items()}
+
+
+def assert_windows_rights(root, expected):
+    actual = windows_rights(root)
+    changes = {name: dict(expected=sorted(expected.get(name, set())), actual=sorted(actual.get(name, set())))
+               for name in expected.keys() | actual.keys() if expected.get(name, set()) != actual.get(name, set())}
+    assert not changes, 'Unexpected user rights changes: ' + json.dumps(changes)
 
 
 def service(name, action):
@@ -123,8 +137,8 @@ def main():
         if SYSTEM == 'Windows':
             account = powershell("$user=Get-LocalUser -Name 'sinan-singbox'; if (-not (Get-LocalGroupMember -SID 'S-1-5-32-545' | Where-Object { $_.SID -eq $user.SID })) { throw 'Runtime is not an ordinary Users member' }; if (Get-LocalGroupMember -SID 'S-1-5-32-544' | Where-Object { $_.SID -eq $user.SID }) { throw 'Runtime must not be an administrator' }; $user.SID.Value").stdout.strip()
             expected_rights = dict(original_rights)
-            expected_rights['SeBatchLogonRight'] = original_rights.get('SeBatchLogonRight', set()) | {'*' + account}
-            assert windows_rights(root) == expected_rights, 'Installer changed unrelated user rights'
+            expected_rights['SeBatchLogonRight'] = original_rights.get('SeBatchLogonRight', set()) | {account}
+            assert_windows_rights(root, expected_rights)
         panel.manifest = dict(rev=1, modules={'singbox': module})
         revision = 1
         def applied():
@@ -155,7 +169,7 @@ def main():
         print(invoke(binary, config, 'install-service'))
         assert (root / 'identity/device.key').read_bytes() == identity
         if SYSTEM == 'Windows':
-            assert windows_rights(root) == expected_rights, 'Reinstall changed user rights'
+            assert_windows_rights(root, expected_rights)
         transfer(proxy_port)
         service('sinan-agent', 'stop')
         wait_for(lambda: status(binary, config) is None, 'Agent service shutdown', 30)
