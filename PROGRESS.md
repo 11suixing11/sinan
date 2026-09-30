@@ -528,3 +528,5 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - Python 25 项首轮 20 通过、5 项既有 Linux/root 夹具忽略；本机 fmt、分层检查、差异检查和 TypeScript/Vite 构建通过。远端 Clippy、完整 Rust/PG、Linux 夹具和实际浏览器验收待完成，尚未声称整体验收完成。独立步骤见 [章节保存验收](docs/acceptance/diagnostic-report-sections.md)。
 
 - 合并整合修复 watcher、capture 和退出快照并发发布：固定私有锁序列化版本更新，唯一 0600 临时文件原子替换并同步目录；保留已完成章节和原 ZIP。上游非零退出即使已生成完整报告也保持执行失败，超限章节明确提示截断。新增并发与 exit 0/7 包装器回归；原实现分别触发临时路径冲突、完整章退回预览及 exit 7 被改成 0，修复后 Python 共 28 项，23 通过 / 5 项既有 Linux/root 条件忽略。core 门禁及 6 项行为回归、fmt、actionlint、Bash/Python 语法、差异检查和 Bun 1.4.2 TypeScript/Vite 重建通过；Rust/PostgreSQL 专项待共享构建槽验证。
+
+- 正常合入作者最新 `93356dd` 和 main `c958ba2`，保留缓存、未知字段严格校验及 4 项前端回归（637 项断言），重建 dist。独立 PostgreSQL 下 protocol/SDK/NodeQuality adapter 29 项、Agent 诊断 29 项、章节接口及既有 diagnostics API 6 项，共 64 项通过、0 失败/忽略；覆盖旧 payload/r2、断连重启、HTTP 503 与 ACK 持久化、执行失败但章节完整、迟到章节、内存保护和终态恢复。workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁及文档相对链接通过。未重复完整 workspace 或真实 NodeQuality 硬件压测，Linux/root 包装器 5 项仍须最终 CI 验证。
