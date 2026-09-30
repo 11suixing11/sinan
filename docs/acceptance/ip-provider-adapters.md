@@ -54,3 +54,5 @@ Bun 1.4.2 冻结安装、TypeScript/Vite 构建 dist（含五项字段回归、7
 - 未跑完整 NodeQuality、Agent 重启/面板断连、取消或持续代理压力场景，不将本项通过等同整阶段通过。
 
 - 合并审查最终验证：正常合入 main `6b63f71`（含确认式取消），保留作者 `cfea748` 祖先及双方全部记录；最终代码审查未发现需要改动的生产缺陷。全程移除真实 `SINAN_ABUSEIPDB_API_KEY`，只使用明确公开的合成 key 与回环 HTTP，未读取或调用真实账户。独立 PostgreSQL 下 IP/provider library 25 项、diagnostics API 7 项及章节/迁移 3 项，共 35 项通过、0 失败/忽略；覆盖敏感 Header、固定路径/参数/无 UA/重试/重定向、身份/类型、403/429/超时、禁用零请求、0/false 与双来源历史及新连接池/租约。Panel 全 targets Clippy（warnings 为错误）、workspace fmt、core 门禁及其 6 项行为回归、差异检查通过。Bun 1.4.2 冻结安装、5 项字段测试/711 断言及 TypeScript/Vite 构建通过，重建 JS `index-C1v7YTay.js`；最终 dist 在实际 Chromium 桌面/390px 手机的入口/缺凭据/0false/错误历史/禁用/百分比边界及确认取消组合场景全部通过、页面错误 0。本轮没有重复完整 workspace 或调用正式公网账户，不宣称配额/权限/节点自查或完整 NodeQuality 压力已验。
+
+- 继续正常合入 main `229becc`（PR #56）：与已验证 `c2b01cc` 相比仅修改 `tools/test-nodequality.py`，所有 Rust/Cargo、生产工具、web 源与 dist 完全相同，未重复无交集 Cargo。包装器 Python 28 项中 23 项通过、5 项既有 Linux/root 条件跳过；core 门禁与差异检查再次通过。真实 Linux 正常退出的生产工具补修仍由独立任务验收，本项不将本机跳过计为通过。
