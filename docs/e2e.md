@@ -22,6 +22,8 @@ python3 scripts/e2e-driver.py --state "$E2E_PRIVATE/state.json" prepare \
 
 管理员已启用 TOTP 时，在驱动命令的阶段名之前加 `--totp`，例如 `python3 scripts/e2e-driver.py --state "$E2E_PRIVATE/state.json" --totp ready`，登录时会隐藏输入一次性验证码。非交互单次认证可通过 `SINAN_E2E_TOTP_CODE` 提供验证码；`e2e-real.sh snapshot` 可设置 `SINAN_E2E_TOTP=1` 隐藏输入，也支持同一验证码环境变量。每个命令都会重新登录，必须使用新时间步的验证码；同一 30 秒时间步不能重放，连续命令需等待下一步。验证码和种子不保存到 state 或证据中，验收无需关闭 TOTP；默认 CI 使用新建管理员，不启用 TOTP。
 
+`prepare --port 443` 可显式指定节点监听端口，范围为 1–65535，保留统计接口 18085；省略时由面板在 20000–29999 分配。选择会在创建资源前保存，重试必须使用相同参数，旧版未记录显式端口的 state 仍可按自动分配模式恢复。已创建节点若被改端口，驱动会拒绝继续，避免把另一个配置当成本次验收。
+
 `prepare` 在私有目录保存 `enrollment.json`，包含一次性令牌、面板来源、服务器编号及独立选择的 Agent 版本和标签；按凭据保管并安全传到专用设备。面板不再提供可直接执行的安装脚本。令牌过期或准备升级时，重新签发安装描述；省略版本参数会选择最新的兼容签名版本：
 
 ```sh
@@ -102,7 +104,7 @@ python3 scripts/e2e-driver.py --state "$E2E_PRIVATE/state.json" traffic \
 
 ## CI 中的在线退役
 
-`scripts/ci-real-e2e.sh` 在签名缓存拒绝、Reality 流量、重启、重载及同版本重装检查全部完成后，调用 `scripts/ci-retirement.py` 做最后一项验收。它要求 root、Linux、显式的一次性环境标志，以及固定的回环 CI 面板；使用本次私有 state 中的随机名称核对服务器，确认设备在线、Agent 版本一致且支持退役后，才发送一次删除请求。管理员密码通过继承的环境变量提供，不进入命令参数。此辅助脚本需要 Python 3.11 或以上，人工 `e2e-driver.py` 的操作范围保持不变。
+`scripts/ci-real-e2e.sh` 显式创建监听 443 的节点，独立客户端实际通过该端口完成双向 Reality 流量。TLS 伪装夹具在本次 Compose 网络的独立容器内监听 443，不发布宿主端口，使宿主 443 专用于受管运行时；夹具复用本次面板镜像中的 OpenSSL，证书仅以只读方式挂载。CI 在签名缓存拒绝、Reality 流量、重启、重载及同版本重装检查全部完成后，调用 `scripts/ci-retirement.py` 做最后一项验收。它要求 root、Linux、显式的一次性环境标志，以及固定的回环 CI 面板；使用本次私有 state 中的随机名称核对服务器，确认设备在线、Agent 版本一致且支持退役后，才发送一次删除请求。管理员密码通过继承的环境变量提供，不进入命令参数。此辅助脚本需要 Python 3.11 或以上，人工 `e2e-driver.py` 的操作范围保持不变。
 
 退役阶段检查：
 

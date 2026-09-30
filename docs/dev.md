@@ -94,7 +94,7 @@ cargo test --locked -p sinan-agent-core --lib retirement::tests
 
 `real-e2e` 在 Ubuntu 24.04 amd64 runner 上复用本次 musl Agent 制品，按版本与构建脚本摘要缓存固定上游运行时。缓存恢复后仍校验版本、架构、完整构建标签和 SHA-256。仅在隔离 CI 中使用仓库公开的 TEST_ONLY 私钥签署测试 Release；Agent 和面板均编译对应测试公钥，制品名称明确标记 TEST_ONLY。Compose 启动面板与 PostgreSQL 后，在干净宿主通过独立预置的公钥、minisign 与 bootstrap 执行已签安装器，由 systemd 管理 Agent 与独立运行时。
 
-本地客户端经 Reality 向回环夹具下载 2 MiB、上传 1 MiB，检查文件内容、上传响应与真实用户节点用量增量。暂停后连续 70 秒采样稳定、outbox 清空，再验证 Agent 重启不更换运行时 PID、运行时重载不重复入账；恢复同量流量时将面板新增量与只读账本新周期基准逐字节比较。同版本重装核对身份与用量连续性，缓存二进制、签名证明或缺少签名时必须被预检拒绝。端到端流程及私有 state 驱动见 [真实验收文档](e2e.md)。
+本地客户端经非 root 运行时的 Reality 443 端口向回环夹具下载 2 MiB、上传 1 MiB，检查文件内容、上传响应与真实用户节点用量增量。暂停后连续 70 秒采样稳定、outbox 清空，再验证 Agent 重启不更换运行时 PID、运行时重载不重复入账；恢复同量流量时将面板新增量与只读账本新周期基准逐字节比较。同版本重装核对身份与用量连续性，缓存二进制、签名证明或缺少签名时必须被预检拒绝。端到端流程及私有 state 驱动见 [真实验收文档](e2e.md)。
 
 人工验收已启用 TOTP 的面板时，在 `scripts/e2e-driver.py` 的子命令前加全局参数 `--totp`，或设置 `SINAN_E2E_TOTP=1`，隐藏输入本次验证码；`scripts/e2e-real.sh snapshot` 的可选面板查询也支持该环境变量。非交互调用可一次性提供 `SINAN_E2E_TOTP_CODE`，每次登录使用新码，脚本不保存种子、验证码或会话。TOTP 未启用时保持原调用即可；CI 的测试面板并不因此自动启用 TOTP。
 

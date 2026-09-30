@@ -47,7 +47,7 @@ export SINAN_ADMIN_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_he
 export SINAN_E2E_ADMIN_PASSWORD="$SINAN_ADMIN_PASSWORD"
 export SINAN_E2E_STATUS_COMMAND='sudo /usr/local/bin/sinan-agent status'
 export SINAN_E2E_ARTIFACT_ROOT=$scratch/artifacts
-phase=preflight owned_installation=0 hosts_entry=0 fixture_pid= client_pid= tls_pid=
+phase=preflight owned_installation=0 hosts_entry=0 fixture_pid= client_pid= tls_container=
 passed=0
 marker=$COMPOSE_PROJECT_NAME
 compose=(docker compose --env-file /dev/null -f deploy/docker-compose.yml -f "$scratch/compose.override.yml")
@@ -65,6 +65,8 @@ summary = {"passed": passed == "1", "last_phase": phase, "exit_code": int(exit_c
 if Path(state_path).is_file():
     state = json.loads(Path(state_path).read_text())
     summary["agent_version"] = state.get("installation", {}).get("version")
+    if state.get("requested_port") == 443 and state.get("port") == 443:
+        summary["reality_port"] = 443
     summary["usage"] = {
         label: {key: checkpoint["usage"][key] for key in ("uplink", "downlink", "total")}
         for label, checkpoint in state.get("checkpoints", {}).items()
@@ -114,10 +116,7 @@ cleanup() {
   write_summary || true
   [[ -z $client_pid ]] || { kill "$client_pid" 2>/dev/null || true; wait "$client_pid" 2>/dev/null || true; }
   [[ -z $fixture_pid ]] || { kill "$fixture_pid" 2>/dev/null || true; wait "$fixture_pid" 2>/dev/null || true; }
-  if [[ -f $scratch/tls.pid ]]; then
-    tls_pid=$(sudo cat "$scratch/tls.pid")
-    [[ $tls_pid =~ ^[0-9]+$ ]] && sudo kill "$tls_pid" 2>/dev/null || true
-  fi
+  [[ -z $tls_container ]] || docker rm --force -- "$tls_container" >/dev/null 2>&1 || true
   if [[ $owned_installation == 1 ]]; then
     sudo systemctl disable --now sinan-agent.service sinan-singbox@main.service >/dev/null 2>&1 || true
     sudo rm -f /etc/systemd/system/sinan-agent.service /etc/systemd/system/sinan-singbox@.service /usr/local/bin/sinan-agent
@@ -151,9 +150,11 @@ trap 'exit 143' TERM
 
 sudo python3 - <<'PY'
 import socket
-for port in (443, 2080, 18080, 18081, 18085, 20000):
-    with socket.socket() as listener:
-        listener.bind(('127.0.0.1', port))
+for family, address, port in ((socket.AF_INET, '0.0.0.0', 443),
+                              (socket.AF_INET6, '::', 443),
+                              *((socket.AF_INET, '127.0.0.1', port) for port in (2080, 18080, 18081, 18085))):
+    with socket.socket(family) as listener:
+        listener.bind((address, port))
 PY
 
 mkdir -m 0755 "$scratch/source"
@@ -215,13 +216,47 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 \
   -keyout "$scratch/camouflage.key" -out "$scratch/camouflage.crt" \
   -subj '/CN=sinan-e2e.example.test' -addext 'subjectAltName=DNS:sinan-e2e.example.test' \
   > "$scratch/certificate.log" 2>&1
-sudo sh -c 'printf "%s\n" "$$" > "$1"; exec openssl s_server -quiet -www -tls1_3 -groups X25519 -accept 127.0.0.1:443 -cert "$2" -key "$3"' \
-  sh "$scratch/tls.pid" "$scratch/camouflage.crt" "$scratch/camouflage.key" > "$scratch/tls.log" 2>&1 &
-sudo python3 - "$marker" <<'PY'
+# Keep the TLS camouflage endpoint in a separate network namespace so the real
+# unprivileged runtime, with CAP_NET_BIND_SERVICE, can listen on host port 443.
+docker run --rm --no-healthcheck --entrypoint /usr/bin/openssl "$COMPOSE_PROJECT_NAME-panel:local" version \
+  > "$scratch/tls-openssl-version.txt" 2>&1
+tls_network=${COMPOSE_PROJECT_NAME}_default
+[[ $(docker network inspect --format '{{index .Labels "com.docker.compose.project"}}' "$tls_network") == "$COMPOSE_PROJECT_NAME" ]] \
+  || die 'TLS fixture network does not belong to this Compose project'
+tls_container=$(docker create --name "$COMPOSE_PROJECT_NAME-tls" --network "$tls_network" \
+  --user 0 --read-only --no-healthcheck --entrypoint /usr/bin/openssl \
+  --mount "type=bind,src=$scratch/camouflage.crt,dst=/fixture/camouflage.crt,readonly" \
+  --mount "type=bind,src=$scratch/camouflage.key,dst=/fixture/camouflage.key,readonly" \
+  "$COMPOSE_PROJECT_NAME-panel:local" s_server -quiet -www -tls1_3 -groups X25519 \
+  -accept 0.0.0.0:443 -cert /fixture/camouflage.crt -key /fixture/camouflage.key)
+docker start "$tls_container" > "$scratch/tls-start.txt"
+[[ $(docker inspect --format '{{.State.Running}}' "$tls_container") == true ]] || die 'TLS fixture failed to start'
+docker inspect --format '{{json .NetworkSettings.Networks}}' "$tls_container" > "$scratch/tls-network.json"
+sudo python3 - "$marker" "$tls_network" "$scratch/tls-network.json" <<'PY'
+import ipaddress
+import json
 from pathlib import Path
+import socket
 import sys
+import time
+
+networks = json.loads(Path(sys.argv[3]).read_text())
+if set(networks) != {sys.argv[2]}:
+    raise SystemExit('TLS fixture is attached to an unexpected network')
+address = ipaddress.ip_address(networks[sys.argv[2]]['IPAddress'])
+if address.version != 4 or not address.is_private or address.is_loopback or address.is_unspecified or address.is_multicast:
+    raise SystemExit('TLS fixture has an invalid private bridge address')
+deadline = time.monotonic() + 20
+while True:
+    try:
+        with socket.create_connection((str(address), 443), timeout=2):
+            break
+    except OSError:
+        if time.monotonic() >= deadline:
+            raise SystemExit('TLS fixture did not become reachable on its private port 443') from None
+        time.sleep(0.2)
 with Path('/etc/hosts').open('a') as output:
-    output.write('\n127.0.0.1 sinan-e2e.example.test # ' + sys.argv[1] + '\n')
+    output.write('\n' + str(address) + ' sinan-e2e.example.test # ' + sys.argv[1] + '\n')
 PY
 hosts_entry=1
 python3 scripts/e2e-http-fixture.py --listen 127.0.0.1 --port 18081 > "$scratch/fixture.log" 2>&1 &
@@ -229,12 +264,21 @@ fixture_pid=$!
 
 phase=prepare
 driver=(python3 scripts/e2e-driver.py --state "$scratch/state.json")
-"${driver[@]}" prepare --origin "$SINAN_PUBLIC_URL" --public-host 127.0.0.1 --sni sinan-e2e.example.test
+"${driver[@]}" prepare --origin "$SINAN_PUBLIC_URL" --public-host 127.0.0.1 --sni sinan-e2e.example.test --port 443
 phase=install
 owned_installation=1
 sudo python3 scripts/ci-bootstrap-install.py --enrollment "$scratch/enrollment.json" \
   --trust-directory "$trust_directory" --bundle "$scratch/release" --log "$scratch/install.log"
 "${driver[@]}" ready --agent-version "$agent_version" --timeout 600
+python3 - "$scratch/state.json" "$scratch/client.json" <<'PY'
+import json
+from pathlib import Path
+import sys
+state, client = (json.loads(Path(path).read_text()) for path in sys.argv[1:])
+ports = [outbound['server_port'] for outbound in client['outbounds'] if outbound['type'] == 'vless']
+if state.get('requested_port') != 443 or state.get('port') != 443 or ports != [443]:
+    raise SystemExit('Reality must use explicitly requested privileged port 443')
+PY
 runtime_pid=$(sudo systemctl show sinan-singbox@main.service -p MainPID --value)
 [[ $runtime_pid =~ ^[1-9][0-9]*$ ]] || die 'independent runtime is not active'
 

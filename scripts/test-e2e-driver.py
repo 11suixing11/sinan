@@ -66,6 +66,31 @@ class EnrollmentPanel:
         raise AssertionError("driver must never request or execute a panel script")
 
 
+class PreparationPanel:
+    def __init__(self, lose_node_response=False):
+        self.resources = {path: [] for path in ("/api/servers", "/api/nodes", "/api/users")}
+        self.node_posts = []
+        self.lose_node_response = lose_node_response
+
+    def request(self, path, data=None):
+        if path.endswith("/accesses"):
+            return {"stat_name": "u43_n42"} if data is not None else []
+        if path in self.resources:
+            if data is None:
+                return self.resources[path]
+            item = {"id": 41 + list(self.resources).index(path), **data}
+            if path == "/api/nodes":
+                self.node_posts.append(dict(data))
+                item.setdefault("port", 20000)
+            self.resources[path].append(item)
+            if path == "/api/nodes" and self.lose_node_response:
+                self.lose_node_response = False
+                raise DRIVER.AcceptanceError("node creation response lost after commit")
+            return item
+        base, identifier = path.rsplit("/", 1)
+        return next(item for item in self.resources[base] if item["id"] == int(identifier))
+
+
 class AcceptanceContracts(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -96,6 +121,64 @@ class AcceptanceContracts(unittest.TestCase):
             with patch.object(DRIVER.Panel, "request", return_value={}) as request:
                 DRIVER.Panel("https://example.test", "test-password", code)
                 request.assert_called_once_with("/api/login", {"password": "test-password", "totp_code": "012345"})
+
+    def preparation_state(self, port=None):
+        self.state.update(origin="http://127.0.0.1:8000", public_host="node.example.test",
+                          sni="camouflage.example.test", requested_port=port)
+        DRIVER.save(self.state_path, self.state)
+        return self.state
+
+    def test_explicit_privileged_port_survives_lost_node_creation_response(self):
+        panel = PreparationPanel(lose_node_response=True)
+        self.preparation_state(443)
+        with patch.object(DRIVER, "install"), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(DRIVER.AcceptanceError):
+                DRIVER.prepare(panel, self.state, self.args)
+            recovered = json.loads(self.state_path.read_text())
+            self.assertEqual(recovered["requested_port"], 443)
+            DRIVER.prepare(panel, recovered, self.args)
+        self.assertEqual(len(panel.node_posts), 1)
+        self.assertEqual(panel.node_posts[0]["port"], 443)
+        self.assertEqual(recovered["port"], 443)
+
+    def test_automatic_port_is_not_submitted_and_changed_assignment_is_rejected(self):
+        panel = PreparationPanel()
+        self.preparation_state()
+        with patch.object(DRIVER, "install"), contextlib.redirect_stdout(io.StringIO()):
+            DRIVER.prepare(panel, self.state, self.args)
+            self.assertNotIn("port", panel.node_posts[0])
+            self.assertEqual(self.state["port"], 20000)
+            panel.resources["/api/nodes"][0]["port"] = 20001
+            with self.assertRaisesRegex(DRIVER.AcceptanceError, "端口已变化"):
+                DRIVER.prepare(panel, self.state, self.args)
+        self.assertEqual(self.state["port"], 20000)
+
+    def test_legacy_state_resumes_automatic_selection_but_cannot_change_requested_port(self):
+        self.preparation_state()
+        del self.state["requested_port"]
+        DRIVER.save(self.state_path, self.state)
+        arguments = ["driver", "--state", str(self.state_path), "prepare", "--origin", self.state["origin"],
+                     "--public-host", self.state["public_host"], "--sni", self.state["sni"]]
+        with patch.object(DRIVER.sys, "argv", arguments), patch.object(DRIVER, "Panel") as panel, \
+             patch.object(DRIVER, "password", return_value="TEST_ONLY"), patch.object(DRIVER, "totp_code", return_value=None), \
+             patch.object(DRIVER, "prepare"):
+            DRIVER.main()
+            panel.assert_called_once()
+        with patch.object(DRIVER.sys, "argv", arguments + ["--port", "443"]), patch.object(DRIVER, "Panel") as panel:
+            with self.assertRaisesRegex(DRIVER.AcceptanceError, "不同环境"):
+                DRIVER.main()
+            panel.assert_not_called()
+
+    def test_invalid_node_ports_are_rejected_before_login_or_state_creation(self):
+        arguments = ["driver", "--state", str(self.state_path), "prepare", "--origin", "http://127.0.0.1:8000",
+                     "--public-host", "node.example.test", "--sni", "camouflage.example.test"]
+        for port in (0, 18085, 65536, -1):
+            with self.subTest(port=port), patch.object(DRIVER.sys, "argv", arguments + ["--port", str(port)]), \
+                 patch.object(DRIVER, "Panel") as panel:
+                with self.assertRaisesRegex(DRIVER.AcceptanceError, "节点端口"):
+                    DRIVER.main()
+                panel.assert_not_called()
+                self.assertFalse(self.state_path.exists())
 
     def installation_state(self):
         self.state.update(server_id=41, origin="http://127.0.0.1:18080")
