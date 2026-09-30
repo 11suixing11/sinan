@@ -675,3 +675,19 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 最终正常合入作者 `924a8ff` 与正式主线 `2c3c1e5`（含 r5 正常退出契约及 sing-box 插件搬迁）。迁移后的 NodeQuality 保持 r5，活动证据只调用中性 `plugins::runtime_activity_on`，保留纯监控未发布、陈旧能力、缺发布行与代理活动判断。包装器、daily/observer 与前端原字节均与已验证主线一致，本轮不重复无交集包装器或浏览器验收。
 - 补齐真实缺少 plugin/resource_budget 字段的 r2 历史 JSON 与原文精确保存、跨插件 queued/running/已过期 cancel_requested 对两条创建入口的互斥，以及 IO 权重不可放宽和预算未知命令字段拒绝。最终相关 Rust/PostgreSQL 68 项通过、0 失败/忽略（协议 12、Agent 诊断/预算 39、共用服务 2、诊断 API 10、章节 3、真实 Agent WS/HTTP/restart/cancel 2），workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁、actionlint 与差异检查通过。完整 workspace 测试尝试在另外 47 项通过/2 项既有条件忽略后因本机链接器磁盘耗尽中止，不记为完整测试通过；只清理本任务失败链接对象及已通过的测试可执行文件。真实 root/systemd 专项、签名发布、硬件压力与最终提交 CI 继续独立核对，未在生产机器压测或公开上传。
+
+
+## 2026-10-01：NodeQuality 不受控完整任务安全门禁（Issue #28）
+
+- 固定入口审计确认在线 main 依赖、内层公开上传和宿主 swap；分别创建 #65/#66，归整改 milestone。固定提交、摘要、许可缺口与无特权命令模拟证据见 [执行链审计](docs/acceptance/nodequality-chain-audit.md)。
+- 插件拒绝新完整任务，共用服务调用登记插件安全 hook；旧排队完整任务保存明确失败原因且不冒充设备已停止。运行任务不重发给无门禁能力的旧 Agent，新 Agent 的适配器在诊断工作目录/工具调用前拒绝完整模式；既有 Started 继续原身份收集/取消。r2–r5 不可变制品不改，日常固定轻量分支与资源预检不降低。
+- 界面分别显示日常可用与完整暂停原因，历史关闭上传仅称顶层设置；真实 Chromium 桌面/390px 手机验证日常、403、历史章节与确认取消、离线/重复禁用，页面错误和完整 POST 均为 0。fmt/core 门禁、Bun 五项/711 断言和 dist 构建通过；源码20e27ff在限额Debian12容器通过全 targets Clippy、完整locked Rust/PostgreSQL325项/0失败/9既有条件忽略、专项34和r5包装器34/helper7；Agent/Panel构建退出0、OOM=false。二进制及core测试保存binaries/nodequality-gate-head，源码摘要与日志保存evidence/nodequality-gate-head。
+- [ADR0031](docs/adr/0031-nodequality-full-start-gate.md) 与 [独立验收](docs/acceptance/nodequality-full-start-gate.md) 明确旧 Agent 门禁前已领取任务须升级或取消确认。本项仅止血，不关闭 #28/#65/#66，不替换或删减完整能力；完整工具链及用户取舍仍待完成。
+- 发布后正常重基已合并框架/插件业务归位/原生引擎的main2574a84，保留主线视图与PluginServer类型，重新构建dist并复验；最终整合HEAD CI单独核对，不以前一冻结源码的325项代替。
+
+## 2026-10-01：完整验机门禁合并审查
+
+- 正常整合插件业务主线 `2c3c1e5`、正式共享服务 `e3a41ed`、正式原生引擎主线 `2574a84` 与最新作者 `75cf69f`，保留新版插件设置、代理用户与独立 IP/诊断路由；重建 dist，完整验机门禁保持启用。
+- 修复缺少 plugin/mode 的旧任务绕过面板门禁：排队清理和分发统一采用历史 NodeQuality 归属；分发响应补默认插件名但原 JSON、版本与参数不改写。新增旧排队、运行分发、迟到报告及已登记硬件章节回归；章节可保存但门禁失败原因与未完成状态不被伪造，已有 Started 恢复/取消路径保持原逻辑。Preparing 升级夹具改为主机架构的签名制品地址，实际验证走到适配器门禁且零启动。
+- 本机 Python 包装器 34、daily helper 7、Bun 5/711 断言、TypeScript/Vite、fmt、core 门禁、actionlint 与实际 dist Chromium 门禁及插件业务场景通过；完整 POST 0、页面错误 0。冻结整合源码 `e2ccd3f` 的相关 Rust/PostgreSQL 75 项全部通过、0 失败/忽略（适配器 15、Agent 诊断/预算 39、API 13、共用服务 2、章节 3、真实 Agent WS/HTTP restart/cancel/Preparing 门禁 3）；移除旧插件默认归属的负对照使两项回归失败，恢复后三项门禁回归再次通过。workspace 全 targets Clippy（warnings 为错误）通过，最终主线 CI 继续独立核对；本轮仅使用回环和假服务，未重跑无关 accounting 全量。
+- 固定上游执行链六个源码摘要与审计表一致；测试移除真实 SINAN_ABUSEIPDB_API_KEY，未运行真实完整验机、正式 API、宿主 swap 或发布操作。

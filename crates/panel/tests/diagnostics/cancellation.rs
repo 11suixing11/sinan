@@ -37,13 +37,17 @@ async fn cancellation_waits_for_device_confirmation_and_preserves_late_reports(
             Method::POST,
             &reports,
             &cookie,
-            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
+            Some(json!({"mode":"daily"})),
         )
         .await?
         .error_for_status()?
         .json()
         .await?;
     let id = Uuid::parse_str(record["id"].as_str().unwrap())?;
+    // Model a full task already running before rollout. Its original hardware
+    // chapters and late reports must remain available during cancellation.
+    sqlx::query("UPDATE diagnostic_jobs SET status='running',job=jsonb_set(job,'{options,mode}','\"full\"'),expected_sections=ARRAY['header_info','hardware_quality','ip_quality','net_quality','backroute_trace','environment'] WHERE id=$1")
+        .bind(id).execute(&panel.state.pool).await?;
     let path = format!("/api/servers/{server_id}/diagnostics/{id}/cancel");
     assert_eq!(
         panel
@@ -313,7 +317,7 @@ async fn natural_completion_rejects_cancellation_and_requested_cleanup_blocks_ne
             Method::POST,
             &reports,
             &cookie,
-            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
+            Some(json!({"mode":"daily"})),
         )
         .await?
         .error_for_status()?
@@ -348,7 +352,7 @@ async fn natural_completion_rejects_cancellation_and_requested_cleanup_blocks_ne
             Method::POST,
             &reports,
             &cookie,
-            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
+            Some(json!({"mode":"daily"})),
         )
         .await?
         .error_for_status()?
@@ -373,7 +377,7 @@ async fn natural_completion_rejects_cancellation_and_requested_cleanup_blocks_ne
                 Method::POST,
                 &reports,
                 &cookie,
-                Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true}))
+                Some(json!({"mode":"daily"}))
             )
             .await?
             .status(),

@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
 mod business_support;
+#[path = "diagnostics/chain_gate.rs"]
+mod chain_gate;
 #[path = "diagnostics/modes.rs"]
 mod modes;
 mod release_fixture;
@@ -84,18 +86,8 @@ async fn diagnostic_queue_is_durable_deduplicated_and_device_scoped(pool: PgPool
     fixture(&panel).await?;
     let path = format!("/api/servers/{server_id}/node-quality/reports");
     let (first, second) = tokio::join!(
-        panel.admin(
-            Method::POST,
-            &path,
-            &cookie,
-            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true}))
-        ),
-        panel.admin(
-            Method::POST,
-            &path,
-            &cookie,
-            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true}))
-        )
+        panel.admin(Method::POST, &path, &cookie, Some(json!({"mode":"daily"}))),
+        panel.admin(Method::POST, &path, &cookie, Some(json!({"mode":"daily"})))
     );
     let first = first?;
     let second = second?;
@@ -112,7 +104,7 @@ async fn diagnostic_queue_is_durable_deduplicated_and_device_scoped(pool: PgPool
     assert_eq!(record["status"], "queued");
     assert_eq!(
         record["job"]["options"],
-        json!({"mode":"full","environment_section":"true","ip_version":"both","network_mode":"low","upload_report":"false"})
+        json!({"mode":"daily","environment_section":"true","ip_version":"both","network_mode":"low","upload_report":"false","daily_targets":"[]"})
     );
     assert!(record["job"]["expires_at"].as_i64().is_some());
     let queue: Value = panel
@@ -217,12 +209,7 @@ async fn expiry_preserves_late_durable_reports_and_deleted_servers_cancel_work(
     fixture(&panel).await?;
     let path = format!("/api/servers/{server_id}/node-quality/reports");
     let record: Value = panel
-        .admin(
-            Method::POST,
-            &path,
-            &cookie,
-            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
-        )
+        .admin(Method::POST, &path, &cookie, Some(json!({"mode":"daily"})))
         .await?
         .error_for_status()?
         .json()
@@ -277,13 +264,13 @@ async fn expiry_preserves_late_durable_reports_and_deleted_servers_cancel_work(
             Method::POST,
             &path,
             &cookie,
-            Some(json!({"ip_version":"ipv6","network_mode":"normal","upload_report":true,"confirm_full":true,"acknowledge_traffic_warning":true})),
+            Some(json!({"mode":"daily","ip_version":"ipv6"})),
         )
         .await?
         .error_for_status()?
         .json()
         .await?;
-    assert_eq!(new["job"]["options"]["upload_report"], "true");
+    assert_eq!(new["job"]["options"]["upload_report"], "false");
     // This assertion exercises offline deletion; online deletion now requires retirement.
     socket.close(None).await?;
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
@@ -357,7 +344,7 @@ async fn report_readiness_and_quality_refresh_require_auth_and_preserve_unknown(
                 Method::POST,
                 &format!("{base}/reports"),
                 &cookie,
-                Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true}))
+                Some(json!({"mode":"daily"}))
             )
             .await?
             .status(),
@@ -423,7 +410,7 @@ async fn report_readiness_and_quality_refresh_require_auth_and_preserve_unknown(
             Method::POST,
             &format!("{base}/reports"),
             &cookie,
-            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
+            Some(json!({"mode":"daily"})),
         )
         .await?
         .error_for_status()?

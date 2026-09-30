@@ -59,11 +59,28 @@ pub async fn pending(
     let server_id = auth::require_agent(&state, &headers).await?;
     artifacts::require_signed_agent(&state, server_id).await?;
     expire(&state).await?;
+    service::reject_queued(&mut *state.pool.acquire().await?, server_id).await?;
+    let capabilities: Value = sqlx::query_scalar("SELECT capabilities FROM servers WHERE id=$1")
+        .bind(server_id)
+        .fetch_one(&state.pool)
+        .await?;
     let values: Vec<Value> = sqlx::query_scalar("SELECT job FROM diagnostic_jobs WHERE server_id=$1 AND status IN ('queued','running') ORDER BY created_at,id")
         .bind(server_id).fetch_all(&state.pool).await?;
     let jobs = values
         .into_iter()
-        .map(serde_json::from_value)
+        .filter(|job| {
+            crate::diagnostic_plugins::for_job(job)
+                .is_none_or(|plugin| plugin.can_dispatch(job, &capabilities))
+        })
+        .map(|mut job| {
+            if let Some(object) = job.as_object_mut()
+                && object.get("plugin").is_none_or(Value::is_null)
+            {
+                // Normalize only the wire response; keep historical metadata intact.
+                object.insert("plugin".into(), Value::String("nodequality".into()));
+            }
+            serde_json::from_value(job)
+        })
         .collect::<Result<_, _>>()
         .map_err(anyhow::Error::from)?;
     Ok(Json(jobs))

@@ -112,42 +112,37 @@ impl Privileged for FakePrivileged {
 }
 
 #[tokio::test]
-async fn prepare_only_verifies_version_and_builds_a_fixed_service_command() {
+async fn all_full_versions_are_denied_before_executing_or_creating_anything() {
     let scratch = Scratch::new();
-    let spec = scratch.spec();
     let privileged = FakePrivileged::default();
-    let job = NodeQualityAdapter::new()
-        .prepare(&spec, &privileged)
-        .await
-        .unwrap();
-    assert_eq!(job.unit, format!("sinan-diagnostic-{}.service", spec.id));
-    assert_eq!(job.program, spec.binary_path);
-    assert_eq!(job.working_directory, spec.job_dir);
-    assert_eq!(job.timeout_secs, 1800);
-    assert_eq!(job.memory_max.get(), 512 * 1024 * 1024);
-    assert_eq!(job.tasks_max.get(), 128);
-    assert_eq!(job.cpu_weight.get(), 10);
-    assert_eq!(job.io_weight.get(), 10);
-    assert_eq!(job.oom_score_adjust.get(), 500);
-    assert_eq!(
-        job.args,
-        vec![
-            "--workspace",
-            spec.job_dir.to_str().unwrap(),
-            "--ip-version",
-            "both",
-            "--network-mode",
-            "low",
-            "--upload-report",
-            "false",
-            "--mode",
-            "full",
-        ]
+    for version in [
+        VERSION,
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4",
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2",
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3",
+    ] {
+        for upload in ["true", "false"] {
+            let mut spec = scratch.spec();
+            spec.version = version.into();
+            spec.options.insert("upload_report".into(), upload.into());
+            let error = NodeQualityAdapter::new()
+                .prepare(&spec, &privileged)
+                .await
+                .unwrap_err();
+            assert!(error.to_string().contains("离线受控工具链"));
+            assert!(!spec.job_dir.exists());
+            assert!(privileged.calls.lock().unwrap().is_empty());
+        }
+    }
+    let mut explicit = scratch.spec();
+    explicit.options.insert("mode".into(), "full".into());
+    assert!(
+        NodeQualityAdapter::new()
+            .prepare(&explicit, &privileged)
+            .await
+            .is_err()
     );
-    assert_eq!(
-        *privileged.calls.lock().unwrap(),
-        vec![vec!["--version".to_string()]]
-    );
+    assert!(!explicit.job_dir.exists());
 }
 
 #[tokio::test]
@@ -167,7 +162,10 @@ async fn daily_profile_is_bounded_and_persists_only_whitelisted_targets() {
     let adapter = NodeQualityAdapter::new();
     assert_eq!(
         adapter.capabilities(),
-        vec![sinan_adapter_nodequality::MODES_CAPABILITY]
+        vec![
+            sinan_adapter_nodequality::MODES_CAPABILITY,
+            sinan_adapter_nodequality::FULL_START_GATE_CAPABILITY
+        ]
     );
     let service = adapter.prepare(&spec, &privileged).await.unwrap();
     assert_eq!(service.memory_max.get(), 64 * 1024 * 1024);
@@ -209,6 +207,7 @@ async fn legacy_signed_versions_still_collect_saved_reports_without_preparing_ag
     for version in [
         "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2",
         "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3",
+        VERSION,
     ] {
         spec.version = version.into();
         let saved = NodeQualityAdapter::new()
@@ -265,34 +264,20 @@ async fn prepare_rejects_unpinned_versions_unknown_options_and_expansion() {
 }
 
 #[tokio::test]
-async fn prepare_uploads_only_with_an_explicit_true_option() {
-    let scratch = Scratch::new();
-    let privileged = FakePrivileged::default();
-    for option in ["true", "false"] {
-        let mut spec = scratch.spec();
-        spec.options.insert("upload_report".into(), option.into());
-        let job = NodeQualityAdapter::new()
-            .prepare(&spec, &privileged)
-            .await
-            .unwrap();
-        assert!(
-            job.args
-                .windows(2)
-                .any(|args| args == ["--upload-report", option])
-        );
-    }
-}
-
-#[tokio::test]
 async fn prepare_rejects_an_artifact_that_does_not_match_its_version() {
     let scratch = Scratch::new();
     let privileged = FakePrivileged {
         invalid_version: true,
         ..Default::default()
     };
+    let mut spec = scratch.spec();
+    spec.options = BTreeMap::from([
+        ("mode".into(), "daily".into()),
+        ("daily_targets".into(), "[]".into()),
+    ]);
     assert!(
         NodeQualityAdapter::new()
-            .prepare(&scratch.spec(), &privileged)
+            .prepare(&spec, &privileged)
             .await
             .is_err()
     );
