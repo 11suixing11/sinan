@@ -146,8 +146,24 @@ impl TargetResult {
         {
             return false;
         }
-        if self.status == "failed" && (self.error.is_none() || !self.samples.is_empty()) {
-            return false;
+        if self.status == "failed" {
+            if self.complete {
+                if !matches!(
+                    self.error.as_deref(),
+                    Some("dns_error" | "dns_timeout" | "ip_family_unavailable")
+                ) || !self.samples.is_empty()
+                    || address.is_some()
+                {
+                    return false;
+                }
+                if matches!(self.error.as_deref(), Some("dns_error" | "dns_timeout"))
+                    && (literal.is_some() || self.dns_attempts != 1)
+                {
+                    return false;
+                }
+            } else if self.error.as_deref() != Some("utc_unavailable") {
+                return false;
+            }
         }
         let mut previous = start;
         for sample in &self.samples {

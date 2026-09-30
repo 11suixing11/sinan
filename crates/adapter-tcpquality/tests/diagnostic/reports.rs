@@ -219,3 +219,42 @@ async fn collection_rejects_public_linked_and_symbolic_files_and_preserves_good_
     assert_eq!(sections.len(), 1);
     assert_eq!(sections[0].name, "tcp_scope");
 }
+
+#[tokio::test]
+async fn completed_family_failure_stays_unknown_but_cancelled_targets_cannot_claim_completion() {
+    let mut fixture = Fixture::new(1);
+    fixture.scope["targets"][0]["target"] = json!("::1");
+    let spec = fixture.spec();
+    fixture.workspace();
+    let mut body = report(&spec, &fixture.scope);
+    body["complete"] = json!(true);
+    body["finished_at_ms"] = body["started_at_ms"].clone();
+    body["targets"][0]["complete"] = json!(true);
+    body["targets"][0]["status"] = json!("failed");
+    body["targets"][0]["error"] = json!("ip_family_unavailable");
+    fixture.write("result.json", body.to_string().as_bytes());
+    assert!(
+        TcpQualityAdapter::new()
+            .collect(&spec)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        body["targets"][0]["summary"]["connection_success_percent"],
+        Value::Null
+    );
+    for error in [
+        "total_timeout",
+        "worker_failed",
+        "utc_unavailable",
+        "dns_timeout",
+    ] {
+        body["targets"][0]["error"] = json!(error);
+        fixture.write("result.json", body.to_string().as_bytes());
+        assert!(
+            TcpQualityAdapter::new().collect(&spec).await.is_err(),
+            "{error}"
+        );
+    }
+}

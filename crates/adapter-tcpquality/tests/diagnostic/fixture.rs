@@ -65,10 +65,10 @@ impl Fixture {
     }
     pub fn write(&self, name: &str, bytes: &[u8]) {
         let path = self.spec().job_dir.join(name);
-        if let Some(parent) = path.parent() {
-            if !parent.exists() {
-                fs::DirBuilder::new().mode(0o700).create(parent).unwrap();
-            }
+        if let Some(parent) = path.parent()
+            && !parent.exists()
+        {
+            fs::DirBuilder::new().mode(0o700).create(parent).unwrap();
         }
         let mut file = fs::OpenOptions::new()
             .create(true)
