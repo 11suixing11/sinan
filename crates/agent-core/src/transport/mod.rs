@@ -117,6 +117,11 @@ pub async fn run_with_diagnostics(
     agent_version: &'static str,
 ) -> Result<()> {
     config.validate()?;
+    // Diagnostic-only Agents still own managed jobs and must recover them.
+    // Check a truly module-free mode before reserving or opening local state.
+    if adapters.is_empty() && diagnostics.is_empty() {
+        crate::retirement::ensure_monitor_only_allowed(&config)?;
+    }
     // Reserve the instance before inspecting or recovering another process's intents.
     let listener = status::bind(&config.status_socket).await?;
     let state = Arc::new(Mutex::new(State::open(&config.state_db)?));
@@ -155,13 +160,15 @@ pub async fn run_with_diagnostics(
             "telemetry:batch",
             "agent:settings",
             "ip:discovery",
-            "command:execute",
             "probe:tcp",
             "probe:icmp",
         ]
         .into_iter()
         .map(str::to_owned),
     );
+    if config.allow_remote_commands {
+        capabilities.push("command:execute".into());
+    }
     capabilities.extend(
         diagnostics
             .iter()
@@ -188,6 +195,7 @@ pub async fn run_with_diagnostics(
         retirement.clone(),
     ));
     tasks.spawn(crate::tasks::run(
+        config.allow_remote_commands,
         state.clone(),
         privileged.clone(),
         client_rx.clone(),
@@ -307,6 +315,7 @@ mod tests {
             status_socket: directory.0.join("status.sock"),
             operation_timeout_secs: 1,
             public_ips: vec![],
+            allow_remote_commands: false,
         };
         std::fs::create_dir_all(&config.identity_dir)?;
         std::fs::write(config.identity_dir.join("device.key"), [7_u8; 32])?;

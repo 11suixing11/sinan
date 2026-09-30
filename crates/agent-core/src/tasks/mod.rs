@@ -9,6 +9,7 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 pub async fn run(
+    allow_remote_commands: bool,
     state: SharedState,
     ops: Arc<dyn Privileged>,
     clients: watch::Receiver<Option<Arc<PanelClient>>>,
@@ -16,6 +17,7 @@ pub async fn run(
 ) -> Result<()> {
     tokio::try_join!(
         commands::run(
+            allow_remote_commands,
             state.clone(),
             ops.clone(),
             clients.clone(),

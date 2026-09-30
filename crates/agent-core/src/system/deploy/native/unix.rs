@@ -263,13 +263,12 @@ pub(super) async fn register(
             .join("current")
             .join(&descriptor.binary_name);
         let configuration = runtime.join("current/config.json");
-        let script = format!(
-            "#!/bin/sh\nset -eu\nwhile [ ! -x {} ] || [ ! -f {} ]; do sleep 2; done\nexec {} run -c {} -D {}\n",
-            quote(&binary.to_string_lossy()),
-            quote(&configuration.to_string_lossy()),
-            quote(&binary.to_string_lossy()),
-            quote(&configuration.to_string_lossy()),
-            quote(&runtime.join("data").to_string_lossy())
+        let script = runtime_launcher(
+            &root.join("current").join(executable_name()),
+            &binary,
+            &configuration,
+            &runtime.join("data"),
+            &descriptor.plugin_name,
         );
         ops.write_file(&launcher, script.as_bytes(), 0o755, None)
             .await?;
@@ -284,4 +283,102 @@ pub(super) async fn register(
         .await?;
     }
     Ok(())
+}
+
+fn runtime_launcher(
+    agent: &Path,
+    binary: &Path,
+    configuration: &Path,
+    data: &Path,
+    plugin: &str,
+) -> String {
+    format!(
+        "#!/bin/sh\nset -eu\nwhile [ ! -x {binary} ] || [ ! -f {configuration} ]; do sleep 2; done\n{agent} verify-installed --binary {binary} --name {plugin} --format tar.gz\nexec {binary} run -c {configuration} -D {data}\n",
+        agent = quote(&agent.to_string_lossy()),
+        binary = quote(&binary.to_string_lossy()),
+        configuration = quote(&configuration.to_string_lossy()),
+        data = quote(&data.to_string_lossy()),
+        plugin = quote(plugin),
+    )
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn runtime_launcher_rechecks_before_every_execution_and_stops_on_failure() -> Result<()> {
+        let temporary =
+            std::env::temp_dir().join(format!("sinan-launcher-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&temporary)?;
+        let result = (|| {
+            let agent = temporary.join("agent 'verifier'");
+            let binary = temporary.join("runtime 'binary'");
+            let configuration = temporary.join("config.json");
+            let arguments = temporary.join("arguments");
+            let rejection = temporary.join("reject");
+            let executed = temporary.join("executed");
+            std::fs::write(
+                &agent,
+                format!(
+                    "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\n[ ! -e {} ]\n",
+                    quote(&arguments.to_string_lossy()),
+                    quote(&rejection.to_string_lossy())
+                ),
+            )?;
+            std::fs::write(
+                &binary,
+                format!(
+                    "#!/bin/sh\nprintf ran > {}\n",
+                    quote(&executed.to_string_lossy())
+                ),
+            )?;
+            for path in [&agent, &binary] {
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))?;
+            }
+            std::fs::write(&configuration, b"{}")?;
+            let launcher = temporary.join("launcher.sh");
+            std::fs::write(
+                &launcher,
+                runtime_launcher(&agent, &binary, &configuration, &temporary, "demo"),
+            )?;
+            for reject in [false, true, false] {
+                if reject {
+                    std::fs::write(&rejection, b"invalid signature")?;
+                } else if rejection.exists() {
+                    std::fs::remove_file(&rejection)?;
+                }
+                if executed.exists() {
+                    std::fs::remove_file(&executed)?;
+                }
+                let status = std::process::Command::new("/bin/sh")
+                    .arg(&launcher)
+                    .status()?;
+                assert_eq!(status.success(), !reject);
+                assert_eq!(
+                    executed.exists(),
+                    !reject,
+                    "unverified cached bytes must never execute"
+                );
+                assert_eq!(
+                    std::fs::read_to_string(&arguments)?
+                        .lines()
+                        .collect::<Vec<_>>(),
+                    [
+                        "verify-installed",
+                        "--binary",
+                        binary.to_str().unwrap(),
+                        "--name",
+                        "demo",
+                        "--format",
+                        "tar.gz"
+                    ]
+                );
+            }
+            Ok::<_, anyhow::Error>(())
+        })();
+        std::fs::remove_dir_all(temporary)?;
+        result
+    }
 }
