@@ -56,7 +56,7 @@ pub(super) async fn mac_account(ops: &dyn Privileged, name: &str) -> Result<()> 
     {
         return Ok(());
     }
-    let users = ops
+    let accounts = ops
         .execute(
             Path::new("dscl"),
             &[
@@ -79,10 +79,10 @@ pub(super) async fn mac_account(ops: &dyn Privileged, name: &str) -> Result<()> 
         )
         .await?;
     ensure!(
-        users.success && groups.success,
+        accounts.success && groups.success,
         "cannot inspect system accounts"
     );
-    let occupied: std::collections::BTreeSet<u32> = users
+    let occupied: std::collections::BTreeSet<u32> = accounts
         .stdout
         .lines()
         .chain(groups.stdout.lines())

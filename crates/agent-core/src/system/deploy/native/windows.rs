@@ -31,9 +31,9 @@ pub(super) async fn powershell(ops: &dyn Privileged, script: &str) -> Result<()>
 pub(super) async fn account(ops: &dyn Privileged, name: &str) -> Result<()> {
     let script = format!(
         r#"$name={}
-$user=Get-LocalUser -Name $name -ErrorAction SilentlyContinue
-if(-not $user) {{ $user=New-LocalUser -Name $name -Disabled -NoPassword -AccountNeverExpires -UserMayNotChangePassword }}
-if(-not (Get-LocalGroupMember -SID 'S-1-5-32-545' | Where-Object {{ $_.SID -eq $user.SID }})) {{ Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user }}
+$account=Get-LocalUser -Name $name -ErrorAction SilentlyContinue
+if(-not $account) {{ $account=New-LocalUser -Name $name -Disabled -NoPassword -AccountNeverExpires -UserMayNotChangePassword }}
+if(-not (Get-LocalGroupMember -SID 'S-1-5-32-545' | Where-Object {{ $_.SID -eq $account.SID }})) {{ Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $account }}
 $temporary=[IO.Path]::Combine([IO.Path]::GetTempPath(),'sinan-policy-'+[Guid]::NewGuid().ToString('N'))
 $owner=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $acl=[Security.AccessControl.DirectorySecurity]::new()
@@ -64,7 +64,7 @@ try {{
             foreach($member in $Matches[1].Split(',')) {{ if($member.Trim()) {{ $rights+=$member.Trim() }} }}
         }}
     }}
-    $sid='*'+$user.SID.Value
+    $sid='*'+$account.SID.Value
     $identities=@($rights | ForEach-Object {{ Normalize-Principal $_ }})
     foreach($line in [IO.File]::ReadAllLines($export)) {{
         if($line -match '^\s*SeDenyBatchLogonRight\s*=(.*)$') {{

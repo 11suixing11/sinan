@@ -43,7 +43,9 @@ jobs:
       - name: Check committed frontend build
         run: git diff --exit-code -- web/dist
       - name: Check core boundary
-        run: '! grep -REin "singbox|sing-box" crates/agent-core'
+        run: |
+          python3 tools/check-core-boundary.py
+          python3 -m unittest discover -s tests -p 'test_core_boundary.py'
       - name: Verify artifact build script contracts
         run: python3 tools/test-build-scripts.py
       - name: Verify deployment environment initialization

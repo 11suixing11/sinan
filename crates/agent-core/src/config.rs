@@ -172,7 +172,7 @@ mod tests {
             "http://[2001:db8::1]",
             "http://[::]",
             "ftp://localhost",
-            "https://user:password@panel.example.test",
+            "https://account:password@panel.example.test",
             "https://panel.example.test/path",
             "https://panel.example.test?token=test",
             "https://panel.example.test#fragment",
