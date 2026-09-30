@@ -639,4 +639,4 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 用户授权无上游许可时自行实现；仅新增自有 AGPL Rust 库/二进制，不复制上游代码/目标/rootfs，不注册 panel/Agent 第二插件或改 UI/签名管线。未来目标由已配置 TCP 拨测冻结提供，不修改 ProbeSpec/协议兼容。
 - 最多八目标/16 KiB 快照与摘要核对，IPv4/6、count4/8、concurrency1/2；DNS2秒/单连接1秒/间隔250ms，总60秒含排队并预留2秒发布。只连一个同族 SocketAddr、关闭连接且零应用 payload，必须 --no-rank-upload，宿主/测速/未知选项拒绝。
 - 有界 JSON 与原子独立章节保留部分结果，明示连接成功率/建连耗时，不冒称包丢失/测速、没有排名，未知不补0。编译期源码 SHA 未提供则 null；固定源码/锁和签名打包及框架注册均为后续独立 PR。
-- 本机 fmt/locked offline metadata/core 门禁/差异检查完成，新增真实 IPv4/6/CLI/外层取消与有界DNS/并发/截止/输入安全回归，Rust/Clippy/全工作区待受限 Debian 12 独立槽与 CI；不宣称服务或真实网络压力验收完成。独立范围与命令见 [原生 TCP 验收](docs/acceptance/native-tcp-probe.md)。
+- 本机仅 fmt/locked offline metadata/core 门禁/差异检查；Debian12 1.5GiB/2CPU 隔离槽全源码 touch 后，5896f6d 的真实 IPv4/6/CLI/取消及有界 DNS/并发/截止/输入安全 13 项、fmt、全 targets Clippy（warnings 为错误）、完整 Rust/PostgreSQL 331 项通过/0失败/9既有条件忽略，exit0/OOM=false。ef1c7c9 再补 stdout write/flush 共用2秒截止，13 项与fmt/Clippy再次通过；全量重复运行按协调主动停止，不将331证据移给新SHA。独立 Draft PR #68、milestone1，固定/签名与服务注册仍为后续，最终CI另核对；不宣称服务或真实网络压力验收完成。见 [原生 TCP 验收](docs/acceptance/native-tcp-probe.md)。
