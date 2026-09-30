@@ -110,3 +110,10 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 - Linux 发布版本目录使用真实 GNU `/bin/mv --no-clobber --no-target-directory --`，源和目标必须是同父目录下的受控路径；完成后重新核验实际最终目录。
 - 本机 macOS 的文件系统测试只模拟上述精确请求的 rename/sync，不模拟其他特权命令，也不扩展 Agent 的非 Linux 生命周期。只有真实 Linux CI 可以认证 GNU mv、systemd ExecStartPre 和安装器行为；本地测试通过不能替代它。
 - 生产信任根仅来自编译时 `SINAN_RELEASE_PUBLIC_KEYS`；Rust 库显式 `with_trusted_keys` 接口用于受信 embedding 与测试，Agent 命令行没有运行时换根开关。测试公钥及确定性公开测试私钥均明确标记为 TEST_ONLY，正式发布工具按真实公钥字节拒绝这些根。
+
+## 后续调整：VPS 部署与本机接入
+
+- 本次“继续开发”先处理实机部署、HTTPS 反代与设备接入发现的问题，保持现有 MVP 功能范围。部署凭据、真实地址、数据库备份与截图保存在仓库外，不提交环境信息。
+- 新增标准库配置初始化命令，独立生成密码、创建时限制权限，并拒绝覆盖已有文件或符号链接；宿主端口可选以兼容已有服务。提供可追加的 Caddy 示例，保持 WebSocket 路由与面板 origin 一致。
+- 共享 VPS 上的 Docker Rust 构建默认并发为 2，可用 build arg 调整；不改运行期的业务并发。
+- 新接入设备还没有运行时或配置时，已启用的代理服务应跳过启动。systemd 单元增加路径条件，后续 Agent 安装运行时并发布配置后仍可正常启动，避免首次重启进入无意义的失败循环。

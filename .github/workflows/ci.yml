@@ -45,6 +45,8 @@ jobs:
         run: '! grep -REin "singbox|sing-box" crates/agent-core'
       - name: Verify artifact build script contracts
         run: python3 tools/test-build-scripts.py
+      - name: Verify deployment environment initialization
+        run: python3 tools/test-init-env.py
       - name: Verify real acceptance driver and runtime cache contracts
         run: |
           python3 scripts/test-e2e-driver.py

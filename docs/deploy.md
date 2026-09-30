@@ -18,26 +18,7 @@ git clone https://github.com/theLucius7/sinan.git
 cd sinan
 
 # Create once; never overwrite credentials for an existing database.
-python3 - <<'PY'
-from pathlib import Path
-import os
-import secrets
-os.umask(0o077)
-content = '\n'.join([
-    'SINAN_DB_PASSWORD=' + secrets.token_hex(32),
-    'SINAN_ADMIN_PASSWORD=' + secrets.token_hex(32),
-    'SINAN_RELEASE_PUBLIC_KEYS=[]',
-    'SINAN_PUBLIC_URL=http://127.0.0.1:8080',
-    'SINAN_BIND_ADDRESS=127.0.0.1',
-    'SINAN_PORT=8080',
-    'RUST_LOG=info',
-    '',
-])
-with Path('.env').open('x') as output:
-    output.write(content)
-Path('.env').chmod(0o600)
-print('已创建 .env；请在本地查看管理员密码。')
-PY
+python3 scripts/init-env.py --public-url http://127.0.0.1:8080
 
 docker compose --project-name sinan --env-file .env \
   -f deploy/docker-compose.yml up -d --build --wait
@@ -46,6 +27,8 @@ docker compose --project-name sinan --env-file .env \
 构建前将 `.env` 中的 `SINAN_RELEASE_PUBLIC_KEYS` 填为独立核对过的 minisign 公钥记录 JSON 数组，例如 `["公钥记录"]`。这是公开信息，但必须核对来源；缺失或空集合会拒绝签名制品操作。Compose 把它作为镜像构建参数传入 Rust 编译器，容器运行时环境不能更换根。修改后必须重新构建镜像。
 
 访问 <http://127.0.0.1:8080>，使用 `.env` 中的 `SINAN_ADMIN_PASSWORD` 登录。也可从 [.env.example](../.env.example) 手动创建配置，两个密码分别生成，不要填写相同值。数据库密码放入连接 URL，示例使用不需要额外转义的十六进制值。
+
+初始化命令以 `0600` 权限创建配置，生成独立随机密码，并拒绝覆盖已有文件或符号链接。可用 `--port 18080` 选择宿主机端口，或用 `--output /path/to/private.env` 将凭据保存在仓库外，随后把同一路径传给 Compose 的 `--env-file`；命令不会输出密码。生成的信任根默认为空，构建前仍须独立核对并填写发布公钥。
 
 首次启动自动创建 PostgreSQL 数据库、执行迁移并保存管理员密码散列。已有数据库再次启动时，修改 `SINAN_ADMIN_PASSWORD` **不会重置** 已有密码；修改数据库容器的密码环境变量也不会重置已有数据库用户密码。
 
@@ -61,7 +44,7 @@ docker compose --project-name sinan --env-file .env \
 
 接入远端 Agent **之前**，将 `SINAN_PUBLIC_URL` 改为远端可访问的地址，例如自己的 HTTPS 域名，再执行 `docker compose … up -d --build --wait` 重建面板容器以应用环境变量；仅执行 `restart` 不会更新容器环境。公网部署应通过 HTTPS 反向代理；代理需支持 `/api/agent/v1/ws` 的 WebSocket 升级和长连接。若反向代理位于同一宿主机，可继续只监听回环地址；确需直接暴露端口时显式设置 `SINAN_BIND_ADDRESS`。这里不配置防火墙，管理员自行保证面板和节点端口可达。
 
-例如在已有 Caddy 配置中追加站点，使用保留示例域名并替换为部署域名，不覆盖其他站点：
+可参考 [Caddy 配置示例](../deploy/Caddyfile.example)，在已有 Caddy 配置中追加站点，使用保留示例域名并替换为部署域名，不覆盖其他站点：
 
 ```caddyfile
 panel.example.com {

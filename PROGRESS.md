@@ -199,3 +199,20 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 按 2024 格式规则重新格式化，并将 Clippy 要求的三处嵌套条件改为 let chains；审查确认其余 51 个 Rust 文件只有格式变化。
 - 本次验证：`cargo fmt --all --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked` 均通过；79 项成功，3 项真实运行时专项按原有原因忽略。数据库、HTTP/WebSocket、账本恢复和端到端测试使用临时 PostgreSQL 16.15 完成，测试后已停止数据库。
 - 默认 vendored protoc 构建与显式 `PROTOC` 的适配器检查均通过；core 禁用词和 diff 检查通过。各平台编译仍使用现有 CI 矩阵，远端结果待对应提交的 GitHub Actions 验证。
+
+## 后续调整：VPS 部署、HTTPS 与本机 Agent（2026-09-30）
+
+- 在 Debian 13 amd64 VPS 实际部署 PostgreSQL 16 和非 root 面板容器，面板仅监听宿主回环地址；复用现有 Caddy 配置追加独立站点，公网 CDN 与源站 HTTPS 均验证成功，设备通过公网域名完成注册和 WebSocket 连接。
+- 本机安装 CI 提供并验证过 SHA256、版本和静态 ELF 的 `0.2.0` Agent，交由 systemd 管理并启用开机启动。面板显示在线且持续上报 CPU、内存、磁盘、网络及系统信息；重启 Agent 和重建面板后仍能恢复连接，原设备身份和服务器记录保留。
+- 使用工具链容器实际构建 Linux/amd64 sing-box 1.14.2：固定上游提交、Go 1.26.8、完整默认标签与 `with_v2ray_api`，版本启动和校验清单检查通过。Agent、运行时和 NodeQuality 三类 amd64 制品均已导入面板并可被认证接口识别。
+- 新增 `scripts/init-env.py`，用独立随机密码和创建时 `0600` 权限生成 Compose 配置，拒绝覆盖文件或符号链接，支持外部文件及自选宿主端口。新增实际 CLI 回归测试及 CI 检查，并用生成结果验证 Compose 配置解析。
+- 新增可追加的 Caddy 示例和 HTTPS 部署说明；Docker Rust 编译默认并发降为 2，支持 build arg 调整。修复未发布配置的设备在开机时反复启动代理失败的问题：systemd 仅在运行时及配置就绪时启动，实机无配置时确认跳过且重启计数为 0。
+- 实测 `scripts/ci-compose-smoke.sh` 通过，覆盖前端资源/API、登录、数据库和数据卷在容器重建后的持久化。公网浏览器通过桌面和手机布局、登录、设备详情、实时指标及制品列表验证，无页面脚本错误；未认证的管理、设备清单和无效接入令牌请求均返回 401。
+- 验证边界：此次为现有 Debian 13 VPS 部署，不是全新 Debian 12 双架构验收。未创建真实业务节点或用户，未执行公网 Reality 客户端全链路与真实 NodeQuality CPU、磁盘、带宽测试。已有 FreeBSD ARM64 工具链问题不在本次部署调整范围内。
+- 完整检查：Rust 1.98.1 下 `cargo fmt --all --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked` 通过，默认 114 项成功、4 项按原有条件忽略；随后使用此次构建的真实 Linux 运行时显式运行 3 项运行时专项，全部成功。容器内没有 systemd，既有独立诊断服务专项未在容器执行；本次修改的运行时启动条件已在 VPS systemd 实测。配置初始化 3 项、制品构建 4 组及 NodeQuality 包装器 16 项 Python 检查全部通过，后者没有跳过。
+
+## 2026-10-01：整合 VPS 部署 PR
+
+- 解决 PR #2 与签名发布、账户安全及设备退役改动的冲突，保留精简 README 和分章部署文档。初始化命令同时生成空的构建时发布信任根配置，部署前仍须独立核对公钥。
+- 保留 systemd 的签名缓存启动前复验，并添加未配置运行时的路径条件；Docker 编译并发参数仅保留一处定义。
+- 本机初始化 CLI 3 项、制品构建脚本 4 项测试和差异空白检查通过；Linux Compose、systemd 和完整集成检查交由本次 PR 的远端 CI 验证。
