@@ -41,6 +41,15 @@ impl DiagnosticWorker {
             && !deadline_reached
             && now.saturating_sub(*started_at) <= u64::from(spec.timeout_secs) + 60
         {
+            // Reading a damaged output filesystem must not delay resource protection.
+            if let Err(error) =
+                tokio::time::timeout(Duration::from_secs(2), self.capture_sections(spec, plugin))
+                    .await
+                    .context("diagnostic chapter capture timed out")
+                    .and_then(|result| result)
+            {
+                tracing::warn!(%id, %error, "diagnostic chapter capture failed; saved chapters are retained");
+            }
             return Ok(());
         }
         if status == Some(JobStatus::Running) || stop_reason.is_some() {
@@ -55,6 +64,14 @@ impl DiagnosticWorker {
                         != JobStatus::Running,
                 "诊断仍有活动进程，保护停止未确认，将继续重试"
             );
+        }
+        if let Err(error) =
+            tokio::time::timeout(Duration::from_secs(2), self.capture_sections(spec, plugin))
+                .await
+                .context("final diagnostic chapter capture timed out")
+                .and_then(|result| result)
+        {
+            tracing::warn!(%id, %error, "final diagnostic chapter capture failed; saved chapters are retained");
         }
         let collected = if let Some(adapter) = self.adapters.get(plugin) {
             self.bounded(adapter.collect(spec)).await
