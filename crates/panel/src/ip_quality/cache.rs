@@ -167,7 +167,10 @@ pub(super) async fn read(pool: &PgPool, id: i64, ips: &[String]) -> ApiResult<Ve
                         .get::<Option<Value>, _>("success_payload")
                         .map(decode::<QualityDatabase>)
                         .transpose()?;
-                    dataset.fields = success.map(|saved| saved.fields).unwrap_or_default();
+                    dataset.fields = super::fields::confirmed_cached_fields(
+                        &dataset.database,
+                        success.map(|saved| saved.fields).unwrap_or_default(),
+                    );
                     dataset.historical = !dataset.fields.is_empty()
                         && (dataset.status != "succeeded"
                             || dataset.fresh_until.is_none_or(|until| until <= now));
