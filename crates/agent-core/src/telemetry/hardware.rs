@@ -147,13 +147,13 @@ async fn command(ops: &dyn Privileged, program: &str, args: &[&str]) -> Option<S
     let args: Vec<_> = args.iter().map(|value| (*value).to_owned()).collect();
     tokio::time::timeout(
         Duration::from_secs(4),
-        ops.execute(Path::new(program), &args),
+        ops.execute_bounded(Path::new(program), &args, 4, 128 * 1024),
     )
     .await
     .ok()?
     .ok()
-    .filter(|output| output.success)
-    .map(|output| output.stdout)
+    .filter(|execution| !execution.timed_out && execution.output.success)
+    .map(|execution| execution.output.stdout)
 }
 
 pub(super) async fn gpus(ops: &dyn Privileged) -> Vec<GpuMetrics> {
