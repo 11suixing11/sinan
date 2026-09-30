@@ -6,7 +6,7 @@
 
 IP 独立 GET `/api/servers/{id}/ip-quality` 返回 ip_addresses/quality，POST `/ip-quality/refresh` 与原刷新使用同一逻辑。NodeQuality 独立 GET `/api/servers/{id}/node-quality/reports` 只返回 plugin_ready/plugin_reason/reports，与现有 POST 创建接口共路径。NodeQualityView 无 IP 查询字段，IP 读取不查询诊断准备，报告读取不访问 IP 缓存。
 
-旧 GET `/node-quality` 由 LegacyNodeQualityView 保留全部原字段，旧 POST `/node-quality/refresh` 保留原刷新别名。没有数据库迁移、表名修改、历史报告/缓存清理或旧路由撤销。当前 r2 制品引用保持原样，后续章节制品与工具链分别处理。
+旧 GET `/node-quality` 由 LegacyNodeQualityView 保留全部原字段，旧 POST `/node-quality/refresh` 保留原刷新别名。没有数据库迁移、表名修改、历史报告/缓存清理或旧路由撤销。保留主线当前 r3 签名制品、章节组件与 r2 历史兼容，本项不修改制品或执行。
 
 `crates/panel/tests/diagnostics.rs` 中的独立 PostgreSQL/实际 HTTP 测试验证：
 
@@ -39,4 +39,6 @@ bun run build
 - 提交 `177bfc9` 的 CI `36769525534`：check 中 Rust/PostgreSQL、全 targets Clippy、systemd 与 dist 通过，Compose 和两项 musl 通过；旧基线 Reality 失败，不称全矩阵通过。整合最新 main 和未知字段修复后，由最终提交 CI 分别复验。
 - 不执行完整 NodeQuality、Agent 重启/面板断连、诊断取消或持续代理流量压力；相关生命周期/资源场景由对应独立 PR 验收。
 
-- 合并审查：独立 PostgreSQL 5 项 diagnostics HTTP/API 测试全部通过、0 失败/忽略；panel 全 targets Clippy 通过。保留 #44 前端旧 payload 类型校验后 Bun 4 项/637 断言及 TypeScript/Vite 通过，未重复浏览器场景或完整 workspace，后续整合另行记录。
+本次最终视图源码对齐 main `6a583af`，保留 DiagnosticSections 组件、r3 制品与 r2 历史、严格旧字段兼容和遥测心跳/指标过期。前次 CI 仅认证当时源码，整合后最终 CI 单独核对。
+
+- 合并审查最终保留 main `6a583af` 与作者最新 `84938ba` 正常祖先；作者新提交与已验证 `e0d6bda` 的全部 Rust/Cargo/CI/工具脚本及 web 源和 dist 完全相同，仅更新两项文档，不重复相同源码构建。完整 locked workspace/all-targets Rust/PostgreSQL 回归 289 项通过、0 失败、8 项既有 Linux/root/systemd 或外部运行时条件忽略；workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁、actionlint 与差异检查通过。Python discovery 83 项通过/5 跳过，NodeQuality 包装器 23 项通过/5 跳过；Bun 4 项/637 断言与 TypeScript/Vite 通过。最终 dist 实际 Chromium 桌面 1280×900/手机 390×844 共 9 组场景通过、页面错误 0，包含严格未知/有效0和false、IP失败隔离、旧报告与独立章节、指标过期与三类时间、独立导航；本轮未测试取消或实机完整诊断，最终 Linux CI 单独核对。
