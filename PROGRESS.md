@@ -587,6 +587,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 正常保留作者 `b22386f` 与 main `6b63f71`（确认式取消）的双侧祖先，合并取消路由/cancel_supported 和插件 API，重建最终 dist。修复发布扫描与事务之间设备能力消失的竞态：服务器行锁内重新核对插件启用证据，关闭时保留 dirty，不创建会反向启用插件的空部署。补齐 API 文档中的插件路径与有意切换约定，永久 `/sub` 保持。
 - 新增真实 SQLx 0012 故障注入、DDL/回填原子回滚与重试/二次启动幂等回归；旧库服务器、节点、用户、授权、部署、状态、批次、用量、设备会话及接入令牌十张表完整 JSON 快照比对，真实旧批次哈希重放去重并拒绝更改 payload。源码已完成，Rust/PostgreSQL 尚未执行，不把测试定义当成通过。Bun 1.4.2 TypeScript/Vite、实际 dist 桌面/手机插件验收、Python 驱动 21 项、core 门禁与差异检查通过；后续日常/完整诊断的业务证据读取将在插件边界内整合。
 
+- Python 验收驱动 21 项通过、workspace fmt 与 TypeScript/Vite 构建通过。整合 main `6a583af` 后实际 dist 桌面/手机浏览器场景通过，页面错误为零、关闭服务器不发业务请求；独立 Debian 12 限制容器最终代码 `b22386f` 的 fmt / 全 targets Clippy -D warnings / 完整 Rust+PG 291通过、0失败、8既有条件ignore，新三项启用/真实旧数据迁移测试无忽略；exit0/OOM=false、容器已移除。首次抽取 Clippy 两项已修并完整复跑，本次 CI 尚单独核对；未宣称专用节点或生产迁移通过。设计见 ADR 0030，独立验收见 docs/acceptance/singbox-plugin-business.md。
+
+- 业务归位 #55 正常整合 main `229becc`，保留已合并 #51 取消与 #56 独立夹具修复。重建实际 dist 后业务桌面/手机和取消浏览器回归、fmt/core 门禁/差异检查通过；291 项完整 Rust 证据仍限定旧 base，本轮 CI 单独核对。
+
 ## 确认式取消最终合并审查
 
 - 正常合入 main `af43ccf`（含章节持久化与 IP/报告拆分）并保留作者 `f5d468e` 祖先。修复 Windows 默认不支持路径、Linux/systemd/cgroup v2 能力误报、取消 HTTP/WS 退役门禁；已在途清理结束后不继续新取消任务。取消确认前采集最终章节，取消后迟到章节仍保存但不复活状态，旧整份报告继续标记 legacy；reports GET 和旧组合 GET 同时保留 cancel_supported。PostgreSQL 回归证明已应用 0011 后补入 0010 不丢任务、报告或章节。最终 locked workspace/all-targets 304 项通过、0 失败、9 项条件忽略；workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁和差异检查通过。Bun 1.4.2 冻结依赖下 4 项/637 断言及 TypeScript/Vite 构建通过，最终 JS 为 `index-8GW7pq_B.js`；真实 Chromium 桌面/390px 手机取消专项和原 IP/导航/章节 9 组场景全部通过，页面错误 0。Python discovery 83 项通过/5 跳过。此轮 macOS 本机没有运行新增真实 Linux/root/systemd 取消夹具（9 项条件忽略包含它）或完整 NodeQuality 负载；最终 Linux CI 与专用节点验收另行核对，不以前一作者 CI 替代。
