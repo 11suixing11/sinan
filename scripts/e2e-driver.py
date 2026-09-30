@@ -236,6 +236,66 @@ def healthy(view):
             and not status["last_error"])
 
 
+def readiness_status(view, expected_version):
+    """Return only bounded counters and readiness booleans, never response text."""
+    server = view.get("server")
+    server = server if isinstance(server, dict) else {}
+    deployment = view.get("deployment")
+    present = isinstance(deployment, dict)
+    deployment = deployment if present else {}
+
+    def revision(name):
+        value = deployment.get(name)
+        return value if type(value) is int and 0 <= value <= 2 ** 63 - 1 else None
+
+    def boolean(value):
+        return value if type(value) is bool else None
+
+    target, applied = revision("target_rev"), revision("applied_rev")
+    version_required = bool(expected_version)
+    return {
+        "online": boolean(server.get("online")),
+        "deployment_present": present,
+        "target_rev": target,
+        "applied_rev": applied,
+        "target_positive": target > 0 if target is not None else None,
+        "revisions_match": target == applied if target is not None and applied is not None else None,
+        "healthy": boolean(deployment.get("healthy")),
+        "has_last_error": bool(deployment.get("last_error")) if present else None,
+        "version_required": version_required,
+        "version_matches": server.get("agent_version") == expected_version if version_required else None,
+    }
+
+
+def systemd_status(output, query_succeeded):
+    """Filter fixed-unit systemctl properties; unknown/free-form values stay private."""
+    result = {"query_succeeded": query_succeeded is True}
+    if query_succeeded is not True or not isinstance(output, str) or len(output) > 4096:
+        return result
+    allowed = {
+        "ActiveState": {"active", "reloading", "inactive", "failed", "activating", "deactivating", "maintenance", "refreshing"},
+        "SubState": {"dead", "condition", "start-pre", "start", "start-post", "running", "exited", "reload",
+                     "reload-signal", "reload-notify", "stop", "stop-watchdog", "stop-sigterm", "stop-sigkill",
+                     "stop-post", "final-watchdog", "final-sigterm", "final-sigkill", "failed", "cleaning",
+                     "auto-restart", "auto-restart-queued"},
+        "Result": {"success", "resources", "timeout", "exit-code", "signal", "core-dump", "watchdog",
+                   "start-limit-hit", "exec-condition", "oom-kill", "protocol"},
+    }
+    values = {}
+    for line in output.splitlines():
+        key, separator, value = line.partition("=")
+        if separator and key in (*allowed, "ExecMainStatus"):
+            # A repeated property is ambiguous, even if one value looks valid.
+            values[key] = value if key not in values else None
+    for key, options in allowed.items():
+        if values.get(key) in options:
+            result[key] = values[key]
+    status = values.get("ExecMainStatus")
+    if isinstance(status, str) and re.fullmatch(r"0|[1-9][0-9]{0,2}", status) and int(status) <= 255:
+        result["ExecMainStatus"] = int(status)
+    return result
+
+
 def checkpoint(state, name):
     ensure(name in state["checkpoints"], "找不到指定基线；请先完成相应阶段")
     return state["checkpoints"][name]
@@ -250,13 +310,20 @@ def record(state, args, view):
 
 
 def ready(panel, state, args):
+    last_snapshot = args.state.with_name("ready-timeout.json")
+    ensure(not last_snapshot.is_symlink(), "私有输出不能是符号链接")
+    last_snapshot.unlink(missing_ok=True)
     deadline = time.monotonic() + args.timeout
     while True:
         view = snapshot(panel, state)
         if healthy(view) and (not args.agent_version
                              or view["server"]["agent_version"] == args.agent_version):
             break
-        ensure(time.monotonic() < deadline, "超时：设备未在线、配置未健康应用或版本不符")
+        if time.monotonic() >= deadline:
+            save(last_snapshot, {"snapshot": view, "expected_agent_version": args.agent_version})
+            status = readiness_status(view, args.agent_version)
+            raise AcceptanceError("超时：设备未在线、配置未健康应用或版本不符；状态="
+                                  + json.dumps(status, ensure_ascii=False, separators=(",", ":")))
         time.sleep(min(2, args.timeout))
     user = panel.request(f"/api/users/{state['user_id']}")
     token = urllib.parse.quote(user["subscription_token"], safe="")
