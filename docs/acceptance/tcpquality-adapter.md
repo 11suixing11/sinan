@@ -33,11 +33,11 @@ cargo test --locked
 | pin/仓库/版本错误、null、截断、身份超时 | 不创建工作目录、不返回 ServiceJob |
 | 正常IPv4/IPv6、地区缺失与五种标签、core环境开关 | 冻结原字节，必需 no-rank-upload，64MiB/32tasks，短剩余时限保留 |
 | 部分/重启读取、真实0与未知 | 同一已保存报告可由新实例读取；0/false有明确语义，失败延迟保持null |
-| 报告参数/目标/源SHA/时钟/安全字段/统计篡改 | 严格拒绝，原文件保留 |
+| 报告参数/目标/源SHA/时钟/安全字段/统计篡改 | 严格拒绝，原文件保留；DNS/family终结保持未知，取消/worker_failed不可伪称完整 |
 | 坏主报告或一个坏章节 | 好章节仍返回，未知章节不扩范围，最多10工具章 |
 | 普通文件、symlink/hardlink、公开权限、超大文件 | 真实文件系统夹具验证，拒绝逃逸/读无界内容 |
 | 已保存结果、旧快照不同 | 重复prepare拒绝，不覆盖部分报告 |
 
 这些测试使用记录型 Privileged、合成身份/报告和真实私有文件系统，明确不是真实签名归档安装或 native TCP 网络/服务测试。原生引擎真实回环/实际进程取消由 PR #68 验证；签名制品/许可证库存由 PR #69 验证；同机NodeQuality互斥、确认取消、压力与Panel/Agent完整接入由后续独立PR验证。
 
-本机只fmt、locked offline metadata/core门禁和差异检查，不在磁盘不足机器从头编译。Rust专项、Clippy与最终CI结果另补，当前不宣称全部工具接入已完成。
+本机只fmt、locked offline metadata/core门禁和差异检查，没有从头编译。源码 `881cce5c48d0a65f4ab6eeb83d04e52a2d6b8ae2` 的 [GitHub check](https://github.com/theLucius7/sinan/actions/runs/36789086624/job/110137429669) 已通过：13项适配器测试、全 targets Clippy（warnings视为错误）、完整 Rust/PostgreSQL 353通过/0失败/9既有条件忽略，随后专门执行的六项真实systemd回归全部通过。Compose、Agent双架构musl与TCP制品双架构检查也已通过；Reality与最终制品依赖更新的HEAD另核对。真实systemd回归验证现有core框架，不能当作此尚未登记适配器的完整服务验收。
