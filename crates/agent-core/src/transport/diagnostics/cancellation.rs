@@ -137,7 +137,16 @@ impl CancellationControl {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) async fn flush(&self, client: &PanelClient) -> Result<()> {
+        self.flush_guarded(client, None).await
+    }
+
+    async fn flush_guarded(
+        &self,
+        client: &PanelClient,
+        retirement: Option<&crate::retirement::Retirement>,
+    ) -> Result<()> {
         let results: Vec<DiagnosticCancelResult> = self
             .state
             .lock()
@@ -145,12 +154,18 @@ impl CancellationControl {
             .get_json(RESULTS)?
             .unwrap_or_default();
         for result in results {
+            if retirement.is_some_and(|retirement| retirement.requested()) {
+                return Ok(());
+            }
             tokio::time::timeout(
                 Duration::from_secs(5),
                 client.diagnostic_cancel_result(&result),
             )
             .await
             .context("cancellation acknowledgment timed out")??;
+            if retirement.is_some_and(|retirement| retirement.requested()) {
+                return Ok(());
+            }
             let mut state = self
                 .state
                 .lock()
@@ -167,6 +182,7 @@ impl CancellationControl {
     pub(crate) async fn run(
         self: Arc<Self>,
         mut client: watch::Receiver<Option<Arc<PanelClient>>>,
+        retirement: Arc<crate::retirement::Retirement>,
     ) -> Result<()> {
         let mut poll = tokio::time::interval(Duration::from_secs(5));
         poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -175,12 +191,21 @@ impl CancellationControl {
                 _ = poll.tick() => {},
                 changed = client.changed() => { if changed.is_err() { return Ok(()); } },
             }
+            // Retirement clears these keys under its write gate. Keep this round
+            // inside the read gate, but release it before polling/sleeping again.
+            let _guard = retirement.gate.read().await;
+            if retirement.requested() {
+                continue;
+            }
             let current = client.borrow().clone();
             let Some(current) = current else {
                 continue;
             };
             let attempt: Result<()> = async {
-                self.flush(&current).await?;
+                self.flush_guarded(&current, Some(&retirement)).await?;
+                if retirement.requested() {
+                    return Ok(());
+                }
                 let pending = tokio::time::timeout(
                     Duration::from_secs(5),
                     current.diagnostic_cancellations(),
@@ -188,6 +213,9 @@ impl CancellationControl {
                 .await
                 .context("pending cancellation query timed out")??;
                 for request in pending {
+                    if retirement.requested() {
+                        break;
+                    }
                     self.request(request)?;
                 }
                 Ok(())

@@ -840,10 +840,15 @@ async fn requested_retirement_quiesces_task_update_and_telemetry_workers() -> Re
         receiver.clone(),
         fixture.retirement.clone(),
     ));
+    let sampling = crate::telemetry::cache::Sampling::start(
+        Arc::new(SystemOps),
+        crate::telemetry::worker::initial_control(&config, &fixture.state)?,
+    )?;
     workers.spawn(crate::telemetry::worker::run(
         config.clone(),
         fixture.state.clone(),
-        Arc::new(SystemOps),
+        sampling.snapshots.clone(),
+        sampling.control.clone(),
         receiver,
         fixture.retirement.clone(),
     ));
@@ -880,5 +885,103 @@ async fn requested_retirement_quiesces_task_update_and_telemetry_workers() -> Re
     while workers.join_next().await.is_some() {}
     server.abort();
     let _ = server.await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn blocked_sampling_does_not_hold_retirement_gate_or_offline_uploads() -> Result<()> {
+    use crate::{
+        artifacts::PanelClient,
+        telemetry::{cache::tests::BlockingFixture, worker},
+    };
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+        sync::watch,
+        task::JoinSet,
+        time::timeout,
+    };
+    let fixture = Fixture::new()?;
+    let blocked = BlockingFixture::new()?;
+    let sample = blocked.wait_until_blocked().await?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let origin = format!("http://{}", listener.local_addr()?);
+    let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let captured = attempts.clone();
+    let sample_id = sample.id;
+    let server = tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let mut buffer = vec![0; 16 * 1024];
+            let length = stream.read(&mut buffer).await.unwrap_or(0);
+            let request = String::from_utf8_lossy(&buffer[..length]);
+            let (status, body) = if request.starts_with("GET /api/agent/v1/settings ") {
+                (
+                    "200 OK",
+                    serde_json::to_vec(&sinan_protocol::AgentSettings::default()).unwrap(),
+                )
+            } else if request.starts_with("POST /api/agent/v1/telemetry ") {
+                if captured.fetch_add(1, Ordering::SeqCst) == 0 {
+                    ("503 Service Unavailable", b"{}".to_vec())
+                } else {
+                    (
+                        "200 OK",
+                        serde_json::to_vec(&sinan_protocol::TelemetryAck {
+                            ids: vec![sample_id],
+                        })
+                        .unwrap(),
+                    )
+                }
+            } else {
+                ("404 Not Found", b"{}".to_vec())
+            };
+            let header = format!(
+                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(header.as_bytes()).await;
+            let _ = stream.write_all(&body).await;
+        }
+    });
+    let mut config = fixture.config.clone();
+    config.panel_url = origin.clone();
+    let client = Arc::new(PanelClient::new(&origin, "TEST_ONLY_cache_fixture")?);
+    let (_clients, receiver) = watch::channel(Some(client));
+    let mut workers = JoinSet::new();
+    workers.spawn(worker::run(
+        config.clone(),
+        fixture.state.clone(),
+        blocked.sampling.snapshots.clone(),
+        blocked.sampling.control.clone(),
+        receiver,
+        fixture.retirement.clone(),
+    ));
+    timeout(Duration::from_secs(8), async {
+        loop {
+            if attempts.load(Ordering::SeqCst) >= 2
+                && fixture.state.lock().unwrap().pending_telemetry_count()? == 0
+            {
+                break Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await??;
+    assert_eq!(
+        blocked.sampling.snapshots.borrow().sample.as_ref(),
+        Some(&sample)
+    );
+    assert_eq!(blocked.starts.load(Ordering::SeqCst), 1);
+    drop(timeout(Duration::from_secs(1), fixture.retirement.gate.write()).await?);
+    // Even while the collection call is blocked, retirement can stop managed work.
+    fixture.request()?;
+    timeout(Duration::from_secs(1), fixture.retirement.prepare()).await??;
+    workers.abort_all();
+    while workers.join_next().await.is_some() {}
+    let reopened = Arc::new(Mutex::new(State::open(&config.state_db)?));
+    assert_eq!(
+        worker::initial_control(&config, &reopened)?.minimum_timestamp,
+        sample.sampled_at
+    );
+    server.abort();
     Ok(())
 }

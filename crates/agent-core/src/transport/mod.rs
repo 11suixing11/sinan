@@ -39,11 +39,20 @@ struct Runtime {
     agent_version: &'static str,
     retirement: Option<Arc<crate::retirement::Retirement>>,
     cancellation: Option<Arc<diagnostics::cancellation::CancellationControl>>,
+    telemetry: watch::Receiver<Arc<crate::telemetry::cache::Snapshot>>,
 }
 
 impl Runtime {
-    fn static_info(&self) -> Result<sinan_protocol::StaticInfo> {
-        let mut info = crate::telemetry::Collector::new().static_info();
+    fn static_info(&self) -> Result<Option<sinan_protocol::StaticInfo>> {
+        let mut info = {
+            let snapshot = self.telemetry.borrow();
+            // Keep enrollment metadata until the collector has identified the host.
+            // Compiled ABI alone cannot identify the installed runtime's ABI.
+            if snapshot.sample.is_none() {
+                return Ok(None);
+            }
+            snapshot.static_info.clone()
+        };
         info.agent_version = Some(self.agent_version.into());
         info.ip_addresses = crate::telemetry::normalized_addresses(
             info.ip_addresses
@@ -73,7 +82,7 @@ impl Runtime {
                 break;
             }
         }
-        Ok(info)
+        Ok(Some(info))
     }
 
     fn applied(&self) -> Result<AppliedRevisions> {
@@ -194,6 +203,10 @@ pub async fn run_with_diagnostics(
     } else {
         None
     };
+    let mut collection_control = crate::telemetry::worker::initial_control(&config, &state)?;
+    collection_control.enabled = !retirement.requested();
+    let sampling =
+        crate::telemetry::cache::Sampling::start(privileged.clone(), collection_control)?;
     let runtime = Runtime {
         state: state.clone(),
         modules: Arc::new(modules),
@@ -203,6 +216,7 @@ pub async fn run_with_diagnostics(
         agent_version,
         retirement: Some(retirement.clone()),
         cancellation: cancellation.clone(),
+        telemetry: sampling.snapshots.clone(),
     };
     let mut tasks = JoinSet::new();
     tasks.spawn(crate::upgrade::run(
@@ -229,7 +243,8 @@ pub async fn run_with_diagnostics(
     tasks.spawn(crate::telemetry::worker::run(
         config.clone(),
         state.clone(),
-        privileged.clone(),
+        sampling.snapshots.clone(),
+        sampling.control.clone(),
         client_rx.clone(),
         retirement.clone(),
     ));
@@ -241,7 +256,7 @@ pub async fn run_with_diagnostics(
         services,
     )?;
     let diagnostic_worker = if let Some(control) = cancellation {
-        tasks.spawn(control.clone().run(client_rx.clone()));
+        tasks.spawn(control.clone().run(client_rx.clone(), retirement.clone()));
         diagnostic_worker.with_cancellations(control)
     } else {
         diagnostic_worker

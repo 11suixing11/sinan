@@ -47,6 +47,8 @@ tag 的最终 commit 必须与草稿记录的完整 build SHA 一致，并有同
 
 发布工具记录每个 GitHub asset 的 ID、name、digest、size、state，按已选 ID 下载，先检查 GitHub digest 与实际 bytes 一致，再以独立生产根验证完整 minisign 和所有制品。GitHub digest 不是签名替代。验完后重新读取 tag 对象与 commit、完整 asset 集合及 CI run/attempt/job ID，必须与验证前一致才调用唯一的 draft→published PATCH；发布后还复查资产和 tag，并保存公开验证证据。workflow concurrency 串行同 tag 的本流程操作。
 
+草稿通过已认证的 List releases 接口发现：每页 100 条、最多 10 页，遍历结束后要求 tag 精确且唯一匹配，再按 release ID 读取并复核 ID、tag 与完整 build SHA。缺失、重复 ID、重复 tag、格式异常或达到页数上限仍未遍历结束时均拒绝；每轮发布复查都重新执行此查找，身份变化时拒绝继续。
+
 GitHub REST 没有把 tag、全部 assets 和 Release 发布合成一个条件原子操作的接口；最后复查到 PATCH 之间仍有极短的外部写入竞争窗口。本流程不宣称能阻止拥有仓库写权限的并发管理员在该窗口更换对象。发布时应暂停其他管理员对该 tag/Release 的写入，并可由仓库所有者开启 [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) 限制发布后的资产和 tag 变更。发布后复查失败属于需要人工处理的已发布事件，不能冒称草稿仍未公开。
 
 ## 首次安装

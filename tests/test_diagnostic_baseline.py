@@ -15,18 +15,20 @@ class BaselineEvidenceTests(unittest.TestCase):
         value = baseline.panel_times({'last_seen': 123, 'device_public_key': 'private',
                                      'latest_metrics': {'cpu_percent': 12},
                                      'static_info': {'ip_addresses': ['192.0.2.1']}})
-        self.assertEqual(value['last_heartbeat_at'], 123)
-        self.assertIsNone(value['last_metrics_collected_at'])
+        self.assertEqual(value['last_device_message_at'], 123)
+        self.assertIsNone(value['last_heartbeat_at'])
+        self.assertIsNone(value['metrics_sampled_at_ms'])
         self.assertFalse(value['metrics_timestamp_available'])
         self.assertNotIn('private', str(value))
         self.assertNotIn('192.0.2.1', str(value))
 
     def test_metrics_and_heartbeat_times_remain_distinct(self):
-        value = baseline.panel_times({'last_seen': 123, 'latest_metrics': {'collected_at': 100},
-                                     'last_metrics_received_at': 102})
-        self.assertEqual(value['last_metrics_collected_at'], 100)
-        self.assertEqual(value['last_metrics_received_at'], 102)
-        self.assertEqual(value['last_heartbeat_at'], 123)
+        value = baseline.panel_times({'last_seen': 123, 'last_heartbeat_at': 120,
+                                     'metrics_sampled_at': 100123})
+        self.assertEqual(value['metrics_sampled_at_ms'], 100123)
+        self.assertEqual(value['last_device_message_at'], 123)
+        self.assertEqual(value['last_heartbeat_at'], 120)
+        self.assertTrue(value['metrics_timestamp_available'])
 
     def test_evidence_is_private_and_never_overwrites(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -72,7 +74,8 @@ class BaselineEvidenceTests(unittest.TestCase):
                            'https://panel.example.com'):
                 with self.subTest(origin=origin):
                     result = baseline.read_panel(origin, 123, 'session=private')
-                    self.assertEqual(result['last_heartbeat_at'], 123)
+                    self.assertEqual(result['last_device_message_at'], 123)
+                    self.assertIsNone(result['last_heartbeat_at'])
                     request = opener.return_value.open.call_args.args[0]
                     self.assertEqual(request.full_url, origin + '/api/servers/123')
                     self.assertEqual(request.get_header('Cookie'), 'session=private')

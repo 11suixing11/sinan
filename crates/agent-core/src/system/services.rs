@@ -214,9 +214,11 @@ impl SystemServiceManager {
 }
 
 impl ServiceManager for SystemServiceManager {
+    #[cfg(unix)]
     fn supports_confirmed_cancellation(&self) -> bool {
         super::cleanup::supported(self.backend)
     }
+    #[cfg(unix)]
     fn diagnostic_cleanup_confirmed<'a>(
         &'a self,
         unit: &'a str,

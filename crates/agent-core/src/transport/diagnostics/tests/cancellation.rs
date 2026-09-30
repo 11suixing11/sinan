@@ -237,3 +237,101 @@ async fn cancellation_result_survives_http_failure_and_replays_after_sqlite_reop
     server.await??;
     Ok(())
 }
+
+#[tokio::test]
+async fn retirement_during_cancellation_http_cannot_restore_cleared_state() -> Result<()> {
+    for acknowledging in [false, true] {
+        let directory = Directory::new();
+        let services = Arc::new(Services::new(JobStatus::Missing));
+        let (worker, control) = controlled(&directory, services.clone())?;
+        let id = Uuid::new_v4();
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let client = Arc::new(PanelClient::new(
+            &format!("http://{}", listener.local_addr()?),
+            "test-session",
+        )?);
+        if acknowledging {
+            worker.state.lock().unwrap().set_json(
+                RESULTS,
+                &vec![DiagnosticCancelResult {
+                    server_id: 7,
+                    id,
+                    plugin: "diagnostic-fixture".into(),
+                    confirmed: true,
+                    report: None,
+                    error: None,
+                }],
+            )?;
+        }
+        let retirement = Arc::new(crate::retirement::Retirement::new(
+            worker.config.clone(),
+            worker.state.clone(),
+            vec![],
+            Arc::new(FakeResourceOps::default()),
+            services,
+        )?);
+        let body = if acknowledging {
+            Vec::new()
+        } else {
+            serde_json::to_vec(&vec![request(id)])?
+        };
+        let (seen, started) = tokio::sync::oneshot::channel();
+        let (reply, released) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await?;
+            let mut bytes = Vec::new();
+            loop {
+                let mut chunk = [0; 8192];
+                let count = socket.read(&mut chunk).await?;
+                ensure!(count > 0, "cancellation HTTP request closed early");
+                bytes.extend_from_slice(&chunk[..count]);
+                if bytes.windows(4).any(|chunk| chunk == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let headers = std::str::from_utf8(&bytes)?;
+            assert!(headers.starts_with(if acknowledging { "POST " } else { "GET " }));
+            seen.send(())
+                .map_err(|_| anyhow::anyhow!("test receiver closed"))?;
+            released.await?;
+            socket.write_all(format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()
+            ).as_bytes()).await?;
+            socket.write_all(&body).await?;
+            Ok::<_, anyhow::Error>(())
+        });
+        let (clients, receiving) = watch::channel(Some(client));
+        let polling = tokio::spawn(control.run(receiving, retirement.clone()));
+        tokio::time::timeout(Duration::from_secs(2), started).await??;
+        retirement.request(
+            &crate::identity::Identity {
+                server_id: 7,
+                signing_key: ed25519_dalek::SigningKey::from_bytes(&[17; 32]),
+            },
+            sinan_protocol::RetirementRequest {
+                request_id: Uuid::new_v4(),
+            },
+        )?;
+        let retiring = retirement.clone();
+        let state = worker.state.clone();
+        let clearing = tokio::spawn(async move {
+            let _guard = retiring.gate.write().await;
+            state.lock().unwrap().clear_retired_configuration()
+        });
+        // Retirement's destructive phase waits for the already in-flight request.
+        tokio::task::yield_now().await;
+        assert!(!clearing.is_finished());
+        reply
+            .send(())
+            .map_err(|_| anyhow::anyhow!("HTTP fixture closed"))?;
+        tokio::time::timeout(Duration::from_secs(2), server).await???;
+        tokio::time::timeout(Duration::from_secs(2), clearing).await???;
+        // Another recovery wake after clearing must also leave the keys absent.
+        clients.send_replace(None);
+        drop(clients);
+        tokio::time::timeout(Duration::from_secs(2), polling).await???;
+        assert!(worker.read::<serde_json::Value>(REQUESTS)?.is_none());
+        assert!(worker.read::<serde_json::Value>(RESULTS)?.is_none());
+    }
+    Ok(())
+}

@@ -53,6 +53,7 @@ pub struct DiagnosticWorker {
     services: Arc<dyn ServiceManager>,
     keys: std::result::Result<TrustedKeys, ReleaseError>,
     cancellations: Option<Arc<cancellation::CancellationControl>>,
+    retirement: Option<Arc<crate::retirement::Retirement>>,
 }
 
 impl DiagnosticWorker {
@@ -83,6 +84,7 @@ impl DiagnosticWorker {
             services,
             keys: TrustedKeys::compiled(),
             cancellations: None,
+            retirement: None,
         })
     }
 
@@ -95,6 +97,12 @@ impl DiagnosticWorker {
     pub fn with_trusted_keys(mut self, keys: TrustedKeys) -> Self {
         self.keys = Ok(keys);
         self
+    }
+
+    fn retiring(&self) -> bool {
+        self.retirement
+            .as_ref()
+            .is_some_and(|retirement| retirement.requested())
     }
 
     fn read<T: serde::de::DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {

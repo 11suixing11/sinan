@@ -260,6 +260,13 @@ pub async fn process_message(
             reconcile_hint(state, server_id, hello.applied).await?;
         }
         Message::Heartbeat(heartbeat) => {
+            sqlx::query(
+                "UPDATE servers SET last_heartbeat_at=$2 WHERE id=$1 AND deleted_at IS NULL",
+            )
+            .bind(server_id)
+            .bind(now_timestamp())
+            .execute(&state.pool)
+            .await?;
             reconcile_hint(state, server_id, heartbeat.applied).await?
         }
         Message::TelemetryStatic(info) => {
@@ -272,10 +279,11 @@ pub async fn process_message(
         Message::TelemetryMetrics(metrics) => {
             let value = serde_json::to_value(metrics)?;
             let mut tx = state.pool.begin().await?;
-            sqlx::query("UPDATE servers SET latest_metrics=$2,metrics_sampled_at=$3 WHERE id=$1")
+            // Legacy envelopes contain no collection timestamp. Preserve the metrics,
+            // but do not label their reception time as a fresh collection.
+            sqlx::query("UPDATE servers SET latest_metrics=$2,metrics_sampled_at=0 WHERE id=$1")
                 .bind(server_id)
                 .bind(&value)
-                .bind(sinan_protocol::telemetry::now_millis())
                 .execute(&mut *tx)
                 .await?;
             sqlx::query("INSERT INTO metrics_minutely(server_id,bucket,metrics) VALUES($1,$2,$3) ON CONFLICT(server_id,bucket) DO UPDATE SET metrics=EXCLUDED.metrics").bind(server_id).bind(now_timestamp()/60*60).bind(value).execute(&mut *tx).await?;

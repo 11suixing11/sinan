@@ -38,13 +38,13 @@ def private_file(path, value):
 
 
 def panel_times(value):
-    metrics = value.get("latest_metrics", {})
-    # Old Agents do not report collection time: record unknown, never reuse heartbeat.
+    sampled_at = value.get("metrics_sampled_at")
+    # API timestamps have different units. Missing legacy times remain unknown.
     return {
-        "last_heartbeat_at": value.get("last_seen"),
-        "last_metrics_collected_at": metrics.get("collected_at"),
-        "last_metrics_received_at": value.get("last_metrics_received_at"),
-        "metrics_timestamp_available": metrics.get("collected_at") is not None,
+        "last_device_message_at": value.get("last_seen"),
+        "last_heartbeat_at": value.get("last_heartbeat_at"),
+        "metrics_sampled_at_ms": sampled_at,
+        "metrics_timestamp_available": isinstance(sampled_at, int) and sampled_at > 0,
     }
 
 

@@ -106,6 +106,10 @@ mod tests {
             agent_version: "fixture-agent",
             retirement: None,
             cancellation: None,
+            telemetry: tokio::sync::watch::channel(Arc::new(
+                crate::telemetry::cache::Snapshot::default(),
+            ))
+            .1,
         };
         let bound = bind(&socket).await?;
         assert_eq!(

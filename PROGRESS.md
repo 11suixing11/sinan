@@ -542,3 +542,13 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 代码 `8957f5c` 的 CI `36772176396` 通过 check、compose-smoke、Linux musl 两架构，实际 systemd 串行 6 项通过 / 0 失败 / 0 忽略（2.28 秒）；Reality 安装计量因 Draft 跳过。专用 Debian 12 节点夹具尚未执行，保留待验状态，不以 CI 环境替代。
 - 设计见 [ADR 0026](docs/adr/0026-confirmed-diagnostic-cancellation.md)，独立验收见 [取消验收](docs/acceptance/diagnostic-cancellation.md)。不把本项夹具当作完整 NodeQuality / 持续代理流量验收。
 - 合并审查统一能力宣告与真实清理条件：Linux/systemd/cgroup v2 三项必须同时满足，缺少控制器证据不宣告确认取消能力。新增回归尚待 Rust 编译槽，保留原签名、预算与不支持 OpenRC 的边界。整合 main `c958ba2` 的缓存/未知字段前端规则后，Bun 1.4.2 冻结安装、4 项/637 断言与 TypeScript/Vite 通过，重建合并 dist；最终后端/平台结果单独记录。
+## 2026-10-01：发布草稿查找修正（独立 PR）
+
+- [Issue #52](https://github.com/theLucius7/sinan/issues/52)：真实草稿的 tag 查询返回 404，而已认证 List releases 与按 ID 查询可读。发布器改为每页 100 条、最多 10 页查找精确且唯一的 tag，再按 ID 复核 ID、tag、完整 build SHA；缺失、重复、异常、扫描超限或身份变化均拒绝。原有 CI、资产摘要、签名与发布前后身份门禁保留。
+- Fake API 对草稿 tag 查询明确返回 404；新增回归先在旧发布器下失败，再在修复后通过。分页、相似标签、歧义、重复 ID、页数上限及下载期间身份变化均有覆盖。发布专项 22 项全部通过；Python discovery 共 88 项，83 项通过、5 项依既有条件跳过（需要隔离 Linux root）。本次只修改发布工具、测试与文档，未运行 Cargo，也未据此宣称正式 Release 已发布。
+- 候选源码 `75cd846`、`agent-v0.3.0` 标签与原有资产保持冻结；本修复须独立审阅，随后从已审阅的工具分支验证同一草稿，正式签名与公开状态另行记录。
+- 对真实 GitHub 草稿执行只读验证成功：固定 Release ID、完整 build SHA 和九项资产 ID/摘要/大小与已下载并审核的候选完全一致，未执行签名或发布写操作。
+
+- 合并审查：发布器专项 22 项重新通过，core 门禁与差异检查通过。真实 GitHub 草稿只读查找再次确认 ID、冻结 build SHA 及九项资产名称；没有执行签名或发布写入。
+
+- 继续整合心跳隔离与发布工具修复；Windows 继承 SDK 默认不支持取消确认，恢复线程与 WS 请求共用退役门禁并复核退役标志，新增挂起 HTTP 回复后不得重建取消键的回归。此阶段仅完成源码/前端构建，Rust 最终验证待合入章节与页面拆分后的主线。

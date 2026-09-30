@@ -15,6 +15,10 @@ impl DiagnosticWorker {
             return Ok(());
         };
         for request in control.pending()? {
+            // Finish only the cleanup already in flight; retirement owns the rest.
+            if self.retiring() {
+                break;
+            }
             let result = self.cancel_known_job(&request).await;
             let (confirmed, report, error) = match result {
                 Ok(report) => (true, report, None),

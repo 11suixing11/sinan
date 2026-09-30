@@ -3,6 +3,9 @@ use super::*;
 impl DiagnosticWorker {
     pub(super) async fn monitored_tick(&self, client: Option<&PanelClient>) -> Result<()> {
         self.process_cancellations().await?;
+        if self.retiring() {
+            return Ok(());
+        }
         let Some(control) = &self.cancellations else {
             return self.network_tick(client).await;
         };
@@ -78,10 +81,11 @@ impl DiagnosticWorker {
     }
 
     pub(crate) async fn run_guarded(
-        self,
+        mut self,
         mut client: watch::Receiver<Option<Arc<PanelClient>>>,
         retirement: Arc<crate::retirement::Retirement>,
     ) -> Result<()> {
+        self.retirement = Some(retirement.clone());
         let mut cancellation_wake = self
             .cancellations
             .as_ref()
