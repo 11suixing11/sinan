@@ -672,3 +672,72 @@ async fn auxiliary_artifacts_require_signed_file_hashes_and_reject_tampering() -
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn signed_five_file_provenance_is_installed_and_cache_tampering_is_rejected() -> Result<()> {
+    let temporary = Temporary::new()?;
+    let auxiliary: [(&str, &[u8]); 5] = [
+        ("build-info.json", b"TEST_ONLY build provenance"),
+        ("LICENSE", b"TEST_ONLY license"),
+        ("source.tar.gz", b"TEST_ONLY fixed source archive"),
+        ("Cargo.lock", b"TEST_ONLY locked dependencies"),
+        (
+            "THIRD_PARTY_NOTICES.txt",
+            b"TEST_ONLY third-party originals",
+        ),
+    ];
+    let mut members = vec![("runtime", tar::EntryType::Regular, b"binary".as_slice())];
+    members.extend(
+        auxiliary
+            .iter()
+            .map(|(name, data)| (*name, tar::EntryType::Regular, *data)),
+    );
+    let packed = archive(&members)?;
+    let panel = HttpServer::new(packed.clone(), "200 OK", "").await?;
+    let client = PanelClient::new(&panel.origin, "test-session")?
+        .with_trusted_keys(release_support::trusted_keys());
+    let mut entry =
+        release_support::entry("runtime", "1.0", "runtime", "tar.gz", &packed, b"binary");
+    for (name, content) in auxiliary {
+        entry.auxiliary_files.insert(
+            name.into(),
+            sinan_protocol::release::ReleaseFile {
+                sha256: checksum(content),
+                size: content.len() as u64,
+            },
+        );
+    }
+    let artifact = Artifact {
+        proof: Some(release_support::signed_release(vec![(
+            entry,
+            packed.clone(),
+        )])),
+        url: format!(
+            "{}/api/agent/v1/artifacts/runtime/1.0/{}",
+            panel.origin,
+            sinan_protocol::release::native_arch()?
+        ),
+        sha256: checksum(&packed),
+    };
+    let mut descriptor = descriptor();
+    descriptor.auxiliary_files = auxiliary
+        .iter()
+        .map(|(name, _)| (*name).to_owned())
+        .collect();
+    let binary = client
+        .ensure_artifact(&artifact, "1.0", &descriptor, &temporary.0, &SystemOps)
+        .await?;
+    for (name, content) in auxiliary {
+        assert_eq!(std::fs::read(binary.parent().unwrap().join(name))?, content);
+        std::fs::write(binary.parent().unwrap().join(name), b"tampered")?;
+        assert!(
+            client
+                .ensure_artifact(&artifact, "1.0", &descriptor, &temporary.0, &SystemOps)
+                .await
+                .is_err()
+        );
+        std::fs::write(binary.parent().unwrap().join(name), content)?;
+    }
+    assert_eq!(panel.requests.lock().await.len(), 1);
+    Ok(())
+}
