@@ -29,6 +29,7 @@ async fn empty_cache_keeps_host_identity_until_a_real_snapshot_arrives() -> Resu
         public_ips: Arc::new(vec![]),
         agent_version: "fixture-agent",
         retirement: None,
+        cancellation: None,
         telemetry: cache,
     };
     assert!(runtime.static_info()?.is_none());

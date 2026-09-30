@@ -13,6 +13,7 @@ Provider 维度是 check-place 聚合入口、abuseipdb-api 正式接口与尚�
 ## 可重复的 HTTP/PostgreSQL 场景
 
 ```sh
+unset SINAN_ABUSEIPDB_API_KEY  # Tests use synthetic fixture credentials only.
 export SINAN_RELEASE_PUBLIC_KEYS="$(python3 scripts/ci-test-trust.py)"
 cargo fmt --all --check
 cargo test --locked -p sinan-panel --lib ip_quality
@@ -51,3 +52,5 @@ Bun 1.4.2 冻结安装、TypeScript/Vite 构建 dist（含五项字段回归、7
 - 未调用真实 AbuseIPDB 账户。实际权限、额度、DNS/TLS 和面板网络可达性在运营者配置密钥后另验；没有凭据仍可交付明确禁用行为。
 - 没有执行或打包原版 IPQuality。固定 AGPL-3.0 源码的 UA、在线 main 引用、统计/上传、并发与宿主依赖修改须由后续独立 PR 实现，并做静态及网络请求验收，详见 [ADR 0027](../adr/0027-ip-provider-adapters.md)。
 - 未跑完整 NodeQuality、Agent 重启/面板断连、取消或持续代理压力场景，不将本项通过等同整阶段通过。
+
+- 合并审查最终验证：正常合入 main `6b63f71`（含确认式取消），保留作者 `cfea748` 祖先及双方全部记录；最终代码审查未发现需要改动的生产缺陷。全程移除真实 `SINAN_ABUSEIPDB_API_KEY`，只使用明确公开的合成 key 与回环 HTTP，未读取或调用真实账户。独立 PostgreSQL 下 IP/provider library 25 项、diagnostics API 7 项及章节/迁移 3 项，共 35 项通过、0 失败/忽略；覆盖敏感 Header、固定路径/参数/无 UA/重试/重定向、身份/类型、403/429/超时、禁用零请求、0/false 与双来源历史及新连接池/租约。Panel 全 targets Clippy（warnings 为错误）、workspace fmt、core 门禁及其 6 项行为回归、差异检查通过。Bun 1.4.2 冻结安装、5 项字段测试/711 断言及 TypeScript/Vite 构建通过，重建 JS `index-C1v7YTay.js`；最终 dist 在实际 Chromium 桌面/390px 手机的入口/缺凭据/0false/错误历史/禁用/百分比边界及确认取消组合场景全部通过、页面错误 0。本轮没有重复完整 workspace 或调用正式公网账户，不宣称配额/权限/节点自查或完整 NodeQuality 压力已验。

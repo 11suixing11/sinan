@@ -29,7 +29,10 @@ const EXPECTED_SECTIONS: [&str; 5] = [
     "backroute_trace",
 ];
 mod sections;
-const HISTORY_QUERY: &str = "SELECT j.id,j.status,j.job,j.report,j.error,j.created_at,j.updated_at,j.expires_at,j.expected_sections,j.report_completeness,COALESCE((SELECT jsonb_agg(jsonb_build_object('name',s.name,'text',s.text,'complete',s.complete,'revision',s.revision,'collected_at',s.collected_at) ORDER BY array_position(j.expected_sections,s.name),s.name) FROM diagnostic_report_sections s WHERE s.job_id=j.id),'[]'::jsonb) AS sections FROM diagnostic_jobs j WHERE j.server_id=$1 ORDER BY j.created_at DESC,j.id DESC LIMIT 10";
+const HISTORY_QUERY: &str = "SELECT j.id,j.status,j.job,j.report,j.error,j.created_at,j.updated_at,j.expires_at,j.agent_completed,j.cancel_requested_at,j.cancel_error,j.expected_sections,j.report_completeness,COALESCE((SELECT jsonb_agg(jsonb_build_object('name',s.name,'text',s.text,'complete',s.complete,'revision',s.revision,'collected_at',s.collected_at) ORDER BY array_position(j.expected_sections,s.name),s.name) FROM diagnostic_report_sections s WHERE s.job_id=j.id),'[]'::jsonb) AS sections FROM diagnostic_jobs j WHERE j.server_id=$1 ORDER BY j.created_at DESC,j.id DESC LIMIT 10";
+pub(super) const RECORD_QUERY: &str = "SELECT j.id,j.status,j.job,j.report,j.error,j.created_at,j.updated_at,j.expires_at,j.agent_completed,j.cancel_requested_at,j.cancel_error,j.expected_sections,j.report_completeness,COALESCE((SELECT jsonb_agg(jsonb_build_object('name',s.name,'text',s.text,'complete',s.complete,'revision',s.revision,'collected_at',s.collected_at) ORDER BY array_position(j.expected_sections,s.name),s.name) FROM diagnostic_report_sections s WHERE s.job_id=j.id),'[]'::jsonb) AS sections FROM diagnostic_jobs j WHERE j.id=$1 AND j.server_id=$2";
+
+pub mod cancellation;
 
 #[derive(Serialize, FromRow)]
 pub struct ReportRecord {
@@ -41,6 +44,9 @@ pub struct ReportRecord {
     pub created_at: i64,
     pub updated_at: i64,
     pub expires_at: i64,
+    pub agent_completed: bool,
+    pub cancel_requested_at: Option<i64>,
+    pub cancel_error: Option<String>,
     pub expected_sections: Vec<String>,
     pub report_completeness: String,
     pub sections: Value,
@@ -51,6 +57,7 @@ pub struct NodeQualityView {
     pub plugin_ready: bool,
     pub plugin_reason: Option<String>,
     pub reports: Vec<ReportRecord>,
+    pub cancel_supported: bool,
 }
 
 #[derive(Serialize)]
@@ -187,6 +194,7 @@ async fn view(state: &AppState, id: i64) -> ApiResult<NodeQualityView> {
         plugin_ready: reason.is_none(),
         plugin_reason: reason,
         reports: history(state, id).await?,
+        cancel_supported: cancellation::supported(&row.get::<Value, _>("capabilities")),
     })
 }
 
@@ -209,7 +217,7 @@ pub async fn create(
     let now = now_timestamp();
     sqlx::query("UPDATE diagnostic_jobs SET status='failed',error='任务超时或设备未及时回报',updated_at=$2 WHERE server_id=$1 AND status IN ('queued','running') AND expires_at<=$2")
         .bind(id).bind(now).execute(&mut *tx).await?;
-    let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM diagnostic_jobs WHERE server_id=$1 AND status IN ('queued','running'))")
+    let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM diagnostic_jobs WHERE server_id=$1 AND status IN ('queued','running','cancel_requested'))")
         .bind(id).fetch_one(&mut *tx).await?;
     if active {
         return Err(ApiError::Conflict(
@@ -237,7 +245,7 @@ pub async fn create(
             ("upload_report".into(), request.upload_report.to_string()),
         ]),
     };
-    let record = sqlx::query_as("INSERT INTO diagnostic_jobs(id,server_id,job,created_at,updated_at,expires_at,expected_sections) VALUES($1,$2,$3,$4,$4,$5,$6) RETURNING id,status,job,report,error,created_at,updated_at,expires_at,expected_sections,report_completeness,'[]'::jsonb AS sections")
+    let record = sqlx::query_as("INSERT INTO diagnostic_jobs(id,server_id,job,created_at,updated_at,expires_at,expected_sections) VALUES($1,$2,$3,$4,$4,$5,$6) RETURNING id,status,job,report,error,created_at,updated_at,expires_at,agent_completed,cancel_requested_at,cancel_error,expected_sections,report_completeness,'[]'::jsonb AS sections")
         .bind(job.id).bind(id).bind(serde_json::to_value(job).map_err(anyhow::Error::from)?)
         .bind(now).bind(now + TIMEOUT_SECS as i64 + 300).bind(EXPECTED_SECTIONS.to_vec()).fetch_one(&mut *tx).await?;
     tx.commit().await?;
@@ -324,7 +332,21 @@ pub async fn update(
     .await?
     .ok_or(ApiError::NotFound)?;
     let status: String = row.get("status");
-    if matches!(status.as_str(), "succeeded" | "failed")
+    if status == "cancel_requested" {
+        // A late natural result cannot confirm that cancellation has cleaned up.
+        let report = update
+            .report
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(anyhow::Error::from)?;
+        sqlx::query("UPDATE diagnostic_jobs SET report=COALESCE($2,report),report_completeness=CASE WHEN cardinality(expected_sections)=0 AND COALESCE($2,report) IS NOT NULL THEN 'legacy' ELSE report_completeness END,agent_completed=agent_completed OR $3,updated_at=$4 WHERE id=$1")
+            .bind(id).bind(report).bind(update.status != DiagnosticStatus::Running).bind(now_timestamp())
+            .execute(&mut *tx).await?;
+        tx.commit().await?;
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    if matches!(status.as_str(), "succeeded" | "failed" | "cancelled")
         && (row.get::<bool, _>("agent_completed") || update.status == DiagnosticStatus::Running)
     {
         // Final updates are retried durably by devices; terminal results never regress.
@@ -377,36 +399,4 @@ pub async fn update(
 pub use sections::upload_section;
 
 #[cfg(test)]
-mod tests {
-    use super::{ReportRequest, safe_report_url};
-    use serde_json::json;
-
-    #[test]
-    fn report_upload_requires_an_explicit_boolean_opt_in() {
-        for request in [json!({}), json!({"upload_report":false})] {
-            let request: ReportRequest = serde_json::from_value(request).unwrap();
-            assert!(!request.upload_report);
-        }
-        let request: ReportRequest = serde_json::from_value(json!({"upload_report":true})).unwrap();
-        assert!(request.upload_report);
-        for value in [json!("true"), json!(1), json!(null)] {
-            assert!(
-                serde_json::from_value::<ReportRequest>(json!({"upload_report":value})).is_err()
-            );
-        }
-    }
-    #[test]
-    fn report_links_are_restricted_to_the_official_https_origin() {
-        assert!(safe_report_url("https://nodequality.com/r/example"));
-        for url in [
-            "http://nodequality.com/r/example",
-            "https://nodequality.com.evil.invalid/r/x",
-            "https://user:secret@nodequality.com/r/x",
-            "https://nodequality.com:8443/r/x",
-            "javascript:alert(1)",
-            "https://nodequality.com/r/x#fragment",
-        ] {
-            assert!(!safe_report_url(url), "{url}");
-        }
-    }
-}
+mod tests;
