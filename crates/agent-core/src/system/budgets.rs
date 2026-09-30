@@ -5,6 +5,29 @@ use std::{path::PathBuf, sync::Mutex};
 #[derive(Default)]
 struct RecordingOps(Mutex<Vec<(PathBuf, Vec<String>)>>);
 
+#[tokio::test]
+async fn conflict_probe_is_a_read_only_systemctl_query() -> Result<()> {
+    let ops = Arc::new(RecordingOps::default());
+    let services = SystemServiceManager::new(ops.clone(), ServiceBackend::Systemd);
+    assert!(services.running_diagnostic_units().await?.is_empty());
+    let calls = ops.0.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, Path::new("systemctl"));
+    assert_eq!(
+        calls[0].1,
+        [
+            "list-units",
+            "--type=service",
+            "--state=activating,active,deactivating,reloading",
+            "--no-legend",
+            "--plain",
+            "--no-pager",
+            "sinan-diagnostic-*.service"
+        ]
+    );
+    Ok(())
+}
+
 impl Privileged for RecordingOps {
     fn execute<'a>(
         &'a self,
@@ -80,7 +103,15 @@ async fn service_command_applies_every_budget_before_the_program_separator() -> 
         let separator = args.iter().position(|arg| arg == "--").unwrap();
         assert_eq!(
             &args[separator + 1..],
-            ["/usr/bin/true", "--property=MemoryMax=infinity"]
+            [
+                "/usr/bin/flock",
+                "--exclusive",
+                "--nonblock",
+                "--conflict-exit-code=75",
+                "/run/sinan-diagnostic.lock",
+                "/usr/bin/true",
+                "--property=MemoryMax=infinity"
+            ]
         );
         for (property, expected) in [
             ("MemoryMax", job.memory_max.get().to_string()),

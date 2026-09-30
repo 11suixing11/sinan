@@ -1,6 +1,41 @@
 use super::*;
 
 impl SystemServiceManager {
+    pub(super) fn diagnostic_running_units(&self) -> BoxFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            if self.backend == ServiceBackend::OpenRc {
+                return self.openrc_running_units().await;
+            }
+            ensure!(
+                self.backend == ServiceBackend::Systemd,
+                "当前服务后端不支持安全诊断冲突检查"
+            );
+            let args = vec![
+                "list-units".into(),
+                "--type=service".into(),
+                "--state=activating,active,deactivating,reloading".into(),
+                "--no-legend".into(),
+                "--plain".into(),
+                "--no-pager".into(),
+                "sinan-diagnostic-*.service".into(),
+            ];
+            let execution = self
+                .privileged
+                .execute_bounded(Path::new("systemctl"), &args, 5, 64 * 1024)
+                .await?;
+            ensure!(
+                !execution.timed_out && !execution.truncated,
+                "诊断服务列表读取超时或超限"
+            );
+            let output = execution.output;
+            ensure!(
+                output.success,
+                "diagnostic conflict inspection failed: {}",
+                output.stderr
+            );
+            parse_running_units(&output.stdout)
+        })
+    }
     pub(super) fn start_diagnostic_job<'a>(&'a self, job: &'a ServiceJob) -> BoxFuture<'a, ()> {
         Box::pin(async move {
             ensure!(valid_job_unit(&job.unit), "invalid diagnostic service unit");
@@ -54,6 +89,11 @@ impl SystemServiceManager {
                 format!("--property=OOMScoreAdjust={}", job.oom_score_adjust.get()),
                 format!("--property=WorkingDirectory={directory}"),
                 "--".into(),
+                "/usr/bin/flock".into(),
+                "--exclusive".into(),
+                "--nonblock".into(),
+                "--conflict-exit-code=75".into(),
+                "/run/sinan-diagnostic.lock".into(),
                 program.into(),
             ];
             args.extend(job.args.iter().cloned());
@@ -89,7 +129,33 @@ impl SystemServiceManager {
     }
 }
 
-fn valid_job_unit(unit: &str) -> bool {
+fn parse_running_units(output: &str) -> Result<Vec<String>> {
+    ensure!(
+        output.len() <= 64 * 1024,
+        "diagnostic service list is too large"
+    );
+    let mut units = Vec::new();
+    for line in output.lines().filter(|line| !line.trim().is_empty()) {
+        let fields: Vec<_> = line.split_whitespace().take(4).collect();
+        ensure!(
+            fields.len() == 4 && valid_job_unit(fields[0]) && fields[1] == "loaded",
+            "diagnostic service list has an unknown row"
+        );
+        ensure!(
+            matches!(
+                fields[2],
+                "activating" | "active" | "deactivating" | "reloading"
+            ),
+            "diagnostic service list has an unknown state"
+        );
+        if !(fields[2] == "active" && fields[3] == "exited") {
+            units.push(fields[0].into());
+        }
+    }
+    Ok(units)
+}
+
+pub(super) fn valid_job_unit(unit: &str) -> bool {
     unit.strip_prefix("sinan-diagnostic-")
         .and_then(|value| value.strip_suffix(".service"))
         .is_some_and(|id| Uuid::parse_str(id).is_ok_and(|uuid| uuid.to_string() == id))
@@ -138,12 +204,17 @@ fn parse_job_status(output: &CommandOutput) -> Result<JobStatus> {
             Ok(JobStatus::Succeeded)
         }
         Some("failed" | "inactive" | "active") => Ok(JobStatus::Failed {
-            error: format!(
-                "diagnostic service failed: result={}, code={}, status={}",
-                properties.get("Result").unwrap_or(&"unknown"),
-                properties.get("ExecMainCode").unwrap_or(&"unknown"),
-                properties.get("ExecMainStatus").unwrap_or(&"unknown")
-            ),
+            error: if properties.get("ExecMainStatus") == Some(&"75") {
+                "诊断失败（退出码 75）：同机独占锁被占用时不会执行测试，请确认原任务已结束后重试"
+                    .into()
+            } else {
+                format!(
+                    "diagnostic service failed: result={}, code={}, status={}",
+                    properties.get("Result").unwrap_or(&"unknown"),
+                    properties.get("ExecMainCode").unwrap_or(&"unknown"),
+                    properties.get("ExecMainStatus").unwrap_or(&"unknown")
+                )
+            },
         }),
         _ => anyhow::bail!("diagnostic service active state is unknown"),
     }

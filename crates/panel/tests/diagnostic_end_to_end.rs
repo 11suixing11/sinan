@@ -13,7 +13,7 @@ use reqwest::Method;
 use serde_json::json;
 use sinan_adapter_nodequality::{NodeQualityAdapter, VERSION};
 use sinan_adapter_sdk::{BoxFuture, JobStatus, ServiceJob, ServiceManager};
-use sinan_agent_core::{State, identity, system::SystemOps, transport};
+use sinan_agent_core::{State, fake::FakeResourceOps, identity, system::SystemOps, transport};
 use sqlx::PgPool;
 use std::{
     collections::BTreeMap,
@@ -49,6 +49,18 @@ impl IndependentServices {
 }
 
 impl ServiceManager for IndependentServices {
+    fn running_diagnostic_units(&self) -> BoxFuture<'_, Vec<String>> {
+        Box::pin(async {
+            Ok(self
+                .jobs
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(_, (_, status))| *status == JobStatus::Running)
+                .map(|(unit, _)| unit.clone())
+                .collect())
+        })
+    }
     fn reload<'a>(&'a self, _: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
@@ -135,7 +147,7 @@ async fn node_report_survives_agent_restart_and_is_started_only_once(pool: PgPoo
             config.clone(),
             vec![],
             vec![Arc::new(NodeQualityAdapter::new())],
-            Arc::new(SystemOps),
+            Arc::new(FakeResourceOps::new(Arc::new(SystemOps))),
             services.clone(),
             "diagnostic-test-agent",
         ))
