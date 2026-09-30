@@ -687,7 +687,7 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 ## 2026-10-01：完整验机门禁合并审查
 
-- 正常整合插件业务主线 2c3c1e5，保留新版插件设置、代理用户与独立 IP/诊断路由；重建 dist，未启用完整验机。
-- 修复缺少 plugin/mode 的旧任务绕过面板门禁：排队清理和分发统一采用历史 NodeQuality 归属；分发响应补默认插件名但原 JSON、版本与参数不改写。新增旧排队、运行分发及迟到报告回归，已有 Started 恢复/取消路径保持原逻辑。
-- 本机 Python 包装器 34、daily helper 7、Bun 5/711断言、TypeScript/Vite、fmt、core门禁、actionlint与实际dist Chromium门禁场景通过；完整 POST 0、页面错误0。Rust/PostgreSQL及最终主线重验等待集中串行构建，不宣称已完成。
+- 正常整合插件业务主线 `2c3c1e5`、正式共享服务 `e3a41ed`、正式原生引擎主线 `2574a84` 与最新作者 `75cf69f`，保留新版插件设置、代理用户与独立 IP/诊断路由；重建 dist，完整验机门禁保持启用。
+- 修复缺少 plugin/mode 的旧任务绕过面板门禁：排队清理和分发统一采用历史 NodeQuality 归属；分发响应补默认插件名但原 JSON、版本与参数不改写。新增旧排队、运行分发、迟到报告及已登记硬件章节回归；章节可保存但门禁失败原因与未完成状态不被伪造，已有 Started 恢复/取消路径保持原逻辑。Preparing 升级夹具改为主机架构的签名制品地址，实际验证走到适配器门禁且零启动。
+- 本机 Python 包装器 34、daily helper 7、Bun 5/711 断言、TypeScript/Vite、fmt、core 门禁、actionlint 与实际 dist Chromium 门禁及插件业务场景通过；完整 POST 0、页面错误 0。冻结整合源码 `e2ccd3f` 的相关 Rust/PostgreSQL 75 项全部通过、0 失败/忽略（适配器 15、Agent 诊断/预算 39、API 13、共用服务 2、章节 3、真实 Agent WS/HTTP restart/cancel/Preparing 门禁 3）；移除旧插件默认归属的负对照使两项回归失败，恢复后三项门禁回归再次通过。workspace 全 targets Clippy（warnings 为错误）通过，最终主线 CI 继续独立核对；本轮仅使用回环和假服务，未重跑无关 accounting 全量。
 - 固定上游执行链六个源码摘要与审计表一致；测试移除真实 SINAN_ABUSEIPDB_API_KEY，未运行真实完整验机、正式 API、宿主 swap 或发布操作。

@@ -15,7 +15,7 @@
 ```sh
 cargo fmt --all -- --check
 python3 tools/check-core-boundary.py
-cargo clippy --locked --all-targets -- -D warnings
+cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked
 python3 tools/test-nodequality.py
 python3 tools/test-diagnostic-modes.py
@@ -33,6 +33,8 @@ node tests/nodequality-chain-gate.mjs
 
 ## 合并审查补充
 
-正常整合插件业务主线 `2c3c1e5`，保留插件设置、代理用户入口及独立 IP 查询与报告路由，重新生成 dist。发现旧 JSON 缺少 `plugin` 字段时排队清理与分发绕过已登记门禁，现与历史报告规则一致归属 NodeQuality：排队完整任务失败但不伪造设备完成；已运行任务仅发给支持门禁的 Agent。只在分发响应补默认插件名，不改写数据库里的旧版本、参数或字段。专项回归同时覆盖缺少 `plugin` 与 `mode` 的旧任务、迟到报告和日常新建；Rust/PostgreSQL 验收等待集中构建槽，未用静态检查代替执行证据。
+正常整合插件业务主线 `2c3c1e5`、正式共享服务 `e3a41ed`、正式原生引擎主线 `2574a84` 与最新作者 `75cf69f`，保留插件设置、代理用户入口及独立 IP 查询与报告路由，重新生成 dist。发现旧 JSON 缺少 `plugin` 字段时排队清理与分发绕过已登记门禁，现与历史报告规则一致归属 NodeQuality：排队完整任务失败但不伪造设备完成；已运行任务仅发给支持门禁的 Agent。只在分发响应补默认插件名，不改写数据库里的旧版本、参数或字段。专项回归同时覆盖缺少 `plugin` 与 `mode` 的旧任务、迟到报告、已登记的硬件章节和日常新建；章节入库不清除门禁失败原因、不伪造设备完成。真实 Agent 的 Preparing 升级夹具使用主机架构的签名地址，避免固定 amd64 地址在 arm64 主机上提前触发制品身份拒绝。
 
 当前本机 Python 包装器 34 项、daily helper 7 项、Bun 5 项/711 断言、TypeScript/Vite、fmt、core 门禁、actionlint 与真实 Chromium 门禁场景通过，完整 POST 为 0、页面错误为 0。固定源码副本的六个 SHA256 与执行链审计表完全一致；未执行上游 benchmark、调用正式 API、读取真实 API key、修改宿主 swap 或发布制品。
+
+冻结整合源码 `e2ccd3f` 在 macOS 回环 PostgreSQL 通过相关 Rust 75 项、0 失败/忽略：NodeQuality 适配器 15、Agent 诊断/预算 39、诊断 API 13、共用服务 2、章节 3、真实 Agent WebSocket/HTTP 的恢复/取消/Preparing 门禁 3。移除旧任务默认插件归属的负对照使排队与运行分发两项回归失败，恢复修复后三项门禁回归再次通过。workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁、actionlint 和差异检查通过。所有网络与系统资源操作均使用回环/假服务夹具，未冒称真实 systemd、上游硬件压力或最终主线 CI；此后仅更新验收文档，已验源码与 dist 原字节保持一致。
