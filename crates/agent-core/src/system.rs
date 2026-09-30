@@ -1,8 +1,10 @@
+mod jobs;
+
 pub use sinan_adapter_sdk::{Privileged, ServiceManager};
 
 use anyhow::{ensure, Context, Result};
 use flate2::read::MultiGzDecoder;
-use sinan_adapter_sdk::{BoxFuture, CommandOutput};
+use sinan_adapter_sdk::{BoxFuture, CommandOutput, JobStatus, ServiceJob};
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
@@ -107,7 +109,9 @@ impl Privileged for SystemOps {
         Box::pin(async move {
             #[cfg(not(target_os = "linux"))]
             ensure!(
-                program.file_name().is_none_or(|name| name != "systemctl"),
+                program
+                    .file_name()
+                    .is_none_or(|name| name != "systemctl" && name != "systemd-run"),
                 "systemd operations require Linux"
             );
             let output = timeout(
@@ -360,5 +364,11 @@ impl ServiceManager for SystemServiceManager {
     }
     fn is_active<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, bool> {
         Box::pin(async move { Ok(self.call("is-active", unit, true).await?.success) })
+    }
+    fn start_job<'a>(&'a self, job: &'a ServiceJob) -> BoxFuture<'a, ()> {
+        self.start_diagnostic_job(job)
+    }
+    fn job_status<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, JobStatus> {
+        self.diagnostic_job_status(unit)
     }
 }

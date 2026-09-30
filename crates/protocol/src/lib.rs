@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+mod diagnostics;
+pub use diagnostics::*;
+
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -159,6 +162,8 @@ pub struct Heartbeat {
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StaticInfo {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ip_addresses: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

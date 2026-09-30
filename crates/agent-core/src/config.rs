@@ -12,6 +12,7 @@ pub struct Config {
     pub install_root: PathBuf,
     pub status_socket: PathBuf,
     pub operation_timeout_secs: u64,
+    pub public_ips: Vec<String>,
 }
 
 impl Default for Config {
@@ -24,6 +25,7 @@ impl Default for Config {
             install_root: "/opt/sinan/plugins".into(),
             status_socket: "/run/sinan/agent.sock".into(),
             operation_timeout_secs: 30,
+            public_ips: Vec::new(),
         }
     }
 }
@@ -54,6 +56,22 @@ impl Config {
         if self.operation_timeout_secs == 0 || self.operation_timeout_secs > 3600 {
             bail!("operation_timeout_secs must be between 1 and 3600");
         }
+        if self.public_ips.len() > 32 {
+            bail!("public_ips may contain at most 32 addresses");
+        }
+        for value in &self.public_ips {
+            let address: std::net::IpAddr = value.parse().context("invalid public IP address")?;
+            let address = match address {
+                std::net::IpAddr::V6(address) => address
+                    .to_ipv4_mapped()
+                    .map(std::net::IpAddr::V4)
+                    .unwrap_or(std::net::IpAddr::V6(address)),
+                address => address,
+            };
+            if address.is_unspecified() || address.is_multicast() || address.is_loopback() {
+                bail!("public_ips cannot contain unspecified, multicast, or loopback addresses");
+            }
+        }
         Ok(())
     }
 }
@@ -72,4 +90,31 @@ pub fn validate_panel_url(value: &str) -> anyhow::Result<reqwest::Url> {
         bail!("panel URL must be an HTTP(S) origin without credentials, path, query, or fragment");
     }
     Ok(url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn public_ip_override_is_optional_and_validated() {
+        let mut config: Config = toml::from_str("panel_url = 'http://127.0.0.1:8080'").unwrap();
+        assert!(config.public_ips.is_empty());
+        config.public_ips = vec!["192.0.2.1".into(), "2001:db8::1".into()];
+        assert!(config.validate().is_ok());
+        for value in [
+            "example.com",
+            "192.0.2.1:443",
+            "::",
+            "127.0.0.1",
+            "::ffff:127.0.0.1",
+            "224.0.0.1",
+        ] {
+            config.public_ips = vec![value.into()];
+            assert!(
+                config.validate().is_err(),
+                "invalid override accepted: {value}"
+            );
+        }
+    }
 }

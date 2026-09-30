@@ -1,4 +1,5 @@
 mod connection;
+pub mod diagnostics;
 mod status;
 mod worker;
 
@@ -6,7 +7,7 @@ pub use status::status;
 
 use crate::{artifacts::PanelClient, identity, reconcile::Reconciler, Config, SharedState, State};
 use anyhow::{Context, Result};
-use sinan_adapter_sdk::{Adapter, Prepared, Privileged, ServiceManager};
+use sinan_adapter_sdk::{Adapter, DiagnosticAdapter, Prepared, Privileged, ServiceManager};
 use sinan_protocol::AppliedRevisions;
 use std::{
     collections::BTreeMap,
@@ -26,12 +27,20 @@ use tokio::{
 struct Runtime {
     state: SharedState,
     modules: Arc<Vec<String>>,
+    capabilities: Arc<Vec<String>>,
     connected: Arc<AtomicBool>,
+    public_ips: Arc<Vec<String>>,
 }
 
 impl Runtime {
     fn static_info(&self) -> Result<sinan_protocol::StaticInfo> {
         let mut info = crate::telemetry::Collector::new().static_info();
+        info.ip_addresses = crate::telemetry::normalized_addresses(
+            info.ip_addresses
+                .iter()
+                .chain(self.public_ips.iter())
+                .filter_map(|address| address.parse().ok()),
+        );
         let state = self
             .state
             .lock()
@@ -66,6 +75,16 @@ pub async fn run(
     privileged: Arc<dyn Privileged>,
     services: Arc<dyn ServiceManager>,
 ) -> Result<()> {
+    run_with_diagnostics(config, adapters, Vec::new(), privileged, services).await
+}
+
+pub async fn run_with_diagnostics(
+    config: Config,
+    adapters: Vec<Arc<dyn Adapter>>,
+    diagnostics: Vec<Arc<dyn DiagnosticAdapter>>,
+    privileged: Arc<dyn Privileged>,
+    services: Arc<dyn ServiceManager>,
+) -> Result<()> {
     config.validate()?;
     let identity = identity::load(&config)?;
     // Reserve the instance before inspecting or recovering another process's intents.
@@ -87,16 +106,34 @@ pub async fn run(
         reconciler.recover().await?;
         reconcilers.push((module, reconciler));
     }
+    let mut capabilities = modules.clone();
+    capabilities.extend(
+        diagnostics
+            .iter()
+            .map(|adapter| format!("diagnostic:{}", adapter.describe().plugin_name)),
+    );
     let runtime = Runtime {
-        state,
+        state: state.clone(),
         modules: Arc::new(modules),
+        capabilities: Arc::new(capabilities),
         connected: Arc::new(AtomicBool::new(false)),
+        public_ips: Arc::new(config.public_ips.clone()),
     };
     let (client_tx, client_rx) = watch::channel::<Option<Arc<PanelClient>>>(None);
     let (trigger_tx, trigger_rx) = mpsc::channel(1);
     let (outgoing_tx, mut outgoing_rx) = mpsc::channel(64);
     let mut tasks = JoinSet::new();
     tasks.spawn(status::serve(listener, runtime.clone()));
+    tasks.spawn(
+        diagnostics::DiagnosticWorker::new(
+            config.clone(),
+            state,
+            diagnostics,
+            privileged,
+            services,
+        )?
+        .run(client_rx.clone()),
+    );
     tasks.spawn(worker::run(
         reconcilers,
         runtime.clone(),
@@ -180,6 +217,7 @@ mod tests {
             install_root: directory.0.join("install"),
             status_socket: directory.0.join("status.sock"),
             operation_timeout_secs: 1,
+            public_ips: vec![],
         };
         std::fs::create_dir_all(&config.identity_dir)?;
         std::fs::write(config.identity_dir.join("device.key"), [7_u8; 32])?;

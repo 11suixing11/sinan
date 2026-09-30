@@ -44,3 +44,11 @@
 - 幂等安装、systemd、Dockerfile、Compose。
 - 原样上游构建、Agent musl 构建、Debian 手动验收脚本。
 - README、最终验证与环境边界记录；检查后 push 指定仓库。
+
+## 用户后续需求：NodeQuality 外插
+- Agent 上报 IPv4/IPv6，支持 NAT 公网地址配置；兼容旧协议与旧 Agent。
+- 面板聚合并缓存上游 IPQuality 数据库信息，显示来源、更新时间和部分失败。
+- 固定上游 NodeQuality 制品、一键分发节点诊断、独立 systemd 服务、超时和清理。
+- 任务与结果持久化、身份隔离、串行执行、重连/重启去重与重传。
+- 中文服务器详情页展示 IP 质量、任务进度、文本与报告链接。
+- 验证协议、HTTP/PostgreSQL、恢复和服务契约、上游包装脚本、Bun 构建；执行 Rust 全检查并提交、push。

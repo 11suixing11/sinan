@@ -133,6 +133,8 @@ pub async fn remove(
         .bind(id)
         .execute(&mut *transaction)
         .await?;
+    sqlx::query("UPDATE diagnostic_jobs SET status='failed',error='服务器已删除，任务已取消',updated_at=$2 WHERE server_id=$1 AND status IN ('queued','running')")
+        .bind(id).bind(now).execute(&mut *transaction).await?;
     transaction.commit().await?;
     state.connections.write().await.remove(&id);
     Ok(StatusCode::NO_CONTENT)

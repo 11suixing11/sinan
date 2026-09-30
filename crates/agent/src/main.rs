@@ -2,7 +2,8 @@
 
 use anyhow::{ensure, Context};
 use clap::{Parser, Subcommand};
-use sinan_adapter_sdk::{Adapter, Privileged, ServiceManager};
+use sinan_adapter_nodequality::NodeQualityAdapter;
+use sinan_adapter_sdk::{Adapter, DiagnosticAdapter, Privileged, ServiceManager};
 use sinan_adapter_singbox::SingboxAdapter;
 use sinan_agent_core::{
     identity,
@@ -75,9 +76,12 @@ async fn main() -> anyhow::Result<()> {
         Command::Run => {
             let config = Config::load(&path)?;
             let adapters: Vec<Arc<dyn Adapter>> = vec![Arc::new(SingboxAdapter::new())];
+            let diagnostics: Vec<Arc<dyn DiagnosticAdapter>> =
+                vec![Arc::new(NodeQualityAdapter::new())];
             let services: Arc<dyn ServiceManager> =
                 Arc::new(SystemServiceManager::new(privileged.clone()));
-            transport::run(config, adapters, privileged, services).await
+            transport::run_with_diagnostics(config, adapters, diagnostics, privileged, services)
+                .await
         }
         Command::Status => {
             let config = Config::load(&path)?;

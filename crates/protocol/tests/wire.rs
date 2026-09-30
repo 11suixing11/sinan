@@ -40,6 +40,7 @@ fn known_messages() -> Vec<Message> {
             uptime_secs: 123,
         }),
         Message::TelemetryStatic(StaticInfo {
+            ip_addresses: vec!["192.0.2.10".into(), "2001:db8::10".into()],
             system: Some("Debian GNU/Linux 12".into()),
             kernel: Some("6.1.0".into()),
             arch: Some("amd64".into()),
@@ -297,4 +298,49 @@ fn http_payloads_accept_unknown_fields() {
     let bundle: Bundle =
         serde_json::from_value(json!({"files": {"config.json": "{}"}, "new_field": true})).unwrap();
     assert_eq!(bundle.files.len(), 1);
+}
+
+#[test]
+fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
+    let job = DiagnosticJob {
+        id: Uuid::from_u128(99),
+        plugin: "nodequality".into(),
+        version: "upstream-commit".into(),
+        artifact: Artifact {
+            url: "https://panel.example.invalid/api/agent/v1/artifacts/nodequality/upstream-commit/amd64".into(),
+            sha256: "a".repeat(64),
+        },
+        timeout_secs: 1800,
+        expires_at: Some(1_790_003_600),
+        options: BTreeMap::from([("ip_version".into(), "both".into())]),
+    };
+    roundtrip(job.clone());
+    let mut wire = serde_json::to_value(&job).unwrap();
+    wire["future_option"] = json!(true);
+    assert_eq!(serde_json::from_value::<DiagnosticJob>(wire).unwrap(), job);
+    for status in [
+        DiagnosticStatus::Running,
+        DiagnosticStatus::Succeeded,
+        DiagnosticStatus::Failed,
+    ] {
+        roundtrip(DiagnosticUpdate {
+            id: job.id,
+            status,
+            report: Some(DiagnosticReport {
+                text: "Example diagnostic report".into(),
+                report_url: Some("https://nodequality.com/r/EXAMPLE_REPORT".into()),
+            }),
+            error: None,
+        });
+    }
+    let old_info: StaticInfo = serde_json::from_value(json!({"arch":"amd64"})).unwrap();
+    assert!(old_info.ip_addresses.is_empty());
+    assert!(serde_json::to_value(old_info)
+        .unwrap()
+        .get("ip_addresses")
+        .is_none());
+    assert!(serde_json::from_value::<DiagnosticJob>(json!({"plugin":"nodequality"})).is_err());
+    assert!(
+        serde_json::from_value::<DiagnosticUpdate>(json!({"id":job.id,"status":"queued"})).is_err()
+    );
 }

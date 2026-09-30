@@ -1,9 +1,9 @@
 [workspace]
-members = ["crates/protocol", "crates/compiler", "crates/panel", "crates/agent", "crates/agent-core", "crates/adapter-sdk", "crates/adapter-singbox"]
+members = ["crates/protocol", "crates/compiler", "crates/panel", "crates/agent", "crates/agent-core", "crates/adapter-sdk", "crates/adapter-singbox", "crates/adapter-nodequality"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 rust-version = "1.88"
@@ -14,6 +14,7 @@ sinan-compiler = { path = "crates/compiler" }
 sinan-agent-core = { path = "crates/agent-core" }
 sinan-adapter-sdk = { path = "crates/adapter-sdk" }
 sinan-adapter-singbox = { path = "crates/adapter-singbox" }
+sinan-adapter-nodequality = { path = "crates/adapter-nodequality" }
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

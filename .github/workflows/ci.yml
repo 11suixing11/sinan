@@ -39,9 +39,16 @@ jobs:
         run: '! grep -REin "singbox|sing-box" crates/agent-core'
       - name: Verify artifact build script contracts
         run: python3 tools/test-build-scripts.py
+      - name: Verify NodeQuality wrapper and artifact contracts
+        run: sudo python3 tools/test-nodequality.py
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+      - name: Verify independent diagnostic services with real systemd
+        run: |
+          cargo test -p sinan-agent-core --lib --no-run --message-format=json > /tmp/sinan-core-tests.jsonl
+          diagnostic_test_binary=$(python3 -c 'import json; print(next(item["executable"] for item in (json.loads(line) for line in open("/tmp/sinan-core-tests.jsonl")) if item.get("reason") == "compiler-artifact" and item.get("executable") and item["target"]["name"] == "sinan_agent_core"))')
+          sudo "$diagnostic_test_binary" real_systemd_diagnostic_jobs_survive_manager_recreation_and_enforce_timeout --ignored
 
   compose-smoke:
     runs-on: ubuntu-24.04

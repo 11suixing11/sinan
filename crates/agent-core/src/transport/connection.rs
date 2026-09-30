@@ -43,7 +43,7 @@ pub(super) async fn run(
             Hello {
                 agent_version: env!("CARGO_PKG_VERSION").into(),
                 protocol_version: PROTOCOL_VERSION,
-                capabilities: runtime.modules.as_ref().clone(),
+                capabilities: runtime.capabilities.as_ref().clone(),
                 applied: runtime.applied()?,
             },
         )?,
@@ -72,6 +72,7 @@ pub(super) async fn run(
     let mut telemetry = interval(10);
     let mut resend = interval(15);
     let mut stale = interval(10);
+    let mut static_refresh = interval(300);
     let mut last_received = Instant::now();
     let mut resend_queue = std::collections::VecDeque::new();
     loop {
@@ -110,6 +111,9 @@ pub(super) async fn run(
             }
             _ = telemetry.tick() => {
                 send(&mut socket, Envelope::new("telemetry.metrics", collector.metrics())?).await?;
+            }
+            _ = static_refresh.tick() => {
+                send(&mut socket, Envelope::new("telemetry.static", runtime.static_info()?)?).await?;
             }
             _ = resend.tick() => {
                 if resend_queue.is_empty() {

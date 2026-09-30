@@ -2,6 +2,7 @@
 
 - 状态：已确定，MVP 不得更改。
 - 对应任务说明：第 4 节第 10 条。
+- 用户后续明确要求的 NodeQuality 节点测试例外见 [ADR 0015](0015-nodequality-diagnostics.md)；Agent 原生制品下载约束继续适用。
 
 ## 背景
 

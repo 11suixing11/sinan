@@ -1,6 +1,6 @@
 # 面板 HTTP API
 
-本页记录 G7 的管理接口，供中文前端和集成测试使用。所有路径都相对于 `SINAN_PUBLIC_URL`。管理接口使用同源 Cookie；请求 JSON 时发送 `Content-Type: application/json`。应用错误返回 `{"error":"中文说明"}`，常见状态码为 400（输入无效）、401（未登录）、404（资源不存在）、409（冲突）、429（请求过多）、500（内部错误）。框架对无法解析的 JSON 或路径参数也可能返回文本错误。
+本页记录面板管理接口，供中文前端和集成测试使用。所有路径都相对于 `SINAN_PUBLIC_URL`。管理接口使用同源 Cookie；请求 JSON 时发送 `Content-Type: application/json`。应用错误返回 `{"error":"中文说明"}`，常见状态码为 400（输入无效）、401（未登录）、404（资源不存在）、409（冲突）、429（请求过多）、500（内部错误）。框架对无法解析的 JSON 或路径参数也可能返回文本错误。
 
 ## 登录
 
@@ -152,4 +152,22 @@
 
 所有字节总量都是精确十进制字符串，避免浏览器整数精度损失。分组数组只包含有流量的项目；`deleted` 表示对应对象已删除，用于显示历史记录。按 `(server_id, epoch, seq)` 在事务中去重，持久化成功才确认，设备重传不会重复计费。这里的流量仅来自代理统计，与服务器网卡指标分开显示。
 
-`GET /api/artifacts` 返回已通过 SHA-256 校验的可用制品数组，每项为 `{"name":"agent 或 sing-box","version":"版本","arch":"amd64 或 arm64","sha256":"摘要","bytes":123}`。制品上传由管理员放入配置的数据目录完成，MVP 没有网页上传接口。目录布局和安装步骤见部署文档及协议文档。
+`GET /api/artifacts` 返回已通过 SHA-256 校验的可用制品数组，每项为 `{"name":"agent、sing-box 或 nodequality","version":"版本","arch":"amd64 或 arm64","sha256":"摘要","bytes":123}`。制品上传由管理员放入配置的数据目录完成，MVP 没有网页上传接口。目录布局和安装步骤见部署文档及协议文档。
+
+## IP 质量与节点报告
+
+| 方法与路径 | 请求与用途 |
+|---|---|
+| `GET /api/servers/{id}/node-quality` | 返回 IP、质量缓存、插件准备状态和最近十条报告 |
+| `POST /api/servers/{id}/node-quality/refresh` | 无请求体；查询并保存质量结果，返回质量数组 |
+| `POST /api/servers/{id}/node-quality/reports` | `{ip_version:"both",network_mode:"low"}`；创建一次性报告，返回 201 和任务记录 |
+
+详情响应为 `{ip_addresses,quality,plugin_ready,plugin_reason,reports}`。`plugin_ready` 需要设备在线、声明 `diagnostic:nodequality` 能力、支持的架构、有效对应制品；未就绪时 `plugin_reason` 提供原因。仅声明旧运行时能力的 Agent 不能领取诊断任务。
+
+每个质量对象是 `{ip,checked_at,expires_at,status,databases}`，status 为 `succeeded`、`partial`、`failed`。每个数据库是 `{database,label,status,fields:[{label,value}],error}`；数字零和布尔 false 保持原值，缺失字段省略。面板请求 MaxMind 地理/ASN，以及 IPAPI、Scamalytics、AbuseIPDB、IP2Location、IPData、IPQualityScore；接口参数依据上游 IPQuality 源码，不假造 NodeQuality 的按 IP 查询接口。源之间独立展示，不推导统一评分。
+
+缓存保留一天，页面读取不自动刷新；管理员手工刷新至少间隔一分钟。最多处理八个地址，每个源有限时及 64 KiB 响应上限，整体限时并限制并发。非公网地址不向第三方发送，并明确说明原因；外部服务 403、429、超时、非 JSON 或未知响应形状都作为相应源的失败保存，不是零风险。
+
+任务记录为 `{id,status,job,report,error,created_at,updated_at,expires_at}`。status 为 `queued`、`running`、`succeeded`、`failed`；job 的协议结构见 [设备协议](protocol.md)。选项仅允许 `ip_version=both|ipv4|ipv6`、`network_mode=low|normal`，默认 both/low。每台设备同时最多一个活跃任务；并发点击由事务锁与数据库唯一约束去重，返回 409。整体执行时限为 30 分钟，面板另留五分钟传输窗口。
+
+report 为 `{text,report_url?}`，文本以纯文本呈现，协议接受上限 512 KiB；NodeQuality 适配器输出最多 256 KiB，超过时标注截断，原始 ZIP 保留在节点本地。可选链接限定 NodeQuality 官方 HTTPS origin。在线上传失败仍可保存本地报告。报告会执行节点上的资源和带宽测试，上游可能生成公开链接；只有管理员明确点击才创建任务。设备结果持久化后才确认，重复最终回报幂等；晚到的 running 不覆盖最终结果。

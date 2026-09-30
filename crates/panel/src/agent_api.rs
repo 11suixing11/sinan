@@ -237,7 +237,20 @@ pub async fn process_message(
     message: Message,
 ) -> anyhow::Result<()> {
     match message {
-        Message::Hello(hello) => reconcile_hint(state, server_id, hello.applied).await?,
+        Message::Hello(hello) => {
+            let capabilities: Vec<_> = hello
+                .capabilities
+                .into_iter()
+                .filter(|value| value.len() <= 128)
+                .take(64)
+                .collect();
+            sqlx::query("UPDATE servers SET capabilities=$2 WHERE id=$1 AND deleted_at IS NULL")
+                .bind(server_id)
+                .bind(serde_json::to_value(capabilities)?)
+                .execute(&state.pool)
+                .await?;
+            reconcile_hint(state, server_id, hello.applied).await?;
+        }
         Message::Heartbeat(heartbeat) => {
             reconcile_hint(state, server_id, heartbeat.applied).await?
         }

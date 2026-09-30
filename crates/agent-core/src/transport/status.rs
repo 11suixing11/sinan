@@ -122,7 +122,9 @@ mod tests {
         let runtime = Runtime {
             state: Arc::new(Mutex::new(State::open(Path::new(":memory:"))?)),
             modules: Arc::new(vec![]),
+            capabilities: Arc::new(vec![]),
             connected: Arc::new(AtomicBool::new(true)),
+            public_ips: Arc::new(vec![]),
         };
         let bound = bind(&socket).await?;
         assert_eq!(

@@ -30,6 +30,7 @@ impl Directory {
             install_root: self.0.join("install"),
             status_socket: self.0.join("status.sock"),
             operation_timeout_secs: 5,
+            public_ips: vec![],
         }
     }
 }

@@ -1,5 +1,9 @@
 use sinan_protocol::{Metrics, NetworkMetrics, StaticInfo};
-use std::{collections::BTreeMap, time::Instant};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    net::IpAddr,
+    time::Instant,
+};
 use sysinfo::{Disks, Networks, System};
 
 type NetworkTotals = BTreeMap<String, (u64, u64)>;
@@ -51,6 +55,11 @@ impl Collector {
             virtualization: virtualization(),
             hostname: System::host_name(),
             agent_version: Some(env!("CARGO_PKG_VERSION").into()),
+            ip_addresses: normalized_addresses(
+                self.networks
+                    .values()
+                    .flat_map(|network| network.ip_networks().iter().map(|address| address.addr)),
+            ),
             ..StaticInfo::default()
         }
     }
@@ -128,6 +137,29 @@ impl Collector {
             ..Metrics::default()
         }
     }
+}
+
+pub(crate) fn normalized_addresses(addresses: impl IntoIterator<Item = IpAddr>) -> Vec<String> {
+    addresses
+        .into_iter()
+        .map(|address| match address {
+            IpAddr::V6(address) => address
+                .to_ipv4_mapped()
+                .map(IpAddr::V4)
+                .unwrap_or(IpAddr::V6(address)),
+            address => address,
+        })
+        .filter(|address| {
+            !address.is_unspecified() && !address.is_multicast() && !address.is_loopback()
+        })
+        .filter(|address| match address {
+            IpAddr::V4(address) => !address.is_link_local() && !address.is_broadcast(),
+            IpAddr::V6(address) => !address.is_unicast_link_local(),
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|address| address.to_string())
+        .collect()
 }
 
 fn positive(value: u64) -> Option<u64> {
@@ -228,5 +260,25 @@ mod tests {
                 && value.transmit_bytes_per_sec.is_none()));
         let encoded = serde_json::to_value(metrics).unwrap();
         assert!(encoded.get("cpu_percent").is_none());
+    }
+
+    #[test]
+    fn reported_addresses_are_canonical_deduplicated_and_exclude_local_noise() {
+        let addresses = normalized_addresses(
+            [
+                "::1",
+                "127.0.0.1",
+                "0.0.0.0",
+                "224.0.0.1",
+                "fe80::1",
+                "169.254.0.1",
+                "192.0.2.1",
+                "192.0.2.1",
+                "2001:0db8:0:0:0:0:0:1",
+                "10.0.0.2",
+            ]
+            .map(|value| value.parse().unwrap()),
+        );
+        assert_eq!(addresses, vec!["10.0.0.2", "192.0.2.1", "2001:db8::1"]);
     }
 }
