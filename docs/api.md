@@ -188,15 +188,14 @@
 
 `POST /api/artifacts/import-release` 请求 `{"tag":"agent-v0.3.0"}`，只接受固定官方仓库的规范 tag，不接受 URL 或其他字段。成功返回 `{tag,artifacts,signature_verified:true}`。先验证签名再下载全部资产，在同文件系统 staging 完成核对后整体发布；失败保留原集合，相同签名集合幂等，相同版本不同内容返回 409，并发导入返回 429。草稿、缺签名、非法根、软链路径或内容篡改均拒绝；面板镜像缺少编译时公钥时也返回 409。目录布局、独立 bootstrap 和轮换步骤见部署文档与 ADR 0017。
 
-## IP 质量与节点报告
+## 服务器 IP 信息
 
 | 方法与路径 | 请求与用途 |
 |---|---|
-| `GET /api/servers/{id}/node-quality` | 返回 IP、质量缓存、插件准备状态和最近十条报告 |
-| `POST /api/servers/{id}/node-quality/refresh` | 无请求体；查询并保存质量结果，返回质量数组 |
-| `POST /api/servers/{id}/node-quality/reports` | `{ip_version:"both",network_mode:"low"}`；创建一次性报告，返回 201 和任务记录 |
+| `GET /api/servers/{id}/ip-quality` | 返回 `{ip_addresses,quality}`；只读取当前 IP 缓存，不依赖 NodeQuality 能力、在线或制品准备 |
+| `POST /api/servers/{id}/ip-quality/refresh` | 无请求体；查询并保存质量结果，返回质量数组 |
 
-详情响应为 `{ip_addresses,quality,plugin_ready,plugin_reason,reports}`。`plugin_ready` 需要设备在线、声明 `diagnostic:nodequality` 和 `artifact:minisign-v1` 能力、支持的架构、有效对应签名制品；未就绪时 `plugin_reason` 提供原因。仅声明旧运行时能力的 Agent 不能领取诊断任务。
+两个接口均要求管理员会话和未删除的服务器。读取不会发起外部查询或创建诊断任务。
 
 每个质量对象是 `{ip,checked_at,expires_at,status,databases,provider,last_attempt_at,last_success_at,fresh_until,last_error}`，status 为最近查询批次的 `succeeded`、`partial`、`failed`。每个数据库是 `{database,label,status,fields:[{label,value,kind}],error,provider,target_ip,attempted_at,elapsed_ms,error_kind,http_status,last_attempt_at,last_success_at,fresh_until,last_error,historical}`；数字零和布尔 false 保持原值，缺失字段省略。`provider` 为真实查询入口 `check-place`，七个 `database` 是同一入口的响应形状（MaxMind 地理/ASN、IPAPI、Scamalytics、AbuseIPDB、IP2Location、IPData、IPQualityScore）。接口参数依据上游 IPQuality 源码，不假造 NodeQuality 的按 IP 查询接口。每种响应分别展示，不推导统一评分。
 
@@ -209,6 +208,17 @@
 入口 `last_attempt_at` 为查询批次时间，`last_success_at` 为最近一个数据库成功时间；仅所有已知数据库都有成功快照时入口 fresh_until 有值，取各数据库有效期的最早值，不能据此推断本轮全成功。入口 `last_error` 按 database 索引本轮错误。兼容字段 expires_at 取入口 fresh_until，缺少时为 0；它不再随着失败刷新向后延长。旧 payload 原样保留并迁移明确成功的字段，旧成功时间精度只到原查询批次，未知逐条时间与分类不补造。
 
 页面读取不自动刷新；管理员手工刷新至少间隔一分钟，同机并发刷新在服务器行锁事务内去重。异常退出的运行租约过期后允许恢复。最多处理八个地址，每个源有限时及 64 KiB 响应上限，整体限时并限制并发。非公网地址不向第三方发送，并明确说明原因；外部服务 403、429、超时、非 JSON 或未知响应形状都作为相应源的失败保存，不是零风险。换 IP 不删除旧记录；页面仍只显示当前 IP，旧 IP 再出现时可读取原成功数据。
+
+## NodeQuality 报告
+
+| 方法与路径 | 请求与用途 |
+|---|---|
+| `GET /api/servers/{id}/node-quality/reports` | 返回 `{plugin_ready,plugin_reason,reports}`，NodeQualityView 不包含 IP 查询字段 |
+| `POST /api/servers/{id}/node-quality/reports` | `{ip_version:"both",network_mode:"low"}`；创建一次性报告，返回 201 和任务记录 |
+
+`plugin_ready` 需要设备在线、声明 `diagnostic:nodequality` 和 `artifact:minisign-v1` 能力、支持的架构、有效对应签名制品；未就绪时 `plugin_reason` 提供原因。仅声明旧运行时能力的 Agent 不能领取诊断任务。报告读取不访问 IP 缓存，IP 缓存损坏或查询失败不会阻止读取已保存报告。
+
+过渡兼容保留 `GET /api/servers/{id}/node-quality` 的原 `{ip_addresses,quality,plugin_ready,plugin_reason,reports}` 组合响应，由 LegacyNodeQualityView 汇合两个视图；`POST /api/servers/{id}/node-quality/refresh` 继续作为相同 IP 刷新的别名。现有客户端的路由、状态码、刷新间隔、报告创建和历史不变。新前端只使用独立接口，服务器概况不加载这两个视图，子导航分别访问 `#/servers/{id}/ip-info` 和 `#/servers/{id}/node-quality`。
 
 任务记录为 `{id,status,job,report,error,created_at,updated_at,expires_at}`。status 为 `queued`、`running`、`succeeded`、`failed`；job 的协议结构见 [设备协议](protocol.md)。选项仅允许 `ip_version=both|ipv4|ipv6`、`network_mode=low|normal`，默认 both/low。每台设备同时最多一个活跃任务；并发点击由事务锁与数据库唯一约束去重，返回 409。整体执行时限为 30 分钟，面板另留五分钟传输窗口。
 

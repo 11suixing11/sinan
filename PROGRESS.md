@@ -452,3 +452,9 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - fmt、core gate、差异、Bun 1.4.2 冻结安装/TypeScript/Vite 与实际 dist 桌面/手机字段、历史和模拟未启用来源验收通过。Rust/Clippy 和独立 HTTP/PostgreSQL 场景等待隔离编译槽或 CI，结果单独更新，未宣称平台/完整诊断通过。独立步骤见 [未知字段验收](docs/acceptance/ip-quality-unknown.md)。
 
 - 未知字段首轮 CI 的 check 在测试辅助路径的反向迭代编译失败，Rust 测试未执行；已修复为 rsplit 并重新触发，未将初轮记为通过。
+
+## 2026-10-01：P0 服务器 IP 与 NodeQuality 视图拆分（独立 PR）
+
+- Issue #25：独立 IP GET/refresh 与仅包含准备状态/历史的 NodeQuality reports GET，NodeQualityView 去除 IP 查询字段。旧组合 GET 与旧刷新保留兼容汇合层；缓存 schema、旧报告/ID/参数和 r2 制品不改。
+- 服务器概况/IP信息/NodeQuality验机独立导航与 hash 页面；ServerIpInfo 展示一个入口下的数据库响应，NodeQuality 只保留验机和报告。IP 查询错误或缓存损坏不阻止新报告页读取历史，浏览切换不创建任务或刷新来源。
+- fmt/core gate/差异、Bun 1.4.2 冻结安装/TypeScript/Vite 与最终 dist 桌面/手机导航、历史、IP失败隔离夹具通过。真实 HTTP/PostgreSQL、Clippy 和完整 workspace 待隔离槽或 CI；独立步骤见 [视图拆分验收](docs/acceptance/server-ip-view.md)，没有宣称实机完整诊断通过。
