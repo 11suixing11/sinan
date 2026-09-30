@@ -168,6 +168,8 @@ class FixedSourceTests(unittest.TestCase):
         self.assertEqual(command[command.index("--target") + 1], tcp.TARGETS["amd64"])
         self.assertEqual(run.call_args.kwargs["env"]["SINAN_NATIVE_TCP_SOURCE_COMMIT"], self.commit)
         self.assertIn("+crt-static", run.call_args.kwargs["env"]["RUSTFLAGS"])
+        self.assertIn("-Clink-self-contained=yes", run.call_args.kwargs["env"]["RUSTFLAGS"])
+        self.assertEqual(run.call_args.kwargs["env"]["CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER"], "cc")
         verify.assert_called_once_with(binary, self.commit)
 
 

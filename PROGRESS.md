@@ -705,6 +705,13 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - TCP 适配器最终正常整合最新作者 `972647c` 与正式制品主线 `cbe5558`，保留 nullable 字段必须显式出现、同族 literal 不得伪称家族不可用及原报告/章节完整度规则。prepare 比较可信签名缓存 binary UID，历史收集核对可信私有任务目录、输入、章节/报告及实际句柄 UID，删除旧二进制后仍可重复读取已有部分报告；调用方保持任务根目录及祖先可信。冻结源码 `7a70b11` 的 TCP14+owner1+NodeQuality15 共30项全部通过、0失败/忽略，两项移除 UID/错误依赖旧二进制的负对照被实际回归捕获，恢复后再通过；workspace 全 targets Clippy（warnings为错误）、fmt、core分层6项、actionlint与链接/差异检查通过。core/SDK/native/前端与正式主线原字节一致，未重复完整workspace或冒称TCP已登记/实网验收，已释放构建槽。
 
+### P2 原生 TCP 制品 Debian12 启动修复（独立后续）
+
+#69 整合后独立修复 Bookworm 的 musl-gcc 静态 PIE 启动 SIGSEGV：使用 native cc 与 Rust 自带 musl/CRT（link-self-contained=yes），保留静态 PIE，并新增 Debian12 真实构建、执行、五辅助文件签名 CI。help 去除临时接入状态。永久公开工具源 5e843f0fd9532abe9b7b9a052ef77b45abcfa675、外部版本 0.3.0-<该SHA>-r1 已实际原生执行验证。源码500受限容器完整Rust347/0/9、Clippy/fmt、Python来源签名12/旧Release32/模拟发布22通过；最终5e再次TCP17、Clippy/fmt、实际musl/完整TEST_ONLY bundle通过，exit0/OOM=false。未发布正式Release，后续main功能和最新CI状态需单独核对。详见独立验收 native-tcp-artifacts.md。
+# PR #72 整合复核
+
+保留作者 Bookworm 启动及精确 workspace 信任修复；`b536476` 的 Debian12/amd64/arm64 原生制品 CI 全过。本地修正回环 CLI 测试的非阻塞 socket 读取竞态，TCP 17项单线程通过，TCP 全targets Clippy、fmt、Python来源12/发布22、旧Release28通过/4条件跳过及 core/actionlint 通过。永久源与当前 main 的锁文件区别已明确，生产引擎预算和固定制品未改；最终整合 HEAD 的主线 CI 尚须实时核对。
+
 ## 2026-10-01：Reality 间歇传输失败证据（Issue #6）
 
 - 业务源码743955c原CI在HUP后的2MiB下载只收到1,103,168字节，90秒exit28；同源码失败job只重跑一次，attempt2安装/双向流量/Agent重启/HUP/续传/签名拒绝/重装/在线退役全过。后续75cf整合源码另在首次下载90秒0字节失败，不能归因于业务或门禁。追加既有milestone1 Issue #6，保持原因未知，不重复开Issue或推已合并分支。
