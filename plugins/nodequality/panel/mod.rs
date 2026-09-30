@@ -18,7 +18,7 @@ use sinan_protocol::{DiagnosticResourceBudget, now_timestamp};
 use sqlx::Row;
 use std::collections::BTreeMap;
 mod modes;
-pub const PLUGIN_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4";
+pub const PLUGIN_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5";
 const TIMEOUT_SECS: u64 = 1800;
 const EXPECTED_SECTIONS: [&str; 5] = [
     "header_info",

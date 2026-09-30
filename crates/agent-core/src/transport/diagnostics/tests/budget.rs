@@ -34,6 +34,10 @@ fn panel_budgets_only_tighten_adapter_limits_and_preserve_a_rejected_service() {
             ..budget.clone()
         },
         DiagnosticResourceBudget {
+            io_weight: 10,
+            ..budget.clone()
+        },
+        DiagnosticResourceBudget {
             oom_score_adjust: 500,
             ..budget.clone()
         },

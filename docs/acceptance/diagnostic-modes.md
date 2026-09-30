@@ -59,3 +59,7 @@ main229becc含#56正式退出码夹具，模式专项保留其正常/失败两�
 
 
 - 最终合并审查正常保留旧作者 `ec7c663`、最新作者 `a374c12` 与 main `c47fc69`（含 #51 确认取消、#54 真实 IP 来源和 #59 许可文档）。修复 DNS 列表前八项同属一个 IP 家族时 `both` 静默漏测另一家族：先按家族选择，仍至多两个地址、每家族四次连接；新增两种顺序回归。portable 端到端夹具明确使用模拟 Linux 服务身份，不放宽生产 Linux 门禁。最终集中 Rust/PostgreSQL 专项 89 项通过、0 失败/忽略（适配器12、Agent诊断37、IP/provider25、diagnostics API10、章节3、真实Agent WS/HTTP/restart2），workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁及六项行为回归、差异检查通过。Bun 1.4.2 五项字段测试/711 断言与 TypeScript/Vite 重建通过，最终 dist 为 `index-CtZ2u8uf.js`；实际 Chromium 桌面与390px手机模式各7场景、确认取消与来源展示通过，页面错误0。Python discovery 83通过/5跳过、daily helper7通过、r4包装器23通过/6项Linux/root条件跳过。所有测试移除真实 `SINAN_ABUSEIPDB_API_KEY`，仅回环与合成凭据；本轮未重复完整 workspace，也未在本机执行真实 Linux/root/systemd、上游完整验机负载或正式 API 账户/配额验收。最终提交 CI 单独核对，R5正常退出契约修复继续独立合并。
+
+## 后续包装器退出契约
+
+当前源码默认制品已升级为 r5，同时保留本项 daily/full 与 DNS 双家族修复。r5 只修复固定完整验机入口的正常清理 `exit 1` 特例，日常路径继续使用独立 Python helper，不启动上游、挂载或公开上传。r4 已签队列/检查点保留原版本、模式、目标及预算恢复；r2/r3 仍仅接受旧参数。版本接收/恢复及新任务实际 r5 身份的 Rust/PostgreSQL 17 项通过，断网 Linux root 和 macOS 的包装器 34 + helper 7 共 41 项通过、0 跳过。冻结旧 r2 候选不重打包，完整压力和最后整合 CI 仍分别核对。

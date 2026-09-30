@@ -165,7 +165,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: Package the pinned NodeQuality r2 wrapper for both architectures
+      - name: Package the pinned NodeQuality wrapper for both architectures
         run: |
           bash tools/build-nodequality.sh amd64 '${{ runner.temp }}/artifacts'
           bash tools/build-nodequality.sh arm64 '${{ runner.temp }}/artifacts'
