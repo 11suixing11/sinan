@@ -152,6 +152,7 @@ async fn backlog_and_legacy_giant_preserve_heartbeat_control_ack_and_restart_rep
         public_ips: Arc::new(vec![]),
         agent_version: "fixture-agent",
         retirement: None,
+        cancellation: None,
         telemetry: watch::channel(Arc::new(crate::telemetry::cache::Snapshot::default())).1,
     };
     let mut tasks = JoinSet::new();
@@ -262,6 +263,7 @@ async fn blocked_collection_preserves_real_twenty_second_heartbeat_and_control()
         public_ips: Arc::new(vec![]),
         agent_version: "fixture-agent",
         retirement: None,
+        cancellation: None,
         telemetry: fixture.sampling.snapshots.clone(),
     };
     assert_eq!(
@@ -343,6 +345,112 @@ async fn blocked_collection_preserves_real_twenty_second_heartbeat_and_control()
     })
     .await??;
     assert_eq!(fixture.starts.load(Ordering::SeqCst), 1);
+    tasks.abort_all();
+    while tasks.join_next().await.is_some() {}
+    Ok(())
+}
+
+#[tokio::test]
+async fn cancellation_request_is_persisted_without_waiting_for_cleanup_or_delaying_heartbeats()
+-> Result<()> {
+    use crate::transport::diagnostics::cancellation::CancellationControl;
+    use sinan_protocol::{Artifact, DiagnosticCancelRequest, DiagnosticJob};
+    let directory =
+        Directory(std::env::temp_dir().join(format!("sn-cancel-wire-{}", Uuid::new_v4())));
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let config = Config {
+        panel_url: format!("http://{}", listener.local_addr()?),
+        state_db: directory.0.join("state.db"),
+        identity_dir: directory.0.join("identity"),
+        runtime_root: directory.0.join("runtime"),
+        install_root: directory.0.join("install"),
+        agent_root: directory.0.join("agent"),
+        status_socket: directory.0.join("status.sock"),
+        operation_timeout_secs: 1,
+        public_ips: vec![],
+        allow_remote_commands: false,
+        settings: Default::default(),
+    };
+    let state = Arc::new(Mutex::new(State::open(&config.state_db)?));
+    let control = Arc::new(CancellationControl::new(
+        state.clone(),
+        1,
+        vec!["diagnostic-fixture".into()],
+    ));
+    let runtime = Runtime {
+        state: state.clone(),
+        modules: Arc::new(vec![]),
+        capabilities: Arc::new(vec![sinan_protocol::DIAGNOSTIC_CANCEL_CAPABILITY.into()]),
+        connected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        public_ips: Arc::new(vec![]),
+        agent_version: "fixture-agent",
+        retirement: None,
+        cancellation: Some(control),
+        telemetry: watch::channel(Arc::new(crate::telemetry::cache::Snapshot::default())).1,
+    };
+    let mut tasks = JoinSet::new();
+    spawn_connection(&mut tasks, config, runtime);
+    let mut peer = timeout(Duration::from_secs(5), accept_peer(&listener)).await??;
+    timeout(Duration::from_secs(5), async {
+        loop {
+            if matches!(
+                receive_peer(&mut peer).await?.0.decode()?,
+                Message::Heartbeat(_)
+            ) {
+                return Ok::<_, anyhow::Error>(());
+            }
+        }
+    })
+    .await??;
+    let request = DiagnosticCancelRequest {
+        server_id: 1,
+        job: DiagnosticJob {
+            id: Uuid::from_u128(19),
+            plugin: "diagnostic-fixture".into(),
+            version: "fixed-version".into(),
+            artifact: Artifact {
+                url: "https://panel.example.invalid/fixed-artifact".into(),
+                sha256: "a".repeat(64),
+                proof: None,
+            },
+            timeout_secs: 1800,
+            expires_at: None,
+            options: BTreeMap::new(),
+        },
+    };
+    send_peer(
+        &mut peer,
+        Message::DiagnosticCancelRequest(request.clone()).into_envelope()?,
+    )
+    .await?;
+    let started = Instant::now();
+    // No diagnostic cleanup worker exists in this fixture. The next scheduled
+    // heartbeat must still arrive while the durable request remains unconfirmed.
+    timeout(Duration::from_secs(23), async {
+        loop {
+            if matches!(
+                receive_peer(&mut peer).await?.0.decode()?,
+                Message::Heartbeat(_)
+            ) {
+                return Ok::<_, anyhow::Error>(());
+            }
+        }
+    })
+    .await??;
+    assert!(started.elapsed() <= Duration::from_secs(23));
+    let saved: Vec<DiagnosticCancelRequest> = state
+        .lock()
+        .unwrap()
+        .get_json("diagnostics:cancellations")?
+        .context("request was not durably received")?;
+    assert_eq!(saved, vec![request]);
+    assert!(
+        state
+            .lock()
+            .unwrap()
+            .get_json::<serde_json::Value>("diagnostics:cancellation-results")?
+            .is_none()
+    );
     tasks.abort_all();
     while tasks.join_next().await.is_some() {}
     Ok(())

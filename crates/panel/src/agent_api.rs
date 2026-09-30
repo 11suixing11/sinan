@@ -290,6 +290,9 @@ pub async fn process_message(
                 .await?;
             tx.commit().await?;
         }
+        Message::DiagnosticCancelResult(result) => {
+            crate::diagnostics::cancellation::record_result(state, server_id, result).await?;
+        }
         Message::ApplyResult(result) => record_apply_result(state, server_id, result).await?,
         Message::UsageBatch(batch) => crate::plugins::ingest_usage(state, server_id, batch).await?,
         Message::RetirementResult(result) => {

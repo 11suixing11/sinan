@@ -395,3 +395,55 @@ fn runtime_libc_preserves_absence_and_rejects_explicit_non_string_values() {
         );
     }
 }
+
+#[test]
+fn cancellation_messages_bind_known_tasks_and_require_explicit_confirmation() {
+    let job = DiagnosticJob {
+        id: Uuid::from_u128(19),
+        plugin: "nodequality".into(),
+        version: "fixed-version".into(),
+        artifact: Artifact {
+            url: "https://panel.example.invalid/fixed-artifact".into(),
+            sha256: "a".repeat(64),
+            proof: None,
+        },
+        timeout_secs: 1800,
+        expires_at: Some(1_790_003_600),
+        options: BTreeMap::new(),
+    };
+    let request = DiagnosticCancelRequest {
+        server_id: 3,
+        job: job.clone(),
+    };
+    let result = DiagnosticCancelResult {
+        server_id: 3,
+        id: job.id,
+        plugin: job.plugin,
+        confirmed: true,
+        report: None,
+        error: None,
+    };
+    for message in [
+        Message::DiagnosticCancelRequest(request.clone()),
+        Message::DiagnosticCancelResult(result.clone()),
+    ] {
+        let envelope = message.clone().into_envelope().unwrap();
+        assert_eq!(envelope.decode().unwrap(), message);
+        assert_eq!(envelope.message_type, message.message_type());
+    }
+    let mut arbitrary_unit = serde_json::to_value(request).unwrap();
+    arbitrary_unit["unit"] = json!("unrelated.service");
+    assert!(serde_json::from_value::<DiagnosticCancelRequest>(arbitrary_unit).is_err());
+    let mut missing_confirmation = serde_json::to_value(result).unwrap();
+    missing_confirmation
+        .as_object_mut()
+        .unwrap()
+        .remove("confirmed");
+    assert!(serde_json::from_value::<DiagnosticCancelResult>(missing_confirmation).is_err());
+    assert!(
+        serde_json::from_value::<DiagnosticUpdate>(
+            json!({"id":Uuid::from_u128(19),"status":"cancelled"})
+        )
+        .is_err()
+    );
+}
