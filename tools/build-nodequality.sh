@@ -8,8 +8,8 @@ usage() {
 Usage: tools/build-nodequality.sh <amd64|arm64> <ARTIFACT_ROOT>
 
 Build prerequisites: bash, curl, python3. No benchmark runs during packaging.
-Output: ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545/<arch>
-        ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545/SHA256SUMS
+Output: ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2/<arch>
+        ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2/SHA256SUMS
 
 Both targets contain one architecture-independent executable named nodequality.
 The original upstream source and its full AGPL-3.0 license are embedded verbatim.
@@ -24,7 +24,8 @@ arch=$1
 case "$arch" in amd64|arm64) ;; *) die 'architecture must be amd64 or arm64' ;; esac
 [[ -n $2 ]] || die 'ARTIFACT_ROOT must not be empty'
 for tool in curl python3; do command -v "$tool" >/dev/null || die "missing build tool: $tool"; done
-version=a92fca6c0067df29ddd03fdc2fee6f3000f64545
+upstream_revision=a92fca6c0067df29ddd03fdc2fee6f3000f64545
+version=$upstream_revision-r2
 output=$2/nodequality/$version
 [[ ! -L $output ]] || die 'output version directory must not be a symlink'
 mkdir -p "$output"
@@ -76,7 +77,7 @@ for arch in ("amd64", "arm64"):
         raise SystemExit(f"SHA256SUMS refers to missing {arch}")
 PY
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/sinan-nodequality-build.XXXXXX")
-source_url=https://raw.githubusercontent.com/LloydAsp/NodeQuality/$version
+source_url=https://raw.githubusercontent.com/LloydAsp/NodeQuality/$upstream_revision
 curl --fail --silent --show-error --location --connect-timeout 15 --max-time 60 \
   "$source_url/NodeQuality.sh" -o "$scratch/NodeQuality.sh"
 curl --fail --silent --show-error --location --connect-timeout 15 --max-time 60 \

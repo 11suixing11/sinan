@@ -43,3 +43,8 @@ incremental = false
 debug = 0
 strip = "none"
 incremental = false
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

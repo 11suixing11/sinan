@@ -167,7 +167,7 @@ async fn node_report_survives_agent_restart_and_is_started_only_once(pool: PgPoo
         .api(
             Method::POST,
             &format!("/api/servers/{id}/node-quality/reports"),
-            json!({"ip_version":"both","network_mode":"low"}),
+            json!({"ip_version":"both","network_mode":"low","upload_report":true}),
         )
         .await?;
     let report_id = report["id"].as_str().context("report job id")?.to_owned();

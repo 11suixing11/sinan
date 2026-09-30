@@ -76,6 +76,16 @@ class ReportTests(unittest.TestCase):
                     report.render(root)
                     self.assertEqual((root / "report-url.txt").exists(), expected)
 
+    def test_disabled_upload_keeps_the_report_local(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data = make_archive()
+            root = self.stage(directory, data)
+            (root / "upload-disabled.txt").write_text("disabled\n")
+            report.render(root)
+            self.assertIn("公开报告上传已关闭", (root / "result.txt").read_text())
+            self.assertEqual((root / "report.zip").read_bytes(), data)
+            self.assertFalse((root / "report-url.txt").exists())
+
     def test_incomplete_report_is_not_published_as_complete(self):
         with tempfile.TemporaryDirectory() as directory:
             root = self.stage(directory, make_archive(missing="net_quality"))
@@ -127,10 +137,42 @@ class ReportTests(unittest.TestCase):
             self.assertEqual((root / "upload-status.txt").read_text(), "403")
 
 
+class UploadPolicyTests(unittest.TestCase):
+    def test_upload_never_calls_the_service_without_explicit_true(self):
+        for option in (None, "false", "true", "yes"):
+            with self.subTest(option=option):
+                with tempfile.TemporaryDirectory() as directory:
+                    root = pathlib.Path(directory)
+                    real = root / "real-curl"
+                    real.write_text('''#!/usr/bin/env python3
+import os, pathlib, sys
+root = pathlib.Path(os.environ["SINAN_REPORT_WORKSPACE"])
+(root / "curl-called.txt").write_text("called")
+sys.stdout.write("https://nodequality.com/r/fixture\\nSINAN_RESPONSE_STATUS:200")
+''')
+                    real.chmod(0o755)
+                    environment = dict(os.environ)
+                    environment.update(SINAN_REAL_CURL=str(real), SINAN_REPORT_WORKSPACE=directory,
+                                       SINAN_REPORT_HELPER=str(PLUGIN / "report.py"))
+                    environment.pop("SINAN_UPLOAD_REPORT", None)
+                    if option is not None:
+                        environment["SINAN_UPLOAD_REPORT"] = option
+                    data = make_archive()
+                    subprocess.run(["bash", str(PLUGIN / "curl-shim.sh"), "-X", "POST", "--data-binary", "@-",
+                                    "https://api.nodequality.com/api/v1/record"],
+                                   input=base64.b64encode(data), env=environment,
+                                   capture_output=True, check=True)
+                    self.assertEqual((root / "curl-called.txt").exists(), option == "true")
+                    self.assertEqual((root / "upload-disabled.txt").exists(), option != "true")
+                    report.render(root)
+                    self.assertEqual((root / "report.zip").read_bytes(), data)
+                    self.assertEqual((root / "report-url.txt").exists(), option == "true")
+
+
 class BuildTests(unittest.TestCase):
     def test_repeated_build_refuses_to_modify_the_existing_artifact_and_checksum(self):
         with tempfile.TemporaryDirectory() as directory:
-            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545"
+            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2"
             root = pathlib.Path(directory) / "nodequality" / version
             root.mkdir(parents=True)
             artifact = root / "amd64"
@@ -174,12 +216,20 @@ class BuildTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("workspace must not contain whitespace or shell glob", result.stderr)
 
+    def test_runner_rejects_ambiguous_upload_options_before_starting(self):
+        for option in ("yes", "1", "", "$(id)"):
+            with self.subTest(option=option):
+                result = subprocess.run(["bash", str(PLUGIN / "runner.sh.tmpl"), "--workspace", "/tmp/fixture",
+                                         "--upload-report", option], capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("invalid report upload option", result.stderr)
+
     def test_shell_syntax_and_nonexecuting_help(self):
         for script in (PLUGIN / "runner.sh.tmpl", PLUGIN / "curl-shim.sh", PLUGIN / "chroot-shim.sh", PLUGIN.parents[1] / "tools/build-nodequality.sh"):
             subprocess.run(["bash", "-n", str(script)], check=True)
         result = subprocess.run(["bash", str(PLUGIN / "runner.sh.tmpl"), "--version"],
                                 capture_output=True, text=True, check=True)
-        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545")
+        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2")
 
     def test_existing_architecture_checksums_are_not_replaced(self):
         script = (PLUGIN.parents[1] / "tools/build-nodequality.sh").read_text()
@@ -226,7 +276,8 @@ class RunnerFixtureTests(unittest.TestCase):
         self.stub("mountpoint", "#!/bin/sh\nexit 1\n")
         self.stub("umount", '#!/bin/sh\nprintf "%s\\n" "$*" >> "$NQ_FIXTURE_ROOT/cleanup.txt"\n')
         self.stub("curl", '''#!/usr/bin/env python3
-import os, sys
+import os, pathlib, sys
+(pathlib.Path(os.environ["NQ_FIXTURE_ROOT"]) / "curl-called.txt").write_text("called")
 sys.stdout.write(os.environ["NQ_FIXTURE_RESPONSE"] + "\\nSINAN_RESPONSE_STATUS:" + os.environ["NQ_FIXTURE_STATUS"])
 ''')
         self.environment = dict(os.environ)
@@ -286,14 +337,24 @@ mkdir -p "$workspace/.nodequalityfixture/BenchOs/dev" "$workspace/.nodequalityfi
         for name, _ in report.SECTIONS:
             self.assertIn("Actual " + name + " report", text)
         self.assertTrue((self.workspace / "report.zip").is_file())
-        self.assertEqual((self.workspace / "report-url.txt").read_text().strip(),
-                         "https://nodequality.com/r/fixture_REPORT-123")
+        self.assertIn("公开报告上传已关闭", text)
+        self.assertFalse((self.workspace / "report-url.txt").exists())
+        self.assertFalse((self.root / "curl-called.txt").exists())
         self.assertFalse((self.workspace / ".nodequalityfixture").exists())
         self.assertFalse((self.workspace / ".runner").exists())
 
+    def test_explicit_upload_true_produces_the_online_report(self):
+        result = subprocess.run(self.runner() + ["--upload-report", "true"], env=self.environment,
+                                capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual((self.workspace / "report-url.txt").read_text().strip(),
+                         "https://nodequality.com/r/fixture_REPORT-123")
+        self.assertTrue((self.root / "curl-called.txt").exists())
+
     def test_upload_403_preserves_a_complete_local_report(self):
         self.environment.update(NQ_FIXTURE_STATUS="403", NQ_FIXTURE_RESPONSE="Access denied")
-        result = subprocess.run(self.runner(), env=self.environment, capture_output=True, timeout=10)
+        result = subprocess.run(self.runner() + ["--upload-report", "true"], env=self.environment,
+                                capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertIn("HTTP 状态：403", (self.workspace / "result.txt").read_text())
         self.assertFalse((self.workspace / "report-url.txt").exists())

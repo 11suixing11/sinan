@@ -88,7 +88,7 @@ async fn diagnostic_queue_is_durable_deduplicated_and_device_scoped(pool: PgPool
     assert_eq!(record["status"], "queued");
     assert_eq!(
         record["job"]["options"],
-        json!({"ip_version":"both","network_mode":"low"})
+        json!({"ip_version":"both","network_mode":"low","upload_report":"false"})
     );
     assert!(record["job"]["expires_at"].as_i64().is_some());
     let queue: Value = panel
@@ -243,17 +243,18 @@ async fn expiry_preserves_late_durable_reports_and_deleted_servers_cancel_work(
         restored["reports"][0]["report"]["text"],
         "断网期间完成，重连后回传"
     );
-    let _new: Value = panel
+    let new: Value = panel
         .admin(
             Method::POST,
             &path,
             &cookie,
-            Some(json!({"ip_version":"ipv6","network_mode":"normal"})),
+            Some(json!({"ip_version":"ipv6","network_mode":"normal","upload_report":true})),
         )
         .await?
         .error_for_status()?
         .json()
         .await?;
+    assert_eq!(new["job"]["options"]["upload_report"], "true");
     assert_eq!(
         panel
             .admin(

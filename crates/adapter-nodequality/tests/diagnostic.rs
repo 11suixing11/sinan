@@ -124,6 +124,8 @@ async fn prepare_only_verifies_version_and_builds_a_fixed_service_command() {
             "both",
             "--network-mode",
             "low",
+            "--upload-report",
+            "false",
         ]
     );
     assert_eq!(
@@ -136,7 +138,7 @@ async fn prepare_only_verifies_version_and_builds_a_fixed_service_command() {
 async fn prepare_rejects_unpinned_versions_unknown_options_and_expansion() {
     let scratch = Scratch::new();
     let privileged = FakePrivileged::default();
-    for case in 0..10 {
+    for case in 0..12 {
         let mut spec = scratch.spec();
         match case {
             0 => spec.version = "latest".into(),
@@ -153,6 +155,10 @@ async fn prepare_rejects_unpinned_versions_unknown_options_and_expansion() {
             7 => spec.job_dir = scratch.0.join("space path"),
             8 => spec.job_dir = scratch.0.join("wild*card"),
             9 => spec.job_dir = scratch.0.join("question?mark"),
+            10 => {
+                spec.options.insert("upload_report".into(), "yes".into());
+            }
+            11 => spec.version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545".into(),
             _ => unreachable!(),
         }
         assert!(
@@ -163,6 +169,21 @@ async fn prepare_rejects_unpinned_versions_unknown_options_and_expansion() {
         );
     }
     assert!(privileged.calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn prepare_uploads_only_with_an_explicit_true_option() {
+    let scratch = Scratch::new();
+    let privileged = FakePrivileged::default();
+    for option in ["true", "false"] {
+        let mut spec = scratch.spec();
+        spec.options.insert("upload_report".into(), option.into());
+        let job = NodeQualityAdapter::new()
+            .prepare(&spec, &privileged)
+            .await
+            .unwrap();
+        assert_eq!(&job.args[job.args.len() - 2..], ["--upload-report", option]);
+    }
 }
 
 #[tokio::test]

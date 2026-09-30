@@ -240,7 +240,7 @@ bash tools/build-nodequality.sh amd64 "$PWD/data/artifacts"
 bash tools/build-nodequality.sh arm64 "$PWD/data/artifacts"
 ```
 
-制品位于 `nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545/`，按前述导入方法放入面板的 `artifacts` 目录。脚本固定 [NodeQuality 上游提交](https://github.com/LloydAsp/NodeQuality/tree/a92fca6c0067df29ddd03fdc2fee6f3000f64545)，保留原样源码和许可证，并生成同源下载的 SHA256 清单。升级 Agent 需重新构建 `agent/0.2.0`，已有 `0.1.0` 制品继续保留。
+制品位于 `nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2/`，按前述导入方法放入面板的 `artifacts` 目录。脚本固定 [NodeQuality 上游提交](https://github.com/LloydAsp/NodeQuality/tree/a92fca6c0067df29ddd03fdc2fee6f3000f64545)，保留原样源码和许可证，并生成同源下载的 SHA256 清单。升级 Agent 需重新构建 `agent/0.2.0`，已有 `0.1.0` 制品继续保留。本次隐私默认需要同步升级面板、Agent 和 `-r2` 外插；旧制品不能覆盖，旧 Agent 会拒绝新制品任务，旧的已排队或运行任务仍使用原选项。
 
 上游固定下载 amd64 版 NextTrace；包装器在 ARM64 节点仅将这条下载命令映射到官方 arm64 资产。外插工作路径不能包含空白或 shell 通配符，使用默认目录即可。
 
@@ -251,7 +251,7 @@ sudo apt-get update
 sudo apt-get install -y bash curl python3 ca-certificates
 ```
 
-在服务器详情点击“一键获取报告”，选择双栈/IPv4/IPv6和低流量/普通网络测试。任务运行硬件、IP、网络和回程测试，会消耗真实 CPU、磁盘和带宽；上游会尝试把报告上传到 NodeQuality 生成公开链接。默认采用低流量网络模式。任务在该节点的独立 systemd 服务运行，Agent 重启后继续观察，不重复执行；每台服务器同时只允许一个任务。
+在服务器详情点击“一键获取报告”，选择双栈/IPv4/IPv6和低流量/普通网络测试。任务运行硬件、IP、网络和回程测试，会消耗真实 CPU、磁盘和带宽；默认关闭公开报告上传，并采用低流量网络模式。只有创建任务时勾选“上传报告并生成公开链接”，才允许上传到 NodeQuality；报告可能包含节点网络和硬件信息。任务在该节点的独立 systemd 服务运行，Agent 重启后继续观察，不重复执行；每台服务器同时只允许一个任务。
 
 界面显示排队、运行、成功或失败，并保留本地文本报告及可用的在线链接。在线上传失败时，本地报告仍可查看。任务有整体运行时限；未安装依赖、上游下载失败、报告缺失和超时均返回错误。上游 chroot 用于隔离测试文件，systemd 使用独立挂载命名空间处理清理，不提供针对不可信程序的安全沙箱。外插按用户选择运行，运行时外网访问是 [ADR 0016](docs/adr/0016-nodequality-diagnostics.md) 明确记录的例外。
 

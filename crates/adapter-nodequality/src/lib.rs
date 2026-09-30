@@ -8,7 +8,7 @@ use sinan_adapter_sdk::{
 use std::{path::Path, time::Duration};
 use tokio::{io::AsyncReadExt, time::timeout};
 
-pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545";
+pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2";
 pub const MAX_REPORT_BYTES: u64 = 256 * 1024;
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -39,7 +39,7 @@ fn path_argument(path: &Path) -> Result<String> {
     Ok(value.into())
 }
 
-fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String)> {
+fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String, String)> {
     if spec.version != VERSION {
         bail!("unsupported diagnostic version");
     }
@@ -70,7 +70,10 @@ fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String)> {
         bail!("diagnostic workspace must not be the filesystem root");
     }
     for key in spec.options.keys() {
-        if !matches!(key.as_str(), "ip_version" | "network_mode") {
+        if !matches!(
+            key.as_str(),
+            "ip_version" | "network_mode" | "upload_report"
+        ) {
             bail!("unsupported diagnostic option");
         }
     }
@@ -84,13 +87,26 @@ fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String)> {
         .get("network_mode")
         .map(String::as_str)
         .unwrap_or("low");
+    let upload_report = spec
+        .options
+        .get("upload_report")
+        .map(String::as_str)
+        .unwrap_or("false");
     if !matches!(ip_version, "both" | "ipv4" | "ipv6") {
         bail!("invalid diagnostic IP version");
     }
     if !matches!(network_mode, "low" | "normal") {
         bail!("invalid diagnostic network mode");
     }
-    Ok((workspace, ip_version.into(), network_mode.into()))
+    if !matches!(upload_report, "true" | "false") {
+        bail!("invalid diagnostic report upload option");
+    }
+    Ok((
+        workspace,
+        ip_version.into(),
+        network_mode.into(),
+        upload_report.into(),
+    ))
 }
 
 async fn read_bounded(path: &Path, limit: u64) -> Result<Option<String>> {
@@ -137,7 +153,7 @@ impl DiagnosticAdapter for NodeQualityAdapter {
         privileged: &'a dyn Privileged,
     ) -> BoxFuture<'a, ServiceJob> {
         Box::pin(async move {
-            let (workspace, ip_version, network_mode) = validate(spec)?;
+            let (workspace, ip_version, network_mode, upload_report) = validate(spec)?;
             timeout(
                 IO_TIMEOUT,
                 privileged.create_dir(&spec.job_dir, 0o700, None),
@@ -164,6 +180,8 @@ impl DiagnosticAdapter for NodeQualityAdapter {
                     ip_version,
                     "--network-mode".into(),
                     network_mode,
+                    "--upload-report".into(),
+                    upload_report,
                 ],
                 working_directory: spec.job_dir.clone(),
                 timeout_secs: spec.timeout_secs,

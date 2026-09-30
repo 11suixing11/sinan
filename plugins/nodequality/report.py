@@ -132,7 +132,9 @@ def render(root):
     status_path = root / "upload-status.txt"
     status = status_path.read_text().strip() if status_path.exists() else ""
     match = re.search(r"https://nodequality\.com/r/([A-Za-z0-9_-]{1,128})(?=$|\s|[\"'<>])", response)
-    if status.isdigit() and 200 <= int(status) < 300 and match:
+    if (root / "upload-disabled.txt").exists():
+        parts.append("\n公开报告上传已关闭，本地报告已保留。\n")
+    elif status.isdigit() and 200 <= int(status) < 300 and match:
         report_url = match.group(0)
         write_atomic(root / "report-url.txt", (report_url + "\n").encode())
         parts.append("\n在线报告：" + report_url + "\n")

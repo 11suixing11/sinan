@@ -312,7 +312,10 @@ fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
         },
         timeout_secs: 1800,
         expires_at: Some(1_790_003_600),
-        options: BTreeMap::from([("ip_version".into(), "both".into())]),
+        options: BTreeMap::from([
+            ("ip_version".into(), "both".into()),
+            ("upload_report".into(), "false".into()),
+        ]),
     };
     roundtrip(job.clone());
     let mut wire = serde_json::to_value(&job).unwrap();

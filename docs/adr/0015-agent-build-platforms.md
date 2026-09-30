@@ -1,6 +1,6 @@
 # ADR 0015：扩展 Agent 编译产物的平台
 
-状态：已采纳。
+状态：历史扩展决策已采纳；自动构建范围按下方 2026-09-30 的后续决策收敛。
 
 ## 背景
 
@@ -24,3 +24,16 @@
 ## 验证边界
 
 本地检查覆盖 Rust workspace、构建脚本的架构拒绝与制品不可覆盖行为。各系统、架构及 FreeBSD 跨版本执行以对应提交的 Actions 实际结果为准；添加矩阵不能视作远端已经构建成功，也不能视作非 Linux 的设备部署支持。
+
+
+## 后续决策：2026-09-30 收敛自动构建
+
+用户要求先让 main 的持续集成恢复全绿，再推进真实 Linux/systemd 部署验收。自动构建只保留 Linux musl amd64 和 arm64；glibc 动态版、macOS、Windows 和 FreeBSD 不再阻塞 push 与 pull request 的 CI。保留本 ADR 的历史平台扩展记录和通用构建脚本，不增加非 Linux 部署能力。
+
+Linux 的自动检查和 amd64 构建固定使用 `ubuntu-24.04`，arm64 构建固定使用 `ubuntu-24.04-arm`，避免 `ubuntu-latest` 的基线迁移改变已验收环境。Rust stable 和既有工具版本策略保持原决策。
+
+musl 双架构的 CI 先使用同一源码、目标、工具链和构建脚本，通过 Cargo 环境覆盖恢复旧 release profile（`strip=none`、`lto=false`、`codegen-units=16`），将构建目录隔离到 runner 临时目录；再按仓库的优化 profile 构建正式制品。每次记录两份二进制的精确字节数、缩减百分比到 job summary 与制品中的 `size-comparison.txt`，避免不同提交的二进制差异影响体积对照。
+
+继承工作区中曾加入 `tools/test-freebsd-rust.py` 的主 CI 步骤，但当前仓库并无该测试文件，因此主 CI 不执行此不存在的步骤。原始 workflow 改动已经在仓库外保留，官方工具链安装器保持原样未提交。此次不新建依赖该未提交文件的手动 workflow；后续恢复可选平台时应将安装器与完整测试一并评审。
+
+最新 main 提交 `fc8467d` 的 [CI 36681900051](https://github.com/theLucius7/sinan/actions/runs/36681900051) 中，检查、Compose smoke 和 musl 双架构均已通过；唯一失败是 FreeBSD arm64 在 rustup 安装阶段收到 404，尚未进入 Cargo。此次调整直接收敛到既定 Linux 部署范围。新的完整 CI 结果仍须以本次提交的实际 Actions 运行为准。
