@@ -421,3 +421,11 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 实测面板容器网络命名空间的 IP 查询为 HTTP 403；DNS、TCP、TLS 均成功。私有原始日志不进入 Git。
 - 新增只读基线采集脚本与故障矩阵，输出仅写私有目录，面板时间采用白名单；旧指标采集时间明确未知。
 - 专用 Debian 12 容器 1 GiB / 2 CPU 可用于小夹具；完整 NodeQuality 不在共享生产磁盘上运行。独立 Debian 12 节点选取与完整症状复现仍进行中。
+
+## 2026-10-01：P0 IP 查询逐条错误分类（独立 PR）
+
+- 七种数据库响应均如实标记同一 `check-place` 查询入口；每条保存目标 IP、尝试时间、耗时、结构化错误类别及可选 HTTP 状态。DNS 和 TLS 根据 source 类型分类，连接失败不被泛化为 DNS；其余包含超时、403/429、非 JSON、字段不匹配、读取失败及响应超限。
+- 保留旧 payload、旧错误、零分及 false；前端中文显示分类、入口、IP、时间和耗时，未知字段保持未知。批次未开始的请求不补造逐条尝试时间。同步构建 dist 并保留最新主分支的监控/任务页面。
+- 对齐 main `45df3b1` 后，11 项 IP 查询、3 项诊断 PostgreSQL、6 项 foundation 专项测试全部通过；冻结锁文件安装、TypeScript/Vite 构建和桌面/手机实际 dist 夹具通过。初次完整 Rust/PostgreSQL 测试受到测试磁盘耗尽影响，foundation 临时建库失败，补跑成功后仍不记为完整通过；全 workspace 与平台验证交最新提交 CI。独立步骤与边界见 [IP 查询错误分类验收](docs/acceptance/ip-provider-errors.md)。
+- 最终整合 main `21e6a01`，保留诊断资源预算、有限流量补报、监控模式、任务页面与退役保护。使用独立 PostgreSQL 再跑上述 20 项专项测试，全部通过且无忽略；panel 全 targets Clippy（warnings 为错误）、workspace fmt 与差异空白检查通过。Bun 1.4.2 冻结锁文件安装及 TypeScript/Vite 构建通过，并重建合并后的 dist；此结果不代表最终提交的完整 workspace 或平台 CI 已通过。
+- 此项不修改缓存结构或覆盖语义；失败后保留历史成功结果由下一独立 PR 完成。新增 rustls 类型直接依赖的理由及替代方案记录于 [ADR 0024](docs/adr/0024-ip-provider-error-classification.md)。

@@ -198,7 +198,9 @@
 
 详情响应为 `{ip_addresses,quality,plugin_ready,plugin_reason,reports}`。`plugin_ready` 需要设备在线、声明 `diagnostic:nodequality` 和 `artifact:minisign-v1` 能力、支持的架构、有效对应签名制品；未就绪时 `plugin_reason` 提供原因。仅声明旧运行时能力的 Agent 不能领取诊断任务。
 
-每个质量对象是 `{ip,checked_at,expires_at,status,databases}`，status 为 `succeeded`、`partial`、`failed`。每个数据库是 `{database,label,status,fields:[{label,value}],error}`；数字零和布尔 false 保持原值，缺失字段省略。面板请求 MaxMind 地理/ASN，以及 IPAPI、Scamalytics、AbuseIPDB、IP2Location、IPData、IPQualityScore；接口参数依据上游 IPQuality 源码，不假造 NodeQuality 的按 IP 查询接口。源之间独立展示，不推导统一评分。
+每个质量对象是 `{ip,checked_at,expires_at,status,databases}`，status 为 `succeeded`、`partial`、`failed`。每个数据库是 `{database,label,status,fields:[{label,value}],error,provider,target_ip,attempted_at,elapsed_ms,error_kind,http_status}`；数字零和布尔 false 保持原值，缺失字段省略。`provider` 为真实查询入口 `check-place`，七个 `database` 是同一入口的响应形状（MaxMind 地理/ASN、IPAPI、Scamalytics、AbuseIPDB、IP2Location、IPData、IPQualityScore）。接口参数依据上游 IPQuality 源码，不假造 NodeQuality 的按 IP 查询接口。每种响应分别展示，不推导统一评分。
+
+`target_ip` 是查询目标；`attempted_at` 为本条尝试开始的 Unix 秒，`elapsed_ms` 为包含解析、连接和响应读取的耗时毫秒。成功时 `error_kind` 和 `http_status` 为空；失败类别为 `dns`、`connect`、`tls`、`timeout`、`http_403`、`http_429`、`http_other`、`non_json`、`schema_mismatch`、`body_error`、`response_limit`、`request_error`。本地拒绝非公网 IP 为 `not_public`，入口地址无效为 `invalid_origin`，批次总超时前未开始的请求为 `not_attempted`，后者不编造尝试时间或耗时。HTTP 失败另保存 `http_status`；旧记录没有逐条时间、耗时或分类时这些字段为空，保留原错误和数据。
 
 缓存保留一天，页面读取不自动刷新；管理员手工刷新至少间隔一分钟。最多处理八个地址，每个源有限时及 64 KiB 响应上限，整体限时并限制并发。非公网地址不向第三方发送，并明确说明原因；外部服务 403、429、超时、非 JSON 或未知响应形状都作为相应源的失败保存，不是零风险。
 
