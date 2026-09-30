@@ -1,3 +1,5 @@
+#[path = "tests/budget.rs"]
+mod budget;
 #[path = "tests/environment.rs"]
 mod environment;
 use super::*;
@@ -231,6 +233,7 @@ fn job(id: Uuid) -> DiagnosticJob {
             sha256: "0".repeat(64),
         },
         timeout_secs: 300,
+        resource_budget: None,
         expires_at: None,
         options: BTreeMap::new(),
     }
