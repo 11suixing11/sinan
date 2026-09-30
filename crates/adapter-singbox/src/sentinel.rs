@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::{io::ErrorKind, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},

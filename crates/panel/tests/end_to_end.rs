@@ -3,10 +3,10 @@
 mod e2e_support;
 
 use anyhow::{Context, Result};
-use base64::{engine::general_purpose::STANDARD, Engine};
-use e2e_support::{eventually, AgentTask, Harness, PanelAdapter};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use e2e_support::{AgentTask, Harness, PanelAdapter, eventually};
 use reqwest::{Method, StatusCode};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sinan_adapter_sdk::{Counter, Prepared};
 use sinan_agent_core::{fake::FakeServiceManager, identity, state::State, transport};
 use sinan_protocol::{UsageBatch, UsageRecord};
@@ -93,15 +93,17 @@ async fn published_configuration_usage_and_lost_ack_survive_agent_restart(
             .status(),
         StatusCode::CONFLICT
     );
-    assert!(panel
-        .client
-        .get(&subscription)
-        .send()
-        .await?
-        .error_for_status()?
-        .text()
-        .await?
-        .is_empty());
+    assert!(
+        panel
+            .client
+            .get(&subscription)
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?
+            .is_empty()
+    );
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM deployments WHERE server_id=$1")
             .bind(server_id)

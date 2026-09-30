@@ -85,3 +85,8 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 - glibc 固定 Ubuntu 24.04 双架构的动态库；macOS 使用最新 arm64 runner，Windows 使用 Visual Studio 2026 双架构 runner，工具链均为最新 Rust stable。Actions 工具固定到本次核实的最新稳定版本。
 - “FreeBSD 13 以上”采用 13.5 基线构建，再验证同一产物在最新 14/15 系列 VM 的启动；早期 13 小版本及未来主版本不做未经验证的兼容承诺。FreeBSD 构建使用系统 `protoc`，其他平台保留 vendored 方案。
 - 原 Linux musl 制品可继续导入面板。新增制品按完整 target 分目录，附 `SHA256SUMS`；要替换为 Linux glibc 设备制品，需将对应二进制复制为面板期望的架构文件，并重新生成目录内校验清单。
+
+## 后续调整：Rust 2024
+
+- 按用户要求，workspace edition 更新为 2024，七个 crate 继续继承统一设置。虚拟 workspace 显式使用 `resolver = "3"`，遵循 [Rust 2024 的依赖解析规则](https://doc.rust-lang.org/edition-guide/rust-2024/cargo-resolver.html)；现有最低 Rust 1.88 已支持该 edition。
+- Rust 2024 将进程环境变量修改标记为 unsafe，构建脚本改用现有 `tonic_build::Config::protoc_executable` 选择编译器。保留显式 `PROTOC` 与 vendored 回退，不增加依赖、不放宽 unsafe 禁令。

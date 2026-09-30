@@ -1,7 +1,7 @@
-use anyhow::{bail, Context, Result};
-use rusqlite::{params, Connection, OptionalExtension};
-use rusqlite_migration::{Migrations, M};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use anyhow::{Context, Result, bail};
+use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite_migration::{M, Migrations};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
     path::Path,
     sync::{Arc, Mutex},

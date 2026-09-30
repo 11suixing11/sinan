@@ -1,6 +1,6 @@
 use crate::error::{ApiError, ApiResult};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use rand::{rngs::OsRng, RngCore};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use rand::{RngCore, rngs::OsRng};
 use serde::Serialize;
 use sinan_compiler::{Access, Node};
 use sqlx::{FromRow, Postgres, Transaction};

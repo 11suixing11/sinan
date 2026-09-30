@@ -1,29 +1,28 @@
 use crate::{
-    artifacts, auth,
+    AgentConnection, AppState, artifacts, auth,
     error::{ApiError, ApiResult},
-    AgentConnection, AppState,
 };
 use axum::{
-    extract::{
-        ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
-        Path, State,
-    },
-    http::{header, HeaderMap},
-    response::{IntoResponse, Response},
     Json,
+    extract::{
+        Path, State,
+        ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
+    },
+    http::{HeaderMap, header},
+    response::{IntoResponse, Response},
 };
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signature, VerifyingKey};
 use futures_util::{SinkExt, StreamExt};
 use sinan_protocol::{
-    now_timestamp, AppliedRevisions, ApplyResult, ApplyStatus, AuthChallenge, Envelope, HelloAck,
-    Manifest, ManifestChanged, Message, ModuleManifest,
+    AppliedRevisions, ApplyResult, ApplyStatus, AuthChallenge, Envelope, HelloAck, Manifest,
+    ManifestChanged, Message, ModuleManifest, now_timestamp,
 };
 use sqlx::Row;
 use std::{collections::BTreeMap, time::Duration};
 use tokio::{
     sync::mpsc,
-    time::{timeout, Instant},
+    time::{Instant, timeout},
 };
 use uuid::Uuid;
 
@@ -203,15 +202,15 @@ async fn reconcile_hint(
         let reported = applied.get(&module).copied().unwrap_or(0);
         let known = row.get::<i64, _>("applied_rev") as u64;
         differs |= reported != row.get::<i64, _>("target_rev") as u64 || reported != known;
-        if reported > known {
-            if let Ok(rev) = i64::try_from(reported) {
-                let published: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM deployments WHERE server_id=$1 AND module=$2 AND rev=$3)")
-                    .bind(server_id).bind(&module).bind(rev).fetch_one(&mut *tx).await?;
-                if published {
-                    // Applied checkpoints are durable on the device even if their result is lost.
-                    sqlx::query("UPDATE server_module_status SET applied_rev=$3,healthy=true,updated_at=$4 WHERE server_id=$1 AND module=$2")
-                        .bind(server_id).bind(&module).bind(rev).bind(now_timestamp()).execute(&mut *tx).await?;
-                }
+        if reported > known
+            && let Ok(rev) = i64::try_from(reported)
+        {
+            let published: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM deployments WHERE server_id=$1 AND module=$2 AND rev=$3)")
+                .bind(server_id).bind(&module).bind(rev).fetch_one(&mut *tx).await?;
+            if published {
+                // Applied checkpoints are durable on the device even if their result is lost.
+                sqlx::query("UPDATE server_module_status SET applied_rev=$3,healthy=true,updated_at=$4 WHERE server_id=$1 AND module=$2")
+                    .bind(server_id).bind(&module).bind(rev).bind(now_timestamp()).execute(&mut *tx).await?;
             }
         }
     }

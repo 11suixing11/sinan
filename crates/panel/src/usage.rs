@@ -1,16 +1,15 @@
 use crate::{
-    agent_api, auth,
+    AppState, agent_api, auth,
     error::{ApiError, ApiResult},
-    AppState,
 };
-use anyhow::{ensure, Context};
+use anyhow::{Context, ensure};
 use axum::{
+    Json,
     extract::{Query, State},
     http::HeaderMap,
-    Json,
 };
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sinan_protocol::{Envelope, UsageAck, UsageBatch};
 use sqlx::Row;

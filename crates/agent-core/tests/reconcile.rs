@@ -14,7 +14,7 @@ use std::{
     collections::BTreeMap,
     fs,
     path::PathBuf,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{Arc, Mutex, atomic::Ordering},
     time::Duration,
 };
 use uuid::Uuid;
@@ -120,13 +120,14 @@ async fn changed_config_reloads_kernel_change_restarts_and_same_hash_is_noop() {
         ["restart:demo@main", "reload:demo@main", "restart:demo@main"]
     );
     assert_eq!(test.applied().unwrap().spec.revision, 4);
-    assert!(test
-        .state
-        .lock()
-        .unwrap()
-        .pending_intents()
-        .unwrap()
-        .is_empty());
+    assert!(
+        test.state
+            .lock()
+            .unwrap()
+            .pending_intents()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -176,13 +177,14 @@ async fn failed_health_rolls_back_links_state_and_captures_terminal_usage() {
             .sum::<u64>(),
         300
     );
-    assert!(test
-        .state
-        .lock()
-        .unwrap()
-        .pending_intents()
-        .unwrap()
-        .is_empty());
+    assert!(
+        test.state
+            .lock()
+            .unwrap()
+            .pending_intents()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -202,13 +204,14 @@ async fn missing_terminal_counters_prevent_service_disruption() {
     assert_eq!(result.status, ApplyStatus::Failed);
     assert_eq!(*test.services.actions.lock().unwrap(), actions);
     assert_eq!(test.applied().unwrap().spec.revision, 1);
-    assert!(test
-        .state
-        .lock()
-        .unwrap()
-        .pending_intents()
-        .unwrap()
-        .is_empty());
+    assert!(
+        test.state
+            .lock()
+            .unwrap()
+            .pending_intents()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -258,12 +261,14 @@ async fn unfinished_intent_is_recovered_after_database_reopen() {
         test.services.clone(),
     );
     restarted.recover().await.unwrap();
-    assert!(reopened
-        .lock()
-        .unwrap()
-        .pending_intents()
-        .unwrap()
-        .is_empty());
+    assert!(
+        reopened
+            .lock()
+            .unwrap()
+            .pending_intents()
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(
         reopened
             .lock()
@@ -318,12 +323,13 @@ async fn timed_out_initial_apply_stops_runtime_and_clears_intent() {
     assert!(!result.healthy);
     assert!(result.error.unwrap().contains("timed out"));
     assert!(test.applied().is_none());
-    assert!(test
-        .state
-        .lock()
-        .unwrap()
-        .pending_intents()
-        .unwrap()
-        .is_empty());
+    assert!(
+        test.state
+            .lock()
+            .unwrap()
+            .pending_intents()
+            .unwrap()
+            .is_empty()
+    );
     assert!(!test.services.active.load(Ordering::SeqCst));
 }

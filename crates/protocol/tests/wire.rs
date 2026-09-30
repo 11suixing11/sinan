@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
-use serde::{de::DeserializeOwned, Serialize};
-use serde_json::{json, Value};
+use serde::{Serialize, de::DeserializeOwned};
+use serde_json::{Value, json};
 use sinan_protocol::*;
 use std::{collections::BTreeMap, fmt::Debug};
 use uuid::Uuid;

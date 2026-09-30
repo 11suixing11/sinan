@@ -1,28 +1,27 @@
 use super::Runtime;
 use crate::{
-    artifacts::PanelClient, config::validate_panel_url, identity::Identity, telemetry::Collector,
-    Config,
+    Config, artifacts::PanelClient, config::validate_panel_url, identity::Identity,
+    telemetry::Collector,
 };
 use anyhow::{Context, Result};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::Signer;
 use futures_util::{SinkExt, StreamExt};
 use sinan_protocol::{
     AuthResponse, Envelope, Heartbeat, Hello, HelloAck, Message, PROTOCOL_VERSION,
 };
 use std::{
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
 use tokio::{
     net::TcpStream,
     sync::{mpsc, watch},
-    time::{timeout, Instant},
+    time::{Instant, timeout},
 };
 use tokio_tungstenite::{
-    connect_async_with_config,
-    tungstenite::{protocol::WebSocketConfig, Message as Frame},
-    MaybeTlsStream, WebSocketStream,
+    MaybeTlsStream, WebSocketStream, connect_async_with_config,
+    tungstenite::{Message as Frame, protocol::WebSocketConfig},
 };
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;

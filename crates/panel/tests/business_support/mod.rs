@@ -1,20 +1,20 @@
 #![allow(dead_code)]
 
-use anyhow::{bail, Context, Result};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use anyhow::{Context, Result, bail};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signer, SigningKey};
 use futures_util::{SinkExt, StreamExt};
-use reqwest::{header, Client, Method, Response, StatusCode};
-use serde_json::{json, Value};
-use sinan_panel::{config::Config, router, AppState};
+use reqwest::{Client, Method, Response, StatusCode, header};
+use serde_json::{Value, json};
+use sinan_panel::{AppState, config::Config, router};
 use sinan_protocol::{
-    AuthChallenge, AuthResponse, EnrollRequest, Envelope, Hello, HelloAck, StaticInfo,
-    PROTOCOL_VERSION,
+    AuthChallenge, AuthResponse, EnrollRequest, Envelope, Hello, HelloAck, PROTOCOL_VERSION,
+    StaticInfo,
 };
 use sqlx::PgPool;
 use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 use tokio::{net::TcpListener, task::JoinHandle, time::timeout};
-use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
 use uuid::Uuid;
 
 pub type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
@@ -247,7 +247,7 @@ impl TestPanel {
                     .context("WebSocket ended before hello barrier")??
                 {
                     Message::Pong(bytes) if bytes.as_ref() == b"introduced" => {
-                        return Ok::<_, anyhow::Error>(())
+                        return Ok::<_, anyhow::Error>(());
                     }
                     Message::Ping(bytes) => socket.send(Message::Pong(bytes)).await?,
                     Message::Pong(_) => {}

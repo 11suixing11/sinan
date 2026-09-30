@@ -17,14 +17,14 @@ pub mod usage;
 pub mod users;
 
 use axum::{
-    routing::{get, post},
     Router,
+    routing::{get, post},
 };
 use config::Config;
 use sinan_protocol::Envelope;
 use sqlx::PgPool;
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::{mpsc, RwLock, Semaphore};
+use tokio::sync::{RwLock, Semaphore, mpsc};
 use uuid::Uuid;
 
 #[derive(Clone)]

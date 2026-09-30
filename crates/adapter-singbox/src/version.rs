@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 pub(crate) fn validate_requested(version: &str) -> Result<()> {
     let patch = version

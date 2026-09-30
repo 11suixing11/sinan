@@ -1,7 +1,7 @@
 use crate::config::validate_panel_url;
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result, ensure};
 use futures_util::StreamExt;
-use reqwest::{redirect::Policy, Client, Url};
+use reqwest::{Client, Url, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sinan_adapter_sdk::{Descriptor, Privileged};

@@ -93,7 +93,7 @@ MVP 完成的标志是下面这条链路可以完整跑通：
 
 ### 技术栈
 
-- Rust stable，edition 2021，Cargo workspace。
+- Rust stable，edition 2024，Cargo workspace。
 - 面板：`axum`、`tokio`、`sqlx`（postgres + migrate）、`tower-http`、`rust-embed`（内嵌前端）、`argon2`、`serde`/`serde_json`、`tracing`、`uuid`、`rand`、`sha2`、`base64`、`x25519-dalek`、`ed25519-dalek`、`thiserror`/`anyhow`。
 - Agent：`tokio`、`tokio-tungstenite`（rustls）、`reqwest`（rustls）、`rusqlite`（bundled）+ `rusqlite_migration`、`ed25519-dalek`、`sysinfo`、`tonic` + `prost`（统计 gRPC；构建时用 `protoc-bin-vendored` 或 `protox`，不依赖系统 protoc）、`clap`、`tracing`、`sha2`、`serde`/`toml`。
 - 前端：React + Vite + TypeScript，不使用组件库，样式用普通 CSS。

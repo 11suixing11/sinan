@@ -1,13 +1,13 @@
 pub use sinan_adapter_sdk::{Privileged, ServiceManager};
 
 use crate::artifacts::safe_component;
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result, ensure};
 use flate2::read::MultiGzDecoder;
 use sinan_adapter_sdk::{BoxFuture, CommandOutput};
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
-    os::unix::fs::{symlink, OpenOptionsExt, PermissionsExt},
+    os::unix::fs::{OpenOptionsExt, PermissionsExt, symlink},
     path::Path,
     sync::Arc,
     time::Duration,

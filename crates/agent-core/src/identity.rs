@@ -1,6 +1,6 @@
-use crate::{config::validate_panel_url, telemetry::Collector, Config};
+use crate::{Config, config::validate_panel_url, telemetry::Collector};
 use anyhow::Context;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::SigningKey;
 use sinan_protocol::{EnrollRequest, EnrollResponse};
 use std::{
@@ -191,11 +191,11 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use std::os::unix::fs::{symlink, PermissionsExt};
+    use std::os::unix::fs::{PermissionsExt, symlink};
 
     #[test]
-    fn identity_directory_preserves_existing_modes_and_rejects_unsafe_locations(
-    ) -> anyhow::Result<()> {
+    fn identity_directory_preserves_existing_modes_and_rejects_unsafe_locations()
+    -> anyhow::Result<()> {
         let directory = std::env::temp_dir().join(format!("sn-identity-mode-{}", Uuid::new_v4()));
         fs::create_dir(&directory)?;
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o755))?;

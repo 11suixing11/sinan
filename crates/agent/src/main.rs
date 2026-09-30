@@ -9,9 +9,9 @@ use sinan_adapter_sdk::{Adapter, Privileged, ServiceManager};
 use sinan_adapter_singbox::SingboxAdapter;
 #[cfg(target_os = "linux")]
 use sinan_agent_core::{
-    identity,
+    Config, identity,
     system::{SystemOps, SystemServiceManager},
-    transport, Config,
+    transport,
 };
 use std::path::PathBuf;
 #[cfg(target_os = "linux")]
