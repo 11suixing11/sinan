@@ -1,7 +1,7 @@
 use crate::{
     AppState, artifacts, auth,
     error::{ApiError, ApiResult},
-    ip_quality::{self, IpQuality},
+    ip_quality::{self, ServerIpInfoView},
 };
 use axum::{
     Json,
@@ -48,11 +48,17 @@ pub struct ReportRecord {
 
 #[derive(Serialize)]
 pub struct NodeQualityView {
-    pub ip_addresses: Vec<String>,
-    pub quality: Vec<IpQuality>,
     pub plugin_ready: bool,
     pub plugin_reason: Option<String>,
     pub reports: Vec<ReportRecord>,
+}
+
+#[derive(Serialize)]
+pub struct LegacyNodeQualityView {
+    #[serde(flatten)]
+    pub node_quality: NodeQualityView,
+    #[serde(flatten)]
+    pub ip_info: ServerIpInfoView,
 }
 
 #[derive(Deserialize)]
@@ -140,7 +146,23 @@ pub async fn get(
     Path(id): Path<i64>,
 ) -> ApiResult<Json<NodeQualityView>> {
     auth::require_admin(&state, &headers).await?;
-    expire(&state).await?;
+    Ok(Json(view(&state, id).await?))
+}
+
+pub async fn legacy_get(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> ApiResult<Json<LegacyNodeQualityView>> {
+    auth::require_admin(&state, &headers).await?;
+    Ok(Json(LegacyNodeQualityView {
+        node_quality: view(&state, id).await?,
+        ip_info: ip_quality::view(&state, id).await?,
+    }))
+}
+
+async fn view(state: &AppState, id: i64) -> ApiResult<NodeQualityView> {
+    expire(state).await?;
     let row = sqlx::query(
         "SELECT static_info,last_seen,capabilities FROM servers WHERE id=$1 AND deleted_at IS NULL",
     )
@@ -148,11 +170,10 @@ pub async fn get(
     .fetch_optional(&state.pool)
     .await?
     .ok_or(ApiError::NotFound)?;
-    let ips = ip_quality::reported_ips(&row.get::<Value, _>("static_info"));
     let mut reason = ready(&row).err().map(|error| error.to_string());
     if reason.is_none() {
         let arch = ready(&row)?;
-        if let Err(error) = artifacts::descriptor(&state, "nodequality", PLUGIN_VERSION, arch).await
+        if let Err(error) = artifacts::descriptor(state, "nodequality", PLUGIN_VERSION, arch).await
         {
             reason = Some(match error {
                 ApiError::NotFound => {
@@ -162,13 +183,11 @@ pub async fn get(
             });
         }
     }
-    Ok(Json(NodeQualityView {
-        quality: ip_quality::cached(&state, id, &ips).await?,
-        ip_addresses: ips,
+    Ok(NodeQualityView {
         plugin_ready: reason.is_none(),
         plugin_reason: reason,
-        reports: history(&state, id).await?,
-    }))
+        reports: history(state, id).await?,
+    })
 }
 
 pub async fn create(

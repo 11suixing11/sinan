@@ -554,3 +554,15 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 正常合入作者最新 `93356dd` 和 main `c958ba2`，保留缓存、未知字段严格校验及 4 项前端回归（637 项断言），重建 dist。独立 PostgreSQL 下 protocol/SDK/NodeQuality adapter 29 项、Agent 诊断 29 项、章节接口及既有 diagnostics API 6 项，共 64 项通过、0 失败/忽略；覆盖旧 payload/r2、断连重启、HTTP 503 与 ACK 持久化、执行失败但章节完整、迟到章节、内存保护和终态恢复。workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁及文档相对链接通过。未重复完整 workspace 或真实 NodeQuality 硬件压测，Linux/root 包装器 5 项仍须最终 CI 验证。
 
 - 发布前继续正常合入 main `47c066b`（遥测隔离）及 `7a6f104`（草稿发布器），保留遥测线程/心跳时间、严格 IP 类型和全部验收章节。因遥测依赖变化，仅复验 Agent 章节重启/HTTP ACK 2 项与新增心跳迁移下的 PostgreSQL 章节 2 项，4 项全部通过、0 失败/忽略；全 workspace/all-targets Clippy、fmt、core 门禁通过。Bun 4 项/637 断言及 TypeScript/Vite 再次通过并重建最终 dist；发布 Python 22 项通过。草稿查找没有改变 Rust 源，不重复此前 64 项或全工作区测试；最终提交的 CI 与真实负载验收仍单独核对。
+
+## 2026-10-01：P0 服务器 IP 与 NodeQuality 视图拆分（独立 PR）
+
+- Issue #25：独立 IP GET/refresh 与仅包含准备状态/历史的 NodeQuality reports GET，NodeQualityView 去除 IP 查询字段。旧组合 GET 与旧刷新保留兼容汇合层；缓存 schema、旧报告/ID/参数和 当前 r3 签名制品及 r2 历史兼容不改。
+- 服务器概况/IP信息/NodeQuality验机独立导航与 hash 页面；ServerIpInfo 展示一个入口下的数据库响应，NodeQuality 只保留验机和报告。IP 查询错误或缓存损坏不阻止新报告页读取历史，浏览切换不创建任务或刷新来源。
+- fmt/core gate/差异、Bun 1.4.2 冻结安装/TypeScript/Vite 与最终 dist 桌面/手机导航、历史、IP失败隔离夹具通过。真实 HTTP/PostgreSQL、Clippy 和完整 workspace 待隔离槽或 CI；独立步骤见 [视图拆分验收](docs/acceptance/server-ip-view.md)，没有宣称实机完整诊断通过。
+
+- 视图拆分 `177bfc9` 的 CI `36769525534`：check（Rust/PostgreSQL、全 targets Clippy、systemd、dist）、Compose 与两项 musl 通过，旧基线 Reality 失败。保留新未知字段提交和最新 main 后仍由最终提交 CI 复验。
+
+- 对齐 main `6a583af`：保留章节组件/r3、严格旧字段类型校验和心跳/指标过期展示，只移动 IP 展示与路由。最终提交重新构建 dist，并分别核对最终 CI。
+
+- 视图最终合并源重建通过 TypeScript/Vite、既有四项字段回归（637 断言）和实际 dist 桌面/手机完整路由隔离夹具；额外验证旧 payload 缺 kind 的已知 ASN=false 不冒充事实。章节组件调用和指标过期提示均保留，Rust/平台仍按最终提交 CI 核对。

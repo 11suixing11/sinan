@@ -139,6 +139,35 @@ pub struct IpQuality {
     pub last_error: BTreeMap<String, QueryFailure>,
 }
 
+#[derive(Serialize)]
+pub struct ServerIpInfoView {
+    pub ip_addresses: Vec<String>,
+    pub quality: Vec<IpQuality>,
+}
+
+pub async fn view(state: &AppState, server_id: i64) -> ApiResult<ServerIpInfoView> {
+    let info: Value =
+        sqlx::query_scalar("SELECT static_info FROM servers WHERE id=$1 AND deleted_at IS NULL")
+            .bind(server_id)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+    let ips = reported_ips(&info);
+    Ok(ServerIpInfoView {
+        quality: cached(state, server_id, &ips).await?,
+        ip_addresses: ips,
+    })
+}
+
+pub async fn get(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> ApiResult<Json<ServerIpInfoView>> {
+    auth::require_admin(&state, &headers).await?;
+    Ok(Json(view(&state, id).await?))
+}
+
 type DatabaseRequest = Pin<Box<dyn Future<Output = (String, QualityDatabase)> + Send>>;
 
 pub fn reported_ips(info: &Value) -> Vec<String> {

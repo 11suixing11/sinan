@@ -112,14 +112,22 @@ pub fn router(state: AppState) -> Router {
             axum::routing::patch(probes::update).delete(probes::remove),
         )
         .route("/api/servers/{id}/probe-results", get(probes::history))
-        .route("/api/servers/{id}/node-quality", get(diagnostics::get))
+        .route("/api/servers/{id}/ip-quality", get(ip_quality::get))
+        .route(
+            "/api/servers/{id}/ip-quality/refresh",
+            post(ip_quality::refresh),
+        )
+        .route(
+            "/api/servers/{id}/node-quality",
+            get(diagnostics::legacy_get),
+        )
         .route(
             "/api/servers/{id}/node-quality/refresh",
             post(ip_quality::refresh),
         )
         .route(
             "/api/servers/{id}/node-quality/reports",
-            post(diagnostics::create),
+            get(diagnostics::get).post(diagnostics::create),
         )
         .route("/api/nodes", get(nodes::list).post(nodes::create))
         .route(
