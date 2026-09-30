@@ -23,7 +23,7 @@ import uuid
 SESSION = 'smoke-session'
 
 
-def wait_for(check, description, seconds=60):
+def wait_for(check, description, seconds=120 if os.name == 'nt' else 60):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         result = check()
@@ -256,7 +256,7 @@ def supervise_smoke(binary, config, root, log):
             return json.loads((core / 'update-state.json').read_text())
         def consumed():
             return json.loads((core / 'pending-update.json').read_text()) is None
-        wait_for(lambda: state()['current'] == version and state()['trial'] is None and consumed(), 'successful Agent activation', 90)
+        wait_for(lambda: state()['current'] == version and state()['trial'] is None and consumed(), 'successful Agent activation', 180 if os.name == 'nt' else 90)
         upgraded = wait_for(lambda: status(binary, config), 'upgraded status')
         assert upgraded['pid'] != first['pid']
         # A corrupt candidate must be rejected before stopping the running Agent.
@@ -322,9 +322,13 @@ def main():
         with (root / 'agent.log').open('w', encoding='utf-8') as log:
             def start():
                 return subprocess.Popen([str(binary), '--config', str(config), 'run', '--monitor-only'], stdout=log, stderr=log)
+            def connected():
+                assert process.poll() is None, f'Agent exited unexpectedly: {process.returncode}'
+                info = status(binary, config)
+                return info and info['pid'] == process.pid and info['connected']
             process = start()
             try:
-                wait_for(lambda: (s := status(binary, config)) and s['connected'], 'native Agent connection')
+                wait_for(connected, 'native Agent connection')
                 wait_for(lambda: len(panel.samples) >= 3, 'compressed telemetry with ACK')
                 wait_for(lambda: panel.command_results, 'remote command completion', 90)
                 assert panel.command_results[0]['status'] == 'succeeded', panel.command_results[0]
@@ -338,13 +342,21 @@ def main():
                 unacked = panel.seen - panel.samples.keys()
                 stop(process)
                 process = start()
-                wait_for(lambda: (s := status(binary, config)) and s['connected'], 'restarted Agent connection', 120)
+                wait_for(connected, 'restarted Agent connection', 120)
                 panel.acknowledge = True
                 wait_for(lambda: unacked.issubset(panel.samples), 'persisted telemetry replay after restart', 120)
                 assert len(panel.command_results) == 1, 'command executed twice after restart'
                 sample = list(panel.samples.values())[-1]['metrics']
                 assert sample['processes'] > 0 and sample['memory_used'] > 0
                 assert any(m['type'] == 'telemetry.static' for m in panel.messages)
+                if sys.platform.startswith('freebsd'):
+                    # Repeated startup overlaps static inventories with one-second sampling.
+                    for _ in range(5):
+                        stop(process)
+                        received = len(panel.samples)
+                        process = start()
+                        wait_for(connected, 'FreeBSD repeated startup')
+                        wait_for(lambda: len(panel.samples) >= received + 2, 'FreeBSD concurrent inventories')
             finally:
                 stop(process)
             supervise_smoke(binary, config, root, log)
@@ -358,6 +370,15 @@ def main():
             print((root / 'agent.log').read_text(encoding='utf-8', errors='replace')[-24000:])
         if 'process' in locals():
             print('Agent exit code:', process.poll())
+        core_directory = os.environ.get('SINAN_SMOKE_CORE_DIR')
+        if core_directory and shutil.which('lldb'):
+            for core in Path(core_directory).glob('*.core'):
+                try:
+                    trace = subprocess.run(['lldb', '-b', '-c', str(core), str(binary), '-o', 'thread backtrace all'],
+                                           capture_output=True, text=True, errors='replace', timeout=30)
+                    print('Native crash backtrace:', trace.stdout[:16000], trace.stderr[:2000])
+                except subprocess.TimeoutExpired:
+                    print('Native crash backtrace timed out')
         print('Recent panel messages:', [m['type'] for m in panel.messages[-12:]])
         print('Recent panel requests:', panel.requests[-20:])
         print('Unacknowledged samples:', len(panel.seen - panel.samples.keys()))

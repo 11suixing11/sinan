@@ -35,8 +35,9 @@ async fn spawn(
 }
 async fn ready(process: &mut dyn ManagedProcess, config: &Config, version: &str) -> Result<()> {
     let started = Instant::now();
+    let startup_secs = if cfg!(windows) { 120 } else { 60 };
     let mut consecutive = 0;
-    while started.elapsed() < Duration::from_secs(60) {
+    while started.elapsed() < Duration::from_secs(startup_secs) {
         ensure!(
             process.try_wait()?.is_none(),
             "new Agent exited during startup"
@@ -54,7 +55,7 @@ async fn ready(process: &mut dyn ManagedProcess, config: &Config, version: &str)
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
-    anyhow::bail!("new Agent did not become healthy within 60 seconds")
+    anyhow::bail!("new Agent did not become healthy within {startup_secs} seconds")
 }
 
 pub async fn supervise(

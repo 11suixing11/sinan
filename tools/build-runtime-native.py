@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import time
 
 from artifact_manifest import publish
 
@@ -59,9 +60,17 @@ def main():
         binary = root / ('sing-box.exe' if system == 'windows' else 'sing-box')
         env = dict(os.environ, GOOS='darwin' if system == 'macos' else system, GOARCH=arch,
                    CGO_ENABLED='1' if system == 'macos' else '0', GOTOOLCHAIN='local')
-        run(['go', 'build', '-trimpath', '-o', str(binary), '-tags', tags,
-             '-ldflags', f'-X github.com/sagernet/sing-box/constant.Version={VERSION} {ldflags} -s -w -buildid=',
-             './cmd/sing-box'], cwd=source, env=env)
+        for attempt in range(3):
+            try:
+                run(['go', 'build', '-trimpath', '-o', str(binary), '-tags', tags,
+                     '-ldflags', f'-X github.com/sagernet/sing-box/constant.Version={VERSION} {ldflags} -s -w -buildid=',
+                     './cmd/sing-box'], cwd=source, env=env)
+                break
+            except subprocess.CalledProcessError:
+                if attempt == 2:
+                    raise
+                print('Retrying runtime build with the existing module cache', flush=True)
+                time.sleep(5)
         files = [binary]
         if system == 'windows':
             if (source / '.github/CRONET_GO_VERSION').read_text().strip() != CRONET:

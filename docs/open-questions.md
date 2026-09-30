@@ -139,3 +139,5 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 - 原生服务采用系统内置 launchd、rc.d/daemon 和 Windows 计划任务，Agent 与运行时分开注册；Windows 不增加需要 unsafe 的服务控制器库。运行时 DLL 通过通用文件白名单描述，core 保持运行时无关。
 - 自动更新只使用面板导入的稳定版，初始关闭；本地 PID/版本检查允许离线启动。Supervisor 与 Agent 同属系统服务，代理进程归另一服务；更新前的持久试运行状态用于恢复中断升级。Windows 文件内容刷盘后原子替换引用，目录元数据断电语义仍是已知验证边界。
 - FreeBSD 保留代理普通账户，因此默认使用非特权节点端口；需要 443 等低端口时由管理员配置宿主端口授权。安装器不自动修改全局 sysctl 或加载端口策略模块，避免覆盖现有主机策略；详见 README 和 FreeBSD `mac_portacl(4)`。
+- FreeBSD 的 sysinfo 0.33 磁盘枚举调用 `getmntinfo`，其[官方实现](https://github.com/freebsd/freebsd-src/blob/releng/15.0/lib/libc/gen/getmntinfo.c)会修改并重新分配进程全局缓冲区。连接上报和采样可能并发构造 Collector，因此以进程级互斥锁保护完整磁盘枚举及 libgeom 快照；不新增 unsafe 或修改上游依赖。CI 增加重复启动采样和可用时的原生崩溃回溯。
+- Windows 新建运行时账户明确加入普通 Users 组，使用固定 SID 和本地账户对象，避免本地化名称与域同名账户歧义，依据 [Add-LocalGroupMember 文档](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.localaccounts/add-localgroupmember?view=powershell-5.1)。运行时保持非管理员；原生 CI 校验账户分组及真实任务执行。Windows ARM64 实测启动权限检查可能超过 60 秒，更新试运行给出 120 秒有界健康检查，其余平台仍为 60 秒。

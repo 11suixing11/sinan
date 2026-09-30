@@ -34,7 +34,7 @@ impl Collector {
         system.refresh_memory();
         Self {
             system,
-            disks: Disks::new_with_refreshed_list(),
+            disks: refreshed_disks(),
             networks: Networks::new_with_refreshed_list(),
             last_cpu: None,
             last_network: None,
@@ -93,7 +93,7 @@ impl Collector {
             ProcessRefreshKind::nothing(),
         );
         // Fresh inventories do not retain measurements after a failed refresh.
-        self.disks = Disks::new_with_refreshed_list();
+        self.disks = refreshed_disks();
         self.networks = Networks::new_with_refreshed_list();
         let cpu = self
             .last_cpu
@@ -198,6 +198,16 @@ impl Collector {
             ..Metrics::default()
         }
     }
+}
+
+fn refreshed_disks() -> Disks {
+    // FreeBSD getmntinfo and libgeom use process-global storage. Keep the lock
+    // until sysinfo has copied every mount and completed its I/O snapshot.
+    #[cfg(target_os = "freebsd")]
+    static DISKS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    #[cfg(target_os = "freebsd")]
+    let _guard = DISKS.lock().unwrap_or_else(|error| error.into_inner());
+    Disks::new_with_refreshed_list()
 }
 
 pub(crate) fn normalized_addresses(addresses: impl IntoIterator<Item = IpAddr>) -> Vec<String> {

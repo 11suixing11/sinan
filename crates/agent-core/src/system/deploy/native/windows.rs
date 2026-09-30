@@ -18,8 +18,7 @@ pub(super) async fn powershell(ops: &dyn Privileged, script: &str) -> Result<()>
 
 pub(super) async fn account(ops: &dyn Privileged, name: &str) -> Result<()> {
     let script = format!(
-        "if (-not (Get-LocalUser -Name {} -ErrorAction SilentlyContinue)) {{ New-LocalUser -Name {} -NoPassword -AccountNeverExpires -UserMayNotChangePassword | Out-Null }}",
-        quote(name),
+        "$name={}; $user=Get-LocalUser -Name $name -ErrorAction SilentlyContinue; if (-not $user) {{ $user=New-LocalUser -Name $name -NoPassword -AccountNeverExpires -UserMayNotChangePassword }}; if (-not (Get-LocalGroupMember -SID 'S-1-5-32-545' | Where-Object {{ $_.SID -eq $user.SID }})) {{ Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user }}",
         quote(name)
     );
     powershell(ops, &script).await
@@ -35,7 +34,7 @@ async fn task(
 ) -> Result<()> {
     let principal = if let Some(account) = account {
         format!(
-            "$random=New-Object byte[] 48; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($random); $password=[Convert]::ToBase64String($random); Set-LocalUser -Name {} -Password (ConvertTo-SecureString $password -AsPlainText -Force) -PasswordNeverExpires $true; Register-ScheduledTask -TaskName {} -Action $action -Trigger $trigger -Settings $settings -User {} -Password $password -RunLevel Limited -Force | Out-Null",
+            "$random=New-Object byte[] 48; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($random); $password='Aa1!'+[Convert]::ToBase64String($random); Set-LocalUser -Name {} -Password (ConvertTo-SecureString $password -AsPlainText -Force) -PasswordNeverExpires $true; Register-ScheduledTask -TaskName {} -Action $action -Trigger $trigger -Settings $settings -User {} -Password $password -RunLevel Limited -Force | Out-Null",
             quote(account),
             quote(name),
             quote(account)

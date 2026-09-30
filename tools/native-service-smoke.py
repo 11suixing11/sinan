@@ -102,9 +102,13 @@ def main():
     module = dict(kernel_version='1.14.2', artifact=dict(url=panel.origin + '/fixture/runtime', sha256=hashlib.sha256(archive).hexdigest()),
                   config_rev=1, bundle_url=panel.origin + '/fixture/bundle', bundle_sha256=hashlib.sha256(bundle).hexdigest(), stats_listen=f'127.0.0.1:{stats_port}')
     try:
+        if SYSTEM == 'Windows':
+            command(['wevtutil.exe', 'sl', 'Microsoft-Windows-TaskScheduler/Operational', '/e:true'])
         print(invoke(binary, config, 'enroll', '--panel', panel.origin, '--token', 'smoke-enrollment'))
         # Publish after services are registered so launchd's eager startup cannot race the fixture.
         print(invoke(binary, config, 'install-service'))
+        if SYSTEM == 'Windows':
+            powershell("$user=Get-LocalUser -Name 'sinan-singbox'; if (-not (Get-LocalGroupMember -SID 'S-1-5-32-545' | Where-Object { $_.SID -eq $user.SID })) { throw 'Runtime is not an ordinary Users member' }; if (Get-LocalGroupMember -SID 'S-1-5-32-544' | Where-Object { $_.SID -eq $user.SID }) { throw 'Runtime must not be an administrator' }")
         panel.manifest = dict(rev=1, modules={'singbox': module})
         revision = 1
         def applied():
@@ -165,6 +169,7 @@ def main():
                 print(messages.read_text(errors='replace')[-6000:])
         if SYSTEM == 'Windows':
             print(powershell("Get-ScheduledTaskInfo -TaskName 'sinan-agent'; Get-ScheduledTaskInfo -TaskName 'sinan-singbox@main'", False).stdout)
+            print(powershell("$scheduler=New-Object -ComObject Schedule.Service; $scheduler.Connect(); $task=$scheduler.GetFolder('\\').GetTask('sinan-singbox@main'); $task.GetSecurityDescriptor(7); Get-LocalUser -Name 'sinan-singbox'; Get-LocalGroupMember -SID 'S-1-5-32-545'; Get-WinEvent -LogName 'Microsoft-Windows-TaskScheduler/Operational' -MaxEvents 100 | Where-Object { $_.Message -match 'sinan-' } | Select-Object -First 12 TimeCreated,Id,Message | Format-List", False).stdout)
         raise
     finally:
         for name in ('sinan-agent', 'sinan-singbox@main'):
