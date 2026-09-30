@@ -1,4 +1,5 @@
 pub mod accesses;
+mod activity;
 pub mod agent;
 pub mod business;
 pub mod deployments;
@@ -8,6 +9,8 @@ pub mod publisher;
 pub mod settings;
 pub mod subscriptions;
 pub mod usage;
+
+pub(super) use activity::runtime_activity_on;
 
 use crate::AppState;
 use axum::{

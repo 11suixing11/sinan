@@ -44,6 +44,16 @@ async fn monitoring_server_requires_explicit_enablement_and_never_publishes_prox
         .execute(&pool)
         .await?;
     sinan_panel::plugins::singbox::publisher::publish_due(&panel.state).await?;
+    let mut connection = pool.acquire().await?;
+    let activity = sinan_panel::plugins::runtime_activity_on(
+        &mut connection,
+        server,
+        sinan_protocol::now_timestamp(),
+    )
+    .await?;
+    assert!(!activity.configured);
+    assert_eq!(activity.last_positive_at, None);
+    drop(connection);
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM deployments WHERE server_id=$1")
             .bind(server)
@@ -245,6 +255,11 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
     // Starting the new panel applies the real migration to already imported records.
     let panel = TestPanel::start(pool.clone()).await?;
     assert_eq!(migration_recovery::legacy_snapshot(&pool).await?, legacy);
+    let mut connection = pool.acquire().await?;
+    let activity = sinan_panel::plugins::runtime_activity_on(&mut connection, server, 20).await?;
+    assert!(activity.configured);
+    assert_eq!(activity.last_positive_at, Some(20));
+    drop(connection);
     // Reopening the migrated database must neither duplicate enablement nor
     // alter previously acknowledged batches. Offline outbox replay still dedupes.
     all.run(&pool).await?;

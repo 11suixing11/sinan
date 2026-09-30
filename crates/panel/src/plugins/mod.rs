@@ -3,6 +3,20 @@ pub mod singbox;
 use crate::AppState;
 use axum::Router;
 
+/// Runtime evidence supplied by plugins; silence does not establish idleness.
+pub struct ActivityEvidence {
+    pub configured: bool,
+    pub last_positive_at: Option<i64>,
+}
+
+pub async fn runtime_activity_on(
+    connection: &mut sqlx::PgConnection,
+    server_id: i64,
+    checked_at: i64,
+) -> crate::error::ApiResult<ActivityEvidence> {
+    singbox::runtime_activity_on(connection, server_id, checked_at).await
+}
+
 pub fn router() -> Router<AppState> {
     singbox::router()
 }
