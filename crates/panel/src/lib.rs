@@ -46,6 +46,7 @@ pub struct AppState {
     pub pool: PgPool,
     pub login_permits: Arc<Semaphore>,
     pub quality_permits: Arc<Semaphore>,
+    pub quality_providers: Arc<ip_quality::ProviderRegistry>,
     pub release_permits: Arc<Semaphore>,
     pub release_keys: Option<Arc<sinan_protocol::release::TrustedKeys>>,
     pub config: Arc<Config>,
@@ -61,6 +62,7 @@ impl AppState {
             pool,
             login_permits: Arc::new(Semaphore::new(4)),
             quality_permits: Arc::new(Semaphore::new(2)),
+            quality_providers: Arc::new(ip_quality::ProviderRegistry::from_env()),
             release_permits: Arc::new(Semaphore::new(1)),
             release_keys: sinan_protocol::release::TrustedKeys::compiled()
                 .ok()
@@ -129,6 +131,10 @@ pub fn router(state: AppState) -> Router {
             "/api/servers/{id}/node-quality/reports",
             get(diagnostics::get).post(diagnostics::create),
         )
+        .route(
+            "/api/servers/{id}/diagnostics/{job}/cancel",
+            post(diagnostics::cancellation::request),
+        )
         .route("/api/nodes", get(nodes::list).post(nodes::create))
         .route(
             "/api/nodes/{id}",
@@ -168,6 +174,14 @@ pub fn router(state: AppState) -> Router {
         .route("/api/agent/v1/probes", get(probes::agent_list))
         .route("/api/agent/v1/probe-results", post(probes::ingest))
         .route("/api/agent/v1/diagnostics", get(diagnostics::pending))
+        .route(
+            "/api/agent/v1/diagnostics/cancellations",
+            get(diagnostics::cancellation::pending),
+        )
+        .route(
+            "/api/agent/v1/diagnostics/{id}/cancel-confirmation",
+            post(diagnostics::cancellation::confirm),
+        )
         .route("/api/agent/v1/diagnostics/{id}", post(diagnostics::update))
         .route(
             "/api/agent/v1/diagnostics/{id}/sections",

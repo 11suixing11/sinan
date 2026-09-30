@@ -539,12 +539,14 @@ printf '%s/%s/%s/%s/%s\\n' "$hardware" "$ip_test" "$network" "$trace" "${ip:-bot
 mkdir -p "$workspace/.nodequalityfixture/BenchOs/dev" "$workspace/.nodequalityfixture/BenchOs/sys" "$workspace/.nodequalityfixture/BenchOs/proc"
 work_dir=$workspace/.nodequalityfixture
 '''
-        if mode in ("report", "failed", "early-one", "signal-cleanup", "cleanup-refused"):
+        if mode in ("report", "success", "nonzero", "failed", "early-one", "signal-cleanup", "cleanup-refused"):
             self.fixture_archive = make_archive()
             encoded = base64.b64encode(self.fixture_archive).decode()
             fixture += "printf '%s' '" + encoded + "' | curl -X POST --data-binary @- https://api.nodequality.com/api/v1/record\n"
             fixture += {
                 "report": "post_cleanup\n",
+                "success": "exit 0\n",
+                "nonzero": "exit 1\n",
                 "failed": "exit 7\n",
                 "early-one": "exit 1\n",
                 "signal-cleanup": "sig_cleanup\n",
@@ -582,20 +584,31 @@ work_dir=$workspace/.nodequalityfixture
         return ["bash", str(path), "--workspace", str(self.workspace),
                 "--ip-version", "ipv6", "--network-mode", "low"]
 
-    def test_pinned_cleanup_exit_one_still_requires_four_actual_local_reports(self):
-        result = subprocess.run(self.runner(), env=self.environment, capture_output=True, timeout=10)
-        self.assertEqual(result.returncode, 0, result.stderr.decode())
-        self.assertEqual((self.workspace / "upstream-exit.txt").read_text().strip(), "1")
+    def assert_complete_runner_report(self, mode, upstream_status, status):
+        result = subprocess.run(self.runner(mode), env=self.environment, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, status, result.stderr.decode())
+        self.assertEqual((self.workspace / "upstream-exit.txt").read_text().strip(), str(upstream_status))
         self.assertEqual((self.workspace / "fixture-options.txt").read_text().strip(), "y/y/l/y/-6")
         text = (self.workspace / "result.txt").read_text()
         for name, _ in report.SECTIONS:
             self.assertIn("Actual " + name + " report", text)
-        self.assertTrue((self.workspace / "report.zip").is_file())
+        self.assertEqual((self.workspace / "report.zip").read_bytes(), self.fixture_archive)
         self.assertIn("公开报告上传已关闭", text)
         self.assertFalse((self.workspace / "report-url.txt").exists())
         self.assertFalse((self.root / "curl-called.txt").exists())
         self.assertFalse((self.workspace / ".nodequalityfixture").exists())
         self.assertFalse((self.workspace / ".runner").exists())
+
+    def test_pinned_cleanup_exit_one_still_requires_four_actual_local_reports(self):
+        self.assert_complete_runner_report("report", 1, 0)
+
+    def test_upstream_nonzero_exit_still_requires_four_actual_local_reports(self):
+        # Preserve the raw success/failure distinction introduced by PR #56.
+        for mode, status in (("success", 0), ("nonzero", 1)):
+            with self.subTest(mode=mode):
+                self.assert_complete_runner_report(mode, status, status)
+                for path in self.workspace.iterdir():
+                    path.unlink()
 
     def test_explicit_upload_true_produces_the_online_report(self):
         result = subprocess.run(self.runner() + ["--upload-report", "true"], env=self.environment,

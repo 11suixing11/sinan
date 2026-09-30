@@ -242,6 +242,16 @@ pub trait Privileged: Send + Sync {
 }
 
 pub trait ServiceManager: Send + Sync {
+    fn supports_confirmed_cancellation(&self) -> bool {
+        false
+    }
+    fn diagnostic_cleanup_confirmed<'a>(
+        &'a self,
+        _unit: &'a str,
+        _directory: &'a Path,
+    ) -> BoxFuture<'a, bool> {
+        Box::pin(async { anyhow::bail!("diagnostic cleanup confirmation is not supported") })
+    }
     fn running_diagnostic_units(&self) -> BoxFuture<'_, Vec<String>> {
         Box::pin(async { anyhow::bail!("diagnostic conflict inspection is not supported") })
     }
