@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 mod business_support;
+#[path = "plugin_business/migration_recovery.rs"]
+mod migration_recovery;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
 
@@ -8,6 +10,7 @@ use business_support::{TestPanel, id};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 use sinan_compiler::{Access, Node};
+use sinan_protocol::{UsageBatch, UsageRecord};
 use sqlx::{PgPool, migrate::Migrator};
 use std::borrow::Cow;
 use uuid::Uuid;
@@ -215,10 +218,52 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
     sqlx::query("INSERT INTO deployments(server_id,module,rev,bundle,bundle_sha256,source_json,created_at) VALUES($1,'singbox',7,'imported-bundle','imported-hash',$2,1234)").bind(server).bind(json!([node])).execute(&pool).await?;
     sqlx::query("INSERT INTO deployments(server_id,module,rev,bundle,bundle_sha256,created_at) VALUES($1,'singbox',1,'legacy','legacy',1234)").bind(deploy_only).execute(&pool).await?;
     sqlx::query("INSERT INTO server_module_status(server_id,module,target_rev,applied_rev,healthy) VALUES($1,'singbox',7,7,TRUE)").bind(server).execute(&pool).await?;
-    sqlx::query("INSERT INTO usage_batches(server_id,epoch,seq,payload_hash) VALUES($1,$2,1,'original-batch')").bind(server).bind(epoch).execute(&pool).await?;
+    let batch = UsageBatch {
+        epoch,
+        seq: 1,
+        period_start: 10,
+        period_end: 20,
+        records: vec![UsageRecord {
+            stat_name: stat_name.clone(),
+            uplink: 123,
+            downlink: 456,
+        }],
+    };
+    let payload_hash = sinan_panel::auth::hash_token(&serde_json::to_string(&batch)?);
+    sqlx::query("INSERT INTO usage_batches(server_id,epoch,seq,payload_hash) VALUES($1,$2,1,$3)")
+        .bind(server)
+        .bind(epoch)
+        .bind(&payload_hash)
+        .execute(&pool)
+        .await?;
     sqlx::query("INSERT INTO usage_records(server_id,epoch,seq,stat_name,user_id,node_id,uplink,downlink,period_start,period_end) VALUES($1,$2,1,$3,$4,$5,123,456,10,20)").bind(server).bind(epoch).bind(&stat_name).bind(user_id).bind(node_id).execute(&pool).await?;
+    sqlx::query("INSERT INTO sessions(token_hash,server_id,expires_at) VALUES('TEST_ONLY-imported-device-session',$1,4099680000)")
+        .bind(server).execute(&pool).await?;
+    sqlx::query("INSERT INTO enrollment_tokens(token_hash,server_id,expires_at,consumed_at) VALUES('TEST_ONLY-imported-enrollment',$1,4099680000,1234)")
+        .bind(server).execute(&pool).await?;
+    let legacy = migration_recovery::legacy_snapshot(&pool).await?;
     // Starting the new panel applies the real migration to already imported records.
     let panel = TestPanel::start(pool.clone()).await?;
+    assert_eq!(migration_recovery::legacy_snapshot(&pool).await?, legacy);
+    // Reopening the migrated database must neither duplicate enablement nor
+    // alter previously acknowledged batches. Offline outbox replay still dedupes.
+    all.run(&pool).await?;
+    sinan_panel::plugins::singbox::usage::ingest(&panel.state, server, batch.clone()).await?;
+    assert_eq!(migration_recovery::legacy_snapshot(&pool).await?, legacy);
+    let mut altered = batch;
+    altered.records[0].downlink += 1;
+    assert!(
+        sinan_panel::plugins::singbox::usage::ingest(&panel.state, server, altered)
+            .await
+            .is_err()
+    );
+    assert_eq!(migration_recovery::legacy_snapshot(&pool).await?, legacy);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM server_plugins")
+            .fetch_one(&pool)
+            .await?,
+        2
+    );
     let cookie = panel.admin_cookie().await?;
     let user: Value = panel
         .admin(

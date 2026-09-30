@@ -92,10 +92,17 @@ pub async fn enable(
     Ok((StatusCode::OK, Json(row)))
 }
 
-pub(super) async fn require_enabled(tx: &mut Transaction<'_, Postgres>, id: i64) -> ApiResult<()> {
+pub(super) async fn is_enabled(
+    tx: &mut Transaction<'_, Postgres>,
+    id: i64,
+) -> Result<bool, sqlx::Error> {
     let source: Option<String> = sqlx::query_scalar(&format!("SELECT {SOURCE_SQL} FROM servers s LEFT JOIN server_plugins p ON p.server_id=s.id AND p.plugin='sing-box' WHERE s.id=$1 AND s.deleted_at IS NULL"))
         .bind(id).fetch_one(&mut **tx).await?;
-    if source.is_none() {
+    Ok(source.is_some())
+}
+
+pub(super) async fn require_enabled(tx: &mut Transaction<'_, Postgres>, id: i64) -> ApiResult<()> {
+    if !is_enabled(tx, id).await? {
         return Err(ApiError::Conflict(
             "此服务器尚未启用 sing-box，请先在系统的插件设置中明确启用".into(),
         ));

@@ -78,6 +78,12 @@ async fn publish_server(state: &AppState, server_id: i64) -> anyhow::Result<()> 
     else {
         return Ok(());
     };
+    // Device declarations may have changed since the due-work scan. Recheck
+    // under the server lock before creating legacy deployment evidence.
+    if !super::settings::is_enabled(&mut tx, server_id).await? {
+        tx.commit().await?;
+        return Ok(());
+    }
     let nodes = snapshot(&mut tx, server_id).await?;
     let source = serde_json::to_value(&nodes)?;
     let native = sinan_compiler::compile_server(&nodes)?;
@@ -131,3 +137,6 @@ async fn publish_server(state: &AppState, server_id: i64) -> anyhow::Result<()> 
     .await;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
