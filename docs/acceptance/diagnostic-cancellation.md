@@ -16,6 +16,8 @@
 
 旧 Agent、OpenRC 与非 Linux 后端目前不支持同等清理证据，界面禁用取消并显示“不支持确认式取消，请先升级”；接口返回 409。无法证明旧诊断单元已清理时同样保持待确认，不能声称取消成功。
 
+合并审查补齐能力宣告门禁：必须同时满足 Linux、systemd 和实际 cgroup v2 控制器文件，能力宣告与清理确认共用同一检查。只有 systemd 而缺少 v2 证据的宿主不宣告支持，避免已接受请求永久无法确认。新增缺少控制器文件与其他后端的能力回归；该补修的 Rust 执行结果待最终整合编译槽验证。
+
 ## 自动验收
 
 Rust 使用独立 PostgreSQL 数据库，执行工作区 `cargo fmt --all -- --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked`。设置测试发布信任根：`export SINAN_RELEASE_PUBLIC_KEYS=$(python3 scripts/ci-test-trust.py)`。

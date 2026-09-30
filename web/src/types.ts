@@ -13,7 +13,7 @@ export type Metrics = {
   disk_used?: number; tcp_connections?: number; udp_connections?: number; uptime_secs?: number;
   network_interfaces?: Record<string, { received_bytes?: number; transmitted_bytes?: number; receive_bytes_per_sec?: number; transmit_bytes_per_sec?: number }>;
 }
-export type Server = { id: number; name: string; device_public_key: string | null; static_info: StaticInfo; last_seen: number | null; latest_metrics: Metrics; manifest_rev: number; online: boolean; capabilities?: string[] }
+export type Server = { id: number; name: string; device_public_key: string | null; static_info: StaticInfo; last_seen: number | null; last_heartbeat_at: number | null; metrics_sampled_at: number | null; metrics_stale: boolean; latest_metrics: Metrics; manifest_rev: number; online: boolean; capabilities?: string[] }
 export type Node = { id: number; name: string; server_id: number; protocol: string; port: number; public_host: string; sni: string; public_key: string; short_id: string }
 export type User = { id: number; name: string; subscription_token: string; subscription_url: string }
 export type Access = { user_id: number; node_id: number; uuid: string; stat_name: string }
@@ -22,7 +22,9 @@ export type Deployment = { status: { module: string; target_rev: number; applied
 export type Usage = { uplink: string; downlink: string; total: string; by_user: { user_id: number; name: string; deleted: boolean; uplink: string; downlink: string }[]; by_node: { node_id: number; name: string; deleted: boolean; uplink: string; downlink: string }[] }
 export type Artifact = { name: string; version: string; arch: string; sha256: string; bytes: number }
 export type QualityErrorKind = 'dns' | 'connect' | 'tls' | 'timeout' | 'http_403' | 'http_429' | 'http_other' | 'non_json' | 'schema_mismatch' | 'body_error' | 'response_limit' | 'request_error' | 'not_public' | 'not_attempted' | 'invalid_origin'
-export type QualityDatabase = { database: string; label: string; status: 'succeeded' | 'failed'; fields: { label: string; value: string | number | boolean }[]; error: string | null; provider?: string; target_ip?: string | null; attempted_at?: number | null; elapsed_ms?: number | null; error_kind?: QualityErrorKind | null; http_status?: number | null }
-export type IpQuality = { ip: string; checked_at: number; expires_at: number; status: 'succeeded' | 'partial' | 'failed'; databases: QualityDatabase[] }
+export type QualityFailure = { kind: QualityErrorKind | null; message: string; http_status: number | null; attempted_at: number | null; elapsed_ms: number | null }
+export type QualityField = { label: string; value: unknown; kind?: 'text' | 'country_code' | 'boolean' | 'score' | 'asn' | 'latitude' | 'longitude' | null }
+export type QualityDatabase = { database: string; label: string; status: 'succeeded' | 'failed'; fields: QualityField[]; error: string | null; provider?: string; target_ip?: string | null; attempted_at?: number | null; elapsed_ms?: number | null; error_kind?: QualityErrorKind | null; http_status?: number | null; last_attempt_at?: number | null; last_success_at?: number | null; fresh_until?: number | null; last_error?: QualityFailure | null; historical?: boolean }
+export type IpQuality = { ip: string; checked_at: number; expires_at: number; status: 'succeeded' | 'partial' | 'failed'; databases: QualityDatabase[]; provider?: string; last_attempt_at?: number | null; last_success_at?: number | null; fresh_until?: number | null; last_error?: Record<string, QualityFailure> }
 export type DiagnosticRecord = { id: string; status: 'queued' | 'running' | 'cancel_requested' | 'cancelled' | 'succeeded' | 'failed'; agent_completed: boolean; cancel_requested_at: number | null; cancel_error: string | null; job: { plugin: string; options: { ip_version: string; network_mode: string; upload_report?: string } }; report: { text: string; report_url?: string } | null; error: string | null; created_at: number; updated_at: number; expires_at: number }
 export type NodeQuality = { ip_addresses: string[]; quality: IpQuality[]; plugin_ready: boolean; plugin_reason: string | null; cancel_supported: boolean; reports: DiagnosticRecord[] }

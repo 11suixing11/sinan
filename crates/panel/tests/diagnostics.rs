@@ -437,3 +437,47 @@ async fn report_readiness_and_quality_refresh_require_auth_and_preserve_unknown(
 
 #[path = "diagnostics/cancellation.rs"]
 mod cancellation;
+#[sqlx::test(migrations = "./migrations")]
+async fn concurrent_quality_refresh_admits_one_request_and_keeps_unknown(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let server_id = panel.create_server(&cookie, "刷新并发夹具").await?;
+    sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
+        .bind(server_id)
+        .bind(json!({"ip_addresses":["192.0.2.1"]}))
+        .execute(&panel.state.pool)
+        .await?;
+    let path = format!("/api/servers/{server_id}/node-quality/refresh");
+    let (first, second) = tokio::join!(
+        panel.admin(Method::POST, &path, &cookie, None),
+        panel.admin(Method::POST, &path, &cookie, None)
+    );
+    let statuses = [first?.status(), second?.status()];
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|&&status| status == StatusCode::OK)
+            .count(),
+        1
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|&&status| status == StatusCode::CONFLICT)
+            .count(),
+        1
+    );
+    let quality = ip_quality::cached(&panel.state, server_id, &["192.0.2.1".into()]).await?;
+    assert_eq!(quality.len(), 1);
+    assert_eq!(quality[0].provider, "check-place");
+    assert_eq!(quality[0].last_success_at, None);
+    assert!(
+        quality[0]
+            .databases
+            .iter()
+            .all(|entry| entry.fields.is_empty() && !entry.historical)
+    );
+    Ok(())
+}

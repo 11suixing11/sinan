@@ -497,6 +497,43 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 随后保留贡献者 `98f86d8` 的生产修复：会话到期值与 hello.ack 取同一次签发时间。合并强制 PostgreSQL 会话写锁跨秒回归和认证前后窗口、token/server 数据库一致性检查；该专项 1 项实际通过，panel 全 targets Clippy、workspace fmt 与差异检查通过。Agent 仍提前 60 秒续期，认证 ACK 有 10 秒等待上限，服务端保留绝对到期拒绝。
 
+## 2026-10-01：P0 IP 查询保留成功快照（独立 PR）
+
+- 缓存按 IP 与真实入口分开，每种数据库响应单独保存最新尝试和最后成功快照。失败仅更新状态与错误，不覆盖字段、成功时间或有效期；部分成功只更新对应响应，换 IP 保留旧记录，旧批次不覆盖新批次。旧表名和 payload 保留，0008 迁移明确成功数据，未知字段/时间/分类不补造。
+- 页面同时显示当前失败和历史字段、上次成功时间及过期，历史成功不计为当前成功；原零分和 false 不变。刷新 admission 在服务器行锁事务内检查最近尝试与运行租约，异常退出后租约过期可恢复，重复刷新去重。
+- 对齐最新 main `e2d898c` 并保留新 Agent 控制界面。在隔离 Debian 12 构建容器通过 workspace fmt、全 targets Clippy、16 项 IP 专项（含五项缓存 PostgreSQL 场景）、四项 diagnostics 与完整 workspace 245 项成功 / 0 失败 / 六项已有真实 systemd/上游运行时条件忽略；新增缓存测试无忽略。独立 PostgreSQL 旧 DDL/旧 payload/0008 实际迁移、Bun 1.4.2 冻结安装、TypeScript/Vite 和最终 dist 桌面/手机历史场景、core gate 及六项行为测试、文档链接与差异检查通过。本提交的平台/Compose CI 单独核对，不由该普通构建容器推断实机通过。
+- 数据和兼容语义见 [ADR 0025](docs/adr/0025-ip-provider-cache.md)，独立步骤及边界见 [缓存验收](docs/acceptance/ip-provider-cache.md)。本项没有新增查询入口或修改网络重试策略。
+
+- IP 缓存合并整合 main `75cd846`，保留诊断内存保护、固定锁权限、宿主 ABI 缓存兼容、服务夹具和会话单次签发修复。完整 Rust/PostgreSQL workspace 回归 267 项成功、0 失败、8 项既有 Linux/root/systemd 或上游运行时条件忽略；Clippy --all-targets -D warnings、fmt、core 门禁和差异检查通过。Bun 1.4.2 TypeScript/Vite 重建与提交 dist 一致。此完整回归尚不包含后续 IP 未知字段 PR #44，最终 Linux CI 单独核对。
+
+## 2026-10-01：P0 IP 未知字段显示（独立 PR）
+
+- 专项审查实际复现空字符串/错误类型和 success=false 默认字段被记为成功，归独立 Issue #42，不混入来源适配层 #24。每个已知字段增加语义类型和有效值检查，不能确认的状态/字段保持未知，真实 0/false 和可信原始评分字符串保留。
+- 旧缓存原始快照保留，读取过滤不能确认的已知字段并补可选 kind；页面无效值显示未知，历史/过期/未知状态不能冒充当前成功。旧响应包缺失时不追溯编造成功证据。
+- 未知字段首轮 CI 的 check 在测试辅助路径的反向迭代编译失败，Rust 测试未执行；作者已修复为 rsplit，保留该修复，未将初轮记为通过。
+- fmt、core gate、差异、Bun 1.4.2 冻结安装/TypeScript/Vite 与实际 dist 桌面/手机字段、历史和模拟未启用来源验收通过。Rust/Clippy 和独立 HTTP/PostgreSQL 场景等待隔离编译槽或 CI，结果单独更新，未宣称平台/完整诊断通过。独立步骤见 [未知字段验收](docs/acceptance/ip-quality-unknown.md)。
+- 整合 main `07e8f58` 时补齐旧 payload 缺少 kind 的前端校验，代理=0/评分=false 和空白/占位评级不再冒充事实；保留合法 0/false 与未知自定义标签原标量。Bun 1.4.2 冻结安装、4 项字段回归（637 项断言）、TypeScript/Vite 构建通过，覆盖后端全部 55 个字段的前端兼容规则并重建最终 dist；core gate 与差异检查通过。补修后的桌面/手机浏览器场景尚未重跑，Rust 和平台验证随后单独记录。
+- 最终正常整合作者 `56f8211` 和 main `b8e5689`，保留缓存、会话签发/夹具、服务保护和宿主 ABI 兼容修复。独立 PostgreSQL 下 20 项 IP 质量 library 测试与 4 项 diagnostics API 测试全部通过，0 失败/忽略；panel 全 targets Clippy（warnings 为错误）、workspace fmt、core 门禁与差异检查通过。Bun 4 项/637 断言及 TypeScript/Vite 再次通过，最终 dist 与重建结果一致；未重复完整 workspace 或实机 NodeQuality/平台 CI，补修后的浏览器桌面/手机场景仍未重跑。
+
+- 未知字段修复后的 `56f8211` CI `36769441248`：check 中全 targets Clippy、Rust/PostgreSQL、真实 systemd 和提交 dist 检查通过，Compose 和两项 musl 也通过；旧基线的 Reality 任务失败另行处理。现保留已合并缓存和最新 main 后复验最终源，不用前一提交结果替代。
+
+- 贡献者提供的同期验收记录：最终 Rust 源保留 main `b8e5689` 后，在独立 Debian 12 构建容器（1.5 GiB/2 CPU、无额外 swap）通过 fmt、Clippy --all-targets -D warnings、20 项 IP 与 4 项 diagnostics 专项、完整 workspace 270 项成功 / 0 失败 / 8 项既有 Linux/root/systemd 或外部运行时条件忽略；新增未知字段测试无忽略，容器无 OOM。最终 TypeScript/Vite 与已有 dist 一致，桌面/手机夹具和 core 门禁通过。平台 CI 仍按最终提交单独核对。 此记录属于贡献者原前端源，不替代合并审查补修后的最终 dist；两侧 Rust/依赖源码完全一致，本地专项证据继续有效。
+
+- 发布前正常合入作者新 head `cbe54ae`：与已验证 `14893f5` 的所有 crates、Cargo 清单/锁文件及工具脚本完全相同，仅补验收记录与已有前端差异。保留双向正常祖先和旧 payload 类型补修，Bun 4 项/637 断言及 TypeScript/Vite 复验通过，最终 dist 与既有构建一致；相同 Rust 源码不重复构建。
+
+## 2026-10-01 心跳与遥测隔离（Issue #17，独立 PR）
+
+- 单一 OS 线程持有 Collector 和硬件补充采集器，watch 缓存 StaticInfo 与已有 TelemetrySample；连接初次、300 秒刷新以及公网/配置变更不再创建 Collector，心跳 uptime 读取缓存。5 秒采集超时保留旧样本，不生成额外阻塞线程，不持有退役 gate。
+- 采样缓存、SQLite 持久化与 HTTP 上传分开，保留 1 秒/3 秒默认设置、原 outbox 保留上限与 UUID ACK；时间下限随样本原子保存，ACK 后保留，重启与时钟修正不倒退。
+- API 暴露既有 metrics_sampled_at（毫秒），新增仅 heartbeat 更新的可空 last_heartbeat_at（秒）；last_seen 保持最近设备消息语义。界面分别显示三种时间、指标过期和可读历史，未知不补造时间。baseline 读取真实字段，Cookie 和权限保护不变。
+- 本机 fmt/core 边界检查、baseline 7 项和边界 6 项通过；Bun 1.4.2 构建及 dist 同步完成；真实 Chromium 回环 6 项验收通过、错误 0。集中 Debian 12 构建容器（1.5 GiB/2 CPU/无 swap）fmt、全 targets clippy、Rust/PostgreSQL 工作区 246 通过/6 原有环境依赖忽略，专项 core 遥测10/阻塞4/面板4通过，Agent/Panel 构建通过、二进制已保存，OOM=false；本机 Python77通过（5环境skip），未在磁盘不足的本机重建 Cargo。
+- 初始缓存保留编译期 OS/arch/libc；首个真实采集之前不向面板发送默认 StaticInfo，保留注册时的宿主 ABI，hello/heartbeat/control 继续工作。专项覆盖永久阻塞时真实 20 秒心跳/1 秒 Ping、同缓存重连、不增加采集器、HTTP503补报与ACK、退役 gate、重启时间下限、API 过期与慢采样配置。独立验收见 [telemetry-isolation](docs/acceptance/telemetry-isolation.md)。真实受保护完整验机与取消清理由总任务分别验收。
+- 单独提交整合 main b8e5689（含 IP 缓存与会话修复），保留预检和宿主 ABI 修复，新增真实 WebSocket 缓存就绪/双 ABI 测试。本机 fmt/core 边界、Python77（5skip）、Bun/dist、Chromium6项重验通过；最新 HEAD Rust/PostgreSQL 与真实 systemd 交 GitHub CI，上一轮246项与保存二进制只证明 e2d898c 基线版本。
+
+- 合并审查继续正常整合 main `c958ba2`（PR #44），保留双方正常祖先、未知字段过滤和遥测时间类型，重新生成最终 dist。补修独立采集线程退出：异步硬件命令使用 4 秒 / 128 KiB 的受限执行与进程组 guard，退出发取消信号并最多等 1 秒确认清理；同步永久阻塞的 Collector 不 join，不生成替代线程。缓存测试拆为子模块，新增真实 Unix 子树取消、失败/超时后恢复和 CPU 忙循环隔离回归。
+- 本轮本机独立 PostgreSQL / macOS 专项 Rust 共 21 项通过、0 失败/忽略：遥测/core 13、真实 WebSocket 心跳与初始 ABI 就绪/usage 重放 3、阻塞采集期间退役与 HTTP503→ACK 补报 1、panel telemetry 4。全 workspace/all-targets Clippy（warnings 为错误）、fmt、core 门禁、差异与 baseline Python 7 项通过，日志前缀 `/tmp/sinan-pr48-`。Rust 验证对应作者 `03f7d30` 加退出补修；随后合入的 `c958ba2` 只修改 IP 质量 Rust 文件，core/SDK/protocol、遥测相关 panel/test 文件与 Cargo 清单/锁完全相同，不重复无交集构建，也不以此前 246 项记录代替本轮验证。
+- 最新合并源通过 Bun 1.4.2 冻结安装、TypeScript/Vite 重建，4 项字段测试 / 637 断言，最终 dist 的 Chromium 回环遥测 6 场景全部通过、浏览器错误 0。真实 Linux/systemd 和完整受保护节点负载仍按最终发布 HEAD 的 CI/独立验收核对；本轮 Unix 子树取消通过不冒称已完成平台全验收。
+
 ## 确认式诊断取消（Issue #19，独立 PR）
 
 - 完成管理员取消请求持久化、WS 请求 / 清理确认协议、HTTP pending / ACK 恢复、SQLite 持久取消意图与 outbox。请求期间显示“等待设备确认取消”；停止失败、仍有进程或挂载保持待确认重试。旧 Agent 与缺少清理证据的后端明确不支持。
@@ -504,3 +541,4 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 协议、PG + WS + HTTP、SQLite 重启、挂起的签名下载、实际 Agent ↔ 面板及真实 systemd 私有挂载夹具已加入独立验收。Bun 实际 dist 和浏览器桌面/移动状态验收通过；基于 main `75cd846` 的最终本项源码在受限 Debian 12 构建容器 fmt、Clippy 全目标、完整工作区测试通过：271 通过 / 0 失败 / 9 项环境忽略，exit 0 / 未 OOM。Linux core 测试二进制已交付，专用节点 6 个 systemd 夹具结果待记录。
 - 代码 `8957f5c` 的 CI `36772176396` 通过 check、compose-smoke、Linux musl 两架构，实际 systemd 串行 6 项通过 / 0 失败 / 0 忽略（2.28 秒）；Reality 安装计量因 Draft 跳过。专用 Debian 12 节点夹具尚未执行，保留待验状态，不以 CI 环境替代。
 - 设计见 [ADR 0026](docs/adr/0026-confirmed-diagnostic-cancellation.md)，独立验收见 [取消验收](docs/acceptance/diagnostic-cancellation.md)。不把本项夹具当作完整 NodeQuality / 持续代理流量验收。
+- 合并审查统一能力宣告与真实清理条件：Linux/systemd/cgroup v2 三项必须同时满足，缺少控制器证据不宣告确认取消能力。新增回归尚待 Rust 编译槽，保留原签名、预算与不支持 OpenRC 的边界。整合 main `c958ba2` 的缓存/未知字段前端规则后，Bun 1.4.2 冻结安装、4 项/637 断言与 TypeScript/Vite 通过，重建合并 dist；最终后端/平台结果单独记录。

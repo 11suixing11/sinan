@@ -2,6 +2,14 @@ use super::*;
 use std::path::{Component, PathBuf};
 use tokio::io::AsyncReadExt;
 
+pub(super) fn supported(backend: ServiceBackend) -> bool {
+    supported_at(backend, Path::new("/sys/fs/cgroup/cgroup.controllers"))
+}
+
+fn supported_at(backend: ServiceBackend, controllers: &Path) -> bool {
+    cfg!(target_os = "linux") && backend == ServiceBackend::Systemd && controllers.is_file()
+}
+
 async fn read_bounded(path: &Path) -> Result<String> {
     let file = tokio::fs::File::open(path).await?;
     let mut bytes = Vec::new();
@@ -123,12 +131,7 @@ impl SystemServiceManager {
         unit: &str,
         directory: &Path,
     ) -> Result<bool> {
-        ensure!(
-            cfg!(target_os = "linux")
-                && self.backend == ServiceBackend::Systemd
-                && Path::new("/sys/fs/cgroup/cgroup.controllers").is_file(),
-            "当前服务后端不支持诊断清理确认"
-        );
+        ensure!(supported(self.backend), "当前服务后端不支持诊断清理确认");
         ensure!(
             super::jobs::valid_job_unit(unit),
             "invalid diagnostic cleanup unit"
@@ -173,6 +176,31 @@ impl SystemServiceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn confirmation_capability_rejects_missing_v2_evidence_and_other_backends() -> Result<()> {
+        let directory =
+            std::env::temp_dir().join(format!("sinan-cleanup-capability-{}", Uuid::new_v4()));
+        std::fs::create_dir(&directory)?;
+        let controllers = directory.join("cgroup.controllers");
+        assert!(!supported_at(ServiceBackend::Systemd, &controllers));
+        std::fs::write(&controllers, "memory pids\n")?;
+        assert_eq!(
+            supported_at(ServiceBackend::Systemd, &controllers),
+            cfg!(target_os = "linux")
+        );
+        for backend in [
+            ServiceBackend::OpenRc,
+            ServiceBackend::Launchd,
+            ServiceBackend::FreeBsd,
+            ServiceBackend::WindowsTask,
+            ServiceBackend::Unmanaged,
+        ] {
+            assert!(!supported_at(backend, &controllers));
+        }
+        std::fs::remove_dir_all(directory)?;
+        Ok(())
+    }
+
     #[test]
     fn mount_evidence_decodes_paths_and_keeps_directory_boundaries() -> Result<()> {
         let directory = Path::new("/srv/diagnostic job");
