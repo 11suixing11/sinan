@@ -70,6 +70,9 @@ pub async fn supervise(
     monitor_only: bool,
     ops: Arc<dyn Privileged>,
 ) -> Result<()> {
+    if monitor_only {
+        crate::retirement::ensure_monitor_only_allowed(&config)?;
+    }
     let root = core_root(&config)?;
     ops.create_dir(
         config.state_db.parent().context("state has no parent")?,
@@ -161,17 +164,22 @@ pub async fn supervise(
                 .await?;
             continue;
         }
-        let validation = verify(
-            &root.join(&pending.version).join(executable_name()),
-            &pending.version,
-            &pending.sha256,
-            pending
-                .proof
-                .as_ref()
-                .context("pending Agent update has no signed proof")?,
-            &sinan_protocol::release::TrustedKeys::compiled()?,
-            ops.as_ref(),
-        )
+        let validation = async {
+            let binary = root.join(&pending.version).join(executable_name());
+            verify(
+                &binary,
+                &pending.version,
+                &pending.sha256,
+                pending
+                    .proof
+                    .as_ref()
+                    .context("pending Agent update has no signed proof")?,
+                &sinan_protocol::release::TrustedKeys::compiled()?,
+                ops.as_ref(),
+            )
+            .await?;
+            verify_cache_before_upgrade(&binary, &path, ops.as_ref()).await
+        }
         .await;
         if let Err(error) = validation {
             tracing::warn!(version=%pending.version,%error,"Agent update validation failed");

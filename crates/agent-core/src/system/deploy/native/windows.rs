@@ -156,32 +156,16 @@ pub(super) async fn register(
             .runtime_root
             .join(format!("{}@main", descriptor.plugin_name));
         let script = root.join("runtime-launcher.ps1");
-        let contents = format!(
-            r#"$ErrorActionPreference='Stop'
-$kernel={}
-$configuration={}
-while ($true) {{
-    if ((Test-Path -LiteralPath $kernel) -and (Test-Path -LiteralPath $configuration)) {{
-        $k=Get-Content -LiteralPath $kernel -Raw | ConvertFrom-Json
-        $c=Get-Content -LiteralPath $configuration -Raw | ConvertFrom-Json
-        if (-not $k.sinan_directory_reference -or -not $c.sinan_directory_reference) {{ throw 'Invalid runtime reference' }}
-        $binary=Join-Path $k.target {}
-        $config=Join-Path $c.target 'config.json'
-        & $binary run -c $config -D {}
-    }}
-    Start-Sleep -Seconds 5
-}}
-"#,
-            quote(
-                &config
-                    .install_root
-                    .join(&descriptor.plugin_name)
-                    .join("current")
-                    .to_string_lossy()
-            ),
-            quote(&runtime.join("current").to_string_lossy()),
-            quote(&descriptor.binary_name),
-            quote(&runtime.join("data").to_string_lossy())
+        let contents = runtime_launcher(
+            &root.join("current"),
+            &config
+                .install_root
+                .join(&descriptor.plugin_name)
+                .join("current"),
+            &runtime.join("current"),
+            &runtime.join("data"),
+            &descriptor.binary_name,
+            &descriptor.plugin_name,
         );
         ops.write_file(&script, contents.as_bytes(), 0o755, None)
             .await?;
@@ -203,4 +187,43 @@ while ($true) {{
         .await?;
     }
     Ok(())
+}
+
+fn runtime_launcher(
+    agent_reference: &Path,
+    kernel_reference: &Path,
+    configuration_reference: &Path,
+    data: &Path,
+    binary_name: &str,
+    plugin: &str,
+) -> String {
+    format!(
+        r#"$ErrorActionPreference='Stop'
+$kernel={}
+$configuration={}
+$agentReference={}
+while ($true) {{
+    if ((Test-Path -LiteralPath $kernel) -and (Test-Path -LiteralPath $configuration)) {{
+        $k=Get-Content -LiteralPath $kernel -Raw | ConvertFrom-Json
+        $c=Get-Content -LiteralPath $configuration -Raw | ConvertFrom-Json
+        if (-not $k.sinan_directory_reference -or -not $c.sinan_directory_reference) {{ throw 'Invalid runtime reference' }}
+        $binary=Join-Path $k.target {}
+        $config=Join-Path $c.target 'config.json'
+        $a=Get-Content -LiteralPath $agentReference -Raw | ConvertFrom-Json
+        if (-not $a.sinan_directory_reference) {{ throw 'Invalid Agent reference' }}
+        $verifier=Join-Path $a.target 'sinan-agent.exe'
+        & $verifier verify-installed --binary $binary --name {} --format tar.gz
+        if ($LASTEXITCODE -ne 0) {{ throw 'Runtime signature verification failed' }}
+        & $binary run -c $config -D {}
+    }}
+    Start-Sleep -Seconds 5
+}}
+"#,
+        quote(&kernel_reference.to_string_lossy()),
+        quote(&configuration_reference.to_string_lossy()),
+        quote(&agent_reference.to_string_lossy()),
+        quote(binary_name),
+        quote(plugin),
+        quote(&data.to_string_lossy()),
+    )
 }

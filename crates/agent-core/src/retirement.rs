@@ -58,6 +58,9 @@ impl Retirement {
         privileged: Arc<dyn Privileged>,
         services: Arc<dyn ServiceManager>,
     ) -> Result<Self> {
+        if adapters.is_empty() {
+            ensure_monitor_only_allowed(&config)?;
+        }
         let requested = state
             .lock()
             .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
@@ -357,6 +360,53 @@ pub(crate) fn ensure_enrollment_allowed(config: &Config) -> Result<()> {
             "this Agent is retiring or retired; a new installation requires explicit local cleanup"
         );
     }
+    Ok(())
+}
+
+/// A monitor must not abandon services or credentials owned by a previous mode.
+/// Inspect existing state without creating, migrating, or clearing the ledger.
+pub fn ensure_monitor_only_allowed(config: &Config) -> Result<()> {
+    for directory in [&config.runtime_root, &config.install_root] {
+        match std::fs::symlink_metadata(directory) {
+            Ok(metadata) => {
+                ensure!(
+                    metadata.is_dir() && !metadata.file_type().is_symlink(),
+                    "monitor-only requires ordinary runtime and artifact directories"
+                );
+                ensure!(
+                    std::fs::read_dir(directory)?.next().transpose()?.is_none(),
+                    "monitor-only refuses existing managed runtime or artifact files; keep the managed mode to retire this installation"
+                );
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    match std::fs::symlink_metadata(&config.state_db) {
+        Ok(metadata) => ensure!(
+            metadata.is_file() && !metadata.file_type().is_symlink(),
+            "monitor-only requires an ordinary ledger database"
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    }
+    let connection = rusqlite::Connection::open_with_flags(
+        &config.state_db,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )?;
+    connection.busy_timeout(Duration::from_secs(10))?;
+    let managed: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM kv WHERE key LIKE 'applied:%' OR key LIKE 'health:%'
+         OR key LIKE 'usage:%' OR (key = 'diagnostics:active' AND value <> 'null'))
+         OR EXISTS(SELECT 1 FROM intents) OR EXISTS(SELECT 1 FROM usage_baselines)
+         OR EXISTS(SELECT 1 FROM usage_outbox)",
+        [],
+        |row| row.get(0),
+    )?;
+    ensure!(
+        !managed,
+        "monitor-only refuses existing managed state; keep the managed mode to retire this installation"
+    );
     Ok(())
 }
 

@@ -125,6 +125,9 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         }
         Command::Run { monitor_only } => {
             let config = Config::load(&path)?;
+            if monitor_only {
+                sinan_agent_core::retirement::ensure_monitor_only_allowed(&config)?;
+            }
             let backend = if monitor_only {
                 ServiceBackend::Unmanaged
             } else {
@@ -166,6 +169,9 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         }
         Command::InstallService { monitor_only } => {
             let config = Config::load(&path)?;
+            if monitor_only {
+                sinan_agent_core::retirement::ensure_monitor_only_allowed(&config)?;
+            }
             let descriptor = (!monitor_only).then(|| SingboxAdapter::new().describe());
             sinan_agent_core::system::deploy::install_services(&config, &path, descriptor.as_ref())
                 .await?;
@@ -174,6 +180,9 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         }
         Command::Supervise { monitor_only } => {
             let config = Config::load(&path)?;
+            if monitor_only {
+                sinan_agent_core::retirement::ensure_monitor_only_allowed(&config)?;
+            }
             sinan_agent_core::upgrade::supervise(config, path, monitor_only, privileged).await
         }
         #[cfg(target_os = "linux")]

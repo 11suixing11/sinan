@@ -15,6 +15,7 @@ import sqlite3
 import subprocess
 import threading
 import time
+import tomllib
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +26,9 @@ RELOAD_STATE = RUNTIME_STATE.with_suffix(".reloads")
 TOKEN = "openrc-smoke-fixture-token"
 RELEASE = runpy.run_path(str(ROOT / "tools/ci-release-fixture.py"))
 BUNDLE = Path("/tmp/sinan-openrc-TEST_ONLY-release")
+TRUST_DIRECTORY = Path("/etc/sinan-openrc-TEST_ONLY-trust")
+TRUST_FILE = TRUST_DIRECTORY / "public-keys.json"
+AGENT_VERSION = tomllib.loads((ROOT / "crates/agent/Cargo.toml").read_text())["package"]["version"]
 
 AGENT = b'''#!/usr/bin/python3
 from pathlib import Path
@@ -47,7 +51,7 @@ if arguments[0] == "verify-installed":
     module_spec = importlib.util.spec_from_file_location("test_release", "/src/tools/release.py")
     release = importlib.util.module_from_spec(module_spec)
     module_spec.loader.exec_module(release)
-    roots = release.load_roots(Path("/src/crates/protocol/tests/fixtures/public-keys.json"))
+    roots = release.load_roots(Path("@TEST_ONLY_TRUST_FILE@"), require_protected=True)
     release.verify_signature(proof, roots, "minisign")
     data = binary.read_bytes()
     metadata_bytes = (proof / "release.json").read_bytes()
@@ -62,7 +66,7 @@ elif arguments[0] == "verify-cache":
     # Actual cache preflight is separately exercised by Rust and real-e2e checks.
     print("TEST_ONLY process fixture cache stub")
 elif arguments[0] == "--version":
-    print("sinan-agent 0.2.0")
+    print("sinan-agent @AGENT_VERSION@")
 elif arguments[0] == "status":
     if os.environ.get("SINAN_TEST_STATUS_FAIL") == "1":
         raise SystemExit("fixture startup check failed")
@@ -79,7 +83,8 @@ else:
     print("fixture agent started", flush=True)
     while True:
         time.sleep(0.1)
-'''
+'''.replace(b"@AGENT_VERSION@", AGENT_VERSION.encode()).replace(
+    b"@TEST_ONLY_TRUST_FILE@", str(TRUST_FILE).encode())
 
 RUNTIME = b'''#!/usr/bin/python3
 from pathlib import Path
@@ -141,6 +146,18 @@ def service(name, action):
     return run("rc-service", "--", name, action)
 
 
+def provision_test_roots(directory=TRUST_DIRECTORY):
+    # The read-only /src bind mount belongs to the host runner, not container root.
+    # Copy only the public fixture into a fresh container-owned protected directory;
+    # never change the host checkout's ownership or relax bootstrap's trust checks.
+    directory.mkdir(mode=0o755)
+    target = directory / "public-keys.json"
+    with target.open("xb") as output:
+        output.write((ROOT / "crates/protocol/tests/fixtures/public-keys.json").read_bytes())
+    target.chmod(0o644)
+    return target
+
+
 def install_script(origin):
     # Exercise the static signed installer after an independently trusted bootstrap.
     subprocess.run(["python3", str(ROOT / "tools/release.py"), "render-installer",
@@ -148,14 +165,14 @@ def install_script(origin):
                     "--agent-unit", str(ROOT / "deploy/sinan-agent.service"),
                     "--runtime-unit", str(ROOT / "plugins/sing-box/sinan-singbox@.service"),
                     "--output", str(BUNDLE / "install.sh")], check=True)
-    proof = RELEASE["proof"]("agent", "0.2.0", "sinan-agent", AGENT, arch=RELEASE["architecture"]())
+    proof = RELEASE["proof"]("agent", AGENT_VERSION, "sinan-agent", AGENT, arch=RELEASE["architecture"]())
     lines = dict(line.split("  ")[::-1] for line in proof["checksums"].splitlines())
     lines["install.sh"] = hashlib.sha256((BUNDLE / "install.sh").read_bytes()).hexdigest()
     proof["checksums"] = "".join(f"{lines[path]}  {path}\n" for path in sorted(lines))
     proof["signature"] = RELEASE["sign"](proof["checksums"].encode())
     RELEASE["install"](BUNDLE, proof)
-    return ["python3", str(ROOT / "tools/bootstrap.py"), "--tag", "agent-v0.2.0",
-            "--panel", origin, "--trusted-keys", str(ROOT / "crates/protocol/tests/fixtures/public-keys.json"),
+    return ["python3", str(ROOT / "tools/bootstrap.py"), "--tag", f"agent-v{AGENT_VERSION}",
+            "--panel", origin, "--trusted-keys", str(TRUST_FILE),
             "--release-dir", str(BUNDLE)]
 
 
@@ -165,6 +182,8 @@ def main():
     if os.geteuid() != 0 or os.environ.get("SINAN_OPENRC_SMOKE") != "1" or not isolated:
         raise SystemExit("Run this test in its disposable container or isolated root filesystem.")
 
+    provision_test_roots()
+    runpy.run_path(str(ROOT / "tools/release.py"))["load_roots"](TRUST_FILE, require_protected=True)
     BUNDLE.mkdir(mode=0o755)
     Path("/run/openrc").mkdir(parents=True, exist_ok=True)
     Path("/var/lib").mkdir(mode=0o755, exist_ok=True)
@@ -183,7 +202,7 @@ def main():
 
     class Download(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            assert self.path.startswith("/api/bootstrap/0.2.0/")
+            assert self.path.startswith(f"/api/bootstrap/{AGENT_VERSION}/")
             assert self.path.endswith(f"?token={TOKEN}")
             self.send_response(200)
             self.send_header("Content-Length", str(len(AGENT)))

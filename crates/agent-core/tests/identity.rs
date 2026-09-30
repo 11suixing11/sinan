@@ -34,6 +34,7 @@ impl Directory {
             status_socket: self.0.join("status.sock"),
             operation_timeout_secs: 5,
             public_ips: vec![],
+            allow_remote_commands: false,
         }
     }
 }

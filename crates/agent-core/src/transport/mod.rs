@@ -155,13 +155,15 @@ pub async fn run_with_diagnostics(
             "telemetry:batch",
             "agent:settings",
             "ip:discovery",
-            "command:execute",
             "probe:tcp",
             "probe:icmp",
         ]
         .into_iter()
         .map(str::to_owned),
     );
+    if config.allow_remote_commands {
+        capabilities.push("command:execute".into());
+    }
     capabilities.extend(
         diagnostics
             .iter()
@@ -188,6 +190,7 @@ pub async fn run_with_diagnostics(
         retirement.clone(),
     ));
     tasks.spawn(crate::tasks::run(
+        config.allow_remote_commands,
         state.clone(),
         privileged.clone(),
         client_rx.clone(),
@@ -307,6 +310,7 @@ mod tests {
             status_socket: directory.0.join("status.sock"),
             operation_timeout_secs: 1,
             public_ips: vec![],
+            allow_remote_commands: false,
         };
         std::fs::create_dir_all(&config.identity_dir)?;
         std::fs::write(config.identity_dir.join("device.key"), [7_u8; 32])?;

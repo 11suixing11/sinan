@@ -111,6 +111,128 @@ impl Fixture {
     }
 }
 
+#[test]
+fn monitor_only_cannot_abandon_a_managed_installation() -> Result<()> {
+    let fixture = Fixture::new()?;
+    assert!(ensure_monitor_only_allowed(&fixture.config).is_err());
+    assert!(
+        Retirement::new(
+            fixture.config.clone(),
+            fixture.state.clone(),
+            Vec::new(),
+            Arc::new(SystemOps),
+            fixture.services.clone(),
+        )
+        .is_err()
+    );
+    assert!(fixture.services.active.load(Ordering::SeqCst));
+    assert!(fixture.config.identity_dir.join("device.key").exists());
+    assert!(
+        fixture
+            .config
+            .runtime_root
+            .join("demo@main/current")
+            .exists()
+    );
+    let state = fixture.state.lock().unwrap();
+    assert!(state.get_json::<Prepared>("applied:demo")?.is_some());
+    assert_eq!(state.pending_intents()?.len(), 1);
+    assert!(state.get_json::<Record>(KEY)?.is_none());
+    Ok(())
+}
+
+#[test]
+fn monitor_only_rejects_persisted_management_history_without_runtime_files() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let mut config = fixture.config.clone();
+    config.runtime_root = fixture.root.join("absent-runtime");
+    config.install_root = fixture.root.join("absent-artifacts");
+    let cases = [
+        "INSERT INTO kv VALUES ('applied:demo', '{}')",
+        "INSERT INTO kv VALUES ('health:demo', 'false')",
+        "INSERT INTO kv VALUES ('usage:module:demo', '{}')",
+        "INSERT INTO kv VALUES ('diagnostics:active', '{}')",
+        "INSERT INTO intents VALUES ('fixture-op', 'demo', '{}', 1)",
+        "INSERT INTO usage_baselines VALUES ('demo', 'u1_n1', 'fixture-epoch', '1', '2', 1)",
+        "INSERT INTO usage_outbox VALUES ('fixture-epoch', '1', '{}', 1)",
+    ];
+    for sql in cases {
+        {
+            let state = fixture.state.lock().unwrap();
+            state.connection.execute_batch(
+                "DELETE FROM kv; DELETE FROM intents; DELETE FROM usage_baselines; DELETE FROM usage_outbox",
+            )?;
+            state.connection.execute(sql, [])?;
+        }
+        assert!(ensure_monitor_only_allowed(&config).is_err(), "{sql}");
+    }
+    assert!(!config.runtime_root.exists());
+    assert!(!config.install_root.exists());
+    Ok(())
+}
+
+#[test]
+fn monitor_only_unknown_state_and_directory_aliases_fail_closed() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let mut config = fixture.config.clone();
+    config.runtime_root = fixture.root.join("empty-runtime");
+    config.install_root = fixture.root.join("empty-artifacts");
+    config.state_db = fixture.root.join("invalid-state.db");
+    fs::write(&config.state_db, "not a ledger")?;
+    assert!(ensure_monitor_only_allowed(&config).is_err());
+    assert_eq!(fs::read_to_string(&config.state_db)?, "not a ledger");
+    fs::remove_file(&config.state_db)?;
+    symlink(fixture.root.join("missing-target"), &config.state_db)?;
+    assert!(ensure_monitor_only_allowed(&config).is_err());
+    fs::remove_file(&config.state_db)?;
+    fs::create_dir(&config.install_root)?;
+    symlink(&config.install_root, &config.runtime_root)?;
+    assert!(ensure_monitor_only_allowed(&config).is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn pure_monitor_can_retire_without_managed_history() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let mut config = fixture.config.clone();
+    config.runtime_root = fixture.root.join("monitor-runtime");
+    config.install_root = fixture.root.join("monitor-artifacts");
+    config.state_db = fixture.root.join("monitor-state.db");
+    ensure_monitor_only_allowed(&config)?;
+    assert!(
+        !config.state_db.exists(),
+        "the guard must not create a ledger"
+    );
+    fs::create_dir(&config.runtime_root)?;
+    fs::create_dir(&config.install_root)?;
+    let mut state = State::open(&config.state_db)?;
+    state.set_json("agent_settings", &sinan_protocol::AgentSettings::default())?;
+    // A previously rejected diagnostic is not an active managed service.
+    state.set_json("diagnostics:active", &serde_json::Value::Null)?;
+    state.set_json("diagnostics:done:fixture", &true)?;
+    ensure_monitor_only_allowed(&config)?;
+    let state = Arc::new(Mutex::new(state));
+    let retirement = Retirement::new(
+        config.clone(),
+        state.clone(),
+        Vec::new(),
+        Arc::new(SystemOps),
+        Arc::new(FakeServiceManager::default()),
+    )?;
+    retirement.request(
+        &fixture.identity,
+        RetirementRequest {
+            request_id: Uuid::new_v4(),
+        },
+    )?;
+    retirement.prepare().await?;
+    retirement.complete(&fixture.identity).await?;
+    assert_eq!(retirement.read()?.unwrap().phase, Phase::Completed);
+    assert!(!config.identity_dir.join("device.key").exists());
+    assert_eq!(state.lock().unwrap().pending_usage_count()?, 0);
+    Ok(())
+}
+
 #[tokio::test]
 async fn request_is_durable_idempotent_and_blocks_reenrollment() -> Result<()> {
     let fixture = Fixture::new()?;
@@ -682,6 +804,7 @@ async fn requested_retirement_quiesces_task_update_and_telemetry_workers() -> Re
     let (_clients, receiver) = watch::channel(Some(client));
     let mut workers = JoinSet::new();
     workers.spawn(crate::tasks::run(
+        true,
         fixture.state.clone(),
         Arc::new(SystemOps),
         receiver.clone(),

@@ -1,5 +1,5 @@
 mod supervisor;
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, unix))]
 mod tests;
 use crate::{
     Config, SharedState,
@@ -97,7 +97,7 @@ pub async fn run(
     }
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, unix))]
 async fn check(config: &Config, ops: &dyn Privileged, client: &PanelClient) -> Result<()> {
     check_guarded(config, ops, client, None).await
 }
@@ -214,6 +214,33 @@ async fn verify(
     ops: &dyn Privileged,
 ) -> Result<()> {
     verify_guarded(binary, version, digest, proof, keys, ops, None).await
+}
+
+async fn verify_cache_before_upgrade(
+    binary: &Path,
+    config_path: &Path,
+    ops: &dyn Privileged,
+) -> Result<()> {
+    // The candidate has already been authenticated with the running Agent's
+    // roots. Its own roots must also accept every existing cache reference
+    // before the supervisor stops the current process or records a trial.
+    let output = ops
+        .execute_bounded(
+            binary,
+            &[
+                "--config".into(),
+                config_path.to_string_lossy().into_owned(),
+                "verify-cache".into(),
+            ],
+            120,
+            16 * 1024,
+        )
+        .await?;
+    ensure!(
+        output.output.success && !output.timed_out,
+        "Agent update cache signature preflight failed; current Agent was not stopped"
+    );
+    Ok(())
 }
 
 async fn verify_guarded(
