@@ -48,10 +48,14 @@ bun run dev
 bun run build
 ```
 
+需要签名的本地集成测试显式用公开 TEST_ONLY 根构建；生产构建改用操作者自己的公钥 JSON 数组。公钥通过编译器环境变量固定在产物中，修改根必须重新构建。正式发布流程拒绝仓库中全部测试根。
+
 提交前运行：
 
 ```bash
 # DATABASE_URL must allow creating isolated test databases on PostgreSQL 16.
+# This public TEST_ONLY root is for tests, never production.
+export SINAN_RELEASE_PUBLIC_KEYS="$(cat crates/protocol/tests/fixtures/public-keys.json)"
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
@@ -72,9 +76,9 @@ CI 另外检查分层禁用词、Linux 构建与 Compose 启动持久化。CI �
 
 ## 真实安装与 Reality CI
 
-`real-e2e` 在 Ubuntu 24.04 amd64 runner 上复用本次 musl Agent 制品，按版本与构建脚本摘要缓存固定上游运行时。缓存恢复后仍校验版本、架构、完整构建标签和 SHA-256。Compose 启动面板与 PostgreSQL 后，在干净宿主执行真实安装脚本，并由 systemd 管理 Agent 与独立运行时。
+`real-e2e` 在 Ubuntu 24.04 amd64 runner 上复用本次 musl Agent 制品，按版本与构建脚本摘要缓存固定上游运行时。缓存恢复后仍校验版本、架构、完整构建标签和 SHA-256。仅在隔离 CI 中使用仓库公开的 TEST_ONLY 私钥签署测试 Release；Agent 和面板均编译对应测试公钥，制品名称明确标记 TEST_ONLY。Compose 启动面板与 PostgreSQL 后，在干净宿主通过独立预置的公钥、minisign 与 bootstrap 执行已签安装器，由 systemd 管理 Agent 与独立运行时。
 
-本地客户端经 Reality 向回环夹具下载 2 MiB、上传 1 MiB，检查文件内容、上传响应与真实用户节点用量增量。暂停后连续 70 秒采样稳定、outbox 清空，再验证 Agent 重启不更换运行时 PID、运行时重载不重复入账；恢复流量和同版本重新安装也核对身份与用量连续性。端到端流程及私有 state 驱动见 [真实验收文档](e2e.md)。
+本地客户端经 Reality 向回环夹具下载 2 MiB、上传 1 MiB，检查文件内容、上传响应与真实用户节点用量增量。暂停后连续 70 秒采样稳定、outbox 清空，再验证 Agent 重启不更换运行时 PID、运行时重载不重复入账；恢复同量流量时将面板新增量与只读账本新周期基准逐字节比较。同版本重装核对身份与用量连续性，缓存二进制、签名证明或缺少签名时必须被预检拒绝。端到端流程及私有 state 驱动见 [真实验收文档](e2e.md)。
 
 CI 公开制品仅包含版本、阶段和精确用量摘要；完整配置、订阅凭据、设备身份、安装令牌和日志不上传。此 job 使用回环 HTTP 路径和本地 TLS 伪装目标，不覆盖外部 CDN、DNS、证书部署或云防火墙配置。
 

@@ -10,6 +10,8 @@ use sinan_agent_core::{
     system::SystemOps,
 };
 use sinan_protocol::ApplyStatus;
+#[path = "../../protocol/tests/support/release.rs"]
+mod release_support;
 use std::{
     collections::BTreeMap,
     fs,
@@ -45,13 +47,16 @@ impl Fixture {
         let state = Arc::new(Mutex::new(State::open(&config.state_db).unwrap()));
         let adapter = Arc::new(FakeAdapter::default());
         let services = Arc::new(FakeServiceManager::default());
-        let reconciler = Arc::new(Reconciler::new(
-            config.clone(),
-            state.clone(),
-            adapter.clone(),
-            Arc::new(SystemOps),
-            services.clone(),
-        ));
+        let reconciler = Arc::new(
+            Reconciler::new(
+                config.clone(),
+                state.clone(),
+                adapter.clone(),
+                Arc::new(SystemOps),
+                services.clone(),
+            )
+            .with_trusted_keys(release_support::trusted_keys()),
+        );
         Self {
             directory,
             config,
@@ -72,6 +77,16 @@ impl Fixture {
         fs::create_dir_all(&kernel_dir).unwrap();
         fs::write(revision_dir.join("config.json"), "{}").unwrap();
         fs::write(kernel_dir.join("demo"), b"fake executable").unwrap();
+        release_support::install_proof(
+            &kernel_dir,
+            &release_support::proof_for_archive(
+                "demo",
+                kernel,
+                "demo",
+                b"cached archive",
+                b"fake executable",
+            ),
+        );
         Prepared {
             spec: RuntimeSpec {
                 revision: rev,
@@ -260,7 +275,8 @@ async fn unfinished_intent_is_recovered_after_database_reopen() {
         test.adapter.clone(),
         Arc::new(SystemOps),
         test.services.clone(),
-    );
+    )
+    .with_trusted_keys(release_support::trusted_keys());
     restarted.recover().await.unwrap();
     assert!(
         reopened
@@ -333,4 +349,136 @@ async fn timed_out_initial_apply_stops_runtime_and_clears_intent() {
             .is_empty()
     );
     assert!(!test.services.active.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn unsigned_or_changed_prepared_targets_do_not_start_or_create_intents() {
+    let test = Fixture::new();
+    let target = test.target(1, "1", "a");
+    fs::remove_file(
+        target
+            .spec
+            .binary_path
+            .parent()
+            .unwrap()
+            .join("release.json"),
+    )
+    .unwrap();
+    let result = test.reconciler.apply_prepared(target).await.unwrap();
+    assert_eq!(result.status, ApplyStatus::Failed);
+    assert!(test.services.actions.lock().unwrap().is_empty());
+    assert!(
+        test.state
+            .lock()
+            .unwrap()
+            .pending_intents()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        test.state
+            .lock()
+            .unwrap()
+            .get_json::<serde_json::Value>("artifact_error:demo")
+            .unwrap()
+            .is_some()
+    );
+    let target = test.target(2, "2", "b");
+    fs::write(&target.spec.binary_path, b"tampered executable").unwrap();
+    assert_eq!(
+        test.reconciler.apply_prepared(target).await.unwrap().status,
+        ApplyStatus::Failed
+    );
+    assert!(test.services.actions.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn untrusted_rollback_is_preserved_as_failed_recovery_without_restart() {
+    let test = Fixture::new();
+    let previous = test.target(1, "1", "a");
+    test.reconciler
+        .apply_prepared(previous.clone())
+        .await
+        .unwrap();
+    let target = test.target(2, "2", "b");
+    let op_id = Uuid::new_v4();
+    test.state
+        .lock()
+        .unwrap()
+        .begin_intent(&IntentRecord {
+            op_id,
+            module: "demo".into(),
+            payload: serde_json::to_value(ApplyIntent {
+                previous: Some(previous.clone()),
+                target,
+                plan: Plan::Restart,
+            })
+            .unwrap(),
+        })
+        .unwrap();
+    fs::write(&previous.spec.binary_path, b"untrusted executable").unwrap();
+    let actions = test.services.actions.lock().unwrap().clone();
+    assert!(
+        test.reconciler
+            .recover()
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("intent retained")
+    );
+    assert_eq!(*test.services.actions.lock().unwrap(), actions);
+    assert_eq!(
+        test.state.lock().unwrap().pending_intents().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        test.state
+            .lock()
+            .unwrap()
+            .get_json::<bool>("health:demo")
+            .unwrap(),
+        Some(false)
+    );
+    assert!(
+        test.state
+            .lock()
+            .unwrap()
+            .get_json::<serde_json::Value>("artifact_error:demo")
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn invalid_applied_artifact_reports_unhealthy_without_switching_to_a_new_target() {
+    let test = Fixture::new();
+    let previous = test.target(1, "1", "a");
+    test.reconciler
+        .apply_prepared(previous.clone())
+        .await
+        .unwrap();
+    let target = test.target(2, "2", "b");
+    fs::write(&previous.spec.binary_path, b"untrusted executable").unwrap();
+    let actions = test.services.actions.lock().unwrap().clone();
+    let result = test.reconciler.apply_prepared(target).await.unwrap();
+    assert_eq!(result.status, ApplyStatus::Failed);
+    assert!(!result.healthy);
+    assert_eq!(
+        test.state
+            .lock()
+            .unwrap()
+            .get_json::<bool>("health:demo")
+            .unwrap(),
+        Some(false)
+    );
+    assert_eq!(*test.services.actions.lock().unwrap(), actions);
+    assert_eq!(test.applied(), Some(previous));
+    assert!(
+        test.state
+            .lock()
+            .unwrap()
+            .pending_intents()
+            .unwrap()
+            .is_empty()
+    );
 }

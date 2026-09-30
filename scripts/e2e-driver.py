@@ -122,23 +122,47 @@ def resource(panel, path, state, kind, fields, state_path):
     return item
 
 
-def install(panel, state, state_path, refresh=False):
-    output = state_path.parent / "install.sh"
-    if output.is_file() and not refresh:
-        return
-    server = panel.request(f"/api/servers/{state['server_id']}")
-    ensure(server["name"] == state["prefix"] + "-server", "服务器不再属于本次验收")
-    enrollment = panel.request(f"/api/servers/{state['server_id']}/enrollment", {})
-    query = urllib.parse.urlencode({"token": enrollment["token"]})
-    script = panel.request("/install.sh?" + query, raw=True)
-    version = re.search(r"^VERSION='([^']+)'$", script, re.MULTILINE)
-    ensure(version is not None, "安装脚本未包含可识别的 Agent 版本")
-    private_write(output, script)
-    state["installation"] = {
-        "version": version[1], "expires_at": enrollment["expires_at"]
-    }
+def installation_descriptor(value, state, agent_version=None):
+    ensure(isinstance(value, dict), "安装描述缺失，请先导入兼容且已签名的 Release")
+    version, tag = value.get("version"), value.get("tag")
+    ensure(isinstance(version, str) and len(version) <= 128
+           and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?", version),
+           "安装描述的 Agent 版本无效")
+    ensure(tag == "agent-v" + version, "安装描述的标签与 Agent 版本不一致")
+    ensure(agent_version is None or version == agent_version, "安装描述不是指定的 Agent 版本")
+    token = value.get("token")
+    ensure(isinstance(token, str) and 0 < len(token) <= 512
+           and not any(ord(character) < 32 or ord(character) == 127 for character in token),
+           "安装令牌无效")
+    ensure(type(value.get("expires_at")) is int, "安装令牌缺少有效到期时间")
+    ensure(value.get("origin") == state["origin"] and value.get("server_id") == state["server_id"],
+           "私有安装描述对应其他环境或服务器")
+    return {key: value[key] for key in ("version", "tag", "token", "expires_at", "origin", "server_id")}
+
+
+def install(panel, state, state_path, refresh=False, agent_version=None):
+    output = state_path.parent / "enrollment.json"
+    ensure(not output.is_symlink(), "私有安装描述不能是符号链接")
+    if output.exists() and not refresh:
+        metadata = output.lstat()
+        ensure(output.is_file() and not output.is_symlink() and metadata.st_mode & 0o077 == 0,
+               "私有安装描述必须是仅当前用户可读写的普通文件")
+        descriptor = installation_descriptor(json.loads(output.read_text()), state, agent_version)
+    else:
+        server = panel.request(f"/api/servers/{state['server_id']}")
+        ensure(server["name"] == state["prefix"] + "-server", "服务器不再属于本次验收")
+        query = "" if agent_version is None else "?" + urllib.parse.urlencode({"agent_version": agent_version})
+        enrollment = panel.request(f"/api/servers/{state['server_id']}/enrollment" + query, {})
+        selection = enrollment.get("installation")
+        ensure(isinstance(selection, dict), "安装描述缺失，请先导入兼容且已签名的 Release")
+        descriptor = installation_descriptor({**selection, "token": enrollment.get("token"),
+            "expires_at": enrollment.get("expires_at"), "origin": state["origin"],
+            "server_id": state["server_id"]}, state, agent_version)
+        # Persist the private token before state, so retrying does not issue another token.
+        private_write(output, json.dumps(descriptor, ensure_ascii=False, indent=2) + "\n")
+    state["installation"] = {key: descriptor[key] for key in ("version", "tag", "expires_at")}
     save(state_path, state)
-    print("私有 install.sh 已保存；由操作者在专用 Linux/systemd 设备执行")
+    print("私有 enrollment.json 已保存；请通过独立可信的 sinan-bootstrap 验证并安装")
 
 
 def prepare(panel, state, args):
@@ -305,7 +329,8 @@ def parser():
     setup.add_argument("--origin", required=True)
     setup.add_argument("--public-host", required=True)
     setup.add_argument("--sni", required=True)
-    installation = stages.add_parser("install", help="取得安装脚本，不在本机执行")
+    installation = stages.add_parser("install", help="取得私有安装描述，不在本机执行")
+    installation.add_argument("--agent-version", help="选择已导入且协议兼容的 Agent 版本")
     installation.add_argument("--refresh", action="store_true", help="签发新令牌，用于过期重试或升级")
     active = stages.add_parser("ready", help="等待健康应用，保存独立客户端 JSON")
     active.add_argument("--agent-version", help="同时检查面板上报的 Agent 版本")
@@ -364,7 +389,7 @@ def main():
         panel = Panel(state["origin"], password())
         try:
             if args.stage == "install":
-                install(panel, state, args.state, args.refresh)
+                install(panel, state, args.state, args.refresh, args.agent_version)
             else:
                 globals()[args.stage](panel, state, args)
         finally:

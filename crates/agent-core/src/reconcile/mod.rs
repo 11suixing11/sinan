@@ -4,6 +4,7 @@ use crate::{artifacts::PanelClient, config::Config, state::SharedState};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sinan_adapter_sdk::{Adapter, Plan, Prepared, Privileged, RuntimeSpec, ServiceManager};
+use sinan_protocol::release::{ReleaseError, TrustedKeys};
 use sinan_protocol::{ApplyResult, ApplyStatus, ModuleManifest};
 use std::{future::Future, sync::Arc, time::Duration};
 use tokio::{sync::Mutex, time::timeout};
@@ -25,6 +26,7 @@ pub struct Reconciler {
     gate: Mutex<()>,
     pending_manifest: std::sync::Mutex<Option<ModuleManifest>>,
     pending_prepared: std::sync::Mutex<Option<Prepared>>,
+    keys: std::result::Result<TrustedKeys, ReleaseError>,
 }
 
 impl Reconciler {
@@ -44,7 +46,62 @@ impl Reconciler {
             gate: Mutex::new(()),
             pending_manifest: std::sync::Mutex::new(None),
             pending_prepared: std::sync::Mutex::new(None),
+            keys: TrustedKeys::compiled(),
         }
+    }
+
+    /// Supplies roots already trusted by an embedding caller, including test fixtures.
+    pub fn with_trusted_keys(mut self, keys: TrustedKeys) -> Self {
+        self.keys = Ok(keys);
+        self
+    }
+
+    async fn verify_runtime(&self, runtime: &Prepared) -> Result<()> {
+        let descriptor = self.adapter.describe();
+        let result: Result<()> = async {
+            anyhow::ensure!(
+                runtime.spec.binary_path
+                    == self
+                        .config
+                        .install_root
+                        .join(&descriptor.plugin_name)
+                        .join(&runtime.spec.kernel_version)
+                        .join(&descriptor.binary_name),
+                "runtime binary path differs from installation identity"
+            );
+            let keys = self
+                .keys
+                .as_ref()
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+            crate::artifacts::verify_expected(
+                &runtime.spec.binary_path,
+                &descriptor,
+                &runtime.spec.kernel_version,
+                keys,
+            )
+            .await
+        }
+        .await;
+        if let Err(error) = &result {
+            self.state.lock().map_err(|_| anyhow::anyhow!("state poisoned"))?
+                .set_json(&format!("artifact_error:{}", descriptor.module), &serde_json::json!({"revision":runtime.spec.revision,"error":error.to_string()}))?;
+            tracing::error!(module=%descriptor.module, revision=runtime.spec.revision, %error, "artifact verification failed; executable was not started");
+        }
+        result
+    }
+
+    async fn verify_applied_runtime(&self, runtime: &Prepared) -> Result<()> {
+        let result = self.verify_runtime(runtime).await;
+        if result.is_err() {
+            self.state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("state poisoned"))?
+                .set_json(
+                    &format!("health:{}", self.adapter.describe().module),
+                    &false,
+                )?;
+        }
+        result
     }
 
     pub async fn recover(&self) -> Result<()> {
@@ -62,7 +119,15 @@ impl Reconciler {
         for record in pending.into_iter().filter(|record| record.module == module) {
             let intent: ApplyIntent = serde_json::from_value(record.payload)?;
             tracing::warn!(%module, op_id = %record.op_id, "recovering unfinished operation");
-            self.rollback(&intent, record.op_id).await?;
+            if let Err(error) = self.rollback(&intent, record.op_id).await {
+                self.state
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("state poisoned"))?
+                    .set_json(&format!("health:{module}"), &false)?;
+                return Err(error.context(
+                    "unfinished operation could not recover a trusted artifact; intent retained",
+                ));
+            }
         }
         Ok(())
     }
@@ -107,7 +172,7 @@ impl Reconciler {
             .map_err(|_| anyhow::anyhow!("pending target poisoned"))?
             .take();
         let Some(manifest) = next else {
-            return self.current_result();
+            return self.current_result().await;
         };
         let op_id = Uuid::new_v4();
         let module = self.adapter.describe().module;
@@ -149,8 +214,10 @@ impl Reconciler {
     ) -> Result<u64> {
         self.recover_locked().await?;
         let descriptor = self.adapter.describe();
+        client.verify_artifact(&manifest.artifact, &manifest.kernel_version, &descriptor)?;
         let previous = self.previous()?;
         if let Some(previous) = &previous {
+            self.verify_applied_runtime(previous).await?;
             if manifest.config_rev < previous.spec.revision {
                 anyhow::ensure!(
                     self.bounded(self.adapter.health(previous, self.services.as_ref()))
@@ -231,19 +298,25 @@ impl Reconciler {
             )
             .await?;
         }
+        let spec = RuntimeSpec {
+            revision: manifest.config_rev,
+            kernel_version: manifest.kernel_version.clone(),
+            config_hash: manifest.bundle_sha256.clone(),
+            binary_path,
+            revision_dir,
+            stats_listen: manifest.stats_listen.clone(),
+            files: bundle.files,
+        };
+        let candidate = Prepared {
+            spec,
+            listen_ports: Vec::new(),
+        };
+        self.verify_runtime(&candidate).await?;
         let target = self
-            .bounded(self.adapter.prepare(
-                RuntimeSpec {
-                    revision: manifest.config_rev,
-                    kernel_version: manifest.kernel_version.clone(),
-                    config_hash: manifest.bundle_sha256.clone(),
-                    binary_path,
-                    revision_dir,
-                    stats_listen: manifest.stats_listen.clone(),
-                    files: bundle.files,
-                },
-                self.privileged.as_ref(),
-            ))
+            .bounded(
+                self.adapter
+                    .prepare(candidate.spec, self.privileged.as_ref()),
+            )
             .await?;
         self.apply_prepared_locked(previous, target, op_id).await?;
         Ok(manifest.config_rev)

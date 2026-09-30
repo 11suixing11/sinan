@@ -5,7 +5,7 @@ use crate::{
 };
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -142,10 +142,16 @@ pub async fn remove(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Deserialize, Default)]
+pub struct EnrollmentQuery {
+    pub agent_version: Option<String>,
+}
+
 pub async fn issue_enrollment(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<i64>,
+    Query(query): Query<EnrollmentQuery>,
 ) -> ApiResult<Json<Value>> {
     require_admin(&state, &headers).await?;
     let token = random_token();
@@ -168,10 +174,27 @@ pub async fn issue_enrollment(
     .execute(&mut *transaction)
     .await?;
     transaction.commit().await?;
-    let url = format!("{}/install.sh?token={token}", state.config.public_url);
-    let install_command = format!("curl -fsSL {} | sh", shell_quote(&url));
+    let selection = crate::releases::select_agent(&state, query.agent_version.as_deref()).await;
+    let (install_command, installation, warning) = match selection {
+        Ok((version, tag)) => (
+            Some(format!(
+                "sudo sinan-bootstrap --tag {} --panel {} --token {}",
+                shell_quote(&tag),
+                shell_quote(&state.config.public_url),
+                shell_quote(&token)
+            )),
+            Some(json!({"version": version, "tag": tag})),
+            None,
+        ),
+        Err(_) => (
+            None,
+            None,
+            Some("请先导入协议兼容且已签名的 Agent Release，再获取安装命令"),
+        ),
+    };
     Ok(Json(
-        json!({"token": token, "expires_at": expires_at, "install_command": install_command}),
+        json!({"token": token, "expires_at": expires_at, "install_command": install_command,
+        "installation": installation, "warning": warning}),
     ))
 }
 

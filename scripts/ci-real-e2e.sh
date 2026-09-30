@@ -20,10 +20,11 @@ done
 [[ -n $agent_root && -n $runtime_root && -n $summary ]] || { usage >&2; exit 2; }
 [[ $(uname -s) == Linux && $(uname -m) == x86_64 && -d /run/systemd/system ]] || die 'requires Linux amd64 with real systemd'
 [[ ${GITHUB_ACTIONS:-} == true || ${SINAN_E2E_DISPOSABLE_HOST:-} == 1 ]] || die 'use a disposable runner; manual reproduction requires SINAN_E2E_DISPOSABLE_HOST=1'
-for tool in docker python3 sudo systemctl openssl curl readelf go sha256sum; do
+for tool in docker python3 sudo systemctl systemd-run openssl curl readelf go sha256sum minisign install; do
   command -v "$tool" >/dev/null || die "missing tool: $tool"
 done
 sudo -n true || die 'noninteractive sudo is required'
+[[ $(/bin/mv --version) == *'GNU coreutils'* ]] || die 'real artifact publication requires GNU mv'
 for path in /etc/sinan /opt/sinan /var/lib/sinan /run/sinan /usr/local/bin/sinan-agent \
   /etc/systemd/system/sinan-agent.service /etc/systemd/system/sinan-singbox@.service; do
   if sudo test -e "$path" || sudo test -L "$path"; then die 'existing Sinan installation detected; leaving it untouched'; fi
@@ -34,6 +35,9 @@ fi
 repository=$(cd "$(dirname "$0")/.." && pwd -P)
 cd "$repository"
 scratch=$(mktemp -d "${RUNNER_TEMP:-/tmp}/sinan-real-e2e.XXXXXX")
+trust_directory=
+SINAN_RELEASE_PUBLIC_KEYS=$(python3 scripts/ci-test-trust.py)
+export SINAN_RELEASE_PUBLIC_KEYS
 export COMPOSE_PROJECT_NAME="sinan-real-e2e-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$"
 export SINAN_BIND_ADDRESS=127.0.0.1
 export SINAN_PORT=18080
@@ -65,6 +69,12 @@ if Path(state_path).is_file():
         for label, checkpoint in state.get("checkpoints", {}).items()
         if label in ("ready", "first", "before", "after-agent", "after-runtime", "resumed", "before-reinstall", "after-reinstall")
     }
+signature = Path(state_path).with_name("signature-checks.json")
+if signature.is_file():
+    checks = json.loads(signature.read_text())
+    allowed = ("cached-binary", "cached-proof", "legacy-unsigned-cache", "restored-systemd-verifier")
+    summary["signature_checks"] = [label for label in checks.get("checks", []) if label in allowed]
+    summary["test_trust_root"] = "TEST_ONLY"
 ledger = Path(state_path).with_name("ledger-summary.json")
 if ledger.is_file():
     summary["ledger"] = {
@@ -116,6 +126,7 @@ PY
     "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
     docker image rm "$COMPOSE_PROJECT_NAME-panel:local" >/dev/null 2>&1 || true
   fi
+  [[ -z $trust_directory ]] || sudo rm -rf -- "$trust_directory"
   sudo rm -rf -- "$scratch"
   if [[ $result != 0 ]]; then printf 'Real e2e failed during %s; only the redacted summary is public.\n' "$phase" >&2; fi
   exit "$result"
@@ -131,11 +142,10 @@ for port in (443, 2080, 18080, 18081, 18085, 20000):
         listener.bind(('127.0.0.1', port))
 PY
 
-mkdir -m 0755 "$scratch/artifacts"
-cp -R "$agent_root/agent" "$scratch/artifacts/agent"
-cp -R "$runtime_root/sing-box" "$scratch/artifacts/sing-box"
-chmod -R a+rX "$scratch/artifacts"
-agent_version=$(python3 - "$scratch/artifacts/agent" <<'PY'
+mkdir -m 0755 "$scratch/source"
+cp -R "$agent_root/agent" "$scratch/source/agent"
+cp -R "$runtime_root/sing-box" "$scratch/source/sing-box"
+agent_version=$(python3 - "$scratch/source/agent" <<'PY'
 import hashlib
 from pathlib import Path
 import re
@@ -164,6 +174,17 @@ PY
 )
 python3 scripts/verify-e2e-runtime.py "$runtime_root" "$scratch/runtime"
 runtime=$scratch/runtime/sing-box
+phase=signed-release
+bash tools/build-nodequality.sh amd64 "$scratch/source" > "$scratch/nodequality-build.log" 2>&1
+python3 scripts/ci-signed-release.py --source "$scratch/source" --bundle "$scratch/release" \
+  --panel-root "$scratch/artifacts" --agent-version "$agent_version" --arch amd64
+chmod -R a+rX "$scratch/artifacts"
+# Provision the verifier and trust independently from the checked-out operator tools,
+# before receiving any panel installation data. No panel-provided shell is executed.
+trust_directory=$(sudo mktemp -d /root/sinan-ci-trust.XXXXXX)
+sudo install -m 0400 crates/protocol/tests/fixtures/public-keys.json "$trust_directory/public-keys.json"
+sudo install -m 0500 tools/bootstrap.py "$trust_directory/bootstrap.py"
+sudo install -m 0400 tools/release.py "$trust_directory/release.py"
 cat > "$scratch/compose.override.yml" <<'YAML'
 services:
   panel:
@@ -197,7 +218,8 @@ driver=(python3 scripts/e2e-driver.py --state "$scratch/state.json")
 "${driver[@]}" prepare --origin "$SINAN_PUBLIC_URL" --public-host 127.0.0.1 --sni sinan-e2e.example.test
 phase=install
 owned_installation=1
-sudo sh "$scratch/install.sh" > "$scratch/install.log" 2>&1
+sudo python3 scripts/ci-bootstrap-install.py --enrollment "$scratch/enrollment.json" \
+  --trust-directory "$trust_directory" --bundle "$scratch/release" --log "$scratch/install.log"
 "${driver[@]}" ready --agent-version "$agent_version" --timeout 600
 runtime_pid=$(sudo systemctl show sinan-singbox@main.service -p MainPID --value)
 [[ $runtime_pid =~ ^[1-9][0-9]*$ ]] || die 'independent runtime is not active'
@@ -325,10 +347,17 @@ traffic_batch
 stop_client
 "${driver[@]}" verify --label before-reinstall --interval 35 --timeout 240
 assert_ledger before-reinstall after-runtime
+phase=signed-preflight-rejections
+"${driver[@]}" install --refresh --agent-version "$agent_version"
+sudo env SINAN_E2E_DISPOSABLE_HOST=1 python3 scripts/ci-signed-preflight.py \
+  --enrollment "$scratch/enrollment.json" --trust-directory "$trust_directory" \
+  --bundle "$scratch/release" --log-directory "$scratch/signature-logs" \
+  --summary "$scratch/signature-checks.json"
 phase=reinstall
 sudo find /etc/sinan/identity -maxdepth 1 -type f -exec sha256sum {} + | sort > "$scratch/identity-before.txt"
-"${driver[@]}" install --refresh
-sudo sh "$scratch/install.sh" > "$scratch/reinstall.log" 2>&1
+# The same token remains unconsumed after every rejected preflight.
+sudo python3 scripts/ci-bootstrap-install.py --enrollment "$scratch/enrollment.json" \
+  --trust-directory "$trust_directory" --bundle "$scratch/release" --log "$scratch/reinstall.log"
 wait_agent
 "${driver[@]}" ready --agent-version "$agent_version" --timeout 600
 "${driver[@]}" verify --label after-reinstall --unchanged-from before-reinstall --interval 35 --timeout 240
@@ -338,4 +367,4 @@ cmp "$scratch/identity-before.txt" "$scratch/identity-after.txt" || die 'reinsta
 [[ $(sudo systemctl show sinan-singbox@main.service -p MainPID --value) == "$runtime_pid" ]] || die 'same-version reinstallation changed runtime PID'
 phase=complete
 passed=1
-printf '%s\n' 'Real installation, Reality bidirectional traffic, accounting, restart, reload, and reinstallation passed.'
+printf '%s\n' 'Signed installation, cache rejection, Reality bidirectional traffic, accounting, restart, reload, and reinstallation passed.'

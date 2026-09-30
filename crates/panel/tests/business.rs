@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
 mod business_support;
+#[path = "../../protocol/tests/support/release.rs"]
+mod release_support;
 
 use anyhow::{Context, Result};
 use base64::{Engine, engine::general_purpose::STANDARD};

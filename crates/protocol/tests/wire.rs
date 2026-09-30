@@ -119,6 +119,7 @@ fn all_websocket_payloads_roundtrip_through_envelopes() {
 #[test]
 fn all_http_payloads_roundtrip() {
     let artifact = Artifact {
+        proof: None,
         url: "https://panel.example.invalid/api/agent/v1/artifacts/runtime/1.14.2/amd64".into(),
         sha256: "a".repeat(64),
     };
@@ -307,6 +308,7 @@ fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
         plugin: "nodequality".into(),
         version: "upstream-commit".into(),
         artifact: Artifact {
+            proof: None,
             url: "https://panel.example.invalid/api/agent/v1/artifacts/nodequality/upstream-commit/amd64".into(),
             sha256: "a".repeat(64),
         },

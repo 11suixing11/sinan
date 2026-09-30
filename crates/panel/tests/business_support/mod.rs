@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use crate::release_support;
+
 use anyhow::{Context, Result, bail};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signer, SigningKey};
@@ -12,6 +14,7 @@ use sinan_protocol::{
     StaticInfo,
 };
 use sqlx::PgPool;
+use std::sync::Arc;
 use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 use tokio::{net::TcpListener, task::JoinHandle, time::timeout};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
@@ -35,7 +38,8 @@ impl TestPanel {
         let base = format!("http://{listen}");
         let directory = std::env::temp_dir().join(format!("sinan-business-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&directory)?;
-        let state = AppState::new(
+        let directory = directory.canonicalize()?;
+        let mut state = AppState::new(
             pool,
             Config {
                 database_url: String::new(),
@@ -46,6 +50,7 @@ impl TestPanel {
             },
         )
         .await?;
+        state.release_keys = Some(Arc::new(release_support::trusted_keys()));
         let app = router(state.clone());
         let task =
             tokio::spawn(
@@ -230,7 +235,9 @@ impl TestPanel {
                 Hello {
                     agent_version: "business-test".into(),
                     protocol_version: PROTOCOL_VERSION,
-                    capabilities: vec![],
+                    capabilities: vec![
+                        sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY.into(),
+                    ],
                     applied: BTreeMap::new(),
                 },
             )?,

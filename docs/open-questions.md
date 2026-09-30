@@ -104,3 +104,9 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 
 - 按用户要求，workspace edition 更新为 2024，全部 crate 继续继承统一设置。虚拟 workspace 显式使用 `resolver = "3"`，遵循 [Rust 2024 的依赖解析规则](https://doc.rust-lang.org/edition-guide/rust-2024/cargo-resolver.html)；现有最低 Rust 1.88 已支持该 edition。
 - Rust 2024 将进程环境变量修改标记为 unsafe，构建脚本改用现有 `tonic_build::Config::protoc_executable` 选择编译器。保留显式 `PROTOC` 与 vendored 回退，不增加依赖、不放宽 unsafe 禁令。
+
+## 交付加固：签名缓存的跨平台验证边界
+
+- Linux 发布版本目录使用真实 GNU `/bin/mv --no-clobber --no-target-directory --`，源和目标必须是同父目录下的受控路径；完成后重新核验实际最终目录。
+- 本机 macOS 的文件系统测试只模拟上述精确请求的 rename/sync，不模拟其他特权命令，也不扩展 Agent 的非 Linux 生命周期。只有真实 Linux CI 可以认证 GNU mv、systemd ExecStartPre 和安装器行为；本地测试通过不能替代它。
+- 生产信任根仅来自编译时 `SINAN_RELEASE_PUBLIC_KEYS`；Rust 库显式 `with_trusted_keys` 接口用于受信 embedding 与测试，Agent 命令行没有运行时换根开关。测试公钥及确定性公开测试私钥均明确标记为 TEST_ONLY，正式发布工具按真实公钥字节拒绝这些根。

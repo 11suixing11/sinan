@@ -4,7 +4,7 @@
 
 ## 真机已观测的部署问题
 
-- [Agent 版本选择](https://github.com/theLucius7/sinan/issues/3)：安装脚本目前固定使用面板版本对应的 Agent。0.1.0 初装与 0.2.0 升级专项使用了记录在私有证据中的旧版本/摘要覆盖；正式 0.2.0 安装脚本保持原样。不能据此把任意 Agent 版本选择视为已实现。
+- [Agent 版本选择](https://github.com/theLucius7/sinan/issues/3)：历史 0.1.0→0.2.0 真机专项曾需要覆盖旧安装脚本的版本与摘要。新的签名发布流程从已导入、协议兼容的 Release 选择 Agent，接入界面可以指定版本；面板产品版本不再决定 Agent 版本。
 - [CDN 设备路径](https://github.com/theLucius7/sinan/issues/4)：实际部署中，经 CDN 的设备 HTTP 请求返回 403，直达 Caddy origin、保留原域名和 TLS 的请求返回 200。页面访问成功不代表安装、注册、制品下载和 WebSocket 路径均可用，应逐项验证；回环 CI 不覆盖 CDN。
 - [节点监听端口](https://github.com/theLucius7/sinan/issues/5)：当前节点端口仍自动分配 20000–29999。容器验收可以映射宿主端口并仅在私有客户端 JSON 覆盖目标端口，原生监听端口不变；产品内手动指定 443 属于后续安全阶段。
 - [公网请求超时](https://github.com/theLucius7/sinan/issues/6)：真实持续载荷中曾出现 15 秒请求超时，包含升级前的请求；90 秒预算的升级后双向载荷通过，但仍需继续诊断公网短超时。回环 CI 不认证公网请求均无错误。
@@ -26,6 +26,7 @@ os.umask(0o077)
 content = '\n'.join([
     'SINAN_DB_PASSWORD=' + secrets.token_hex(32),
     'SINAN_ADMIN_PASSWORD=' + secrets.token_hex(32),
+    'SINAN_RELEASE_PUBLIC_KEYS=[]',
     'SINAN_PUBLIC_URL=http://127.0.0.1:8080',
     'SINAN_BIND_ADDRESS=127.0.0.1',
     'SINAN_PORT=8080',
@@ -42,6 +43,8 @@ docker compose --project-name sinan --env-file .env \
   -f deploy/docker-compose.yml up -d --build --wait
 ```
 
+构建前将 `.env` 中的 `SINAN_RELEASE_PUBLIC_KEYS` 填为独立核对过的 minisign 公钥记录 JSON 数组，例如 `["公钥记录"]`。这是公开信息，但必须核对来源；缺失或空集合会拒绝签名制品操作。Compose 把它作为镜像构建参数传入 Rust 编译器，容器运行时环境不能更换根。修改后必须重新构建镜像。
+
 访问 <http://127.0.0.1:8080>，使用 `.env` 中的 `SINAN_ADMIN_PASSWORD` 登录。也可从 [.env.example](../.env.example) 手动创建配置，两个密码分别生成，不要填写相同值。数据库密码放入连接 URL，示例使用不需要额外转义的十六进制值。
 
 首次启动自动创建 PostgreSQL 数据库、执行迁移并保存管理员密码散列。已有数据库再次启动时，修改 `SINAN_ADMIN_PASSWORD` **不会重置** 已有密码；修改数据库容器的密码环境变量也不会重置已有数据库用户密码。
@@ -50,6 +53,7 @@ docker compose --project-name sinan --env-file .env \
 |---|---|
 | `SINAN_DB_PASSWORD` | 必填，PostgreSQL 密码 |
 | `SINAN_ADMIN_PASSWORD` | 必填，首次创建管理员的密码 |
+| `SINAN_RELEASE_PUBLIC_KEYS` | 必填的构建时公开信任根 JSON 数组；缺根时制品操作拒绝 |
 | `SINAN_PUBLIC_URL` | 必填，Agent 与用户实际访问的 HTTP(S) origin，不包含路径 |
 | `SINAN_BIND_ADDRESS` | 默认 `127.0.0.1`，宿主机监听地址 |
 | `SINAN_PORT` | 默认 `8080`，宿主机端口 |
@@ -79,98 +83,37 @@ docker compose --project-name sinan --env-file .env -f deploy/docker-compose.yml
 
 停止使用 `docker compose … down` 即可；`down --volumes` 会删除数据库和制品数据，只用于明确要清空的测试环境。更新和迁移前应备份数据库、制品目录以及 Agent 的身份与状态目录。
 
-## 准备设备制品
+## 导入签名 Release
 
-面板容器只提供控制面板，不代替设备制品构建。按实际服务器架构提供 Agent 和运行时，目录形状如下：
+正常部署无需在服务器编译运行时或 `docker cp` 制品。进入面板“制品”，输入官方仓库已发布的 `agent-v…` 标签，点击“导入制品”。只有已正式发布、签名通过且所有资产齐全的 Release 可导入；草稿、缺签名、错误版本、归档或摘要不一致均拒绝，现有集合保持不变。完整导入后才能用于设备接入和配置发布。
 
-```text
-data/artifacts/
-├── agent/
-│   └── 0.2.0/
-│       ├── amd64          # Raw, statically linked Linux Agent ELF
-│       ├── arm64          # Optional; provide only deployed architectures
-│       └── SHA256SUMS
-└── sing-box/
-    └── 1.14.2/
-        ├── amd64          # tar.gz containing the sing-box executable
-        ├── arm64          # Optional
-        └── SHA256SUMS
-```
+每个 Release 包含 Agent、固定版本运行时、NodeQuality r2 的 amd64/arm64 制品、固定安装器、`release.json`、`SHA256SUMS` 与 `SHA256SUMS.minisig`。Agent 是 musl 静态二进制；保留上游完整默认标签的运行时仍要求 glibc ≥ 2.31。只支持 Linux/systemd 节点，保留的其他平台构建脚本不代表可在这些平台部署。
 
-每个 `SHA256SUMS` 中的文件名为 `amd64` / `arm64`，不是下载 URL。构建脚本会生成清单，并在添加另一架构时验证和保留已有条目。同一版本、同一架构的制品不可覆盖；不要用不同内容复用运行时版本。Agent 制品版本必须与面板编译时的 workspace 版本一致，当前为 `0.2.0`。
+面板核对签名、仓库/tag、架构、版本、归档内容和安装后二进制摘要，完成后一次发布整个目录。相同组件版本不能用不同内容覆盖。Agent 下载后独立以自身内嵌公钥再次验证，运行时 systemd 启动前也复验本地缓存。
 
-### 构建 Agent
+签名发布和自建公钥的完整步骤见 [发布与信任根](release.md)；编译规范见 [开发文档](dev.md)。CI 的测试公钥是公开测试夹具，禁止用于正式节点、镜像或发布。
 
-在**对应架构的 Linux 主机**上运行。amd64 和 arm64 各自使用原生 Rust musl 工具链，不支持直接在 macOS 上生成可部署 Agent：
+## 准备可信 bootstrap
+
+首次安装的验证器和根公钥必须先从面板以外的可信渠道获得，并由操作者独立核对。不能执行面板提供的 `curl … | sh` 来建立信任，也不能先执行未知的新 Agent 让它验证自己。
+
+在已核对来源的本地仓库中，检查 `tools/bootstrap.py`、`tools/release.py` 和发布公钥，再在目标 Linux 节点安装可信 bootstrap。以下命令仅安装已经由操作者核对的本地文件：
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y build-essential musl-tools binutils python3 ca-certificates
-# After installing rustup using the official Rust instructions:
-rustup toolchain install stable
-rustup default stable
-rustup target add x86_64-unknown-linux-musl
-bash tools/build-agent.sh amd64 "$PWD/data/artifacts"
+sudo apt-get install -y python3 minisign ca-certificates curl coreutils passwd
+sudo install -d -m 755 /usr/local/lib/sinan /etc/sinan/trust
+sudo install -m 755 tools/bootstrap.py /usr/local/lib/sinan/bootstrap.py
+sudo install -m 644 tools/release.py /usr/local/lib/sinan/release.py
+sudo install -m 644 /已独立核对的路径/public-keys.json /etc/sinan/trust/public-keys.json
+sudo tee /usr/local/bin/sinan-bootstrap >/dev/null <<'SH'
+#!/bin/sh
+exec python3 /usr/local/lib/sinan/bootstrap.py "$@"
+SH
+sudo chmod 755 /usr/local/bin/sinan-bootstrap
 ```
 
-arm64 主机将目标改为 `aarch64-unknown-linux-musl`，脚本参数改为 `arm64`。脚本验证 ELF 架构、无动态解释器/动态库依赖，以及原生 `--version` / `--help` 运行结果，再发布制品。安装脚本的 curl 需要系统 CA 证书及基础安装工具；Agent 的 HTTPS/WebSocket 使用公共 WebPKI 根证书，目前没有自定义 CA 配置项。运行平台需要 systemd。
-
-### CI 可下载的 Agent 编译产物
-
-每次 push 或 PR 的 CI 只自动构建 Linux musl 静态 amd64/arm64，分别使用 Ubuntu 24.04 和 Ubuntu 24.04 arm runner。成功执行后，可在对应 Actions 运行页面下载 `sinan-agent-linux-musl-amd64`、`sinan-agent-linux-musl-arm64`，保留七天。
-
-下载内容保持上方 `agent/<version>/<arch>` 结构，并附 `SHA256SUMS`。Actions ZIP 不保留 Unix 执行权限，直接运行下载文件前执行 `chmod +x <文件路径>`。设备注册、常驻运行、状态查询及安装脚本要求 Linux/systemd。
-
-其他平台的历史编译脚本仍保留，已从自动 CI 移除；不将历史构建结果视为当前提交已通过。收敛原因及历史决策见 [ADR 0015](adr/0015-agent-build-platforms.md)。
-
-### 构建运行时
-
-在 **Linux/amd64** 构建机上运行，支持输出 amd64 或交叉编译 arm64。要求 **Go 1.26.8** 和以下工具：
-
-```bash
-sudo apt-get update
-sudo apt-get install -y ca-certificates git curl python3 python3-requests \
-  gnupg dirmngr xz-utils unzip bzip2 zstd file binutils binutils-aarch64-linux-gnu \
-  build-essential pkg-config coreutils
-
-go version  # Must report go1.26.8
-bash tools/build-singbox.sh amd64 "$PWD/data/artifacts"
-# Build the other architecture sequentially, never concurrently:
-bash tools/build-singbox.sh arm64 "$PWD/data/artifacts"
-```
-
-构建脚本核对上游 tag、提交和工具链版本；使用上游默认标签加 `with_v2ray_api`。官方默认标签包含需要 Chromium 工具链的组件，因此脚本按上游方式获取对应 clang / sysroot，不能用简单的 `CGO_ENABLED=0` 构建替代。构建机需能访问上游源码及工具链下载站点，并准备足够的时间、磁盘和内存。Agent 原生传输与制品下载只访问面板；按需运行的 NodeQuality 测试外插需要访问上游测试和报告站点。
-
-也可使用仓库中的工具链容器，避免手动安装 Go 和构建依赖；以下两次运行顺序执行：
-
-```bash
-docker build --platform=linux/amd64 -f tools/singbox-builder.Dockerfile \
-  -t sinan-runtime-builder:1.14.2 .
-mkdir -p data/artifacts
-docker run --rm --platform=linux/amd64 -v "$PWD/data/artifacts:/artifacts" \
-  sinan-runtime-builder:1.14.2 amd64 /artifacts
-# Optional second architecture.
-docker run --rm --platform=linux/amd64 -v "$PWD/data/artifacts:/artifacts" \
-  sinan-runtime-builder:1.14.2 arm64 /artifacts
-```
-
-该容器仍需访问上游工具链；原生 Linux/amd64 是构建脚本的目标环境，本地未验证 macOS 上的容器模拟构建。
-
-生成运行时要求 glibc ≥ 2.31，Debian 12 满足该条件。amd64 输出可在构建机执行版本验证；交叉编译 arm64 输出只验证 ELF 和构建信息，仍须在 arm64 Linux 主机执行 `sing-box version` 并检查 `with_v2ray_api` 后部署。详见脚本的 `--help`。
-
-### 导入 Compose 命名卷
-
-构建完成后，把整个 `data/artifacts` 目录复制到面板命名卷：
-
-```bash
-# Apply to artifact copies only; this directory contains no identity keys.
-find data/artifacts -type d -exec chmod 755 {} +
-find data/artifacts -type f -exec chmod 644 {} +
-docker compose --project-name sinan --env-file .env -f deploy/docker-compose.yml \
-  cp ./data/artifacts/. panel:/data/artifacts/
-```
-
-面板只需读取这些文件，复制后属于 root 也可以，只要目录可遍历、文件可读。`/data` 本身由 UID 10001 拥有，不要把整个数据卷改为不可写。打开“制品”页面并刷新，确认实际使用架构的 Agent 和运行时均出现；校验清单缺失或哈希不符的制品不会被提供给设备。
+bootstrap 的公钥文件仅用于独立确认安装起点；它不会写进 Agent 的运行时配置，也不能替换 Agent 编译时的公钥。后续版本或根轮换须由已信任的旧根批准，私钥泄漏恢复须走独立可信渠道，见发布文档。
 
 ## 接入 Debian 12 并使用节点
 
@@ -178,10 +121,10 @@ docker compose --project-name sinan --env-file .env -f deploy/docker-compose.yml
 
    ```bash
    sudo apt-get update
-   sudo apt-get install -y ca-certificates curl coreutils passwd
+   sudo apt-get install -y python3 minisign ca-certificates curl coreutils passwd
    ```
 
-2. 面板添加服务器，复制生成的安装命令，在目标服务器上以 root 执行。安装依赖 Linux + systemd，不支持 OpenRC、容器内缺失 systemd 的环境或非 Linux 平台。令牌 24 小时有效且只可消费一次。
+2. 先导入签名 Release 并准备可信 bootstrap。面板添加服务器，选择 Agent 版本并复制生成的安装命令，在目标服务器上以 root 执行。安装依赖 Linux + systemd，不支持 OpenRC、容器内缺失 systemd 的环境或非 Linux 平台。令牌 24 小时有效且只可消费一次。
 3. 30 秒内检查服务器是否在线，并出现系统信息与最新指标。也可在设备上执行：
 
    ```bash
@@ -211,7 +154,11 @@ docker compose --project-name sinan --env-file .env -f deploy/docker-compose.yml
 
 ### 升级设备
 
-MVP 不做自动更新。在面板发布与新面板版本一致的 Agent 制品后，到原服务器详情点击“接入 / 升级”，签发**新的**一次性令牌，重新执行安装命令。保留原设备身份、面板地址和状态库；同一服务器只允许原公钥再次注册，不能复制其他设备的身份目录。已消费的旧命令不能再次使用。安装脚本先校验并注册暂存二进制，再切换当前版本并重启 Agent。
+MVP 不做自动更新。导入协议兼容的新签名 Release 后，到原服务器详情点击“接入 / 升级”，可指定已导入的 Agent 版本，签发**新的**一次性令牌，再执行可信 bootstrap 命令。面板和 Agent 产品版本无需相同；首次安装使用独立预置验证器，重复安装可以明确指定已信任的旧 Agent 验证下一版。
+
+安装器先核对签名和实际内容，预检既有运行时、诊断和未完成回滚引用，再注册暂存 Agent、切换当前版本并重启 Agent。身份、配置与状态库继续保留；同一服务器只允许原公钥再次注册，不能复制其他设备的身份目录。旧命令消费后不可复用。
+
+历史未签名缓存不会被自动认可；预检失败保持旧安装，明确报错。需按发布文档提供与实际二进制完全匹配、经过独立验证的签名证明，或安排迁移维护窗口。历史 0.1.0→0.2.0 连续升级验收不等于已经完成旧未签版本到新签名版本的迁移。
 
 删除面板服务器会撤销面板会话并移出订阅，**不会远程停止** 该设备最后一份可用配置。停用设备时由管理员在本地停止相关服务。
 

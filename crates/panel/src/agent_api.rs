@@ -126,7 +126,7 @@ async fn connection(mut socket: WebSocket, state: AppState) -> anyhow::Result<()
                             let message = envelope.decode()?;
                             if !introduced {
                                 let Message::Hello(hello) = &message else { anyhow::bail!("expected hello"); };
-                                anyhow::ensure!(hello.protocol_version == 1, "unsupported protocol version");
+                                anyhow::ensure!((sinan_protocol::PROTOCOL_MIN..=sinan_protocol::PROTOCOL_MAX).contains(&hello.protocol_version), "unsupported protocol version");
                                 introduced = true;
                             }
                             process_message(&state, server_id, message).await?;
@@ -312,6 +312,7 @@ pub async fn manifest(
     headers: HeaderMap,
 ) -> ApiResult<Json<Manifest>> {
     let server_id = auth::require_agent(&state, &headers).await?;
+    artifacts::require_signed_agent(&state, server_id).await?;
     let row = sqlx::query("SELECT manifest_rev,static_info FROM servers WHERE id=$1")
         .bind(server_id)
         .fetch_one(&state.pool)

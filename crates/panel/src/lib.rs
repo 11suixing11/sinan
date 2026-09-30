@@ -13,6 +13,7 @@ pub mod frontend;
 pub mod ip_quality;
 pub mod nodes;
 pub mod publisher;
+pub mod releases;
 pub mod servers;
 pub mod subscriptions;
 pub mod usage;
@@ -40,6 +41,8 @@ pub struct AppState {
     pub pool: PgPool,
     pub login_permits: Arc<Semaphore>,
     pub quality_permits: Arc<Semaphore>,
+    pub release_permits: Arc<Semaphore>,
+    pub release_keys: Option<Arc<sinan_protocol::release::TrustedKeys>>,
     pub config: Arc<Config>,
     pub connections: Arc<RwLock<HashMap<i64, AgentConnection>>>,
 }
@@ -52,6 +55,10 @@ impl AppState {
             pool,
             login_permits: Arc::new(Semaphore::new(4)),
             quality_permits: Arc::new(Semaphore::new(2)),
+            release_permits: Arc::new(Semaphore::new(1)),
+            release_keys: sinan_protocol::release::TrustedKeys::compiled()
+                .ok()
+                .map(Arc::new),
             config: Arc::new(config),
             connections: Arc::default(),
         })
@@ -116,6 +123,7 @@ pub fn router(state: AppState) -> Router {
             get(artifacts::download),
         )
         .route("/api/artifacts", get(artifacts::list))
+        .route("/api/artifacts/import-release", post(releases::import))
         .route("/api/bootstrap/{version}/{arch}", get(artifacts::bootstrap))
         .route("/install.sh", get(artifacts::install_script))
         .fallback(frontend::serve)

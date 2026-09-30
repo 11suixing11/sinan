@@ -8,6 +8,7 @@ use sinan_adapter_sdk::{
     Descriptor, DiagnosticAdapter, DiagnosticSpec, JobStatus, Privileged, ServiceJob,
     ServiceManager,
 };
+use sinan_protocol::release::{ReleaseError, TrustedKeys};
 use sinan_protocol::{DiagnosticJob, DiagnosticReport, DiagnosticStatus, DiagnosticUpdate};
 use std::{
     collections::BTreeMap,
@@ -43,6 +44,7 @@ pub struct DiagnosticWorker {
     adapters: BTreeMap<String, Arc<dyn DiagnosticAdapter>>,
     privileged: Arc<dyn Privileged>,
     services: Arc<dyn ServiceManager>,
+    keys: std::result::Result<TrustedKeys, ReleaseError>,
 }
 
 impl DiagnosticWorker {
@@ -71,7 +73,14 @@ impl DiagnosticWorker {
             adapters: registered,
             privileged,
             services,
+            keys: TrustedKeys::compiled(),
         })
+    }
+
+    /// Supplies roots already trusted by an embedding caller, including test fixtures.
+    pub fn with_trusted_keys(mut self, keys: TrustedKeys) -> Self {
+        self.keys = Ok(keys);
+        self
     }
 
     fn read<T: serde::de::DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
@@ -170,11 +179,17 @@ impl DiagnosticWorker {
             ensure!(!expired(&job), "diagnostic task has expired");
             let adapter = self.adapters.get(&job.plugin).context("diagnostic plugin is not registered")?;
             let descriptor = adapter.describe();
+            let signed_descriptor = Descriptor {
+                module: "diagnostics".into(), plugin_name: descriptor.plugin_name.clone(),
+                binary_name: descriptor.binary_name.clone(), service_unit: String::new(), service_group: String::new(),
+            };
             let binary = tokio::time::timeout(Duration::from_secs(300), client.ensure_artifact(&job.artifact, &job.version, &Descriptor {
                 module: "diagnostics".into(), plugin_name: descriptor.plugin_name,
                 binary_name: descriptor.binary_name, service_unit: String::new(), service_group: String::new(),
             }, &self.config.install_root, self.privileged.as_ref())).await.context("diagnostic artifact installation timed out")??;
             ensure!(!expired(&job), "diagnostic task expired during artifact installation");
+            let keys = self.keys.as_ref().map_err(|error| anyhow::anyhow!(error.to_string()))?;
+            crate::artifacts::verify_expected(&binary, &signed_descriptor, &job.version, keys).await?;
             let mut spec = DiagnosticSpec {
                 id: id.to_string(), version: job.version,
                 binary_path: binary,
@@ -184,13 +199,14 @@ impl DiagnosticWorker {
             let mut service = self.bounded(adapter.prepare(&spec, self.privileged.as_ref())).await?;
             ensure!(service.unit == format!("sinan-diagnostic-{id}.service")
                 && service.timeout_secs == spec.timeout_secs
-                && service.working_directory == spec.job_dir, "invalid prepared diagnostic service");
+                && service.working_directory == spec.job_dir && service.program == spec.binary_path, "invalid prepared diagnostic service");
             let started_at = unix_time();
             // Preparation can consume part of the remaining budget. Recompute immediately
             // before the durable start checkpoint and give systemd the reduced limit.
             let timeout_secs = execution_timeout(job.timeout_secs, job.expires_at, started_at)?;
             spec.timeout_secs = timeout_secs;
             service.timeout_secs = timeout_secs;
+            crate::artifacts::verify_expected(&spec.binary_path, &signed_descriptor, &spec.version, keys).await?;
             // This checkpoint is durable before asking systemd to start anything. Recovery
             // only observes it; an uncertain start must never execute the task again.
             let mut checkpoint = Checkpoint::Started {

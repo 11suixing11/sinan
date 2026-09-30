@@ -1,4 +1,5 @@
 mod jobs;
+mod publication;
 
 pub use sinan_adapter_sdk::{Privileged, ServiceManager};
 
@@ -98,6 +99,14 @@ impl Privileged for SystemOps {
         args: &'a [String],
     ) -> BoxFuture<'a, CommandOutput> {
         Box::pin(async move {
+            let publication = publication::is_request(program, args);
+            if publication {
+                publication::validate(args)?;
+            }
+            #[cfg(not(target_os = "linux"))]
+            if publication {
+                return publication::simulate(args).await;
+            }
             #[cfg(not(target_os = "linux"))]
             ensure!(
                 program
@@ -111,6 +120,9 @@ impl Privileged for SystemOps {
             )
             .await
             .context("command exceeded 30 seconds")??;
+            if publication && output.status.success() {
+                publication::sync(args).await?;
+            }
             Ok(CommandOutput {
                 success: output.status.success(),
                 stdout: String::from_utf8_lossy(&output.stdout).into_owned(),

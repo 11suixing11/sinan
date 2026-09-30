@@ -1,5 +1,4 @@
 use super::*;
-use sha2::{Digest, Sha256};
 
 struct DelayedAdapter {
     delay: Duration,
@@ -30,7 +29,10 @@ impl DiagnosticAdapter for DelayedAdapter {
 
 fn cached_job(directory: &Directory, id: Uuid) -> Result<DiagnosticJob> {
     let mut job = job(id);
-    job.artifact.url = "http://127.0.0.1:1/fixture".into();
+    job.artifact.url = format!(
+        "http://127.0.0.1:1/api/agent/v1/artifacts/diagnostic-fixture/v1/{}",
+        sinan_protocol::release::native_arch()?
+    );
     let artifact = directory
         .config()
         .install_root
@@ -38,13 +40,16 @@ fn cached_job(directory: &Directory, id: Uuid) -> Result<DiagnosticJob> {
     std::fs::create_dir_all(&artifact)?;
     let binary = b"fixture diagnostic binary";
     std::fs::write(artifact.join("runner"), binary)?;
-    std::fs::write(
-        artifact.join(".artifact.json"),
-        serde_json::to_vec(&serde_json::json!({
-            "archive_sha256": job.artifact.sha256,
-            "binary_sha256": format!("{:x}", Sha256::digest(binary)),
-        }))?,
-    )?;
+    let proof = release_support::proof_for_archive(
+        "diagnostic-fixture",
+        "v1",
+        "runner",
+        b"cached archive",
+        binary,
+    );
+    job.artifact.sha256 = release_support::hash(b"cached archive");
+    job.artifact.proof = Some(proof.clone());
+    release_support::install_proof(&artifact, &proof);
     Ok(job)
 }
 
@@ -55,7 +60,7 @@ fn delayed_worker(
     prepared_limits: Arc<Mutex<Vec<u32>>>,
 ) -> Result<DiagnosticWorker> {
     let config = directory.config();
-    DiagnosticWorker::new(
+    Ok(DiagnosticWorker::new(
         config.clone(),
         Arc::new(Mutex::new(State::open(&config.state_db)?)),
         vec![Arc::new(DelayedAdapter {
@@ -64,7 +69,8 @@ fn delayed_worker(
         })],
         Arc::new(SystemOps),
         services,
-    )
+    )?
+    .with_trusted_keys(release_support::trusted_keys()))
 }
 
 #[test]
@@ -96,7 +102,8 @@ async fn resumed_preparation_recomputes_remaining_runtime_after_adapter_delay() 
         Duration::from_millis(1100),
         prepared_limits.clone(),
     )?;
-    let client = PanelClient::new("http://127.0.0.1:1", "test-session")?;
+    let client = PanelClient::new("http://127.0.0.1:1", "test-session")?
+        .with_trusted_keys(release_support::trusted_keys());
     recovered.tick(Some(&client)).await?;
     let Some(Checkpoint::Started {
         spec,
@@ -142,7 +149,8 @@ async fn deadline_crossed_during_preparation_never_starts_the_service() -> Resul
         Arc::new(Mutex::new(Vec::new())),
     )?;
     worker.save(&Checkpoint::Preparing(job.clone()))?;
-    let client = PanelClient::new("http://127.0.0.1:1", "test-session")?;
+    let client = PanelClient::new("http://127.0.0.1:1", "test-session")?
+        .with_trusted_keys(release_support::trusted_keys());
     worker.tick(Some(&client)).await?;
     assert!(worker.active()?.is_none());
     let pending: Vec<DiagnosticUpdate> = worker.read(OUTBOX)?.unwrap();
@@ -195,5 +203,77 @@ async fn completed_service_keeps_its_late_report_after_the_absolute_deadline() -
     let pending: Vec<DiagnosticUpdate> = worker.read(OUTBOX)?.unwrap();
     assert_eq!(pending[0].status, DiagnosticStatus::Succeeded);
     assert_eq!(pending[0].report.as_ref().unwrap().text, "fixture report");
+    Ok(())
+}
+
+struct TamperingAdapter;
+impl DiagnosticAdapter for TamperingAdapter {
+    fn describe(&self) -> DiagnosticDescriptor {
+        TestAdapter.describe()
+    }
+    fn prepare<'a>(
+        &'a self,
+        spec: &'a DiagnosticSpec,
+        privileged: &'a dyn Privileged,
+    ) -> BoxFuture<'a, ServiceJob> {
+        Box::pin(async move {
+            let service = TestAdapter.prepare(spec, privileged).await?;
+            std::fs::write(&spec.binary_path, b"tampered diagnostic binary")?;
+            Ok(service)
+        })
+    }
+    fn collect<'a>(&'a self, spec: &'a DiagnosticSpec) -> BoxFuture<'a, Option<DiagnosticOutput>> {
+        TestAdapter.collect(spec)
+    }
+}
+
+#[tokio::test]
+async fn unsigned_resumed_jobs_are_failed_without_executing_a_service() -> Result<()> {
+    let directory = Directory::new();
+    let services = Arc::new(Services::new(JobStatus::Running));
+    let mut job = cached_job(&directory, Uuid::new_v4())?;
+    job.artifact.proof = None;
+    let worker = worker(&directory, services.clone())?;
+    worker.save(&Checkpoint::Preparing(job))?;
+    let client = PanelClient::new("http://127.0.0.1:1", "test-session")?
+        .with_trusted_keys(release_support::trusted_keys());
+    worker.tick(Some(&client)).await?;
+    assert!(worker.active()?.is_none());
+    assert_eq!(services.starts.load(Ordering::Relaxed), 0);
+    let pending: Vec<DiagnosticUpdate> = worker.read(OUTBOX)?.unwrap();
+    assert_eq!(pending[0].status, DiagnosticStatus::Failed);
+    assert!(
+        pending[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("signed release proof")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn binary_changed_during_preparation_is_rechecked_before_systemd_start() -> Result<()> {
+    let directory = Directory::new();
+    let services = Arc::new(Services::new(JobStatus::Running));
+    let job = cached_job(&directory, Uuid::new_v4())?;
+    let config = directory.config();
+    let worker = DiagnosticWorker::new(
+        config.clone(),
+        Arc::new(Mutex::new(State::open(&config.state_db)?)),
+        vec![Arc::new(TamperingAdapter)],
+        Arc::new(SystemOps),
+        services.clone(),
+    )?
+    .with_trusted_keys(release_support::trusted_keys());
+    worker.save(&Checkpoint::Preparing(job))?;
+    let client = PanelClient::new("http://127.0.0.1:1", "test-session")?
+        .with_trusted_keys(release_support::trusted_keys());
+    worker.tick(Some(&client)).await?;
+    assert!(worker.active()?.is_none());
+    assert_eq!(services.starts.load(Ordering::Relaxed), 0);
+    let pending: Vec<DiagnosticUpdate> = worker.read(OUTBOX)?.unwrap();
+    assert_eq!(pending[0].status, DiagnosticStatus::Failed);
+    assert!(pending[0].error.as_ref().unwrap().contains("signed size"));
     Ok(())
 }
