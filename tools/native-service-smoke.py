@@ -196,7 +196,31 @@ def main():
             assert command(['sysrc', '-n', 'sinan_agent_enable']).stdout.strip() == 'YES'
         else:
             powershell("$t=Get-ScheduledTask -TaskName 'sinan-singbox@main'; if ($t.Principal.UserId -notmatch 'sinan-singbox') { throw 'Runtime account mismatch' }; if ($t.Triggers.Count -ne 1) { throw 'Missing startup trigger' }")
-        print('Native services: startup registration, privilege separation, runtime artifact/configuration, reload, traffic, Agent restart/reinstall and independent runtime passed')
+        # The independent OS service must recheck cached proof without a running
+        # Agent worker. A valid initial installation must not authorize later bytes.
+        proof_path = root / 'plugins/sing-box/1.14.2/release.json'
+        original_proof = proof_path.read_bytes()
+        def listening():
+            with socket.socket() as connection:
+                connection.settimeout(1)
+                return connection.connect_ex(('127.0.0.1', proxy_port)) == 0
+        try:
+            proof_path.write_bytes(original_proof + b' ')
+            try:
+                service('sinan-singbox@main', 'restart')
+            except RuntimeError:
+                # Some service managers report the expected startup rejection.
+                pass
+            wait_for(lambda: not listening(), 'runtime rejects corrupted cached proof', 30)
+            for _ in range(6):
+                time.sleep(0.5)
+                assert not listening(), 'native runtime restarted without verifying its signed proof'
+        finally:
+            proof_path.write_bytes(original_proof)
+        service('sinan-singbox@main', 'restart')
+        wait_for(listening, 'runtime accepts restored signed proof', 90)
+        transfer(proxy_port)
+        print('Native services: startup registration, privilege separation, runtime artifact/configuration, reload, traffic, Agent restart/reinstall, independent runtime and cache signature rejection passed')
     except BaseException as error:
         if isinstance(error, subprocess.CalledProcessError):
             print(error.stdout, error.stderr)

@@ -4,8 +4,8 @@ mod openrc_jobs;
 pub use openrc_jobs::run_job;
 pub mod deploy;
 mod jobs;
-pub(crate) mod platform;
 mod publication;
+mod resources;
 
 pub use sinan_adapter_sdk::{Privileged, ServiceManager};
 
@@ -101,6 +101,15 @@ impl SystemOps {
 }
 
 impl Privileged for SystemOps {
+    fn diagnostic_memory(&self) -> BoxFuture<'_, sinan_adapter_sdk::DiagnosticMemory> {
+        Box::pin(resources::memory())
+    }
+    fn diagnostic_resources<'a>(
+        &'a self,
+        directory: &'a Path,
+    ) -> BoxFuture<'a, sinan_adapter_sdk::DiagnosticResources> {
+        Box::pin(resources::snapshot(self, directory))
+    }
     fn spawn_managed<'a>(
         &'a self,
         program: &'a Path,

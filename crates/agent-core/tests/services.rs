@@ -17,6 +17,7 @@ struct RecordingOps {
     output: Mutex<CommandOutput>,
     unavailable: Mutex<bool>,
     files: Mutex<Vec<(PathBuf, Vec<u8>)>>,
+    directories: Mutex<Vec<(PathBuf, u32, Option<String>)>>,
     allow_files: bool,
 }
 
@@ -47,17 +48,35 @@ impl Privileged for RecordingOps {
             if *self.unavailable.lock().unwrap() {
                 bail!("service command unavailable");
             }
+            if program == Path::new("stat") {
+                assert_eq!(args, ["-c", "%f %u", "--", "/run/sinan-diagnostic"]);
+                assert!(self.directories.lock().unwrap().contains(&(
+                    PathBuf::from("/run/sinan-diagnostic"),
+                    0o700,
+                    Some("root".into()),
+                )));
+                return Ok(CommandOutput {
+                    success: true,
+                    stdout: "41c0 0\n".into(),
+                    ..Default::default()
+                });
+            }
             Ok(self.output.lock().unwrap().clone())
         })
     }
     fn create_dir<'a>(
         &'a self,
-        _path: &'a Path,
-        _mode: u32,
-        _group: Option<&'a str>,
+        path: &'a Path,
+        mode: u32,
+        group: Option<&'a str>,
     ) -> BoxFuture<'a, ()> {
-        Box::pin(async {
+        Box::pin(async move {
             anyhow::ensure!(self.allow_files, "unexpected filesystem operation");
+            self.directories.lock().unwrap().push((
+                path.to_owned(),
+                mode,
+                group.map(str::to_owned),
+            ));
             Ok(())
         })
     }
@@ -259,8 +278,9 @@ async fn openrc_starts_independent_diagnostic_jobs_without_invoking_systemd() ->
     };
     services.start_job(&job).await?;
     let calls = ops.calls.lock().unwrap();
-    assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].0, Path::new("rc-service"));
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].0, Path::new("stat"));
+    assert_eq!(calls[1].0, Path::new("rc-service"));
     let files = ops.files.lock().unwrap();
     assert_eq!(files.len(), 2);
     let saved: ServiceJob = serde_json::from_slice(&files[0].1)?;
@@ -274,7 +294,14 @@ async fn openrc_starts_independent_diagnostic_jobs_without_invoking_systemd() ->
 
 #[tokio::test]
 async fn systemd_diagnostic_jobs_keep_independent_supervision_and_status() -> Result<()> {
-    let ops = RecordingOps::successful();
+    let ops = Arc::new(RecordingOps {
+        allow_files: true,
+        output: Mutex::new(CommandOutput {
+            success: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
     let services = SystemServiceManager::new(ops.clone(), ServiceBackend::Systemd);
     let job = ServiceJob {
         unit: format!("sinan-diagnostic-{}.service", uuid::Uuid::new_v4()),
@@ -292,20 +319,21 @@ async fn systemd_diagnostic_jobs_keep_independent_supervision_and_status() -> Re
     ops.output.lock().unwrap().stdout = "LoadState=loaded\nActiveState=active\nSubState=exited\nResult=success\nExecMainStatus=0\nExecMainCode=1\nExecMainStartTimestampMonotonic=1\n".into();
     assert_eq!(services.job_status(&job.unit).await?, JobStatus::Succeeded);
     let calls = ops.calls.lock().unwrap();
-    assert_eq!(calls.len(), 2);
-    assert_eq!(calls[0].0, Path::new("systemd-run"));
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls[0].0, Path::new("stat"));
+    assert_eq!(calls[1].0, Path::new("systemd-run"));
     assert!(
-        calls[0]
+        calls[1]
             .1
             .contains(&"--property=KillMode=control-group".into())
     );
-    assert!(calls[0].1.contains(&"--property=PrivateMounts=yes".into()));
+    assert!(calls[1].1.contains(&"--property=PrivateMounts=yes".into()));
     assert!(
-        calls[0]
+        calls[1]
             .1
             .contains(&"--property=TimeoutStartSec=10s".into())
     );
-    assert_eq!(calls[1].0, Path::new("systemctl"));
-    assert_eq!(calls[1].1.last(), Some(&job.unit));
+    assert_eq!(calls[2].0, Path::new("systemctl"));
+    assert_eq!(calls[2].1.last(), Some(&job.unit));
     Ok(())
 }

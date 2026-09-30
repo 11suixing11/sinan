@@ -45,7 +45,6 @@ impl Collector {
     pub fn static_info(&self) -> StaticInfo {
         StaticInfo {
             os: Some(std::env::consts::OS.into()),
-            runtime_libc: crate::system::platform::runtime_libc().map(str::to_owned),
             libc: if cfg!(target_os = "linux") {
                 Some(
                     if cfg!(target_env = "musl") {
@@ -58,6 +57,7 @@ impl Collector {
             } else {
                 None
             },
+            runtime_libc: crate::runtime_platform::libc().map(str::to_owned),
             system: System::long_os_version().or_else(System::name),
             kernel: System::kernel_version(),
             arch: Some(std::env::consts::ARCH.into()),

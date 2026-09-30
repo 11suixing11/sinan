@@ -189,7 +189,12 @@ pub struct StaticInfo {
     pub os: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub libc: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Host ABI used by separately installed runtimes, independent of the Agent ABI.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_runtime_libc"
+    )]
     pub runtime_libc: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ip_addresses: Vec<String>,
@@ -217,6 +222,14 @@ pub struct StaticInfo {
     pub runtime_version: Option<String>,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, Value>,
+}
+
+fn deserialize_runtime_libc<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    // Absence means an older Agent; an explicit null must not become absence
+    // after a telemetry message is decoded and saved by the panel.
+    String::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]

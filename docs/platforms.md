@@ -12,7 +12,13 @@
 | FreeBSD amd64/arm64 | FreeBSD 13 sysroot 构建 | rc.d / daemon | 对应架构原生 |
 | Windows amd64/arm64 | MSVC 静态 CRT | 计划任务 | 对应架构原生及已签 DLL |
 
-init 与 libc 分别选择。Alpine 不能执行 glibc 运行时；每个制品必须对应 Agent 上报的平台和架构。静态信息中的 `libc` 保留 Agent 编译 ABI，用于自身更新；新增可选 `runtime_libc` 从系统程序的 ELF 解释器识别宿主 libc，用于运行时下发、签名与缓存预检。旧 Agent 未上报时仍按 `libc` 选择，无法识别系统程序时使用 Agent 编译 ABI。静态 musl Agent 在 Ubuntu 上因此选择 GNU 运行时，在 Alpine 上选择 musl。Linux musl 制品保留原目录兼容，其余制品使用完整平台标识。日常 CI 的 Agent 使用公开 TEST_ONLY 信任根，制品名称带 TEST_ONLY，禁止用于正式节点或发布；正式发布工作流当前生成 Linux 双架构六个组件制品；原生平台的生产签名 bundle、独立来源核验与发布验证须另行完成。Linux bootstrap 的静态安装器不代表原生平台已经具有相同的自动首装入口。
+init、Agent 编译 ABI 与宿主运行时 ABI 分别判断。静态 musl Agent 可以运行在 glibc 主机上，因此静态遥测的 `libc` 只表示 Agent 自身编译 ABI，Linux 新字段 `runtime_libc` 表示宿主可执行的运行时 ABI。面板用两者决定运行时候选，Agent 自动升级继续只使用 `libc`。例如 `{"os":"linux","arch":"amd64","libc":"musl","runtime_libc":"gnu"}` 保留已有 musl 运行时的选择优先级，也允许在缺少 musl 制品时获取 GNU 运行时；Agent 更新仍选 musl。
+
+新 Agent 仅读取宿主 `/bin/sh` ELF 的解释器信息识别运行时 ABI，不能可靠识别时兼容沿用 Agent 编译 ABI；这一回退不代表已经识别宿主。面板仍拒绝显式 `unknown`、空值或畸形的 `runtime_libc`，不会把这些值当作字段缺失；旧设备未提供该字段时沿用原 `libc` 选择行为。
+
+GNU 宿主上的 musl Agent 按 `linux-musl-{arch}`、旧 `{arch}`、`linux-gnu-{arch}` 的顺序选择运行时，保留旧版本对已签缓存的选择，避免新增宿主识别后切换到同一证明中的其他摘要；GNU Agent 按 GNU 完整标识再旧目录选择。只有候选不存在才继续查找，签名或内容损坏直接失败。真正 musl 宿主上的运行时只选择 `linux-musl-{arch}`，面板不能回退到 GNU。旧签名发布中的架构目录对 Agent 表示静态 musl、对 sing-box 表示 GNU，不能跨组件混用这一兼容规则；core 对其他旧插件保留通用签名兼容，不能据此让面板向 musl 主机提供 GNU sing-box。
+
+日常 CI 的 Agent 使用公开 TEST_ONLY 信任根，制品名称带 TEST_ONLY，禁止用于正式节点或发布；正式发布工作流当前生成 Linux 双架构六个组件制品；原生平台的生产签名 bundle、独立来源核验与发布验证须另行完成。Linux bootstrap 的静态安装器不代表原生平台已经具有相同的自动首装入口。
 
 原生生产安装先独立验证签名、metadata 和待执行 Agent 的实际内容，将 proof 三文件保存在版本目录后再注册服务；`install-service` 在任何账户或服务修改前以编译根复验自身，并验证安装后的副本。缺少匹配 proof 的生产接入保持拒绝。
 
@@ -28,7 +34,9 @@ NodeQuality 使用独立一次性服务、独立挂载命名空间、超时与�
 
 系统指标默认一秒采样、三秒上传，可调整；离线样本持久保留最多一天且不超过 100000 条。SWAP、进程、磁盘 I/O、GPU 和公网地址按设备能力提供，缺失数据保持缺失。公网地址识别可本地关闭。
 
-持续 TCP/ICMP 拨测最多 32 项，间隔 10–3600 秒，离线继续使用的配置最多一天；结果最多保留两小时、4096 条。管理员远程命令使用设备服务账号和系统 shell，最多运行 600 秒；输出分别限制 256 KiB。执行前持久记录，重启后不重放未确认终态的命令。
+持续 TCP/ICMP 拨测最多 32 项，间隔 10–3600 秒，离线继续使用的配置最多一天；结果最多保留两小时、4096 条。
+
+远程命令由节点本地顶层配置 `allow_remote_commands` 控制，默认 `false`；只有节点操作者修改为 `true` 并重启 Agent 才能开启，面板设置不能启用。关闭时不领取命令，也不声明 `command:execute` 能力；前端缺少这项能力时禁用提交。开启即授权绑定面板以 Agent 服务账号执行任意 shell，Unix 通常为 root，Windows 为 SYSTEM；制品签名不能约束这些命令。命令最多运行 600 秒，标准输出和错误输出分别限制 256 KiB；执行前持久记录，重启后不重放未确认终态的命令。
 
 自动更新默认关闭，仅使用绑定面板内协议兼容且通过发布签名的稳定制品。监督进程与运行时分开，更新保留身份和账本；启动检查失败或中断未确认升级后回退到上一版，不重复尝试已失败版本。Windows 目录元数据断电刷盘仍属验证边界。
 
@@ -36,6 +44,8 @@ FreeBSD 的代理使用普通账户，默认应选择 1024 以上的节点端口
 
 ## 验证边界
 
-CI 验证 Linux 双 libc / 双架构、macOS ARM64、Windows 与 FreeBSD 双架构。FreeBSD 使用同一二进制在 13.5、14、15 验证；原生任务检查注册、遥测补报、命令去重、拨测、升级回退、服务与回环代理流量。成功结果须以合并提交的 Actions 为准；已有分支结果不能证明合并后状态。
+自动 [CI](../.github/workflows/ci.yml) 的 Agent 构建矩阵仅保留 Linux musl amd64/arm64，同时运行代码与 Compose 检查、OpenRC 监督与诊断，以及 systemd Reality 安装和计量验收。Ubuntu runner 固定为 `ubuntu-24.04` / `ubuntu-24.04-arm`。
+
+GNU 动态 Agent、完整 Linux 运行时矩阵、macOS ARM64、Windows 与 FreeBSD 双架构验证保留在仅手动触发的 [Platform validation](../.github/workflows/platforms.yml)。FreeBSD 使用同一二进制在 13.5、14、15 验证；原生任务检查注册、遥测补报、命令去重、拨测、升级回退、服务与回环代理流量。自动 CI 通过不代表手动平台任务已通过；成功结果须对应当前提交的 Actions。
 
 GPU 实际负载、公网 Reality 客户端、真实 NodeQuality 性能和整机断电/重启由专用设备验收，见 [验收文档](e2e.md)。

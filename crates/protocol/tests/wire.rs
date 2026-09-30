@@ -359,7 +359,6 @@ fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
     }
     let old_info: StaticInfo = serde_json::from_value(json!({"arch":"amd64"})).unwrap();
     assert!(old_info.ip_addresses.is_empty());
-    assert!(old_info.runtime_libc.is_none());
     assert!(
         serde_json::to_value(old_info)
             .unwrap()
@@ -373,10 +372,26 @@ fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
 }
 
 #[test]
-fn static_agent_and_host_runtime_abis_roundtrip_independently() {
-    let value = json!({"os":"linux","arch":"amd64","libc":"musl","runtime_libc":"gnu"});
-    let info: StaticInfo = serde_json::from_value(value.clone()).unwrap();
-    assert_eq!(info.libc.as_deref(), Some("musl"));
-    assert_eq!(info.runtime_libc.as_deref(), Some("gnu"));
-    assert_eq!(serde_json::to_value(info).unwrap(), value);
+fn runtime_libc_preserves_absence_and_rejects_explicit_non_string_values() {
+    let old: StaticInfo = serde_json::from_value(json!({"libc": "musl"})).unwrap();
+    assert!(old.runtime_libc.is_none());
+    assert!(
+        serde_json::to_value(old)
+            .unwrap()
+            .get("runtime_libc")
+            .is_none()
+    );
+    for value in ["gnu", "musl", "unknown"] {
+        let info: StaticInfo =
+            serde_json::from_value(json!({"libc": "musl", "runtime_libc": value})).unwrap();
+        assert_eq!(info.libc.as_deref(), Some("musl"));
+        assert_eq!(info.runtime_libc.as_deref(), Some(value));
+        assert_eq!(serde_json::to_value(info).unwrap()["runtime_libc"], value);
+    }
+    for value in [json!(null), json!(false), json!(1), json!([]), json!({})] {
+        assert!(
+            serde_json::from_value::<StaticInfo>(json!({"libc":"gnu","runtime_libc":value}))
+                .is_err()
+        );
+    }
 }

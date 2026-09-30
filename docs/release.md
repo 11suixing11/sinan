@@ -1,6 +1,6 @@
 # 签名发布与信任根
 
-Agent 从 `0.3.0` 开始独立于面板 `0.2.0`；标签使用 `agent-v<Agent版本>`。协议范围记录在已签 `release.json`，不以面板版本代替协议兼容判断。
+Agent 在 `crates/agent/Cargo.toml` 独立声明版本，面板使用根 `Cargo.toml` 的 workspace 版本；当前两者恰好都为 `0.3.0`，后续可以分别演进。Agent 标签使用 `agent-v<Agent版本>`。当前 wire 协议兼容范围为 `1..1`，记录在已签 `release.json`，不以面板产品版本代替协议兼容判断。
 
 CI 为两种架构构建 musl Agent，为两种架构构建固定上游运行时和 NodeQuality r2，生成六个平铺资产、静态 `install.sh`、`release.json` 与规范 `SHA256SUMS`，只建立 GitHub Release 草稿。运行时按固定版本、架构和构建脚本内容缓存；固定 Go 工具链在 amd64 构建机交叉编译 arm64。Agent 两种架构都使用对应原生 runner。NodeQuality 包装器不运行基准测试，只按既有固定提交与 r2 包装修订打包；外部诊断下载继续遵循 ADR 0016。
 
@@ -28,6 +28,8 @@ export SINAN_RELEASE_PUBLIC_KEYS="$(cat deploy/release-public-keys.json)"
 
 生产公钥 JSON 数组通过仓库变量 `SINAN_RELEASE_PUBLIC_KEYS` 固定在正式 Agent 编译时，每项可以是 minisign 公钥 base64 记录或完整 `.pub` 文本。公钥可公开；CI 不生成或读取正式私钥。Agent 使用 `minisign-verify` crate 验证签名，最多同时信任 8 个公钥。面板、安装器和运行期配置都不能给 Agent 追加或替换根；缺失、空、重复或无效的根集合会拒绝制品。自行构建的用户可以在编译时设置自己的 `SINAN_RELEASE_PUBLIC_KEYS`，其产物属于自己的信任域。
 
+远程命令是单独的节点授权：本机顶层配置 `allow_remote_commands` 默认 `false`，面板设置不能将其开启。节点操作者设置为 `true` 并重启 Agent 后，等于授权绑定面板以 Agent 服务账号执行任意 shell；制品签名不能约束这些命令。具体启停步骤见 [部署文档](deploy.md#远程命令的本地授权)。
+
 已公开的 `crates/protocol/tests/fixtures/TEST_ONLY.key`、同目录 `TEST_ONLY_ROTATION.pub` 与其他 `TEST_ONLY*.pub` 只用于自动测试，不能成为生产根。正式构建与正式发布校验按实际 32 字节公钥拒绝这些 fixture，而非只比较可替换的 key ID。共享发布校验器内置两把已知测试公钥的拒绝名单，即使复制到仓库外仍可在正式发布校验中拒绝它们；仓库内还会扫描新增测试根。普通 bootstrap 允许操作者显式预置测试根，供隔离 CI 验收使用；正式安装必须独立配置并核对生产公钥。
 
 操作者从 Release 草稿取得全部资产，并在使用正式私钥的离线设备执行：
@@ -40,6 +42,8 @@ minisign -S -m SHA256SUMS -s /离线设备中的私钥路径 \
 签名前需确认全部资产、源码版本与清单来自本次构建。只上传完整 `SHA256SUMS.minisig`，不上传私钥。运行 `Signed release draft` 的手动校验，提供 tag；默认仅验证，显式选择 publish 才在完整签名、metadata、安装器及所有资产校验通过后公开草稿。未知资产、重复路径、缺模块或缺架构、旧式签名、篡改的可信注释或测试钥都会失败。
 
 tag 的最终 commit 必须与草稿记录的完整 build SHA 一致，并有同一 commit 的最新 main push CI 成功记录；以下五个 job 缺失、跳过、未完成或失败都会拒绝：`check`、`compose-smoke`、`Agent Linux musl (amd64)`、`Agent Linux musl (arm64)`、`Reality installation and accounting`。因此应先等待 main CI 通过，再创建指向该提交的 Agent tag。正式生产根尚未提供时，发布流程保持 fail closed；测试根可用于本地和 PR 验收，不能生成正式候选。
+
+自动 CI 的 Agent 矩阵仅含 musl amd64/arm64，Ubuntu runner 固定为 24.04；GNU、macOS、Windows、FreeBSD 与完整运行时矩阵保留在仅手动触发的 [Platform validation](../.github/workflows/platforms.yml)。这些平台的源码与验证入口继续保留，自动发布门禁不声称已完成它们的验证。
 
 发布工具记录每个 GitHub asset 的 ID、name、digest、size、state，按已选 ID 下载，先检查 GitHub digest 与实际 bytes 一致，再以独立生产根验证完整 minisign 和所有制品。GitHub digest 不是签名替代。验完后重新读取 tag 对象与 commit、完整 asset 集合及 CI run/attempt/job ID，必须与验证前一致才调用唯一的 draft→published PATCH；发布后还复查资产和 tag，并保存公开验证证据。workflow concurrency 串行同 tag 的本流程操作。
 

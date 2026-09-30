@@ -43,7 +43,9 @@ jobs:
       - name: Check committed frontend build
         run: git diff --exit-code -- web/dist
       - name: Check core boundary
-        run: '! grep -REin "singbox|sing-box" crates/agent-core'
+        run: |
+          python3 tools/check-core-boundary.py
+          python3 -m unittest discover -s tests -p 'test_core_boundary.py'
       - name: Verify artifact build script contracts
         run: python3 tools/test-build-scripts.py
       - name: Verify deployment environment initialization
@@ -64,7 +66,7 @@ jobs:
         run: |
           cargo test -p sinan-agent-core --lib --no-run --message-format=json > /tmp/sinan-core-tests.jsonl
           diagnostic_test_binary=$(python3 -c 'import json; print(next(item["executable"] for item in (json.loads(line) for line in open("/tmp/sinan-core-tests.jsonl")) if item.get("reason") == "compiler-artifact" and item.get("executable") and item["target"]["name"] == "sinan_agent_core"))')
-          python3 tools/ci-run.py sudo "$diagnostic_test_binary" real_systemd_diagnostic_ --ignored
+          python3 tools/ci-run.py sudo "$diagnostic_test_binary" real_systemd_diagnostic_ --ignored --test-threads=1
 
   compose-smoke:
     runs-on: ubuntu-24.04

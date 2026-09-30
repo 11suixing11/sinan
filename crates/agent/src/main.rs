@@ -125,6 +125,9 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         }
         Command::Run { monitor_only } => {
             let config = Config::load(&path)?;
+            if monitor_only {
+                sinan_agent_core::retirement::ensure_monitor_only_allowed(&config)?;
+            }
             let backend = if monitor_only {
                 ServiceBackend::Unmanaged
             } else {
@@ -166,6 +169,9 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         }
         Command::InstallService { monitor_only } => {
             let config = Config::load(&path)?;
+            if monitor_only {
+                sinan_agent_core::retirement::ensure_monitor_only_allowed(&config)?;
+            }
             let descriptor = (!monitor_only).then(|| SingboxAdapter::new().describe());
             sinan_agent_core::system::deploy::install_services(&config, &path, descriptor.as_ref())
                 .await?;
@@ -174,10 +180,25 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         }
         Command::Supervise { monitor_only } => {
             let config = Config::load(&path)?;
+            if monitor_only {
+                sinan_agent_core::retirement::ensure_monitor_only_allowed(&config)?;
+            }
             sinan_agent_core::upgrade::supervise(config, path, monitor_only, privileged).await
         }
         #[cfg(target_os = "linux")]
-        Command::RunJob { spec } => sinan_agent_core::system::run_job(&absolute_path(&spec)?).await,
+        Command::RunJob { spec } => {
+            let spec = absolute_path(&spec)?;
+            // Register both listeners before polling the job, including its first spawn.
+            let shutdown = shutdown_listener()?;
+            tokio::select! {
+                biased;
+                _ = shutdown => Ok(()),
+                result = sinan_agent_core::system::run_job(&spec) => result,
+            }
+            // Cancelling run_job synchronously drops CommandGuard and kills the payload
+            // process group. The durable start remains observable as failed, with its
+            // partial report and any pending protection reason preserved by the worker.
+        }
         #[cfg(target_os = "linux")]
         Command::ServiceJob { spec, status } => {
             let job: sinan_adapter_sdk::ServiceJob = serde_json::from_slice(&std::fs::read(spec)?)?;
@@ -222,12 +243,18 @@ fn absolute_path(path: &Path) -> anyhow::Result<PathBuf> {
     }
 }
 
+#[cfg(unix)]
+fn shutdown_listener() -> anyhow::Result<impl std::future::Future<Output = ()>> {
+    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+    Ok(async move {
+        tokio::select! { _ = term.recv() => {}, _ = interrupt.recv() => {} }
+    })
+}
+
 async fn shutdown() -> anyhow::Result<()> {
     #[cfg(unix)]
-    {
-        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-        tokio::select! { _=term.recv()=>{}, result=tokio::signal::ctrl_c()=>{result?;} }
-    }
+    shutdown_listener()?.await;
     #[cfg(windows)]
     tokio::signal::ctrl_c().await?;
     Ok(())

@@ -122,6 +122,7 @@ impl Harness {
             status_socket: root.join("run/status.sock"),
             operation_timeout_secs: 5,
             public_ips: Vec::new(),
+            allow_remote_commands: false,
         }
     }
 

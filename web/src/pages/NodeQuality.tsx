@@ -3,7 +3,7 @@ import { api } from '../api'
 import { Badge, ErrorNotice, Icon, Loading } from '../components'
 import { time } from '../format'
 import { useAction, useResource } from '../hooks'
-import type { DiagnosticRecord, IpQuality, NodeQuality as NodeQualityData } from '../types'
+import type { DiagnosticRecord, IpQuality, NodeQuality as NodeQualityData, QualityErrorKind } from '../types'
 
 function safeReportLink(value?: string) {
   if (!value) return undefined
@@ -16,15 +16,25 @@ function safeReportLink(value?: string) {
 
 const statusLabels = { queued: '等待设备领取', running: '设备正在测试', succeeded: '报告已完成', failed: '报告失败' }
 const versionLabels: Record<string, string> = { both: 'IPv4 与 IPv6', ipv4: 'IPv4', ipv6: 'IPv6' }
+const queryErrorLabels: Record<QualityErrorKind, string> = {
+  dns: 'DNS 解析失败', connect: '连接失败', tls: 'TLS 验证或握手失败', timeout: '查询超时',
+  http_403: '访问被拒绝（403）', http_429: '请求被限流（429）', http_other: '其他 HTTP 错误',
+  non_json: '响应不是 JSON', schema_mismatch: '字段不匹配', body_error: '响应读取失败',
+  response_limit: '响应超过上限', request_error: '请求失败，原因未分类', not_public: '未向第三方查询',
+  not_attempted: '尚未开始查询', invalid_origin: '查询入口地址无效',
+}
 
 function QualityResult({ result }: { result: IpQuality }) {
   const successes = result.databases.filter(item => item.status === 'succeeded').length
   const expired = result.expires_at * 1000 <= Date.now()
   return <div className="quality-result">
     <div className="quality-summary"><Badge tone={result.status === 'succeeded' ? 'good' : result.status === 'partial' ? 'warm' : 'bad'}>{successes ? `${successes} / ${result.databases.length} 个数据库有结果` : '质量未知'}</Badge><span className="subtle">查询于 {time(result.checked_at)}{expired ? ' · 缓存已过期' : ' · 缓存有效一天'}</span></div>
-    <p className="helper">各数据库的类型、标记和评分独立展示，评分保留上游原值。没有返回的字段表示未知。</p>
+    <p className="helper">这些数据库信息来自同一 check-place 查询入口；各数据库的类型、标记和评分分别展示，评分保留上游原值。没有返回的字段表示未知。</p>
     <div className="quality-databases">{result.databases.map(database => <details key={database.database} className="quality-database">
       <summary><span>{database.label}</span><Badge tone={database.status === 'succeeded' ? 'good' : 'neutral'}>{database.status === 'succeeded' ? '已查询' : '未知'}</Badge></summary>
+      <p className="helper">查询入口：{database.provider ?? 'check-place'} · 目标 IP：{database.target_ip ?? result.ip}</p>
+      <p className="helper">{database.attempted_at != null ? `尝试于 ${time(database.attempted_at)}` : database.error_kind === 'not_attempted' ? '该轮尚未开始查询' : '旧记录未保存逐源查询时间'} · {database.elapsed_ms != null ? `耗时 ${database.elapsed_ms} 毫秒` : '耗时未知'}</p>
+      {database.error && <p className="helper">失败类别：{database.error_kind ? queryErrorLabels[database.error_kind] ?? '原因未分类' : '旧记录未分类'}{database.http_status != null && ` · HTTP ${database.http_status}`}</p>}
       {database.error ? <p className="quality-database-error">{database.error}</p> : <dl className="detail-list">{database.fields.map(field => <div key={field.label}><dt>{field.label}</dt><dd>{typeof field.value === 'boolean' ? field.value ? '是' : '否' : String(field.value)}</dd></div>)}</dl>}
     </details>)}</div>
   </div>
@@ -55,7 +65,7 @@ export default function NodeQuality({ serverId }: { serverId: number }) {
     <div className="panel-heading"><h2>IP 质量与节点报告</h2><button className="button button-secondary" disabled={refresh.busy || !data?.ip_addresses.length} onClick={() => void refresh.run(() => api<IpQuality[]>(`/api/servers/${serverId}/node-quality/refresh`, 'POST'), () => resource.reload())}><Icon name="refresh" size={14} />{refresh.busy ? '查询中…' : '刷新 IP 质量'}</button></div>
     <div className="panel-body quality-body"><ErrorNotice message={resource.error || refresh.error || run.error} retry={resource.reload} />
       {!data ? resource.loading && <Loading /> : <>
-        <p className="helper">IP 由 Agent 上报，包含设备网卡地址与配置补充的公网出口地址。质量查询会将公网 IP 发送给第三方数据库；缓存仅作参考。</p>
+        <p className="helper">IP 由 Agent 上报，包含设备网卡地址与配置补充的公网出口地址。质量查询会将公网 IP 发送给 check-place 查询入口；缓存仅作参考。</p>
         {!data.ip_addresses.length ? <div className="inline-empty">设备尚未上报 IP 地址，请升级 Agent 或等待设备上报。</div> : <div className="quality-addresses">{data.ip_addresses.map(ip => {
           const result = data.quality.find(item => item.ip === ip)
           return <article key={ip} className="quality-address"><h3 className="mono">{ip}</h3>{result ? <QualityResult result={result} /> : <p className="helper">尚未查询质量。点击“刷新 IP 质量”查询各数据库。</p>}</article>

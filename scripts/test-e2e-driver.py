@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -15,6 +16,7 @@ from unittest.mock import patch
 SPEC = importlib.util.spec_from_file_location("e2e_driver", Path(__file__).with_name("e2e-driver.py"))
 DRIVER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(DRIVER)
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def view(up=10, down=20, pending=0):
@@ -121,6 +123,123 @@ class AcceptanceContracts(unittest.TestCase):
             with patch.object(DRIVER.Panel, "request", return_value={}) as request:
                 DRIVER.Panel("https://example.test", "test-password", code)
                 request.assert_called_once_with("/api/login", {"password": "test-password", "totp_code": "012345"})
+
+    def run_summary(self, systemd_queries, owned=True):
+        source = (ROOT / "scripts/ci-real-e2e.sh").read_text().split("write_summary() {\n", 1)[1]
+        source = source.split("<<'PY'\n", 1)[1].split("\nPY\n}", 1)[0]
+        output = self.state_path.with_name("public-summary.json")
+        report = self.state_path.with_name("public-summary.md")
+        argv = ["summary", str(self.state_path), str(output), "0", "install", "1", "1" if owned else "0", "278"]
+        annotation = io.StringIO()
+        with contextlib.chdir(ROOT), patch.object(DRIVER.sys, "argv", argv), \
+             patch.dict(DRIVER.os.environ, {"GITHUB_STEP_SUMMARY": str(report), "GITHUB_ACTIONS": "true"}, clear=True), \
+             contextlib.redirect_stdout(annotation), \
+             patch.object(DRIVER.subprocess, "run", side_effect=systemd_queries) as run:
+            exec(compile(source, "ci-real-e2e.sh:write_summary", "exec"), {})
+        summary = json.loads(output.read_text())
+        self.assertEqual(summary["failure_line"], 278)
+        self.assertEqual(annotation.getvalue(), "::error title=Reality acceptance failed::"
+                         + json.dumps(summary, ensure_ascii=True) + "\n")
+        return summary, report.read_text(), run
+
+    def test_ready_timeout_preserves_private_last_snapshot_but_public_outputs_are_allowlisted(self):
+        secret = "TOKEN-identity-key@private-host.example.test/198.51.100.77"
+        first, last = view(), view()
+        first["server"]["online"] = False
+        last["server"].update(device_public_key=secret, agent_version=secret, hostname=secret)
+        last["deployment"].update(target_rev=2, healthy=False, last_error=secret)
+        last["agent"]["token"] = secret
+        args = argparse.Namespace(state=self.state_path, timeout=2, agent_version="0.3.0", client_port=None)
+        clock = Clock()
+        with patch.object(DRIVER, "snapshot", side_effect=[first, last]), \
+             patch.object(DRIVER.time, "monotonic", clock.monotonic), \
+             patch.object(DRIVER.time, "sleep", clock.sleep):
+            with self.assertRaisesRegex(DRIVER.AcceptanceError, "超时") as error:
+                DRIVER.ready(None, self.state, args)
+        private = self.state_path.with_name("ready-timeout.json")
+        self.assertEqual(private.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(json.loads(private.read_text())["snapshot"], last)
+        self.assertIn(secret, private.read_text())
+        self.assertNotIn(secret, str(error.exception))
+        expected = {"online": True, "deployment_present": True, "target_rev": 2, "applied_rev": 1,
+                    "target_positive": True, "revisions_match": False, "healthy": False,
+                    "has_last_error": True, "version_required": True, "version_matches": False}
+        self.assertEqual(json.loads(str(error.exception).split("状态=", 1)[1]), expected)
+        queries = [subprocess.CompletedProcess([], 0,
+                   "ActiveState=failed\nSubState=failed\nResult=exit-code\nExecMainStatus=1\nDescription=" + secret,
+                   secret), subprocess.CompletedProcess([], 0,
+                   "ActiveState=" + secret + "\nSubState=" + secret + "\nResult=" + secret
+                   + "\nExecMainStatus=" + secret, secret)]
+        summary, report, run = self.run_summary(queries)
+        self.assertEqual(summary["readiness"], expected)
+        self.assertEqual(summary["systemd"], {
+            "sinan-agent.service": {"query_succeeded": True, "ActiveState": "failed", "SubState": "failed",
+                                    "Result": "exit-code", "ExecMainStatus": 1},
+            "sinan-singbox@main.service": {"query_succeeded": True}})
+        self.assertNotIn(secret, json.dumps(summary) + report)
+        self.assertNotIn("device_public_key", json.dumps(summary))
+        self.assertEqual([call.args[0][2] for call in run.call_args_list],
+                         ["sinan-agent.service", "sinan-singbox@main.service"])
+
+    def test_readiness_counters_are_bounded_integers_and_missing_values_remain_unknown(self):
+        sample = view()
+        for value in (-1, 2 ** 63, True, False, "1", 1.0, "private-host.example.test"):
+            with self.subTest(value=value):
+                sample["deployment"].update(target_rev=value, applied_rev=value, healthy=value)
+                sample["server"]["online"] = value
+                status = DRIVER.readiness_status(sample, None)
+                self.assertIsNone(status["target_rev"])
+                self.assertIsNone(status["applied_rev"])
+                self.assertIsNone(status["target_positive"])
+                self.assertIsNone(status["revisions_match"])
+                if type(value) is not bool:
+                    self.assertIsNone(status["online"])
+                    self.assertIsNone(status["healthy"])
+                self.assertFalse(status["version_required"])
+                self.assertIsNone(status["version_matches"])
+        for value in (0, 2 ** 63 - 1):
+            sample["deployment"].update(target_rev=value, applied_rev=value)
+            status = DRIVER.readiness_status(sample, "expected-version")
+            self.assertEqual(status["target_rev"], value)
+            self.assertTrue(status["revisions_match"])
+            self.assertFalse(status["version_matches"])
+        status = DRIVER.readiness_status({"deployment": None}, None)
+        self.assertFalse(status["deployment_present"])
+        self.assertIsNone(status["online"])
+        self.assertIsNone(status["healthy"])
+        self.assertIsNone(status["has_last_error"])
+
+    def test_systemd_public_status_rejects_ambiguous_out_of_range_and_failed_queries(self):
+        for value in ("-1", "256", "65536", "01", "1.0", "secret"):
+            with self.subTest(value=value):
+                self.assertNotIn("ExecMainStatus", DRIVER.systemd_status("ExecMainStatus=" + value, True))
+        for value in ("0", "255"):
+            self.assertEqual(DRIVER.systemd_status("ExecMainStatus=" + value, True)["ExecMainStatus"], int(value))
+        self.assertEqual(DRIVER.systemd_status("ActiveState=secret\nActiveState=active\nExecMainStatus=0\nExecMainStatus=0", True),
+                         {"query_succeeded": True})
+        self.assertEqual(DRIVER.systemd_status("ActiveState=active\nExecMainStatus=0", False),
+                         {"query_succeeded": False})
+        summary, _, _ = self.run_summary([subprocess.CompletedProcess([], 1, "ActiveState=active", "secret"),
+                                         subprocess.TimeoutExpired(["systemctl"], 5, output="secret")])
+        self.assertEqual(summary["systemd"], {unit: {"query_succeeded": False}
+                                            for unit in ("sinan-agent.service", "sinan-singbox@main.service")})
+        summary, _, run = self.run_summary([], owned=False)
+        self.assertNotIn("systemd", summary)
+        run.assert_not_called()
+
+    def test_ready_retry_removes_old_timeout_evidence_and_refuses_symlink(self):
+        path = self.state_path.with_name("ready-timeout.json")
+        DRIVER.save(path, {"snapshot": "old private failure"})
+        args = argparse.Namespace(state=self.state_path, timeout=2, agent_version="0.3.0", client_port=None)
+        with patch.object(DRIVER, "snapshot", side_effect=DRIVER.AcceptanceError("panel unavailable")):
+            with self.assertRaisesRegex(DRIVER.AcceptanceError, "panel unavailable"):
+                DRIVER.ready(None, self.state, args)
+        self.assertFalse(path.exists())
+        path.symlink_to(self.state_path.with_name("unrelated"))
+        with patch.object(DRIVER, "snapshot") as snapshot:
+            with self.assertRaisesRegex(DRIVER.AcceptanceError, "符号链接"):
+                DRIVER.ready(None, self.state, args)
+            snapshot.assert_not_called()
 
     def preparation_state(self, port=None):
         self.state.update(origin="http://127.0.0.1:8000", public_host="node.example.test",

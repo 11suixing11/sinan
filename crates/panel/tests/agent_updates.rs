@@ -52,7 +52,7 @@ async fn updates_require_opt_in_matching_platform_and_newer_verified_stable_rele
     )?;
     sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
         .bind(server)
-        .bind(json!({"os":"linux","arch":"amd64","libc":"musl","runtime_libc":"gnu","agent_version":"0.3.0"}))
+        .bind(json!({"os":"linux","arch":"amd64","libc":"musl","agent_version":"0.3.0"}))
         .execute(&panel.state.pool)
         .await?;
     let fetch = || {
@@ -73,6 +73,22 @@ async fn updates_require_opt_in_matching_platform_and_newer_verified_stable_rele
             .unwrap()
             .ends_with("linux-musl-amd64")
     );
+    // Runtime ABI detection must not switch the Agent's own update ABI.
+    for runtime_libc in ["gnu", "musl", "unknown"] {
+        sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
+            .bind(server)
+            .bind(json!({"os":"linux","arch":"amd64","libc":"musl","runtime_libc":runtime_libc,"agent_version":"0.3.0"}))
+            .execute(&panel.state.pool)
+            .await?;
+        let release: Value = fetch().await?.error_for_status()?.json().await?;
+        assert_eq!(release["version"], "0.10.0");
+        assert!(
+            release["artifact"]["url"]
+                .as_str()
+                .unwrap()
+                .ends_with("linux-musl-amd64")
+        );
+    }
     for info in [
         json!({"os":"linux","arch":"amd64","libc":"musl","agent_version":"0.10.0"}),
         json!({"os":"windows","arch":"arm64","agent_version":"0.3.0"}),

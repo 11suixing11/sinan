@@ -13,6 +13,111 @@ use sinan_protocol::release::canonical_asset_name;
 use sqlx::PgPool;
 
 #[sqlx::test]
+async fn musl_agent_on_gnu_host_receives_legacy_gnu_runtime(pool: PgPool) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, ack) = panel.authenticated_device(&cookie, "split-abi").await?;
+    let node = id(&panel.create_node(&cookie, server, "split-abi-node").await?)?;
+    let user = id(&panel.create_user(&cookie, "split-abi-user").await?)?;
+    panel.grant(&cookie, user, node).await?;
+    panel.publish_now().await?;
+
+    let binary = b"legacy GNU runtime fixture";
+    let archive = release_fixture::archive("sing-box", binary)?;
+    let mut entry =
+        release_support::entry("sing-box", "1.14.2", "sing-box", "tar.gz", &archive, binary);
+    entry.arch = "amd64".into();
+    entry.asset_name = canonical_asset_name(&entry)?;
+    release_fixture::write_entries(
+        &panel.state.config.data_dir,
+        vec![(entry.clone(), archive.clone())],
+    )?;
+    sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
+        .bind(server)
+        .bind(json!({"os":"linux","arch":"amd64","libc":"musl","runtime_libc":"gnu"}))
+        .execute(&panel.state.pool)
+        .await?;
+    let response = panel
+        .client
+        .get(format!("{}/api/agent/v1/manifest", panel.base))
+        .bearer_auth(&ack.session_token)
+        .send()
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let manifest: serde_json::Value = response.json().await?;
+    assert!(
+        manifest["modules"]["singbox"]["artifact"]["url"]
+            .as_str()
+            .unwrap()
+            .ends_with("/sing-box/1.14.2/amd64")
+    );
+    // Preserve the legacy selection made by old musl Agents before host detection.
+    let mut explicit_gnu = entry.clone();
+    explicit_gnu.arch = "linux-gnu-amd64".into();
+    explicit_gnu.asset_name = canonical_asset_name(&explicit_gnu)?;
+    release_fixture::write_entries(
+        &panel.state.config.data_dir,
+        vec![
+            (entry, archive.clone()),
+            (explicit_gnu.clone(), archive.clone()),
+        ],
+    )?;
+    let response = panel
+        .client
+        .get(format!("{}/api/agent/v1/manifest", panel.base))
+        .bearer_auth(&ack.session_token)
+        .send()
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let manifest: serde_json::Value = response.json().await?;
+    assert!(
+        manifest["modules"]["singbox"]["artifact"]["url"]
+            .as_str()
+            .unwrap()
+            .ends_with("/sing-box/1.14.2/amd64")
+    );
+    for info in [
+        json!({"os":"linux","arch":"amd64","libc":"musl"}),
+        json!({"os":"linux","arch":"amd64","libc":"gnu","runtime_libc":"musl"}),
+    ] {
+        sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
+            .bind(server)
+            .bind(info)
+            .execute(&panel.state.pool)
+            .await?;
+        let response = panel
+            .client
+            .get(format!("{}/api/agent/v1/manifest", panel.base))
+            .bearer_auth(&ack.session_token)
+            .send()
+            .await?;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+    // With neither musl nor a signed legacy entry, the GNU host can use GNU.
+    release_fixture::write_entries(&panel.state.config.data_dir, vec![(explicit_gnu, archive)])?;
+    sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
+        .bind(server)
+        .bind(json!({"os":"linux","arch":"amd64","libc":"musl","runtime_libc":"gnu"}))
+        .execute(&panel.state.pool)
+        .await?;
+    let response = panel
+        .client
+        .get(format!("{}/api/agent/v1/manifest", panel.base))
+        .bearer_auth(&ack.session_token)
+        .send()
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let manifest: serde_json::Value = response.json().await?;
+    assert!(
+        manifest["modules"]["singbox"]["artifact"]["url"]
+            .as_str()
+            .unwrap()
+            .ends_with("/sing-box/1.14.2/linux-gnu-amd64")
+    );
+    Ok(())
+}
+
+#[sqlx::test]
 async fn runtime_selection_matches_abi_and_preserves_legacy_devices(pool: PgPool) -> Result<()> {
     let panel = TestPanel::start(pool).await?;
     let cookie = panel.admin_cookie().await?;
@@ -22,7 +127,12 @@ async fn runtime_selection_matches_abi_and_preserves_legacy_devices(pool: PgPool
     panel.grant(&cookie, user, node).await?;
     panel.publish_now().await?;
     let mut artifacts = Vec::new();
-    for target in ["amd64", "linux-musl-amd64", "freebsd-amd64"] {
+    for target in [
+        "amd64",
+        "linux-gnu-amd64",
+        "linux-musl-amd64",
+        "freebsd-amd64",
+    ] {
         let binary = target.as_bytes();
         let archive = release_fixture::archive("sing-box", binary)?;
         let mut entry =
@@ -36,11 +146,19 @@ async fn runtime_selection_matches_abi_and_preserves_legacy_devices(pool: PgPool
         (json!({"arch":"amd64"}), Some("amd64")),
         (
             json!({"arch":"amd64","os":"linux","libc":"gnu"}),
-            Some("amd64"),
+            Some("linux-gnu-amd64"),
         ),
         (
             json!({"arch":"amd64","os":"linux","libc":"musl","runtime_libc":"gnu"}),
-            Some("amd64"),
+            Some("linux-musl-amd64"),
+        ),
+        (
+            json!({"arch":"amd64","os":"linux","libc":"musl","runtime_libc":"glibc"}),
+            Some("linux-musl-amd64"),
+        ),
+        (
+            json!({"arch":"amd64","os":"linux","libc":"gnu","runtime_libc":"musl"}),
+            Some("linux-musl-amd64"),
         ),
         (
             json!({"arch":"amd64","os":"linux","libc":"musl"}),
@@ -51,10 +169,6 @@ async fn runtime_selection_matches_abi_and_preserves_legacy_devices(pool: PgPool
             Some("freebsd-amd64"),
         ),
         (json!({"arch":"amd64","os":"linux","libc":"unknown"}), None),
-        (
-            json!({"arch":"amd64","os":"linux","libc":"musl","runtime_libc":"unknown"}),
-            None,
-        ),
         (json!({"arch":"amd64","os":"windows"}), None),
     ] {
         sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
@@ -75,11 +189,31 @@ async fn runtime_selection_matches_abi_and_preserves_legacy_devices(pool: PgPool
                 value["modules"]["singbox"]["artifact"]["url"]
                     .as_str()
                     .unwrap()
-                    .ends_with(target)
+                    .ends_with(&format!("/sing-box/1.14.2/{target}"))
             );
         } else {
             assert!(!response.status().is_success());
         }
+    }
+    for runtime_libc in [
+        json!("unknown"),
+        json!(""),
+        json!(null),
+        json!(false),
+        json!(7),
+    ] {
+        sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
+            .bind(server)
+            .bind(json!({"arch":"amd64","os":"linux","libc":"gnu","runtime_libc":runtime_libc}))
+            .execute(&panel.state.pool)
+            .await?;
+        let response = panel
+            .client
+            .get(format!("{}/api/agent/v1/manifest", panel.base))
+            .bearer_auth(&ack.session_token)
+            .send()
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
     std::fs::remove_file(root.join("sing-box/1.14.2/linux-musl-amd64"))?;
     sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
@@ -94,54 +228,5 @@ async fn runtime_selection_matches_abi_and_preserves_legacy_devices(pool: PgPool
         .send()
         .await?;
     assert_eq!(response.status(), StatusCode::CONFLICT);
-    Ok(())
-}
-
-#[sqlx::test]
-async fn static_agent_on_gnu_selects_a_signed_gnu_runtime(pool: PgPool) -> Result<()> {
-    let panel = TestPanel::start(pool).await?;
-    let cookie = panel.admin_cookie().await?;
-    let (server, _socket, ack) = panel.authenticated_device(&cookie, "host-abi").await?;
-    let node = id(&panel.create_node(&cookie, server, "host-node").await?)?;
-    let user = id(&panel.create_user(&cookie, "host-user").await?)?;
-    panel.grant(&cookie, user, node).await?;
-    panel.publish_now().await?;
-    let binary = b"GNU fixture";
-    let archive = release_fixture::archive("sing-box", binary)?;
-    let mut entry =
-        release_support::entry("sing-box", "1.14.2", "sing-box", "tar.gz", &archive, binary);
-    entry.arch = "linux-gnu-amd64".into();
-    entry.asset_name = canonical_asset_name(&entry)?;
-    let root =
-        release_fixture::write_entries(&panel.state.config.data_dir, vec![(entry, archive)])?;
-    let fetch = || {
-        panel
-            .client
-            .get(format!("{}/api/agent/v1/manifest", panel.base))
-            .bearer_auth(&ack.session_token)
-            .send()
-    };
-    for (runtime_libc, expected) in [("gnu", StatusCode::OK), ("musl", StatusCode::NOT_FOUND)] {
-        sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
-            .bind(server)
-            .bind(json!({"os":"linux","arch":"amd64","libc":"musl","runtime_libc":runtime_libc}))
-            .execute(&panel.state.pool)
-            .await?;
-        let response = fetch().await?;
-        assert_eq!(response.status(), expected);
-        if expected == StatusCode::OK {
-            let manifest: serde_json::Value = response.json().await?;
-            assert!(
-                manifest["modules"]["singbox"]["artifact"]["url"]
-                    .as_str()
-                    .unwrap()
-                    .ends_with("linux-gnu-amd64")
-            );
-        }
-    }
-    sqlx::query("UPDATE servers SET static_info=jsonb_set(static_info,'{runtime_libc}','\"gnu\"') WHERE id=$1")
-        .bind(server).execute(&panel.state.pool).await?;
-    std::fs::write(root.join("sing-box/1.14.2/linux-gnu-amd64"), b"tampered")?;
-    assert_eq!(fetch().await?.status(), StatusCode::CONFLICT);
     Ok(())
 }

@@ -13,7 +13,7 @@ export type Metrics = {
   disk_used?: number; tcp_connections?: number; udp_connections?: number; uptime_secs?: number;
   network_interfaces?: Record<string, { received_bytes?: number; transmitted_bytes?: number; receive_bytes_per_sec?: number; transmit_bytes_per_sec?: number }>;
 }
-export type Server = { id: number; name: string; device_public_key: string | null; static_info: StaticInfo; last_seen: number | null; latest_metrics: Metrics; manifest_rev: number; online: boolean }
+export type Server = { id: number; name: string; device_public_key: string | null; static_info: StaticInfo; last_seen: number | null; latest_metrics: Metrics; manifest_rev: number; online: boolean; capabilities?: string[] }
 export type Node = { id: number; name: string; server_id: number; protocol: string; port: number; public_host: string; sni: string; public_key: string; short_id: string }
 export type User = { id: number; name: string; subscription_token: string; subscription_url: string }
 export type Access = { user_id: number; node_id: number; uuid: string; stat_name: string }
@@ -21,7 +21,8 @@ export type Enrollment = { token: string; expires_at: number; install_command: s
 export type Deployment = { status: { module: string; target_rev: number; applied_rev: number; last_result_rev: number; healthy: boolean; last_error: string | null; updated_at: number } | null; history: { module: string; rev: number; bundle_sha256: string; created_at: number }[] }
 export type Usage = { uplink: string; downlink: string; total: string; by_user: { user_id: number; name: string; deleted: boolean; uplink: string; downlink: string }[]; by_node: { node_id: number; name: string; deleted: boolean; uplink: string; downlink: string }[] }
 export type Artifact = { name: string; version: string; arch: string; sha256: string; bytes: number }
-export type QualityDatabase = { database: string; label: string; status: 'succeeded' | 'failed'; fields: { label: string; value: string | number | boolean }[]; error: string | null }
+export type QualityErrorKind = 'dns' | 'connect' | 'tls' | 'timeout' | 'http_403' | 'http_429' | 'http_other' | 'non_json' | 'schema_mismatch' | 'body_error' | 'response_limit' | 'request_error' | 'not_public' | 'not_attempted' | 'invalid_origin'
+export type QualityDatabase = { database: string; label: string; status: 'succeeded' | 'failed'; fields: { label: string; value: string | number | boolean }[]; error: string | null; provider?: string; target_ip?: string | null; attempted_at?: number | null; elapsed_ms?: number | null; error_kind?: QualityErrorKind | null; http_status?: number | null }
 export type IpQuality = { ip: string; checked_at: number; expires_at: number; status: 'succeeded' | 'partial' | 'failed'; databases: QualityDatabase[] }
 export type DiagnosticRecord = { id: string; status: 'queued' | 'running' | 'succeeded' | 'failed'; job: { plugin: string; options: { ip_version: string; network_mode: string; upload_report?: string } }; report: { text: string; report_url?: string } | null; error: string | null; created_at: number; updated_at: number; expires_at: number }
 export type NodeQuality = { ip_addresses: string[]; quality: IpQuality[]; plugin_ready: boolean; plugin_reason: string | null; reports: DiagnosticRecord[] }

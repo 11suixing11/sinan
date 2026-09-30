@@ -213,7 +213,8 @@ def stop(process):
 def configure(root, origin):
     values = dict(panel_url=origin, identity_dir=str(root / 'identity'), state_db=str(root / 'state.db'),
                   runtime_root=str(root / 'runtime'), install_root=str(root / 'plugins'),
-                  agent_root=str(root / 'core'), status_socket=str(root / 'status.sock'), operation_timeout_secs=5)
+                  agent_root=str(root / 'core'), status_socket=str(root / 'status.sock'), operation_timeout_secs=5,
+                  allow_remote_commands=True)
     config = root / 'agent.toml'
     config.write_text(''.join(f'{key} = {json.dumps(value)}\n' for key, value in values.items()) +
                       '[settings]\nsample_interval_secs=1\nupload_interval_secs=1\ndiscover_public_ips=false\n', encoding='utf-8')
@@ -332,19 +333,55 @@ def supervise_smoke(binary, config, root, log):
              proof=RELEASE['proof']('agent', '99.0.1', binary.name, binary.read_bytes())))
         wait_for(lambda: '99.0.1' in state()['failed_versions'] and consumed(), 'corrupt candidate rejection')
         assert status(binary, config)['pid'] == upgraded['pid']
-        failed = core / '99.0.0'
-        failed.mkdir()
-        fixture = failed / binary.name
-        if os.name == 'nt':
-            source = failed / 'fixture.rs'
-            source.write_text('#![forbid(unsafe_code)]\nfn main(){if std::env::args().any(|a|a=="--version"){println!("sinan-agent 99.0.0")}else{std::process::exit(1)}}')
-            subprocess.run(['rustc', '--edition=2024', str(source), '-o', str(fixture)], check=True)
-        else:
-            fixture.write_text('#!/bin/sh\nif [ "$1" = --version ]; then echo "sinan-agent 99.0.0"; else exit 1; fi\n')
-            fixture.chmod(0o755)
-        candidate_proof = RELEASE['proof']('agent', '99.0.0', binary.name, fixture.read_bytes())
-        RELEASE['install'](failed, candidate_proof)
-        pending = dict(version='99.0.0', sha256=hashlib.sha256(fixture.read_bytes()).hexdigest(), proof=candidate_proof)
+        def failed_candidate(candidate_version, cache_exit):
+            failed = core / candidate_version
+            failed.mkdir()
+            fixture = failed / binary.name
+            if os.name == 'nt':
+                source = failed / 'fixture.rs'
+                source.write_text('#![forbid(unsafe_code)]\nfn main(){let args:Vec<_>=std::env::args().skip(1).collect();'
+                    f'if args==["--version"]{{println!("sinan-agent {candidate_version}")}}'
+                    f'else if args.len()==3 && args[0]=="--config" && args[2]=="verify-cache"{{std::process::exit({cache_exit})}}'
+                    'else{std::process::exit(1)}}')
+                subprocess.run(['rustc', '--edition=2024', str(source), '-o', str(fixture)], check=True)
+            else:
+                fixture.write_text('#!/bin/sh\n'
+                    f'if [ "$1" = --version ]; then echo "sinan-agent {candidate_version}"; '
+                    f'elif [ "$#" = 3 ] && [ "$1" = --config ] && [ "$3" = verify-cache ]; then exit {cache_exit}; '
+                    'else exit 1; fi\n')
+                fixture.chmod(0o755)
+            proof = RELEASE['proof']('agent', candidate_version, binary.name, fixture.read_bytes())
+            RELEASE['install'](failed, proof)
+            return dict(version=candidate_version, sha256=hashlib.sha256(fixture.read_bytes()).hexdigest(), proof=proof)
+
+        # The candidate's roots may reject the current cache after a key rotation.
+        # Reject that update before touching the old process, identity or usage ledger.
+        with closing(sqlite3.connect(root / 'state.db')) as db:
+            db.execute('INSERT INTO usage_baselines VALUES(?,?,?,?,?,?)',
+                       ('preflight-fixture', 'u1_n1', str(uuid.uuid4()), '123', '456', int(time.time())))
+            db.commit()
+        def usage_snapshot():
+            with closing(sqlite3.connect(root / 'state.db')) as db:
+                return (db.execute('SELECT * FROM usage_baselines ORDER BY module,stat_name').fetchall(),
+                        db.execute('SELECT * FROM usage_outbox ORDER BY epoch,seq').fetchall())
+        before_usage = usage_snapshot()
+        before_config = config.read_bytes()
+        before_reference = (core / 'current').read_bytes() if os.name == 'nt' else os.readlink(core / 'current')
+        write_json(core / 'pending-update.json', failed_candidate('99.0.2', 1))
+        wait_for(lambda: '99.0.2' in state()['failed_versions'] and consumed(), 'candidate cache preflight rejection')
+        assert state()['trial'] is None and state()['current'] == version
+        assert 'cache signature preflight' in state()['last_error']
+        assert status(binary, config)['pid'] == upgraded['pid'], 'cache rejection stopped the healthy Agent'
+        assert config.read_bytes() == before_config and (root / 'identity/device.key').read_bytes() == identity
+        assert usage_snapshot() == before_usage, 'cache rejection changed the usage ledger'
+        assert ((core / 'current').read_bytes() if os.name == 'nt' else os.readlink(core / 'current')) == before_reference
+        # Remove only this synthetic ledger row before the later monitor-only
+        # restart scenarios, which intentionally reject managed usage history.
+        with closing(sqlite3.connect(root / 'state.db')) as db:
+            db.execute("DELETE FROM usage_baselines WHERE module='preflight-fixture' AND stat_name='u1_n1'")
+            db.commit()
+
+        pending = failed_candidate('99.0.0', 0)
         write_json(core / 'pending-update.json', pending)
         wait_for(lambda: '99.0.0' in state()['failed_versions'] and state()['trial'] is None and consumed(), 'failed-start rollback', 90)
         restored = wait_for(lambda: status(binary, config), 'restored Agent')

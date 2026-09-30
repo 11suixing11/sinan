@@ -14,6 +14,8 @@ pub struct Config {
     pub status_socket: PathBuf,
     pub operation_timeout_secs: u64,
     pub public_ips: Vec<String>,
+    /// Only the node operator can permit arbitrary commands from the panel.
+    pub allow_remote_commands: bool,
     pub settings: sinan_protocol::AgentSettings,
 }
 
@@ -29,6 +31,7 @@ impl Default for Config {
             status_socket: "/run/sinan/agent.sock".into(),
             operation_timeout_secs: 30,
             public_ips: Vec::new(),
+            allow_remote_commands: false,
             settings: sinan_protocol::AgentSettings::default(),
         };
         if cfg!(windows) {
@@ -43,7 +46,12 @@ impl Default for Config {
             config.agent_root = root.join("core");
             config.status_socket = root.join("state/core/status.json");
             config.operation_timeout_secs = 120;
-        } else if cfg!(any(target_os = "macos", target_os = "freebsd")) {
+        } else if cfg!(target_os = "macos") {
+            config.identity_dir = "/private/etc/sinan/identity".into();
+            config.state_db = "/private/var/lib/sinan/core/state.db".into();
+            config.runtime_root = "/private/var/lib/sinan/plugins".into();
+            config.status_socket = "/private/var/run/sinan/agent.sock".into();
+        } else if cfg!(target_os = "freebsd") {
             config.status_socket = "/var/run/sinan/agent.sock".into();
         }
         config
@@ -57,6 +65,8 @@ pub fn default_path() -> PathBuf {
             .parent()
             .expect("default identity parent")
             .join("agent.toml")
+    } else if cfg!(target_os = "macos") {
+        "/private/etc/sinan/agent.toml".into()
     } else {
         "/etc/sinan/agent.toml".into()
     }
@@ -64,12 +74,35 @@ pub fn default_path() -> PathBuf {
 
 impl Config {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
-        let config: Self = toml::from_str(
+        let mut config: Self = toml::from_str(
             &std::fs::read_to_string(path)
                 .with_context(|| format!("read configuration {}", path.display()))?,
         )?;
+        if cfg!(target_os = "macos") {
+            config.use_macos_system_paths();
+        }
         config.validate()?;
         Ok(config)
+    }
+
+    fn use_macos_system_paths(&mut self) {
+        // These are fixed macOS system aliases, not arbitrary symlinks.
+        // Also migrate previously serialized defaults without moving any data.
+        // Keep installation roots verbatim: persisted artifact paths and absolute
+        // Agent version links use their original lexical identities.
+        for path in [
+            &mut self.identity_dir,
+            &mut self.state_db,
+            &mut self.runtime_root,
+            &mut self.status_socket,
+        ] {
+            for (alias, real) in [("/etc", "/private/etc"), ("/var", "/private/var")] {
+                if let Ok(relative) = path.strip_prefix(alias) {
+                    *path = Path::new(real).join(relative);
+                    break;
+                }
+            }
+        }
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
@@ -149,6 +182,98 @@ mod tests {
     use super::*;
 
     #[test]
+    fn macos_system_alias_migration_is_fixed_and_preserves_custom_paths() {
+        let mut config = Config {
+            identity_dir: "/etc/sinan/identity".into(),
+            state_db: "/var/lib/sinan/core/state.db".into(),
+            runtime_root: "/var/lib/sinan/plugins".into(),
+            status_socket: "/var/run/sinan/agent.sock".into(),
+            install_root: "/opt/custom-artifacts".into(),
+            agent_root: "/various/custom-agent".into(),
+            ..Config::default()
+        };
+        config.use_macos_system_paths();
+        assert_eq!(
+            config.identity_dir,
+            Path::new("/private/etc/sinan/identity")
+        );
+        assert_eq!(
+            config.state_db,
+            Path::new("/private/var/lib/sinan/core/state.db")
+        );
+        assert_eq!(
+            config.runtime_root,
+            Path::new("/private/var/lib/sinan/plugins")
+        );
+        assert_eq!(
+            config.status_socket,
+            Path::new("/private/var/run/sinan/agent.sock")
+        );
+        assert_eq!(config.install_root, Path::new("/opt/custom-artifacts"));
+        assert_eq!(config.agent_root, Path::new("/various/custom-agent"));
+    }
+
+    #[test]
+    fn macos_alias_migration_preserves_existing_var_installation_references() {
+        let mut config = Config {
+            install_root: "/var/sinan-plugins".into(),
+            agent_root: "/var/sinan-core".into(),
+            ..Config::default()
+        };
+        let saved_runtime = config.install_root.join("demo/1.0.0/runtime");
+        let existing_agent_link = config.agent_root.join("0.3.0");
+        config.use_macos_system_paths();
+        assert_eq!(config.install_root, Path::new("/var/sinan-plugins"));
+        assert_eq!(config.agent_root, Path::new("/var/sinan-core"));
+        assert_eq!(
+            saved_runtime,
+            config.install_root.join("demo/1.0.0/runtime")
+        );
+        assert_eq!(
+            existing_agent_link.parent(),
+            Some(config.agent_root.as_path())
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_defaults_and_loaded_legacy_paths_avoid_system_symlink_ancestors() -> anyhow::Result<()>
+    {
+        let root =
+            std::env::temp_dir().join(format!("sinan-macos-config-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root)?;
+        let path = root.join("agent.toml");
+        let outcome = (|| {
+            std::fs::write(
+                &path,
+                "panel_url = 'http://127.0.0.1:9'\nidentity_dir = '/etc/sinan/identity'\nstate_db = '/var/lib/sinan/core/state.db'\nruntime_root = '/var/lib/sinan/plugins'\nstatus_socket = '/var/run/sinan/agent.sock'\n",
+            )?;
+            for config in [Config::default(), Config::load(&path)?] {
+                for path in [
+                    &config.identity_dir,
+                    &config.state_db,
+                    &config.runtime_root,
+                    &config.status_socket,
+                ] {
+                    for ancestor in path.ancestors() {
+                        if let Ok(metadata) = std::fs::symlink_metadata(ancestor) {
+                            anyhow::ensure!(
+                                !metadata.file_type().is_symlink(),
+                                "unexpected alias: {}",
+                                ancestor.display()
+                            );
+                        }
+                    }
+                }
+            }
+            assert_eq!(default_path(), Path::new("/private/etc/sinan/agent.toml"));
+            Ok(())
+        })();
+        std::fs::remove_dir_all(root)?;
+        outcome
+    }
+
+    #[test]
     fn panel_transport_requires_https_outside_literal_loopback() {
         for origin in [
             "https://panel.example.test",
@@ -172,7 +297,7 @@ mod tests {
             "http://[2001:db8::1]",
             "http://[::]",
             "ftp://localhost",
-            "https://user:password@panel.example.test",
+            "https://account:password@panel.example.test",
             "https://panel.example.test/path",
             "https://panel.example.test?token=test",
             "https://panel.example.test#fragment",
@@ -182,6 +307,20 @@ mod tests {
                 "invalid origin accepted: {origin}"
             );
         }
+    }
+
+    #[test]
+    fn remote_commands_require_local_opt_in_outside_panel_settings() {
+        let config: Config = toml::from_str("panel_url = 'https://panel.example.test'").unwrap();
+        assert!(!config.allow_remote_commands);
+        assert!(toml::from_str::<Config>(
+            "panel_url = 'https://panel.example.test'\n[settings]\nallow_remote_commands = true",
+        ).is_err());
+        let config: Config = toml::from_str(
+            "panel_url = 'https://panel.example.test'\nallow_remote_commands = true",
+        )
+        .unwrap();
+        assert!(config.allow_remote_commands);
     }
 
     #[test]

@@ -122,7 +122,8 @@ fn saved_references(config: &Config, keys: &TrustedKeys) -> Result<Vec<Reference
                         .context("pending diagnostic artifact has no signed proof")?,
                     keys,
                 )?;
-                let artifact = verification::runtime_artifact(&release, &job.plugin, &job.version)?;
+                let artifact =
+                    crate::runtime_platform::artifact(&release, &job.plugin, &job.version)?;
                 ensure!(
                     artifact.metadata().format == "tar.gz",
                     "pending diagnostic artifact has an unsupported format"
@@ -186,7 +187,7 @@ async fn verify_reference(
     );
     let proof = verification::read_proof(version_dir).await?;
     let release = verification::signed_release(&proof, keys)?;
-    let artifact = verification::runtime_artifact(&release, plugin, &reference.version)?;
+    let artifact = crate::runtime_platform::artifact(&release, plugin, &reference.version)?;
     ensure!(
         artifact.metadata().format == "tar.gz",
         "cached plugin artifact has an unsupported format"
@@ -246,7 +247,7 @@ async fn current_references(config: &Config, keys: &TrustedKeys) -> Result<Vec<R
             .map_err(|_| anyhow::anyhow!("invalid current artifact plugin"))?;
         let proof = verification::read_proof(&resolved).await?;
         let release = verification::signed_release(&proof, keys)?;
-        let artifact = verification::runtime_artifact(&release, &plugin_name, version)?;
+        let artifact = crate::runtime_platform::artifact(&release, &plugin_name, version)?;
         references.push(Reference {
             binary: plugin
                 .path()

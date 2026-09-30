@@ -34,6 +34,7 @@ impl Directory {
             status_socket: self.0.join("status.sock"),
             operation_timeout_secs: 5,
             public_ips: vec![],
+            allow_remote_commands: false,
         }
     }
 }
@@ -215,10 +216,15 @@ fn minimal_configuration_has_defaults_and_rejects_ambiguous_panel_origins() -> R
     std::fs::write(&path, "panel_url = 'https://panel.example.test'\n")?;
     let config = Config::load(&path)?;
     assert_eq!(config.operation_timeout_secs, 30);
-    assert_eq!(config.identity_dir, PathBuf::from("/etc/sinan/identity"));
+    let identity_dir = if cfg!(target_os = "macos") {
+        "/private/etc/sinan/identity"
+    } else {
+        "/etc/sinan/identity"
+    };
+    assert_eq!(config.identity_dir, PathBuf::from(identity_dir));
     for invalid in [
         "file:///tmp/panel",
-        "https://user:secret@panel.example.test",
+        "https://account:secret@panel.example.test",
         "https://panel.example.test/path",
         "https://panel.example.test?token=x",
         "https://panel.example.test#fragment",
