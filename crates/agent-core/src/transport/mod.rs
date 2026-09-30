@@ -181,6 +181,7 @@ pub async fn run_with_diagnostics(
     }
     if !diagnostics.is_empty() {
         capabilities.push(sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY.into());
+        capabilities.push(sinan_protocol::DIAGNOSTIC_SERVICE_CAPABILITY.into());
     }
     capabilities.extend(
         diagnostics
