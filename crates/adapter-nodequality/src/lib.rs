@@ -8,8 +8,11 @@ use sinan_adapter_sdk::{
 use std::{path::Path, time::Duration};
 use tokio::{io::AsyncReadExt, time::timeout};
 
-pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3";
+pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4";
+pub const MODES_CAPABILITY: &str = "diagnostic:nodequality-modes";
 const LEGACY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2";
+const CHAPTER_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3";
+mod modes;
 pub const SECTION_NAMES: [&str; 5] = [
     "header_info",
     "hardware_quality",
@@ -48,7 +51,10 @@ fn path_argument(path: &Path) -> Result<String> {
 }
 
 fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String, String)> {
-    if !matches!(spec.version.as_str(), VERSION | LEGACY_VERSION) {
+    if !matches!(
+        spec.version.as_str(),
+        VERSION | CHAPTER_VERSION | LEGACY_VERSION
+    ) {
         bail!("unsupported diagnostic version");
     }
     let id = spec.id.as_bytes();
@@ -80,7 +86,12 @@ fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String, String)> {
     for key in spec.options.keys() {
         if !matches!(
             key.as_str(),
-            "ip_version" | "network_mode" | "upload_report"
+            "ip_version"
+                | "network_mode"
+                | "upload_report"
+                | "mode"
+                | "daily_targets"
+                | "environment_section"
         ) {
             bail!("unsupported diagnostic option");
         }
@@ -109,6 +120,7 @@ fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String, String)> {
     if !matches!(upload_report, "true" | "false") {
         bail!("invalid diagnostic report upload option");
     }
+    modes::validate(spec)?;
     Ok((
         workspace,
         ip_version.into(),
@@ -148,6 +160,9 @@ fn valid_report_url(value: &str) -> bool {
 }
 
 impl DiagnosticAdapter for NodeQualityAdapter {
+    fn capabilities(&self) -> Vec<String> {
+        vec![MODES_CAPABILITY.into()]
+    }
     fn describe(&self) -> DiagnosticDescriptor {
         DiagnosticDescriptor {
             plugin_name: "nodequality".into(),
@@ -162,6 +177,7 @@ impl DiagnosticAdapter for NodeQualityAdapter {
     ) -> BoxFuture<'a, ServiceJob> {
         Box::pin(async move {
             let (workspace, ip_version, network_mode, upload_report) = validate(spec)?;
+            let mode = modes::validate(spec)?;
             timeout(
                 IO_TIMEOUT,
                 privileged.create_dir(&spec.job_dir, 0o700, None),
@@ -178,23 +194,45 @@ impl DiagnosticAdapter for NodeQualityAdapter {
             if !output.success || output.stdout.trim() != format!("nodequality {}", spec.version) {
                 bail!("diagnostic artifact version verification failed");
             }
+            let mut args = vec![
+                "--workspace".into(),
+                workspace,
+                "--ip-version".into(),
+                ip_version,
+                "--network-mode".into(),
+                network_mode,
+                "--upload-report".into(),
+                upload_report,
+            ];
+            if spec.version == VERSION {
+                args.extend(["--mode".into(), mode.name.into()]);
+            }
+            if let Some(targets) = &mode.targets {
+                let path = spec.job_dir.join("daily-targets.json");
+                timeout(
+                    IO_TIMEOUT,
+                    privileged.write_file(&path, targets.as_bytes(), 0o600, None),
+                )
+                .await
+                .context("write daily targets timed out")??;
+                args.extend(["--targets-file".into(), path_argument(&path)?]);
+            }
             Ok(ServiceJob {
                 unit: format!("sinan-diagnostic-{}.service", spec.id),
                 program: spec.binary_path.clone(),
-                args: vec![
-                    "--workspace".into(),
-                    workspace,
-                    "--ip-version".into(),
-                    ip_version,
-                    "--network-mode".into(),
-                    network_mode,
-                    "--upload-report".into(),
-                    upload_report,
-                ],
+                args,
                 working_directory: spec.job_dir.clone(),
                 timeout_secs: spec.timeout_secs,
-                memory_max: Default::default(),
-                tasks_max: Default::default(),
+                memory_max: if mode.name == "daily" {
+                    sinan_adapter_sdk::MemoryMax::new(64 * 1024 * 1024)?
+                } else {
+                    Default::default()
+                },
+                tasks_max: if mode.name == "daily" {
+                    sinan_adapter_sdk::TasksMax::new(32)?
+                } else {
+                    Default::default()
+                },
                 cpu_weight: Default::default(),
                 io_weight: Default::default(),
                 oom_score_adjust: Default::default(),
@@ -204,11 +242,7 @@ impl DiagnosticAdapter for NodeQualityAdapter {
 
     fn collect<'a>(&'a self, spec: &'a DiagnosticSpec) -> BoxFuture<'a, Option<DiagnosticOutput>> {
         Box::pin(async move {
-            let mut compatible = spec.clone();
-            if compatible.version == LEGACY_VERSION {
-                compatible.version = VERSION.into();
-            }
-            validate(&compatible)?;
+            validate(spec)?;
             timeout(IO_TIMEOUT, async {
                 let result =
                     read_bounded(&spec.job_dir.join("result.txt"), MAX_REPORT_BYTES).await?;
@@ -236,11 +270,7 @@ impl DiagnosticAdapter for NodeQualityAdapter {
         spec: &'a DiagnosticSpec,
     ) -> BoxFuture<'a, Vec<DiagnosticSection>> {
         Box::pin(async move {
-            let mut compatible = spec.clone();
-            if compatible.version == LEGACY_VERSION {
-                compatible.version = VERSION.into();
-            }
-            validate(&compatible)?;
+            validate(spec)?;
             timeout(IO_TIMEOUT, async {
                 let mut sections = Vec::new();
                 for name in SECTION_NAMES {

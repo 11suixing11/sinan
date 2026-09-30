@@ -25,6 +25,7 @@ const OUTBOX: &str = "diagnostics:outbox";
 const MAX_REPORT: usize = 512 * 1024;
 
 pub mod cancellation;
+mod environment;
 mod monitoring;
 mod observation;
 mod safety;
@@ -43,6 +44,8 @@ enum Checkpoint {
         expires_at: Option<i64>,
         #[serde(default)]
         protection_stop_reason: Option<String>,
+        #[serde(default)]
+        environment: Option<environment::ExecutionEnvironment>,
     },
 }
 
@@ -227,7 +230,7 @@ impl DiagnosticWorker {
             ensure!(service.unit == format!("sinan-diagnostic-{id}.service")
                 && service.timeout_secs == spec.timeout_secs
                 && service.working_directory == spec.job_dir && service.program == spec.binary_path, "invalid prepared diagnostic service");
-            self.preflight(&service).await?;
+            let resources = self.preflight(&service).await?;
             let started_at = unix_time();
             // Preparation can consume part of the remaining budget. Recompute immediately
             // before the durable start checkpoint and give systemd the reduced limit.
@@ -238,10 +241,12 @@ impl DiagnosticWorker {
             // This checkpoint is durable before asking systemd to start anything. Recovery
             // only observes it; an uncertain start must never execute the task again.
             let mut checkpoint = Checkpoint::Started {
+                environment: Some(environment::ExecutionEnvironment::capture(&service, &resources, started_at)),
                 spec, service: service.clone(), started_at, plugin: job.plugin, start_error: None, expires_at: job.expires_at, protection_stop_reason: None,
             };
             ensure!(!self.cancellation_requested(id)?, "diagnostic cancellation was requested before service start");
             self.save(&checkpoint)?;
+            self.capture_environment(&checkpoint)?;
             if let Err(error) = self.bounded(self.services.start_job(&service)).await {
                 tracing::warn!(%id, %error, "diagnostic start response is uncertain; inspecting service on next poll");
                 if let Checkpoint::Started { start_error, .. } = &mut checkpoint {

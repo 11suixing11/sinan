@@ -81,12 +81,17 @@ impl Privileged for FakePrivileged {
 
     fn write_file<'a>(
         &'a self,
-        _: &'a Path,
-        _: &'a [u8],
-        _: u32,
+        path: &'a Path,
+        bytes: &'a [u8],
+        mode: u32,
         _: Option<&'a str>,
     ) -> BoxFuture<'a, ()> {
-        Box::pin(async { anyhow::bail!("unexpected write") })
+        Box::pin(async move {
+            assert_eq!(path.file_name().unwrap(), "daily-targets.json");
+            assert_eq!(mode, 0o600);
+            tokio::fs::write(path, bytes).await?;
+            Ok(())
+        })
     }
 
     fn atomic_symlink<'a>(&'a self, _: &'a Path, _: &'a Path) -> BoxFuture<'a, ()> {
@@ -131,12 +136,91 @@ async fn prepare_only_verifies_version_and_builds_a_fixed_service_command() {
             "low",
             "--upload-report",
             "false",
+            "--mode",
+            "full",
         ]
     );
     assert_eq!(
         *privileged.calls.lock().unwrap(),
         vec![vec!["--version".to_string()]]
     );
+}
+
+#[tokio::test]
+async fn daily_profile_is_bounded_and_persists_only_whitelisted_targets() {
+    let scratch = Scratch::new();
+    let privileged = FakePrivileged::default();
+    let mut spec = scratch.spec();
+    spec.timeout_secs = 90;
+    spec.options = BTreeMap::from([
+        ("mode".into(), "daily".into()),
+        (
+            "daily_targets".into(),
+            r#"[{"name":"private","target":"127.0.0.1","port":443}]"#.into(),
+        ),
+        ("environment_section".into(), "true".into()),
+    ]);
+    let adapter = NodeQualityAdapter::new();
+    assert_eq!(
+        adapter.capabilities(),
+        vec![sinan_adapter_nodequality::MODES_CAPABILITY]
+    );
+    let service = adapter.prepare(&spec, &privileged).await.unwrap();
+    assert_eq!(service.memory_max.get(), 64 * 1024 * 1024);
+    assert_eq!(service.tasks_max.get(), 32);
+    assert_eq!(service.timeout_secs, 90);
+    assert!(
+        service
+            .args
+            .windows(2)
+            .any(|args| args == ["--mode", "daily"])
+    );
+    assert_eq!(
+        std::fs::read_to_string(spec.job_dir.join("daily-targets.json")).unwrap(),
+        spec.options["daily_targets"]
+    );
+    for (key, value) in [
+        ("network_mode", "normal"),
+        ("upload_report", "true"),
+        (
+            "daily_targets",
+            r#"[{"name":"bad","target":"$(id)","port":443}]"#,
+        ),
+    ] {
+        let mut invalid = spec.clone();
+        invalid.options.insert(key.into(), value.into());
+        assert!(adapter.prepare(&invalid, &privileged).await.is_err());
+    }
+    let mut legacy = spec.clone();
+    legacy.version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3".into();
+    assert!(adapter.prepare(&legacy, &privileged).await.is_err());
+}
+
+#[tokio::test]
+async fn legacy_signed_versions_still_collect_saved_reports_without_preparing_again() {
+    let scratch = Scratch::new();
+    let mut spec = scratch.spec();
+    std::fs::create_dir_all(&spec.job_dir).unwrap();
+    std::fs::write(spec.job_dir.join("result.txt"), "saved before restart").unwrap();
+    for version in [
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2",
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3",
+    ] {
+        spec.version = version.into();
+        let saved = NodeQualityAdapter::new()
+            .collect(&spec)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.text, "saved before restart");
+        assert!(
+            NodeQualityAdapter::new()
+                .collect_sections(&spec)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
 }
 
 #[tokio::test]
@@ -187,7 +271,11 @@ async fn prepare_uploads_only_with_an_explicit_true_option() {
             .prepare(&spec, &privileged)
             .await
             .unwrap();
-        assert_eq!(&job.args[job.args.len() - 2..], ["--upload-report", option]);
+        assert!(
+            job.args
+                .windows(2)
+                .any(|args| args == ["--upload-report", option])
+        );
     }
 }
 

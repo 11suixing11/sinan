@@ -18,7 +18,7 @@ use sqlx::{FromRow, Row};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
-pub const PLUGIN_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3";
+pub const PLUGIN_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4";
 pub const REPORT_LIMIT: usize = 512 * 1024;
 const TIMEOUT_SECS: u64 = 1800;
 const EXPECTED_SECTIONS: [&str; 5] = [
@@ -28,6 +28,9 @@ const EXPECTED_SECTIONS: [&str; 5] = [
     "net_quality",
     "backroute_trace",
 ];
+mod creation;
+mod modes;
+pub use creation::create;
 mod sections;
 const HISTORY_QUERY: &str = "SELECT j.id,j.status,j.job,j.report,j.error,j.created_at,j.updated_at,j.expires_at,j.agent_completed,j.cancel_requested_at,j.cancel_error,j.expected_sections,j.report_completeness,COALESCE((SELECT jsonb_agg(jsonb_build_object('name',s.name,'text',s.text,'complete',s.complete,'revision',s.revision,'collected_at',s.collected_at) ORDER BY array_position(j.expected_sections,s.name),s.name) FROM diagnostic_report_sections s WHERE s.job_id=j.id),'[]'::jsonb) AS sections FROM diagnostic_jobs j WHERE j.server_id=$1 ORDER BY j.created_at DESC,j.id DESC LIMIT 10";
 pub(super) const RECORD_QUERY: &str = "SELECT j.id,j.status,j.job,j.report,j.error,j.created_at,j.updated_at,j.expires_at,j.agent_completed,j.cancel_requested_at,j.cancel_error,j.expected_sections,j.report_completeness,COALESCE((SELECT jsonb_agg(jsonb_build_object('name',s.name,'text',s.text,'complete',s.complete,'revision',s.revision,'collected_at',s.collected_at) ORDER BY array_position(j.expected_sections,s.name),s.name) FROM diagnostic_report_sections s WHERE s.job_id=j.id),'[]'::jsonb) AS sections FROM diagnostic_jobs j WHERE j.id=$1 AND j.server_id=$2";
@@ -58,6 +61,7 @@ pub struct NodeQualityView {
     pub plugin_reason: Option<String>,
     pub reports: Vec<ReportRecord>,
     pub cancel_supported: bool,
+    pub proxy_activity: modes::ProxyActivity,
 }
 
 #[derive(Serialize)]
@@ -71,12 +75,22 @@ pub struct LegacyNodeQualityView {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReportRequest {
+    #[serde(default = "default_mode")]
+    pub mode: String,
+    #[serde(default)]
+    pub confirm_full: bool,
+    #[serde(default)]
+    pub acknowledge_traffic_warning: bool,
     #[serde(default = "default_ip_version")]
     pub ip_version: String,
     #[serde(default = "default_network_mode")]
     pub network_mode: String,
     #[serde(default)]
     pub upload_report: bool,
+}
+
+fn default_mode() -> String {
+    "full".into()
 }
 
 fn default_ip_version() -> String {
@@ -95,6 +109,12 @@ fn architecture(info: &Value) -> ApiResult<&'static str> {
 }
 
 fn ready(row: &sqlx::postgres::PgRow) -> ApiResult<&'static str> {
+    let info: Value = row.get("static_info");
+    if info["os"].as_str() != Some("linux") {
+        return Err(ApiError::Conflict(
+            "当前诊断插件仅支持已识别的 Linux 设备".into(),
+        ));
+    }
     let online = row
         .get::<Option<i64>, _>("last_seen")
         .is_some_and(|seen| now_timestamp().saturating_sub(seen) <= 60);
@@ -104,6 +124,15 @@ fn ready(row: &sqlx::postgres::PgRow) -> ApiResult<&'static str> {
         ));
     }
     let capabilities: Value = row.get("capabilities");
+    if !capabilities.as_array().is_some_and(|values| {
+        values
+            .iter()
+            .any(|value| value.as_str() == Some("diagnostic:nodequality-modes"))
+    }) {
+        return Err(ApiError::Conflict(
+            "此 Agent 尚不支持日常检查与完整验机入口，请先升级 Agent".into(),
+        ));
+    }
     if !capabilities.as_array().is_some_and(|values| {
         values.iter().any(|value| {
             value.as_str() == Some(sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY)
@@ -195,61 +224,8 @@ async fn view(state: &AppState, id: i64) -> ApiResult<NodeQualityView> {
         plugin_reason: reason,
         reports: history(state, id).await?,
         cancel_supported: cancellation::supported(&row.get::<Value, _>("capabilities")),
+        proxy_activity: modes::activity(&state.pool, id).await?,
     })
-}
-
-pub async fn create(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<i64>,
-    Json(request): Json<ReportRequest>,
-) -> ApiResult<(StatusCode, Json<ReportRecord>)> {
-    auth::require_admin(&state, &headers).await?;
-    if !matches!(request.ip_version.as_str(), "both" | "ipv4" | "ipv6")
-        || !matches!(request.network_mode.as_str(), "low" | "normal")
-    {
-        return Err(ApiError::BadRequest("IP 版本或网络测试模式无效".into()));
-    }
-    let mut tx = state.pool.begin().await?;
-    let row = sqlx::query("SELECT static_info,last_seen,capabilities FROM servers WHERE id=$1 AND deleted_at IS NULL FOR UPDATE")
-        .bind(id).fetch_optional(&mut *tx).await?.ok_or(ApiError::NotFound)?;
-    let arch = ready(&row)?;
-    let now = now_timestamp();
-    sqlx::query("UPDATE diagnostic_jobs SET status='failed',error='任务超时或设备未及时回报',updated_at=$2 WHERE server_id=$1 AND status IN ('queued','running') AND expires_at<=$2")
-        .bind(id).bind(now).execute(&mut *tx).await?;
-    let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM diagnostic_jobs WHERE server_id=$1 AND status IN ('queued','running','cancel_requested'))")
-        .bind(id).fetch_one(&mut *tx).await?;
-    if active {
-        return Err(ApiError::Conflict(
-            "此服务器已有正在执行的报告任务，请等待完成".into(),
-        ));
-    }
-    let artifact = artifacts::descriptor(&state, "nodequality", PLUGIN_VERSION, arch)
-        .await
-        .map_err(|error| match error {
-            ApiError::NotFound => ApiError::Conflict(
-                "NodeQuality 插件制品尚未上传，请先准备对应架构的制品及 SHA256SUMS".into(),
-            ),
-            error => error,
-        })?;
-    let job = DiagnosticJob {
-        id: Uuid::new_v4(),
-        plugin: "nodequality".into(),
-        version: PLUGIN_VERSION.into(),
-        artifact,
-        timeout_secs: TIMEOUT_SECS,
-        expires_at: Some(now + TIMEOUT_SECS as i64 + 300),
-        options: BTreeMap::from([
-            ("ip_version".into(), request.ip_version),
-            ("network_mode".into(), request.network_mode),
-            ("upload_report".into(), request.upload_report.to_string()),
-        ]),
-    };
-    let record = sqlx::query_as("INSERT INTO diagnostic_jobs(id,server_id,job,created_at,updated_at,expires_at,expected_sections) VALUES($1,$2,$3,$4,$4,$5,$6) RETURNING id,status,job,report,error,created_at,updated_at,expires_at,agent_completed,cancel_requested_at,cancel_error,expected_sections,report_completeness,'[]'::jsonb AS sections")
-        .bind(job.id).bind(id).bind(serde_json::to_value(job).map_err(anyhow::Error::from)?)
-        .bind(now).bind(now + TIMEOUT_SECS as i64 + 300).bind(EXPECTED_SECTIONS.to_vec()).fetch_one(&mut *tx).await?;
-    tx.commit().await?;
-    Ok((StatusCode::CREATED, Json(record)))
 }
 
 pub async fn pending(

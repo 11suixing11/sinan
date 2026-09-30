@@ -5,6 +5,7 @@ import type { DiagnosticRecord } from '../types'
 const titles: Record<string, string> = {
   header_info: '报告信息', hardware_quality: '硬件质量', ip_quality: 'IP 质量',
   net_quality: '网络质量', backroute_trace: '回程路由',
+  environment: '资源限制与开始负载',
 }
 
 export default function DiagnosticSections({ record }: { record: DiagnosticRecord }) {
