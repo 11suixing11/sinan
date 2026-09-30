@@ -562,6 +562,11 @@ async fn diagnostic_shutdown_failure_prevents_success_and_can_be_retried() -> Re
         args: vec![],
         working_directory: spec.job_dir.clone(),
         timeout_secs: 60,
+        memory_max: Default::default(),
+        tasks_max: Default::default(),
+        cpu_weight: Default::default(),
+        io_weight: Default::default(),
+        oom_score_adjust: Default::default(),
     };
     fixture.state.lock().unwrap().set_json("diagnostics:active", &serde_json::json!({
         "Started": { "spec": spec, "service": service, "started_at": 0, "plugin": "test", "start_error": null, "expires_at": null }

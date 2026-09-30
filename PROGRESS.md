@@ -375,6 +375,15 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 保留 systemd 的签名缓存启动前复验，并添加未配置运行时的路径条件；Docker 编译并发参数仅保留一处定义。
 - 本机初始化 CLI 3 项、制品构建脚本 4 项测试和差异空白检查通过；Linux Compose、systemd 和完整集成检查交由本次 PR 的远端 CI 验证。
 
+## 2026-10-01：诊断资源预算（独立 PR，对应 Issue #14）
+
+- ServiceJob 新增五项数字预算及构造/反序列化范围约束，拒绝无界值、零上限、非法权重和负诊断 OOM 保护。NodeQuality 默认限制为 512 MiB/128 个任务、CPUWeight=10、IOWeight=10、OOMScoreAdjust=500；core 显式渲染所有 systemd 属性，固定 MemorySwapMax=0，防止把诊断内存争抢转为 swap 压力。
+- 旧 checkpoint 缺字段时使用默认值，重启后继续观察原单元并保留报告，不重复启动或追溯修改已有单元。已保存的新预算完整往返保留。
+- 独立验收见 [诊断资源预算验收](docs/acceptance/diagnostic-resource-budget.md)。测试覆盖默认和自定义真实命令参数、参数边界、非法持久值及旧 SQLite 恢复；Linux CI 扩展真实属性读回并运行 64 MiB 内存 OOM/8 个任务子进程上限与停止后的 PID 清理夹具。
+- 本机 macOS：workspace fmt、所有 targets Clippy（warnings 为错误）、完整 cargo test 及 core 分层检查通过；174 项成功、0 项失败、5 项按条件忽略，PostgreSQL/HTTP/WebSocket/诊断端到端使用独立临时数据库验证。两个真实 systemd 专项和三个原有真实运行时专项按条件忽略，远端 CI 结果待本 PR 最终提交确认。
+- 验收边界：本项未跑完整 NodeQuality；专用 Debian 12 的真实负载下心跳/业务存活验收尚未执行。常驻服务保护、启动预检、遥测解耦、取消和报告完整度分别由后续独立 PR 完成，不将资源预算通过等同于第 1 步整体验收。
+- 合并兼容：保留发布签名、退役保护、原生服务和 OpenRC 管理；新增测试显式选择 systemd 后端，既有 ServiceJob 构造补齐默认字段。资源预算仅在 systemd 强制执行，OpenRC 保留已有诊断行为并在启动时明确记录未执行 systemd cgroup 预算的警告；有限默认字段不能作为 OpenRC 同等资源限制的证据。
+- 合并后本机验证：workspace fmt、全 targets Clippy（warnings 为错误）通过，agent-core、NodeQuality 和 SDK 测试共 111 项成功、0 项失败；两个真实 Linux/systemd 专项在 macOS 按条件忽略，资源预算的真实内核执行仍须以合并提交的远端验收结果为准。
 ## 2026-10-01：整合 OpenRC 与原生平台 PR
 
 - 保留主分支的发布签名、生产根拒绝测试钥、独立 bootstrap、真实 Reality/accounting CI 与精简 README。Linux 双 libc / 双架构及原生矩阵合并到日常 CI，全部测试 Agent 显式编译公开 TEST_ONLY 根，上传制品名称显式标记 TEST_ONLY；FreeBSD cross 显式传递该编译环境变量。发布门禁继续要求两项 Linux musl 与真实验收任务，并同步新 job 名称。

@@ -185,6 +185,11 @@ impl DiagnosticAdapter for NodeQualityAdapter {
                 ],
                 working_directory: spec.job_dir.clone(),
                 timeout_secs: spec.timeout_secs,
+                memory_max: Default::default(),
+                tasks_max: Default::default(),
+                cpu_weight: Default::default(),
+                io_weight: Default::default(),
+                oom_score_adjust: Default::default(),
             })
         })
     }

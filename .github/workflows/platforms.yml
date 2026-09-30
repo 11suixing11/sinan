@@ -173,8 +173,13 @@ jobs:
         with:
           go-version: 1.26.8
           cache: false
-      - name: Install test fixture signature support
-        run: python -m pip install cryptography
+      - name: Build the signer for the deliberately public TEST_ONLY key
+        shell: bash
+        run: |
+          cargo build --locked -p sinan-protocol --example ci-fixture-sign --target '${{ matrix.target }}'
+          signer="$PWD/target/${{ matrix.target }}/debug/examples/ci-fixture-sign"
+          if [ '${{ matrix.platform }}' = windows ]; then signer=$(cygpath -w "$signer.exe"); fi
+          printf '%s\n' "SINAN_CI_FIXTURE_SIGNER=$signer" >> "$GITHUB_ENV"
       - name: Build, verify, and package the native Agent
         id: native-agent-build
         run: python tools/ci-run.py python tools/build-agent.py '${{ matrix.target }}' .ci-artifacts
@@ -197,7 +202,7 @@ jobs:
           if [ '${{ matrix.platform }}' = windows ]; then
             python tools/ci-run.py python tools/native-service-smoke.py "$binary.exe" "$runtime"
           else
-            sudo env CI=true GITHUB_ACTIONS=true "$(command -v python)" tools/ci-run.py "$(command -v python)" tools/native-service-smoke.py "$binary" "$runtime"
+            sudo env CI=true GITHUB_ACTIONS=true "SINAN_CI_FIXTURE_SIGNER=$SINAN_CI_FIXTURE_SIGNER" "$(command -v python)" tools/ci-run.py "$(command -v python)" tools/native-service-smoke.py "$binary" "$runtime"
           fi
       - uses: actions/upload-artifact@v7.0.1
         with:

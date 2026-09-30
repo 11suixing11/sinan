@@ -1,6 +1,9 @@
 #![forbid(unsafe_code)]
 
 use serde::{Deserialize, Serialize};
+
+mod resources;
+pub use resources::{CpuWeight, IoWeight, MemoryMax, OomScoreAdjust, TasksMax};
 use std::{
     collections::BTreeMap,
     future::Future,
@@ -242,6 +245,21 @@ pub struct ServiceJob {
     pub args: Vec<String>,
     pub working_directory: PathBuf,
     pub timeout_secs: u32,
+    /// The systemd cgroup memory limit; other backends may not enforce this budget.
+    #[serde(default)]
+    pub memory_max: MemoryMax,
+    /// The systemd cgroup task limit; other backends may not enforce this budget.
+    #[serde(default)]
+    pub tasks_max: TasksMax,
+    /// The systemd cgroup CPU contention weight.
+    #[serde(default)]
+    pub cpu_weight: CpuWeight,
+    /// The systemd cgroup I/O contention weight.
+    #[serde(default)]
+    pub io_weight: IoWeight,
+    /// The systemd diagnostic process OOM adjustment.
+    #[serde(default)]
+    pub oom_score_adjust: OomScoreAdjust,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
