@@ -12,7 +12,13 @@
 | FreeBSD amd64/arm64 | FreeBSD 13 sysroot 构建 | rc.d / daemon | 对应架构原生 |
 | Windows amd64/arm64 | MSVC 静态 CRT | 计划任务 | 对应架构原生及已签 DLL |
 
-init 与 libc 分别选择。Alpine 不能执行 glibc 运行时；每个制品必须对应 Agent 上报的平台和架构。Linux musl 制品保留原目录兼容，其余制品使用完整平台标识。日常 CI 的 Agent 使用公开 TEST_ONLY 信任根，制品名称带 TEST_ONLY，禁止用于正式节点或发布；正式发布工作流当前生成 Linux 双架构六个组件制品；原生平台的生产签名 bundle、独立来源核验与发布验证须另行完成。Linux bootstrap 的静态安装器不代表原生平台已经具有相同的自动首装入口。
+init、Agent 编译 ABI 与宿主运行时 ABI 分别判断。静态 musl Agent 可以运行在 glibc 主机上，因此静态遥测的 `libc` 只表示 Agent 自身编译 ABI，Linux 新字段 `runtime_libc` 表示宿主可执行的运行时 ABI。面板用两者决定运行时候选，Agent 自动升级继续只使用 `libc`。例如 `{"os":"linux","arch":"amd64","libc":"musl","runtime_libc":"gnu"}` 保留已有 musl 运行时的选择优先级，也允许在缺少 musl 制品时获取 GNU 运行时；Agent 更新仍选 musl。
+
+新 Agent 仅读取宿主 `/bin/sh` ELF 的解释器信息识别运行时 ABI，不能可靠识别时兼容沿用 Agent 编译 ABI；这一回退不代表已经识别宿主。面板仍拒绝显式 `unknown`、空值或畸形的 `runtime_libc`，不会把这些值当作字段缺失；旧设备未提供该字段时沿用原 `libc` 选择行为。
+
+GNU 宿主上的 musl Agent 按 `linux-musl-{arch}`、旧 `{arch}`、`linux-gnu-{arch}` 的顺序选择运行时，保留旧版本对已签缓存的选择，避免新增宿主识别后切换到同一证明中的其他摘要；GNU Agent 按 GNU 完整标识再旧目录选择。只有候选不存在才继续查找，签名或内容损坏直接失败。真正 musl 宿主上的运行时只选择 `linux-musl-{arch}`，面板不能回退到 GNU。旧签名发布中的架构目录对 Agent 表示静态 musl、对 sing-box 表示 GNU，不能跨组件混用这一兼容规则；core 对其他旧插件保留通用签名兼容，不能据此让面板向 musl 主机提供 GNU sing-box。
+
+日常 CI 的 Agent 使用公开 TEST_ONLY 信任根，制品名称带 TEST_ONLY，禁止用于正式节点或发布；正式发布工作流当前生成 Linux 双架构六个组件制品；原生平台的生产签名 bundle、独立来源核验与发布验证须另行完成。Linux bootstrap 的静态安装器不代表原生平台已经具有相同的自动首装入口。
 
 原生生产安装先独立验证签名、metadata 和待执行 Agent 的实际内容，将 proof 三文件保存在版本目录后再注册服务；`install-service` 在任何账户或服务修改前以编译根复验自身，并验证安装后的副本。缺少匹配 proof 的生产接入保持拒绝。
 
