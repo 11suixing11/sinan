@@ -69,7 +69,8 @@ async fn snapshot(tx: &mut Transaction<'_, Postgres>, server_id: i64) -> anyhow:
 async fn publish_server(state: &AppState, server_id: i64) -> anyhow::Result<()> {
     let mut tx = state.pool.begin().await?;
     let query = format!(
-        "SELECT manifest_rev FROM servers WHERE id=$1 AND deleted_at IS NULL AND {DUE} FOR UPDATE SKIP LOCKED"
+        "SELECT s.manifest_rev FROM servers s LEFT JOIN server_plugins p ON p.server_id=s.id AND p.plugin='sing-box' WHERE s.id=$1 AND s.deleted_at IS NULL AND {DUE} AND ({}) IS NOT NULL FOR UPDATE OF s SKIP LOCKED",
+        super::settings::SOURCE_SQL
     );
     let Some(manifest_rev) = sqlx::query_scalar::<_, i64>(&query)
         .bind(server_id)
@@ -130,4 +131,70 @@ async fn publish_server(state: &AppState, server_id: i64) -> anyhow::Result<()> 
     )
     .await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use sqlx::PgPool;
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn stale_candidate_cannot_publish_after_device_leaves_the_plugin(
+        pool: PgPool,
+    ) -> anyhow::Result<()> {
+        let state = AppState::new(
+            pool.clone(),
+            Config {
+                database_url: String::new(),
+                listen: "127.0.0.1:0".parse()?,
+                public_url: "http://127.0.0.1".into(),
+                data_dir: std::env::temp_dir()
+                    .join(format!("sinan-publish-{}", uuid::Uuid::new_v4())),
+                admin_password: Some("test-only-plugin-publisher".into()),
+            },
+        )
+        .await?;
+        let server: i64 = sqlx::query_scalar("INSERT INTO servers(name,capabilities,dirty_at) VALUES('Candidate','[\"singbox\"]',0) RETURNING id").fetch_one(&pool).await?;
+        let candidate: Option<i64> = sqlx::query_scalar(&format!("SELECT s.id FROM servers s LEFT JOIN server_plugins p ON p.server_id=s.id AND p.plugin='sing-box' WHERE s.id=$1 AND {DUE} AND ({}) IS NOT NULL",super::super::settings::SOURCE_SQL))
+            .bind(server).fetch_optional(&pool).await?;
+        assert_eq!(candidate, Some(server));
+        // The device declaration changes after candidate selection. Publication
+        // must validate the locked server again instead of creating legacy proof.
+        sqlx::query("UPDATE servers SET capabilities='[]' WHERE id=$1")
+            .bind(server)
+            .execute(&pool)
+            .await?;
+        publish_server(&state, server).await?;
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM deployments WHERE server_id=$1")
+                .bind(server)
+                .fetch_one(&pool)
+                .await?,
+            0
+        );
+        let pending: (i64, Option<i64>) =
+            sqlx::query_as("SELECT manifest_rev,dirty_at FROM servers WHERE id=$1")
+                .bind(server)
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(pending, (0, Some(0)));
+        sqlx::query("INSERT INTO server_plugins(server_id,plugin,source,enabled_at) VALUES($1,'sing-box','administrator',0)").bind(server).execute(&pool).await?;
+        publish_server(&state, server).await?;
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM deployments WHERE server_id=$1")
+                .bind(server)
+                .fetch_one(&pool)
+                .await?,
+            1
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, Option<i64>>("SELECT dirty_at FROM servers WHERE id=$1")
+                .bind(server)
+                .fetch_one(&pool)
+                .await?,
+            None
+        );
+        Ok(())
+    }
 }
