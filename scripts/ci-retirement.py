@@ -55,10 +55,10 @@ def command(arguments, timeout=20):
 
 
 def service(unit):
-    result = command(["systemctl", "show", unit, "--property=ActiveState,SubState,MainPID,ExecMainStatus,Result,ExecMainStartTimestampMonotonic"])
+    result = command(["systemctl", "show", unit, "--property=ActiveState,SubState,MainPID,ExecMainStatus,Result,ExecMainStartTimestampMonotonic,ConditionResult"])
     require(result.returncode == 0 and len(result.stdout) <= 4096, "cannot inspect disposable systemd service")
     values = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
-    require(all(key in values for key in ("ActiveState", "SubState", "MainPID", "ExecMainStatus", "Result", "ExecMainStartTimestampMonotonic")),
+    require(all(key in values for key in ("ActiveState", "SubState", "MainPID", "ExecMainStatus", "Result", "ExecMainStartTimestampMonotonic", "ConditionResult")),
             "systemd service status is incomplete")
     return values
 
@@ -229,7 +229,8 @@ def exercise(args):
         preserved_ledger(retired, resumed)
         denied = command(["systemctl", "start", RUNTIME_UNIT], timeout=30)
         runtime_after = service(RUNTIME_UNIT)
-        require(denied.returncode != 0 and runtime_after["MainPID"] == "0"
+        require((denied.returncode != 0 or runtime_after["ConditionResult"] == "no")
+                and runtime_after["ActiveState"] in ("inactive", "failed") and runtime_after["MainPID"] == "0"
                 and runtime_after["ExecMainStartTimestampMonotonic"] in ("0", runtime["ExecMainStartTimestampMonotonic"]),
                 "retired runtime start was not rejected before runtime execution")
         cleared_configuration(state)
