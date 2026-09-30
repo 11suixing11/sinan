@@ -154,8 +154,12 @@ def install_script(origin):
     proof["checksums"] = "".join(f"{lines[path]}  {path}\n" for path in sorted(lines))
     proof["signature"] = RELEASE["sign"](proof["checksums"].encode())
     RELEASE["install"](BUNDLE, proof)
+    # A read-only checkout bind still belongs to the host runner, not container root.
+    trust = Path(tempfile.mkdtemp(prefix="sinan-openrc-TEST_ONLY-trust-", dir="/root")) / "public-keys.json"
+    trust.write_bytes((ROOT / "crates/protocol/tests/fixtures/public-keys.json").read_bytes())
+    trust.chmod(0o600)
     return ["python3", str(ROOT / "tools/bootstrap.py"), "--tag", "agent-v0.2.0",
-            "--panel", origin, "--trusted-keys", str(ROOT / "crates/protocol/tests/fixtures/public-keys.json"),
+            "--panel", origin, "--trusted-keys", str(trust),
             "--release-dir", str(BUNDLE)]
 
 

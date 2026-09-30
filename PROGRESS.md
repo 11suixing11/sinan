@@ -398,3 +398,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 隔离 Alpine 复现普通运行账户执行代理时的 `Permission denied`，确认签名安装器新建的共享父目录受 umask 影响成为 0750。显式设置父目录可遍历权限后，真实 OpenRC 安装、重装、失败恢复、HUP、非 root 低端口能力、独立运行、default runlevel 和 systemd 安装命令契约均通过。此项运行在用户/挂载/进程/网络命名空间和临时根目录内，未安装宿主服务。
 - 本地 fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过（204 项成功，4 项原有实机专项忽略），实际签名 Agent 的注册、补报、双拨测、命令去重、成功升级及失败恢复全部通过。Python 71 项检查中 66 项通过、5 项需容器 root 的原有专项忽略；构建脚本 5 项、actionlint、Python 语法和 diff 检查通过。
 - 下一步：推送修复后核对完整 CI，特别是 Windows 两架构签名升级/原生服务、musl 两架构 OpenRC 及被前置失败阻断的真实 Reality 验收；本地通过不代替远端结果。
+
+### 首轮 CI 跟进：容器内测试信任根归属
+
+- `98287f4` 的主检查、Compose、GNU Agent、四种 Linux 运行时及 macOS 已通过。Windows 双架构通过公开 Rust 签名夹具构建与实际 Agent 签名升级/恢复，原生服务仍在运行；测试依赖和 CRLF 修复已覆盖之前的阻塞步骤。
+- 新增公开摘要确认 OpenRC 在 bootstrap 前拒绝源码中的测试公钥：Docker 的只读源码挂载仍属于宿主 runner，不能当作 root 受保护的操作员信任文件。夹具将明确公开的 TEST_ONLY 公钥复制到容器内 `/root` 下的私有临时目录，再按原有 bootstrap 流程验证；不修改生产权限检查。
+- 隔离 Alpine 中补跑全部 Python 检查，71 项全部通过、无忽略，包含安装器篡改拒绝、下载边界、重定向拒绝与受保护信任根专项。此前命名空间复现将源码所有者映射为 root，不能替代本轮发现的 Docker 所有权条件，后续另行模拟该条件。
+- 随后将临时源码副本设为命名空间内 UID/GID 1001，并只读挂载到 `/src`；新的 root 私有测试根通过严格 bootstrap，完整 OpenRC 服务流程再次通过。Windows AMD64 及 FreeBSD 双架构远端检查已成功，Windows ARM64 常驻服务仍待完成。
