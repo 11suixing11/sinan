@@ -8,6 +8,128 @@ use std::sync::{
 };
 use std::time::Duration;
 
+pub struct FakeResourceOps {
+    pub inner: std::sync::Arc<dyn Privileged>,
+    pub resources: Mutex<Result<sinan_adapter_sdk::DiagnosticResources, String>>,
+}
+
+impl FakeResourceOps {
+    pub fn new(inner: std::sync::Arc<dyn Privileged>) -> Self {
+        Self {
+            inner,
+            resources: Mutex::new(Ok(sinan_adapter_sdk::DiagnosticResources {
+                memory: sinan_adapter_sdk::DiagnosticMemory {
+                    host_available_bytes: 4 * 1024 * 1024 * 1024,
+                    cgroup_available_bytes: None,
+                },
+                disk_available_bytes: 4 * 1024 * 1024 * 1024,
+                load_one: 0.0,
+                cpu_count: 2,
+            })),
+        }
+    }
+}
+
+impl Privileged for FakeResourceOps {
+    fn spawn_managed<'a>(
+        &'a self,
+        program: &'a std::path::Path,
+        args: &'a [String],
+    ) -> BoxFuture<'a, Box<dyn sinan_adapter_sdk::ManagedProcess>> {
+        self.inner.spawn_managed(program, args)
+    }
+    fn execute_bounded<'a>(
+        &'a self,
+        program: &'a std::path::Path,
+        args: &'a [String],
+        timeout_secs: u32,
+        maximum: usize,
+    ) -> BoxFuture<'a, sinan_adapter_sdk::Execution> {
+        self.inner
+            .execute_bounded(program, args, timeout_secs, maximum)
+    }
+    fn install_archive_files<'a>(
+        &'a self,
+        path: &'a std::path::Path,
+        directory: &'a std::path::Path,
+        binary_name: &'a str,
+        extras: &'a [String],
+    ) -> BoxFuture<'a, ()> {
+        self.inner
+            .install_archive_files(path, directory, binary_name, extras)
+    }
+    fn diagnostic_memory(&self) -> BoxFuture<'_, sinan_adapter_sdk::DiagnosticMemory> {
+        Box::pin(async {
+            self.resources
+                .lock()
+                .unwrap()
+                .clone()
+                .map(|resources| resources.memory)
+                .map_err(anyhow::Error::msg)
+        })
+    }
+    fn diagnostic_resources<'a>(
+        &'a self,
+        _: &'a std::path::Path,
+    ) -> BoxFuture<'a, sinan_adapter_sdk::DiagnosticResources> {
+        Box::pin(async {
+            self.resources
+                .lock()
+                .unwrap()
+                .clone()
+                .map_err(anyhow::Error::msg)
+        })
+    }
+    fn execute<'a>(
+        &'a self,
+        path: &'a std::path::Path,
+        args: &'a [String],
+    ) -> BoxFuture<'a, sinan_adapter_sdk::CommandOutput> {
+        self.inner.execute(path, args)
+    }
+    fn create_dir<'a>(
+        &'a self,
+        path: &'a std::path::Path,
+        mode: u32,
+        group: Option<&'a str>,
+    ) -> BoxFuture<'a, ()> {
+        self.inner.create_dir(path, mode, group)
+    }
+    fn write_file<'a>(
+        &'a self,
+        path: &'a std::path::Path,
+        bytes: &'a [u8],
+        mode: u32,
+        group: Option<&'a str>,
+    ) -> BoxFuture<'a, ()> {
+        self.inner.write_file(path, bytes, mode, group)
+    }
+    fn atomic_symlink<'a>(
+        &'a self,
+        link: &'a std::path::Path,
+        target: &'a std::path::Path,
+    ) -> BoxFuture<'a, ()> {
+        self.inner.atomic_symlink(link, target)
+    }
+    fn remove_symlink<'a>(&'a self, path: &'a std::path::Path) -> BoxFuture<'a, ()> {
+        self.inner.remove_symlink(path)
+    }
+    fn remove_file<'a>(&'a self, path: &'a std::path::Path) -> BoxFuture<'a, ()> {
+        self.inner.remove_file(path)
+    }
+    fn remove_managed_directory<'a>(&'a self, path: &'a std::path::Path) -> BoxFuture<'a, ()> {
+        self.inner.remove_managed_directory(path)
+    }
+    fn install_archive<'a>(
+        &'a self,
+        archive: &'a std::path::Path,
+        directory: &'a std::path::Path,
+        name: &'a str,
+    ) -> BoxFuture<'a, ()> {
+        self.inner.install_archive(archive, directory, name)
+    }
+}
+
 #[derive(Default)]
 pub struct FakeServiceManager {
     pub active: AtomicBool,

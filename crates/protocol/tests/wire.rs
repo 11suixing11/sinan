@@ -42,6 +42,7 @@ fn known_messages() -> Vec<Message> {
         Message::TelemetryStatic(StaticInfo {
             os: None,
             libc: None,
+            runtime_libc: None,
             ip_addresses: vec!["192.0.2.10".into(), "2001:db8::10".into()],
             system: Some("Debian GNU/Linux 12".into()),
             kernel: Some("6.1.0".into()),
@@ -368,4 +369,29 @@ fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
     assert!(
         serde_json::from_value::<DiagnosticUpdate>(json!({"id":job.id,"status":"queued"})).is_err()
     );
+}
+
+#[test]
+fn runtime_libc_preserves_absence_and_rejects_explicit_non_string_values() {
+    let old: StaticInfo = serde_json::from_value(json!({"libc": "musl"})).unwrap();
+    assert!(old.runtime_libc.is_none());
+    assert!(
+        serde_json::to_value(old)
+            .unwrap()
+            .get("runtime_libc")
+            .is_none()
+    );
+    for value in ["gnu", "musl", "unknown"] {
+        let info: StaticInfo =
+            serde_json::from_value(json!({"libc": "musl", "runtime_libc": value})).unwrap();
+        assert_eq!(info.libc.as_deref(), Some("musl"));
+        assert_eq!(info.runtime_libc.as_deref(), Some(value));
+        assert_eq!(serde_json::to_value(info).unwrap()["runtime_libc"], value);
+    }
+    for value in [json!(null), json!(false), json!(1), json!([]), json!({})] {
+        assert!(
+            serde_json::from_value::<StaticInfo>(json!({"libc":"gnu","runtime_libc":value}))
+                .is_err()
+        );
+    }
 }

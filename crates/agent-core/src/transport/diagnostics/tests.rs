@@ -1,6 +1,10 @@
 use super::*;
 use crate::release_test_support as release_support;
-use crate::{State, fake::FakeServiceManager, system::SystemOps};
+use crate::{
+    State,
+    fake::{FakeResourceOps, FakeServiceManager},
+    system::SystemOps,
+};
 use sinan_adapter_sdk::{BoxFuture, DiagnosticDescriptor, DiagnosticOutput};
 use sinan_protocol::Artifact;
 use std::{
@@ -79,6 +83,10 @@ struct Services {
     hang: AtomicBool,
     last_job: Mutex<Option<ServiceJob>>,
     stops: AtomicUsize,
+    conflicts: Mutex<Result<Vec<String>, String>>,
+    fail_stop: AtomicBool,
+    fail_status: AtomicBool,
+    remain_active: AtomicBool,
 }
 impl Services {
     fn new(status: JobStatus) -> Self {
@@ -88,10 +96,23 @@ impl Services {
             hang: AtomicBool::new(false),
             last_job: Mutex::new(None),
             stops: AtomicUsize::new(0),
+            conflicts: Mutex::new(Ok(Vec::new())),
+            fail_stop: AtomicBool::new(false),
+            fail_status: AtomicBool::new(false),
+            remain_active: AtomicBool::new(false),
         }
     }
 }
 impl ServiceManager for Services {
+    fn running_diagnostic_units(&self) -> BoxFuture<'_, Vec<String>> {
+        Box::pin(async {
+            self.conflicts
+                .lock()
+                .unwrap()
+                .clone()
+                .map_err(anyhow::Error::msg)
+        })
+    }
     fn reload<'a>(&'a self, _unit: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
@@ -101,11 +122,18 @@ impl ServiceManager for Services {
     fn stop<'a>(&'a self, _unit: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async move {
             self.stops.fetch_add(1, Ordering::Relaxed);
+            ensure!(
+                !self.fail_stop.load(Ordering::Relaxed),
+                "fixture stop failure"
+            );
+            if !self.remain_active.load(Ordering::Relaxed) {
+                *self.status.lock().unwrap() = JobStatus::Missing;
+            }
             Ok(())
         })
     }
     fn is_active<'a>(&'a self, _unit: &'a str) -> BoxFuture<'a, bool> {
-        Box::pin(async { Ok(false) })
+        Box::pin(async { Ok(self.remain_active.load(Ordering::Relaxed)) })
     }
     fn start_job<'a>(&'a self, job: &'a ServiceJob) -> BoxFuture<'a, ()> {
         Box::pin(async move {
@@ -119,6 +147,10 @@ impl ServiceManager for Services {
             if self.hang.load(Ordering::Relaxed) {
                 return std::future::pending().await;
             }
+            ensure!(
+                !self.fail_status.load(Ordering::Relaxed),
+                "fixture status failure"
+            );
             Ok(self.status.lock().unwrap().clone())
         })
     }
@@ -130,7 +162,7 @@ fn worker(directory: &Directory, services: Arc<Services>) -> Result<DiagnosticWo
         config.clone(),
         Arc::new(Mutex::new(State::open(&config.state_db)?)),
         vec![Arc::new(TestAdapter)],
-        Arc::new(SystemOps),
+        Arc::new(FakeResourceOps::new(Arc::new(SystemOps))),
         services,
     )?
     .with_trusted_keys(release_support::trusted_keys()))
@@ -163,6 +195,7 @@ fn checkpoint(config: &Config, id: Uuid) -> Checkpoint {
         plugin: "diagnostic-fixture".into(),
         start_error: None,
         expires_at: None,
+        protection_stop_reason: None,
     }
 }
 
@@ -406,3 +439,6 @@ mod outbox;
 
 #[path = "tests/deadline.rs"]
 mod deadline;
+
+#[path = "tests/safety.rs"]
+mod safety;

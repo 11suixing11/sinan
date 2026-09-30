@@ -57,6 +57,7 @@ impl Collector {
             } else {
                 None
             },
+            runtime_libc: crate::runtime_platform::libc().map(str::to_owned),
             system: System::long_os_version().or_else(System::name),
             kernel: System::kernel_version(),
             arch: Some(std::env::consts::ARCH.into()),

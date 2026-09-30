@@ -63,6 +63,29 @@ pub struct CommandOutput {
     pub stderr: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiagnosticMemory {
+    pub host_available_bytes: u64,
+    pub cgroup_available_bytes: Option<u64>,
+}
+
+impl DiagnosticMemory {
+    pub fn available_bytes(&self) -> u64 {
+        self.cgroup_available_bytes
+            .map_or(self.host_available_bytes, |available| {
+                available.min(self.host_available_bytes)
+            })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DiagnosticResources {
+    pub memory: DiagnosticMemory,
+    pub disk_available_bytes: u64,
+    pub load_one: f64,
+    pub cpu_count: u32,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Execution {
     pub output: CommandOutput,
@@ -80,6 +103,15 @@ pub trait ManagedProcess: Send {
 }
 
 pub trait Privileged: Send + Sync {
+    fn diagnostic_memory(&self) -> BoxFuture<'_, DiagnosticMemory> {
+        Box::pin(async { anyhow::bail!("diagnostic memory inspection is not supported") })
+    }
+    fn diagnostic_resources<'a>(
+        &'a self,
+        _directory: &'a Path,
+    ) -> BoxFuture<'a, DiagnosticResources> {
+        Box::pin(async { anyhow::bail!("diagnostic resource inspection is not supported") })
+    }
     fn spawn_managed<'a>(
         &'a self,
         _program: &'a Path,
@@ -210,6 +242,9 @@ pub trait Privileged: Send + Sync {
 }
 
 pub trait ServiceManager: Send + Sync {
+    fn running_diagnostic_units(&self) -> BoxFuture<'_, Vec<String>> {
+        Box::pin(async { anyhow::bail!("diagnostic conflict inspection is not supported") })
+    }
     fn reload<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, ()>;
     fn restart<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, ()>;
     fn stop<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, ()>;

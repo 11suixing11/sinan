@@ -27,7 +27,7 @@ const queryErrorLabels: Record<QualityErrorKind, string> = {
 
 function QualityResult({ result }: { result: IpQuality }) {
   const now = Date.now() / 1000
-  const known = (database: QualityDatabase) => database.fields.some(field => qualityValue(field) !== undefined)
+  const known = (database: QualityDatabase) => database.fields.some(field => qualityValue(field, database.database) !== undefined)
   const historical = (database: QualityDatabase) => Boolean(database.historical) || (known(database) && (database.status !== 'succeeded' || (database.fresh_until != null ? database.fresh_until <= now : database.historical == null ? result.expires_at <= now : true)))
   const successes = result.databases.filter(item => item.status === 'succeeded' && known(item) && !historical(item)).length
   const saved = result.databases.filter(item => known(item) && historical(item)).length
@@ -44,7 +44,7 @@ function QualityResult({ result }: { result: IpQuality }) {
       <p className="helper">查询入口：{database.provider ?? 'check-place'} · 目标 IP：{database.target_ip ?? result.ip}</p>
       <p className="helper">{database.attempted_at != null ? `尝试于 ${time(database.attempted_at)}` : database.error_kind === 'not_attempted' ? '该轮尚未开始查询' : '旧记录未保存逐源查询时间'} · {database.elapsed_ms != null ? `耗时 ${database.elapsed_ms} 毫秒` : '耗时未知'}</p>
       {error && <><p className="helper">当前失败类别：{kind ? queryErrorLabels[kind] ?? '原因未分类' : '旧记录未分类'}{httpStatus != null && ` · HTTP ${httpStatus}`}</p><p className="quality-database-error">{error}</p></>}
-      {hasSaved ? <><p className="helper">{past ? '正在显示历史结果' : '最近成功结果'} · {database.last_success_at != null ? `上次成功于 ${time(database.last_success_at)}` : '旧记录未保存成功时间'} · {database.fresh_until != null ? database.fresh_until <= now ? '数据已过期' : `数据有效期至 ${time(database.fresh_until)}` : '有效期未知'}</p><dl className="detail-list">{database.fields.map(field => <div key={field.label}><dt>{field.label}</dt><dd>{qualityValue(field) ?? '未知'}</dd></div>)}</dl></> : <p className="helper">没有已保存的成功结果，信息未知。</p>}
+      {hasSaved ? <><p className="helper">{past ? '正在显示历史结果' : '最近成功结果'} · {database.last_success_at != null ? `上次成功于 ${time(database.last_success_at)}` : '旧记录未保存成功时间'} · {database.fresh_until != null ? database.fresh_until <= now ? '数据已过期' : `数据有效期至 ${time(database.fresh_until)}` : '有效期未知'}</p><dl className="detail-list">{database.fields.map(field => <div key={field.label}><dt>{field.label}</dt><dd>{qualityValue(field, database.database) ?? '未知'}</dd></div>)}</dl></> : <p className="helper">没有已保存的成功结果，信息未知。</p>}
     </details>})}</div>
   </div>
 }
