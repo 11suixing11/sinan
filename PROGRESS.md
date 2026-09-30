@@ -443,3 +443,9 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 第二轮 14 项通过，Windows ARM64 仍在首次运行时对账超时，Reality 任务失败但公开接口只有退出码。Reality 验收增加失败行号及公开错误注解，内容仅取现有白名单摘要；用含私有占位字段的状态验证其不会泄漏到注解，未公开安装凭证或完整日志。
 - 合并后本地 fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过（216 项成功、5 项原有实机专项忽略）；隔离 Alpine 的 71 项 Python 测试全部通过，真实 OpenRC 安装与普通账户遍历权限检查通过。上游 Rust 签名器通过 Windows 换行模拟和独立 minisign 正向/篡改拒绝验证。验收驱动 17 项、运行时缓存 3 项、工作流与脚本语法检查通过。
 - 下一步：继续定位 Windows ARM64 和 Reality 的失败，完整远端验收通过前不将此项标为完成。
+
+### Windows ARM64 冷启动时限
+
+- `1ea10e7` 的运行时 transcript 与任务事件确认：计划任务启动后约 28 秒 PowerShell 才开始执行脚本，30 秒健康期限届满即被 Agent 回滚，留给真实代理的启动时间约 2 秒；ApplyResult 连续报告 `runtime failed health check`。
+- Windows 运行时健康期限调整为有界 90 秒，服务状态查询允许底层 PowerShell 命令已有的 30 秒期限，避免在较短的外层超时反复取消查询。仍须通过计划任务状态、全部监听和统计 RPC 检查；Linux、macOS、FreeBSD 的时限不变。等待新的 Windows 原生冷启动、重载与独立服务验证。
+- 本地 fmt、Clippy 和完整 Rust/PostgreSQL 回归通过（216 项成功、5 项原有实机专项忽略）；Windows 冷启动行为以原生 CI 为准。
