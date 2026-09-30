@@ -39,6 +39,8 @@ jobs:
         run: '! grep -REin "singbox|sing-box" crates/agent-core'
       - name: Verify artifact build script contracts
         run: python3 tools/test-build-scripts.py
+      - name: Verify deployment environment initialization
+        run: python3 tools/test-init-env.py
       - name: Verify NodeQuality wrapper and artifact contracts
         run: sudo python3 tools/test-nodequality.py
       - run: cargo fmt --check

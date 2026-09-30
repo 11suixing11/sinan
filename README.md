@@ -4,7 +4,7 @@
 
 MVP 提供中文管理界面、单管理员登录、服务器接入、VLESS + Reality 节点、用户授权、两种订阅格式、部署状态与流量汇总。运行时固定为上游 **sing-box 1.14.2**，保留官方默认构建标签，额外启用 `with_v2ray_api`，不修改上游源码。后续新增 **NodeQuality 外插**：Agent 上报 IP，面板查询 IP 质量，管理员可一键在该服务器运行测试并获取报告。
 
-本地测试覆盖真实 PostgreSQL、协议、编译、应用回滚、持久化计量和面板—Agent 通信；真实上游二进制已用于配置、密钥、统计接口等专项验证，浏览器已验证主要管理操作。当前工作机尚未实际运行 Docker Compose 和 Linux musl 制品构建，相关 CI 配置的存在不代表远端运行已经通过。**这不等于已经完成全新 Debian 12、systemd 与公网 Reality 客户端的完整实机验收。** 实际完成范围和限制见 [PROGRESS.md](PROGRESS.md)，实机步骤见后文及 [scripts/e2e-real.sh](scripts/e2e-real.sh)。
+本地测试覆盖真实 PostgreSQL、协议、编译、应用回滚、持久化计量和面板—Agent 通信；真实上游二进制已用于配置、密钥、统计接口等专项验证，浏览器已验证主要管理操作。已在 Debian 13 amd64 VPS 验证 Docker Compose、HTTPS 反代与 Linux 静态 Agent 接入，并按固定上游标签构建 Linux 运行时。**这不等于已经完成全新 Debian 12、systemd 与公网 Reality 客户端的完整实机验收。** 实际完成范围和限制见 [PROGRESS.md](PROGRESS.md)，实机步骤见后文及 [scripts/e2e-real.sh](scripts/e2e-real.sh)。
 
 ## 用 Compose 启动面板
 
@@ -15,31 +15,15 @@ git clone https://github.com/theLucius7/sinan.git
 cd sinan
 
 # Create once; never overwrite credentials for an existing database.
-python3 - <<'PY'
-from pathlib import Path
-import os
-import secrets
-os.umask(0o077)
-content = '\n'.join([
-    'SINAN_DB_PASSWORD=' + secrets.token_hex(32),
-    'SINAN_ADMIN_PASSWORD=' + secrets.token_hex(32),
-    'SINAN_PUBLIC_URL=http://127.0.0.1:8080',
-    'SINAN_BIND_ADDRESS=127.0.0.1',
-    'SINAN_PORT=8080',
-    'RUST_LOG=info',
-    '',
-])
-with Path('.env').open('x') as output:
-    output.write(content)
-Path('.env').chmod(0o600)
-print('已创建 .env；请在本地查看管理员密码。')
-PY
+python3 scripts/init-env.py --public-url http://127.0.0.1:8080
 
 docker compose --project-name sinan --env-file .env \
   -f deploy/docker-compose.yml up -d --build --wait
 ```
 
 访问 <http://127.0.0.1:8080>，使用 `.env` 中的 `SINAN_ADMIN_PASSWORD` 登录。也可从 [.env.example](.env.example) 手动创建配置，两个密码分别生成，不要填写相同值。数据库密码放入连接 URL，示例使用不需要额外转义的十六进制值。
+
+初始化脚本生成独立随机密码，以 `0600` 权限创建文件，并拒绝覆盖已有文件或符号链接。可通过 `--port 18080` 选择未占用的宿主机端口，或用 `--output /path/to/private.env` 将凭据保存在仓库外；随后把同一路径传给 Compose 的 `--env-file`。脚本不会输出密码。
 
 首次启动自动创建 PostgreSQL 数据库、执行迁移并保存管理员密码散列。已有数据库再次启动时，修改 `SINAN_ADMIN_PASSWORD` **不会重置** 已有密码；修改数据库容器的密码环境变量也不会重置已有数据库用户密码。
 
@@ -53,6 +37,22 @@ docker compose --project-name sinan --env-file .env \
 | `RUST_LOG` | 默认 `info` |
 
 接入远端 Agent **之前**，将 `SINAN_PUBLIC_URL` 改为远端可访问的地址，例如自己的 HTTPS 域名，再执行 `docker compose … up -d --build --wait` 重建面板容器以应用环境变量；仅执行 `restart` 不会更新容器环境。公网部署应通过 HTTPS 反向代理；代理需支持 `/api/agent/v1/ws` 的 WebSocket 升级和长连接。若反向代理位于同一宿主机，可继续只监听回环地址；确需直接暴露端口时显式设置 `SINAN_BIND_ADDRESS`。这里不配置防火墙，管理员自行保证面板和节点端口可达。
+
+### 使用 Caddy 配置 HTTPS
+
+公网首次部署可先执行 `python3 scripts/init-env.py --public-url https://panel.example.com`，随后启动 Compose。将 [deploy/Caddyfile.example](deploy/Caddyfile.example) 中的站点块追加到现有 Caddy 配置，替换域名，并确保 `reverse_proxy` 端口与 `SINAN_PORT` 相同。DNS 应指向这台主机，已有服务占用默认端口时选择空闲端口。
+
+```bash
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+curl --fail https://panel.example.com/healthz
+```
+
+Caddy 自动申请与续期证书，并代理 Agent 的 WebSocket 长连接。使用 CDN 时也需让 `/api/agent/v1/ws` 通过 WebSocket，并允许安装、注册和制品下载接口；不要缓存 API、安装脚本或订阅。仅首页能打开不能证明设备连接成功，接入后应确认服务器在线且指标时间持续更新。
+
+面板镜像默认使用两个 Rust 编译任务，降低共享 VPS 编译时的内存压力。资源充足时可使用 `docker compose --env-file .env -f deploy/docker-compose.yml build --build-arg CARGO_BUILD_JOBS=4 panel`，随后 `up -d --wait`；不要在后一步加 `--build` 覆盖刚才的构建参数。
+
+### 持久化与更新
 
 PostgreSQL 没有映射到宿主机端口。`postgres-data` 保存数据库，`panel-data` 保存制品；面板进程以 UID/GID `10001:10001` 运行。普通更新保留命名卷：
 

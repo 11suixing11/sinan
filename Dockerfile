@@ -7,6 +7,7 @@ COPY web/ ./
 RUN bun run build
 
 FROM rust:1-bookworm AS builder
+ARG CARGO_BUILD_JOBS=2
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ ./crates/

@@ -104,3 +104,10 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 
 - 按用户要求，workspace edition 更新为 2024，全部 crate 继续继承统一设置。虚拟 workspace 显式使用 `resolver = "3"`，遵循 [Rust 2024 的依赖解析规则](https://doc.rust-lang.org/edition-guide/rust-2024/cargo-resolver.html)；现有最低 Rust 1.88 已支持该 edition。
 - Rust 2024 将进程环境变量修改标记为 unsafe，构建脚本改用现有 `tonic_build::Config::protoc_executable` 选择编译器。保留显式 `PROTOC` 与 vendored 回退，不增加依赖、不放宽 unsafe 禁令。
+
+## 后续调整：VPS 部署与本机接入
+
+- 本次“继续开发”先处理实机部署、HTTPS 反代与设备接入发现的问题，保持现有 MVP 功能范围。部署凭据、真实地址、数据库备份与截图保存在仓库外，不提交环境信息。
+- 新增标准库配置初始化命令，独立生成密码、创建时限制权限，并拒绝覆盖已有文件或符号链接；宿主端口可选以兼容已有服务。提供可追加的 Caddy 示例，保持 WebSocket 路由与面板 origin 一致。
+- 共享 VPS 上的 Docker Rust 构建默认并发为 2，可用 build arg 调整；不改运行期的业务并发。
+- 新接入设备还没有运行时或配置时，已启用的代理服务应跳过启动。systemd 单元增加路径条件，后续 Agent 安装运行时并发布配置后仍可正常启动，避免首次重启进入无意义的失败循环。

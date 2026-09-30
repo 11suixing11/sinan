@@ -2,6 +2,8 @@
 Description=Sinan sing-box runtime (%i)
 After=network-online.target
 Wants=network-online.target
+ConditionPathExists=/opt/sinan/plugins/sing-box/current/sing-box
+ConditionPathExists=/var/lib/sinan/plugins/sing-box@%i/current/config.json
 
 [Service]
 User=sinan-singbox
