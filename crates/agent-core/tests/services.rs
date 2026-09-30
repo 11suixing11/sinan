@@ -251,6 +251,11 @@ async fn openrc_starts_independent_diagnostic_jobs_without_invoking_systemd() ->
         args: Vec::new(),
         working_directory: "/tmp".into(),
         timeout_secs: 10,
+        memory_max: Default::default(),
+        tasks_max: Default::default(),
+        cpu_weight: Default::default(),
+        io_weight: Default::default(),
+        oom_score_adjust: Default::default(),
     };
     services.start_job(&job).await?;
     let calls = ops.calls.lock().unwrap();
@@ -277,6 +282,11 @@ async fn systemd_diagnostic_jobs_keep_independent_supervision_and_status() -> Re
         args: Vec::new(),
         working_directory: "/tmp".into(),
         timeout_secs: 10,
+        memory_max: Default::default(),
+        tasks_max: Default::default(),
+        cpu_weight: Default::default(),
+        io_weight: Default::default(),
+        oom_score_adjust: Default::default(),
     };
     services.start_job(&job).await?;
     ops.output.lock().unwrap().stdout = "LoadState=loaded\nActiveState=active\nSubState=exited\nResult=success\nExecMainStatus=0\nExecMainCode=1\nExecMainStartTimestampMonotonic=1\n".into();

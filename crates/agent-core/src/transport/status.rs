@@ -117,11 +117,29 @@ mod tests {
         );
         assert!(bind(&socket).await.is_err());
         let mut tasks = JoinSet::new();
-        tasks.spawn(serve(bound, runtime));
+        tasks.spawn(serve(bound, runtime.clone()));
         let value = status(&socket).await?;
         assert_eq!(value["connected"], true);
         assert_eq!(value["applied"], json!({}));
         assert_eq!(value["pending_batches"], 0);
+        assert_eq!(value["oversized_usage_batches"], 0);
+        assert!(value["usage_outbox_error"].is_null());
+        runtime.state.lock().unwrap().connection.execute(
+            "INSERT INTO usage_outbox(epoch,seq,batch) VALUES (?1,'1',?2)",
+            rusqlite::params![
+                uuid::Uuid::nil().to_string(),
+                "x".repeat(crate::usage::MAX_PENDING_USAGE_BYTES)
+            ],
+        )?;
+        let blocked = status(&socket).await?;
+        assert_eq!(blocked["pending_batches"], 1);
+        assert_eq!(blocked["oversized_usage_batches"], 1);
+        assert!(
+            blocked["usage_outbox_error"]
+                .as_str()
+                .unwrap()
+                .contains("ledger reconciliation")
+        );
         tasks.abort_all();
         while tasks.join_next().await.is_some() {}
         assert!(!socket.exists());

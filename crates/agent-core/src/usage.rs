@@ -9,6 +9,14 @@ use uuid::Uuid;
 
 const LAST_SEQUENCE_KEY: &str = "usage:last_seq";
 
+pub const MAX_PENDING_USAGE_BATCHES: usize = 64;
+pub const MAX_PENDING_USAGE_BYTES: usize = 1024 * 1024 - 1;
+pub const MAX_USAGE_BATCH_BYTES: usize = 128 * 1024;
+const MAX_USAGE_BATCH_RECORDS: usize = 10_000;
+// Includes the envelope UUID and the longest possible protocol version/timestamp.
+const ENVELOPE_RESERVE_BYTES: usize = 128;
+const BATCH_RESERVE_BYTES: usize = 256;
+
 #[derive(Serialize, Deserialize)]
 struct UsageClock {
     epoch: Uuid,
@@ -16,7 +24,8 @@ struct UsageClock {
 }
 
 impl State {
-    /// Atomically advances cumulative baselines and persists any unsent delta batch.
+    /// Atomically advances baselines and persists bounded batches for all deltas.
+    /// Returns the first batch; all batches are replayed from the durable outbox.
     pub fn sample_usage(
         &mut self,
         module: &str,
@@ -91,27 +100,45 @@ impl State {
             None
         } else {
             records.sort_by(|left, right| left.stat_name.cmp(&right.stat_name));
-            let last_seq: u64 = read_json(&transaction, LAST_SEQUENCE_KEY)?.unwrap_or(0);
-            let seq = last_seq
-                .checked_add(1)
-                .context("usage sequence exhausted")?;
-            let batch = UsageBatch {
-                epoch: clock.epoch,
-                seq,
+            let mut seq: u64 = read_json(&transaction, LAST_SEQUENCE_KEY)?.unwrap_or(0);
+            let mut first = None;
+            let mut chunk = Vec::new();
+            let mut bytes = BATCH_RESERVE_BYTES + ENVELOPE_RESERVE_BYTES;
+            for record in records {
+                let record_bytes = serde_json::to_vec(&record)?.len() + 1;
+                if !chunk.is_empty()
+                    && (bytes + record_bytes > MAX_USAGE_BATCH_BYTES
+                        || chunk.len() == MAX_USAGE_BATCH_RECORDS)
+                {
+                    let saved = persist_batch(
+                        &transaction,
+                        clock.epoch,
+                        &mut seq,
+                        period_start,
+                        timestamp,
+                        std::mem::take(&mut chunk),
+                    )?;
+                    first.get_or_insert(saved);
+                    bytes = BATCH_RESERVE_BYTES + ENVELOPE_RESERVE_BYTES;
+                }
+                anyhow::ensure!(
+                    bytes + record_bytes <= MAX_USAGE_BATCH_BYTES,
+                    "usage record exceeds batch byte limit"
+                );
+                bytes += record_bytes;
+                chunk.push(record);
+            }
+            let saved = persist_batch(
+                &transaction,
+                clock.epoch,
+                &mut seq,
                 period_start,
-                period_end: timestamp,
-                records,
-            };
-            transaction.execute(
-                "INSERT INTO usage_outbox (epoch, seq, batch) VALUES (?1, ?2, ?3)",
-                params![
-                    batch.epoch.to_string(),
-                    seq.to_string(),
-                    serde_json::to_string(&batch)?
-                ],
+                timestamp,
+                chunk,
             )?;
+            first.get_or_insert(saved);
             write_json(&transaction, LAST_SEQUENCE_KEY, &seq)?;
-            Some(batch)
+            first
         };
         transaction.commit()?;
         if decreased {
@@ -147,11 +174,44 @@ impl State {
     }
 
     pub fn pending_usage(&self) -> Result<Vec<UsageBatch>> {
+        // The literal byte predicate matches the partial index. Filtering after
+        // LIMIT or scanning oversized rows would let a legacy backlog stall replay.
         let mut statement = self.connection.prepare(
-            "SELECT batch FROM usage_outbox WHERE acknowledged = 0 ORDER BY length(seq), seq",
+            "WITH candidates AS MATERIALIZED (
+                SELECT rowid, seq, octet_length(batch) + ?1 AS wire_bytes
+                FROM usage_outbox INDEXED BY usage_outbox_pending_order_idx
+                WHERE acknowledged = 0 AND octet_length(batch) <= 1048447
+                ORDER BY length(seq), seq LIMIT ?2
+            ), sized AS (
+                SELECT rowid, seq, SUM(wire_bytes) OVER (
+                    ORDER BY length(seq), seq ROWS UNBOUNDED PRECEDING
+                ) AS total_bytes FROM candidates
+            )
+            SELECT usage_outbox.batch FROM sized
+            JOIN usage_outbox ON usage_outbox.rowid = sized.rowid
+            WHERE total_bytes <= ?3 ORDER BY length(sized.seq), sized.seq LIMIT ?2",
         )?;
-        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        let rows = statement.query_map(
+            params![
+                ENVELOPE_RESERVE_BYTES,
+                MAX_PENDING_USAGE_BATCHES,
+                MAX_PENDING_USAGE_BYTES
+            ],
+            |row| row.get::<_, String>(0),
+        )?;
         rows.map(|row| Ok(serde_json::from_str(&row?)?)).collect()
+    }
+
+    /// Legacy oversized payloads keep their immutable identity for reconciliation.
+    /// They cannot be replayed within the wire budget and must not be acknowledged.
+    pub fn oversized_usage_count(&self) -> Result<usize> {
+        let count: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM usage_outbox
+             WHERE acknowledged = 0 AND octet_length(batch) > ?1",
+            [MAX_PENDING_USAGE_BYTES - ENVELOPE_RESERVE_BYTES],
+            |row| row.get(0),
+        )?;
+        usize::try_from(count).context("oversized usage count out of range")
     }
 
     pub fn acknowledge_usage(&mut self, epoch: Uuid, seq: u64) -> Result<()> {
@@ -176,6 +236,33 @@ impl State {
             .execute("DELETE FROM usage_outbox WHERE acknowledged = 1", [])?;
         Ok(())
     }
+}
+
+fn persist_batch(
+    transaction: &rusqlite::Transaction<'_>,
+    epoch: Uuid,
+    seq: &mut u64,
+    period_start: i64,
+    period_end: i64,
+    records: Vec<UsageRecord>,
+) -> Result<UsageBatch> {
+    *seq = seq.checked_add(1).context("usage sequence exhausted")?;
+    let batch = UsageBatch {
+        epoch,
+        seq: *seq,
+        period_start,
+        period_end,
+        records,
+    };
+    transaction.execute(
+        "INSERT INTO usage_outbox (epoch, seq, batch) VALUES (?1, ?2, ?3)",
+        params![
+            epoch.to_string(),
+            seq.to_string(),
+            serde_json::to_string(&batch)?
+        ],
+    )?;
+    Ok(batch)
 }
 
 fn delta(current: u64, previous: u64, decreased: &mut bool) -> u64 {

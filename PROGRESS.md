@@ -1,9 +1,26 @@
 # 执行进度
 
+## 2026-10-01 P0 有界流量 outbox：自动验收完成，专用节点待验收
+
+- 对应 [Issue #18](https://github.com/theLucius7/sinan/issues/18)，仅处理第 1 步「有界读取」并独立提交。`pending_usage()` 在 SQL 层先 LIMIT 64，再按全局序号及累计字节取前缀；单轮 usage 消息预算 1,048,575 字节，包含 envelope 预留。增加部分排序/字节索引，读取超限旧正文时只检查 SQLite 字节元数据。
+- 新样本按 128 KiB 预算切批，所有切批、累计基准和全局序号同一事务落盘。既有 `(epoch, seq)` 与正文保留；超限旧批不假 ACK，明确日志报错，本地 status 显示阻塞数量与对账错误，后续可发送批仍能继续。面板按批次身份幂等入账，不要求连续序号；退役仍等待全部真实 ACK。
+- 每 15 秒发送轮最多调度 1 秒，逐批 yield 并优先处理控制消息与心跳；剩余窗口留待下一轮。一次正在进行的 socket 写入仍保留原有 10 秒超时，1 秒不是连接循环硬截止时间。采集逻辑未改；采集解耦单独推进。
+- 本地 `cargo fmt --all --check`、workspace 全 targets Clippy（warnings 为错误）、`cargo test --locked` 通过：178 项通过、4 项按原有原因忽略。签名集成测试使用仓库公开 TEST_ONLY 根与隔离 PostgreSQL 16；未设置编译公钥的首轮失败在按开发文档补齐环境后通过。新增 7 项账本/SQL 专项和 1 项真实回环 WebSocket 专项，覆盖 4,096 批积压、字节前缀、旧巨批、切批原子性、序号耗尽、模拟磁盘写入失败、旧账本辅助索引增加与旧 Agent 回滚兼容、20 秒心跳、ACK 控制、断连及数据库重开后准确重传。status 同时验证空队列和巨批阻塞提示。
+- 独立步骤及验收边界见 [有界读取验收](docs/acceptance-bounded-usage.md)。旧超限批的历史账本恢复、小内存/小磁盘 Debian 12 实机、持续代理流量下完整验机仍待后续独立验收，不以回环通过替代。下一步：PR CI、专用节点验证，以及独立的心跳采集解耦 PR。
+- 与当前主分支 `a62968e` 集成时保留辅助表、退役门禁和跨平台共享 status；有界索引改为增量创建，保持 `user_version=1`，新增旧 Agent 迁移重新打开试运行账本的回滚兼容断言。集成后的 core、对账及账本专项共 88 项通过、2 项真实 systemd 专项在 macOS 跳过；core 全 targets Clippy 与 workspace fmt 通过。
+
 ## 正式发布准备：生产公钥已提供，候选尚未签署
 
 - 维护者在本机交互生成带口令的 minisign 密钥，私钥保存在仓库外；项目只取得公开根。`deploy/release-public-keys.json` 的 key ID 为 `44B019C8269669B8`，已通过生产根校验，并与 Actions 的 `SINAN_RELEASE_PUBLIC_KEYS` 变量一致。离线保管与正式签署仍需由维护者完成，不把公钥配置视为已发布。
 - main `be8b792` 合入部署条件检查后，[CI 36746601899](https://github.com/theLucius7/sinan/actions/runs/36746601899) 的构建、检查、Compose 和真实 Reality/计量部分通过，但末尾退役验收误把 systemd 条件跳过的零退出码当作失败。发布候选继续受完整 main CI 门禁约束；修复将同时核对条件结果、服务状态、进程与启动时间，避免把未执行运行时和启动成功混淆。
+
+## 2026-10-01 P0 有界流量 outbox：自动验收完成，专用节点待验收
+
+- 对应 [Issue #18](https://github.com/theLucius7/sinan/issues/18)，仅处理第 1 步「有界读取」并独立提交。`pending_usage()` 在 SQL 层先 LIMIT 64，再按全局序号及累计字节取前缀；单轮 usage 消息预算 1,048,575 字节，包含 envelope 预留。增加部分排序/字节索引，读取超限旧正文时只检查 SQLite 字节元数据。
+- 新样本按 128 KiB 预算切批，所有切批、累计基准和全局序号同一事务落盘。既有 `(epoch, seq)` 与正文保留；超限旧批不假 ACK，明确日志报错，本地 status 显示阻塞数量与对账错误，后续可发送批仍能继续。面板按批次身份幂等入账，不要求连续序号；退役仍等待全部真实 ACK。
+- 每 15 秒发送轮最多调度 1 秒，逐批 yield 并优先处理控制消息与心跳；剩余窗口留待下一轮。一次正在进行的 socket 写入仍保留原有 10 秒超时，1 秒不是连接循环硬截止时间。采集逻辑未改；采集解耦单独推进。
+- 基于最新 `45df3b1` 重验：`cargo fmt --all --check`、workspace 全 targets Clippy（warnings 为错误）通过；core 单元及流量专项 76 项通过、1 项真实 systemd 按原有原因忽略。初版旧基线完整 workspace 使用公开 TEST_ONLY 根与隔离 PostgreSQL 16，178 项通过、4 项原有 ignore；重基后的完整 workspace 由本 PR CI 继续验证。新增 7 项账本/SQL 专项和 1 项真实回环 WebSocket 专项，覆盖 4,096 批积压、字节前缀、旧巨批、切批原子性、序号耗尽、模拟磁盘写入失败、辅助索引增加与旧 Agent 回滚兼容、20 秒心跳、ACK 控制、断连及数据库重开后准确重传。status 同时验证空队列和巨批阻塞提示。
+- 独立步骤及验收边界见 [有界读取验收](docs/acceptance-bounded-usage.md)。旧超限批的历史账本恢复、小内存/小磁盘 Debian 12 实机、持续代理流量下完整验机仍待后续独立验收，不以回环通过替代。下一步：PR CI、专用节点验证，以及独立的心跳采集解耦 PR。
 
 ## 交付加固第 0 阶段：已完成，main CI 全绿
 
@@ -367,6 +384,15 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 保留 systemd 的签名缓存启动前复验，并添加未配置运行时的路径条件；Docker 编译并发参数仅保留一处定义。
 - 本机初始化 CLI 3 项、制品构建脚本 4 项测试和差异空白检查通过；Linux Compose、systemd 和完整集成检查交由本次 PR 的远端 CI 验证。
 
+## 2026-10-01：诊断资源预算（独立 PR，对应 Issue #14）
+
+- ServiceJob 新增五项数字预算及构造/反序列化范围约束，拒绝无界值、零上限、非法权重和负诊断 OOM 保护。NodeQuality 默认限制为 512 MiB/128 个任务、CPUWeight=10、IOWeight=10、OOMScoreAdjust=500；core 显式渲染所有 systemd 属性，固定 MemorySwapMax=0，防止把诊断内存争抢转为 swap 压力。
+- 旧 checkpoint 缺字段时使用默认值，重启后继续观察原单元并保留报告，不重复启动或追溯修改已有单元。已保存的新预算完整往返保留。
+- 独立验收见 [诊断资源预算验收](docs/acceptance/diagnostic-resource-budget.md)。测试覆盖默认和自定义真实命令参数、参数边界、非法持久值及旧 SQLite 恢复；Linux CI 扩展真实属性读回并运行 64 MiB 内存 OOM/8 个任务子进程上限与停止后的 PID 清理夹具。
+- 本机 macOS：workspace fmt、所有 targets Clippy（warnings 为错误）、完整 cargo test 及 core 分层检查通过；174 项成功、0 项失败、5 项按条件忽略，PostgreSQL/HTTP/WebSocket/诊断端到端使用独立临时数据库验证。两个真实 systemd 专项和三个原有真实运行时专项按条件忽略，远端 CI 结果待本 PR 最终提交确认。
+- 验收边界：本项未跑完整 NodeQuality；专用 Debian 12 的真实负载下心跳/业务存活验收尚未执行。常驻服务保护、启动预检、遥测解耦、取消和报告完整度分别由后续独立 PR 完成，不将资源预算通过等同于第 1 步整体验收。
+- 合并兼容：保留发布签名、退役保护、原生服务和 OpenRC 管理；新增测试显式选择 systemd 后端，既有 ServiceJob 构造补齐默认字段。资源预算仅在 systemd 强制执行，OpenRC 保留已有诊断行为并在启动时明确记录未执行 systemd cgroup 预算的警告；有限默认字段不能作为 OpenRC 同等资源限制的证据。
+- 合并后本机验证：workspace fmt、全 targets Clippy（warnings 为错误）通过，agent-core、NodeQuality 和 SDK 测试共 111 项成功、0 项失败；两个真实 Linux/systemd 专项在 macOS 按条件忽略，资源预算的真实内核执行仍须以合并提交的远端验收结果为准。
 ## 2026-10-01：整合 OpenRC 与原生平台 PR
 
 - 保留主分支的发布签名、生产根拒绝测试钥、独立 bootstrap、真实 Reality/accounting CI 与精简 README。Linux 双 libc / 双架构及原生矩阵合并到日常 CI，全部测试 Agent 显式编译公开 TEST_ONLY 根，上传制品名称显式标记 TEST_ONLY；FreeBSD cross 显式传递该编译环境变量。发布门禁继续要求两项 Linux musl 与真实验收任务，并同步新 job 名称。
@@ -410,3 +436,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - `df417a6` 的双架构 OpenRC 与后续 Agent 行为检查已通过，真实 Reality 验收已开始；主检查及 Compose 也通过。此前的签名根所有权阻塞已解除。
 - 第一轮 Windows ARM64 在原生运行时对账等待超时；任务已成功启动，现有事件显示它后来被停止，但不能据此确定应用失败原因。详细任务事件挤掉了公开摘要中的 ApplyResult，现将应用结果和最终 Agent 状态放到摘要末尾，事件改用紧凑格式，并只在一次性 CI 夹具为运行时加入 transcript。保留原有账户、启动参数、健康断言及等待期限，继续依据实际错误定位。
+
+### 同步上游后续修复与验收诊断
+
+- 合入上游 `541f52d` 的诊断资源预算、有界流量补报和 CI 修复；统一采用上游的 `ci-fixture-sign`、受保护 OpenRC 公钥目录及共享安装目录权限，删除重复签名 example。保留尚未合入上游的 Windows 签名字节回归、发布文件 LF 写入和原生服务诊断。
+- 第二轮 14 项通过，Windows ARM64 仍在首次运行时对账超时，Reality 任务失败但公开接口只有退出码。Reality 验收增加失败行号及公开错误注解，内容仅取现有白名单摘要；用含私有占位字段的状态验证其不会泄漏到注解，未公开安装凭证或完整日志。
+- 合并后本地 fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过（216 项成功、5 项原有实机专项忽略）；隔离 Alpine 的 71 项 Python 测试全部通过，真实 OpenRC 安装与普通账户遍历权限检查通过。上游 Rust 签名器通过 Windows 换行模拟和独立 minisign 正向/篡改拒绝验证。验收驱动 17 项、运行时缓存 3 项、工作流与脚本语法检查通过。
+- 下一步：继续定位 Windows ARM64 和 Reality 的失败，完整远端验收通过前不将此项标为完成。

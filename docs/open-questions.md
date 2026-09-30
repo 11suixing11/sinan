@@ -163,5 +163,5 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 ## 签名与多平台整合后的 CI 修复
 
 - Windows 的文本模式写入会将 LF 转成 CRLF，使安装到磁盘的签名证明不再符合 canonical 格式。夹具、清单及固定安装器都按 UTF-8 原始字节写入；不让验证器替换换行或放宽签名检查。回归在 Linux 模拟 Windows 文本模式，并使用独立 minisign 验证正确证明及拒绝篡改。
-- 当前 cryptography 50.0.2 的发布文件没有 Windows ARM64 wheel，直接 pip 安装会进入本机构建。Windows CI 改用 `sinan-protocol` 已有的 ed25519-dalek/blake2 测试签名实现，编译独立 example；仅内嵌公开 TEST_ONLY 密钥，只接受有界 stdin，不接受密钥参数。未增加生产依赖，也不向 CI 提供正式私钥；其他平台保留已有签名工具。
+- 当前 cryptography 50.0.2 的发布文件没有 Windows ARM64 wheel，直接 pip 安装会进入本机构建。原生 CI 改用 `sinan-protocol` 已有的 ed25519-dalek/blake2 测试签名实现，编译独立 example；仅内嵌公开 TEST_ONLY 密钥，只接受有界 stdin，不接受密钥参数。合并上游 `541f52d` 后统一使用其 `ci-fixture-sign` 和 `SINAN_CI_FIXTURE_SIGNER`，同时覆盖 macOS 与 Windows；未增加生产依赖，也不向 CI 提供正式私钥。
 - BusyBox `install -d` 会让隐式父目录受 `umask 027` 影响。安装器显式创建共享的 `/opt/sinan`、`/opt/sinan/plugins` 和 `/var/lib/sinan` 为 0755，保证独立普通运行账户可遍历；身份和 core 账本仍为 0700，运行时私有配置仍按专用组限制。隔离 Alpine 实际启动验证保留，不通过把运行时改为 root 绕过权限问题。

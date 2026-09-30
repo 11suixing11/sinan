@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install on a disposable Ubuntu host; remove only resources created by this run.
-set -euo pipefail
+set -Eeuo pipefail
 umask 077
 
 usage() {
@@ -48,20 +48,22 @@ export SINAN_E2E_ADMIN_PASSWORD="$SINAN_ADMIN_PASSWORD"
 export SINAN_E2E_STATUS_COMMAND='sudo /usr/local/bin/sinan-agent status'
 export SINAN_E2E_ARTIFACT_ROOT=$scratch/artifacts
 phase=preflight owned_installation=0 hosts_entry=0 fixture_pid= client_pid= tls_container=
-passed=0
+passed=0 failure_line=
 marker=$COMPOSE_PROJECT_NAME
 compose=(docker compose --env-file /dev/null -f deploy/docker-compose.yml -f "$scratch/compose.override.yml")
 
 write_summary() {
-  python3 - "$scratch/state.json" "$summary" "$passed" "$phase" "${result:-0}" <<'PY'
+  python3 - "$scratch/state.json" "$summary" "$passed" "$phase" "${result:-0}" "${failure_line:-0}" <<'PY'
 import json
 import os
 from pathlib import Path
 import re
 import sys
 
-state_path, output, passed, phase, exit_code = sys.argv[1:]
+state_path, output, passed, phase, exit_code, failure_line = sys.argv[1:]
 summary = {"passed": passed == "1", "last_phase": phase, "exit_code": int(exit_code), "runtime_version": "1.14.2"}
+if not summary["passed"]:
+    summary["failure_line"] = int(failure_line)
 if Path(state_path).is_file():
     state = json.loads(Path(state_path).read_text())
     summary["agent_version"] = state.get("installation", {}).get("version")
@@ -98,6 +100,9 @@ if retirement.is_file():
         summary["retirement"]["usage"] = {key: totals[key] for key in ("uplink", "downlink", "total")}
 Path(output).parent.mkdir(parents=True, exist_ok=True)
 Path(output).write_text(json.dumps(summary, indent=2) + "\n")
+if os.environ.get('GITHUB_ACTIONS') == 'true' and not summary['passed']:
+    # Publish only the same allowlisted fields as the acceptance artifact.
+    print('::error title=Reality acceptance failed::' + json.dumps(summary, ensure_ascii=True))
 if os.environ.get('GITHUB_STEP_SUMMARY'):
     with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as report:
         report.write('### 真实安装与 Reality 验收\n\n')
@@ -145,6 +150,7 @@ PY
   exit "$result"
 }
 trap cleanup EXIT
+trap 'if [[ -z $failure_line ]]; then failure_line=$LINENO; fi' ERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
 

@@ -115,6 +115,11 @@ async fn prepare_only_verifies_version_and_builds_a_fixed_service_command() {
     assert_eq!(job.program, spec.binary_path);
     assert_eq!(job.working_directory, spec.job_dir);
     assert_eq!(job.timeout_secs, 1800);
+    assert_eq!(job.memory_max.get(), 512 * 1024 * 1024);
+    assert_eq!(job.tasks_max.get(), 128);
+    assert_eq!(job.cpu_weight.get(), 10);
+    assert_eq!(job.io_weight.get(), 10);
+    assert_eq!(job.oom_score_adjust.get(), 500);
     assert_eq!(
         job.args,
         vec![

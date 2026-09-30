@@ -18,7 +18,16 @@ pub(super) fn snapshot(runtime: &Runtime) -> Result<Value> {
                 .unwrap_or(false),
         );
     }
-    Ok(
-        json!({"agent_version":env!("CARGO_PKG_VERSION"),"pid":std::process::id(),"connected":runtime.connected.load(Ordering::Relaxed),"applied":applied,"healthy":healthy,"pending_batches":state.pending_usage_count()?,"pending_telemetry":state.pending_telemetry_count()?}),
-    )
+    let oversized_usage_batches = state.oversized_usage_count()?;
+    Ok(json!({
+        "agent_version": env!("CARGO_PKG_VERSION"), "pid": std::process::id(),
+        "connected": runtime.connected.load(Ordering::Relaxed),
+        "applied": applied, "healthy": healthy,
+        "pending_batches": state.pending_usage_count()?,
+        "pending_telemetry": state.pending_telemetry_count()?,
+        "oversized_usage_batches": oversized_usage_batches,
+        "usage_outbox_error": (oversized_usage_batches > 0).then_some(
+            "Legacy usage batches exceed the wire byte budget; ledger reconciliation is required before acknowledging them."
+        ),
+    }))
 }
