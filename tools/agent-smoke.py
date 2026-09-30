@@ -51,10 +51,11 @@ class Panel(ThreadingHTTPServer):
         self.command_results = []
         self.probe_results = []
         self.command = dict(id=str(uuid.uuid4()), command='echo sinan-command-fixture',
-                            timeout_secs=5, expires_at=int(time.time()) + 600)
+                            timeout_secs=60 if os.name == 'nt' else 5, expires_at=int(time.time()) + 600)
         self.probe = dict(id=str(uuid.uuid4()), name='loopback fixture', kind='tcp',
                           target='127.0.0.1', port=self.server_port, interval_secs=10,
                           carrier='', enabled=True)
+        self.icmp_probe = dict(self.probe, id=str(uuid.uuid4()), name='ICMP fixture', kind='icmp', port=None)
         threading.Thread(target=self.serve_forever, daemon=True).start()
 
     @property
@@ -98,7 +99,7 @@ class Handler(BaseHTTPRequestHandler):
             'settings': dict(sample_interval_secs=1, upload_interval_secs=1,
                              auto_update=False, discover_public_ips=False),
             'manifest': self.server.manifest, 'diagnostics': [],
-            'commands': [self.server.command], 'probes': [self.server.probe], 'update': None,
+            'commands': [self.server.command], 'probes': [self.server.probe, self.server.icmp_probe], 'update': None,
         }
         self.reply(values.get(suffix, []))
 
@@ -225,6 +226,12 @@ def reference(path, target):
         path.symlink_to(target)
 
 
+def write_json(path, value):
+    temporary = path.with_name(path.name + '.tmp')
+    temporary.write_text(json.dumps(value), encoding='utf-8')
+    temporary.replace(path)
+
+
 def supervise_smoke(binary, config, root, log):
     core = root / 'core'
     core.mkdir(exist_ok=True)
@@ -240,17 +247,19 @@ def supervise_smoke(binary, config, root, log):
         first = wait_for(lambda: status(binary, config), 'supervised Agent')
         identity = (root / 'identity/device.key').read_bytes()
         pending = dict(version=version, sha256=hashlib.sha256(binary.read_bytes()).hexdigest())
-        (core / 'pending-update.json').write_text(json.dumps(pending))
+        write_json(core / 'pending-update.json', pending)
         def state():
             return json.loads((core / 'update-state.json').read_text())
-        wait_for(lambda: state()['current'] == version and state()['trial'] is None, 'successful Agent activation', 90)
+        def consumed():
+            return json.loads((core / 'pending-update.json').read_text()) is None
+        wait_for(lambda: state()['current'] == version and state()['trial'] is None and consumed(), 'successful Agent activation', 90)
         upgraded = wait_for(lambda: status(binary, config), 'upgraded status')
         assert upgraded['pid'] != first['pid']
         # A corrupt candidate must be rejected before stopping the running Agent.
         (core / '99.0.1').mkdir()
         shutil.copy2(binary, core / '99.0.1' / binary.name)
-        (core / 'pending-update.json').write_text(json.dumps(dict(version='99.0.1', sha256='0' * 64)))
-        wait_for(lambda: '99.0.1' in state()['failed_versions'], 'corrupt candidate rejection')
+        write_json(core / 'pending-update.json', dict(version='99.0.1', sha256='0' * 64))
+        wait_for(lambda: '99.0.1' in state()['failed_versions'] and consumed(), 'corrupt candidate rejection')
         assert status(binary, config)['pid'] == upgraded['pid']
         failed = core / '99.0.0'
         failed.mkdir()
@@ -263,14 +272,14 @@ def supervise_smoke(binary, config, root, log):
             fixture.write_text('#!/bin/sh\nif [ "$1" = --version ]; then echo "sinan-agent 99.0.0"; else exit 1; fi\n')
             fixture.chmod(0o755)
         pending = dict(version='99.0.0', sha256=hashlib.sha256(fixture.read_bytes()).hexdigest())
-        (core / 'pending-update.json').write_text(json.dumps(pending))
-        wait_for(lambda: '99.0.0' in state()['failed_versions'] and state()['trial'] is None, 'failed-start rollback', 90)
+        write_json(core / 'pending-update.json', pending)
+        wait_for(lambda: '99.0.0' in state()['failed_versions'] and state()['trial'] is None and consumed(), 'failed-start rollback', 90)
         restored = wait_for(lambda: status(binary, config), 'restored Agent')
         assert restored['agent_version'] == version and restored['pid'] != upgraded['pid']
         assert (root / 'identity/device.key').read_bytes() == identity
         assert state()['current'] == version and state()['last_error']
-        (core / 'pending-update.json').write_text(json.dumps(pending))
-        wait_for(lambda: json.loads((core / 'pending-update.json').read_text()) is None, 'failed version suppression')
+        write_json(core / 'pending-update.json', pending)
+        wait_for(consumed, 'failed version suppression')
         assert status(binary, config)['pid'] == restored['pid']
     finally:
         stop(process)
@@ -279,7 +288,7 @@ def supervise_smoke(binary, config, root, log):
     state_file = core / 'update-state.json'
     interrupted = json.loads(state_file.read_text())
     interrupted.update(current='99.0.0', previous=version, trial=pending)
-    state_file.write_text(json.dumps(interrupted))
+    write_json(state_file, interrupted)
     (core / 'current').unlink()
     reference(core / 'current', core / '99.0.0')
     process = subprocess.Popen([str(binary), '--config', str(config), 'supervise', '--monitor-only'], stdout=log, stderr=log)
@@ -313,11 +322,13 @@ def main():
             try:
                 wait_for(lambda: (s := status(binary, config)) and s['connected'], 'native Agent connection')
                 wait_for(lambda: len(panel.samples) >= 3, 'compressed telemetry with ACK')
-                wait_for(lambda: panel.command_results, 'remote command completion')
-                assert panel.command_results[0]['status'] == 'succeeded'
+                wait_for(lambda: panel.command_results, 'remote command completion', 90)
+                assert panel.command_results[0]['status'] == 'succeeded', panel.command_results[0]
                 assert 'sinan-command-fixture' in panel.command_results[0]['stdout']
-                wait_for(lambda: panel.probe_results, 'continuous TCP probe')
-                assert panel.probe_results[0]['loss_percent'] == 0
+                for probe in (panel.probe, panel.icmp_probe):
+                    result = wait_for(lambda: next((r for r in panel.probe_results if r['probe_id'] == probe['id']), None),
+                                      'continuous ' + probe['kind'] + ' probe')
+                    assert result['loss_percent'] == 0 and result['latency_ms'] is not None, result
                 panel.acknowledge = False
                 wait_for(lambda: len(panel.seen - panel.samples.keys()) >= 3, 'offline telemetry spool')
                 unacked = panel.seen - panel.samples.keys()
@@ -334,12 +345,16 @@ def main():
             supervise_smoke(binary, config, root, log)
         with sqlite3.connect(root / 'state.db') as db:
             assert db.execute('pragma user_version').fetchone()[0] == 1
-        print('Native Agent: enrollment, telemetry/replay, command deduplication, TCP probes, activation, rollback and shutdown passed')
+        print('Native Agent: enrollment, telemetry/replay, command deduplication, TCP/ICMP probes, activation, rollback and shutdown passed')
     except BaseException as error:
         if isinstance(error, subprocess.CalledProcessError):
             print(error.stdout, error.stderr)
         if (root / 'agent.log').exists():
             print((root / 'agent.log').read_text(encoding='utf-8', errors='replace')[-24000:])
+        for name in ('update-state.json', 'pending-update.json'):
+            state_file = root / 'core' / name
+            if state_file.exists():
+                print(name, state_file.read_text(encoding='utf-8', errors='replace'))
         raise
     finally:
         panel.shutdown()

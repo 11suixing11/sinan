@@ -198,7 +198,7 @@ jobs:
         env:
           RUNTIME_ARCH: ${{ matrix.arch }}
           RUNTIME_LIBC: ${{ matrix.libc }}
-        run: bash tools/build-singbox.sh "$RUNTIME_ARCH" "$RUNNER_TEMP/runtime-artifacts" "--libc=$RUNTIME_LIBC"
+        run: python3 tools/ci-run.py bash tools/build-singbox.sh "$RUNTIME_ARCH" "$RUNNER_TEMP/runtime-artifacts" "--libc=$RUNTIME_LIBC"
       - name: Run the binary in its target libc and architecture
         env:
           RUNTIME_ARCH: ${{ matrix.arch }}

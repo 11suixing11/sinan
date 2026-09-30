@@ -407,6 +407,8 @@ Linux OpenRC 也支持 NodeQuality 独立一次性服务，使用独立挂载命
 
 `tools/build-runtime-native.py <target> <ARTIFACT_ROOT>` 固定 Go 1.26.8、上游 sing-box 1.14.2 及 cronet 提交，不修改源码。目标包括 `macos-arm64`、`freebsd-amd64`、`freebsd-arm64`、`windows-amd64`、`windows-arm64`。macOS 和 Windows 在对应原生 runner 构建；FreeBSD 使用官方纯 Go 标签交叉编译。Windows 包含对应架构的 `libcronet.dll`，Agent 检查整个文件集合和缓存摘要。CI 同时上传 `sinan-runtime-<target>`；导入 `data/artifacts/sing-box/1.14.2/` 并合并摘要即可由面板分发。
 
-Unix 默认配置 `/etc/sinan/agent.toml`、Agent `/opt/sinan/core`、状态 `/var/lib/sinan/core`；macOS/FreeBSD 状态套接字 `/var/run/sinan/agent.sock`。Windows 默认根目录 `%ProgramData%\Sinan`，使用受保护命名管道查询状态。`agent_root` 可单独指定 Agent 安装位置，不依赖代理 `install_root`。`run --monitor-only` 用于不管理代理服务的监控场景。
+Unix 默认配置 `/etc/sinan/agent.toml`、Agent `/opt/sinan/core`、状态 `/var/lib/sinan/core`；macOS/FreeBSD 状态套接字 `/var/run/sinan/agent.sock`。Windows 默认根目录 `%ProgramData%\Sinan`，使用受保护命名管道查询状态。`agent_root` 可单独指定 Agent 安装位置，不依赖代理 `install_root`；Linux 安装模板使用默认目录，自定义位置需要同步调整服务入口。`run --monitor-only` 用于不管理代理服务的监控场景。
+
+FreeBSD 的代理使用专用普通账户，默认应选择 1024 以上的节点端口，例如 8443；若需 443，应先由管理员按 [FreeBSD 的端口授权机制](https://man.freebsd.org/cgi/man.cgi?manpath=FreeBSD+14.2-RELEASE&query=mac_portacl&sektion=4)配置权限。安装器不更改宿主机全局端口策略。
 
 同一个 CI 工作流在各原生平台运行注册、压缩遥测、补报、命令去重、拨测和升级回退检查；macOS、Windows、FreeBSD 15 额外验证真实服务安装、运行时配置及回环流量，FreeBSD 13.5/14 验证同一 Agent 与运行时二进制的启动兼容。成功状态以对应提交的 Actions 为准。GPU 实际负载、公网 Reality 客户端与整机断电/重启仍须在专用设备验收。

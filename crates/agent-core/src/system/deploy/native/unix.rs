@@ -217,7 +217,7 @@ async fn service(
         let script = format!(
             "#!/bin/sh\n# PROVIDE: {name}\n# REQUIRE: NETWORKING\n# KEYWORD: shutdown\n. /etc/rc.subr\nname={name}\nrcvar={name}_enable\npidfile=/var/run/{name}.pid\ncommand=/usr/sbin/daemon\ncommand_args={}\nextra_commands=reload\nreload_cmd={name}_reload\n{name}_reload() {{ kill -HUP \"$(cat /var/run/{name}.child.pid)\"; }}\nstart_precmd={}\nload_rc_config \"$name\"\n: ${{{name}_enable:=NO}}\nrun_rc_command \"$1\"\n",
             quote(&format!(
-                "-P /var/run/{name}.pid -p /var/run/{name}.child.pid -r -R 5 -S -T {name} {account}{arguments}"
+                "-f -P /var/run/{name}.pid -p /var/run/{name}.child.pid -r -R 5 -S -T {name} {account}{arguments}"
             )),
             quote(&format!("cd {}", quote(&working.to_string_lossy())))
         );

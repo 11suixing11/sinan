@@ -155,10 +155,17 @@ tags="$(cat release/DEFAULT_BUILD_TAGS),with_v2ray_api"
 [[ $libc != musl ]] || tags="$tags,with_musl"
 shared_ldflags=$(cat release/LDFLAGS)
 mkdir "$scratch/stage"
-CGO_ENABLED=1 GOOS=linux GOARCH="$arch" GOFLAGS= \
-  go build -mod=readonly -v -trimpath -tags "$tags" \
-    -ldflags "-X github.com/sagernet/sing-box/constant.Version=$version $shared_ldflags -s -w -buildid=" \
-    -o "$scratch/stage/sing-box" ./cmd/sing-box
+for attempt in 1 2 3; do
+  if CGO_ENABLED=1 GOOS=linux GOARCH="$arch" GOFLAGS= \
+    go build -mod=readonly -v -trimpath -tags "$tags" \
+      -ldflags "-X github.com/sagernet/sing-box/constant.Version=$version $shared_ldflags -s -w -buildid=" \
+      -o "$scratch/stage/sing-box" ./cmd/sing-box; then
+    break
+  fi
+  [[ $attempt != 3 ]] || die 'runtime build failed after three attempts'
+  printf 'Runtime build attempt %s failed; retrying with the existing module cache.\n' "$attempt" >&2
+  sleep 5
+done
 [[ -z $(git status --porcelain) ]] || die 'upstream source changed during the build'
 binary=$scratch/stage/sing-box
 chmod 0755 "$binary"

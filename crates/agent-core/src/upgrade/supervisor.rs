@@ -94,6 +94,7 @@ pub async fn supervise(
         .and_then(|v| v.to_str())
         .context("Agent release path is invalid")?;
     if let Some(trial) = state.trial.take() {
+        tracing::warn!(version=%trial.version,"recovering an interrupted Agent update");
         state.failed(trial.version);
         state.current = state
             .previous
@@ -158,6 +159,7 @@ pub async fn supervise(
         )
         .await;
         if let Err(error) = validation {
+            tracing::warn!(version=%pending.version,%error,"Agent update validation failed");
             state.failed(pending.version);
             state.last_error = Some(error.to_string());
             save(&root, &state, ops.as_ref()).await?;
@@ -168,6 +170,7 @@ pub async fn supervise(
         state.previous = Some(state.current.clone());
         state.trial = Some(pending.clone());
         save(&root, &state, ops.as_ref()).await?;
+        tracing::info!(version=%pending.version,"starting Agent update trial");
         child.terminate().await?;
         let attempt = match spawn(&root, &pending.version, &path, monitor_only, ops.as_ref()).await
         {
@@ -192,10 +195,12 @@ pub async fn supervise(
                 ops.atomic_symlink(&root.join("current"), &root.join(&pending.version))
                     .await?;
                 state.current = pending.version;
+                tracing::info!(version=%state.current,"Agent update activated");
                 state.last_error = None;
                 crashes = 0;
             }
             Err(error) => {
+                tracing::warn!(version=%pending.version,%error,"Agent update failed; restoring previous release");
                 state.failed(pending.version);
                 state.last_error = Some(error.to_string());
                 child = spawn(&root, &state.current, &path, monitor_only, ops.as_ref()).await?;

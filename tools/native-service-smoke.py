@@ -106,11 +106,26 @@ def main():
         # Publish after services are registered so launchd's eager startup cannot race the fixture.
         print(invoke(binary, config, 'install-service'))
         panel.manifest = dict(rev=1, modules={'singbox': module})
+        revision = 1
         def applied():
             info = status(binary, config)
-            return info and info['healthy'].get('singbox') and info['applied'].get('singbox') == 1
+            return info and info['healthy'].get('singbox') and info['applied'].get('singbox') == revision
         wait_for(applied, 'native runtime reconciliation', 180)
         transfer(proxy_port)
+        previous_port = proxy_port
+        proxy_port = port()
+        native['inbounds'][0]['listen_port'] = proxy_port
+        bundle = json.dumps(dict(files={'config.json': json.dumps(native)}), separators=(',', ':')).encode()
+        panel.downloads['/fixture/bundle-2'] = bundle
+        revision = 2
+        module = dict(module, config_rev=revision, bundle_url=panel.origin + '/fixture/bundle-2',
+                      bundle_sha256=hashlib.sha256(bundle).hexdigest())
+        panel.manifest = dict(rev=revision, modules={'singbox': module})
+        wait_for(applied, 'native runtime configuration reload', 180)
+        transfer(proxy_port)
+        with socket.socket() as closed:
+            closed.settimeout(5)
+            assert closed.connect_ex(('127.0.0.1', previous_port)) != 0, 'old runtime listener survived reload'
         old = status(binary, config)['pid']
         service('sinan-agent', 'restart')
         wait_for(lambda: (s := status(binary, config)) and s['pid'] != old and s['connected'], 'Agent service restart', 90)
@@ -130,7 +145,7 @@ def main():
             assert command(['sysrc', '-n', 'sinan_agent_enable']).stdout.strip() == 'YES'
         else:
             powershell("$t=Get-ScheduledTask -TaskName 'sinan-singbox@main'; if ($t.Principal.UserId -notmatch 'sinan-singbox') { throw 'Runtime account mismatch' }; if ($t.Triggers.Count -ne 1) { throw 'Missing startup trigger' }")
-        print('Native services: startup registration, privilege separation, runtime artifact/configuration, traffic, Agent restart/reinstall and independent runtime passed')
+        print('Native services: startup registration, privilege separation, runtime artifact/configuration, reload, traffic, Agent restart/reinstall and independent runtime passed')
     except BaseException as error:
         if isinstance(error, subprocess.CalledProcessError):
             print(error.stdout, error.stderr)
