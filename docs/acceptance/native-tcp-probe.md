@@ -1,0 +1,60 @@
+# 原生 TCP 工具独立验收
+
+此 PR 仅增加 Sinan 自有 AGPL-3.0-only Rust 库和 `sinan-tcp-probe` 二进制，不注册第二个诊断插件、修改面板/UI、迁移表、接入 Agent 服务或打包签名。用户已授权在上游无许可证时自行实现；没有复制 TcpQuality 的代码、目标表、helper 或 rootfs。上游[许可证询问 #27](https://github.com/ibsgss/TcpQuality/issues/27) 未获授权前不分发其制品；本工具不声称与其 SYN、大包、路由或测速方法等价。
+
+## 输入与参数
+
+- 绝对、普通、私有工作目录和目录内普通私有快照文件；拒绝 symlink、输入 hardlink、已有输出与路径穿越。重新验证已打开输入句柄的权限、链接数和所属 UID；第一次报告写入前以独占新建文件句柄的 UID 核对工作目录属于当前有效账户，异主目录不会写入报告或开始网络请求（可能留下零字节私有 pending 文件）。调用者须使用可信祖先目录，不把此检查当作可防御同 UID 或恶意可写祖先的 root 沙箱。Unix 之外不能确认私有权限，明确拒绝运行。
+- 目标 JSON 不超过 16 KiB，schema=1，1–8 个唯一 UUID 目标；仅名称、目标主机、端口、运营商标签和可空地区。未知字段、非法地址、零端口、控制字符或重复 ID 拒绝。未来面板只能从本服务器已有 enabled TCP 拨测提供冻结目标，本项没有任意 URL/命令/API。
+- `--target-digest` 必须等于实际快照 SHA256；读取后在库内部保留不可变快照，后续输入修改不改变本轮范围。地区/运营商仅为管理员标签，空地区保持未指定。
+- 必须 `--no-rank-upload`；只接受 IP 版本 4/6、count 4/8、concurrency 1/2（默认 4/1）。拒绝 `--allow-speedtest-staged`、`--no-rootfs`、测速、上传与未知/重复选项。
+- DNS 2 秒、单 connect 1 秒、样本间隔 250 ms、总 60 秒含输入检查/初始化报告/排队/输出；其中预留 2 秒发布最终报告。最多 64 次连接，共享 1/2 个目标执行槽；最多一次解析，按家族保留首个有效单播地址，至多两个地址，再选择一个同族 SocketAddr 后只连该地址。不在筛选前截断解析结果，避免前 32 项都是另一家族时漏掉有效地址；不让 hostname 触发自动循环拨号。
+
+## 输出与语义
+
+只建立并立即关闭 TCP，零应用 payload；没有 HTTP、UA、报告/排名上传、raw socket、测速、子进程、依赖安装、网络或宿主配置改动。系统 TCP 握手仍产生协议流量，本工具不把连接次数等同原始发包数。
+
+报告为有界 64 KiB JSON，记录 UTC 毫秒起止、参数、目标快照摘要、实际配置目标/解析地址、逐次错误/耗时、engine/version/source_commit。成功率分母是已尝试连接；没有尝试或 DNS/地址族不可用保持 null，没有成功样本的建连耗时为 null。0% 成功率只表示已尝试的连接全部失败，不能称为包丢失率、干净或零延迟；不排名或横向比较不同参数。
+
+`result.json` 和 `sections/tcp_scope.json`、`tcp_summary.json`、每个 `tcp_target_<UUID>.json` 通过私有临时文件原子发布。章节含 name/text/complete/revision/collected_at，与执行结果分开；每次进度保留部分章节。网络探测结束不代表网络健康；全部探测完成 exit 0，截止后保存部分报告 exit 1，参数拒绝 exit 2。stdout 写入和 flush 共用两秒时限，并受总截止约束；运行错误的 stderr 输出同样限于两秒及总截止，阻塞的错误管道或系统解析线程不阻止进程有限退出。工具不持久化 job/outbox 或自行重启；外层框架负责互斥、预检、资源预算与确认取消。
+
+源码 commit 由编译期 `SINAN_NATIVE_TCP_SOURCE_COMMIT` 记录；未嵌入时显示 null，不能称为固定或已签名制品。自身固定源码、Cargo.lock、许可证/对应源码与离线签名打包另 PR 完成；框架确认 NodeQuality 不退化后才另 PR 注册工具。
+
+## 独立验证
+
+```sh
+export SINAN_RELEASE_PUBLIC_KEYS="$(python3 scripts/ci-test-trust.py)"
+export SINAN_NATIVE_TCP_SOURCE_COMMIT="$(git rev-parse HEAD)"
+cargo fmt --all --check
+cargo test --locked -p sinan-tcp-probe
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+```
+
+测试仅用回环监听和合成 resolver/连接夹具，不拨打公共第三方节点：
+
+| 场景 | 验证 |
+|---|---|
+| 真实 IPv4/IPv6 | 四次成功，监听端每次收到 EOF/零应用 payload，地址/参数/时间正确 |
+| 真正拒绝连接 | 有效 0% 成功率，所有 RTT 为 null，不伪造零延迟 |
+| DNS 错误/超时、族不匹配 | 一次解析、零连接、成功率/RTT 未知 |
+| 多 DNS 地址、count8、concurrency1/2 | IPv4/IPv6 两种相反顺序，前 32 项均为另一家族仍选到第 33 项；过滤非单播地址、至多保留两个家族，实际只使用一个匹配 SocketAddr，连接数与峰值有界 |
+| 排队截止/部分报告 | 排队也消耗总预算，未开始目标没有计数或评分，已保存章节仍可读 |
+| 外层 future 取消、实际 CLI 进程停止 | 活跃连接结束，后续连接不继续；既有部分章节保留 |
+| 非法/重复/未知参数、输入超限、摘要不匹配 | 网络请求前拒绝；不改已有报告、不逃逸私有目录 |
+| 真实 CLI | bounded JSON 与本地文件一致，禁用上传标志必需，拒绝宿主/测速选项 |
+| 错误输出阻塞、异主目录 | 实际 CLI 的 stderr 缓冲填满仍限时 exit 1/零网络请求；合成不同 UID 证明报告写入前拒绝，只有零字节私有 pending 文件 |
+
+本机只做 fmt、locked offline metadata/core 门禁和差异检查，不在磁盘不足机器从头编译。专用 Debian 12 构建容器限制 1.5 GiB/2 CPU、无额外 swap；只挂载本任务只读源码和独立构建缓存，PostgreSQL 使用 sinan_native_tcp_test，没有操作生产节点。
+
+- 5896f6d9cc5a872b4010857d4808fce1f4d6913c：展开后更新全部 403 个源码/manifest/内嵌资源的 mtime，避免共享 target 误用旧产物。fmt、13 项原生工具测试（11 库/2 真实 CLI）、全 targets Clippy（warnings 为错误）和完整 Rust/PostgreSQL 331 项通过、0 失败、9 项既有条件忽略；容器 exit 0、OOM=false。
+- ef1c7c994552d9ca4a155e8ad045f6068a640509：补上 stdout 显式 flush，同一两秒时限等待后台写入。再次全源码 touch 后 fmt、13 项工具测试、全 targets Clippy 通过。无相关源码变动的工作区全量重复运行按协调主动停止，不计为此 SHA 全量通过；上述 331 项只对应 5896f6d。最终 HEAD 的完整矩阵交 GitHub CI 核对。
+- 原始专项首次失败是测试把内存 f64 与 JSON 解析后的数字直接比较；改为两边同一 JSON 往返后验证实际报告字节语义。真实回环连接及 CLI 现在通过；没有用忽略测试隐藏失败。
+
+固定证据保留在专用构建目录 target/native-tcp-5896-full-test.log、native-tcp-{fmt,tests,clippy}.log，以及 binaries/native-tcp-ef1c7c9（验证用，未签名/发布）。不把未启用工具视为完整 TcpQuality 接入，也不声明已验真实第三方网络、排名、Agent/面板重连、完整 NodeQuality 或持续代理压力。HTTP 403/429 不属于纯 TCP 工具协议，未来制品下载/框架适配另验。
+
+## 最终合并审查
+
+正常合入作者 `0a6b849` 与正式主线 `e3a41ed`（含业务插件搬迁、共享诊断服务和 r5）。修复 DNS 筛选前截断、异主工作目录写入及运行错误的阻塞 stderr；不改变生产 DNS/连接/总截止或发布预算，不新增依赖。回环与合成夹具的 16 项工具测试（13 库、3 实际 CLI）全部通过、0 失败/忽略。恢复旧 DNS 截断、移除写前 UID 检查、恢复同步 stderr 的负对照分别触发预期失败，恢复修复后再次通过。
+
+原截止夹具只留 300ms 保存八个目标的原子章节，在本机慢 fsync 下首轮失败；夹具改为一秒探测加两秒发布，仍验证排队计入截止、至多四次连接、剩余目标零样本/未知与部分章节。生产仍为总 60 秒、发布两秒。测试不调用正式 API 或第三方 TCP 节点，不签名或发布制品；未在这份整合源码上重复整个 workspace 的 Rust/PostgreSQL 测试，最终主线矩阵另行核对。
