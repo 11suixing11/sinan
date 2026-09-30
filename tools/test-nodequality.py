@@ -590,7 +590,7 @@ work_dir=$workspace/.nodequalityfixture
                 "--ip-version", "ipv6", "--network-mode", "low"]
 
     def assert_complete_runner_report(self, mode, upstream_status, status):
-        result = subprocess.run(self.runner(mode), env=self.environment, capture_output=True, timeout=10)
+        result = subprocess.run(self.runner(mode) + ["--mode", "full"], env=self.environment, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, status, result.stderr.decode())
         self.assertEqual((self.workspace / "upstream-exit.txt").read_text().strip(), str(upstream_status))
         self.assertEqual((self.workspace / "fixture-options.txt").read_text().strip(), "y/y/l/y/-6")
@@ -692,6 +692,8 @@ work_dir=$workspace/.nodequalityfixture
         self.assertTrue((self.workspace / "section-net_quality.json").exists())
         self.assertFalse((self.workspace / "fixture-ready").exists())
         self.assertFalse((self.workspace / "report.zip").exists())
+        self.assertFalse((self.workspace / "upstream-exit.txt").exists())
+        self.assertFalse((self.workspace / ".runner").exists())
         self.assertFalse((self.workspace / ".runner.lock").exists())
         self.assertFalse((self.root / "cleanup.txt").exists())
 

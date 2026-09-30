@@ -27,7 +27,7 @@ async fn saved_full_jobs_keep_each_signed_version_and_legacy_arguments() {
         assert_eq!(spec.version, version);
         assert_eq!(
             privileged.calls.lock().unwrap().as_slice(),
-            &[vec!["--version".into()]]
+            &[vec![String::from("--version")]]
         );
         std::fs::write(spec.job_dir.join("result.txt"), "unchanged saved report").unwrap();
         assert_eq!(
