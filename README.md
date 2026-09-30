@@ -4,7 +4,7 @@
 
 MVP 提供中文管理界面、单管理员登录、服务器接入、VLESS + Reality 节点、用户授权、两种订阅格式、部署状态与流量汇总。运行时固定为上游 **sing-box 1.14.2**，保留官方默认构建标签，额外启用 `with_v2ray_api`，不修改上游源码。后续新增 **NodeQuality 外插**：Agent 上报 IP，面板查询 IP 质量，管理员可一键在该服务器运行测试并获取报告。
 
-本地测试覆盖真实 PostgreSQL、协议、编译、应用回滚、持久化计量和面板—Agent 通信；真实上游二进制已用于配置、密钥、统计接口等专项验证，浏览器已验证主要管理操作。当前工作机尚未实际运行 Docker Compose 和 Linux musl 制品构建，相关 CI 配置的存在不代表远端运行已经通过。**这不等于已经完成全新 Debian 12、systemd 与公网 Reality 客户端的完整实机验收。** 实际完成范围和限制见 [PROGRESS.md](PROGRESS.md)，实机步骤见后文及 [scripts/e2e-real.sh](scripts/e2e-real.sh)。
+本地测试覆盖真实 PostgreSQL、协议、编译、应用回滚、持久化计量和面板—Agent 通信。远端 CI 已实际验证 Linux musl/glibc 双架构制品、Compose、systemd/OpenRC、macOS ARM64，以及 Windows 和 FreeBSD 双架构的 Agent 行为与独立代理服务；FreeBSD 13.5/14 检查启动兼容，15 检查完整服务。真实运行时验证包含回环代理流量、配置重载和 Agent 重启后代理继续运行。GPU 实际负载、公网 Reality 客户端及整机断电/重启仍待专用设备验收。对应提交与验证范围见 [PROGRESS.md](PROGRESS.md)，实机步骤见后文及 [scripts/e2e-real.sh](scripts/e2e-real.sh)。
 
 ## 用 Compose 启动面板
 
@@ -191,7 +191,7 @@ docker compose --project-name sinan --env-file .env -f deploy/docker-compose.yml
 
 面板只需读取这些文件，复制后属于 root 也可以，只要目录可遍历、文件可读。`/data` 本身由 UID 10001 拥有，不要把整个数据卷改为不可写。打开“制品”页面并刷新，确认实际使用架构的 Agent 和运行时均出现；校验清单缺失或哈希不符的制品不会被提供给设备。
 
-## 接入 Debian 12 并使用节点
+## 接入服务器并使用节点
 
 1. 在全新 Debian 12 amd64/arm64 服务器安装基础工具：
 
@@ -228,6 +228,16 @@ docker compose --project-name sinan --env-file .env -f deploy/docker-compose.yml
 
 systemd 代理服务为 `sinan-singbox@main.service`，OpenRC 为 `sinan-singbox@main`，均使用独立非特权用户；统计 API 仅监听 `127.0.0.1:18085`。Agent 以 root 运行，特权操作通过内部 trait 边界执行。
 
+### 原生平台运行时与服务
+
+`tools/build-runtime-native.py <target> <ARTIFACT_ROOT>` 固定 Go 1.26.8、上游 sing-box 1.14.2 及 cronet 提交，不修改源码。目标包括 `macos-arm64`、`freebsd-amd64`、`freebsd-arm64`、`windows-amd64`、`windows-arm64`。macOS 和 Windows 在对应原生 runner 构建；FreeBSD 使用官方纯 Go 标签交叉编译。Windows 包含对应架构的 `libcronet.dll`，Agent 检查整个文件集合和缓存摘要。CI 同时上传 `sinan-runtime-<target>`；导入 `data/artifacts/sing-box/1.14.2/` 并合并摘要即可由面板分发。
+
+Unix 默认配置 `/etc/sinan/agent.toml`、Agent `/opt/sinan/core`、状态 `/var/lib/sinan/core`；macOS/FreeBSD 状态套接字 `/var/run/sinan/agent.sock`。Windows 默认根目录 `%ProgramData%\Sinan`，使用受保护命名管道查询状态。`agent_root` 可单独指定 Agent 安装位置，不依赖代理 `install_root`；Linux 安装模板使用默认目录，自定义位置需要同步调整服务入口。`run --monitor-only` 用于不管理代理服务的监控场景。
+
+FreeBSD 的代理使用专用普通账户，默认应选择 1024 以上的节点端口，例如 8443；若需 443，应先由管理员按 [FreeBSD 的端口授权机制](https://man.freebsd.org/cgi/man.cgi?manpath=FreeBSD+14.2-RELEASE&query=mac_portacl&sektion=4)配置权限。安装器不更改宿主机全局端口策略。
+
+同一个 CI 工作流在各原生平台运行注册、压缩遥测、补报、命令去重、拨测和升级回退检查；macOS、Windows、FreeBSD 15 额外验证真实服务安装、运行时配置及回环流量，FreeBSD 13.5/14 验证同一 Agent 与运行时二进制的启动兼容。成功状态以对应提交的 Actions 为准。GPU 实际负载、公网 Reality 客户端与整机断电/重启仍须在专用设备验收。
+
 ### 接入 OpenRC 设备
 
 使用同一面板安装命令，设备须运行 OpenRC，并安装 CA 证书、curl、SHA-256 与基础文件工具、getent，以及 groupadd/useradd 或 BusyBox addgroup/adduser。OpenRC 的 supervise-daemon 必须支持 `--capabilities` 和 `--no-new-privs`；安装脚本会提前检查，不会将运行时改为 root 运行。
@@ -257,6 +267,16 @@ Agent 与运行时均提供 musl 静态产物，可在 Alpine 使用；面板依
 仍可在“接入 / 升级”签发**新的**一次性令牌，重新执行安装命令。保留原身份和状态，同一服务器只接受原公钥；已消费命令不能再次使用。安装启动检查失败时恢复旧 Agent，Linux 还恢复旧服务定义与配置。Windows 以原子替换的受保护引用文件切换目录，文件内容写盘后切换；当前标准库方案不提供 Windows 断电时目录元数据刷盘保证。
 
 删除面板服务器会撤销面板会话并移出订阅，**不会远程停止** 该设备最后一份可用配置。停用设备时由管理员在本地停止相关服务。
+
+## Agent 监控与任务
+
+服务器详情页可配置采样和上传间隔。默认一秒采样、三秒压缩上传，新增 SWAP、进程数、逐盘 I/O 和可用的 GPU 指标。普通指标在本地 SQLite 保留最多两小时、7200 个样本及 64 MiB，面板提交后才确认清理；重复补报不会覆盖较新的指标。GPU 利用率依赖设备提供的工具，无法采集时保持缺失。
+
+可配置 TCP/ICMP 持续拨测及线路备注，每轮四次测量，显示延迟、丢包和历史。拨测最多 32 项，间隔 10–3600 秒；离线期间最多继续使用一天前同步的配置，结果在本地保留两小时、4096 条。公网 IPv4/IPv6 自动识别可以在面板关闭，设备本地关闭时面板不能覆盖。
+
+远程命令只允许已登录管理员下发，使用设备服务账号，在 Unix 上运行 `/bin/sh`，Windows 上运行 PowerShell。单条命令最多执行 600 秒，领取期限最长一天，标准输出和错误输出各保留 256 KiB。Agent 先持久记录再执行，重启后将状态不明的命令标记中断，不重复执行；执行结果确认后才清理待上传状态。
+
+Linux OpenRC 也支持 NodeQuality 独立一次性服务，使用独立挂载命名空间、超时和持久完成记录。安装时需要 `unshare`（BusyBox 或 util-linux）；Agent 重启不重启已经开始的诊断。实际双架构结果以 CI 的 OpenRC 任务检查为准。
 
 ## IP 质量与 NodeQuality 报告
 
@@ -288,9 +308,9 @@ sudo apt-get update
 sudo apt-get install -y bash curl python3 ca-certificates
 ```
 
-在服务器详情点击“一键获取报告”，选择双栈/IPv4/IPv6和低流量/普通网络测试。任务运行硬件、IP、网络和回程测试，会消耗真实 CPU、磁盘和带宽；默认关闭公开报告上传，并采用低流量网络模式。只有创建任务时勾选“上传报告并生成公开链接”，才允许上传到 NodeQuality；报告可能包含节点网络和硬件信息。任务在该节点的独立 systemd 服务运行，Agent 重启后继续观察，不重复执行；每台服务器同时只允许一个任务。
+在服务器详情点击“一键获取报告”，选择双栈/IPv4/IPv6和低流量/普通网络测试。任务运行硬件、IP、网络和回程测试，会消耗真实 CPU、磁盘和带宽；默认关闭公开报告上传，并采用低流量网络模式。只有创建任务时勾选“上传报告并生成公开链接”，才允许上传到 NodeQuality；报告可能包含节点网络和硬件信息。任务在该节点的独立 systemd/OpenRC 一次性服务运行，Agent 重启后继续观察，不重复执行；每台服务器同时只允许一个任务。
 
-界面显示排队、运行、成功或失败，并保留本地文本报告及可用的在线链接。在线上传失败时，本地报告仍可查看。任务有整体运行时限；未安装依赖、上游下载失败、报告缺失和超时均返回错误。上游 chroot 用于隔离测试文件，systemd 使用独立挂载命名空间处理清理，不提供针对不可信程序的安全沙箱。外插按用户选择运行，运行时外网访问是 [ADR 0016](docs/adr/0016-nodequality-diagnostics.md) 明确记录的例外。
+界面显示排队、运行、成功或失败，并保留本地文本报告及可用的在线链接。在线上传失败时，本地报告仍可查看。任务有整体运行时限；未安装依赖、上游下载失败、报告缺失和超时均返回错误。上游 chroot 用于隔离测试文件，systemd/OpenRC 任务使用独立挂载命名空间处理清理，不提供针对不可信程序的安全沙箱。外插按用户选择运行，运行时外网访问是 [ADR 0016](docs/adr/0016-nodequality-diagnostics.md) 明确记录的例外。
 
 面板报告文本最多 256 KiB，超过时显示截断说明；原始 `report.zip` 默认保存在节点的 `/var/lib/sinan/plugins/diagnostics/<任务 UUID>/`，可由管理员在节点本地读取。
 
@@ -392,23 +412,3 @@ Agent 在托管应用前读取终值，再打开新计量周期；外部强制�
 - [阶段计划](docs/PLAN.md) / [验收进度](PROGRESS.md)
 
 许可证：AGPL-3.0-only。
-# Agent 监控与任务
-
-服务器详情页可配置采样和上传间隔。默认一秒采样、三秒压缩上传，新增 SWAP、进程数、逐盘 I/O 和可用的 GPU 指标。普通指标在本地 SQLite 保留最多两小时、7200 个样本及 64 MiB，面板提交后才确认清理；重复补报不会覆盖较新的指标。GPU 利用率依赖设备提供的工具，无法采集时保持缺失。
-
-可配置 TCP/ICMP 持续拨测及线路备注，每轮四次测量，显示延迟、丢包和历史。拨测最多 32 项，间隔 10–3600 秒；离线期间最多继续使用一天前同步的配置，结果在本地保留两小时、4096 条。公网 IPv4/IPv6 自动识别可以在面板关闭，设备本地关闭时面板不能覆盖。
-
-远程命令只允许已登录管理员下发，使用设备服务账号，在 Unix 上运行 `/bin/sh`，Windows 上运行 PowerShell。单条命令最多执行 600 秒，领取期限最长一天，标准输出和错误输出各保留 256 KiB。Agent 先持久记录再执行，重启后将状态不明的命令标记中断，不重复执行；执行结果确认后才清理待上传状态。
-
-Linux OpenRC 也支持 NodeQuality 独立一次性服务，使用独立挂载命名空间、超时和持久完成记录。安装时需要 `unshare`（BusyBox 或 util-linux）；Agent 重启不重启已经开始的诊断。实际双架构结果以 CI 的 OpenRC 任务检查为准。
-
-
-## 原生平台运行时与服务
-
-`tools/build-runtime-native.py <target> <ARTIFACT_ROOT>` 固定 Go 1.26.8、上游 sing-box 1.14.2 及 cronet 提交，不修改源码。目标包括 `macos-arm64`、`freebsd-amd64`、`freebsd-arm64`、`windows-amd64`、`windows-arm64`。macOS 和 Windows 在对应原生 runner 构建；FreeBSD 使用官方纯 Go 标签交叉编译。Windows 包含对应架构的 `libcronet.dll`，Agent 检查整个文件集合和缓存摘要。CI 同时上传 `sinan-runtime-<target>`；导入 `data/artifacts/sing-box/1.14.2/` 并合并摘要即可由面板分发。
-
-Unix 默认配置 `/etc/sinan/agent.toml`、Agent `/opt/sinan/core`、状态 `/var/lib/sinan/core`；macOS/FreeBSD 状态套接字 `/var/run/sinan/agent.sock`。Windows 默认根目录 `%ProgramData%\Sinan`，使用受保护命名管道查询状态。`agent_root` 可单独指定 Agent 安装位置，不依赖代理 `install_root`；Linux 安装模板使用默认目录，自定义位置需要同步调整服务入口。`run --monitor-only` 用于不管理代理服务的监控场景。
-
-FreeBSD 的代理使用专用普通账户，默认应选择 1024 以上的节点端口，例如 8443；若需 443，应先由管理员按 [FreeBSD 的端口授权机制](https://man.freebsd.org/cgi/man.cgi?manpath=FreeBSD+14.2-RELEASE&query=mac_portacl&sektion=4)配置权限。安装器不更改宿主机全局端口策略。
-
-同一个 CI 工作流在各原生平台运行注册、压缩遥测、补报、命令去重、拨测和升级回退检查；macOS、Windows、FreeBSD 15 额外验证真实服务安装、运行时配置及回环流量，FreeBSD 13.5/14 验证同一 Agent 与运行时二进制的启动兼容。成功状态以对应提交的 Actions 为准。GPU 实际负载、公网 Reality 客户端与整机断电/重启仍须在专用设备验收。
