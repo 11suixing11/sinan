@@ -55,12 +55,32 @@ def command(arguments, timeout=20):
 
 
 def service(unit):
-    result = command(["systemctl", "show", unit, "--property=ActiveState,SubState,MainPID,ExecMainStatus,Result,ExecMainStartTimestampMonotonic,ConditionResult"])
+    properties = ("LoadState", "ActiveState", "SubState", "MainPID", "ControlPID", "ExecMainStatus", "Result",
+                  "ExecMainStartTimestampMonotonic", "ConditionResult", "ConditionTimestampMonotonic")
+    result = command(["systemctl", "show", unit, "--property=" + ",".join(properties)])
     require(result.returncode == 0 and len(result.stdout) <= 4096, "cannot inspect disposable systemd service")
-    values = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
-    require(all(key in values for key in ("ActiveState", "SubState", "MainPID", "ExecMainStatus", "Result", "ExecMainStartTimestampMonotonic", "ConditionResult")),
-            "systemd service status is incomplete")
+    lines = result.stdout.splitlines()
+    values = dict(line.split("=", 1) for line in lines if "=" in line)
+    require(len(lines) == len(properties) and set(values) == set(properties), "systemd service status is incomplete")
+    require(values["LoadState"] == "loaded", "disposable systemd service is not loaded")
+    require(all(re.fullmatch(r"0|[1-9][0-9]*", values[key]) for key in
+                ("MainPID", "ControlPID", "ExecMainStartTimestampMonotonic", "ConditionTimestampMonotonic"))
+            and values["ConditionResult"] in ("yes", "no"), "systemd service status is invalid")
     return values
+
+
+def runtime_restart_refused(before, after, returncode):
+    require((after["ActiveState"], after["SubState"]) in (("inactive", "dead"), ("failed", "failed"))
+            and after["MainPID"] == "0" and after["ControlPID"] == "0"
+            and after["ExecMainStartTimestampMonotonic"] in ("0", before["ExecMainStartTimestampMonotonic"]),
+            "retired runtime start was not rejected before runtime execution")
+    # A failed ConditionPathExists makes systemctl start succeed without running
+    # ExecStartPre/ExecStart. Require a fresh failed condition evaluation, not only
+    # a zero exit code or a stale inactive service left by an earlier attempt.
+    condition_skipped = (after["ActiveState"] == "inactive" and after["ConditionResult"] == "no"
+                         and int(after["ConditionTimestampMonotonic"]) > int(before["ConditionTimestampMonotonic"]))
+    require(returncode > 0 or (returncode == 0 and condition_skipped),
+            "retired runtime start neither failed nor confirmed a condition skip")
 
 
 def wait_retired_agent(after_start=None):
@@ -217,7 +237,8 @@ def exercise(args):
         require(http_status(panel, server_path, "GET") == 404, "retired server remains visible in the panel")
         agent = wait_retired_agent()
         runtime = service(RUNTIME_UNIT)
-        require(runtime["ActiveState"] == "inactive" and runtime["MainPID"] == "0",
+        require(runtime["ActiveState"] == "inactive" and runtime["SubState"] == "dead"
+                and runtime["MainPID"] == "0" and runtime["ControlPID"] == "0",
                 "retirement left the external runtime running")
         retired = cleared_configuration(state)
         preserved_ledger(baseline, retired)
@@ -229,10 +250,7 @@ def exercise(args):
         preserved_ledger(retired, resumed)
         denied = command(["systemctl", "start", RUNTIME_UNIT], timeout=30)
         runtime_after = service(RUNTIME_UNIT)
-        require((denied.returncode != 0 or runtime_after["ConditionResult"] == "no")
-                and runtime_after["ActiveState"] in ("inactive", "failed") and runtime_after["MainPID"] == "0"
-                and runtime_after["ExecMainStartTimestampMonotonic"] in ("0", runtime["ExecMainStartTimestampMonotonic"]),
-                "retired runtime start was not rejected before runtime execution")
+        runtime_restart_refused(runtime, runtime_after, denied.returncode)
         cleared_configuration(state)
         usage(panel, state, expected)
         return {"passed": True, "online_delete_confirmed": True, "server_removed": True,

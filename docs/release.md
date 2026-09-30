@@ -16,7 +16,15 @@ CI 为两种架构构建 musl Agent，为两种架构构建固定上游运行时
 minisign -G -p /受保护目录/sinan-release.pub -s /受保护目录/sinan-release.key
 ```
 
-不要使用取消口令保护的选项，也不要把私钥或口令写入仓库、面板、CI、命令参数或聊天。私钥及加密备份由用户自己保管；要实现离线签名，应在与网络隔离的设备或签名环境中使用它。仅在联网本机生成带口令私钥，不代表已经完成离线保管。目前正式公钥与正式签名尚未提供，实施和验证先用测试密钥。
+不要使用取消口令保护的选项，也不要把私钥或口令写入仓库、面板、CI、命令参数或聊天。私钥及加密备份由用户自己保管；要实现离线签名，应在与网络隔离的设备或签名环境中使用它。仅在联网本机生成带口令私钥，不代表已经完成离线保管。
+
+首个正式公钥记录在 [`deploy/release-public-keys.json`](../deploy/release-public-keys.json)，minisign key ID 为 `44B019C8269669B8`。key ID 只便于辨认，建立信任时应核对完整公钥记录。该文件只有公开信息；生成时私钥保存在维护者本机的仓库外，未提交或上传。将已独立核对的公钥用于面板或 Agent 构建：
+
+```sh
+export SINAN_RELEASE_PUBLIC_KEYS="$(cat deploy/release-public-keys.json)"
+```
+
+正式 Release 仍需完成候选构建、本地签署与发布校验；提供公钥本身不代表某个版本已发布。CI 集成测试继续使用明确标识的测试根。
 
 生产公钥 JSON 数组通过仓库变量 `SINAN_RELEASE_PUBLIC_KEYS` 固定在正式 Agent 编译时，每项可以是 minisign 公钥 base64 记录或完整 `.pub` 文本。公钥可公开；CI 不生成或读取正式私钥。Agent 使用 `minisign-verify` crate 验证签名，最多同时信任 8 个公钥。面板、安装器和运行期配置都不能给 Agent 追加或替换根；缺失、空、重复或无效的根集合会拒绝制品。自行构建的用户可以在编译时设置自己的 `SINAN_RELEASE_PUBLIC_KEYS`，其产物属于自己的信任域。
 
