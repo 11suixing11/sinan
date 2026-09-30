@@ -127,3 +127,8 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 
 - 用户澄清多平台应在日常 CI 中构建，OpenRC 无须单独拆出；将九个目标统一回 `ci.yml` 的 push/PR/手动入口，删除临时多平台工作流。OpenRC 真实服务检查移入两个 Linux musl 任务，GNU/Linux 则在 Ubuntu 24.04 双架构任务验证动态 glibc 链接。
 - init 与 libc 分开处理：Alpine/OpenRC 使用 musl 静态 Agent，Ubuntu 24.04/systemd 可使用 glibc 动态 Agent；服务管理继续自动识别，已有安装接口和制品导入方式保留，不将 GNU/libc 强行用于 Alpine。FreeBSD cross 与 VM 验证方案、macOS 仅 ARM64、Windows 双架构均保留。
+
+## Agent 能力对齐：用户确认全部补齐
+
+- 用户确认将基础监控细节、离线遥测补报、持续拨测、通用命令、升级恢复和非 Linux 常驻部署全部纳入，覆盖原来的仅编译产物限制与自更新排除项；按 ADR 0018 分阶段实现。
+- sing-box 上游支持 musl。原脚本只调用 glibc 工具链，属于本仓库缺口；新增官方 musl 工具链与标签，不删除默认功能或修改上游源码。

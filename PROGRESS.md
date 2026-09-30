@@ -174,3 +174,12 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - macOS ARM64、Windows 双架构和 FreeBSD 双架构纳入日常矩阵；FreeBSD 保留 Linux cross 编译、固定 sysroot 及 13.5/14/15 的同二进制验证。制品名称继续区分系统、libc 和架构。
 - 本地 actionlint、五组构建脚本检查、fmt、全 targets Clippy、完整 `cargo test --locked` 均通过，122 项成功、4 项实机专项按原原因忽略；临时 PostgreSQL 已停止。未修改 Agent、安装接口、协议或前端代码。
 - 上一提交 `b16fffd` 的 [CI 36699121265](https://github.com/imengying/sinan/actions/runs/36699121265) 所有任务均成功，包括真实 systemd、Compose、musl 与 OpenRC 双架构。新的九目标构建仍须以本次提交的完整 CI 结果为准，不将前一提交结果视为已验证新增目标。
+
+## Agent 对齐阶段 1：运行时 musl 与安装恢复
+
+- 用户确认全部补齐 Agent 差距，新增 ADR 0018 并更新协作约束。workspace 升至 `0.3.0`，为后续 Agent 新行为保留不可变版本；协议主版本仍为 1。
+- 运行时脚本新增官方 musl 工具链及 `with_musl`，保留完整上游标签和 `with_v2ray_api`；四个 Linux ABI/架构制品按独立名称保存，旧 glibc 制品保留。面板按上报 OS/libc 选择，musl 缺失不会误退回 GNU；兼容旧 Agent。
+- 安装校验版本及既有制品内容，切换后检查本地状态；启动失败恢复旧版本和原 TOML，仅操作 Agent。隔离 Alpine/OpenRC 的安装、失败回退、独立运行时、HUP、权限、缓存与 default runlevel 检查全部通过。
+- fmt、Clippy、完整 Rust 测试通过，124 项成功、4 项实机专项仍按原原因忽略；新增测试覆盖 GNU/musl/FreeBSD 选择、未知 ABI 拒绝和旧路径兼容。五组构建脚本检查、actionlint、shell 和 diff 检查通过。
+- CI 增加四个真实运行时构建、对应 libc/架构运行及本地流量计数和重载检查；本机没有固定 Go/Chromium 工具链，不能将脚本和夹具检查宣称为真实构建通过，结果须以该提交远端 CI 为准。
+- 下一步：扩展遥测、批量上传和持久补报，然后完成任务、多系统常驻运行和 Agent 自动升级。

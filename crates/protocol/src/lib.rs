@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+pub mod platform;
+
 mod diagnostics;
 pub use diagnostics::*;
 
@@ -162,6 +164,10 @@ pub struct Heartbeat {
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StaticInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub os: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub libc: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ip_addresses: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

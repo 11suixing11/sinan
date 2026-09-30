@@ -38,6 +38,19 @@ impl Collector {
 
     pub fn static_info(&self) -> StaticInfo {
         StaticInfo {
+            os: Some(std::env::consts::OS.into()),
+            libc: if cfg!(target_os = "linux") {
+                Some(
+                    if cfg!(target_env = "musl") {
+                        "musl"
+                    } else {
+                        "gnu"
+                    }
+                    .into(),
+                )
+            } else {
+                None
+            },
             system: System::long_os_version().or_else(System::name),
             kernel: System::kernel_version(),
             arch: Some(std::env::consts::ARCH.into()),

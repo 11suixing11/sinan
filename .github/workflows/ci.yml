@@ -162,6 +162,66 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  runtime-linux:
+    name: Runtime Linux ${{ matrix.libc }} (${{ matrix.arch }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        libc: [gnu, musl]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v6.5.0
+        with:
+          go-version: '1.26.8'
+          cache: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          key: runtime-validation
+      - uses: docker/setup-qemu-action@v4.4.0
+        if: matrix.arch == 'arm64'
+        with:
+          platforms: arm64
+      - name: Install the pinned runtime build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ca-certificates git curl python3 python3-requests gnupg dirmngr xz-utils unzip bzip2 zstd file binutils binutils-aarch64-linux-gnu build-essential pkg-config coreutils qemu-user-static libc6-arm64-cross libstdc++6-arm64-cross
+      - name: Build the complete upstream runtime for the selected libc
+        env:
+          RUNTIME_ARCH: ${{ matrix.arch }}
+          RUNTIME_LIBC: ${{ matrix.libc }}
+        run: bash tools/build-singbox.sh "$RUNTIME_ARCH" "$RUNNER_TEMP/runtime-artifacts" "--libc=$RUNTIME_LIBC"
+      - name: Run the binary in its target libc and architecture
+        env:
+          RUNTIME_ARCH: ${{ matrix.arch }}
+          RUNTIME_LIBC: ${{ matrix.libc }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/runtime"
+          tar -xzf "$RUNNER_TEMP/runtime-artifacts/sing-box/1.14.2/linux-$RUNTIME_LIBC-$RUNTIME_ARCH" -C "$RUNNER_TEMP/runtime"
+          image=debian:bookworm-slim
+          if [ "$RUNTIME_LIBC" = musl ]; then image=alpine:3.24.2; fi
+          docker run --rm --network none --platform "linux/$RUNTIME_ARCH" -v "$RUNNER_TEMP/runtime:/runtime:ro" "$image" /runtime/sing-box version
+      - name: Verify native configuration, traffic counters, and reload generation
+        env:
+          RUNTIME_ARCH: ${{ matrix.arch }}
+        run: |
+          binary="$RUNNER_TEMP/runtime/sing-box"
+          if [ "$RUNTIME_ARCH" = arm64 ]; then
+            printf '#!/bin/sh\nexec qemu-aarch64-static -L /usr/aarch64-linux-gnu "%s" "$@"\n' "$binary" > "$RUNNER_TEMP/runtime/run-runtime"
+            chmod 755 "$RUNNER_TEMP/runtime/run-runtime"
+            binary="$RUNNER_TEMP/runtime/run-runtime"
+          fi
+          SINAN_TEST_SINGBOX="$binary" cargo test --locked --package sinan-adapter-singbox --test runtime -- --ignored
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: sinan-runtime-linux-${{ matrix.libc }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/runtime-artifacts/
+          if-no-files-found: error
+          retention-days: 7
+
   agent-native:
     name: Agent ${{ matrix.platform }} (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}

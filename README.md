@@ -164,7 +164,18 @@ docker run --rm --platform=linux/amd64 -v "$PWD/data/artifacts:/artifacts" \
 
 该容器仍需访问上游工具链；原生 Linux/amd64 是构建脚本的目标环境，本地未验证 macOS 上的容器模拟构建。
 
-生成运行时要求 glibc ≥ 2.31，Debian 12 满足该条件。amd64 输出可在构建机执行版本验证；交叉编译 arm64 输出只验证 ELF 和构建信息，仍须在 arm64 Linux 主机执行 `sing-box version` 并检查 `with_v2ray_api` 后部署。详见脚本的 `--help`。
+缺省构建保留 glibc ≥ 2.31 的旧制品路径。新增显式 libc 选项：
+
+```bash
+bash tools/build-singbox.sh amd64 "$PWD/data/artifacts" --libc=musl
+bash tools/build-singbox.sh arm64 "$PWD/data/artifacts" --libc=musl
+bash tools/build-singbox.sh amd64 "$PWD/data/artifacts" --libc=gnu
+bash tools/build-singbox.sh arm64 "$PWD/data/artifacts" --libc=gnu
+```
+
+musl 使用上游 Chromium musl 工具链、完整默认标签、`with_musl` 和 `with_v2ray_api`，验证 ELF 没有动态解释器和共享库依赖。新增文件名为 `linux-musl-amd64`、`linux-musl-arm64` 或对应的 `linux-gnu-*`，同目录清单同时保留已有文件。新版 Agent 上报 OS/libc，面板选择匹配制品；musl 缺失时不会退回 glibc。旧 Agent 和 glibc 设备保留旧路径兼容。
+
+amd64 输出可在构建机执行版本验证；交叉编译 arm64 输出只验证 ELF 和构建信息，仍须在 arm64 Linux 主机执行 `sing-box version` 并检查标签后部署。详见脚本的 `--help`。
 
 ### 导入 Compose 命名卷
 

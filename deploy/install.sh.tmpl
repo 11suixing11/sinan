@@ -42,7 +42,35 @@ case "$(uname -m)" in
 esac
 [ -n "$HASH" ] || { echo '面板未提供当前架构的 Agent 制品'; exit 1; }
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT HUP INT TERM
+PREVIOUS=$(readlink /opt/sinan/core/current 2>/dev/null || true)
+ACTIVATING=0
+COMPLETED=0
+if [ -f /etc/sinan/agent.toml ]; then cp -p /etc/sinan/agent.toml "$TMP/agent.toml.previous"; fi
+cleanup() {
+  result=$?
+  trap - EXIT HUP INT TERM
+  if [ "$ACTIVATING" = 1 ] && [ "$COMPLETED" != 1 ]; then
+    printf '%s\n' '新 Agent 未能启动，正在恢复上一版本。' >&2
+    if [ -f "$TMP/agent.toml.previous" ]; then
+      cp -p "$TMP/agent.toml.previous" /etc/sinan/agent.toml
+    fi
+    if [ -n "$PREVIOUS" ]; then
+      ln -s "$PREVIOUS" "/opt/sinan/core/recover.$$"
+      mv -Tf "/opt/sinan/core/recover.$$" /opt/sinan/core/current
+      if [ "$INIT" = systemd ]; then systemctl restart sinan-agent.service || true
+      else rc-service sinan-agent restart || true; fi
+    else
+      if [ "$INIT" = systemd ]; then systemctl stop sinan-agent.service || true
+      else rc-service sinan-agent stop || true; fi
+      rm -f /opt/sinan/core/current
+    fi
+  fi
+  rm -rf "$TMP"
+  exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' HUP TERM
 curl --fail --silent --show-error --connect-timeout 20 --max-time 300 "$PANEL/api/bootstrap/$VERSION/$ARCH?token=$TOKEN" -o "$TMP/sinan-agent"
 printf '%s  %s\n' "$HASH" "$TMP/sinan-agent" | sha256sum -c >/dev/null
 if ! getent group sinan-singbox >/dev/null; then
@@ -64,9 +92,16 @@ install -d -m 0700 /etc/sinan /etc/sinan/identity /var/lib/sinan/core
 install -d -m 2750 -o root -g sinan-singbox /var/lib/sinan/plugins /var/lib/sinan/plugins/sing-box@main /var/lib/sinan/plugins/sing-box@main/revisions
 install -d -m 0750 -o sinan-singbox -g sinan-singbox /var/lib/sinan/plugins/sing-box@main/data
 chmod 0755 "$TMP/sinan-agent"
+[ "$("$TMP/sinan-agent" --version)" = "sinan-agent $VERSION" ] || { echo 'Agent 版本与制品版本不符'; exit 1; }
+if [ -e "/opt/sinan/core/$VERSION/sinan-agent" ]; then
+  printf '%s  %s\n' "$HASH" "/opt/sinan/core/$VERSION/sinan-agent" | sha256sum -c >/dev/null || {
+    echo '同版本 Agent 内容不同，拒绝覆盖不可变制品'; exit 1;
+  }
+fi
 # Enrollment parses existing TOML, preserves path overrides, checks the stored
 # identity origin, and atomically saves configuration only after success.
 "$TMP/sinan-agent" enroll --panel "$PANEL" --token "$TOKEN"
+ACTIVATING=1
 install -d -m 0755 "/opt/sinan/core/$VERSION"
 install -m 0755 "$TMP/sinan-agent" "/opt/sinan/core/$VERSION/sinan-agent.new"
 mv -f "/opt/sinan/core/$VERSION/sinan-agent.new" "/opt/sinan/core/$VERSION/sinan-agent"
@@ -98,4 +133,11 @@ OPENRC_RUNTIME
   rc-update --update
   rc-service sinan-agent restart
 fi
+ready=0
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  if sinan-agent status >/dev/null 2>&1; then ready=1; break; fi
+  sleep 1
+done
+[ "$ready" = 1 ] || { echo 'Agent 启动检查失败'; exit 1; }
+COMPLETED=1
 printf '%s\n' '安装完成，可运行 sinan-agent status 查看状态。'

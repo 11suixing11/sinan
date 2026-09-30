@@ -28,6 +28,8 @@ import time
 if sys.argv[1] == "--version":
     print("sinan-agent 0.2.0")
 elif sys.argv[1] == "status":
+    if os.environ.get("SINAN_TEST_STATUS_FAIL") == "1":
+        raise SystemExit("fixture startup check failed")
     print('{"fixture":true,"connected":true,"pending_batches":0}')
 elif sys.argv[1] == "enroll":
     if os.environ.get("SINAN_TEST_ENROLL_FAIL") == "1":
@@ -213,6 +215,17 @@ def main():
         service("sinan-agent", "stop")
         assert pid(RUNTIME_STATE) == runtime_pid
         service(RUNTIME_SERVICE, "status")
+        previous = Path("/opt/sinan/core/current").readlink()
+        before_recovery = pid(AGENT_STATE)
+        failed = subprocess.run(
+            ["sh"], input=script, capture_output=True, text=True, timeout=30,
+            env={**environment, "SINAN_TEST_STATUS_FAIL": "1"},
+        )
+        assert failed.returncode != 0 and "恢复上一版本" in failed.stderr
+        assert Path("/opt/sinan/core/current").readlink() == previous
+        wait_for(lambda: pid(AGENT_STATE) != before_recovery, "Agent recovery after failed startup")
+        assert pid(RUNTIME_STATE) == runtime_pid
+        service("sinan-agent", "stop")
         service("sinan-agent", "start")
         agent_pid = wait_for(lambda: (number := pid(AGENT_STATE)) != agent_pid and number,
                              "Agent starting independently")

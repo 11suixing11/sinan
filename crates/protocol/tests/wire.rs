@@ -40,6 +40,8 @@ fn known_messages() -> Vec<Message> {
             uptime_secs: 123,
         }),
         Message::TelemetryStatic(StaticInfo {
+            os: None,
+            libc: None,
             ip_addresses: vec!["192.0.2.10".into(), "2001:db8::10".into()],
             system: Some("Debian GNU/Linux 12".into()),
             kernel: Some("6.1.0".into()),

@@ -47,7 +47,7 @@ async fn artifact_path(
 ) -> ApiResult<PathBuf> {
     if !matches!(name, "agent" | "sing-box" | "nodequality")
         || !safe_segment(version)
-        || !matches!(arch, "amd64" | "arm64")
+        || !sinan_protocol::platform::ARTIFACT_TARGETS.contains(&arch)
     {
         return Err(ApiError::NotFound);
     }
@@ -186,7 +186,7 @@ pub async fn list(
             if !safe_segment(&version) {
                 continue;
             }
-            for arch in ["amd64", "arm64"] {
+            for &arch in sinan_protocol::platform::ARTIFACT_TARGETS {
                 if let Ok((bytes, sha256)) = verified_bytes(&state, name, &version, arch).await {
                     entries.push(ArtifactEntry {
                         name: name.into(),
