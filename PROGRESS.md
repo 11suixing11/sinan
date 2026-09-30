@@ -622,6 +622,8 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 业务归位最终代码 `29c4df4` / main `229becc` 的 CI36780128478 实际通过：fmt、全 targets Clippy、Rust/PostgreSQL307成功/0失败/9既有条件ignore，四项业务PG验收（含发布启用竞态）全部执行；随后六项真实systemd成功/0失败/0忽略，Compose与musl两架构成功。该PR事件Reality按draft跳过，专用节点/生产迁移未冒称通过；此后仅追加文档证据。
 
+- 业务归位最终整合正常保留作者 `9cc507e` 与 main `8254055`（#51/#54/#57/R5），源码基线 `276bdea`。模式活动读取改用 plugins facade，真实 PG 证明纯监控日常检查 `not_enabled` 且零部署；发布保留锁内筛选和独立语句启用重检。首次整套链接因磁盘不足中断，随后按 target 清单串行完成全部八包 all-targets 覆盖并补统一 workspace library/adapter/runtime，去重325通过/0失败/9既有条件忽略，统一 workspace 全 targets Clippy、fmt、core 门禁/六项行为、actionlint及差异检查通过。Bun五项/711断言、TypeScript/Vite与实际 dist `index-Hx7wA0D0.js` 的桌面/手机插件、模式、取消、provider场景通过，页面错误0；浏览器使用明确 API 夹具。Python83通过/5条件跳过、R5包装器34通过、daily helper7通过。所有 provider 测试移除真实密钥并仅用合成凭据/回环；本机未运行真实Linux/root/systemd、正式账户/配额、上游完整负载或生产迁移，最终CI独立核对。详细证据见 [业务搬迁验收](docs/acceptance/singbox-plugin-business.md)。
+
 ## 2026-10-01 两个诊断入口（Issue #21，独立 PR）
 
 - 新 r4 不可变 runner 将日常检查限制为自有标准库 TCP 探测，最多 4 个已配置启用目标、每 IP 族 4 次、DNS 2 秒/连接 1 秒/任务 90 秒，无硬件/rootfs/测速/上游/公开上传。IP 刷新复用逐源缓存，明确不是节点流媒体证据。

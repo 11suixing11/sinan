@@ -34,3 +34,11 @@
 代码 `29c4df4`，基于 main `229becc`，CI [36780128478](https://github.com/theLucius7/sinan/actions/runs/36780128478) 实际成功：workspace fmt、全 targets Clippy、完整 Rust/PostgreSQL **307 成功 / 0 失败 / 9 既有环境条件忽略**；新增三项迁移/启用场景与发布竞态 PostgreSQL 场景均实际通过。随后独立真实 systemd 诊断夹具 **6 成功 / 0 失败 / 0 忽略**，包含内存/任务数限制、排队启动、超时恢复、预检互斥、锁权限以及取消后的进程和私有挂载确认。
 
 Compose 与 musl amd64/arm64 成功，该 PR 事件的 Reality 安装计量任务按草稿策略跳过。旧代码 `1fe1cc5` 的另一流水线仍可能独立运行 Reality，不把其结果用于认证最后新增的并发修复。专用小内存节点和生产迁移仍属于单独实机验收。本段追加仅为验收文档，不改变已验证代码。
+
+## 最终 main 整合验收
+
+正常保留作者 `9cc507e` 与 main `8254055`（确认取消、IP 入口、日常/完整模式及 R5 兼容），源码验证基线为 `276bdea`。模式页通过业务中性 `plugins::runtime_activity_on` 读取启用和近期正向计量证据，业务 SQL 留在 sing-box 插件；真实 PostgreSQL 断言纯监控日常检查为 `not_enabled`，且不会生成部署。发布同时保留作者锁内候选筛选和独立语句启用重检，两个并发回归均通过。
+
+本机磁盘耗尽曾中断整套链接，未将中断计为成功。随后按 Cargo target 清单串行完成全部八个 workspace 包的 all-targets 覆盖，并在统一 workspace 依赖图补跑所有 library 与 sing-box adapter/runtime：去重后 **325 成功 / 0 失败 / 9 既有环境条件忽略**（Panel100、protocol19、compiler7、NodeQuality16、SDK1、Agent core168、Agent2、sing-box12）。真实 PostgreSQL 包含 0012 故障回滚/重试/幂等、十张旧表完整快照、旧订阅两种格式、旧账本重放与改 payload 拒绝，以及取消、章节、模式和 provider 交互。统一 workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁及六项行为回归、actionlint、差异检查全部通过。
+
+Bun 1.4.2 冻结依赖、五项字段测试/711 断言及 TypeScript/Vite 构建通过；最终 dist 为 `index-Hx7wA0D0.js`。实际 Chromium 桌面和 390px 手机运行插件启用/导航/零业务请求、确认取消、IP 来源展示与每种尺寸七个模式场景，页面错误为零；浏览器 API 使用明确夹具，与上述真实 PostgreSQL 后端验证分别记录。Python discovery83通过/5条件跳过、R5包装器34通过、daily helper7通过。测试显式移除真实 `SINAN_ABUSEIPDB_API_KEY`，仅用合成凭据和回环 HTTP。本轮 macOS 未执行真实 Linux/root/systemd、正式 API 账户/配额、完整上游负载或生产迁移；最终 head CI 与专用节点继续独立核对。
