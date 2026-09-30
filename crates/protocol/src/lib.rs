@@ -2,6 +2,8 @@
 
 pub mod platform;
 pub mod tasks;
+pub mod upgrade;
+pub use upgrade::{AgentRelease, release_version};
 pub mod telemetry;
 pub use tasks::*;
 pub use telemetry::{

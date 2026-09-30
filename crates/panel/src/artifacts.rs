@@ -211,45 +211,83 @@ pub async fn install_script(
     State(state): State<AppState>,
     Query(query): Query<TokenQuery>,
 ) -> ApiResult<Response> {
-    crate::servers::validate_enrollment(&state.pool, &query.token).await?;
-    let amd64 = descriptor(&state, "agent", AGENT_VERSION, "amd64")
-        .await
-        .ok()
-        .map(|value| value.sha256)
-        .unwrap_or_default();
-    let arm64 = descriptor(&state, "agent", AGENT_VERSION, "arm64")
-        .await
-        .ok()
-        .map(|value| value.sha256)
-        .unwrap_or_default();
-    if amd64.is_empty() && arm64.is_empty() {
+    install_response(&state, &query.token, false).await
+}
+
+pub async fn install_powershell(
+    State(state): State<AppState>,
+    Query(query): Query<TokenQuery>,
+) -> ApiResult<Response> {
+    install_response(&state, &query.token, true).await
+}
+
+async fn install_response(state: &AppState, token: &str, windows: bool) -> ApiResult<Response> {
+    crate::servers::validate_enrollment(&state.pool, token).await?;
+    let quote = |value: &str| {
+        if windows {
+            format!("'{}'", value.replace('\'', "''"))
+        } else {
+            shell_quote(value)
+        }
+    };
+    let mut script = if windows {
+        include_str!("../../../deploy/install.ps1.tmpl").to_owned()
+    } else {
+        include_str!("../../../deploy/install.sh.tmpl")
+            .replace(
+                "@@NATIVE_INSTALL@@",
+                include_str!("../../../deploy/install-native.sh.tmpl"),
+            )
+            .replace(
+                "@@AGENT_UNIT@@",
+                include_str!("../../../deploy/sinan-agent.service").trim_end(),
+            )
+            .replace(
+                "@@RUNTIME_UNIT@@",
+                include_str!("../../../plugins/sing-box/sinan-singbox@.service").trim_end(),
+            )
+            .replace(
+                "@@AGENT_OPENRC@@",
+                include_str!("../../../deploy/sinan-agent.openrc").trim_end(),
+            )
+            .replace(
+                "@@RUNTIME_OPENRC@@",
+                include_str!("../../../plugins/sing-box/sinan-singbox.openrc").trim_end(),
+            )
+    };
+    let mut available = false;
+    for target in sinan_protocol::platform::ARTIFACT_TARGETS {
+        if windows != target.starts_with("windows-") {
+            continue;
+        }
+        let digest = descriptor(state, "agent", AGENT_VERSION, target)
+            .await
+            .ok()
+            .map(|value| value.sha256)
+            .unwrap_or_default();
+        available |= !digest.is_empty();
+        script = script.replace(
+            &format!("@@{}_HASH@@", target.replace('-', "_").to_uppercase()),
+            &quote(&digest),
+        );
+    }
+    if !available {
         return Err(ApiError::NotFound);
     }
-    let script = include_str!("../../../deploy/install.sh.tmpl")
-        .replace("@@PANEL@@", &shell_quote(&state.config.public_url))
-        .replace("@@TOKEN@@", &shell_quote(&query.token))
-        .replace("@@VERSION@@", &shell_quote(AGENT_VERSION))
-        .replace("@@AMD64_HASH@@", &shell_quote(&amd64))
-        .replace("@@ARM64_HASH@@", &shell_quote(&arm64))
-        .replace(
-            "@@AGENT_UNIT@@",
-            include_str!("../../../deploy/sinan-agent.service").trim_end(),
-        )
-        .replace(
-            "@@RUNTIME_UNIT@@",
-            include_str!("../../../plugins/sing-box/sinan-singbox@.service").trim_end(),
-        )
-        .replace(
-            "@@AGENT_OPENRC@@",
-            include_str!("../../../deploy/sinan-agent.openrc").trim_end(),
-        )
-        .replace(
-            "@@RUNTIME_OPENRC@@",
-            include_str!("../../../plugins/sing-box/sinan-singbox.openrc").trim_end(),
-        );
+    script = script
+        .replace("@@PANEL@@", &quote(&state.config.public_url))
+        .replace("@@TOKEN@@", &quote(token))
+        .replace("@@VERSION@@", &quote(AGENT_VERSION));
     Ok((
         [
-            (header::CONTENT_TYPE, "text/x-shellscript; charset=utf-8"),
+            (
+                header::CONTENT_TYPE,
+                if windows {
+                    "text/plain; charset=utf-8"
+                } else {
+                    "text/x-shellscript; charset=utf-8"
+                },
+            ),
             (header::CACHE_CONTROL, "no-store"),
             (header::REFERRER_POLICY, "no-referrer"),
         ],

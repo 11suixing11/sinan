@@ -1,6 +1,8 @@
+mod archive;
 mod execution;
 mod openrc_jobs;
 pub use openrc_jobs::run_job;
+pub mod deploy;
 mod jobs;
 
 pub use sinan_adapter_sdk::{Privileged, ServiceManager};
@@ -10,11 +12,10 @@ pub use services::{ServiceBackend, SystemServiceManager};
 
 use crate::artifacts::safe_component;
 use anyhow::{Context, Result, ensure};
-use flate2::read::MultiGzDecoder;
 use sinan_adapter_sdk::{BoxFuture, CommandOutput, JobStatus, ServiceJob};
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::Write,
     os::unix::fs::{OpenOptionsExt, PermissionsExt, symlink},
     path::Path,
     time::Duration,
@@ -23,7 +24,6 @@ use tokio::{process::Command, time::timeout};
 use uuid::Uuid;
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
-const MAX_UNPACKED: u64 = 256 * 1024 * 1024;
 
 #[derive(Default)]
 pub struct SystemOps;
@@ -97,6 +97,13 @@ impl SystemOps {
 }
 
 impl Privileged for SystemOps {
+    fn spawn_managed<'a>(
+        &'a self,
+        program: &'a Path,
+        args: &'a [String],
+    ) -> BoxFuture<'a, Box<dyn sinan_adapter_sdk::ManagedProcess>> {
+        Box::pin(async move { execution::spawn(program, args) })
+    }
     fn execute_bounded<'a>(
         &'a self,
         program: &'a Path,
@@ -233,83 +240,30 @@ impl Privileged for SystemOps {
             let archive = archive.to_owned();
             let directory = directory.to_owned();
             let binary_name = binary_name.to_owned();
-            tokio::task::spawn_blocking(move || install_archive(&archive, &directory, &binary_name))
-                .await?
+            tokio::task::spawn_blocking(move || {
+                archive::install(&archive, &directory, &binary_name, &[])
+            })
+            .await?
         })
     }
-}
-
-fn install_archive(archive: &Path, directory: &Path, binary_name: &str) -> Result<()> {
-    ensure!(safe_component(binary_name), "invalid binary name");
-    ensure!(
-        fs::symlink_metadata(directory).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound),
-        "artifact version already exists"
-    );
-    let parent = parent_directory(directory)?;
-    ensure_directory(parent)?;
-    let staging = parent.join(format!(".unpack-{}", Uuid::new_v4()));
-    fs::create_dir(&staging)?;
-    fs::set_permissions(&staging, fs::Permissions::from_mode(0o700))?;
-    let result = (|| -> Result<()> {
-        let decoder = MultiGzDecoder::new(File::open(archive)?).take(MAX_UNPACKED + 1);
-        let mut archive = tar::Archive::new(decoder);
-        let mut found = false;
-        for entry in archive.entries()?.raw(true) {
-            let mut entry = entry?;
-            ensure!(!found, "archive must contain exactly one file");
-            ensure!(
-                entry.header().entry_type().is_file(),
-                "archive contains a non-ordinary file"
+    fn install_archive_files<'a>(
+        &'a self,
+        path: &'a Path,
+        directory: &'a Path,
+        binary_name: &'a str,
+        extras: &'a [String],
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let (path, directory, binary_name, extras) = (
+                path.to_owned(),
+                directory.to_owned(),
+                binary_name.to_owned(),
+                extras.to_vec(),
             );
-            ensure!(
-                entry.path_bytes().as_ref() == binary_name.as_bytes(),
-                "archive file name does not match expected binary"
-            );
-            ensure!(
-                entry.size() <= MAX_UNPACKED,
-                "artifact exceeds unpacked size limit"
-            );
-            let output = staging.join(binary_name);
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o700)
-                .open(output)?;
-            let size = entry.size();
-            ensure!(
-                std::io::copy(&mut entry, &mut file)? == size,
-                "archive file was truncated"
-            );
-            file.set_permissions(fs::Permissions::from_mode(0o755))?;
-            file.sync_all()?;
-            found = true;
-        }
-        ensure!(found, "archive does not contain the expected binary");
-        let mut decoder = archive.into_inner();
-        let mut tail = [0_u8; 8192];
-        loop {
-            let count = decoder.read(&mut tail)?;
-            if count == 0 {
-                break;
-            }
-            ensure!(
-                tail[..count].iter().all(|byte| *byte == 0),
-                "archive contains trailing data"
-            );
-        }
-        ensure!(decoder.limit() > 0, "artifact exceeds unpacked size limit");
-        fs::set_permissions(&staging, fs::Permissions::from_mode(0o755))?;
-        sync_directory(&staging)?;
-        ensure!(
-            fs::symlink_metadata(directory)
-                .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound),
-            "artifact version appeared during installation"
-        );
-        fs::rename(&staging, directory)?;
-        sync_directory(parent)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_dir_all(staging);
+            tokio::task::spawn_blocking(move || {
+                archive::install(&path, &directory, &binary_name, &extras)
+            })
+            .await?
+        })
     }
-    result
 }

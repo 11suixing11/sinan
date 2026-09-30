@@ -117,7 +117,10 @@ def install_script(origin):
         "AGENT_OPENRC": (ROOT / "deploy/sinan-agent.openrc").read_text().rstrip(),
         "RUNTIME_OPENRC": (ROOT / "plugins/sing-box/sinan-singbox.openrc").read_text().rstrip(),
     }
-    script = (ROOT / "deploy/install.sh.tmpl").read_text()
+    script = (ROOT / "deploy/install.sh.tmpl").read_text().replace(
+        "@@NATIVE_INSTALL@@", (ROOT / "deploy/install-native.sh.tmpl").read_text())
+    for target in ("LINUX_GNU_AMD64", "LINUX_GNU_ARM64", "LINUX_MUSL_AMD64", "LINUX_MUSL_ARM64", "MACOS_ARM64", "FREEBSD_AMD64", "FREEBSD_ARM64"):
+        values[f"{target}_HASH"] = "''"
     for key, value in values.items():
         script = script.replace(f"@@{key}@@", value)
     assert "@@" not in script

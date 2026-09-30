@@ -116,10 +116,12 @@ async fn routes_runtime_lifecycle_to_selected_init_without_changing_instance() -
                 vec!["--", "example-runtime@main", "status"],
                 vec!["--", "example-runtime@main", "stop"],
             ],
+            _ => unreachable!(),
         };
         let program = match backend {
             ServiceBackend::Systemd => "systemctl",
             ServiceBackend::OpenRc => "rc-service",
+            _ => unreachable!(),
         };
         for ((actual_program, args), expected_args) in calls.iter().zip(expected) {
             assert_eq!(actual_program, Path::new(program));

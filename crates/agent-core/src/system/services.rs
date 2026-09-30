@@ -11,14 +11,23 @@ use tokio::time::timeout;
 pub enum ServiceBackend {
     Systemd,
     OpenRc,
+    Launchd,
+    FreeBsd,
+    WindowsTask,
+    Unmanaged,
 }
 
 impl ServiceBackend {
     pub fn detect() -> Result<Self> {
-        ensure!(
-            cfg!(target_os = "linux"),
-            "service management requires Linux"
-        );
+        if cfg!(target_os = "macos") {
+            return Ok(Self::Launchd);
+        }
+        if cfg!(target_os = "freebsd") {
+            return Ok(Self::FreeBsd);
+        }
+        if cfg!(windows) {
+            return Ok(Self::WindowsTask);
+        }
         Self::detect_at(
             Path::new("/run/systemd/system"),
             Path::new("/run/openrc/softlevel"),
@@ -88,6 +97,78 @@ impl SystemServiceManager {
                     vec!["--".into(), service.into(), action.into()],
                 )
             }
+            ServiceBackend::FreeBsd => {
+                let action = if action == "is-active" {
+                    "onestatus"
+                } else {
+                    action
+                };
+                (
+                    "service",
+                    vec![service.replace(['@', '-', '.'], "_"), action.into()],
+                )
+            }
+            ServiceBackend::Launchd => {
+                let label = format!("system/org.sinan.{}", service.replace('@', "."));
+                if action == "restart" {
+                    let loaded = self
+                        .privileged
+                        .execute(Path::new("launchctl"), &["print".into(), label.clone()])
+                        .await?;
+                    if !loaded.success {
+                        let path = format!(
+                            "/Library/LaunchDaemons/org.sinan.{}.plist",
+                            service.replace('@', ".")
+                        );
+                        let result = self
+                            .privileged
+                            .execute(
+                                Path::new("launchctl"),
+                                &["bootstrap".into(), "system".into(), path],
+                            )
+                            .await?;
+                        ensure!(
+                            result.success,
+                            "cannot load runtime service: {}",
+                            result.stderr
+                        );
+                    }
+                }
+                let args = match action {
+                    "restart" => vec!["kickstart".into(), "-k".into(), label],
+                    "reload" => vec!["kill".into(), "SIGHUP".into(), label],
+                    "stop" => vec!["bootout".into(), label],
+                    "is-active" => vec!["print".into(), label],
+                    _ => anyhow::bail!("unsupported service action"),
+                };
+                ("launchctl", args)
+            }
+            ServiceBackend::WindowsTask => {
+                let script = match action {
+                    "restart" | "reload" => format!(
+                        "$ErrorActionPreference='Stop'; Stop-ScheduledTask -TaskName '{service}'; Start-Sleep -Milliseconds 300; Start-ScheduledTask -TaskName '{service}'"
+                    ),
+                    "stop" => format!(
+                        "$ErrorActionPreference='Stop'; Stop-ScheduledTask -TaskName '{service}'"
+                    ),
+                    "is-active" => format!(
+                        "$ErrorActionPreference='Stop'; if ((Get-ScheduledTask -TaskName '{service}').State -ne 'Running') {{ exit 1 }}"
+                    ),
+                    _ => anyhow::bail!("unsupported service action"),
+                };
+                (
+                    "powershell.exe",
+                    vec![
+                        "-NoProfile".into(),
+                        "-NonInteractive".into(),
+                        "-Command".into(),
+                        script,
+                    ],
+                )
+            }
+            ServiceBackend::Unmanaged => {
+                anyhow::bail!("monitor-only Agent has no runtime service manager")
+            }
         };
         timeout(
             COMMAND_TIMEOUT,
@@ -119,7 +200,15 @@ impl ServiceManager for SystemServiceManager {
         Box::pin(self.change("stop", unit))
     }
     fn is_active<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, bool> {
-        Box::pin(async move { Ok(self.call("is-active", unit, true).await?.success) })
+        Box::pin(async move {
+            let output = self.call("is-active", unit, true).await?;
+            Ok(output.success
+                && (self.backend != ServiceBackend::Launchd
+                    || output
+                        .stdout
+                        .lines()
+                        .any(|line| line.trim() == "state = running")))
+        })
     }
     fn start_job<'a>(&'a self, job: &'a ServiceJob) -> BoxFuture<'a, ()> {
         self.start_diagnostic_job(job)

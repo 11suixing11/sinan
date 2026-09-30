@@ -30,6 +30,10 @@ impl SystemServiceManager {
             if self.backend == ServiceBackend::OpenRc {
                 return self.start_openrc_job(job).await;
             }
+            ensure!(
+                self.backend == ServiceBackend::Systemd,
+                "diagnostic jobs require Linux"
+            );
             let mut args = vec![
                 format!("--unit={}", job.unit),
                 "--no-block".into(),
@@ -65,6 +69,10 @@ impl SystemServiceManager {
             if self.backend == ServiceBackend::OpenRc {
                 return self.openrc_job_status(unit).await;
             }
+            ensure!(
+                self.backend == ServiceBackend::Systemd,
+                "diagnostic jobs require Linux"
+            );
             let args = vec!["show".into(), "--property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,ExecMainStartTimestampMonotonic".into(), "--".into(), unit.into()];
             let output = self
                 .privileged

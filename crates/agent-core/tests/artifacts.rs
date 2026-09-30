@@ -100,6 +100,7 @@ fn descriptor() -> Descriptor {
         module: "runtime".into(),
         plugin_name: "runtime".into(),
         binary_name: "runtime".into(),
+        auxiliary_files: Vec::new(),
         service_unit: "runtime@main.service".into(),
         service_group: String::new(),
     }
@@ -472,5 +473,55 @@ async fn cancelled_commands_terminate_the_child_process() -> Result<()> {
         }
     })
     .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn auxiliary_artifacts_are_required_and_cached_by_digest() -> Result<()> {
+    let temporary = Temporary::new()?;
+    let packed = archive(&[
+        ("runtime", tar::EntryType::Regular, b"binary"),
+        ("helper.dll", tar::EntryType::Regular, b"library"),
+    ])?;
+    let panel = HttpServer::new(packed.clone(), "200 OK", "").await?;
+    let client = PanelClient::new(&panel.origin, "test-session")?;
+    let artifact = Artifact {
+        url: format!("{}/archive", panel.origin),
+        sha256: checksum(&packed),
+    };
+    let mut descriptor = descriptor();
+    descriptor.auxiliary_files = vec!["helper.dll".into()];
+    let binary = client
+        .ensure_artifact(&artifact, "1.0", &descriptor, &temporary.0, &SystemOps)
+        .await?;
+    assert_eq!(
+        std::fs::read(binary.parent().unwrap().join("helper.dll"))?,
+        b"library"
+    );
+    client
+        .ensure_artifact(&artifact, "1.0", &descriptor, &temporary.0, &SystemOps)
+        .await?;
+    assert_eq!(panel.requests.lock().await.len(), 1);
+    std::fs::write(binary.parent().unwrap().join("helper.dll"), b"changed")?;
+    assert!(
+        client
+            .ensure_artifact(&artifact, "1.0", &descriptor, &temporary.0, &SystemOps)
+            .await
+            .is_err()
+    );
+    descriptor.auxiliary_files.clear();
+    assert!(
+        client
+            .ensure_artifact(&artifact, "2.0", &descriptor, &temporary.0, &SystemOps)
+            .await
+            .is_err()
+    );
+    descriptor.auxiliary_files = vec!["missing.dll".into()];
+    assert!(
+        client
+            .ensure_artifact(&artifact, "3.0", &descriptor, &temporary.0, &SystemOps)
+            .await
+            .is_err()
+    );
     Ok(())
 }

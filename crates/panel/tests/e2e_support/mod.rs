@@ -112,6 +112,7 @@ impl Harness {
             state_db: root.join("state.db"),
             runtime_root: root.join("runtime"),
             install_root: root.join("install"),
+            agent_root: root.join("core"),
             status_socket: root.join("run/status.sock"),
             operation_timeout_secs: 5,
             public_ips: Vec::new(),

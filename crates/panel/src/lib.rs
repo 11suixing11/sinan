@@ -2,6 +2,7 @@
 
 pub mod accesses;
 pub mod agent_api;
+pub mod agent_updates;
 pub mod artifacts;
 pub mod auth;
 pub mod business;
@@ -130,6 +131,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/agent/v1/ws", get(agent_api::websocket))
         .route("/api/agent/v1/manifest", get(agent_api::manifest))
         .route("/api/agent/v1/settings", get(telemetry::agent_settings))
+        .route("/api/agent/v1/update", get(agent_updates::available))
         .route("/api/agent/v1/telemetry", post(telemetry::ingest))
         .route("/api/agent/v1/commands", get(commands::pending))
         .route("/api/agent/v1/commands/{id}", post(commands::complete))
@@ -145,6 +147,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/artifacts", get(artifacts::list))
         .route("/api/bootstrap/{version}/{arch}", get(artifacts::bootstrap))
         .route("/install.sh", get(artifacts::install_script))
+        .route("/install.ps1", get(artifacts::install_powershell))
         .fallback(frontend::serve)
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
         .with_state(state)

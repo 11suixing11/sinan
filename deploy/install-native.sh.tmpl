@@ -1,0 +1,24 @@
+case "$(uname -s)" in
+  Darwin) [ "$(uname -m)" = arm64 ] || { echo 'macOS 仅支持 ARM64'; exit 1; }; TARGET=macos-arm64; HASH=@@MACOS_ARM64_HASH@@ ;;
+  FreeBSD)
+    case "$(uname -m)" in amd64|x86_64) TARGET=freebsd-amd64; HASH=@@FREEBSD_AMD64_HASH@@ ;; arm64|aarch64) TARGET=freebsd-arm64; HASH=@@FREEBSD_ARM64_HASH@@ ;; *) echo '不支持此架构'; exit 1 ;; esac
+    ;;
+esac
+[ -n "$HASH" ] || { echo '面板缺少匹配平台的 Agent 制品'; exit 1; }
+NATIVE_TMP=$(mktemp -d)
+trap 'rm -rf "$NATIVE_TMP"' EXIT
+if command -v curl >/dev/null; then
+  curl --fail --silent --show-error --connect-timeout 20 --max-time 300 "$PANEL/api/bootstrap/$VERSION/$TARGET?token=$TOKEN" -o "$NATIVE_TMP/sinan-agent"
+else
+  fetch -T 300 -o "$NATIVE_TMP/sinan-agent" "$PANEL/api/bootstrap/$VERSION/$TARGET?token=$TOKEN"
+fi
+if [ "$(uname -s)" = Darwin ]; then ACTUAL=$(shasum -a 256 "$NATIVE_TMP/sinan-agent" | awk '{print $1}')
+else ACTUAL=$(sha256 -q "$NATIVE_TMP/sinan-agent"); fi
+[ "$ACTUAL" = "$HASH" ] || { echo 'Agent SHA-256 校验失败'; exit 1; }
+chmod 0755 "$NATIVE_TMP/sinan-agent"
+[ "$("$NATIVE_TMP/sinan-agent" --version)" = "sinan-agent $VERSION" ] || { echo 'Agent 版本校验失败'; exit 1; }
+"$NATIVE_TMP/sinan-agent" enroll --panel "$PANEL" --token "$TOKEN"
+"$NATIVE_TMP/sinan-agent" install-service
+mkdir -p /usr/local/bin
+ln -sfn /opt/sinan/core/current/sinan-agent /usr/local/bin/sinan-agent
+exit 0

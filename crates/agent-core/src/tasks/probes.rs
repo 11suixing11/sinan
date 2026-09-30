@@ -18,9 +18,15 @@ pub(super) async fn run(
     ops: Arc<dyn Privileged>,
     clients: watch::Receiver<Option<Arc<PanelClient>>>,
 ) -> Result<()> {
+    tokio::try_join!(sample_loop(state.clone(), ops), synchronize(state, clients))?;
+    Ok(())
+}
+
+async fn synchronize(
+    state: SharedState,
+    clients: watch::Receiver<Option<Arc<PanelClient>>>,
+) -> Result<()> {
     let mut refreshed = Instant::now() - Duration::from_secs(31);
-    let mut due = HashMap::<Uuid, Instant>::new();
-    let permits = Arc::new(Semaphore::new(4));
     loop {
         let client = clients.borrow().clone();
         if let Some(client) = client {
@@ -44,6 +50,14 @@ pub(super) async fn run(
                 tracing::warn!(%error,"probe results retained for retry");
             }
         }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}
+
+async fn sample_loop(state: SharedState, ops: Arc<dyn Privileged>) -> Result<()> {
+    let mut due = HashMap::<Uuid, Instant>::new();
+    let permits = Arc::new(Semaphore::new(4));
+    loop {
         let configuration = state
             .lock()
             .map_err(|_| anyhow::anyhow!("state lock poisoned"))?

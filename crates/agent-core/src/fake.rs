@@ -62,6 +62,7 @@ impl Adapter for FakeAdapter {
             module: "demo".into(),
             plugin_name: "demo".into(),
             binary_name: "demo".into(),
+            auxiliary_files: Vec::new(),
             service_unit: "demo@main".into(),
             service_group: String::new(),
         }

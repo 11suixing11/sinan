@@ -1,3 +1,4 @@
+mod cache;
 use crate::config::validate_panel_url;
 use anyhow::{Context, Result, ensure};
 use futures_util::StreamExt;
@@ -38,6 +39,8 @@ pub struct PanelClient {
 struct InstalledArtifact {
     archive_sha256: String,
     binary_sha256: String,
+    #[serde(default)]
+    auxiliary_sha256: std::collections::BTreeMap<String, String>,
 }
 
 fn normalized_hash(value: &str) -> Result<String> {
@@ -76,6 +79,12 @@ pub fn validate_bundle_files(bundle: &Bundle) -> Result<()> {
 }
 
 impl PanelClient {
+    pub(crate) async fn agent_binary(&self, artifact: &Artifact) -> Result<Vec<u8>> {
+        let expected = normalized_hash(&artifact.sha256)?;
+        let bytes = self.download(&artifact.url, 128 * 1024 * 1024).await?;
+        ensure!(digest(&bytes) == expected, "Agent binary SHA256 mismatch");
+        Ok(bytes)
+    }
     pub(crate) async fn get_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
         let url = self.panel.join(path)?;
         Ok(serde_json::from_slice(
@@ -266,130 +275,8 @@ impl PanelClient {
         validate_bundle_files(&bundle)?;
         Ok(bundle)
     }
-
-    pub async fn ensure_artifact(
-        &self,
-        artifact: &Artifact,
-        version: &str,
-        descriptor: &Descriptor,
-        install_root: &Path,
-        ops: &dyn Privileged,
-    ) -> Result<PathBuf> {
-        ensure!(
-            install_root.is_absolute(),
-            "artifact installation root must be absolute"
-        );
-        ensure!(
-            safe_component(version)
-                && safe_component(&descriptor.plugin_name)
-                && safe_component(&descriptor.binary_name),
-            "invalid artifact version or descriptor path"
-        );
-        self.validate_url(&artifact.url)?;
-        let expected = normalized_hash(&artifact.sha256)?;
-        let plugin = install_root.join(&descriptor.plugin_name);
-        let directory = plugin.join(version);
-        let binary = directory.join(&descriptor.binary_name);
-        ensure_ordinary_directory_if_present(&plugin).await?;
-        match tokio::fs::symlink_metadata(&directory).await {
-            Ok(metadata) => {
-                ensure!(
-                    metadata.is_dir(),
-                    "cached artifact directory is not an ordinary directory"
-                );
-                ensure!(
-                    tokio::fs::symlink_metadata(&binary).await?.is_file(),
-                    "cached artifact is not an ordinary file"
-                );
-                let marker = directory.join(MARKER);
-                let metadata = tokio::fs::symlink_metadata(&marker)
-                    .await
-                    .context("existing artifact has no cache metadata; refusing to overwrite")?;
-                ensure!(
-                    metadata.is_file() && metadata.len() <= 4096,
-                    "invalid artifact cache metadata"
-                );
-                let cached: InstalledArtifact =
-                    serde_json::from_slice(&tokio::fs::read(marker).await?)?;
-                ensure!(
-                    cached.archive_sha256 == expected,
-                    "existing artifact version has a different SHA256; refusing to overwrite"
-                );
-                ensure!(
-                    file_digest(&binary).await? == cached.binary_sha256,
-                    "cached artifact binary was modified"
-                );
-                return Ok(binary);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
-        }
-        let bytes = self.download(&artifact.url, MAX_DOWNLOAD).await?;
-        ensure!(digest(&bytes) == expected, "artifact SHA256 mismatch");
-        ops.create_dir(&plugin, 0o755, None).await?;
-        let archive = plugin.join(format!(".download-{}.tar.gz", Uuid::new_v4()));
-        ops.write_file(&archive, &bytes, 0o600, None).await?;
-        let installed = ops
-            .install_archive(&archive, &directory, &descriptor.binary_name)
-            .await;
-        let _ = ops
-            .execute(
-                Path::new("rm"),
-                &[
-                    "-f".into(),
-                    "--".into(),
-                    archive.to_string_lossy().into_owned(),
-                ],
-            )
-            .await;
-        installed?;
-        let marker = InstalledArtifact {
-            archive_sha256: expected,
-            binary_sha256: file_digest(&binary).await?,
-        };
-        ops.write_file(
-            &directory.join(MARKER),
-            &serde_json::to_vec(&marker)?,
-            0o644,
-            None,
-        )
-        .await?;
-        Ok(binary)
-    }
-}
-
-async fn ensure_ordinary_directory_if_present(path: &Path) -> Result<()> {
-    match tokio::fs::symlink_metadata(path).await {
-        Ok(metadata) => ensure!(
-            metadata.is_dir(),
-            "artifact plugin path is not an ordinary directory"
-        ),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
-    Ok(())
 }
 
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
-}
-
-async fn file_digest(path: &Path) -> Result<String> {
-    let mut file = tokio::fs::File::open(path).await?;
-    let mut hash = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    let mut length = 0_u64;
-    loop {
-        let count = file.read(&mut buffer).await?;
-        if count == 0 {
-            break;
-        }
-        length += count as u64;
-        ensure!(
-            length <= 256 * 1024 * 1024,
-            "cached artifact exceeds size limit"
-        );
-        hash.update(&buffer[..count]);
-    }
-    Ok(format!("{:x}", hash.finalize()))
 }

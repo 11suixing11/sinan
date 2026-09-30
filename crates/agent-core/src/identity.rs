@@ -36,6 +36,13 @@ pub async fn enroll(config: &Config, token: &str) -> anyhow::Result<i64> {
         !token.is_empty() && token.len() <= 512,
         "invalid enrollment token"
     );
+    #[cfg(windows)]
+    {
+        use sinan_adapter_sdk::Privileged;
+        crate::system::SystemOps
+            .create_dir(&config.identity_dir, 0o700, None)
+            .await?;
+    }
     prepare_directory(&config.identity_dir)?;
     let origin_path = config.identity_dir.join("panel_origin");
     let origin = validate_panel_url(&config.panel_url)?
@@ -115,6 +122,8 @@ fn read_key(path: &Path) -> anyhow::Result<SigningKey> {
             "device key must only be accessible by its owner"
         );
     }
+    #[cfg(windows)]
+    crate::system::check_private(path)?;
     let bytes: [u8; 32] = fs::read(path)?
         .try_into()
         .map_err(|_| anyhow::anyhow!("invalid device key length"))?;
@@ -139,10 +148,14 @@ fn prepare_directory(path: &Path) -> anyhow::Result<()> {
             "identity directory must not be writable by group or others"
         );
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        let _ = path;
-        anyhow::bail!("private identity permissions require a Unix platform");
+        let metadata = fs::symlink_metadata(path)?;
+        anyhow::ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "identity directory must be ordinary"
+        );
+        crate::system::check_private(path)?;
     }
     Ok(())
 }
@@ -169,6 +182,7 @@ fn write_once(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     let _ = fs::remove_file(&temporary);
     match result {
         Ok(()) => {
+            #[cfg(unix)]
             fs::File::open(path.parent().context("identity file has no parent")?)?.sync_all()?;
             Ok(())
         }
@@ -184,6 +198,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
         let _ = fs::remove_file(temporary);
     }
     result?;
+    #[cfg(unix)]
     fs::File::open(path.parent().context("identity file has no parent")?)?.sync_all()?;
     Ok(())
 }

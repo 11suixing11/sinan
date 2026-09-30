@@ -15,6 +15,8 @@ pub struct Descriptor {
     pub module: String,
     pub plugin_name: String,
     pub binary_name: String,
+    #[serde(default)]
+    pub auxiliary_files: Vec<String>,
     pub service_unit: String,
     pub service_group: String,
 }
@@ -65,7 +67,20 @@ pub struct Execution {
     pub truncated: bool,
 }
 
+pub trait ManagedProcess: Send {
+    fn id(&self) -> u32;
+    fn try_wait(&mut self) -> anyhow::Result<Option<bool>>;
+    fn terminate(&mut self) -> BoxFuture<'_, ()>;
+}
+
 pub trait Privileged: Send + Sync {
+    fn spawn_managed<'a>(
+        &'a self,
+        _program: &'a Path,
+        _args: &'a [String],
+    ) -> BoxFuture<'a, Box<dyn ManagedProcess>> {
+        Box::pin(async { anyhow::bail!("managed process spawning is not supported") })
+    }
     fn execute<'a>(&'a self, program: &'a Path, args: &'a [String])
     -> BoxFuture<'a, CommandOutput>;
     fn execute_bounded<'a>(
@@ -113,6 +128,21 @@ pub trait Privileged: Send + Sync {
         directory: &'a Path,
         binary_name: &'a str,
     ) -> BoxFuture<'a, ()>;
+    fn install_archive_files<'a>(
+        &'a self,
+        archive: &'a Path,
+        directory: &'a Path,
+        binary_name: &'a str,
+        auxiliary_files: &'a [String],
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            anyhow::ensure!(
+                auxiliary_files.is_empty(),
+                "additional artifact files are not supported"
+            );
+            self.install_archive(archive, directory, binary_name).await
+        })
+    }
 }
 
 pub trait ServiceManager: Send + Sync {

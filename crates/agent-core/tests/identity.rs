@@ -30,6 +30,7 @@ impl Directory {
             state_db: self.0.join("state.db"),
             runtime_root: self.0.join("runtime"),
             install_root: self.0.join("install"),
+            agent_root: self.0.join("core"),
             status_socket: self.0.join("status.sock"),
             operation_timeout_secs: 5,
             public_ips: vec![],

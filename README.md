@@ -1,6 +1,6 @@
 # 司南 Sinan
 
-自托管的服务器与代理节点控制面板。面板保存期望配置；Linux Agent 主动连接面板，负责配置对账、应用恢复、系统遥测和按用户计量。代理运行时作为独立 systemd 或 OpenRC 服务运行，面板或 Agent 暂时离线时，最后一份可用配置继续工作。
+自托管的服务器与代理节点控制面板。面板保存期望配置；跨平台 Agent 主动连接面板，负责配置对账、应用恢复、系统遥测和按用户计量。代理运行时作为独立系统服务运行，面板或 Agent 暂时离线时，最后一份可用配置继续工作。
 
 MVP 提供中文管理界面、单管理员登录、服务器接入、VLESS + Reality 节点、用户授权、两种订阅格式、部署状态与流量汇总。运行时固定为上游 **sing-box 1.14.2**，保留官方默认构建标签，额外启用 `with_v2ray_api`，不修改上游源码。后续新增 **NodeQuality 外插**：Agent 上报 IP，面板查询 IP 质量，管理员可一键在该服务器运行测试并获取报告。
 
@@ -98,7 +98,7 @@ rustup target add x86_64-unknown-linux-musl
 bash tools/build-agent.sh amd64 "$PWD/data/artifacts"
 ```
 
-arm64 主机将目标改为 `aarch64-unknown-linux-musl`，脚本参数改为 `arm64`。脚本验证 ELF 架构、无动态解释器/动态库依赖，以及原生 `--version` / `--help` 运行结果，再发布制品。安装脚本的 curl 需要系统 CA 证书及基础安装工具；Agent 的 HTTPS/WebSocket 使用公共 WebPKI 根证书，目前没有自定义 CA 配置项。运行平台需要 Linux systemd 或 OpenRC。
+arm64 主机将目标改为 `aarch64-unknown-linux-musl`，脚本参数改为 `arm64`。脚本验证 ELF 架构、无动态解释器/动态库依赖，以及原生 `--version` / `--help` 运行结果，再发布制品。安装脚本的 curl 需要系统 CA 证书及基础安装工具；Agent 的 HTTPS/WebSocket 使用公共 WebPKI 根证书，目前没有自定义 CA 配置项。Linux 服务支持 systemd 和 OpenRC；原生 macOS、FreeBSD、Windows 安装见下文。
 
 ### CI 可下载的 Agent 编译产物
 
@@ -116,9 +116,9 @@ arm64 主机将目标改为 `aarch64-unknown-linux-musl`，脚本参数改为 `a
 
 Alpine/OpenRC 使用 musl 静态 Agent；Ubuntu 24.04/systemd 可使用 glibc 动态 Agent。OpenRC 与 systemd 是服务管理方式，不是额外的编译目标；选择二进制仍需匹配设备的 libc 和架构。musl 静态版也可用于 systemd 设备，glibc 动态版需与宿主共享库兼容。
 
-musl 压缩包保持上方 `agent/<version>/<arch>` 的原部署结构。其余下载内容使用 `<version>/<Rust target>/sinan-agent`（Windows 为 `sinan-agent.exe`），各 target 目录附 `SHA256SUMS`。Actions ZIP 不保留 Unix 执行权限，直接运行下载文件前执行 `chmod +x sinan-agent`。
+所有 Agent 产物均提供面板可直接导入的 `<version>/<platform-target>` 和 `SHA256SUMS`，如 `linux-musl-amd64`、`macos-arm64`、`freebsd-arm64`、`windows-amd64`。musl 兼容旧 `amd64`/`arm64` 文件名，其他目标另附 Rust target 子目录方便直接运行。Actions ZIP 不保留 Unix 执行权限，直接运行前执行 `chmod +x sinan-agent`。不同任务的产物导入同一个版本目录时，需要合并各自 `SHA256SUMS` 的条目，不能覆盖其他平台的摘要。
 
-非 Linux 平台提供的是**编译产物与 CLI 检查**。设备注册、常驻运行、状态查询及安装脚本仍限 Linux，服务管理支持 systemd 或 OpenRC；非 Linux 平台执行这些命令会明确返回限制。面板 Docker 和运行时构建范围见其他章节。
+各平台支持注册、常驻运行、状态查询、遥测、命令、拨测和配置对账。macOS 使用 launchd、FreeBSD 使用 rc.d 与 daemon、Windows 使用启动时计划任务；Agent 与运行时始终独立。Windows 运行时使用专用普通账户，Agent 使用 SYSTEM，身份与状态由 ACL 保护。NodeQuality 外插仍仅支持 Linux。
 
 在对应系统及架构安装 Rust stable、Python 3.11 以上和本机 C 工具链后，可以本地构建新增目标：
 
@@ -200,7 +200,7 @@ docker compose --project-name sinan --env-file .env -f deploy/docker-compose.yml
    sudo apt-get install -y ca-certificates curl coreutils passwd
    ```
 
-2. 面板添加服务器，复制生成的安装命令，在目标服务器上以 root 执行。安装依赖运行中的 Linux systemd 或 OpenRC，会自动选择对应服务脚本；普通容器中仅安装 init 工具而没有启动 init 不满足条件。令牌 24 小时有效且只可消费一次。
+2. 面板添加服务器，复制生成的安装命令，在目标服务器上以 root 执行。安装时选择 Linux/macOS、FreeBSD 或 Windows 命令；Unix 以 root、Windows 以管理员 PowerShell 运行。Linux 自动识别正在运行的 systemd/OpenRC，普通容器中只安装 init 工具不满足条件。令牌 24 小时有效且只可消费一次。
 3. 30 秒内检查服务器是否在线，并出现系统信息与最新指标。也可在设备上执行：
 
    ```bash
@@ -246,13 +246,15 @@ sudo rc-service sinan-singbox@main reload
 
 日志权限为 0640，应按设备现有日志轮转规则管理。运行时 reload 通过 supervisor 向实际代理进程发送 HUP，Agent 重启不会停止代理；运行时文件与账本路径和 systemd 相同。停用设备时分别停止这两个服务，取消开机启动使用 `rc-update del <服务名> default`。
 
-OpenRC 设备支持遥测、IP 上报、代理配置与流量计量，面板仍可查询 IP 质量；完整 NodeQuality 诊断报告需要 Linux systemd，OpenRC 设备的一键报告入口不可用。
+OpenRC 设备支持完整遥测、IP 质量、代理配置、流量计量和 NodeQuality 一次性诊断；需要支持挂载命名空间的 `unshare`。
 
-Agent musl 二进制可以运行在 Alpine；代理运行时仍需匹配宿主架构和 libc。仓库现有运行时构建使用 glibc，不能直接当作 Alpine musl 制品。OpenRC 支持与实际代理、公网 Reality 和整机重启验收分别记录；CI 的进程夹具检查不代替完整实机验收。
+Agent 与运行时均提供 musl 静态产物，可在 Alpine 使用；面板依据 OS/libc/架构选择制品，缺失 musl 运行时不会误用 glibc。OpenRC 支持与实际代理、公网 Reality 和整机重启验收分别记录；CI 的进程夹具检查不代替完整实机验收。
 
 ### 升级设备
 
-MVP 不做自动更新。在面板发布与新面板版本一致的 Agent 制品后，到原服务器详情点击“接入 / 升级”，签发**新的**一次性令牌，重新执行安装命令。保留原设备身份、面板地址和状态库；同一服务器只允许原公钥再次注册，不能复制其他设备的身份目录。已消费的旧命令不能再次使用。安装脚本先校验并注册暂存二进制，再切换当前版本并重启 Agent。
+自动更新默认关闭，可在服务器详情的 Agent 设置启用。面板仅提供已导入、摘要有效、平台匹配且更高的稳定版（数字 `major.minor.patch`）；设备只从绑定面板下载，每六小时加随机延迟检查，网络失败五分钟后重试。Supervisor 校验 SHA-256 与实际版本后试启动，通过本地版本/PID 连续检查才确认；启动失败或未确认期间监督进程重启会恢复旧 Agent，并记住最近 32 个失败版本。更新保留身份、SQLite 账本和独立代理服务；`sinan-agent status` 的 `update` 字段可查看结果。新安装通过监督进程运行，旧安装需先重复执行安装脚本接入。
+
+仍可在“接入 / 升级”签发**新的**一次性令牌，重新执行安装命令。保留原身份和状态，同一服务器只接受原公钥；已消费命令不能再次使用。安装启动检查失败时恢复旧 Agent，Linux 还恢复旧服务定义与配置。Windows 以原子替换的受保护引用文件切换目录，文件内容写盘后切换；当前标准库方案不提供 Windows 断电时目录元数据刷盘保证。
 
 删除面板服务器会撤销面板会话并移出订阅，**不会远程停止** 该设备最后一份可用配置。停用设备时由管理员在本地停止相关服务。
 
@@ -279,7 +281,7 @@ bash tools/build-nodequality.sh arm64 "$PWD/data/artifacts"
 
 上游固定下载 amd64 版 NextTrace；包装器在 ARM64 节点仅将这条下载命令映射到官方 arm64 资产。外插工作路径不能包含空白或 shell 通配符，使用默认目录即可。
 
-目标服务器需要 Linux systemd、root、Bash、curl 和 Python 3，并能访问上游 BenchOS、测试和报告服务；最小 Debian 系统可先安装：
+目标服务器需要 Linux systemd 或 OpenRC、root、Bash、curl 和 Python 3，并能访问上游 BenchOS、测试和报告服务；最小 Debian 系统可先安装：
 
 ```bash
 sudo apt-get update
@@ -399,3 +401,12 @@ Agent 在托管应用前读取终值，再打开新计量周期；外部强制�
 远程命令只允许已登录管理员下发，使用设备服务账号，在 Unix 上运行 `/bin/sh`，Windows 上运行 PowerShell。单条命令最多执行 600 秒，领取期限最长一天，标准输出和错误输出各保留 256 KiB。Agent 先持久记录再执行，重启后将状态不明的命令标记中断，不重复执行；执行结果确认后才清理待上传状态。
 
 Linux OpenRC 也支持 NodeQuality 独立一次性服务，使用独立挂载命名空间、超时和持久完成记录。安装时需要 `unshare`（BusyBox 或 util-linux）；Agent 重启不重启已经开始的诊断。实际双架构结果以 CI 的 OpenRC 任务检查为准。
+
+
+## 原生平台运行时与服务
+
+`tools/build-runtime-native.py <target> <ARTIFACT_ROOT>` 固定 Go 1.26.8、上游 sing-box 1.14.2 及 cronet 提交，不修改源码。目标包括 `macos-arm64`、`freebsd-amd64`、`freebsd-arm64`、`windows-amd64`、`windows-arm64`。macOS 和 Windows 在对应原生 runner 构建；FreeBSD 使用官方纯 Go 标签交叉编译。Windows 包含对应架构的 `libcronet.dll`，Agent 检查整个文件集合和缓存摘要。CI 同时上传 `sinan-runtime-<target>`；导入 `data/artifacts/sing-box/1.14.2/` 并合并摘要即可由面板分发。
+
+Unix 默认配置 `/etc/sinan/agent.toml`、Agent `/opt/sinan/core`、状态 `/var/lib/sinan/core`；macOS/FreeBSD 状态套接字 `/var/run/sinan/agent.sock`。Windows 默认根目录 `%ProgramData%\Sinan`，使用受保护命名管道查询状态。`agent_root` 可单独指定 Agent 安装位置，不依赖代理 `install_root`。`run --monitor-only` 用于不管理代理服务的监控场景。
+
+同一个 CI 工作流在各原生平台运行注册、压缩遥测、补报、命令去重、拨测和升级回退检查；macOS、Windows、FreeBSD 15 额外验证真实服务安装、运行时配置及回环流量，FreeBSD 13.5/14 验证同一 Agent 与运行时二进制的启动兼容。成功状态以对应提交的 Actions 为准。GPU 实际负载、公网 Reality 客户端与整机断电/重启仍须在专用设备验收。

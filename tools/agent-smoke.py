@@ -1,0 +1,317 @@
+#!/usr/bin/env python3
+"""Exercise a real native Agent against a loopback panel fixture without host services."""
+import argparse
+import base64
+import gzip
+import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import sqlite3
+import struct
+import subprocess
+import tempfile
+import threading
+import time
+import uuid
+
+SESSION = 'smoke-session'
+
+
+def wait_for(check, description, seconds=60):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        result = check()
+        if result:
+            return result
+        time.sleep(0.5)
+    raise AssertionError('Timed out waiting for ' + description)
+
+
+class Panel(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, port=0):
+        super().__init__(('127.0.0.1', port), Handler)
+        self.acknowledge = True
+        self.samples = {}
+        self.seen = set()
+        self.messages = []
+        self.manifest = dict(rev=0, modules={})
+        self.downloads = {}
+        self.command_results = []
+        self.probe_results = []
+        self.command = dict(id=str(uuid.uuid4()), command='echo sinan-command-fixture',
+                            timeout_secs=5, expires_at=int(time.time()) + 600)
+        self.probe = dict(id=str(uuid.uuid4()), name='loopback fixture', kind='tcp',
+                          target='127.0.0.1', port=self.server_port, interval_secs=10,
+                          carrier='', enabled=True)
+        threading.Thread(target=self.serve_forever, daemon=True).start()
+
+    @property
+    def origin(self):
+        return f'http://127.0.0.1:{self.server_port}'
+
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+    def log_message(self, *_):
+        pass
+
+    def reply(self, value, status=200):
+        body = json.dumps(value).encode()
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def authorized(self):
+        if self.headers.get('Authorization') != 'Bearer ' + SESSION:
+            self.reply({'error': 'unauthorized'}, 401)
+            return False
+        return True
+
+    def do_GET(self):
+        if self.path == '/api/agent/v1/ws':
+            return self.websocket()
+        if not self.authorized():
+            return
+        if self.path in self.server.downloads:
+            data = self.server.downloads[self.path]
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        suffix = self.path.removeprefix('/api/agent/v1/')
+        values = {
+            'settings': dict(sample_interval_secs=1, upload_interval_secs=1,
+                             auto_update=False, discover_public_ips=False),
+            'manifest': self.server.manifest, 'diagnostics': [],
+            'commands': [self.server.command], 'probes': [self.server.probe], 'update': None,
+        }
+        self.reply(values.get(suffix, []))
+
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
+        if self.headers.get('Content-Encoding') == 'gzip':
+            body = gzip.decompress(body)
+        value = json.loads(body)
+        if self.path == '/api/agent/v1/enroll':
+            assert value['token'] == 'smoke-enrollment'
+            return self.reply({'server_id': 1})
+        if not self.authorized():
+            return
+        if self.path.endswith('/telemetry'):
+            assert self.headers.get('Content-Encoding') == 'gzip'
+            samples = value['samples']
+            self.server.seen.update(v['id'] for v in samples)
+            if not self.server.acknowledge:
+                return self.reply({'error': 'fixture outage'}, 503)
+            self.server.samples.update((v['id'], v) for v in samples)
+            return self.reply({'ids': [v['id'] for v in samples]})
+        if '/commands/' in self.path:
+            self.server.command_results.append(value)
+            return self.reply({'ids': [value['id']]})
+        if self.path.endswith('/probe-results'):
+            self.server.probe_results.extend(value['results'])
+            return self.reply({'ids': [v['id'] for v in value['results']]})
+        self.reply({}, 404)
+
+    def frame(self, payload, opcode=1):
+        encoded = json.dumps(payload).encode() if opcode == 1 else payload
+        size = len(encoded)
+        length = bytes([size]) if size < 126 else b'\x7e' + struct.pack('!H', size)
+        self.wfile.write(bytes([0x80 | opcode]) + length + encoded)
+        self.wfile.flush()
+
+    def message(self, kind, payload):
+        self.frame(dict(v=1, type=kind, id=str(uuid.uuid4()), ts=int(time.time()), payload=payload))
+
+    def websocket(self):
+        accept = base64.b64encode(hashlib.sha1((self.headers['Sec-WebSocket-Key'] +
+                    '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest()).decode()
+        self.send_response(101)
+        self.send_header('Upgrade', 'websocket')
+        self.send_header('Connection', 'Upgrade')
+        self.send_header('Sec-WebSocket-Accept', accept)
+        self.end_headers()
+        self.message('auth.challenge', dict(nonce='smoke-challenge', server_time=int(time.time())))
+        try:
+            while True:
+                header = self.rfile.read(2)
+                if len(header) != 2:
+                    return
+                opcode, size = header[0] & 15, header[1] & 127
+                if size == 126:
+                    size = struct.unpack('!H', self.rfile.read(2))[0]
+                elif size == 127:
+                    size = struct.unpack('!Q', self.rfile.read(8))[0]
+                assert size <= 1024 * 1024
+                mask = self.rfile.read(4) if header[1] & 128 else None
+                payload = self.rfile.read(size)
+                if mask:
+                    payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+                if opcode == 8:
+                    return
+                if opcode == 9:
+                    self.frame(payload, 10)
+                if opcode != 1:
+                    continue
+                message = json.loads(payload)
+                self.server.messages.append(message)
+                if message['type'] == 'auth.response':
+                    self.message('hello.ack', dict(server_time=int(time.time()), session_token=SESSION,
+                                                  session_expires_at=int(time.time()) + 3600))
+                else:
+                    self.frame(b'fixture', 9)
+        except (OSError, ValueError):
+            return
+
+
+def invoke(binary, config, *args, **kwargs):
+    return subprocess.run([str(binary), '--config', str(config), *args],
+                          check=True, capture_output=True, text=True, encoding='utf-8', timeout=180 if 'install-service' in args else 60, **kwargs).stdout
+
+
+def stop(process):
+    if process.poll() is None:
+        if os.name == 'nt':
+            subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True)
+        else:
+            process.terminate()
+        try:
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+
+
+def configure(root, origin):
+    values = dict(panel_url=origin, identity_dir=str(root / 'identity'), state_db=str(root / 'state.db'),
+                  runtime_root=str(root / 'runtime'), install_root=str(root / 'plugins'),
+                  agent_root=str(root / 'core'), status_socket=str(root / 'status.sock'), operation_timeout_secs=5)
+    config = root / 'agent.toml'
+    config.write_text(''.join(f'{key} = {json.dumps(value)}\n' for key, value in values.items()) +
+                      '[settings]\nsample_interval_secs=1\nupload_interval_secs=1\ndiscover_public_ips=false\n', encoding='utf-8')
+    return config
+
+
+def status(binary, config):
+    try:
+        return json.loads(invoke(binary, config, 'status'))
+    except subprocess.CalledProcessError:
+        return None
+
+
+def reference(path, target):
+    if os.name == 'nt':
+        path.write_text(json.dumps(dict(sinan_directory_reference=True, target=str(target))), encoding='utf-8')
+    else:
+        path.symlink_to(target)
+
+
+def supervise_smoke(binary, config, root, log):
+    core = root / 'core'
+    core.mkdir(exist_ok=True)
+    version = subprocess.check_output([str(binary), '--version'], text=True).strip().split()[-1]
+    # Reuse this build as a previous-install fixture; verify real process replacement and readiness.
+    previous = '0.0.1'
+    for name in (previous, version):
+        (core / name).mkdir()
+        shutil.copy2(binary, core / name / binary.name)
+    reference(core / 'current', core / previous)
+    process = subprocess.Popen([str(binary), '--config', str(config), 'supervise', '--monitor-only'], stdout=log, stderr=log)
+    try:
+        first = wait_for(lambda: status(binary, config), 'supervised Agent')
+        identity = (root / 'identity/device.key').read_bytes()
+        pending = dict(version=version, sha256=hashlib.sha256(binary.read_bytes()).hexdigest())
+        (core / 'pending-update.json').write_text(json.dumps(pending))
+        def state():
+            return json.loads((core / 'update-state.json').read_text())
+        wait_for(lambda: state()['current'] == version and state()['trial'] is None, 'successful Agent activation', 90)
+        upgraded = wait_for(lambda: status(binary, config), 'upgraded status')
+        assert upgraded['pid'] != first['pid']
+        failed = core / '99.0.0'
+        failed.mkdir()
+        fixture = failed / binary.name
+        if os.name == 'nt':
+            source = failed / 'fixture.rs'
+            source.write_text('#![forbid(unsafe_code)]\nfn main(){if std::env::args().any(|a|a=="--version"){println!("sinan-agent 99.0.0")}else{std::process::exit(1)}}')
+            subprocess.run(['rustc', '--edition=2024', str(source), '-o', str(fixture)], check=True)
+        else:
+            fixture.write_text('#!/bin/sh\nif [ "$1" = --version ]; then echo "sinan-agent 99.0.0"; else exit 1; fi\n')
+            fixture.chmod(0o755)
+        pending = dict(version='99.0.0', sha256=hashlib.sha256(fixture.read_bytes()).hexdigest())
+        (core / 'pending-update.json').write_text(json.dumps(pending))
+        wait_for(lambda: '99.0.0' in state()['failed_versions'] and state()['trial'] is None, 'failed-start rollback', 90)
+        restored = wait_for(lambda: status(binary, config), 'restored Agent')
+        assert restored['agent_version'] == version and restored['pid'] != upgraded['pid']
+        assert (root / 'identity/device.key').read_bytes() == identity
+        assert state()['current'] == version and state()['last_error']
+        (core / 'pending-update.json').write_text(json.dumps(pending))
+        wait_for(lambda: json.loads((core / 'pending-update.json').read_text()) is None, 'failed version suppression')
+        assert status(binary, config)['pid'] == restored['pid']
+    finally:
+        stop(process)
+    wait_for(lambda: status(binary, config) is None, 'supervisor child cleanup')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('binary', type=Path)
+    args = parser.parse_args()
+    binary = args.binary.resolve()
+    os.environ['NO_PROXY'] = os.environ['no_proxy'] = '127.0.0.1,localhost'
+    panel = Panel()
+    # Darwin's default temporary path leaves too little room for Unix sockets.
+    directory = tempfile.mkdtemp(prefix='sn-', dir=None if os.name == 'nt' else '/tmp')
+    root = Path(directory).resolve()
+    try:
+        config = configure(root, panel.origin)
+        print(invoke(binary, config, 'enroll', '--panel', panel.origin, '--token', 'smoke-enrollment'))
+        with (root / 'agent.log').open('w', encoding='utf-8') as log:
+            def start():
+                return subprocess.Popen([str(binary), '--config', str(config), 'run', '--monitor-only'], stdout=log, stderr=log)
+            process = start()
+            try:
+                wait_for(lambda: (s := status(binary, config)) and s['connected'], 'native Agent connection')
+                wait_for(lambda: len(panel.samples) >= 3, 'compressed telemetry with ACK')
+                wait_for(lambda: panel.command_results, 'remote command completion')
+                assert panel.command_results[0]['status'] == 'succeeded'
+                assert 'sinan-command-fixture' in panel.command_results[0]['stdout']
+                wait_for(lambda: panel.probe_results, 'continuous TCP probe')
+                assert panel.probe_results[0]['loss_percent'] == 0
+                panel.acknowledge = False
+                wait_for(lambda: len(panel.seen - panel.samples.keys()) >= 3, 'offline telemetry spool')
+                unacked = panel.seen - panel.samples.keys()
+                stop(process)
+                process = start()
+                panel.acknowledge = True
+                wait_for(lambda: unacked.issubset(panel.samples), 'persisted telemetry replay after restart')
+                assert len(panel.command_results) == 1, 'command executed twice after restart'
+                sample = list(panel.samples.values())[-1]['metrics']
+                assert sample['processes'] > 0 and sample['memory_used'] > 0
+                assert any(m['type'] == 'telemetry.static' for m in panel.messages)
+            finally:
+                stop(process)
+            supervise_smoke(binary, config, root, log)
+        with sqlite3.connect(root / 'state.db') as db:
+            assert db.execute('pragma user_version').fetchone()[0] == 1
+        print('Native Agent: enrollment, telemetry/replay, command deduplication, TCP probes, activation, rollback and shutdown passed')
+    except BaseException:
+        if (root / 'agent.log').exists():
+            print((root / 'agent.log').read_text(encoding='utf-8', errors='replace')[-24000:])
+        raise
+    finally:
+        panel.shutdown()
+        panel.server_close()
+        shutil.rmtree(root)
+
+
+if __name__ == '__main__':
+    main()

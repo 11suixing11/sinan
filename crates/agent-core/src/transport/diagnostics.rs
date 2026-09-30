@@ -172,7 +172,7 @@ impl DiagnosticWorker {
             let descriptor = adapter.describe();
             let binary = tokio::time::timeout(Duration::from_secs(300), client.ensure_artifact(&job.artifact, &job.version, &Descriptor {
                 module: "diagnostics".into(), plugin_name: descriptor.plugin_name,
-                binary_name: descriptor.binary_name, service_unit: String::new(), service_group: String::new(),
+                binary_name: descriptor.binary_name, auxiliary_files: Vec::new(), service_unit: String::new(), service_group: String::new(),
             }, &self.config.install_root, self.privileged.as_ref())).await.context("diagnostic artifact installation timed out")??;
             ensure!(!expired(&job), "diagnostic task expired during artifact installation");
             let mut spec = DiagnosticSpec {

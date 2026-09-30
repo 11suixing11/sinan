@@ -1,7 +1,110 @@
 use super::*;
 use sinan_adapter_sdk::Execution;
+use sinan_adapter_sdk::ManagedProcess;
 use std::process::Stdio;
-use tokio::io::AsyncReadExt;
+use tokio::{io::AsyncReadExt, time::timeout};
+
+struct ManagedChild {
+    child: tokio::process::Child,
+    id: u32,
+}
+impl Drop for ManagedChild {
+    fn drop(&mut self) {
+        if self.child.id().is_some() {
+            #[cfg(unix)]
+            {
+                let _ = std::process::Command::new("kill")
+                    .args(["-KILL", "--", &format!("-{}", self.id)])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+            #[cfg(windows)]
+            {
+                let _ = std::process::Command::new("taskkill.exe")
+                    .args(["/PID", &self.id.to_string(), "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+        }
+    }
+}
+impl ManagedProcess for ManagedChild {
+    fn id(&self) -> u32 {
+        self.id
+    }
+    fn try_wait(&mut self) -> Result<Option<bool>> {
+        Ok(self.child.try_wait()?.map(|status| status.success()))
+    }
+    fn terminate(&mut self) -> sinan_adapter_sdk::BoxFuture<'_, ()> {
+        Box::pin(async move {
+            #[cfg(unix)]
+            {
+                let _ = Command::new("kill")
+                    .args(["-TERM", "--", &format!("-{}", self.id)])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .await;
+            }
+            #[cfg(windows)]
+            {
+                let _ = Command::new("taskkill.exe")
+                    .args(["/PID", &self.id.to_string(), "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .await;
+            }
+            if timeout(Duration::from_secs(10), self.child.wait())
+                .await
+                .is_err()
+            {
+                #[cfg(unix)]
+                {
+                    let _ = Command::new("kill")
+                        .args(["-KILL", "--", &format!("-{}", self.id)])
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status()
+                        .await;
+                }
+                self.child.kill().await?;
+            }
+            Ok(())
+        })
+    }
+}
+
+pub(super) fn spawn(program: &Path, args: &[String]) -> Result<Box<dyn ManagedProcess>> {
+    let mut command = Command::new(program);
+    command.args(args).stdin(Stdio::null()).kill_on_drop(true);
+    #[cfg(unix)]
+    command.process_group(0);
+    let child = command.spawn()?;
+    let id = child.id().context("managed process has no identifier")?;
+    Ok(Box::new(ManagedChild { child, id }))
+}
+
+struct CommandGuard(u32);
+impl Drop for CommandGuard {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        let mut cleanup = {
+            let mut command = std::process::Command::new("kill");
+            command.args(["-KILL", "--", &format!("-{}", self.0)]);
+            command
+        };
+        #[cfg(windows)]
+        let mut cleanup = {
+            let mut command = std::process::Command::new("taskkill.exe");
+            command.args(["/PID", &self.0.to_string(), "/T", "/F"]);
+            command
+        };
+        let _ = cleanup.stdout(Stdio::null()).stderr(Stdio::null()).status();
+    }
+}
 
 async fn drain(
     mut reader: impl tokio::io::AsyncRead + Unpin,
@@ -50,6 +153,7 @@ pub(super) async fn execute(
     command.process_group(0);
     let mut child = command.spawn().context("start command")?;
     let id = child.id().context("command has no process identifier")?;
+    let cleanup = CommandGuard(id);
     let mut stdout = tokio::spawn(drain(
         child.stdout.take().context("command has no stdout")?,
         maximum,
@@ -61,26 +165,8 @@ pub(super) async fn execute(
     let status = timeout(Duration::from_secs(u64::from(seconds)), child.wait()).await;
     let timed_out = status.is_err();
     let success = matches!(&status, Ok(Ok(status)) if status.success());
-    // Terminate descendants too; a finished shell may leave inherited output handles open.
-    #[cfg(unix)]
-    {
-        let _ = Command::new("kill")
-            .args(["-KILL", &format!("-{id}")])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await;
-    }
-    #[cfg(windows)]
-    if timed_out {
-        let _ = Command::new("taskkill.exe")
-            .args(["/PID", &id.to_string(), "/T", "/F"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await;
-    }
+    // The same guard also cleans up when this future is cancelled during Agent shutdown.
+    drop(cleanup);
     if timed_out {
         let _ = child.kill().await;
     }
@@ -112,6 +198,37 @@ pub(super) async fn execute(
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn cancelling_a_command_terminates_its_descendants() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("sn-command-{}", Uuid::new_v4()));
+        std::fs::create_dir(&root)?;
+        let ready = root.join("ready");
+        let escaped = root.join("escaped");
+        let script = format!(
+            "touch '{}'; sleep 2; touch '{}'",
+            ready.display(),
+            escaped.display()
+        );
+        let task = tokio::spawn(async move {
+            execute(Path::new("sh"), &["-c".into(), script], 10, 1024).await
+        });
+        timeout(Duration::from_secs(5), async {
+            while !ready.exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await?;
+        task.abort();
+        let _ = task.await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        ensure!(
+            !escaped.exists(),
+            "command descendant survived cancellation"
+        );
+        std::fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
     #[tokio::test]
     async fn command_timeout_kills_descendants_and_output_is_bounded() -> Result<()> {
         let timed = execute(

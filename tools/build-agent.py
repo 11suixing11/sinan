@@ -10,6 +10,9 @@ import shutil
 import struct
 import subprocess
 import tomllib
+import sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from artifact_manifest import publish
 
 
 TARGETS = (
@@ -77,12 +80,9 @@ def verify_binary(binary, target, version):
     if actual_version != f"sinan-agent {version}":
         raise ValueError(f"unexpected Agent version: {actual_version}")
     capture([str(binary), "--help"])
-    if "linux" not in target:
-        result = subprocess.run(
-            [str(binary), "run"], capture_output=True, text=True, encoding="utf-8", timeout=30
-        )
-        if result.returncode == 0 or "Agent 命令要求 Linux" not in result.stderr:
-            raise ValueError("non-Linux Agent must report its deployment limitation")
+    help_text = capture([str(binary), "run", "--help"])
+    if "--monitor-only" not in help_text:
+        raise ValueError("Agent does not expose its native monitoring runtime")
 
 
 def package_binary(binary, target, version, artifact_root):
@@ -96,6 +96,9 @@ def package_binary(binary, target, version, artifact_root):
         (output / "SHA256SUMS").write_text(
             f"{digest}  {name}\n", encoding="utf-8", newline="\n"
         )
+        architecture = "arm64" if target.startswith("aarch64") else "amd64"
+        platform = "macos" if "apple" in target else "windows" if "windows" in target else "freebsd" if "freebsd" in target else "linux-gnu"
+        publish(output.parent, f"{platform}-{architecture}", destination.read_bytes())
     except BaseException:
         shutil.rmtree(output)
         raise

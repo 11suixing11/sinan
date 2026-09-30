@@ -10,6 +10,7 @@ pub struct Config {
     pub state_db: PathBuf,
     pub runtime_root: PathBuf,
     pub install_root: PathBuf,
+    pub agent_root: PathBuf,
     pub status_socket: PathBuf,
     pub operation_timeout_secs: u64,
     pub public_ips: Vec<String>,
@@ -18,17 +19,46 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self {
+        let mut config = Self {
             panel_url: String::new(),
             identity_dir: "/etc/sinan/identity".into(),
             state_db: "/var/lib/sinan/core/state.db".into(),
             runtime_root: "/var/lib/sinan/plugins".into(),
             install_root: "/opt/sinan/plugins".into(),
+            agent_root: "/opt/sinan/core".into(),
             status_socket: "/run/sinan/agent.sock".into(),
             operation_timeout_secs: 30,
             public_ips: Vec::new(),
             settings: sinan_protocol::AgentSettings::default(),
+        };
+        if cfg!(windows) {
+            let root = std::env::var_os("ProgramData")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("C:\\ProgramData"))
+                .join("Sinan");
+            config.identity_dir = root.join("identity");
+            config.state_db = root.join("state/core/state.db");
+            config.runtime_root = root.join("state/plugins");
+            config.install_root = root.join("plugins");
+            config.agent_root = root.join("core");
+            config.status_socket = root.join("state/core/status.json");
+            config.operation_timeout_secs = 120;
+        } else if cfg!(any(target_os = "macos", target_os = "freebsd")) {
+            config.status_socket = "/var/run/sinan/agent.sock".into();
         }
+        config
+    }
+}
+
+pub fn default_path() -> PathBuf {
+    if cfg!(windows) {
+        Config::default()
+            .identity_dir
+            .parent()
+            .expect("default identity parent")
+            .join("agent.toml")
+    } else {
+        "/etc/sinan/agent.toml".into()
     }
 }
 
@@ -54,6 +84,7 @@ impl Config {
             &self.state_db,
             &self.runtime_root,
             &self.install_root,
+            &self.agent_root,
             &self.status_socket,
         ] {
             if !path.is_absolute() {

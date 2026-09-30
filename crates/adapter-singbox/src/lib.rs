@@ -13,9 +13,9 @@ use sinan_adapter_sdk::{
 use std::time::Duration;
 use tokio::{net::TcpStream, time::timeout};
 
-const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
-const SERVICE_TIMEOUT: Duration = Duration::from_secs(15);
-const HEALTH_TIMEOUT: Duration = Duration::from_secs(8);
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(if cfg!(windows) { 30 } else { 10 });
+const SERVICE_TIMEOUT: Duration = Duration::from_secs(if cfg!(windows) { 45 } else { 15 });
+const HEALTH_TIMEOUT: Duration = Duration::from_secs(if cfg!(windows) { 30 } else { 8 });
 const SERVICE_UNIT: &str = "sinan-singbox@main.service";
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -27,7 +27,12 @@ impl SingboxAdapter {
     }
 
     async fn healthy_once(&self, target: &Prepared, services: &dyn ServiceManager) -> Result<bool> {
-        if !timeout(Duration::from_secs(1), services.is_active(SERVICE_UNIT)).await?? {
+        if !timeout(
+            Duration::from_secs(if cfg!(windows) { 5 } else { 1 }),
+            services.is_active(SERVICE_UNIT),
+        )
+        .await??
+        {
             return Ok(false);
         }
         let addresses = native::listen_addresses(&target.spec)?;
@@ -48,7 +53,17 @@ impl Adapter for SingboxAdapter {
         Descriptor {
             module: "singbox".into(),
             plugin_name: "sing-box".into(),
-            binary_name: "sing-box".into(),
+            binary_name: if cfg!(windows) {
+                "sing-box.exe"
+            } else {
+                "sing-box"
+            }
+            .into(),
+            auxiliary_files: if cfg!(windows) {
+                vec!["libcronet.dll".into()]
+            } else {
+                Vec::new()
+            },
             service_unit: SERVICE_UNIT.into(),
             service_group: "sinan-singbox".into(),
         }
@@ -129,6 +144,7 @@ impl Adapter for SingboxAdapter {
                 Some(previous) if previous.spec.config_hash == target.spec.config_hash => {
                     Plan::Noop
                 }
+                Some(_) if cfg!(windows) => Plan::Restart,
                 Some(_) => Plan::Reload,
                 None => Plan::Restart,
             })

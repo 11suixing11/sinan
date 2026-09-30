@@ -39,6 +39,7 @@ impl Fixture {
             state_db: directory.join("state.db"),
             runtime_root: directory.join("runtime"),
             install_root: directory.join("install"),
+            agent_root: directory.join("core"),
             status_socket: directory.join("status.sock"),
             operation_timeout_secs: 1,
             public_ips: vec![],

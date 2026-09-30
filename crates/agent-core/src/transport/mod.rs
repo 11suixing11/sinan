@@ -1,7 +1,12 @@
 mod connection;
 pub mod diagnostics;
 mod public_ips;
+#[cfg(unix)]
 mod status;
+#[cfg(windows)]
+#[path = "status_windows.rs"]
+mod status;
+mod status_snapshot;
 mod worker;
 
 pub use status::status;
@@ -148,6 +153,12 @@ pub async fn run_with_diagnostics(
     let (trigger_tx, trigger_rx) = mpsc::channel(1);
     let (outgoing_tx, mut outgoing_rx) = mpsc::channel(64);
     let mut tasks = JoinSet::new();
+    tasks.spawn(crate::upgrade::run(
+        config.clone(),
+        state.clone(),
+        privileged.clone(),
+        client_rx.clone(),
+    ));
     tasks.spawn(crate::tasks::run(
         state.clone(),
         privileged.clone(),
@@ -217,7 +228,7 @@ fn reconnect_delay(attempt: u32, jitter: f64) -> Duration {
     Duration::from_secs_f64(base as f64 * (1.0 + 0.3 * jitter.clamp(0.0, 1.0)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use crate::{
@@ -257,6 +268,7 @@ mod tests {
             state_db: directory.0.join("state.db"),
             runtime_root: directory.0.join("runtime"),
             install_root: directory.0.join("install"),
+            agent_root: directory.0.join("core"),
             status_socket: directory.0.join("status.sock"),
             operation_timeout_secs: 1,
             public_ips: vec![],

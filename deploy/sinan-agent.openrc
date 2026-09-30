@@ -2,8 +2,8 @@
 
 description="Sinan Agent"
 supervisor="supervise-daemon"
-command="/opt/sinan/core/current/sinan-agent"
-command_args="run"
+command="/opt/sinan/core/supervisor"
+command_args="--config /etc/sinan/agent.toml supervise"
 pidfile="/run/${RC_SVCNAME}.pid"
 required_files="/etc/sinan/agent.toml"
 respawn_delay=5

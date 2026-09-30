@@ -14,6 +14,14 @@
 - 优先使用已有依赖、标准库和系统工具，新增依赖须另行说明。协议主版本保持 1，通过新增消息和能力声明兼容旧 Agent。
 - 遥测等辅助表使用幂等的增量建表，不提高旧账本的 SQLite `user_version`，使旧 Agent 在安装或升级回退后仍可打开身份、对账和流量账本。压缩上传复用已有 `flate2`，仅将面板的测试依赖移至运行依赖，不新增库。
 
+## 原生服务与更新边界
+
+- Windows 复用系统 PowerShell、计划任务和 NTFS ACL；目录切换使用受保护的原子引用文件，避免多步删除/重建 junction 的空窗。运行时归普通专用账户，Agent 归 SYSTEM；启动触发器无需交互登录。文件 fsync 后替换，但不承诺标准库尚未提供的 Windows 目录元数据断电刷盘语义。
+- 监督进程仍属于 Agent 服务，没有新增特权 RPC/helper。SQLite 独占锁防止重复监督；仅停止/替换 Agent 子进程，代理服务始终独立。健康检查使用本地版本和 PID，允许面板离线时启动旧配置。
+- 更新限制为面板导入的稳定版本；默认关闭，六小时加抖动轮询，失败五分钟重试。阶段状态先落盘，保留上一版本与最多 32 个失败版本，未确认启动或监督进程中断均恢复旧版本。旧 Agent 账本兼容依赖增量辅助表设计。
+- Windows 运行时含原生 DLL，使用适配器描述的文件白名单及逐文件摘要，不在 core 引入任何运行时名称或特例。
+- Windows 账户参数遵循 [New-LocalUser](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.localaccounts/new-localuser?view=powershell-5.1) 的独立参数集，后台任务采用 [密码登录任务](https://learn.microsoft.com/en-us/windows/win32/taskschd/security-contexts-for-running-tasks)，凭据由系统任务计划程序保存。
+
 ## 实现阶段与验证
 
 1. Linux musl/glibc 运行时制品与自动选择、安装失败恢复。

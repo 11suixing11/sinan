@@ -5,7 +5,13 @@ PANEL=@@PANEL@@
 TOKEN=@@TOKEN@@
 VERSION=@@VERSION@@
 [ "$(id -u)" = 0 ] || { echo '请以 root 运行'; exit 1; }
-[ "$(uname -s)" = Linux ] || { echo '需要 Linux'; exit 1; }
+case "$(uname -s)" in
+  Darwin|FreeBSD)
+@@NATIVE_INSTALL@@
+    ;;
+  Linux) ;;
+  *) echo '不支持此操作系统'; exit 1 ;;
+esac
 if [ -d /run/systemd/system ] && command -v systemctl >/dev/null; then
   INIT=systemd
 elif [ -f /run/openrc/softlevel ] && command -v rc-service >/dev/null && command -v rc-update >/dev/null; then
@@ -35,22 +41,40 @@ if ! getent passwd sinan-singbox >/dev/null; then
   command -v useradd >/dev/null || command -v adduser >/dev/null || { echo '缺少 useradd / adduser'; exit 1; }
   NOLOGIN=$(command -v nologin) || { echo '缺少 nologin'; exit 1; }
 fi
+LIBC=gnu
+if ldd --version 2>&1 | grep -qi musl || ls /lib/ld-musl-*.so.1 >/dev/null 2>&1; then LIBC=musl; fi
 case "$(uname -m)" in
-  x86_64) ARCH=amd64; HASH=@@AMD64_HASH@@ ;;
-  aarch64) ARCH=arm64; HASH=@@ARM64_HASH@@ ;;
+  x86_64) ARCH=amd64; LEGACY_HASH=@@AMD64_HASH@@
+    if [ "$LIBC" = musl ]; then HASH=@@LINUX_MUSL_AMD64_HASH@@; else HASH=@@LINUX_GNU_AMD64_HASH@@; fi ;;
+  aarch64) ARCH=arm64; LEGACY_HASH=@@ARM64_HASH@@
+    if [ "$LIBC" = musl ]; then HASH=@@LINUX_MUSL_ARM64_HASH@@; else HASH=@@LINUX_GNU_ARM64_HASH@@; fi ;;
   *) echo '仅支持 amd64 / arm64'; exit 1 ;;
 esac
-[ -n "$HASH" ] || { echo '面板未提供当前架构的 Agent 制品'; exit 1; }
+TARGET=linux-$LIBC-$ARCH
+# Legacy Agent artifacts are static and remain usable on either libc.
+if [ -z "$HASH" ]; then TARGET=$ARCH; HASH=$LEGACY_HASH; fi
+[ -n "$HASH" ] || { echo '面板未提供当前平台的 Agent 制品'; exit 1; }
 TMP=$(mktemp -d)
 PREVIOUS=$(readlink /opt/sinan/core/current 2>/dev/null || true)
 ACTIVATING=0
 COMPLETED=0
 if [ -f /etc/sinan/agent.toml ]; then cp -p /etc/sinan/agent.toml "$TMP/agent.toml.previous"; fi
+if [ -f /opt/sinan/core/supervisor ]; then cp -p /opt/sinan/core/supervisor "$TMP/supervisor.previous"; fi
+if [ "$INIT" = systemd ] && [ -f /etc/systemd/system/sinan-agent.service ]; then cp -p /etc/systemd/system/sinan-agent.service "$TMP/agent.service.previous"; fi
+if [ "$INIT" = openrc ] && [ -f /etc/init.d/sinan-agent ]; then cp -p /etc/init.d/sinan-agent "$TMP/agent.openrc.previous"; fi
 cleanup() {
   result=$?
   trap - EXIT HUP INT TERM
   if [ "$ACTIVATING" = 1 ] && [ "$COMPLETED" != 1 ]; then
     printf '%s\n' '新 Agent 未能启动，正在恢复上一版本。' >&2
+    if [ "$INIT" = systemd ]; then systemctl stop sinan-agent.service || true
+    else rc-service sinan-agent stop || true; fi
+    if [ -f "$TMP/supervisor.previous" ]; then
+      cp -p "$TMP/supervisor.previous" /opt/sinan/core/supervisor.recover
+      mv -f /opt/sinan/core/supervisor.recover /opt/sinan/core/supervisor
+    fi
+    if [ -f "$TMP/agent.service.previous" ]; then cp -p "$TMP/agent.service.previous" /etc/systemd/system/sinan-agent.service; systemctl daemon-reload; fi
+    if [ -f "$TMP/agent.openrc.previous" ]; then cp -p "$TMP/agent.openrc.previous" /etc/init.d/sinan-agent; rc-update --update; fi
     if [ -f "$TMP/agent.toml.previous" ]; then
       cp -p "$TMP/agent.toml.previous" /etc/sinan/agent.toml
     fi
@@ -71,7 +95,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' HUP TERM
-curl --fail --silent --show-error --connect-timeout 20 --max-time 300 "$PANEL/api/bootstrap/$VERSION/$ARCH?token=$TOKEN" -o "$TMP/sinan-agent"
+curl --fail --silent --show-error --connect-timeout 20 --max-time 300 "$PANEL/api/bootstrap/$VERSION/$TARGET?token=$TOKEN" -o "$TMP/sinan-agent"
 printf '%s  %s\n' "$HASH" "$TMP/sinan-agent" | sha256sum -c >/dev/null
 if ! getent group sinan-singbox >/dev/null; then
   if command -v groupadd >/dev/null; then
@@ -105,6 +129,8 @@ ACTIVATING=1
 install -d -m 0755 "/opt/sinan/core/$VERSION"
 install -m 0755 "$TMP/sinan-agent" "/opt/sinan/core/$VERSION/sinan-agent.new"
 mv -f "/opt/sinan/core/$VERSION/sinan-agent.new" "/opt/sinan/core/$VERSION/sinan-agent"
+install -m 0755 "$TMP/sinan-agent" /opt/sinan/core/supervisor.new
+mv -f /opt/sinan/core/supervisor.new /opt/sinan/core/supervisor
 ln -s "$VERSION" "/opt/sinan/core/current.$$"
 mv -Tf "/opt/sinan/core/current.$$" /opt/sinan/core/current
 ln -sfn /opt/sinan/core/current/sinan-agent /usr/local/bin/sinan-agent

@@ -170,8 +170,15 @@ pub async fn issue_enrollment(
     transaction.commit().await?;
     let url = format!("{}/install.sh?token={token}", state.config.public_url);
     let install_command = format!("curl -fsSL {} | sh", shell_quote(&url));
+    let freebsd_install_command = format!("fetch -qo- {} | sh", shell_quote(&url));
+    let windows_url =
+        format!("{}/install.ps1?token={token}", state.config.public_url).replace('\'', "''");
+    let windows_install_command = format!(
+        "& ([ScriptBlock]::Create((Invoke-WebRequest -UseBasicParsing -Uri '{windows_url}').Content))"
+    );
     Ok(Json(
-        json!({"token": token, "expires_at": expires_at, "install_command": install_command}),
+        json!({"token": token, "expires_at": expires_at, "install_command": install_command,
+            "freebsd_install_command": freebsd_install_command, "windows_install_command": windows_install_command}),
     ))
 }
 
