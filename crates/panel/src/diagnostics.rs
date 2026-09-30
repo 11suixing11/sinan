@@ -79,6 +79,15 @@ fn ready(row: &sqlx::postgres::PgRow) -> ApiResult<&'static str> {
     }
     let capabilities: Value = row.get("capabilities");
     if !capabilities.as_array().is_some_and(|values| {
+        values.iter().any(|value| {
+            value.as_str() == Some(sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY)
+        })
+    }) {
+        return Err(ApiError::Conflict(
+            "此 Agent 尚不支持制品验签，请先升级 Agent".into(),
+        ));
+    }
+    if !capabilities.as_array().is_some_and(|values| {
         values
             .iter()
             .any(|value| value.as_str() == Some("diagnostic:nodequality"))
@@ -197,6 +206,7 @@ pub async fn pending(
     headers: HeaderMap,
 ) -> ApiResult<Json<Vec<DiagnosticJob>>> {
     let server_id = auth::require_agent(&state, &headers).await?;
+    artifacts::require_signed_agent(&state, server_id).await?;
     expire(&state).await?;
     let values: Vec<Value> = sqlx::query_scalar("SELECT job FROM diagnostic_jobs WHERE server_id=$1 AND status IN ('queued','running') ORDER BY created_at,id")
         .bind(server_id).fetch_all(&state.pool).await?;

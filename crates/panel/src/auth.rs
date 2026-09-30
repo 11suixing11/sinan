@@ -8,7 +8,7 @@ use argon2::{
 };
 use axum::{
     Json,
-    extract::State,
+    extract::{ConnectInfo, State},
     http::{HeaderMap, HeaderValue, header},
     response::{IntoResponse, Response},
 };
@@ -18,7 +18,14 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sinan_protocol::now_timestamp;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
+use std::net::SocketAddr;
+
+mod rate_limit;
+mod security;
+mod totp;
+
+pub use security::{totp_confirm, totp_disable, totp_setup, totp_status};
 
 const ADMIN_SESSION_SECONDS: i64 = 86_400;
 
@@ -89,38 +96,72 @@ pub async fn require_agent(state: &AppState, headers: &HeaderMap) -> ApiResult<i
 #[derive(Deserialize)]
 pub struct LoginRequest {
     pub password: String,
+    #[serde(default)]
+    pub totp_code: Option<String>,
 }
 
-pub async fn login(
-    State(state): State<AppState>,
-    Json(request): Json<LoginRequest>,
-) -> ApiResult<Response> {
-    let _permit = state
-        .login_permits
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| ApiError::Busy)?;
-    if request.password.len() > 1024 || request.password.is_empty() {
-        return Err(ApiError::Unauthorized);
+async fn verified_password(
+    state: &AppState,
+    password: String,
+    permit: tokio::sync::OwnedSemaphorePermit,
+) -> ApiResult<(Option<String>, tokio::sync::OwnedSemaphorePermit)> {
+    if password.is_empty() || password.len() > 1024 {
+        return Ok((None, permit));
     }
     let hash: String = sqlx::query_scalar("SELECT password_hash FROM admins WHERE id = 1")
         .fetch_one(&state.pool)
         .await?;
-    let verified = tokio::task::spawn_blocking(move || {
-        PasswordHash::new(&hash).is_ok_and(|hash| {
+    let expected = hash.clone();
+    let (verified, permit) = tokio::task::spawn_blocking(move || {
+        let verified = PasswordHash::new(&expected).is_ok_and(|hash| {
             Argon2::default()
-                .verify_password(request.password.as_bytes(), &hash)
+                .verify_password(password.as_bytes(), &hash)
                 .is_ok()
-        })
+        });
+        (verified, permit)
     })
     .await
     .map_err(anyhow::Error::from)?;
-    if !verified {
+    Ok((verified.then_some(hash), permit))
+}
+
+pub async fn login(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Json(request): Json<LoginRequest>,
+) -> ApiResult<Response> {
+    let permit = state
+        .login_permits
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| ApiError::Busy)?;
+    rate_limit::consume(&state.pool, peer).await?;
+    let (verified_hash, _permit) = verified_password(&state, request.password, permit).await?;
+    let verified_hash = verified_hash.ok_or(ApiError::Unauthorized)?;
+    let token = random_token();
+    let mut transaction = state.pool.begin().await?;
+    let admin = sqlx::query(
+        "SELECT password_hash, totp_secret, totp_last_step FROM admins WHERE id = 1 FOR UPDATE",
+    )
+    .fetch_one(&mut *transaction)
+    .await?;
+    let now = now_timestamp();
+    if admin.try_get::<String, _>("password_hash")? != verified_hash {
         return Err(ApiError::Unauthorized);
     }
-    let token = random_token();
-    let now = now_timestamp();
-    let mut transaction = state.pool.begin().await?;
+    if let Some(secret) = admin.try_get::<Option<Vec<u8>>, _>("totp_secret")? {
+        let step = totp::verify(
+            &secret,
+            request.totp_code.as_deref().unwrap_or(""),
+            now,
+            admin.try_get("totp_last_step")?,
+        )
+        .ok_or(ApiError::Unauthorized)?;
+        sqlx::query("UPDATE admins SET totp_last_step = $1 WHERE id = 1")
+            .bind(step)
+            .execute(&mut *transaction)
+            .await?;
+    }
     sqlx::query("DELETE FROM sessions WHERE expires_at <= $1")
         .bind(now)
         .execute(&mut *transaction)
@@ -136,6 +177,9 @@ pub async fn login(
         header::SET_COOKIE,
         session_cookie(&state, &token, ADMIN_SESSION_SECONDS)?,
     );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     Ok(response)
 }
 

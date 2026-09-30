@@ -40,29 +40,18 @@ pub async fn available(
         .as_deref()
         .and_then(release_version)
         .unwrap_or((0, 0, 0));
-    let Ok(mut directories) =
-        tokio::fs::read_dir(state.config.data_dir.join("artifacts/agent")).await
-    else {
-        return Ok(Json(None));
-    };
-    let mut versions = Vec::new();
-    while let Some(entry) = directories
-        .next_entry()
-        .await
-        .map_err(anyhow::Error::from)?
-    {
-        let version = entry.file_name().to_string_lossy().into_owned();
-        if let Some(key) = release_version(&version)
-            && key > current
-        {
-            versions.push((key, version));
-        }
+    artifacts::require_signed_agent(&state, server).await?;
+    let mut targets = vec![target];
+    // Older signed Linux releases store static Agents under architecture-only keys.
+    if info.os.as_deref() == Some("linux") && info.libc.as_deref() == Some("musl") {
+        let arch = match info.arch.as_deref() {
+            Some("x86_64" | "amd64") => "amd64",
+            Some("aarch64" | "arm64") => "arm64",
+            _ => return Ok(Json(None)),
+        };
+        targets.push(arch.into());
     }
-    versions.sort_by_key(|a| std::cmp::Reverse(a.0));
-    for (_, version) in versions {
-        if let Ok(artifact) = artifacts::descriptor(&state, "agent", &version, &target).await {
-            return Ok(Json(Some(AgentRelease { version, artifact })));
-        }
-    }
-    Ok(Json(None))
+    Ok(Json(
+        crate::releases::newer_agent(&state, &targets, current).await?,
+    ))
 }

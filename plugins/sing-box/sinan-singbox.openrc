@@ -23,6 +23,7 @@ depend() {
 }
 
 start_pre() {
+    /opt/sinan/core/current/sinan-agent verify-installed --binary /opt/sinan/plugins/sing-box/current/sing-box --name sing-box --format tar.gz || return 1
     checkpath --directory --mode 0750 --owner root:sinan-singbox /var/log/sinan
     checkpath --file --mode 0640 --owner sinan-singbox:sinan-singbox "$output_log"
 }

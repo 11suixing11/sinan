@@ -1,18 +1,25 @@
 mod cache;
 use crate::config::validate_panel_url;
+mod preflight;
+#[cfg(test)]
+mod tests;
+mod verification;
 use anyhow::{Context, Result, ensure};
 use futures_util::StreamExt;
+pub use preflight::verify_cache;
 use reqwest::{Client, Url, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sinan_adapter_sdk::{Descriptor, Privileged};
+use sinan_protocol::release::{ReleaseError, ReleaseProof, TrustedKeys, VerifiedArtifact};
 use sinan_protocol::{Artifact, Bundle, DiagnosticJob, DiagnosticUpdate, Manifest};
 use std::{
     path::{Component, Path, PathBuf},
     time::Duration,
 };
-use tokio::io::AsyncReadExt;
 use uuid::Uuid;
+pub(crate) use verification::verify_expected;
+pub use verification::{verify_installed_binary, verify_release_directory};
 
 const MAX_DOWNLOAD: usize = 512 * 1024 * 1024;
 const MAX_JSON: usize = 32 * 1024 * 1024;
@@ -33,14 +40,13 @@ pub struct PanelClient {
     client: Client,
     panel: Url,
     session_token: String,
+    keys: std::result::Result<TrustedKeys, ReleaseError>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct InstalledArtifact {
-    archive_sha256: String,
-    binary_sha256: String,
     #[serde(default)]
-    auxiliary_sha256: std::collections::BTreeMap<String, String>,
+    proof: Option<ReleaseProof>,
 }
 
 fn normalized_hash(value: &str) -> Result<String> {
@@ -79,10 +85,27 @@ pub fn validate_bundle_files(bundle: &Bundle) -> Result<()> {
 }
 
 impl PanelClient {
-    pub(crate) async fn agent_binary(&self, artifact: &Artifact) -> Result<Vec<u8>> {
-        let expected = normalized_hash(&artifact.sha256)?;
+    pub(crate) async fn agent_binary(&self, artifact: &Artifact, version: &str) -> Result<Vec<u8>> {
+        let proof = artifact
+            .proof
+            .as_ref()
+            .context("Agent update has no signed release proof")?;
+        let release = verification::signed_release(proof, self.keys()?)?;
+        let verified = release.native_artifact("agent", version)?;
+        let url = self.validate_url(&artifact.url)?;
+        ensure!(
+            verified.metadata().format == "raw"
+                && verified.metadata().binary_name == crate::system::deploy::executable_name()
+                && url.path() == format!("/api/agent/v1/artifacts/{}", verified.path()),
+            "Agent update identity differs from signed release"
+        );
+        ensure!(
+            normalized_hash(&artifact.sha256)? == verified.sha256(),
+            "Agent update SHA256 differs from signed release"
+        );
         let bytes = self.download(&artifact.url, 128 * 1024 * 1024).await?;
-        ensure!(digest(&bytes) == expected, "Agent binary SHA256 mismatch");
+        verified.verify_archive(&bytes)?;
+        verified.verify_binary(&bytes)?;
         Ok(bytes)
     }
     pub(crate) async fn get_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
@@ -142,7 +165,43 @@ impl PanelClient {
                 .build()?,
             panel: validate_panel_url(panel_url)?,
             session_token: session_token.to_owned(),
+            keys: TrustedKeys::compiled(),
         })
+    }
+
+    /// Explicit trusted roots for an embedding caller or deterministic tests.
+    pub fn with_trusted_keys(mut self, keys: TrustedKeys) -> Self {
+        self.keys = Ok(keys);
+        self
+    }
+
+    pub(crate) fn keys(&self) -> Result<&TrustedKeys> {
+        self.keys
+            .as_ref()
+            .map_err(|error| anyhow::anyhow!(error.to_string()))
+    }
+
+    pub(crate) fn verify_artifact(
+        &self,
+        artifact: &Artifact,
+        version: &str,
+        descriptor: &Descriptor,
+    ) -> Result<VerifiedArtifact> {
+        let url = self.validate_url(&artifact.url)?;
+        let proof = artifact
+            .proof
+            .as_ref()
+            .context("artifact has no signed release proof")?;
+        let verified = verification::signed_artifact(proof, descriptor, version, self.keys()?)?;
+        ensure!(
+            url.path() == format!("/api/agent/v1/artifacts/{}", verified.path()),
+            "artifact URL differs from signed identity"
+        );
+        ensure!(
+            normalized_hash(&artifact.sha256)? == verified.sha256(),
+            "artifact digest differs from signed release"
+        );
+        Ok(verified)
     }
 
     fn validate_url(&self, value: &str) -> Result<Url> {
@@ -277,6 +336,34 @@ impl PanelClient {
     }
 }
 
+async fn ensure_ordinary_directory_if_present(path: &Path) -> Result<()> {
+    match tokio::fs::symlink_metadata(path).await {
+        Ok(metadata) => ensure!(
+            metadata.is_dir(),
+            "artifact plugin path is not an ordinary directory"
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+pub(crate) async fn verify_expected_agent(
+    binary: &Path,
+    version: &str,
+    keys: &TrustedKeys,
+) -> Result<()> {
+    ensure!(
+        binary
+            .parent()
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str())
+            == Some(version),
+        "Agent update version directory mismatch"
+    );
+    verification::verify_binary_with_keys(binary, "agent", "raw", keys).await
 }

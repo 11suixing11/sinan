@@ -55,49 +55,57 @@ pub(super) async fn run(
     config: Config,
     runtime: Runtime,
     outgoing: mpsc::Sender<Envelope>,
+    retirement: std::sync::Arc<crate::retirement::Retirement>,
 ) -> Result<()> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(5))
         .build()?;
     loop {
-        let enabled = runtime
-            .state
-            .lock()
-            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-            .get_json::<AgentSettings>("agent_settings")?
-            .unwrap_or_else(|| config.settings.clone())
-            .discover_public_ips;
-        if enabled && config.settings.discover_public_ips {
-            let (v4, v6) = tokio::join!(fetch(&client, SOURCES[0]), fetch(&client, SOURCES[1]));
-            let now = now_timestamp();
-            let mut records = {
-                runtime
+        {
+            let _guard = retirement.gate.read().await;
+            if !retirement.requested() {
+                let enabled = runtime
                     .state
                     .lock()
                     .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                    .get_json::<Vec<(String, i64)>>("discovered_ips")?
-                    .unwrap_or_default()
-            };
-            records.retain(|(_, expires)| *expires > now);
-            for address in [v4, v6].into_iter().flatten() {
-                let family = address.contains(':');
-                records.retain(|(value, _)| value.contains(':') != family);
-                records.push((address, now + 1800));
+                    .get_json::<AgentSettings>("agent_settings")?
+                    .unwrap_or_else(|| config.settings.clone())
+                    .discover_public_ips;
+                if enabled && config.settings.discover_public_ips {
+                    let (v4, v6) =
+                        tokio::join!(fetch(&client, SOURCES[0]), fetch(&client, SOURCES[1]));
+                    let now = now_timestamp();
+                    let mut records = {
+                        runtime
+                            .state
+                            .lock()
+                            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+                            .get_json::<Vec<(String, i64)>>("discovered_ips")?
+                            .unwrap_or_default()
+                    };
+                    records.retain(|(_, expires)| *expires > now);
+                    for address in [v4, v6].into_iter().flatten() {
+                        let family = address.contains(':');
+                        records.retain(|(value, _)| value.contains(':') != family);
+                        records.push((address, now + 1800));
+                    }
+                    runtime
+                        .state
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+                        .set_json("discovered_ips", &records)?;
+                } else {
+                    runtime
+                        .state
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+                        .remove_json("discovered_ips")?;
+                }
+                let _ =
+                    outgoing.try_send(Envelope::new("telemetry.static", runtime.static_info()?)?);
             }
-            runtime
-                .state
-                .lock()
-                .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                .set_json("discovered_ips", &records)?;
-        } else {
-            runtime
-                .state
-                .lock()
-                .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                .remove_json("discovered_ips")?;
         }
-        let _ = outgoing.try_send(Envelope::new("telemetry.static", runtime.static_info()?)?);
         tokio::time::sleep(Duration::from_secs(60)).await;
     }
 }

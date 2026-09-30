@@ -6,6 +6,11 @@ import http.server
 import os
 from pathlib import Path
 import signal
+import json
+import runpy
+import tempfile
+import io
+import tarfile
 import sqlite3
 import subprocess
 import threading
@@ -18,20 +23,51 @@ AGENT_STATE = Path("/var/lib/sinan/core/test-agent.pid")
 RUNTIME_STATE = Path("/var/lib/sinan/plugins/sing-box@main/data/test-runtime.pid")
 RELOAD_STATE = RUNTIME_STATE.with_suffix(".reloads")
 TOKEN = "openrc-smoke-fixture-token"
+RELEASE = runpy.run_path(str(ROOT / "tools/ci-release-fixture.py"))
+BUNDLE = Path("/tmp/sinan-openrc-TEST_ONLY-release")
 
 AGENT = b'''#!/usr/bin/python3
 from pathlib import Path
 import os
 import sys
 import time
+import hashlib
+import importlib.util
+import json
 
-if sys.argv[1] == "--version":
+arguments = sys.argv[1:]
+if arguments[:1] == ["--config"]:
+    arguments = arguments[2:]
+if arguments[0] == "verify-installed":
+    # This is an explicitly public process fixture verifier, not the production Agent.
+    binary = Path(arguments[arguments.index("--binary") + 1])
+    name = arguments[arguments.index("--name") + 1]
+    format = arguments[arguments.index("--format") + 1]
+    proof = binary.parent
+    module_spec = importlib.util.spec_from_file_location("test_release", "/src/tools/release.py")
+    release = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(release)
+    roots = release.load_roots(Path("/src/crates/protocol/tests/fixtures/public-keys.json"))
+    release.verify_signature(proof, roots, "minisign")
+    data = binary.read_bytes()
+    metadata_bytes = (proof / "release.json").read_bytes()
+    rows = dict(line.split("  ")[::-1] for line in (proof / "SHA256SUMS").read_text().splitlines())
+    assert rows["release.json"] == hashlib.sha256(metadata_bytes).hexdigest()
+    metadata = json.loads(metadata_bytes)
+    entry, = [item for item in metadata["artifacts"] if item["name"] == name]
+    assert entry["format"] == format and entry["binary_name"] == binary.name
+    assert len(data) == entry["binary_size"] and hashlib.sha256(data).hexdigest() == entry["binary_sha256"]
+    print("TEST_ONLY process fixture signature and binary checked")
+elif arguments[0] == "verify-cache":
+    # Actual cache preflight is separately exercised by Rust and real-e2e checks.
+    print("TEST_ONLY process fixture cache stub")
+elif arguments[0] == "--version":
     print("sinan-agent 0.2.0")
-elif sys.argv[1] == "status":
+elif arguments[0] == "status":
     if os.environ.get("SINAN_TEST_STATUS_FAIL") == "1":
         raise SystemExit("fixture startup check failed")
     print('{"fixture":true,"connected":true,"pending_batches":0}')
-elif sys.argv[1] == "enroll":
+elif arguments[0] == "enroll":
     if os.environ.get("SINAN_TEST_ENROLL_FAIL") == "1":
         raise SystemExit("fixture enrollment rejected")
     config = Path("/etc/sinan/agent.toml")
@@ -77,7 +113,7 @@ while True:
 
 
 def run(*args, **kwargs):
-    result = subprocess.run(args, capture_output=True, text=True, timeout=30, **kwargs)
+    result = subprocess.run(args, capture_output=True, text=True, timeout=90, **kwargs)
     if result.returncode:
         raise RuntimeError(f"{args!r}:\n{result.stdout}\n{result.stderr}")
     return result.stdout.strip()
@@ -106,25 +142,21 @@ def service(name, action):
 
 
 def install_script(origin):
-    values = {
-        "PANEL": f"'{origin}'",
-        "TOKEN": f"'{TOKEN}'",
-        "VERSION": "'0.2.0'",
-        "AMD64_HASH": f"'{hashlib.sha256(AGENT).hexdigest()}'",
-        "ARM64_HASH": f"'{hashlib.sha256(AGENT).hexdigest()}'",
-        "AGENT_UNIT": (ROOT / "deploy/sinan-agent.service").read_text().rstrip(),
-        "RUNTIME_UNIT": (ROOT / "plugins/sing-box/sinan-singbox@.service").read_text().rstrip(),
-        "AGENT_OPENRC": (ROOT / "deploy/sinan-agent.openrc").read_text().rstrip(),
-        "RUNTIME_OPENRC": (ROOT / "plugins/sing-box/sinan-singbox.openrc").read_text().rstrip(),
-    }
-    script = (ROOT / "deploy/install.sh.tmpl").read_text().replace(
-        "@@NATIVE_INSTALL@@", (ROOT / "deploy/install-native.sh.tmpl").read_text())
-    for target in ("LINUX_GNU_AMD64", "LINUX_GNU_ARM64", "LINUX_MUSL_AMD64", "LINUX_MUSL_ARM64", "MACOS_ARM64", "FREEBSD_AMD64", "FREEBSD_ARM64"):
-        values[f"{target}_HASH"] = "''"
-    for key, value in values.items():
-        script = script.replace(f"@@{key}@@", value)
-    assert "@@" not in script
-    return script
+    # Exercise the static signed installer after an independently trusted bootstrap.
+    subprocess.run(["python3", str(ROOT / "tools/release.py"), "render-installer",
+                    "--template", str(ROOT / "deploy/install.sh.tmpl"),
+                    "--agent-unit", str(ROOT / "deploy/sinan-agent.service"),
+                    "--runtime-unit", str(ROOT / "plugins/sing-box/sinan-singbox@.service"),
+                    "--output", str(BUNDLE / "install.sh")], check=True)
+    proof = RELEASE["proof"]("agent", "0.2.0", "sinan-agent", AGENT, arch=RELEASE["architecture"]())
+    lines = dict(line.split("  ")[::-1] for line in proof["checksums"].splitlines())
+    lines["install.sh"] = hashlib.sha256((BUNDLE / "install.sh").read_bytes()).hexdigest()
+    proof["checksums"] = "".join(f"{lines[path]}  {path}\n" for path in sorted(lines))
+    proof["signature"] = RELEASE["sign"](proof["checksums"].encode())
+    RELEASE["install"](BUNDLE, proof)
+    return ["python3", str(ROOT / "tools/bootstrap.py"), "--tag", "agent-v0.2.0",
+            "--panel", origin, "--trusted-keys", str(ROOT / "crates/protocol/tests/fixtures/public-keys.json"),
+            "--release-dir", str(BUNDLE)]
 
 
 def main():
@@ -133,6 +165,7 @@ def main():
     if os.geteuid() != 0 or os.environ.get("SINAN_OPENRC_SMOKE") != "1" or not isolated:
         raise SystemExit("Run this test in its disposable container or isolated root filesystem.")
 
+    BUNDLE.mkdir(mode=0o755)
     Path("/run/openrc").mkdir(parents=True, exist_ok=True)
     Path("/var/lib").mkdir(mode=0o755, exist_ok=True)
     Path("/run/openrc/softlevel").write_text("default\n")
@@ -164,9 +197,9 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     script = install_script(f"http://127.0.0.1:{server.server_port}")
-    environment = {**os.environ, "NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1"}
+    environment = {**os.environ, "NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1", "SINAN_ENROLLMENT_TOKEN": TOKEN}
     try:
-        run("sh", input=script, env=environment)
+        run(*script, env=environment)
         agent_pid = wait_for(lambda: pid(AGENT_STATE), "Agent startup after installation")
         for name in ["sinan-agent", RUNTIME_SERVICE]:
             assert f"_service='{name}'" in dependencies.read_text(), name
@@ -178,6 +211,13 @@ def main():
         runtime.parent.chmod(0o755)
         runtime.write_bytes(RUNTIME)
         runtime.chmod(0o755)
+        packed = io.BytesIO()
+        with tarfile.open(fileobj=packed, mode="w:gz") as archive:
+            member = tarfile.TarInfo("sing-box")
+            member.size = len(RUNTIME)
+            member.mode = 0o755
+            archive.addfile(member, io.BytesIO(RUNTIME))
+        RELEASE["install"](runtime.parent, RELEASE["proof"]("sing-box", "1.14.2", "sing-box", packed.getvalue(), "tar.gz", arch=RELEASE["architecture"]()))
         current = Path("/var/lib/sinan/plugins/sing-box@main/current")
         current.mkdir(mode=0o755)
         current.chmod(0o755)
@@ -198,14 +238,14 @@ def main():
         identity.write_text("fixture identity must survive installation\n")
         ledger = Path("/var/lib/sinan/core/fixture-existing-ledger")
         ledger.write_text("fixture persisted accounting\n")
-        run("sh", input=script, env=environment)
+        run(*script, env=environment)
         agent_pid = wait_for(lambda: (number := pid(AGENT_STATE)) != agent_pid and number,
                              "Agent restart after repeated installation")
         assert pid(RUNTIME_STATE) == runtime_pid
         assert identity.read_text() == "fixture identity must survive installation\n"
         assert ledger.read_text() == "fixture persisted accounting\n"
 
-        failed = subprocess.run(["sh"], input=script, text=True, capture_output=True, timeout=30,
+        failed = subprocess.run(script, text=True, capture_output=True, timeout=90,
                                 env={**environment, "SINAN_TEST_ENROLL_FAIL": "1"})
         assert failed.returncode != 0
         assert pid(AGENT_STATE) == agent_pid
@@ -221,7 +261,7 @@ def main():
         previous = Path("/opt/sinan/core/current").readlink()
         before_recovery = pid(AGENT_STATE)
         failed = subprocess.run(
-            ["sh"], input=script, capture_output=True, text=True, timeout=30,
+            script, capture_output=True, text=True, timeout=90,
             env={**environment, "SINAN_TEST_STATUS_FAIL": "1"},
         )
         assert failed.returncode != 0 and "恢复上一版本" in failed.stderr
@@ -278,10 +318,10 @@ def main():
         Path("/run/systemd/system").mkdir(parents=True)
         Path("/etc/systemd/system").mkdir(parents=True, exist_ok=True)
         try:
-            run("sh", input=script, env=environment)
+            run(*script, env=environment)
             assert Path("/tmp/systemctl-calls").read_text().splitlines() == [
-                "daemon-reload", "enable sinan-singbox@main.service",
-                "enable sinan-agent.service", "restart sinan-agent.service",
+                "daemon-reload", "enable sinan-singbox@main.service sinan-agent.service",
+                "restart sinan-agent.service",
             ]
             assert Path("/etc/systemd/system/sinan-agent.service").read_text() == (ROOT / "deploy/sinan-agent.service").read_text()
             assert Path("/etc/systemd/system/sinan-singbox@.service").read_text() == (ROOT / "plugins/sing-box/sinan-singbox@.service").read_text()

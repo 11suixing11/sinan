@@ -17,6 +17,7 @@ import uuid
 helpers = runpy.run_path(str(Path(__file__).with_name('agent-smoke.py')))
 Panel, invoke, wait_for, status = (helpers[name] for name in ('Panel', 'invoke', 'wait_for', 'status'))
 SYSTEM = platform.system()
+RELEASE = helpers['RELEASE']
 
 
 def command(args, check=True):
@@ -28,6 +29,32 @@ def command(args, check=True):
 
 def powershell(script, check=True):
     return command(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', "$ErrorActionPreference='Stop'; " + script], check)
+
+
+def windows_rights(root):
+    path = root / 'user-rights.inf'
+    command(['secedit.exe', '/export', '/cfg', str(path), '/areas', 'USER_RIGHTS', '/quiet'])
+    rights = {}
+    for line in path.read_text(encoding='utf-16').splitlines():
+        name, separator, value = line.partition('=')
+        if separator and name.strip().startswith('Se'):
+            rights[name.strip()] = {member.strip() for member in value.split(',') if member.strip()}
+    path.unlink()
+    names = sorted({member for members in rights.values() for member in members if not member.startswith('*')})
+    resolved = {}
+    if names:
+        literals = ','.join("'" + name.replace("'", "''") + "'" for name in names)
+        output = powershell("$sids=@{}; foreach($name in @(" + literals + ")) { $sids[$name]=([Security.Principal.NTAccount]::new($name)).Translate([Security.Principal.SecurityIdentifier]).Value }; $sids | ConvertTo-Json -Compress")
+        resolved = json.loads(output.stdout)
+    return {name: {member[1:] if member.startswith('*') else resolved[member] for member in members}
+            for name, members in rights.items()}
+
+
+def assert_windows_rights(root, expected):
+    actual = windows_rights(root)
+    changes = {name: dict(expected=sorted(expected.get(name, set())), actual=sorted(actual.get(name, set())))
+               for name in expected.keys() | actual.keys() if expected.get(name, set()) != actual.get(name, set())}
+    assert not changes, 'Unexpected user rights changes: ' + json.dumps(changes)
 
 
 def service(name, action):
@@ -85,8 +112,15 @@ def main():
         parser.error('requires a disposable native CI runner')
     binary = args.binary.resolve()
     archive = args.runtime_archive.read_bytes()
+    version = subprocess.check_output([str(binary), '--version'], text=True).strip().split()[-1]
     root = (Path(os.environ['ProgramData']) if SYSTEM == 'Windows' else Path('/opt')) / ('sinan-test-' + uuid.uuid4().hex[:8])
     root.mkdir(mode=0o755, parents=True)
+    source = root / 'verified-source' / version
+    source.mkdir(mode=0o755, parents=True)
+    signed_binary = source / binary.name
+    shutil.copy2(binary, signed_binary)
+    binary = signed_binary
+    RELEASE['install'](source, RELEASE['proof']('agent', version, binary.name, binary.read_bytes()))
     os.environ['NO_PROXY'] = os.environ['no_proxy'] = '127.0.0.1,localhost'
     panel = Panel()
     config = helpers['configure'](root, panel.origin)
@@ -98,17 +132,23 @@ def main():
                   outbounds=[dict(type='direct', tag='direct')], route=dict(final='direct'),
                   experimental=dict(v2ray_api=dict(listen=f'127.0.0.1:{stats_port}', stats=dict(enabled=True, users=['u1_n1']))))
     bundle = json.dumps(dict(files={'config.json': json.dumps(native)}), separators=(',', ':')).encode()
-    panel.downloads = {'/fixture/runtime': archive, '/fixture/bundle': bundle}
-    module = dict(kernel_version='1.14.2', artifact=dict(url=panel.origin + '/fixture/runtime', sha256=hashlib.sha256(archive).hexdigest()),
+    runtime_path = '/api/agent/v1/artifacts/sing-box/1.14.2/' + RELEASE['target']()
+    panel.downloads = {runtime_path: archive, '/fixture/bundle': bundle}
+    module = dict(kernel_version='1.14.2', artifact=dict(url=panel.origin + runtime_path, sha256=hashlib.sha256(archive).hexdigest(),
+                  proof=RELEASE['proof']('sing-box', '1.14.2', 'sing-box.exe' if SYSTEM == 'Windows' else 'sing-box', archive, 'tar.gz')),
                   config_rev=1, bundle_url=panel.origin + '/fixture/bundle', bundle_sha256=hashlib.sha256(bundle).hexdigest(), stats_listen=f'127.0.0.1:{stats_port}')
     try:
         if SYSTEM == 'Windows':
             command(['wevtutil.exe', 'sl', 'Microsoft-Windows-TaskScheduler/Operational', '/e:true'])
+            original_rights = windows_rights(root)
         print(invoke(binary, config, 'enroll', '--panel', panel.origin, '--token', 'smoke-enrollment'))
         # Publish after services are registered so launchd's eager startup cannot race the fixture.
         print(invoke(binary, config, 'install-service'))
         if SYSTEM == 'Windows':
-            powershell("$user=Get-LocalUser -Name 'sinan-singbox'; if (-not (Get-LocalGroupMember -SID 'S-1-5-32-545' | Where-Object { $_.SID -eq $user.SID })) { throw 'Runtime is not an ordinary Users member' }; if (Get-LocalGroupMember -SID 'S-1-5-32-544' | Where-Object { $_.SID -eq $user.SID }) { throw 'Runtime must not be an administrator' }")
+            account = powershell("$user=Get-LocalUser -Name 'sinan-singbox'; if (-not (Get-LocalGroupMember -SID 'S-1-5-32-545' | Where-Object { $_.SID -eq $user.SID })) { throw 'Runtime is not an ordinary Users member' }; if (Get-LocalGroupMember -SID 'S-1-5-32-544' | Where-Object { $_.SID -eq $user.SID }) { throw 'Runtime must not be an administrator' }; $user.SID.Value").stdout.strip()
+            expected_rights = dict(original_rights)
+            expected_rights['SeBatchLogonRight'] = original_rights.get('SeBatchLogonRight', set()) | {account}
+            assert_windows_rights(root, expected_rights)
         panel.manifest = dict(rev=1, modules={'singbox': module})
         revision = 1
         def applied():
@@ -138,6 +178,8 @@ def main():
         identity = (root / 'identity/device.key').read_bytes()
         print(invoke(binary, config, 'install-service'))
         assert (root / 'identity/device.key').read_bytes() == identity
+        if SYSTEM == 'Windows':
+            assert_windows_rights(root, expected_rights)
         transfer(proxy_port)
         service('sinan-agent', 'stop')
         wait_for(lambda: status(binary, config) is None, 'Agent service shutdown', 30)

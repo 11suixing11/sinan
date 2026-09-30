@@ -17,6 +17,7 @@ fn managed_signal_target(id: u32) -> String {
 struct ManagedChild {
     child: tokio::process::Child,
     id: u32,
+    exit_code: Option<i32>,
 }
 impl Drop for ManagedChild {
     fn drop(&mut self) {
@@ -45,7 +46,13 @@ impl ManagedProcess for ManagedChild {
         self.id
     }
     fn try_wait(&mut self) -> Result<Option<bool>> {
-        Ok(self.child.try_wait()?.map(|status| status.success()))
+        Ok(self.child.try_wait()?.map(|status| {
+            self.exit_code = status.code();
+            status.success()
+        }))
+    }
+    fn exit_code(&self) -> Option<i32> {
+        self.exit_code
     }
     fn terminate(&mut self) -> sinan_adapter_sdk::BoxFuture<'_, ()> {
         Box::pin(async move {
@@ -94,7 +101,11 @@ pub(super) fn spawn(program: &Path, args: &[String]) -> Result<Box<dyn ManagedPr
     command.process_group(0);
     let child = command.spawn()?;
     let id = child.id().context("managed process has no identifier")?;
-    Ok(Box::new(ManagedChild { child, id }))
+    Ok(Box::new(ManagedChild {
+        child,
+        id,
+        exit_code: None,
+    }))
 }
 
 struct CommandGuard(u32);
@@ -208,6 +219,27 @@ pub(super) async fn execute(
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn managed_process_preserves_terminal_retirement_exit_code() -> Result<()> {
+        let mut child = spawn(Path::new("sh"), &["-c".into(), "exit 78".into()])?;
+        assert_eq!(child.exit_code(), None);
+        let success = timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(success) = child.try_wait()? {
+                    return Ok::<_, anyhow::Error>(success);
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await??;
+        assert!(!success);
+        assert_eq!(child.exit_code(), Some(78));
+        // Tokio returns the same terminal status on subsequent observations.
+        assert_eq!(child.try_wait()?, Some(false));
+        assert_eq!(child.exit_code(), Some(78));
+        Ok(())
+    }
+
     #[tokio::test]
     async fn cancelling_a_command_terminates_its_descendants() -> Result<()> {
         let root = std::env::temp_dir().join(format!("sn-command-{}", Uuid::new_v4()));

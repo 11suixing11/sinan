@@ -30,6 +30,12 @@ async fn spawn(
     if monitor_only {
         args.push("--monitor-only".into());
     }
+    crate::artifacts::verify_expected_agent(
+        &root.join(version).join(executable_name()),
+        version,
+        &sinan_protocol::release::TrustedKeys::compiled()?,
+    )
+    .await?;
     ops.spawn_managed(&root.join(version).join(executable_name()), &args)
         .await
 }
@@ -130,6 +136,9 @@ pub async fn supervise(
             result = &mut shutdown => { result?; child.terminate().await?; return Ok(()); }
         }
         if child.try_wait()?.is_some() {
+            if child.exit_code() == Some(crate::retirement::RETIRED_EXIT_CODE) {
+                return Err(crate::retirement::Retired.into());
+            }
             crashes = crashes.saturating_add(1);
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs((1u64 << crashes.min(5)).min(30))) => {},
@@ -156,6 +165,11 @@ pub async fn supervise(
             &root.join(&pending.version).join(executable_name()),
             &pending.version,
             &pending.sha256,
+            pending
+                .proof
+                .as_ref()
+                .context("pending Agent update has no signed proof")?,
+            &sinan_protocol::release::TrustedKeys::compiled()?,
             ops.as_ref(),
         )
         .await;

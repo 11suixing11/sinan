@@ -1,5 +1,8 @@
 use super::*;
-use crate::system::SystemOps;
+use crate::{
+    release_test_support::{entry, hash, signed_release, trusted_keys},
+    system::SystemOps,
+};
 use sinan_protocol::Artifact;
 use std::{os::unix::fs::PermissionsExt, path::PathBuf, sync::Mutex};
 use tokio::{
@@ -12,6 +15,7 @@ struct Fixture {
     root: PathBuf,
     origin: String,
     release: Arc<Mutex<AgentRelease>>,
+    bytes: Arc<Mutex<Vec<u8>>>,
     requests: Arc<Mutex<Vec<String>>>,
     task: JoinHandle<()>,
 }
@@ -23,6 +27,51 @@ impl Drop for Fixture {
 }
 
 impl Fixture {
+    fn artifact(origin: &str, version: &str, bytes: &[u8]) -> Artifact {
+        let proof = signed_release(vec![(
+            entry("agent", version, executable_name(), "raw", bytes, bytes),
+            bytes.to_vec(),
+        )]);
+        Artifact {
+            url: format!(
+                "{origin}/api/agent/v1/artifacts/agent/{version}/{}",
+                sinan_protocol::release::native_arch().unwrap()
+            ),
+            sha256: hash(bytes),
+            proof: Some(proof),
+        }
+    }
+
+    fn assert_no_binary_download(&self) {
+        let requests = self.requests.lock().unwrap();
+        assert_eq!(
+            requests.len(),
+            1,
+            "untrusted releases must be rejected before any executable download"
+        );
+        assert!(requests[0].starts_with("GET /api/agent/v1/update "));
+    }
+
+    async fn config(&self) -> Result<Config> {
+        let config = Config {
+            agent_root: self.root.join("core"),
+            ..Config::default()
+        };
+        let ops = SystemOps;
+        ops.create_dir(&config.agent_root, 0o755, None).await?;
+        ops.write_file(
+            &config.agent_root.join("update-state.json"),
+            &serde_json::to_vec(&UpgradeState {
+                current: env!("CARGO_PKG_VERSION").into(),
+                ..UpgradeState::default()
+            })?,
+            0o600,
+            None,
+        )
+        .await?;
+        Ok(config)
+    }
+
     async fn new() -> Result<Self> {
         let root = std::env::temp_dir().join(format!("sinan-update-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&root)?;
@@ -31,7 +80,7 @@ impl Fixture {
             &source,
             r##"#![forbid(unsafe_code)]
 fn main() { assert_eq!(std::env::args().nth(1).as_deref(), Some("--version")); println!("sinan-agent 99.0.0"); }
-"##,
+"##.replace("assert_eq!", &format!("std::fs::write({:?}, b\"executed\").unwrap(); assert_eq!", root.join("executed"))),
         )?;
         let binary = root.join("fixture");
         let output = tokio::process::Command::new("rustc")
@@ -51,11 +100,14 @@ fn main() { assert_eq!(std::env::args().nth(1).as_deref(), Some("--version")); p
         let origin = format!("http://{}", listener.local_addr()?);
         let release = Arc::new(Mutex::new(AgentRelease {
             version: "99.0.0".into(),
-            artifact: Artifact {
-                url: format!("{origin}/binary"),
-                sha256: format!("{:x}", Sha256::digest(&bytes)),
-            },
+            artifact: Self::artifact(&origin, "99.0.0", &bytes),
         }));
+        let bytes = Arc::new(Mutex::new(bytes));
+        let response_bytes = bytes.clone();
+        let binary_path = format!(
+            "GET /api/agent/v1/artifacts/agent/99.0.0/{} ",
+            sinan_protocol::release::native_arch()?
+        );
         let response_release = release.clone();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let captured = requests.clone();
@@ -71,8 +123,8 @@ fn main() { assert_eq!(std::env::args().nth(1).as_deref(), Some("--version")); p
                 let request = String::from_utf8_lossy(&request).into_owned();
                 let body = if request.starts_with("GET /api/agent/v1/update ") {
                     serde_json::to_vec(&*response_release.lock().unwrap()).unwrap()
-                } else if request.starts_with("GET /binary ") {
-                    bytes.clone()
+                } else if request.starts_with(&binary_path) {
+                    response_bytes.lock().unwrap().clone()
                 } else {
                     b"invalid executable".to_vec()
                 };
@@ -90,6 +142,7 @@ fn main() { assert_eq!(std::env::args().nth(1).as_deref(), Some("--version")); p
             root,
             origin,
             release,
+            bytes,
             requests,
             task,
         })
@@ -97,25 +150,13 @@ fn main() { assert_eq!(std::env::args().nth(1).as_deref(), Some("--version")); p
 }
 
 #[tokio::test]
-async fn stages_authenticated_updates_only_after_digest_format_and_version_checks() -> Result<()> {
+async fn stages_signed_updates_only_after_identity_digest_format_and_version_checks() -> Result<()>
+{
     let fixture = Fixture::new().await?;
-    let config = Config {
-        agent_root: fixture.root.join("core"),
-        ..Config::default()
-    };
+    let config = fixture.config().await?;
     let ops = SystemOps;
-    ops.create_dir(&config.agent_root, 0o755, None).await?;
-    ops.write_file(
-        &config.agent_root.join("update-state.json"),
-        &serde_json::to_vec(&UpgradeState {
-            current: env!("CARGO_PKG_VERSION").into(),
-            ..UpgradeState::default()
-        })?,
-        0o600,
-        None,
-    )
-    .await?;
-    let client = PanelClient::new(&fixture.origin, "update-fixture-session")?;
+    let client = PanelClient::new(&fixture.origin, "update-fixture-session")?
+        .with_trusted_keys(trusted_keys());
     let original = fixture.release.lock().unwrap().clone();
     let pending = config.agent_root.join("pending-update.json");
 
@@ -129,10 +170,10 @@ async fn stages_authenticated_updates_only_after_digest_format_and_version_check
     );
     assert!(!config.agent_root.join("99.0.0").exists() && !pending.exists());
 
-    fixture.release.lock().unwrap().artifact = Artifact {
-        url: format!("{}/invalid", fixture.origin),
-        sha256: format!("{:x}", Sha256::digest(b"invalid executable")),
-    };
+    let valid_bytes = fixture.bytes.lock().unwrap().clone();
+    *fixture.bytes.lock().unwrap() = b"invalid executable".to_vec();
+    fixture.release.lock().unwrap().artifact =
+        Fixture::artifact(&fixture.origin, "99.0.0", b"invalid executable");
     assert!(
         check(&config, &ops, &client)
             .await
@@ -143,6 +184,7 @@ async fn stages_authenticated_updates_only_after_digest_format_and_version_check
     assert!(!pending.exists());
 
     *fixture.release.lock().unwrap() = original.clone();
+    *fixture.bytes.lock().unwrap() = valid_bytes;
     fixture.release.lock().unwrap().artifact.url = "https://other.example/binary".into();
     assert!(
         check(&config, &ops, &client)
@@ -168,7 +210,7 @@ async fn stages_authenticated_updates_only_after_digest_format_and_version_check
             .await
             .unwrap_err()
             .to_string()
-            .contains("version check")
+            .contains("does not contain the requested artifact")
     );
     assert!(!pending.exists());
 
@@ -177,11 +219,33 @@ async fn stages_authenticated_updates_only_after_digest_format_and_version_check
     let staged: PendingUpgrade = read_json(&pending)?;
     assert_eq!(staged.version, original.version);
     assert_eq!(staged.sha256, original.artifact.sha256);
+    let proof = staged
+        .proof
+        .as_ref()
+        .context("pending upgrade has no signed proof")?;
+    assert_eq!(
+        proof.metadata_json,
+        original.artifact.proof.as_ref().unwrap().metadata_json
+    );
+    for (name, expected) in [
+        ("release.json", proof.metadata_json.as_bytes()),
+        ("SHA256SUMS", proof.checksums.as_bytes()),
+        ("SHA256SUMS.minisig", proof.signature.as_bytes()),
+    ] {
+        assert_eq!(
+            std::fs::read(config.agent_root.join("99.0.0").join(name))?,
+            expected
+        );
+    }
     assert_eq!(
         std::fs::metadata(&pending)?.permissions().mode() & 0o777,
         0o600
     );
     assert!(state(&config)?.unwrap().trial.is_none());
+    assert!(
+        fixture.root.join("executed").exists(),
+        "a correctly signed candidate must still pass its CLI version check"
+    );
 
     std::fs::remove_file(&pending)?;
     std::fs::write(
@@ -219,5 +283,52 @@ async fn stages_authenticated_updates_only_after_digest_format_and_version_check
             .contains("authorization: bearer update-fixture-session")
     );
     assert!(!pending.exists());
+    Ok(())
+}
+
+#[tokio::test]
+async fn rejects_unsigned_or_corrupt_updates_before_download_or_execution() -> Result<()> {
+    let fixture = Fixture::new().await?;
+    let config = fixture.config().await?;
+    let client = PanelClient::new(&fixture.origin, "update-fixture-session")?
+        .with_trusted_keys(trusted_keys());
+    let original = fixture.release.lock().unwrap().clone();
+    let mut rejected = Vec::new();
+    let mut unsigned = original.clone();
+    unsigned.artifact.proof = None;
+    rejected.push(unsigned);
+    let mut invalid_signature = original.clone();
+    invalid_signature
+        .artifact
+        .proof
+        .as_mut()
+        .unwrap()
+        .checksums
+        .push_str(&format!("{}  tampered\n", "0".repeat(64)));
+    rejected.push(invalid_signature);
+    let mut invalid_metadata = original.clone();
+    invalid_metadata
+        .artifact
+        .proof
+        .as_mut()
+        .unwrap()
+        .metadata_json
+        .push(' ');
+    rejected.push(invalid_metadata);
+    let mut wrong_identity = original.clone();
+    wrong_identity.artifact.url = format!("{}/binary", fixture.origin);
+    rejected.push(wrong_identity);
+    for release in rejected {
+        *fixture.release.lock().unwrap() = release;
+        fixture.requests.lock().unwrap().clear();
+        assert!(check(&config, &SystemOps, &client).await.is_err());
+        fixture.assert_no_binary_download();
+        assert!(!config.agent_root.join("99.0.0").exists());
+        assert!(!config.agent_root.join("pending-update.json").exists());
+        assert!(
+            !fixture.root.join("executed").exists(),
+            "untrusted bytes must never execute"
+        );
+    }
     Ok(())
 }

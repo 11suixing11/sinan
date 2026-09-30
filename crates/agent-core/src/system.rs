@@ -4,10 +4,13 @@ mod openrc_jobs;
 pub use openrc_jobs::run_job;
 pub mod deploy;
 mod jobs;
+mod publication;
 
 pub use sinan_adapter_sdk::{Privileged, ServiceManager};
 
 mod services;
+#[cfg(test)]
+use services::parse_runtime_active;
 pub use services::{ServiceBackend, SystemServiceManager};
 
 use crate::artifacts::safe_component;
@@ -119,6 +122,14 @@ impl Privileged for SystemOps {
         args: &'a [String],
     ) -> BoxFuture<'a, CommandOutput> {
         Box::pin(async move {
+            let publication = publication::is_request(program, args);
+            if publication {
+                publication::validate(args)?;
+            }
+            #[cfg(not(target_os = "linux"))]
+            if publication {
+                return publication::simulate(args).await;
+            }
             #[cfg(not(target_os = "linux"))]
             ensure!(
                 program.file_name().is_none_or(|name| {
@@ -132,6 +143,9 @@ impl Privileged for SystemOps {
             )
             .await
             .context("command exceeded 30 seconds")??;
+            if publication && output.status.success() {
+                publication::sync(args).await?;
+            }
             Ok(CommandOutput {
                 success: output.status.success(),
                 stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -230,6 +244,22 @@ impl Privileged for SystemOps {
         })
     }
 
+    fn remove_path<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let metadata = match fs::symlink_metadata(path) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(error) => return Err(error.into()),
+            };
+            remove_managed(path, metadata.is_dir())
+        })
+    }
+    fn remove_file<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, ()> {
+        Box::pin(async move { remove_managed(path, false) })
+    }
+    fn remove_managed_directory<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, ()> {
+        Box::pin(async move { remove_managed(path, true) })
+    }
     fn install_archive<'a>(
         &'a self,
         archive: &'a Path,
@@ -266,4 +296,38 @@ impl Privileged for SystemOps {
             .await?
         })
     }
+}
+fn remove_managed(path: &Path, directory: bool) -> Result<()> {
+    ensure!(
+        path.is_absolute(),
+        "managed removal requires an absolute path"
+    );
+    let parent = parent_directory(path)?;
+    for ancestor in parent.ancestors() {
+        let metadata = fs::symlink_metadata(ancestor)?;
+        ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "managed removal refuses symbolic link ancestors"
+        );
+    }
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    ensure!(
+        !metadata.file_type().is_symlink(),
+        "managed removal refuses symbolic links"
+    );
+    if directory {
+        ensure!(metadata.is_dir(), "managed removal requires a directory");
+        fs::remove_dir_all(path)?;
+    } else {
+        ensure!(
+            metadata.is_file(),
+            "credential removal requires a regular file"
+        );
+        fs::remove_file(path)?;
+    }
+    sync_directory(parent)
 }

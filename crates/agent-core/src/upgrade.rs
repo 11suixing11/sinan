@@ -19,6 +19,8 @@ use tokio::{sync::watch, time::Instant};
 pub struct PendingUpgrade {
     pub version: String,
     pub sha256: String,
+    #[serde(default)]
+    pub proof: Option<sinan_protocol::release::ReleaseProof>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct UpgradeState {
@@ -59,27 +61,34 @@ pub async fn run(
     state: SharedState,
     ops: Arc<dyn Privileged>,
     clients: watch::Receiver<Option<Arc<PanelClient>>>,
+    retirement: Arc<crate::retirement::Retirement>,
 ) -> Result<()> {
     let mut next = Instant::now();
     loop {
-        let settings = state
-            .lock()
-            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-            .get_json::<AgentSettings>("agent_settings")?
-            .unwrap_or_else(|| config.settings.clone());
-        if !settings.auto_update {
-            next = Instant::now();
-        } else if Instant::now() >= next {
-            let active = clients.borrow().clone();
-            if let Some(active) = active {
-                match check(&config, ops.as_ref(), &active).await {
-                    Ok(()) => {
-                        next = Instant::now()
-                            + Duration::from_secs(6 * 3600 + rand::random::<u64>() % 300)
-                    }
-                    Err(error) => {
-                        tracing::warn!(%error,"Agent update check failed");
-                        next = Instant::now() + Duration::from_secs(300);
+        {
+            let _guard = retirement.gate.read().await;
+            if !retirement.requested() {
+                let settings = state
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+                    .get_json::<AgentSettings>("agent_settings")?
+                    .unwrap_or_else(|| config.settings.clone());
+                if !settings.auto_update {
+                    next = Instant::now();
+                } else if Instant::now() >= next {
+                    let active = clients.borrow().clone();
+                    if let Some(active) = active {
+                        match check_guarded(&config, ops.as_ref(), &active, Some(&retirement)).await
+                        {
+                            Ok(()) => {
+                                next = Instant::now()
+                                    + Duration::from_secs(6 * 3600 + rand::random::<u64>() % 300)
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error,"Agent update check failed");
+                                next = Instant::now() + Duration::from_secs(300);
+                            }
+                        }
                     }
                 }
             }
@@ -88,13 +97,32 @@ pub async fn run(
     }
 }
 
+#[cfg(all(test, target_os = "linux"))]
 async fn check(config: &Config, ops: &dyn Privileged, client: &PanelClient) -> Result<()> {
+    check_guarded(config, ops, client, None).await
+}
+
+async fn check_guarded(
+    config: &Config,
+    ops: &dyn Privileged,
+    client: &PanelClient,
+    retirement: Option<&crate::retirement::Retirement>,
+) -> Result<()> {
+    let active = || -> Result<()> {
+        ensure!(
+            !retirement.is_some_and(|retirement| retirement.requested()),
+            "Agent is retiring; automatic update was cancelled"
+        );
+        Ok(())
+    };
+    active()?;
     let root = core_root(config)?;
     ensure!(
         root.join("update-state.json").is_file(),
         "automatic updates require the installed Agent supervisor"
     );
     let release: Option<AgentRelease> = client.get_json("/api/agent/v1/update").await?;
+    active()?;
     let Some(release) = release else {
         return Ok(());
     };
@@ -106,14 +134,19 @@ async fn check(config: &Config, ops: &dyn Privileged, client: &PanelClient) -> R
     if previous.failed_versions.contains(&release.version) || previous.trial.is_some() {
         return Ok(());
     }
-    let bytes = client.agent_binary(&release.artifact).await?;
+    let bytes = client
+        .agent_binary(&release.artifact, &release.version)
+        .await?;
+    active()?;
     ensure!(
         valid_executable(&bytes),
         "Agent update has the wrong executable format or architecture"
     );
     let directory = root.join(&release.version);
     let binary = directory.join(executable_name());
+    active()?;
     ops.create_dir(&directory, 0o755, None).await?;
+    active()?;
     if binary.try_exists()? {
         ensure!(
             std::fs::read(&binary)? == bytes,
@@ -122,10 +155,36 @@ async fn check(config: &Config, ops: &dyn Privileged, client: &PanelClient) -> R
     } else {
         ops.write_file(&binary, &bytes, 0o755, None).await?;
     }
-    verify(&binary, &release.version, &release.artifact.sha256, ops).await?;
+    active()?;
+    let proof = release
+        .artifact
+        .proof
+        .as_ref()
+        .context("Agent update lacks signed proof")?;
+    for (name, bytes) in [
+        ("release.json", proof.metadata_json.as_bytes()),
+        ("SHA256SUMS", proof.checksums.as_bytes()),
+        ("SHA256SUMS.minisig", proof.signature.as_bytes()),
+    ] {
+        active()?;
+        ops.write_file(&directory.join(name), bytes, 0o644, None)
+            .await?;
+    }
+    verify_guarded(
+        &binary,
+        &release.version,
+        &release.artifact.sha256,
+        proof,
+        client.keys()?,
+        ops,
+        retirement,
+    )
+    .await?;
+    active()?;
     let pending = PendingUpgrade {
         version: release.version,
         sha256: release.artifact.sha256,
+        proof: release.artifact.proof,
     };
     ops.write_file(
         &root.join("pending-update.json"),
@@ -140,13 +199,32 @@ async fn check(config: &Config, ops: &dyn Privileged, client: &PanelClient) -> R
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     let metadata = std::fs::symlink_metadata(path)?;
     ensure!(
-        metadata.is_file() && metadata.len() <= 64 * 1024,
+        metadata.is_file() && metadata.len() <= 128 * 1024,
         "invalid update state file"
     );
     Ok(serde_json::from_slice(&std::fs::read(path)?)?)
 }
 
-async fn verify(binary: &Path, version: &str, digest: &str, ops: &dyn Privileged) -> Result<()> {
+async fn verify(
+    binary: &Path,
+    version: &str,
+    digest: &str,
+    proof: &sinan_protocol::release::ReleaseProof,
+    keys: &sinan_protocol::release::TrustedKeys,
+    ops: &dyn Privileged,
+) -> Result<()> {
+    verify_guarded(binary, version, digest, proof, keys, ops, None).await
+}
+
+async fn verify_guarded(
+    binary: &Path,
+    version: &str,
+    digest: &str,
+    proof: &sinan_protocol::release::ReleaseProof,
+    keys: &sinan_protocol::release::TrustedKeys,
+    ops: &dyn Privileged,
+    retirement: Option<&crate::retirement::Retirement>,
+) -> Result<()> {
     ensure!(
         release_version(version).is_some(),
         "invalid Agent release version"
@@ -159,6 +237,20 @@ async fn verify(binary: &Path, version: &str, digest: &str, ops: &dyn Privileged
     ensure!(
         format!("{:x}", Sha256::digest(std::fs::read(binary)?)) == digest.to_ascii_lowercase(),
         "Agent update SHA256 mismatch"
+    );
+    let release = sinan_protocol::release::verify_release(proof, keys)?;
+    let verified = release.native_artifact("agent", version)?;
+    ensure!(
+        verified.metadata().format == "raw"
+            && verified.metadata().binary_name == executable_name()
+            && verified.sha256() == digest.to_ascii_lowercase(),
+        "Agent update signed identity mismatch"
+    );
+    verified.verify_binary(&std::fs::read(binary)?)?;
+    crate::artifacts::verify_expected_agent(binary, version, keys).await?;
+    ensure!(
+        !retirement.is_some_and(|retirement| retirement.requested()),
+        "Agent is retiring; candidate execution was cancelled"
     );
     let output = ops
         .execute_bounded(binary, &["--version".into()], 10, 1024)

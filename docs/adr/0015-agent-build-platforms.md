@@ -4,7 +4,7 @@
 
 ## 背景
 
-用户要求在已有 Linux musl 制品之外，增加 Ubuntu 24.04 glibc、macOS arm64、FreeBSD 13 系列及以上、Windows 的 Agent 编译产物，除 macOS 外均提供 amd64 和 arm64。用户已明确本次范围为“增加可下载的 Agent 编译产物”，因此这是对原 Linux 构建范围的明确扩展，服务部署仍限 Linux；后续 OpenRC 服务支持见 [ADR 0017](0017-openrc-services.md)。
+用户要求在已有 Linux musl 制品之外，增加 Ubuntu 24.04 glibc、macOS arm64、FreeBSD 13 系列及以上、Windows 的 Agent 编译产物，除 macOS 外均提供 amd64 和 arm64。用户已明确本次范围为“增加可下载的 Agent 编译产物”，因此这是对原 Linux 构建范围的明确扩展，服务部署仍限 Linux；后续 OpenRC 服务支持见 [ADR 0017](0021-openrc-services.md)。
 
 ## 决策
 
@@ -53,3 +53,7 @@ FreeBSD 两个目标改为在 Linux 上安装 Rust stable 和目标标准库，�
 Linux 构建合并为 libc × 架构矩阵：musl 静态 amd64/arm64、Ubuntu 24.04 glibc 动态 amd64/arm64。OpenRC 安装、缓存刷新、HUP、恢复与权限检查在 musl 任务内执行，不创建 OpenRC 二进制或单独任务。macOS 只构建 ARM64，Windows 与 FreeBSD 保留双架构；FreeBSD 继续使用固定 cross 工具链与 13.5/14/15 VM 验证。
 
 Alpine/OpenRC 的 Agent 使用 musl 静态版，Ubuntu 24.04/systemd 可使用 glibc 动态版。服务后端仍在运行时自动识别，二进制的 libc 兼容性独立于 init；不把所有 OpenRC 系统都视为 musl，也不改变安装接口或 Linux 服务管理边界。
+
+## 后续执行：第 2 阶段复用体积证据
+
+第 0 阶段已在同一源码、架构和工具链下完成原 release profile 与优化 profile 的体积对照，实际字节数保存在对应 CI 摘要与制品中。第 2 阶段开始，常规 push/PR 的 musl job 只构建优化制品，不再重复编译旧 profile 或生成体积对照；真实端到端 job 复用本次运行的优化 Agent 制品。

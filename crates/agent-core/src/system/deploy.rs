@@ -36,6 +36,18 @@ pub async fn install_services(
         ),
         "Linux services are installed through install.sh"
     );
+    // Reject untrusted executables and existing runtime state before changing
+    // accounts, service definitions, or the currently selected Agent.
+    let source_binary = std::env::current_exe()?;
+    crate::artifacts::verify_installed_binary(&source_binary, "agent", "raw").await?;
+    crate::artifacts::verify_cache(config).await?;
+    let proof_directory = source_binary
+        .parent()
+        .context("Agent binary has no parent")?;
+    let mut proof_files = Vec::new();
+    for name in ["release.json", "SHA256SUMS", "SHA256SUMS.minisig"] {
+        proof_files.push((name, tokio::fs::read(proof_directory.join(name)).await?));
+    }
     let ops: Arc<dyn Privileged> = Arc::new(SystemOps);
     native::require_admin(ops.as_ref(), backend).await?;
     if let Some(descriptor) = descriptor {
@@ -53,7 +65,7 @@ pub async fn install_services(
     let directory = root.join(version);
     let binary = directory.join(executable_name());
     ops.create_dir(&directory, 0o755, None).await?;
-    let bytes = tokio::fs::read(std::env::current_exe()?).await?;
+    let bytes = tokio::fs::read(&source_binary).await?;
     if binary.try_exists()? {
         ensure!(
             tokio::fs::read(&binary).await? == bytes,
@@ -62,6 +74,18 @@ pub async fn install_services(
     } else {
         ops.write_file(&binary, &bytes, 0o755, None).await?;
     }
+    for (name, proof) in proof_files {
+        let proof_path = directory.join(name);
+        if proof_path.try_exists()? {
+            ensure!(
+                tokio::fs::read(&proof_path).await? == proof,
+                "installed Agent proof contains different bytes"
+            );
+        } else {
+            ops.write_file(&proof_path, &proof, 0o644, None).await?;
+        }
+    }
+    crate::artifacts::verify_installed_binary(&binary, "agent", "raw").await?;
     if let Some(descriptor) = descriptor {
         ops.create_dir(&config.install_root, 0o755, None).await?;
         ops.create_dir(&config.runtime_root, 0o750, Some(&descriptor.service_group))

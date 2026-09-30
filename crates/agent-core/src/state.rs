@@ -120,6 +120,20 @@ impl State {
         Ok(())
     }
 
+    pub(crate) fn clear_retired_configuration(&mut self) -> Result<()> {
+        let transaction = self.connection.transaction()?;
+        transaction.execute("DELETE FROM intents", [])?;
+        transaction.execute("DELETE FROM command_journal", [])?;
+        transaction.execute("DELETE FROM probe_outbox", [])?;
+        transaction.execute("DELETE FROM telemetry_outbox", [])?;
+        transaction.execute(
+            "DELETE FROM kv WHERE key NOT LIKE 'usage:%' AND key <> 'retirement'",
+            [],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn pending_intents(&self) -> Result<Vec<IntentRecord>> {
         let mut statement = self.connection.prepare(
             "SELECT op_id, module, payload FROM intents WHERE completed = 0 ORDER BY rowid",

@@ -65,7 +65,12 @@ impl SystemServiceManager {
         self
     }
 
-    async fn call(&self, action: &str, unit: &str, quiet: bool) -> Result<CommandOutput> {
+    async fn call(
+        &self,
+        action: &str,
+        unit: &str,
+        properties: Option<&str>,
+    ) -> Result<CommandOutput> {
         let service = unit.strip_suffix(".service").unwrap_or(unit);
         ensure!(
             !service.is_empty()
@@ -80,8 +85,8 @@ impl SystemServiceManager {
         let (program, args) = match self.backend {
             ServiceBackend::Systemd => {
                 let mut args = vec![action.to_owned()];
-                if quiet {
-                    args.push("--quiet".into());
+                if let Some(properties) = properties {
+                    args.push(format!("--property={properties}"));
                 }
                 args.extend(["--".into(), unit.to_owned()]);
                 ("systemctl", args)
@@ -162,18 +167,19 @@ impl SystemServiceManager {
                 ("launchctl", args)
             }
             ServiceBackend::WindowsTask => {
-                let script = match action {
-                    "restart" | "reload" => format!(
-                        "$ErrorActionPreference='Stop'; Stop-ScheduledTask -TaskName '{service}'; Start-Sleep -Milliseconds 300; Start-ScheduledTask -TaskName '{service}'"
-                    ),
-                    "stop" => format!(
-                        "$ErrorActionPreference='Stop'; Stop-ScheduledTask -TaskName '{service}'"
-                    ),
-                    "is-active" => format!(
-                        "$ErrorActionPreference='Stop'; if ((Get-ScheduledTask -TaskName '{service}').State -ne 'Running') {{ exit 1 }}"
-                    ),
+                let operation = match action {
+                    "restart" | "reload" => {
+                        "$task.Stop(0); $deadline=[DateTime]::UtcNow.AddSeconds(10); while($task.State -in @(2,4)) { if([DateTime]::UtcNow -ge $deadline) { throw 'Task did not stop' }; [Threading.Thread]::Sleep(100) }; $null=$task.Run($null)"
+                    }
+                    "stop" => "$task.Stop(0)",
+                    "is-active" => {
+                        "if ($task.State -in @(2,4)) { Write-Output 'state=active' } elseif ($task.State -in @(1,3)) { Write-Output 'state=stopped' } else { throw 'Task state is unknown' }"
+                    }
                     _ => anyhow::bail!("unsupported service action"),
                 };
+                let script = format!(
+                    "$ErrorActionPreference='Stop'; $scheduler=[Activator]::CreateInstance([Type]::GetTypeFromProgID('Schedule.Service')); $scheduler.Connect(); $task=$scheduler.GetFolder('\\').GetTask('{service}'); {operation}"
+                );
                 (
                     "powershell.exe",
                     vec![
@@ -197,7 +203,7 @@ impl SystemServiceManager {
     }
 
     async fn change(&self, action: &str, unit: &str) -> Result<()> {
-        let output = self.call(action, unit, false).await?;
+        let output = self.call(action, unit, None).await?;
         ensure!(
             output.success,
             "service operation failed: {}",
@@ -219,13 +225,85 @@ impl ServiceManager for SystemServiceManager {
     }
     fn is_active<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, bool> {
         Box::pin(async move {
-            let output = self.call("is-active", unit, true).await?;
-            Ok(output.success
-                && (self.backend != ServiceBackend::Launchd
-                    || output
+            if self.backend == ServiceBackend::Systemd {
+                let output = self
+                    .call(
+                        "show",
+                        unit,
+                        Some("LoadState,ActiveState,MainPID,ControlPID"),
+                    )
+                    .await?;
+                return parse_runtime_active(&output);
+            }
+            let output = self.call("is-active", unit, None).await?;
+            match self.backend {
+                ServiceBackend::OpenRc => {
+                    if output.success {
+                        return Ok(true);
+                    }
+                    let text = format!("{}\n{}", output.stdout, output.stderr);
+                    ensure!(
+                        text.lines().any(|line| matches!(
+                            line.trim(),
+                            "* status: stopped" | "* status: crashed"
+                        )),
+                        "OpenRC service status query failed: {text}"
+                    );
+                    Ok(false)
+                }
+                ServiceBackend::FreeBsd => {
+                    if output.success {
+                        return Ok(true);
+                    }
+                    ensure!(
+                        output
+                            .stdout
+                            .lines()
+                            .any(|line| line.trim().ends_with(" is not running.")),
+                        "FreeBSD service status query failed: {}",
+                        output.stderr
+                    );
+                    Ok(false)
+                }
+                ServiceBackend::WindowsTask => {
+                    ensure!(
+                        output.success,
+                        "scheduled task status query failed: {}",
+                        output.stderr
+                    );
+                    match output.stdout.trim() {
+                        "state=active" => Ok(true),
+                        "state=stopped" => Ok(false),
+                        _ => anyhow::bail!("scheduled task state is unknown"),
+                    }
+                }
+                ServiceBackend::Launchd => {
+                    if !output.success {
+                        ensure!(
+                            output.stderr.contains("Could not find service"),
+                            "launchd service status query failed: {}",
+                            output.stderr
+                        );
+                        return Ok(false);
+                    }
+                    if output
                         .stdout
                         .lines()
-                        .any(|line| line.trim() == "state = running")))
+                        .any(|line| line.trim() == "state = running")
+                    {
+                        return Ok(true);
+                    }
+                    ensure!(
+                        output
+                            .stdout
+                            .lines()
+                            .any(|line| line.trim() == "state = not running"),
+                        "launchd service process state is unknown"
+                    );
+                    Ok(false)
+                }
+                _ => anyhow::bail!("unsupported runtime status backend"),
+            }
         })
     }
     fn start_job<'a>(&'a self, job: &'a ServiceJob) -> BoxFuture<'a, ()> {
@@ -233,6 +311,48 @@ impl ServiceManager for SystemServiceManager {
     }
     fn job_status<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, JobStatus> {
         self.diagnostic_job_status(unit)
+    }
+}
+
+pub(super) fn parse_runtime_active(output: &CommandOutput) -> Result<bool> {
+    ensure!(
+        output.success,
+        "runtime service status query failed: {}",
+        output.stderr
+    );
+    let properties: std::collections::BTreeMap<_, _> = output
+        .stdout
+        .lines()
+        .filter_map(|line| line.split_once('='))
+        .collect();
+    let pid = |name| -> Result<u32> {
+        properties
+            .get(name)
+            .with_context(|| format!("service status is missing {name}"))?
+            .parse()
+            .with_context(|| format!("service status has invalid {name}"))
+    };
+    let load = properties.get("LoadState").copied();
+    // A never-installed runtime is safe only when systemd explicitly reports
+    // the missing unit and confirms that no main or control process exists.
+    if load == Some("not-found") {
+        ensure!(
+            properties.get("ActiveState") == Some(&"inactive")
+                && pid("MainPID")? == 0
+                && pid("ControlPID")? == 0,
+            "missing runtime service still has unknown or active processes"
+        );
+        return Ok(false);
+    }
+    ensure!(
+        matches!(load, Some("loaded" | "masked")),
+        "runtime service load state is unknown"
+    );
+    let running = pid("MainPID")? != 0 || pid("ControlPID")? != 0;
+    match properties.get("ActiveState").copied() {
+        Some("active" | "activating" | "deactivating" | "reloading") => Ok(true),
+        Some("inactive" | "failed") => Ok(running),
+        _ => anyhow::bail!("runtime service active state is unknown"),
     }
 }
 

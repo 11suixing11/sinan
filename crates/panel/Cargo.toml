@@ -21,17 +21,22 @@ sha2.workspace = true
 base64.workspace = true
 ed25519-dalek.workspace = true
 futures-util.workspace = true
+tar = "0.4"
+flate2 = "1"
 reqwest.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 argon2 = "0.5"
+hmac = "0.12"
+sha1 = "0.10"
+data-encoding = "2"
 rust-embed = { version = "8", features = ["debug-embed"] }
 tower-http = { version = "0.6", features = ["trace", "limit", "set-header"] }
-flate2 = "1"
 
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 
 [dev-dependencies]
+blake2.workspace = true
 sinan-adapter-nodequality.workspace = true
 reqwest.workspace = true
 tokio-tungstenite.workspace = true

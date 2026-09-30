@@ -2,6 +2,8 @@
 #![cfg(unix)]
 
 use anyhow::Result;
+#[path = "../../protocol/tests/support/release.rs"]
+mod release_support;
 use flate2::{Compression, write::GzEncoder};
 use sha2::{Digest, Sha256};
 use sinan_adapter_sdk::{Descriptor, Privileged};
@@ -97,10 +99,10 @@ fn checksum(bytes: &[u8]) -> String {
 
 fn descriptor() -> Descriptor {
     Descriptor {
+        auxiliary_files: vec![],
         module: "runtime".into(),
         plugin_name: "runtime".into(),
         binary_name: "runtime".into(),
-        auxiliary_files: Vec::new(),
         service_unit: "runtime@main.service".into(),
         service_group: String::new(),
     }
@@ -206,7 +208,8 @@ async fn bundle_hashes_original_bytes_and_rejects_unsafe_paths() -> Result<()> {
 #[tokio::test]
 async fn manifest_uses_authenticated_panel_endpoint() -> Result<()> {
     let panel = HttpServer::new(b"{\"rev\":7,\"modules\":{}}".to_vec(), "200 OK", "").await?;
-    let client = PanelClient::new(&panel.origin, "test-session")?;
+    let client = PanelClient::new(&panel.origin, "test-session")?
+        .with_trusted_keys(release_support::trusted_keys());
     assert_eq!(client.manifest().await?.rev, 7);
     assert!(panel.requests.lock().await[0].starts_with("GET /api/agent/v1/manifest "));
     Ok(())
@@ -217,10 +220,22 @@ async fn artifact_cache_checks_contents_and_never_replaces_existing_versions() -
     let temporary = Temporary::new()?;
     let packed = archive(&[("runtime", tar::EntryType::Regular, b"original-runtime")])?;
     let panel = HttpServer::new(packed.clone(), "200 OK", "").await?;
-    let client = PanelClient::new(&panel.origin, "test-session")?;
+    let client = PanelClient::new(&panel.origin, "test-session")?
+        .with_trusted_keys(release_support::trusted_keys());
     let artifact = Artifact {
-        url: format!("{}/archive", panel.origin),
+        url: format!(
+            "{}/api/agent/v1/artifacts/runtime/1.2.3/{}",
+            panel.origin,
+            sinan_protocol::release::native_arch()?
+        ),
         sha256: checksum(&packed),
+        proof: Some(release_support::proof_for_archive(
+            "runtime",
+            "1.2.3",
+            "runtime",
+            &packed,
+            b"original-runtime",
+        )),
     };
     let ops = SystemOps;
     let binary = client
@@ -279,9 +294,17 @@ async fn artifact_checksum_failure_leaves_no_version_and_symlink_paths_are_rejec
     let temporary = Temporary::new()?;
     let packed = archive(&[("runtime", tar::EntryType::Regular, b"runtime")])?;
     let panel = HttpServer::new(packed.clone(), "200 OK", "").await?;
-    let client = PanelClient::new(&panel.origin, "test-session")?;
+    let client = PanelClient::new(&panel.origin, "test-session")?
+        .with_trusted_keys(release_support::trusted_keys());
     let mut artifact = Artifact {
-        url: format!("{}/archive", panel.origin),
+        proof: Some(release_support::proof_for_archive(
+            "runtime", "1.0", "runtime", &packed, b"runtime",
+        )),
+        url: format!(
+            "{}/api/agent/v1/artifacts/runtime/1.0/{}",
+            panel.origin,
+            sinan_protocol::release::native_arch()?
+        ),
         sha256: "0".repeat(64),
     };
     assert!(
@@ -477,16 +500,146 @@ async fn cancelled_commands_terminate_the_child_process() -> Result<()> {
 }
 
 #[tokio::test]
-async fn auxiliary_artifacts_are_required_and_cached_by_digest() -> Result<()> {
+async fn unsigned_artifacts_and_signed_binary_mismatches_never_publish() -> Result<()> {
+    let temporary = Temporary::new()?;
+    let packed = archive(&[("runtime", tar::EntryType::Regular, b"unexpected-runtime")])?;
+    let panel = HttpServer::new(packed.clone(), "200 OK", "").await?;
+    let client = PanelClient::new(&panel.origin, "test-session")?
+        .with_trusted_keys(release_support::trusted_keys());
+    let mut artifact = Artifact {
+        proof: None,
+        url: format!(
+            "{}/api/agent/v1/artifacts/runtime/1.0/{}",
+            panel.origin,
+            sinan_protocol::release::native_arch()?
+        ),
+        sha256: checksum(&packed),
+    };
+    assert!(
+        client
+            .ensure_artifact(&artifact, "1.0", &descriptor(), &temporary.0, &SystemOps)
+            .await
+            .is_err()
+    );
+    assert!(panel.requests.lock().await.is_empty());
+    artifact.proof = Some(release_support::proof_for_archive(
+        "runtime",
+        "1.0",
+        "runtime",
+        &packed,
+        b"expected-runtime",
+    ));
+    assert!(
+        client
+            .ensure_artifact(&artifact, "1.0", &descriptor(), &temporary.0, &SystemOps)
+            .await
+            .is_err()
+    );
+    assert_eq!(panel.requests.lock().await.len(), 1);
+    assert!(!temporary.0.join("runtime/1.0").exists());
+    assert!(
+        std::fs::read_dir(temporary.0.join("runtime"))?
+            .next()
+            .is_none()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn legacy_local_hashes_cannot_authorize_a_changed_cached_binary() -> Result<()> {
+    let temporary = Temporary::new()?;
+    let packed = archive(&[("runtime", tar::EntryType::Regular, b"trusted-runtime")])?;
+    let panel = HttpServer::new(packed.clone(), "200 OK", "").await?;
+    let client = PanelClient::new(&panel.origin, "test-session")?
+        .with_trusted_keys(release_support::trusted_keys());
+    let proof = release_support::proof_for_archive(
+        "runtime",
+        "1.0",
+        "runtime",
+        &packed,
+        b"trusted-runtime",
+    );
+    let artifact = Artifact {
+        proof: Some(proof.clone()),
+        url: format!(
+            "{}/api/agent/v1/artifacts/runtime/1.0/{}",
+            panel.origin,
+            sinan_protocol::release::native_arch()?
+        ),
+        sha256: checksum(&packed),
+    };
+    let binary = client
+        .ensure_artifact(&artifact, "1.0", &descriptor(), &temporary.0, &SystemOps)
+        .await?;
+    let directory = binary.parent().unwrap();
+    for name in ["release.json", "SHA256SUMS", "SHA256SUMS.minisig"] {
+        std::fs::remove_file(directory.join(name))?;
+    }
+    // Full signed proofs in the cache marker remain verifiable offline.
+    assert_eq!(
+        client
+            .ensure_artifact(&artifact, "1.0", &descriptor(), &temporary.0, &SystemOps)
+            .await?,
+        binary
+    );
+    std::fs::write(&binary, b"hostile-runtime")?;
+    std::fs::write(
+        directory.join(".artifact.json"),
+        serde_json::to_vec(
+            &serde_json::json!({"archive_sha256":checksum(&packed),"binary_sha256":checksum(b"hostile-runtime")}),
+        )?,
+    )?;
+    assert!(
+        client
+            .ensure_artifact(&artifact, "1.0", &descriptor(), &temporary.0, &SystemOps)
+            .await
+            .is_err()
+    );
+    std::fs::write(
+        directory.join(".artifact.json"),
+        serde_json::to_vec(
+            &serde_json::json!({"proof":proof,"binary_sha256":checksum(b"hostile-runtime")}),
+        )?,
+    )?;
+    assert!(
+        client
+            .ensure_artifact(&artifact, "1.0", &descriptor(), &temporary.0, &SystemOps)
+            .await
+            .is_err()
+    );
+    assert_eq!(panel.requests.lock().await.len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn auxiliary_artifacts_require_signed_file_hashes_and_reject_tampering() -> Result<()> {
     let temporary = Temporary::new()?;
     let packed = archive(&[
         ("runtime", tar::EntryType::Regular, b"binary"),
         ("helper.dll", tar::EntryType::Regular, b"library"),
     ])?;
     let panel = HttpServer::new(packed.clone(), "200 OK", "").await?;
-    let client = PanelClient::new(&panel.origin, "test-session")?;
+    let client = PanelClient::new(&panel.origin, "test-session")?
+        .with_trusted_keys(release_support::trusted_keys());
+    let mut entry =
+        release_support::entry("runtime", "1.0", "runtime", "tar.gz", &packed, b"binary");
+    entry.auxiliary_files.insert(
+        "helper.dll".into(),
+        sinan_protocol::release::ReleaseFile {
+            sha256: checksum(b"library"),
+            size: 7,
+        },
+    );
     let artifact = Artifact {
-        url: format!("{}/archive", panel.origin),
+        proof: Some(release_support::signed_release(vec![(
+            entry,
+            packed.clone(),
+        )])),
+        url: format!(
+            "{}/api/agent/v1/artifacts/runtime/1.0/{}",
+            panel.origin,
+            sinan_protocol::release::native_arch()?
+        ),
         sha256: checksum(&packed),
     };
     let mut descriptor = descriptor();
@@ -509,17 +662,11 @@ async fn auxiliary_artifacts_are_required_and_cached_by_digest() -> Result<()> {
             .await
             .is_err()
     );
+    assert_eq!(panel.requests.lock().await.len(), 1);
     descriptor.auxiliary_files.clear();
     assert!(
         client
-            .ensure_artifact(&artifact, "2.0", &descriptor, &temporary.0, &SystemOps)
-            .await
-            .is_err()
-    );
-    descriptor.auxiliary_files = vec!["missing.dll".into()];
-    assert!(
-        client
-            .ensure_artifact(&artifact, "3.0", &descriptor, &temporary.0, &SystemOps)
+            .ensure_artifact(&artifact, "1.0", &descriptor, &temporary.0, &SystemOps)
             .await
             .is_err()
     );

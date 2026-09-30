@@ -3,22 +3,95 @@ fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 pub(super) async fn powershell(ops: &dyn Privileged, script: &str) -> Result<()> {
-    command(
-        ops,
-        "powershell.exe",
-        &[
-            "-NoProfile".into(),
-            "-NonInteractive".into(),
-            "-Command".into(),
-            format!("$ErrorActionPreference='Stop'; {script}"),
-        ],
-    )
-    .await
+    let result = ops
+        .execute_bounded(
+            Path::new("powershell.exe"),
+            &[
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                format!("$ErrorActionPreference='Stop'; {script}"),
+            ],
+            120,
+            1024 * 1024,
+        )
+        .await?;
+    ensure!(
+        !result.timed_out,
+        "native service setup exceeded 120 seconds"
+    );
+    ensure!(
+        result.output.success,
+        "native service setup failed: {}",
+        result.output.stderr
+    );
+    Ok(())
 }
 
 pub(super) async fn account(ops: &dyn Privileged, name: &str) -> Result<()> {
     let script = format!(
-        "$name={}; $user=Get-LocalUser -Name $name -ErrorAction SilentlyContinue; if (-not $user) {{ $user=New-LocalUser -Name $name -NoPassword -AccountNeverExpires -UserMayNotChangePassword }}; if (-not (Get-LocalGroupMember -SID 'S-1-5-32-545' | Where-Object {{ $_.SID -eq $user.SID }})) {{ Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user }}",
+        r#"$name={}
+$user=Get-LocalUser -Name $name -ErrorAction SilentlyContinue
+if(-not $user) {{ $user=New-LocalUser -Name $name -Disabled -NoPassword -AccountNeverExpires -UserMayNotChangePassword }}
+if(-not (Get-LocalGroupMember -SID 'S-1-5-32-545' | Where-Object {{ $_.SID -eq $user.SID }})) {{ Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user }}
+$temporary=[IO.Path]::Combine([IO.Path]::GetTempPath(),'sinan-policy-'+[Guid]::NewGuid().ToString('N'))
+$owner=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$acl=[Security.AccessControl.DirectorySecurity]::new()
+$acl.SetSecurityDescriptorSddlForm("D:P(A;OICI;FA;;;$owner)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)")
+$null=[IO.Directory]::CreateDirectory($temporary,$acl)
+function Normalize-Principal($principal) {{
+    $value=$principal.Trim()
+    try {{
+        if($value.TrimStart('*') -match '^S-[0-9]+-') {{
+            return '*'+([Security.Principal.SecurityIdentifier]::new($value.TrimStart('*'))).Value
+        }}
+        return '*'+([Security.Principal.NTAccount]::new($value)).Translate([Security.Principal.SecurityIdentifier]).Value
+    }} catch {{
+        # Preserve principals that are temporarily unavailable, including domain accounts.
+        return $value
+    }}
+}}
+try {{
+    $export=[IO.Path]::Combine($temporary,'existing.inf')
+    $template=[IO.Path]::Combine($temporary,'grant.inf')
+    $database=[IO.Path]::Combine($temporary,'policy.sdb')
+    $log=[IO.Path]::Combine($temporary,'policy.log')
+    & secedit.exe /export /cfg $export /areas USER_RIGHTS /log $log /quiet
+    if($LASTEXITCODE -ne 0) {{ throw 'Cannot read local batch logon rights' }}
+    $rights=@()
+    foreach($line in [IO.File]::ReadAllLines($export)) {{
+        if($line -match '^\s*SeBatchLogonRight\s*=(.*)$') {{
+            foreach($member in $Matches[1].Split(',')) {{ if($member.Trim()) {{ $rights+=$member.Trim() }} }}
+        }}
+    }}
+    $sid='*'+$user.SID.Value
+    $identities=@($rights | ForEach-Object {{ Normalize-Principal $_ }})
+    foreach($line in [IO.File]::ReadAllLines($export)) {{
+        if($line -match '^\s*SeDenyBatchLogonRight\s*=(.*)$') {{
+            $denied=@($Matches[1].Split(',') | ForEach-Object {{ Normalize-Principal $_ }})
+            if(@($sid,'*S-1-1-0','*S-1-5-11','*S-1-5-32-545') | Where-Object {{ $denied -contains $_ }}) {{
+                throw 'Existing policy denies runtime batch logon; no denial was changed'
+            }}
+        }}
+    }}
+    if($identities -notcontains $sid) {{
+        $rights+=$sid
+        $lines=@('[Unicode]','Unicode=yes','[Version]','signature="$CHICAGO$"','Revision=1','[Privilege Rights]',('SeBatchLogonRight = '+($rights -join ',')))
+        [IO.File]::WriteAllLines($template,$lines,[Text.Encoding]::Unicode)
+        & secedit.exe /configure /db $database /cfg $template /areas USER_RIGHTS /log $log /quiet
+        if($LASTEXITCODE -ne 0) {{ throw 'Cannot grant runtime batch logon rights' }}
+    }}
+    & secedit.exe /export /cfg $export /areas USER_RIGHTS /log $log /quiet
+    if($LASTEXITCODE -ne 0) {{ throw 'Cannot verify runtime batch logon rights' }}
+    $verified=@()
+    foreach($line in [IO.File]::ReadAllLines($export)) {{
+        if($line -match '^\s*SeBatchLogonRight\s*=(.*)$') {{
+            $verified=@($Matches[1].Split(',') | ForEach-Object {{ Normalize-Principal $_ }})
+        }}
+    }}
+    foreach($member in $rights) {{ if($verified -notcontains (Normalize-Principal $member)) {{ throw 'Batch logon grant was not preserved' }} }}
+}} finally {{ [IO.Directory]::Delete($temporary,$true) }}
+"#,
         quote(name)
     );
     powershell(ops, &script).await
@@ -34,7 +107,8 @@ async fn task(
 ) -> Result<()> {
     let principal = if let Some(account) = account {
         format!(
-            "$random=New-Object byte[] 48; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($random); $password='Aa1!'+[Convert]::ToBase64String($random); Set-LocalUser -Name {} -Password (ConvertTo-SecureString $password -AsPlainText -Force) -PasswordNeverExpires $true; Register-ScheduledTask -TaskName {} -Action $action -Trigger $trigger -Settings $settings -User {} -Password $password -RunLevel Limited -Force | Out-Null",
+            "$random=New-Object byte[] 48; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($random); $password='Aa1!'+[Convert]::ToBase64String($random); Set-LocalUser -Name {} -Password (ConvertTo-SecureString $password -AsPlainText -Force) -PasswordNeverExpires $true; Enable-LocalUser -Name {}; Register-ScheduledTask -TaskName {} -Action $action -Trigger $trigger -Settings $settings -User {} -Password $password -RunLevel Limited -Force | Out-Null",
+            quote(account),
             quote(account),
             quote(name),
             quote(account)

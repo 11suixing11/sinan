@@ -2,7 +2,7 @@
 
 description="Sinan Agent"
 supervisor="supervise-daemon"
-command="/opt/sinan/core/supervisor"
+command="/opt/sinan/core/current/sinan-agent"
 command_args="--config /etc/sinan/agent.toml supervise"
 pidfile="/run/${RC_SVCNAME}.pid"
 required_files="/etc/sinan/agent.toml"
@@ -18,6 +18,7 @@ depend() {
 }
 
 start_pre() {
+    /opt/sinan/core/current/sinan-agent verify-installed --binary /opt/sinan/core/current/sinan-agent --name agent --format raw || return 1
     checkpath --directory --mode 0750 --owner root:sinan-singbox /var/log/sinan
     checkpath --file --mode 0640 --owner root:root "$output_log"
 }

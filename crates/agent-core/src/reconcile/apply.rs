@@ -6,7 +6,7 @@ use sinan_protocol::{ApplyResult, ApplyStatus, UsageBatch, now_timestamp};
 use uuid::Uuid;
 
 impl Reconciler {
-    /// Applies an already validated target; used by the runtime and deterministic fault tests.
+    /// Applies a target after independently verifying its locally signed executable.
     pub async fn apply_prepared(&self, target: Prepared) -> Result<ApplyResult> {
         {
             let mut pending = self
@@ -27,7 +27,7 @@ impl Reconciler {
             .map_err(|_| anyhow::anyhow!("pending target poisoned"))?
             .take();
         let Some(target) = next else {
-            return self.current_result();
+            return self.current_result().await;
         };
         self.recover_locked().await?;
         let previous = self.previous()?;
@@ -59,11 +59,12 @@ impl Reconciler {
         }
     }
 
-    pub(super) fn current_result(&self) -> Result<ApplyResult> {
+    pub(super) async fn current_result(&self) -> Result<ApplyResult> {
         let previous = self
             .previous()?
             .context("no applied runtime after coalescing")?;
         let module = self.adapter.describe().module;
+        self.verify_applied_runtime(&previous).await?;
         let healthy = self
             .state
             .lock()
@@ -91,6 +92,10 @@ impl Reconciler {
         op_id: Uuid,
     ) -> Result<()> {
         let descriptor = self.adapter.describe();
+        self.verify_runtime(&target).await?;
+        if let Some(previous) = &previous {
+            self.verify_applied_runtime(previous).await?;
+        }
         let plan = self
             .bounded(self.adapter.plan(previous.as_ref(), &target))
             .await?;
@@ -153,6 +158,7 @@ impl Reconciler {
     }
 
     async fn switch(&self, target: &Prepared) -> Result<()> {
+        self.verify_runtime(target).await?;
         let descriptor = self.adapter.describe();
         let kernel_link = self
             .config
@@ -183,6 +189,9 @@ impl Reconciler {
 
     pub(super) async fn rollback(&self, intent: &ApplyIntent, op_id: Uuid) -> Result<()> {
         let descriptor = self.adapter.describe();
+        if let Some(previous) = &intent.previous {
+            self.verify_applied_runtime(previous).await?;
+        }
         if let Err(error) = self.sample_runtime(&intent.target).await {
             tracing::warn!(error=%error,"cannot capture counters during recovery; possible missing window");
         }

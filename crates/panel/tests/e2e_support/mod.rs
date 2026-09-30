@@ -1,8 +1,9 @@
+use crate::{release_fixture, release_support};
+
 use anyhow::{Context, Result};
 use flate2::{Compression, write::GzEncoder};
 use reqwest::{Client, Method, header};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use sinan_adapter_sdk::{
     Adapter, BoxFuture, Descriptor, Plan, Prepared, Privileged, RuntimeSpec, ServiceManager,
     UsageSource,
@@ -36,7 +37,8 @@ impl Harness {
         // A short root also stays below macOS's Unix socket path length limit.
         let directory = PathBuf::from("/tmp").join(format!("sn-e2e-{}", Uuid::new_v4()));
         fs::create_dir_all(&directory)?;
-        let state = AppState::new(
+        let directory = directory.canonicalize()?;
+        let mut state = AppState::new(
             pool,
             Config {
                 database_url: String::new(),
@@ -47,11 +49,15 @@ impl Harness {
             },
         )
         .await?;
+        state.release_keys = Some(Arc::new(release_support::trusted_keys()));
         let app = router(state.clone());
         let http = tokio::spawn(async move {
-            axum::serve(listener, app)
-                .await
-                .expect("end-to-end HTTP server");
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .expect("end-to-end HTTP server");
         });
         let publisher_state = state.clone();
         let publisher = tokio::spawn(async move {
@@ -128,16 +134,12 @@ impl Harness {
         header.set_cksum();
         archive.append_data(&mut header, "demo", binary.as_slice())?;
         let archive = archive.into_inner()?.finish()?;
-        let digest = format!("{:x}", Sha256::digest(&archive));
-        let directory = self.state.config.data_dir.join("artifacts/sing-box/1.14.2");
-        fs::create_dir_all(&directory)?;
-        for arch in ["amd64", "arm64"] {
-            fs::write(directory.join(arch), &archive)?;
-        }
-        fs::write(
-            directory.join("SHA256SUMS"),
-            format!("{digest}  amd64\n{digest}  arm64\n"),
-        )?;
+        let mut entry =
+            release_support::entry("sing-box", "1.14.2", "demo", "tar.gz", &archive, binary);
+        // Real telemetry reports the host ABI; this fake runtime must use that signed identity.
+        entry.arch = sinan_protocol::release::native_target()?;
+        entry.asset_name = sinan_protocol::release::canonical_asset_name(&entry)?;
+        release_fixture::write_entries(&self.state.config.data_dir, vec![(entry, archive)])?;
         Ok(binary.to_vec())
     }
 }
@@ -158,6 +160,7 @@ impl Adapter for PanelAdapter {
     fn describe(&self) -> Descriptor {
         Descriptor {
             module: "singbox".into(),
+            plugin_name: "sing-box".into(),
             ..self.0.describe()
         }
     }
@@ -208,6 +211,7 @@ impl AgentTask {
             vec![adapter],
             Arc::new(SystemOps),
             services,
+            "panel-test-agent",
         )))
     }
 

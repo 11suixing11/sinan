@@ -63,12 +63,36 @@ enum Command {
         #[arg(long)]
         status: bool,
     },
+    /// Verify a cached executable using only the compiled release trust roots.
+    VerifyInstalled {
+        #[arg(long)]
+        binary: PathBuf,
+        #[arg(long)]
+        name: String,
+        #[arg(long, value_parser = ["raw", "tar.gz"])]
+        format: String,
+    },
+    /// Verify the next release using only the compiled release trust roots.
+    VerifyRelease {
+        #[arg(long)]
+        proof_dir: PathBuf,
+    },
+    /// Check every installed or pending executable before replacing the Agent.
+    VerifyCache,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    run_cli(cli).await
+    let result = run_cli(cli).await;
+    if result.as_ref().is_err_and(|error| {
+        error
+            .downcast_ref::<sinan_agent_core::retirement::Retired>()
+            .is_some()
+    }) {
+        std::process::exit(sinan_agent_core::retirement::RETIRED_EXIT_CODE);
+    }
+    result
 }
 
 async fn run_cli(cli: Cli) -> anyhow::Result<()> {
@@ -129,7 +153,7 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                 ),
             );
             tokio::select! {
-                result = transport::run_with_diagnostics(config, adapters, diagnostics, privileged, services) => result,
+                result = transport::run_with_diagnostics(config, adapters, diagnostics, privileged, services, env!("CARGO_PKG_VERSION")) => result,
                 result = shutdown() => result,
             }
         }
@@ -167,6 +191,25 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             } else {
                 services.start_job(&job).await
             }
+        }
+        Command::VerifyInstalled {
+            binary,
+            name,
+            format,
+        } => {
+            sinan_agent_core::artifacts::verify_installed_binary(
+                &absolute_path(&binary)?,
+                &name,
+                &format,
+            )
+            .await
+        }
+        Command::VerifyRelease { proof_dir } => {
+            sinan_agent_core::artifacts::verify_release_directory(&absolute_path(&proof_dir)?).await
+        }
+        Command::VerifyCache => {
+            let config = Config::load(&path)?;
+            sinan_agent_core::artifacts::verify_cache(&config).await
         }
     }
 }

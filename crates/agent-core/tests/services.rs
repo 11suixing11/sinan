@@ -25,6 +25,7 @@ impl RecordingOps {
         Arc::new(Self {
             output: Mutex::new(CommandOutput {
                 success: true,
+                stdout: "LoadState=loaded\nActiveState=active\nMainPID=123\nControlPID=0\n".into(),
                 ..Default::default()
             }),
             ..Default::default()
@@ -107,7 +108,12 @@ async fn routes_runtime_lifecycle_to_selected_init_without_changing_instance() -
             ServiceBackend::Systemd => vec![
                 vec!["restart", "--", unit],
                 vec!["reload", "--", unit],
-                vec!["is-active", "--quiet", "--", unit],
+                vec![
+                    "show",
+                    "--property=LoadState,ActiveState,MainPID,ControlPID",
+                    "--",
+                    unit,
+                ],
                 vec!["stop", "--", unit],
             ],
             ServiceBackend::OpenRc => vec![
@@ -137,11 +143,66 @@ async fn stopped_services_are_inactive_but_execution_errors_are_propagated() -> 
     for backend in [ServiceBackend::Systemd, ServiceBackend::OpenRc] {
         let ops = Arc::new(RecordingOps::default());
         let services = SystemServiceManager::new(ops.clone(), backend);
-        assert!(!services.is_active("example-runtime.service").await?);
+        if backend == ServiceBackend::Systemd {
+            assert!(services.is_active("example-runtime.service").await.is_err());
+            *ops.output.lock().unwrap() = CommandOutput {
+                success: true,
+                stdout: "LoadState=loaded\nActiveState=inactive\nMainPID=0\nControlPID=0\n".into(),
+                stderr: String::new(),
+            };
+            assert!(!services.is_active("example-runtime.service").await?);
+            ops.output.lock().unwrap().success = false;
+        } else {
+            assert!(services.is_active("example-runtime.service").await.is_err());
+            ops.output.lock().unwrap().stdout = " * status: stopped\n".into();
+            assert!(!services.is_active("example-runtime.service").await?);
+        }
         assert!(services.restart("example-runtime.service").await.is_err());
         assert!(services.reload("example-runtime.service").await.is_err());
         assert!(services.stop("example-runtime.service").await.is_err());
         *ops.unavailable.lock().unwrap() = true;
+        assert!(services.is_active("example-runtime.service").await.is_err());
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn ambiguous_native_service_queries_cannot_confirm_shutdown() -> Result<()> {
+    for (backend, inactive, active) in [
+        (
+            ServiceBackend::FreeBsd,
+            "example_runtime is not running.\n",
+            "example_runtime is running as pid 123.\n",
+        ),
+        (
+            ServiceBackend::WindowsTask,
+            "state=stopped\n",
+            "state=active\n",
+        ),
+        (
+            ServiceBackend::Launchd,
+            "state = not running\n",
+            "state = running\n",
+        ),
+    ] {
+        let ops = Arc::new(RecordingOps::default());
+        let services = SystemServiceManager::new(ops.clone(), backend);
+        assert!(services.is_active("example-runtime.service").await.is_err());
+        *ops.output.lock().unwrap() = CommandOutput {
+            success: backend != ServiceBackend::FreeBsd,
+            stdout: inactive.into(),
+            stderr: String::new(),
+        };
+        assert!(!services.is_active("example-runtime.service").await?);
+        *ops.output.lock().unwrap() = CommandOutput {
+            success: true,
+            stdout: active.into(),
+            stderr: String::new(),
+        };
+        assert!(services.is_active("example-runtime.service").await?);
+        ops.output.lock().unwrap().success = false;
+        ops.output.lock().unwrap().stdout.clear();
+        ops.output.lock().unwrap().stderr = "permission denied".into();
         assert!(services.is_active("example-runtime.service").await.is_err());
     }
     Ok(())

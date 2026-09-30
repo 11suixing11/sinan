@@ -1,6 +1,9 @@
 #![forbid(unsafe_code)]
 
 mod e2e_support;
+mod release_fixture;
+#[path = "../../protocol/tests/support/release.rs"]
+mod release_support;
 
 use anyhow::{Context, Result};
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -127,7 +130,7 @@ async fn published_configuration_usage_and_lost_ack_survive_agent_restart(
     drop(local);
     assert_eq!(fs::read(&applied.spec.binary_path)?, expected_binary);
     assert_eq!(
-        fs::read_link(config.runtime_root.join("demo@main/current"))?,
+        fs::read_link(config.runtime_root.join("sing-box@main/current"))?,
         applied.spec.revision_dir
     );
     let runtime_config: Value =

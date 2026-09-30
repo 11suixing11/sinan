@@ -26,6 +26,6 @@
 
 ## 禁止扩大 MVP 范围
 
-不得实现链路、转发、链式代理、外部出口、出口池、用户分组、配额强制执行、计费、DDNS、WebSSH、frp、Shadowsocks、SSM API、VLESS + Reality 之外的协议、xray、多个运行时实例、独立特权 helper 进程、防火墙或 nftables、Clash 订阅、多管理员、权限体系、多语言界面或面板高可用。OpenRC 服务支持已按用户要求增加，详见 ADR 0017。用户进一步确认补齐 Agent 高频监控、任务、自动更新及非 Linux 常驻部署，详见 ADR 0018，覆盖原排除项。特权 helper 仅保留 trait 边界；保留重复安装升级。制品签名仍须另行决策。
+不得实现链路、转发、链式代理、外部出口、出口池、用户分组、配额强制执行、计费、DDNS、WebSSH、frp、Shadowsocks、SSM API、VLESS + Reality 之外的协议、xray、多个运行时实例、独立特权 helper 进程、防火墙或 nftables、Clash 订阅、多管理员、权限体系、多语言界面或面板高可用。OpenRC 服务支持已按用户要求增加，详见 [ADR 0021](docs/adr/0021-openrc-services.md)。用户进一步确认补齐 Agent 高频监控、任务、自动更新及非 Linux 常驻部署，详见 [ADR 0022](docs/adr/0022-agent-capability-alignment.md)，覆盖原排除项。特权 helper 仅保留 trait 边界；保留重复安装升级。制品签名与编译时发布信任根按 [ADR 0017](docs/adr/0017-signed-release-artifacts.md) 执行。
 
 详细架构约束见 `docs/adr/0001-declarative-snapshots.md` 至 `docs/adr/0011-loopback-local-api.md`。

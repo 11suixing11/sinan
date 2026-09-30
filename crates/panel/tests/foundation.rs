@@ -1,5 +1,9 @@
 #![forbid(unsafe_code)]
 
+mod release_fixture;
+#[path = "../../protocol/tests/support/release.rs"]
+mod release_support;
+
 use anyhow::{Context, Result, bail};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signer, SigningKey};
@@ -36,6 +40,7 @@ impl TestPanel {
         let base = format!("http://{listen}");
         let directory = std::env::temp_dir().join(format!("sinan-foundation-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&directory)?;
+        let directory = directory.canonicalize()?;
         let config = Config {
             database_url: String::new(),
             listen,
@@ -43,10 +48,16 @@ impl TestPanel {
             data_dir: directory.clone(),
             admin_password: Some(PASSWORD.into()),
         };
-        let state = AppState::new(pool, config).await?;
+        let mut state = AppState::new(pool, config).await?;
+        state.release_keys = Some(std::sync::Arc::new(release_support::trusted_keys()));
         let app = router(state.clone());
         let task = tokio::spawn(async move {
-            axum::serve(listener, app).await.expect("test HTTP server");
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .expect("test HTTP server");
         });
         Ok(Self {
             state,
@@ -101,12 +112,6 @@ impl TestPanel {
             value["expires_at"].as_i64().context("token expiry")? > sinan_protocol::now_timestamp()
         );
         let token = value["token"].as_str().context("enrollment token")?;
-        assert!(
-            value["install_command"]
-                .as_str()
-                .context("install command")?
-                .contains(token)
-        );
         Ok(token.to_string())
     }
 
@@ -155,13 +160,38 @@ impl TestPanel {
                 Hello {
                     agent_version: "foundation-test".into(),
                     protocol_version: PROTOCOL_VERSION,
-                    capabilities: vec![],
+                    capabilities: vec![
+                        sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY.into(),
+                    ],
                     applied: BTreeMap::new(),
                 },
             )?,
         )
         .await?;
+        self.wait_signature_capability(server_id).await?;
         Ok((server_id, socket, ack.to_payload()?))
+    }
+
+    async fn wait_signature_capability(&self, server_id: i64) -> Result<()> {
+        timeout(Duration::from_secs(5), async {
+            loop {
+                let capabilities: serde_json::Value =
+                    sqlx::query_scalar("SELECT capabilities FROM servers WHERE id=$1")
+                        .bind(server_id)
+                        .fetch_one(&self.state.pool)
+                        .await?;
+                if capabilities.as_array().is_some_and(|values| {
+                    values.iter().any(|value| {
+                        value == sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY
+                    })
+                }) {
+                    return Ok::<(), anyhow::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await??;
+        Ok(())
     }
 }
 
@@ -466,7 +496,7 @@ async fn bundle_download_preserves_bytes_and_cannot_cross_server_identity(
 ) -> Result<()> {
     let panel = TestPanel::start(pool.clone()).await?;
     let cookie = panel.admin_cookie().await?;
-    let (server_id, _socket, ack) = panel.authenticated_device(&cookie, "Bundle owner").await?;
+    let (server_id, mut socket, ack) = panel.authenticated_device(&cookie, "Bundle owner").await?;
     let other_id = panel.create_server(&cookie, "Other bundle owner").await?;
     let bundle = "{\n  \"files\": {\"config.json\": \"{}\\n\"}\n}\n";
     let digest = format!("{:x}", Sha256::digest(bundle.as_bytes()));
@@ -501,6 +531,19 @@ async fn bundle_download_preserves_bytes_and_cannot_cross_server_identity(
             .status(),
         StatusCode::NOT_FOUND
     );
+    socket.close(None).await?;
+    timeout(Duration::from_secs(5), async {
+        while panel
+            .state
+            .connections
+            .read()
+            .await
+            .contains_key(&server_id)
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
     panel
         .client
         .delete(format!("{}/api/servers/{server_id}", panel.base))
@@ -555,6 +598,16 @@ async fn websocket_challenges_are_connection_bound_and_sessions_expire(pool: PgP
     assert_eq!(ack.message_type, "hello.ack");
     let ack: HelloAck = ack.to_payload()?;
     assert_eq!(ack.session_expires_at - ack.server_time, 3600);
+    assert_eq!(
+        panel
+            .client
+            .get(format!("{}/api/agent/v1/manifest", panel.base))
+            .bearer_auth(&ack.session_token)
+            .send()
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
     send_envelope(
         &mut first,
         Envelope::new(
@@ -562,12 +615,13 @@ async fn websocket_challenges_are_connection_bound_and_sessions_expire(pool: PgP
             Hello {
                 agent_version: "foundation-test".into(),
                 protocol_version: PROTOCOL_VERSION,
-                capabilities: vec![],
+                capabilities: vec![sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY.into()],
                 applied: BTreeMap::new(),
             },
         )?,
     )
     .await?;
+    panel.wait_signature_capability(server_id).await?;
     let manifest: Manifest = panel
         .client
         .get(format!("{}/api/agent/v1/manifest", panel.base))
@@ -641,10 +695,15 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
     let token = panel.token(&cookie, server_id).await?;
     let binary = b"test-agent-artifact";
     let hash = format!("{:x}", Sha256::digest(binary));
-    let artifact_dir = panel.directory.join(format!("artifacts/agent/{version}"));
-    std::fs::create_dir_all(&artifact_dir)?;
-    std::fs::write(artifact_dir.join("amd64"), binary)?;
-    std::fs::write(artifact_dir.join("SHA256SUMS"), format!("{hash}  amd64\n"))?;
+    let artifact_dir = release_fixture::write(
+        &panel.directory,
+        "agent",
+        version,
+        "sinan-agent",
+        binary,
+        binary,
+        "raw",
+    )?;
     let bootstrap_url = format!("{}/api/bootstrap/{version}/amd64", panel.base);
     assert!(
         panel
@@ -680,18 +739,8 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
         .get(format!("{}/install.sh", panel.base))
         .query(&[("token", &token)])
         .send()
-        .await?
-        .error_for_status()?
-        .text()
         .await?;
-    assert!(install.contains(&panel.base));
-    assert!(install.contains(&token));
-    assert!(install.contains(&hash));
-    assert!(!install.contains("@@"));
-    assert!(install.contains(include_str!("../../../deploy/sinan-agent.openrc").trim_end()));
-    assert!(
-        install.contains(include_str!("../../../plugins/sing-box/sinan-singbox.openrc").trim_end())
-    );
+    assert_eq!(install.status(), StatusCode::CONFLICT);
     assert_eq!(
         panel
             .client
@@ -723,6 +772,7 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
     {
         let outside = panel.directory.join("outside-artifact-root");
         std::fs::write(&outside, binary)?;
+        std::fs::remove_file(artifact_dir.join("arm64"))?;
         std::os::unix::fs::symlink(&outside, artifact_dir.join("arm64"))?;
         std::fs::write(
             artifact_dir.join("SHA256SUMS"),
@@ -736,8 +786,10 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
                 .send()
                 .await?
                 .status(),
-            StatusCode::NOT_FOUND
+            StatusCode::CONFLICT
         );
+        std::fs::remove_file(artifact_dir.join("arm64"))?;
+        std::fs::write(artifact_dir.join("arm64"), binary)?;
     }
 
     std::fs::write(artifact_dir.join("amd64"), b"corrupted-test-artifact")?;

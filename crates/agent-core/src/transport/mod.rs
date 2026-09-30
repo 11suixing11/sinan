@@ -36,11 +36,14 @@ struct Runtime {
     capabilities: Arc<Vec<String>>,
     connected: Arc<AtomicBool>,
     public_ips: Arc<Vec<String>>,
+    agent_version: &'static str,
+    retirement: Option<Arc<crate::retirement::Retirement>>,
 }
 
 impl Runtime {
     fn static_info(&self) -> Result<sinan_protocol::StaticInfo> {
         let mut info = crate::telemetry::Collector::new().static_info();
+        info.agent_version = Some(self.agent_version.into());
         info.ip_addresses = crate::telemetry::normalized_addresses(
             info.ip_addresses
                 .iter()
@@ -92,8 +95,17 @@ pub async fn run(
     adapters: Vec<Arc<dyn Adapter>>,
     privileged: Arc<dyn Privileged>,
     services: Arc<dyn ServiceManager>,
+    agent_version: &'static str,
 ) -> Result<()> {
-    run_with_diagnostics(config, adapters, Vec::new(), privileged, services).await
+    run_with_diagnostics(
+        config,
+        adapters,
+        Vec::new(),
+        privileged,
+        services,
+        agent_version,
+    )
+    .await
 }
 
 pub async fn run_with_diagnostics(
@@ -102,12 +114,21 @@ pub async fn run_with_diagnostics(
     diagnostics: Vec<Arc<dyn DiagnosticAdapter>>,
     privileged: Arc<dyn Privileged>,
     services: Arc<dyn ServiceManager>,
+    agent_version: &'static str,
 ) -> Result<()> {
     config.validate()?;
-    let identity = identity::load(&config)?;
     // Reserve the instance before inspecting or recovering another process's intents.
     let listener = status::bind(&config.status_socket).await?;
     let state = Arc::new(Mutex::new(State::open(&config.state_db)?));
+    let retirement = Arc::new(crate::retirement::Retirement::new(
+        config.clone(),
+        state.clone(),
+        adapters.clone(),
+        privileged.clone(),
+        services.clone(),
+    )?);
+    retirement.recover_completion().await?;
+    let identity = identity::load(&config)?;
     let mut modules = Vec::new();
     let mut reconcilers = Vec::new();
     for adapter in adapters {
@@ -121,10 +142,14 @@ pub async fn run_with_diagnostics(
             privileged.clone(),
             services.clone(),
         );
-        reconciler.recover().await?;
+        if !retirement.requested() {
+            reconciler.recover().await?;
+        }
         reconcilers.push((module, reconciler));
     }
     let mut capabilities = modules.clone();
+    capabilities.push(sinan_protocol::RETIREMENT_CAPABILITY.into());
+    capabilities.push(sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY.into());
     capabilities.extend(
         [
             "telemetry:batch",
@@ -148,6 +173,8 @@ pub async fn run_with_diagnostics(
         capabilities: Arc::new(capabilities),
         connected: Arc::new(AtomicBool::new(false)),
         public_ips: Arc::new(config.public_ips.clone()),
+        agent_version,
+        retirement: Some(retirement.clone()),
     };
     let (client_tx, client_rx) = watch::channel::<Option<Arc<PanelClient>>>(None);
     let (trigger_tx, trigger_rx) = mpsc::channel(1);
@@ -158,16 +185,19 @@ pub async fn run_with_diagnostics(
         state.clone(),
         privileged.clone(),
         client_rx.clone(),
+        retirement.clone(),
     ));
     tasks.spawn(crate::tasks::run(
         state.clone(),
         privileged.clone(),
         client_rx.clone(),
+        retirement.clone(),
     ));
     tasks.spawn(public_ips::run(
         config.clone(),
         runtime.clone(),
         outgoing_tx.clone(),
+        retirement.clone(),
     ));
     tasks.spawn(status::serve(listener, runtime.clone()));
     tasks.spawn(crate::telemetry::worker::run(
@@ -175,6 +205,7 @@ pub async fn run_with_diagnostics(
         state.clone(),
         privileged.clone(),
         client_rx.clone(),
+        retirement.clone(),
     ));
     tasks.spawn(
         diagnostics::DiagnosticWorker::new(
@@ -184,7 +215,7 @@ pub async fn run_with_diagnostics(
             privileged,
             services,
         )?
-        .run(client_rx.clone()),
+        .run_guarded(client_rx.clone(), retirement.clone()),
     );
     tasks.spawn(worker::run(
         reconcilers,
@@ -195,6 +226,7 @@ pub async fn run_with_diagnostics(
     ));
     let mut attempt = 0;
     loop {
+        retirement.recover_completion().await?;
         let started = Instant::now();
         let result = tokio::select! {
             result = connection::run(&config, &identity, &runtime, &client_tx, &trigger_tx, &mut outgoing_rx) => result,
@@ -206,6 +238,9 @@ pub async fn run_with_diagnostics(
         runtime.connected.store(false, Ordering::Relaxed);
         client_tx.send_replace(None);
         if let Err(error) = result {
+            if error.downcast_ref::<crate::retirement::Retired>().is_some() {
+                return Err(error);
+            }
             tracing::warn!(%error, "panel connection interrupted");
         }
         if started.elapsed() >= Duration::from_secs(60) {
@@ -289,6 +324,7 @@ mod tests {
             vec![adapter.clone()],
             Arc::new(SystemOps),
             services.clone(),
+            "fixture-agent",
         ));
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
@@ -326,6 +362,7 @@ mod tests {
             vec![adapter],
             Arc::new(SystemOps),
             services.clone(),
+            "fixture-agent",
         )
         .await
         .unwrap_err();

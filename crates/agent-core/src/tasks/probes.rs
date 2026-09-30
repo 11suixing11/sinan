@@ -17,78 +17,119 @@ pub(super) async fn run(
     state: SharedState,
     ops: Arc<dyn Privileged>,
     clients: watch::Receiver<Option<Arc<PanelClient>>>,
+    retirement: Arc<crate::retirement::Retirement>,
 ) -> Result<()> {
-    tokio::try_join!(sample_loop(state.clone(), ops), synchronize(state, clients))?;
+    tokio::try_join!(
+        sample_loop(state.clone(), ops, retirement.clone()),
+        synchronize(state, clients, retirement)
+    )?;
     Ok(())
 }
 
 async fn synchronize(
     state: SharedState,
     clients: watch::Receiver<Option<Arc<PanelClient>>>,
+    retirement: Arc<crate::retirement::Retirement>,
 ) -> Result<()> {
     let mut refreshed = Instant::now() - Duration::from_secs(31);
     loop {
-        let client = clients.borrow().clone();
-        if let Some(client) = client {
-            if refreshed.elapsed() >= Duration::from_secs(30) {
-                refreshed = Instant::now();
-                match client
-                    .get_json::<Vec<ProbeSpec>>("/api/agent/v1/probes")
-                    .await
-                {
-                    Ok(specs) if specs.len() <= 32 && specs.iter().all(ProbeSpec::valid) => {
-                        state
-                            .lock()
-                            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                            .set_json("probes:configuration", &(now_timestamp(), specs))?;
+        {
+            let _guard = retirement.gate.read().await;
+            if !retirement.requested() {
+                let client = clients.borrow().clone();
+                if let Some(client) = client {
+                    if refreshed.elapsed() >= Duration::from_secs(30) {
+                        refreshed = Instant::now();
+                        match client
+                            .get_json::<Vec<ProbeSpec>>("/api/agent/v1/probes")
+                            .await
+                        {
+                            Ok(specs)
+                                if !retirement.requested()
+                                    && specs.len() <= 32
+                                    && specs.iter().all(ProbeSpec::valid) =>
+                            {
+                                state
+                                    .lock()
+                                    .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+                                    .set_json("probes:configuration", &(now_timestamp(), specs))?;
+                            }
+                            Ok(_) => tracing::warn!("panel provided invalid probes"),
+                            Err(error) => {
+                                tracing::warn!(%error,"probe configuration refresh failed")
+                            }
+                        }
                     }
-                    Ok(_) => tracing::warn!("panel provided invalid probes"),
-                    Err(error) => tracing::warn!(%error,"probe configuration refresh failed"),
+                    if !retirement.requested()
+                        && let Err(error) = upload(&state, &client).await
+                    {
+                        tracing::warn!(%error,"probe results retained for retry");
+                    }
                 }
-            }
-            if let Err(error) = upload(&state, &client).await {
-                tracing::warn!(%error,"probe results retained for retry");
             }
         }
         tokio::time::sleep(Duration::from_secs(3)).await;
     }
 }
 
-async fn sample_loop(state: SharedState, ops: Arc<dyn Privileged>) -> Result<()> {
+async fn sample_loop(
+    state: SharedState,
+    ops: Arc<dyn Privileged>,
+    retirement: Arc<crate::retirement::Retirement>,
+) -> Result<()> {
     let mut due = HashMap::<Uuid, Instant>::new();
     let permits = Arc::new(Semaphore::new(4));
     loop {
-        let configuration = state
-            .lock()
-            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-            .get_json::<(i64, Vec<ProbeSpec>)>("probes:configuration")?;
-        if let Some((fetched, specs)) = configuration
-            && fetched > now_timestamp() - 86400
         {
-            due.retain(|id, _| specs.iter().any(|s| s.id == *id && s.enabled));
-            let mut tasks = JoinSet::new();
-            for spec in specs.into_iter().filter(|s| s.enabled) {
-                if due.get(&spec.id).is_some_and(|next| *next > Instant::now()) {
-                    continue;
-                }
-                due.insert(
-                    spec.id,
-                    Instant::now() + Duration::from_secs(u64::from(spec.interval_secs)),
-                );
-                let ops = ops.clone();
-                let permits = permits.clone();
-                tasks.spawn(async move {
-                    let _permit = permits.acquire_owned().await?;
-                    Ok::<_, anyhow::Error>(sample(&spec, ops.as_ref()).await)
-                });
-            }
-            while let Some(result) = tasks.join_next().await {
-                let mut result = result??;
-                let mut state = state
+            let _guard = retirement.gate.read().await;
+            if !retirement.requested() {
+                let configuration = state
                     .lock()
-                    .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
-                result.sampled_at += state.get_json::<i64>("clock_offset_ms")?.unwrap_or(0);
-                state.save_probe_result(&result)?;
+                    .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+                    .get_json::<(i64, Vec<ProbeSpec>)>("probes:configuration")?;
+                if let Some((fetched, specs)) = configuration
+                    && fetched > now_timestamp() - 86400
+                {
+                    due.retain(|id, _| specs.iter().any(|s| s.id == *id && s.enabled));
+                    let mut tasks = JoinSet::new();
+                    for spec in specs.into_iter().filter(|s| s.enabled) {
+                        if retirement.requested() {
+                            break;
+                        }
+                        if due.get(&spec.id).is_some_and(|next| *next > Instant::now()) {
+                            continue;
+                        }
+                        due.insert(
+                            spec.id,
+                            Instant::now() + Duration::from_secs(u64::from(spec.interval_secs)),
+                        );
+                        let ops = ops.clone();
+                        let permits = permits.clone();
+                        let retirement = retirement.clone();
+                        tasks.spawn(async move {
+                            let _permit = permits.acquire_owned().await?;
+                            if retirement.requested() {
+                                return Ok::<_, anyhow::Error>(None);
+                            }
+                            Ok::<_, anyhow::Error>(Some(sample(&spec, ops.as_ref()).await))
+                        });
+                    }
+                    while let Some(result) = tasks.join_next().await {
+                        let Some(mut result) = result?? else {
+                            continue;
+                        };
+                        if retirement.requested() {
+                            continue;
+                        }
+                        let mut state = state
+                            .lock()
+                            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+                        result.sampled_at += state.get_json::<i64>("clock_offset_ms")?.unwrap_or(0);
+                        state.save_probe_result(&result)?;
+                    }
+                }
+            } else {
+                due.clear();
             }
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -254,7 +295,7 @@ mod tests {
     #[tokio::test]
     async fn tcp_probe_measures_a_real_listener_and_closed_port() -> Result<()> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-        let spec = ProbeSpec {
+        let mut spec = ProbeSpec {
             id: Uuid::new_v4(),
             name: "fixture".into(),
             kind: ProbeKind::Tcp,
@@ -267,7 +308,10 @@ mod tests {
         let result = sample(&spec, &crate::system::SystemOps).await;
         assert_eq!(result.loss_percent, 0.0);
         assert!(result.latency_ms.is_some());
-        drop(listener);
+        // Reserve a distinct non-listening port so parallel tests cannot reuse it.
+        let closed = tokio::net::TcpSocket::new_v4()?;
+        closed.bind("127.0.0.1:0".parse()?)?;
+        spec.port = Some(closed.local_addr()?.port());
         let failed = sample(&spec, &crate::system::SystemOps).await;
         assert_eq!(failed.loss_percent, 100.0);
         assert_eq!(failed.latency_ms, None);

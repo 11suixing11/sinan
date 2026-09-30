@@ -5,7 +5,7 @@ use crate::{
 };
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -15,8 +15,7 @@ use serde_json::{Value, json};
 use sinan_protocol::{EnrollRequest, EnrollResponse, now_timestamp};
 use sqlx::{FromRow, PgPool, Row};
 
-const SERVER_COLUMNS: &str =
-    "id, name, device_public_key, static_info, last_seen, latest_metrics, manifest_rev";
+const SERVER_COLUMNS: &str = "id, name, device_public_key, static_info, last_seen, latest_metrics, manifest_rev, capabilities";
 
 #[derive(Serialize, FromRow)]
 pub struct Server {
@@ -27,6 +26,7 @@ pub struct Server {
     pub last_seen: Option<i64>,
     pub latest_metrics: Value,
     pub manifest_rev: i64,
+    pub capabilities: Value,
     #[sqlx(default)]
     pub online: bool,
 }
@@ -116,36 +116,19 @@ pub async fn remove(
     Path(id): Path<i64>,
 ) -> ApiResult<StatusCode> {
     require_admin(&state, &headers).await?;
-    let now = now_timestamp();
-    let mut transaction = state.pool.begin().await?;
-    let result =
-        sqlx::query("UPDATE servers SET deleted_at = $2 WHERE id = $1 AND deleted_at IS NULL")
-            .bind(id)
-            .bind(now)
-            .execute(&mut *transaction)
-            .await?;
-    if result.rows_affected() == 0 {
-        return Err(ApiError::NotFound);
-    }
-    sqlx::query("DELETE FROM sessions WHERE server_id = $1")
-        .bind(id)
-        .execute(&mut *transaction)
-        .await?;
-    sqlx::query("DELETE FROM enrollment_tokens WHERE server_id = $1")
-        .bind(id)
-        .execute(&mut *transaction)
-        .await?;
-    sqlx::query("UPDATE diagnostic_jobs SET status='failed',error='服务器已删除，任务已取消',updated_at=$2 WHERE server_id=$1 AND status IN ('queued','running')")
-        .bind(id).bind(now).execute(&mut *transaction).await?;
-    transaction.commit().await?;
-    state.connections.write().await.remove(&id);
-    Ok(StatusCode::NO_CONTENT)
+    crate::retirement::remove(&state, id).await
+}
+
+#[derive(Deserialize, Default)]
+pub struct EnrollmentQuery {
+    pub agent_version: Option<String>,
 }
 
 pub async fn issue_enrollment(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<i64>,
+    Query(query): Query<EnrollmentQuery>,
 ) -> ApiResult<Json<Value>> {
     require_admin(&state, &headers).await?;
     let token = random_token();
@@ -168,17 +151,27 @@ pub async fn issue_enrollment(
     .execute(&mut *transaction)
     .await?;
     transaction.commit().await?;
-    let url = format!("{}/install.sh?token={token}", state.config.public_url);
-    let install_command = format!("curl -fsSL {} | sh", shell_quote(&url));
-    let freebsd_install_command = format!("fetch -qo- {} | sh", shell_quote(&url));
-    let windows_url =
-        format!("{}/install.ps1?token={token}", state.config.public_url).replace('\'', "''");
-    let windows_install_command = format!(
-        "& ([ScriptBlock]::Create((Invoke-WebRequest -UseBasicParsing -Uri '{windows_url}').Content))"
-    );
+    let selection = crate::releases::select_agent(&state, query.agent_version.as_deref()).await;
+    let (install_command, installation, warning) = match selection {
+        Ok((version, tag)) => (
+            Some(format!(
+                "sudo sinan-bootstrap --tag {} --panel {} --token {}",
+                shell_quote(&tag),
+                shell_quote(&state.config.public_url),
+                shell_quote(&token)
+            )),
+            Some(json!({"version": version, "tag": tag})),
+            None,
+        ),
+        Err(_) => (
+            None,
+            None,
+            Some("请先导入协议兼容且已签名的 Agent Release，再获取安装命令"),
+        ),
+    };
     Ok(Json(
         json!({"token": token, "expires_at": expires_at, "install_command": install_command,
-            "freebsd_install_command": freebsd_install_command, "windows_install_command": windows_install_command}),
+        "installation": installation, "warning": warning}),
     ))
 }
 

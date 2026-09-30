@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import runpy
 import socket
 import sqlite3
 import struct
@@ -21,14 +22,16 @@ import time
 import uuid
 
 SESSION = 'smoke-session'
+RELEASE = runpy.run_path(str(Path(__file__).with_name('ci-release-fixture.py')))
 
 
 def wait_for(check, description, seconds=120 if os.name == 'nt' else 60):
-    deadline = time.monotonic() + seconds
+    started = time.monotonic()
+    deadline = started + seconds
     while time.monotonic() < deadline:
         result = check()
         if result:
-            print('Passed: ' + description, flush=True)
+            print(f'Passed: {description} ({time.monotonic() - started:.1f}s)', flush=True)
             return result
         time.sleep(0.5)
     raise AssertionError('Timed out waiting for ' + description)
@@ -237,6 +240,54 @@ def write_json(path, value):
     temporary.replace(path)
 
 
+def windows_permissions(binary, config, root, origin):
+    if os.name != 'nt':
+        return {}
+    def quote(value):
+        return "'" + str(value).replace("'", "''") + "'"
+    timings = {}
+    for name, probe in (
+        ('PowerShell startup', '$null=1'),
+        ('direct ACL read', f'$null=[IO.File]::GetAccessControl({quote(root / "identity/device.key")})'),
+        ('cmdlet ACL read', f'$null=Get-Acl -LiteralPath {quote(root / "identity/device.key")}'),
+    ):
+        started = time.monotonic()
+        subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', probe],
+                       capture_output=True, check=True, timeout=60)
+        timings[name] = round(time.monotonic() - started, 2)
+    child = subprocess.Popen(['cmd.exe', '/c', 'exit', '0'], stdout=subprocess.DEVNULL)
+    child.wait(timeout=10)
+    started = time.monotonic()
+    subprocess.run(['taskkill.exe', '/PID', str(child.pid), '/T', '/F'], capture_output=True, timeout=60)
+    timings['completed process cleanup'] = round(time.monotonic() - started, 2)
+    print('Windows command timings:', timings, flush=True)
+    script = f"""$ErrorActionPreference='Stop'
+$path={quote(root / 'identity/device.key')}
+$acl=[IO.File]::GetAccessControl($path)
+$saved=$acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::All)
+$users=[Security.Principal.SecurityIdentifier]'S-1-5-32-545'
+$rule=[Security.AccessControl.FileSystemAccessRule]::new($users,[Security.AccessControl.FileSystemRights]::Read,[Security.AccessControl.AccessControlType]::Allow)
+try {{
+    $acl.AddAccessRule($rule)
+    [IO.File]::SetAccessControl($path,$acl)
+    $ErrorActionPreference='Continue'
+    $result=& {quote(binary)} --config {quote(config)} enroll --panel {quote(origin)} --token smoke-enrollment 2>&1
+    $code=$LASTEXITCODE
+    $ErrorActionPreference='Stop'
+    if($code -eq 0 -or ($result -join "`n") -notmatch 'not private') {{ throw "Insecure identity was not rejected: $result" }}
+}} finally {{
+    $restore=[Security.AccessControl.FileSecurity]::new()
+    $restore.SetSecurityDescriptorSddlForm($saved)
+    [IO.File]::SetAccessControl($path,$restore)
+}}
+"""
+    result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
+                            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+    print('Passed: Windows rejects an identity readable by ordinary Users', flush=True)
+    return timings
+
+
 def supervise_smoke(binary, config, root, log):
     core = root / 'core'
     core.mkdir(exist_ok=True)
@@ -246,12 +297,14 @@ def supervise_smoke(binary, config, root, log):
     for name in (previous, version):
         (core / name).mkdir()
         shutil.copy2(binary, core / name / binary.name)
+        RELEASE['install'](core / name, RELEASE['proof']('agent', name, binary.name, binary.read_bytes()))
     reference(core / 'current', core / previous)
     process = subprocess.Popen([str(binary), '--config', str(config), 'supervise', '--monitor-only'], stdout=log, stderr=log)
     try:
         first = wait_for(lambda: status(binary, config), 'supervised Agent')
         identity = (root / 'identity/device.key').read_bytes()
-        pending = dict(version=version, sha256=hashlib.sha256(binary.read_bytes()).hexdigest())
+        pending = dict(version=version, sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
+                       proof=RELEASE['proof']('agent', version, binary.name, binary.read_bytes()))
         write_json(core / 'pending-update.json', pending)
         def state():
             return json.loads((core / 'update-state.json').read_text())
@@ -263,7 +316,8 @@ def supervise_smoke(binary, config, root, log):
         # A corrupt candidate must be rejected before stopping the running Agent.
         (core / '99.0.1').mkdir()
         shutil.copy2(binary, core / '99.0.1' / binary.name)
-        write_json(core / 'pending-update.json', dict(version='99.0.1', sha256='0' * 64))
+        write_json(core / 'pending-update.json', dict(version='99.0.1', sha256='0' * 64,
+             proof=RELEASE['proof']('agent', '99.0.1', binary.name, binary.read_bytes())))
         wait_for(lambda: '99.0.1' in state()['failed_versions'] and consumed(), 'corrupt candidate rejection')
         assert status(binary, config)['pid'] == upgraded['pid']
         failed = core / '99.0.0'
@@ -276,7 +330,9 @@ def supervise_smoke(binary, config, root, log):
         else:
             fixture.write_text('#!/bin/sh\nif [ "$1" = --version ]; then echo "sinan-agent 99.0.0"; else exit 1; fi\n')
             fixture.chmod(0o755)
-        pending = dict(version='99.0.0', sha256=hashlib.sha256(fixture.read_bytes()).hexdigest())
+        candidate_proof = RELEASE['proof']('agent', '99.0.0', binary.name, fixture.read_bytes())
+        RELEASE['install'](failed, candidate_proof)
+        pending = dict(version='99.0.0', sha256=hashlib.sha256(fixture.read_bytes()).hexdigest(), proof=candidate_proof)
         write_json(core / 'pending-update.json', pending)
         wait_for(lambda: '99.0.0' in state()['failed_versions'] and state()['trial'] is None and consumed(), 'failed-start rollback', 90)
         restored = wait_for(lambda: status(binary, config), 'restored Agent')
@@ -320,6 +376,7 @@ def main():
     try:
         config = configure(root, panel.origin)
         print(invoke(binary, config, 'enroll', '--panel', panel.origin, '--token', 'smoke-enrollment'))
+        windows_timings = windows_permissions(binary, config, root, panel.origin)
         with (root / 'agent.log').open('w', encoding='utf-8') as log:
             def start():
                 return subprocess.Popen([str(binary), '--config', str(config), 'run', '--monitor-only'], stdout=log, stderr=log)
@@ -371,6 +428,8 @@ def main():
             print((root / 'agent.log').read_text(encoding='utf-8', errors='replace')[-24000:])
         if 'process' in locals():
             print('Agent exit code:', process.poll())
+        if 'windows_timings' in locals() and windows_timings:
+            print('Windows command timings:', windows_timings)
         core_directory = os.environ.get('SINAN_SMOKE_CORE_DIR')
         if core_directory and shutil.which('lldb'):
             for core in Path(core_directory).glob('*.core'):

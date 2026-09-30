@@ -9,15 +9,21 @@ pub(super) async fn run(
     state: SharedState,
     ops: Arc<dyn Privileged>,
     clients: watch::Receiver<Option<Arc<PanelClient>>>,
+    retirement: Arc<crate::retirement::Retirement>,
 ) -> Result<()> {
-    state
-        .lock()
-        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-        .recover_commands()?;
+    {
+        let _guard = retirement.gate.read().await;
+        if !retirement.requested() {
+            state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+                .recover_commands()?;
+        }
+    }
     loop {
         let client = clients.borrow().clone();
         if let Some(client) = client
-            && let Err(error) = tick(&state, ops.as_ref(), &client).await
+            && let Err(error) = tick(&state, ops.as_ref(), &client, &retirement).await
         {
             tracing::warn!(%error,"command worker will retry durable results");
         }
@@ -25,12 +31,24 @@ pub(super) async fn run(
     }
 }
 
-async fn tick(state: &SharedState, ops: &dyn Privileged, client: &PanelClient) -> Result<()> {
+async fn tick(
+    state: &SharedState,
+    ops: &dyn Privileged,
+    client: &PanelClient,
+    retirement: &crate::retirement::Retirement,
+) -> Result<()> {
+    let _guard = retirement.gate.read().await;
+    if retirement.requested() {
+        return Ok(());
+    }
     let results = state
         .lock()
         .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
         .command_results()?;
     for result in results {
+        if retirement.requested() {
+            return Ok(());
+        }
         let ack: TaskAck = client
             .post_json(&format!("/api/agent/v1/commands/{}", result.id), &result)
             .await?;
@@ -40,12 +58,18 @@ async fn tick(state: &SharedState, ops: &dyn Privileged, client: &PanelClient) -
             .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
             .acknowledge_command(result.id)?;
     }
+    if retirement.requested() {
+        return Ok(());
+    }
     let commands: Vec<RemoteCommand> = client.get_json("/api/agent/v1/commands").await?;
     ensure!(
         commands.len() <= 64 && commands.iter().all(RemoteCommand::valid),
         "invalid commands from panel"
     );
     for command in commands {
+        if retirement.requested() {
+            break;
+        }
         let first = state
             .lock()
             .map_err(|_| anyhow::anyhow!("state lock poisoned"))?

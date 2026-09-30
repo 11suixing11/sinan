@@ -1,4 +1,4 @@
-# ADR 0017：增加 OpenRC 独立服务管理
+# ADR 0021：增加 OpenRC 独立服务管理
 
 ## 背景
 
@@ -18,8 +18,10 @@
 
 OpenRC 支持仍限 Linux。Agent 的 musl 制品可用于 musl 系统，但运行时必须另有与宿主 libc、架构及构建标签兼容的制品；现有 glibc 运行时构建不会因增加 OpenRC 自动兼容 Alpine。原 systemd 部署继续支持。
 
-后续用户要求补齐运行时构建：ADR 0018 增加官方 musl 工具链、完整默认标签和 `with_musl`，并由面板按 Agent 上报的 OS/libc 选择制品。上段描述的是本 ADR 初始实现的边界。
+后续用户要求补齐运行时构建：ADR 0022 增加官方 musl 工具链、完整默认标签和 `with_musl`，并由面板按 Agent 上报的 OS/libc 选择制品。上段描述的是本 ADR 初始实现的边界。
 
 与上游 NodeQuality 功能合并后，完整诊断仍依赖 systemd 的一次性服务与挂载命名空间，见 [ADR 0016](0016-nodequality-diagnostics.md)。OpenRC 设备保留遥测、IP 上报、代理对账及流量计量，Agent 入口不注册诊断适配器；服务管理器明确拒绝诊断任务的启动和状态查询，避免调用 systemd 命令。systemd 设备继续注册并运行诊断功能。
+
+后续 ADR 0022 已扩展 OpenRC 诊断任务监督，上段不注册诊断的说明仅记录初始范围；当前实现使用独立一次性服务和挂载命名空间。签名发布与启动前复验同样适用于 OpenRC。
 
 参考：[OpenRC 服务脚本说明](https://github.com/OpenRC/openrc/blob/master/service-script-guide.md)、[supervise-daemon 手册](https://github.com/OpenRC/openrc/blob/master/man/supervise-daemon.8)。

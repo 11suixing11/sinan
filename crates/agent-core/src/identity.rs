@@ -32,6 +32,8 @@ pub fn load(config: &Config) -> anyhow::Result<Identity> {
 
 pub async fn enroll(config: &Config, token: &str) -> anyhow::Result<i64> {
     config.validate()?;
+    #[cfg(unix)]
+    crate::retirement::ensure_enrollment_allowed(config)?;
     anyhow::ensure!(
         !token.is_empty() && token.len() <= 512,
         "invalid enrollment token"

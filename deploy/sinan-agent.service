@@ -4,8 +4,11 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/opt/sinan/core/supervisor --config /etc/sinan/agent.toml supervise
+ExecStartPre=/opt/sinan/core/current/sinan-agent verify-installed --binary /opt/sinan/core/current/sinan-agent --name agent --format raw
+ExecStart=/opt/sinan/core/current/sinan-agent --config /etc/sinan/agent.toml supervise
 Restart=always
+RestartPreventExitStatus=78
+SuccessExitStatus=78
 RestartSec=5
 UMask=0027
 

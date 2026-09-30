@@ -1,10 +1,13 @@
 #![forbid(unsafe_code)]
 mod business_support;
+mod release_fixture;
+#[path = "../../protocol/tests/support/release.rs"]
+mod release_support;
 use anyhow::Result;
 use business_support::TestPanel;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
+use sinan_protocol::release::canonical_asset_name;
 use sqlx::PgPool;
 
 #[sqlx::test]
@@ -19,28 +22,34 @@ async fn updates_require_opt_in_matching_platform_and_newer_verified_stable_rele
         panel.client.get(&url).send().await?.status(),
         StatusCode::UNAUTHORIZED
     );
-    for (version, target, valid) in [
-        ("0.9.0", "linux-musl-amd64", true),
-        ("0.10.0", "linux-musl-amd64", true),
-        ("1.0.0", "linux-gnu-amd64", true),
-        ("2.0.0", "linux-musl-amd64", false),
-        ("3.0.0-beta", "linux-musl-amd64", true),
+    let mut artifacts = Vec::new();
+    for (version, target) in [
+        ("0.9.0", "linux-musl-amd64"),
+        ("0.10.0", "linux-musl-amd64"),
+        ("1.0.0", "linux-gnu-amd64"),
+        ("3.0.0-beta", "linux-musl-amd64"),
     ] {
-        let root = panel
-            .state
-            .config
-            .data_dir
-            .join("artifacts/agent")
-            .join(version);
-        std::fs::create_dir_all(&root)?;
-        std::fs::write(root.join(target), b"fixture")?;
-        let digest = if valid {
-            format!("{:x}", Sha256::digest(b"fixture"))
-        } else {
-            "0".repeat(64)
-        };
-        std::fs::write(root.join("SHA256SUMS"), format!("{digest}  {target}\n"))?;
+        let mut entry = release_support::entry(
+            "agent",
+            version,
+            "sinan-agent",
+            "raw",
+            b"fixture",
+            b"fixture",
+        );
+        entry.arch = target.into();
+        entry.asset_name = canonical_asset_name(&entry)?;
+        artifacts.push((entry, b"fixture".to_vec()));
     }
+    let release_root = release_fixture::write_entries(&panel.state.config.data_dir, artifacts)?;
+    // A checksum-only legacy directory must never authorize a newer executable.
+    let unsigned = panel.state.config.data_dir.join("artifacts/agent/20.0.0");
+    std::fs::create_dir_all(&unsigned)?;
+    std::fs::write(unsigned.join("linux-musl-amd64"), b"unsigned")?;
+    std::fs::write(
+        unsigned.join("SHA256SUMS"),
+        format!("{}  linux-musl-amd64\n", release_support::hash(b"unsigned")),
+    )?;
     sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
         .bind(server)
         .bind(json!({"os":"linux","arch":"amd64","libc":"musl","agent_version":"0.3.0"}))
@@ -75,11 +84,23 @@ async fn updates_require_opt_in_matching_platform_and_newer_verified_stable_rele
             .await?;
         assert!(fetch().await?.json::<Value>().await?.is_null());
     }
+    sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
+        .bind(server)
+        .bind(json!({"os":"linux","arch":"amd64","libc":"musl","agent_version":"0.3.0"}))
+        .execute(&panel.state.pool)
+        .await?;
+    std::fs::write(
+        release_root.join("agent/0.10.0/linux-musl-amd64"),
+        b"tampered",
+    )?;
+    assert_eq!(fetch().await?.status(), StatusCode::CONFLICT);
     Ok(())
 }
 
 #[sqlx::test]
-async fn native_installers_render_without_legacy_linux_artifacts(pool: PgPool) -> Result<()> {
+async fn native_installers_require_independently_verified_signed_bootstrap(
+    pool: PgPool,
+) -> Result<()> {
     let panel = TestPanel::start(pool).await?;
     let cookie = panel.admin_cookie().await?;
     let server = panel.create_server(&cookie, "native-install").await?;
@@ -94,52 +115,16 @@ async fn native_installers_render_without_legacy_linux_artifacts(pool: PgPool) -
         .error_for_status()?
         .json()
         .await?;
-    assert!(
-        enrollment["windows_install_command"]
-            .as_str()
-            .unwrap()
-            .contains("install.ps1")
-    );
-    assert!(
-        enrollment["freebsd_install_command"]
-            .as_str()
-            .unwrap()
-            .starts_with("fetch ")
-    );
-    let root = panel
-        .state
-        .config
-        .data_dir
-        .join("artifacts/agent")
-        .join(env!("CARGO_PKG_VERSION"));
-    std::fs::create_dir_all(&root)?;
-    let digest = format!("{:x}", Sha256::digest(b"fixture"));
-    let mut sums = String::new();
-    for target in ["macos-arm64", "freebsd-arm64", "windows-arm64"] {
-        std::fs::write(root.join(target), b"fixture")?;
-        sums.push_str(&format!("{digest}  {target}\n"));
-    }
-    std::fs::write(root.join("SHA256SUMS"), sums)?;
+    assert!(enrollment["install_command"].is_null());
+    assert!(enrollment["warning"].as_str().is_some());
     for name in ["install.sh", "install.ps1"] {
         let response = panel
             .client
             .get(format!("{}/{name}", panel.base))
             .query(&[("token", enrollment["token"].as_str().unwrap())])
             .send()
-            .await?
-            .error_for_status()?;
-        let script = response.text().await?;
-        assert!(!script.contains("@@"));
-        assert!(script.contains(&digest));
-        if name.ends_with("sh") {
-            use std::io::Write;
-            let mut parser = std::process::Command::new("sh")
-                .args(["-n"])
-                .stdin(std::process::Stdio::piped())
-                .spawn()?;
-            parser.stdin.take().unwrap().write_all(script.as_bytes())?;
-            assert!(parser.wait()?.success());
-        }
+            .await?;
+        assert_eq!(response.status(), StatusCode::CONFLICT);
     }
     Ok(())
 }

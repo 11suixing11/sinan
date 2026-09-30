@@ -9,11 +9,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use sinan_protocol::Artifact;
-use std::path::PathBuf;
-
-pub const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Deserialize)]
 pub struct TokenQuery {
@@ -29,93 +25,14 @@ pub struct ArtifactEntry {
     pub bytes: u64,
 }
 
-fn safe_segment(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 128
-        && value != "."
-        && value != ".."
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
-}
-
-async fn artifact_path(
-    state: &AppState,
-    name: &str,
-    version: &str,
-    arch: &str,
-) -> ApiResult<PathBuf> {
-    if !matches!(name, "agent" | "sing-box" | "nodequality")
-        || !safe_segment(version)
-        || !sinan_protocol::platform::ARTIFACT_TARGETS.contains(&arch)
-    {
-        return Err(ApiError::NotFound);
-    }
-    let root = tokio::fs::canonicalize(state.config.data_dir.join("artifacts"))
-        .await
-        .map_err(|_| ApiError::NotFound)?;
-    let path = tokio::fs::canonicalize(root.join(name).join(version).join(arch))
-        .await
-        .map_err(|_| ApiError::NotFound)?;
-    if !path.starts_with(&root)
-        || !tokio::fs::metadata(&path)
-            .await
-            .map_err(anyhow::Error::from)?
-            .is_file()
-    {
-        return Err(ApiError::NotFound);
-    }
-    Ok(path)
-}
-
 async fn verified_bytes(
     state: &AppState,
     name: &str,
     version: &str,
     arch: &str,
 ) -> ApiResult<(Vec<u8>, String)> {
-    let path = artifact_path(state, name, version, arch).await?;
-    let root = tokio::fs::canonicalize(state.config.data_dir.join("artifacts"))
-        .await
-        .map_err(anyhow::Error::from)?;
-    let sums = tokio::fs::canonicalize(
-        state
-            .config
-            .data_dir
-            .join("artifacts")
-            .join(name)
-            .join(version)
-            .join("SHA256SUMS"),
-    )
-    .await
-    .map_err(|_| ApiError::NotFound)?;
-    if !sums.starts_with(&root) {
-        return Err(ApiError::NotFound);
-    }
-    let sums = tokio::fs::read_to_string(sums)
-        .await
-        .map_err(anyhow::Error::from)?;
-    let expected = sums
-        .lines()
-        .find_map(|line| {
-            let mut fields = line.split_whitespace();
-            let hash = fields.next()?;
-            let file = fields.next()?.trim_start_matches('*');
-            (file == arch
-                && fields.next().is_none()
-                && hash.len() == 64
-                && hash.bytes().all(|b| b.is_ascii_hexdigit()))
-            .then(|| hash.to_ascii_lowercase())
-        })
-        .ok_or_else(|| ApiError::BadRequest("制品缺少有效 SHA256SUMS".into()))?;
-    let bytes = tokio::fs::read(path).await.map_err(anyhow::Error::from)?;
-    let actual = format!("{:x}", Sha256::digest(&bytes));
-    if actual != expected {
-        return Err(ApiError::Conflict(
-            "制品校验失败，请重新上传制品及 SHA256SUMS".into(),
-        ));
-    }
-    Ok((bytes, actual))
+    let (bytes, hash, _) = crate::releases::artifact(state, name, version, arch).await?;
+    Ok((bytes, hash))
 }
 
 pub async fn descriptor(
@@ -124,13 +41,14 @@ pub async fn descriptor(
     version: &str,
     arch: &str,
 ) -> ApiResult<Artifact> {
-    let (_, sha256) = verified_bytes(state, name, version, arch).await?;
+    let (_, sha256, proof) = crate::releases::artifact(state, name, version, arch).await?;
     Ok(Artifact {
         url: format!(
             "{}/api/agent/v1/artifacts/{name}/{version}/{arch}",
             state.config.public_url
         ),
         sha256,
+        proof: Some(proof),
     })
 }
 
@@ -139,7 +57,8 @@ pub async fn download(
     headers: HeaderMap,
     Path((name, version, arch)): Path<(String, String, String)>,
 ) -> ApiResult<Response> {
-    auth::require_agent(&state, &headers).await?;
+    let server_id = auth::require_agent(&state, &headers).await?;
+    require_signed_agent(&state, server_id).await?;
     bytes_response(&state, &name, &version, &arch).await
 }
 
@@ -174,124 +93,44 @@ pub async fn list(
     headers: HeaderMap,
 ) -> ApiResult<Json<Vec<ArtifactEntry>>> {
     auth::require_admin(&state, &headers).await?;
-    let mut entries = Vec::new();
-    for name in ["agent", "sing-box", "nodequality"] {
-        let Ok(mut versions) =
-            tokio::fs::read_dir(state.config.data_dir.join("artifacts").join(name)).await
-        else {
-            continue;
-        };
-        while let Some(version) = versions.next_entry().await.map_err(anyhow::Error::from)? {
-            let version = version.file_name().to_string_lossy().into_owned();
-            if !safe_segment(&version) {
-                continue;
-            }
-            for &arch in sinan_protocol::platform::ARTIFACT_TARGETS {
-                if let Ok((bytes, sha256)) = verified_bytes(&state, name, &version, arch).await {
-                    entries.push(ArtifactEntry {
-                        name: name.into(),
-                        version: version.clone(),
-                        arch: arch.into(),
-                        sha256,
-                        bytes: bytes.len() as u64,
-                    });
-                }
-            }
-        }
-    }
-    entries.sort_by(|a, b| (&a.name, &a.version, &a.arch).cmp(&(&b.name, &b.version, &b.arch)));
-    Ok(Json(entries))
+    Ok(Json(crate::releases::entries(&state).await?))
 }
 
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
+pub async fn require_signed_agent(state: &AppState, server_id: i64) -> ApiResult<()> {
+    let capabilities: serde_json::Value =
+        sqlx::query_scalar("SELECT capabilities FROM servers WHERE id=$1 AND deleted_at IS NULL")
+            .bind(server_id)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or(ApiError::Unauthorized)?;
+    if !capabilities.as_array().is_some_and(|values| {
+        values
+            .iter()
+            .any(|v| v.as_str() == Some(sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY))
+    }) {
+        return Err(ApiError::Conflict(
+            "此 Agent 尚不支持制品验签，请先使用可信安装器升级；已运行配置和流量上报继续保留"
+                .into(),
+        ));
+    }
+    Ok(())
 }
 
 pub async fn install_script(
     State(state): State<AppState>,
     Query(query): Query<TokenQuery>,
 ) -> ApiResult<Response> {
-    install_response(&state, &query.token, false).await
+    crate::servers::validate_enrollment(&state.pool, &query.token).await?;
+    Err(ApiError::Conflict("安装入口已迁移至独立验证的 sinan-bootstrap，请查看部署文档；不得执行面板提供的未签名安装脚本".into()))
 }
 
 pub async fn install_powershell(
     State(state): State<AppState>,
     Query(query): Query<TokenQuery>,
 ) -> ApiResult<Response> {
-    install_response(&state, &query.token, true).await
-}
-
-async fn install_response(state: &AppState, token: &str, windows: bool) -> ApiResult<Response> {
-    crate::servers::validate_enrollment(&state.pool, token).await?;
-    let quote = |value: &str| {
-        if windows {
-            format!("'{}'", value.replace('\'', "''"))
-        } else {
-            shell_quote(value)
-        }
-    };
-    let mut script = if windows {
-        include_str!("../../../deploy/install.ps1.tmpl").to_owned()
-    } else {
-        include_str!("../../../deploy/install.sh.tmpl")
-            .replace(
-                "@@NATIVE_INSTALL@@",
-                include_str!("../../../deploy/install-native.sh.tmpl"),
-            )
-            .replace(
-                "@@AGENT_UNIT@@",
-                include_str!("../../../deploy/sinan-agent.service").trim_end(),
-            )
-            .replace(
-                "@@RUNTIME_UNIT@@",
-                include_str!("../../../plugins/sing-box/sinan-singbox@.service").trim_end(),
-            )
-            .replace(
-                "@@AGENT_OPENRC@@",
-                include_str!("../../../deploy/sinan-agent.openrc").trim_end(),
-            )
-            .replace(
-                "@@RUNTIME_OPENRC@@",
-                include_str!("../../../plugins/sing-box/sinan-singbox.openrc").trim_end(),
-            )
-    };
-    let mut available = false;
-    for target in sinan_protocol::platform::ARTIFACT_TARGETS {
-        if windows != target.starts_with("windows-") {
-            continue;
-        }
-        let digest = descriptor(state, "agent", AGENT_VERSION, target)
-            .await
-            .ok()
-            .map(|value| value.sha256)
-            .unwrap_or_default();
-        available |= !digest.is_empty();
-        script = script.replace(
-            &format!("@@{}_HASH@@", target.replace('-', "_").to_uppercase()),
-            &quote(&digest),
-        );
-    }
-    if !available {
-        return Err(ApiError::NotFound);
-    }
-    script = script
-        .replace("@@PANEL@@", &quote(&state.config.public_url))
-        .replace("@@TOKEN@@", &quote(token))
-        .replace("@@VERSION@@", &quote(AGENT_VERSION));
-    Ok((
-        [
-            (
-                header::CONTENT_TYPE,
-                if windows {
-                    "text/plain; charset=utf-8"
-                } else {
-                    "text/x-shellscript; charset=utf-8"
-                },
-            ),
-            (header::CACHE_CONTROL, "no-store"),
-            (header::REFERRER_POLICY, "no-referrer"),
-        ],
-        script,
-    )
-        .into_response())
+    crate::servers::validate_enrollment(&state.pool, &query.token).await?;
+    Err(ApiError::Conflict(
+        "原生平台安装需要独立验证的签名安装器，请查看部署文档；不得执行面板提供的未签名安装脚本"
+            .into(),
+    ))
 }

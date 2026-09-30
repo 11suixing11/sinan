@@ -25,6 +25,10 @@ pub(super) async fn run(
             }
             _ = poll.tick() => {}
             _ = sample.tick() => {
+                let _gate = if let Some(retirement) = &runtime.retirement {
+                    Some(retirement.gate.read().await)
+                } else { None };
+                if runtime.retirement.as_ref().is_some_and(|retirement| retirement.requested()) { continue; }
                 for (module, reconciler) in &reconcilers {
                     if let Err(error) = reconciler.sample_usage().await {
                         tracing::warn!(%module, %error, "usage sampling failed");
@@ -33,6 +37,18 @@ pub(super) async fn run(
                 runtime.state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?.cleanup_acknowledged()?;
                 continue;
             }
+        }
+        let _gate = if let Some(retirement) = &runtime.retirement {
+            Some(retirement.gate.read().await)
+        } else {
+            None
+        };
+        if runtime
+            .retirement
+            .as_ref()
+            .is_some_and(|retirement| retirement.requested())
+        {
+            continue;
         }
         let active_client = { client.borrow().clone() };
         let Some(active_client) = active_client else {

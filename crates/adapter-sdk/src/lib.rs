@@ -70,6 +70,9 @@ pub struct Execution {
 pub trait ManagedProcess: Send {
     fn id(&self) -> u32;
     fn try_wait(&mut self) -> anyhow::Result<Option<bool>>;
+    fn exit_code(&self) -> Option<i32> {
+        None
+    }
     fn terminate(&mut self) -> BoxFuture<'_, ()>;
 }
 
@@ -122,6 +125,64 @@ pub trait Privileged: Send + Sync {
     ) -> BoxFuture<'a, ()>;
     fn atomic_symlink<'a>(&'a self, link: &'a Path, target: &'a Path) -> BoxFuture<'a, ()>;
     fn remove_symlink<'a>(&'a self, link: &'a Path) -> BoxFuture<'a, ()>;
+    fn remove_file<'a>(&'a self, _path: &'a Path) -> BoxFuture<'a, ()> {
+        Box::pin(async { anyhow::bail!("credential removal is not supported") })
+    }
+    fn remove_managed_directory<'a>(&'a self, _path: &'a Path) -> BoxFuture<'a, ()> {
+        Box::pin(async { anyhow::bail!("managed directory removal is not supported") })
+    }
+    /// Remove an ordinary temporary artifact path after publication or failure.
+    fn remove_path<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let output = self
+                .execute(
+                    Path::new("rm"),
+                    &[
+                        "-rf".into(),
+                        "--".into(),
+                        path.to_string_lossy().into_owned(),
+                    ],
+                )
+                .await?;
+            anyhow::ensure!(
+                output.success,
+                "temporary artifact cleanup failed: {}",
+                output.stderr
+            );
+            Ok(())
+        })
+    }
+    /// Publish a verified sibling staging directory without replacing a version.
+    fn publish_directory<'a>(
+        &'a self,
+        source: &'a Path,
+        destination: &'a Path,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let output = self
+                .execute(
+                    Path::new("/bin/mv"),
+                    &[
+                        "--no-clobber".into(),
+                        "--no-target-directory".into(),
+                        "--".into(),
+                        source.to_string_lossy().into_owned(),
+                        destination.to_string_lossy().into_owned(),
+                    ],
+                )
+                .await?;
+            anyhow::ensure!(
+                output.success,
+                "artifact publication failed: {}",
+                output.stderr
+            );
+            anyhow::ensure!(
+                !source.try_exists()?,
+                "artifact version appeared during publication"
+            );
+            Ok(())
+        })
+    }
     fn install_archive<'a>(
         &'a self,
         archive: &'a Path,

@@ -1,12 +1,15 @@
 #![forbid(unsafe_code)]
 
 mod business_support;
+mod release_fixture;
+#[path = "../../protocol/tests/support/release.rs"]
+mod release_support;
 
 use anyhow::Result;
 use business_support::{TestPanel, id};
 use reqwest::StatusCode;
 use serde_json::json;
-use sha2::{Digest, Sha256};
+use sinan_protocol::release::canonical_asset_name;
 use sqlx::PgPool;
 
 #[sqlx::test]
@@ -18,32 +21,22 @@ async fn runtime_selection_matches_abi_and_preserves_legacy_devices(pool: PgPool
     let user = id(&panel.create_user(&cookie, "abi-user").await?)?;
     panel.grant(&cookie, user, node).await?;
     panel.publish_now().await?;
-    let root = panel
-        .state
-        .config
-        .data_dir
-        .join("artifacts/sing-box/1.14.2");
-    std::fs::create_dir_all(&root)?;
-    let targets = [
-        "amd64",
-        "linux-gnu-amd64",
-        "linux-musl-amd64",
-        "freebsd-amd64",
-    ];
-    let mut sums = String::new();
-    for target in targets {
-        std::fs::write(root.join(target), target.as_bytes())?;
-        sums.push_str(&format!(
-            "{:x}  {target}\n",
-            Sha256::digest(target.as_bytes())
-        ));
+    let mut artifacts = Vec::new();
+    for target in ["amd64", "linux-musl-amd64", "freebsd-amd64"] {
+        let binary = target.as_bytes();
+        let archive = release_fixture::archive("sing-box", binary)?;
+        let mut entry =
+            release_support::entry("sing-box", "1.14.2", "sing-box", "tar.gz", &archive, binary);
+        entry.arch = target.into();
+        entry.asset_name = canonical_asset_name(&entry)?;
+        artifacts.push((entry, archive));
     }
-    std::fs::write(root.join("SHA256SUMS"), sums)?;
+    let root = release_fixture::write_entries(&panel.state.config.data_dir, artifacts)?;
     for (info, expected) in [
         (json!({"arch":"amd64"}), Some("amd64")),
         (
             json!({"arch":"amd64","os":"linux","libc":"gnu"}),
-            Some("linux-gnu-amd64"),
+            Some("amd64"),
         ),
         (
             json!({"arch":"amd64","os":"linux","libc":"musl"}),
@@ -80,23 +73,18 @@ async fn runtime_selection_matches_abi_and_preserves_legacy_devices(pool: PgPool
             assert!(!response.status().is_success());
         }
     }
-    std::fs::remove_file(root.join("linux-gnu-amd64"))?;
-    for (libc, expected) in [("gnu", StatusCode::OK), ("musl", StatusCode::NOT_FOUND)] {
-        if libc == "musl" {
-            std::fs::remove_file(root.join("linux-musl-amd64"))?;
-        }
-        sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
-            .bind(server)
-            .bind(json!({"arch":"amd64","os":"linux","libc":libc}))
-            .execute(&panel.state.pool)
-            .await?;
-        let response = panel
-            .client
-            .get(format!("{}/api/agent/v1/manifest", panel.base))
-            .bearer_auth(&ack.session_token)
-            .send()
-            .await?;
-        assert_eq!(response.status(), expected);
-    }
+    std::fs::remove_file(root.join("sing-box/1.14.2/linux-musl-amd64"))?;
+    sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
+        .bind(server)
+        .bind(json!({"arch":"amd64","os":"linux","libc":"musl"}))
+        .execute(&panel.state.pool)
+        .await?;
+    let response = panel
+        .client
+        .get(format!("{}/api/agent/v1/manifest", panel.base))
+        .bearer_auth(&ack.session_token)
+        .send()
+        .await?;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
     Ok(())
 }
