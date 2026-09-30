@@ -13,7 +13,7 @@ export type Metrics = {
   disk_used?: number; tcp_connections?: number; udp_connections?: number; uptime_secs?: number;
   network_interfaces?: Record<string, { received_bytes?: number; transmitted_bytes?: number; receive_bytes_per_sec?: number; transmit_bytes_per_sec?: number }>;
 }
-export type Server = { id: number; name: string; device_public_key: string | null; static_info: StaticInfo; last_seen: number | null; latest_metrics: Metrics; manifest_rev: number; online: boolean; capabilities?: string[] }
+export type Server = { id: number; name: string; device_public_key: string | null; static_info: StaticInfo; last_seen: number | null; last_heartbeat_at: number | null; metrics_sampled_at: number | null; metrics_stale: boolean; latest_metrics: Metrics; manifest_rev: number; online: boolean; capabilities?: string[] }
 export type Node = { id: number; name: string; server_id: number; protocol: string; port: number; public_host: string; sni: string; public_key: string; short_id: string }
 export type User = { id: number; name: string; subscription_token: string; subscription_url: string }
 export type Access = { user_id: number; node_id: number; uuid: string; stat_name: string }

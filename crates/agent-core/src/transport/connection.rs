@@ -45,11 +45,10 @@ pub(super) async fn run(
         )?,
     )
     .await?;
-    send(
-        &mut socket,
-        Envelope::new("telemetry.static", runtime.static_info()?)?,
-    )
-    .await?;
+    let mut last_static = runtime.static_info()?;
+    if let Some(info) = &last_static {
+        send(&mut socket, Envelope::new("telemetry.static", info)?).await?;
+    }
     client_tx.send_replace(Some(Arc::new(PanelClient::new(
         &config.panel_url,
         &ack.session_token,
@@ -79,6 +78,8 @@ pub(super) async fn run(
     let mut stale = interval(10);
     let mut static_refresh = interval(300);
     let mut retirement_poll = interval(5);
+    let mut telemetry = runtime.telemetry.clone();
+    let mut cache_open = true;
     let mut last_received = Instant::now();
     let mut resend_queue = std::collections::VecDeque::new();
     let mut resend_deadline = Instant::now();
@@ -155,12 +156,26 @@ pub(super) async fn run(
                 send(&mut socket, message.context("runtime result channel closed")?).await?;
             }
             _ = heartbeat.tick() => {
+                let uptime = telemetry.borrow().sample.as_ref().and_then(|sample| sample.metrics.uptime_secs).unwrap_or(0);
                 send(&mut socket, Envelope::new("heartbeat", Heartbeat {
-                    applied: runtime.applied()?, uptime_secs: sysinfo::System::uptime(),
+                    applied: runtime.applied()?,
+                    uptime_secs: uptime,
                 })?).await?;
             }
             _ = static_refresh.tick() => {
-                send(&mut socket, Envelope::new("telemetry.static", runtime.static_info()?)?).await?;
+                if let Some(info) = runtime.static_info()? {
+                    send(&mut socket, Envelope::new("telemetry.static", &info)?).await?;
+                    last_static = Some(info);
+                }
+            }
+            changed = telemetry.changed(), if cache_open => {
+                if changed.is_err() {
+                    cache_open = false;
+                } else if let Some(info) = runtime.static_info()?
+                    && Some(&info) != last_static.as_ref() {
+                    send(&mut socket, Envelope::new("telemetry.static", &info)?).await?;
+                    last_static = Some(info);
+                }
             }
             _ = resend.tick() => {
                 if resend_queue.is_empty() {
