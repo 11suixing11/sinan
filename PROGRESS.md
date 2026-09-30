@@ -647,3 +647,9 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 包内二进制 + build-info、许可证、完整源码归档、锁文件和第三方原文使用现有 release/minisign 精确签名契约；release 显式选入第四模块，旧三模块默认不变。
 - SDK 默认空辅助文件声明由 core 同时用于签名前检查与下载，含五文件实际安装/缓存篡改/启动前再校验回归；不登记 TCP 插件或修改 UI。
 - Python TCP 来源/签名/许可 11 项、旧 Release 32 项、build-script 5 项通过；实际锁定原文库存 35 包 / 2,006,844 bytes。Rust 与真实 musl 和双架构 CI 尚待完成，正式 release 未发布。独立验收见 docs/acceptance/native-tcp-artifacts.md，决策见 ADR 0032。
+
+## 2026-10-01：原生 TCP 参数与报告无状态适配器（独立 PR）
+
+- 仅新增依赖 SDK 的 TcpQualityAdapter，不登记第二插件或迁入生命周期/ProbeSpec/UI。版本目录与源码pin、精确version/build-info、五静态签名aux、参数/地区白名单、原字节目标摘要、私有目录/文件、有界IO与64MiB/32tasks/60秒预算均独立校验。
+- mandatory --no-rank-upload，不接受测速/宿主/rootfs/上传选项；仅返回ServiceJob，环境章core处理。严格报告目标/参数/source/UTC/实际地址/统计/null语义，最多十独立工具章，坏章不遮住好章，取消/重启前部分结果可继续读取。
+- 记录型Privileged与真实磁盘夹具覆盖参数先拒绝、身份失败不准备、预算/固定argv、0与未知、篡改、部分/重复、链接/超限和坏章；静态fmt/locked offline metadata/core门禁通过，Rust/Clippy/CI待独立槽与最终HEAD补验。不会将合成报告称为真实TCP/服务/签名安装验收。见 [TCP适配器验收](docs/acceptance/tcpquality-adapter.md)。
