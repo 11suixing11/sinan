@@ -334,6 +334,16 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 两个 Windows 架构均完成服务安装，但原始文本的用户权利比较失败，原错误未记录具体差异，因此尚不能断言存在额外授权变化。按微软格式规范，将账户名和 SID 统一后再比较全部权限，并增加差异详情；重复安装同时识别以名称导出的已有授权。权限保持检查未删除。
 - 本地混合名称/SID 样本验证通过，仍能拒绝额外权限变化；fmt、Clippy、完整 Rust/PostgreSQL 回归通过（142 项成功、4 项原有专项忽略），Python 语法和 diff 检查通过。Windows 真实运行时尚待通过权限断言后的完整服务验证。
 
+## Agent 能力对齐完成：全部平台 CI 通过
+
+- [d8d951f 的完整 CI](https://github.com/imengying/sinan/actions/runs/36747223630) 已完成，15/15 任务成功，九份 Agent 与九份运行时制品均已上传。Linux musl/glibc 分别覆盖 amd64/arm64，macOS 覆盖 arm64，Windows 与 FreeBSD 覆盖 amd64/arm64；OpenRC 检查仍在同一 CI 的 musl 任务内。
+- Windows 双架构通过首次安装与重复安装的全部用户权利比较：仅新增专用普通运行账户的批处理登录权，其余有效授权保持不变。账户名称和 SID 规范化后比较通过，确认前一轮断言失败源于文本表示差异。真实运行时配置应用、重载及旧监听关闭、代理流量、Agent 服务重启、重装保留身份、停止 Agent 后代理继续工作均通过。
+- macOS 与 FreeBSD 双架构再次通过相同常驻服务验证；FreeBSD 同一二进制在 13.5/14 检查启动兼容、15 检查完整服务，重复启动/磁盘采集未再次出现段错误。Windows、macOS、FreeBSD 和 Linux 均通过 Agent 遥测补报、命令去重、TCP/ICMP 拨测、升级成功及失败恢复检查。
+- 主检查、真实 PostgreSQL、systemd 诊断专项、Compose 持久化、双架构 OpenRC 诊断及独立服务、四种 Linux 运行时实际构建与代理专项均通过。本地代码最后一轮 fmt、Clippy 和完整 Rust/PostgreSQL 测试为 142 项成功、4 项原有实机专项忽略；此前前端 TypeScript/Vite、构建脚本、工作流语法检查已通过。收尾只更新 README 与本文件，使用 `[skip ci]` 文档提交，运行代码及工作流与上述已验收提交一致。
+- 本次确认的差距已补齐：一秒可配置遥测与 SWAP/进程/磁盘 I/O/GPU、压缩上传和持久补报、持续拨测、通用远程命令、OpenRC NodeQuality、跨系统常驻部署、默认关闭的 Agent 自动更新及失败恢复、musl/glibc 和原生系统制品选择。README 已更新实际验证范围并整理部署与监控说明；未恢复已删除的参考分析文档。
+- 验证边界：GPU 实际负载、公网 Reality 客户端、整机断电/重启和早于 FreeBSD 13.5 的系统未作实机验收；NodeQuality 仍是 Linux 外插。Windows 标准库方案仍不承诺目录元数据断电刷盘语义。以上边界不以 CI 进程/回环检查代替。
+- 下一步：按部署目标在专用设备执行上述实机验收；当前授权的能力补齐与跨平台 CI 工作已完成，修改直接提交到 `main`。
+
 ## 后续调整：VPS 部署、HTTPS 与本机 Agent（2026-09-30）
 
 - 在 Debian 13 amd64 VPS 实际部署 PostgreSQL 16 和非 root 面板容器，面板仅监听宿主回环地址；复用现有 Caddy 配置追加独立站点，公网 CDN 与源站 HTTPS 均验证成功，设备通过公网域名完成注册和 WebSocket 连接。
