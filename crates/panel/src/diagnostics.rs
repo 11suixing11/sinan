@@ -62,6 +62,7 @@ pub struct NodeQualityView {
     pub reports: Vec<ReportRecord>,
     pub proxy_activity: modes::ProxyActivity,
     pub cancel_supported: bool,
+    pub proxy_activity: modes::ProxyActivity,
 }
 
 #[derive(Serialize)]

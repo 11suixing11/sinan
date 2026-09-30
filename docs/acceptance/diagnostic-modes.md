@@ -38,10 +38,16 @@ PLAYWRIGHT_MODULE=/path/to/playwright CHROMIUM_PATH=/path/to/chromium \
 1. 小内存、磁盘不足：对 full/daily 分别确认预检拒绝并保留原因，服务未启动；不要再次无保护跑满 447 MiB 节点。资源充足夹具才运行完整验机。
 2. IP 源 403/429/超时：日常网络章节仍可查看，IP 视图显示源错误与历史成功数据。源缓存/分类沿用对应独立 PR，不能转换成干净或零分。
 3. Agent 重启/面板断连：沿用诊断持久化和 r3 章节 outbox；环境采样时间、参数和版本保持不变，已启动诊断不重复启动。恢复后确认章节补报。
-4. 取消：与独立取消 PR #51 整合后，设备确认之前显示等待；确认后核对进程与挂载。此项单独不宣称取消清理完成。
+4. 取消：复用已合并的独立取消 PR #51，设备确认之前显示等待；确认后核对进程与挂载。此项覆盖等待取消时两入口互斥，实际清理证据仍按取消项验收。
 5. 重复提交/部分报告：同机已有 queued/running 拒绝重复；部分报告保持可读，完整度按各模式 expected_sections 计算。
 6. 代理持续流量：服务端观察实际计量增量，必须警告并要求明确确认；无新采样时仍显示未知。报告保存启动负载与预算，Agent 心跳和常驻代理存活由隔离/保护 PR 的整合实机验收证明。
 
 ## 当前证据
 
 本机不重建 Cargo：fmt/core 边界、Python discovery 88 项（83 通过、5 环境跳过）、轻量 helper 6 项、Bun 1.4.2 构建/dist、真实 Chromium 6 项（错误 0）通过。基于 main 6a583af 的模式源在集中 Debian 12 容器（1.5 GiB / 2 CPU / 无 swap）通过完整 Rust/PostgreSQL 293 项、0 失败、8 项既有运行时环境忽略，以及 fmt、全 targets Clippy 和 Agent/Panel 构建；OOM=false。Linux wrapper 29 项与 helper 6 项通过。wrapper 首轮仅三个既有断言把上游 exit 1 期望为成功；远端临时对齐退出码后通过，最终集成采用独立 PR #56 的正常/非零夹具修复，不混入模式实现。日志为 target/modes-verify-final.log 与 target/modes-finalize-fixture-fix.log，验收二进制另存 binaries/modes-head；这些结果不替代随后整合源码的独立 PR CI。专用节点实机矩阵由总任务记录，不将回环夹具等同实际完整诊断负载。
+
+发布前整合 main 6b63f71（含 #50 视图拆分与 #51 确认取消），保留 cancel_requested 同机互斥、取消字段/能力与现有报告；新建任务返回完整取消状态字段。取消 API/真实 WebSocket 场景按最终 HEAD CI 复验，未重复宣称此前293项已验证这次整合。
+
+main229becc含#56正式退出码夹具，模式专项保留其正常/失败两路径。重建后的真实Chromium7场景通过，新增等待确认取消时两入口均禁用、资源章节仍可查看；fmt/core门禁、Python discovery83/5skip、Bun4/637断言通过。最新Rust和Linux平台按独立PR57最终HEAD CI核对。
+
+7c784e6的CI36779254979核对workspace309通过/0失败/9既有忽略，随后真实root/systemd6项通过（含取消进程和私有挂载清理）；Compose、AMD/ARM musl/OpenRC通过。之后main7848268的查询来源整合保留providers元数据，Bun5项/711断言、fmt/core与重建dist通过；新整合HEAD的CI单独核对。

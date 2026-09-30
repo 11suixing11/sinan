@@ -41,6 +41,7 @@ docker compose --project-name sinan --env-file .env \
 | `SINAN_BIND_ADDRESS` | 默认 `127.0.0.1`，宿主机监听地址 |
 | `SINAN_PORT` | 默认 `8080`，宿主机端口 |
 | `RUST_LOG` | 默认 `info` |
+| `SINAN_ABUSEIPDB_API_KEY` | 可选，仅保存在私有环境配置；为空/无效时官方查询入口未启用且信息未知 |
 
 接入远端 Agent **之前**，将 `SINAN_PUBLIC_URL` 改为远端可访问的地址，例如自己的 HTTPS 域名，再执行 `docker compose … up -d --build --wait` 重建面板容器以应用环境变量；仅执行 `restart` 不会更新容器环境。公网部署应通过 HTTPS 反向代理；代理需支持 `/api/agent/v1/ws` 的 WebSocket 升级和长连接。若反向代理位于同一宿主机，可继续只监听回环地址；确需直接暴露端口时显式设置 `SINAN_BIND_ADDRESS`。这里不配置防火墙，管理员自行保证面板和节点端口可达。
 
@@ -243,3 +244,9 @@ sudo --preserve-env=SINAN_PANEL_URL,SINAN_USER_ID,SINAN_NODE_ID \
 Agent 在托管应用前读取终值，再打开新计量周期；外部强制重载或异常进程退出可能留下不可观测的短采样窗口，会记录告警。已经在本地 outbox 落盘的批次可重发，面板事务去重后确认；这不代表能恢复从未采集到的字节。脚本默认不修改 outbox 来伪造丢失确认，丢 ACK 重传由自动化集成测试覆盖。
 
 未包含配额、计费、链式代理、其他代理协议、多管理员或权限体系。订阅 URL 是用户访问凭据，应仅交给对应用户。
+
+## 正式 IP 查询来源
+
+IP 信息页区分一个 check-place 聚合入口和 AbuseIPDB 官方接口。要启用官方查询，在私有 `.env` 中填写自己账户的 `SINAN_ABUSEIPDB_API_KEY`，重建容器环境后生效；不要提交或粘贴密钥到面板/Issue/日志。没有密钥时不会访问该接口，页面提供不可用原因。凭据改变不删除既有快照；关闭入口后保存结果显示为历史。真实额度、授权和官方网络可达性需要单独验证，403/429 不会重试或更改 UA。
+
+官方接口固定只读 CHECK、30 天报告窗口，不请求 verbose，不包含报告人资料或上传/写入。评分保留官方原值，不等于“干净”。面板查询不能证明节点流媒体解锁，IPQuality 节点自查目前未启用，详情见 [ADR 0027](adr/0027-ip-provider-adapters.md)。

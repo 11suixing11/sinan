@@ -105,6 +105,25 @@ async fn modes_require_admin_confirmation_gate_capability_and_bound_daily_target
             .status(),
         StatusCode::CONFLICT
     );
+    sqlx::query(
+        "UPDATE diagnostic_jobs SET status='cancel_requested',cancel_requested_at=$2 WHERE id=$1",
+    )
+    .bind(Uuid::parse_str(daily["id"].as_str().unwrap())?)
+    .bind(sinan_protocol::now_timestamp())
+    .execute(&panel.state.pool)
+    .await?;
+    for request in [
+        json!({"mode":"daily"}),
+        json!({"mode":"full","confirm_full":true,"acknowledge_traffic_warning":true}),
+    ] {
+        assert_eq!(
+            panel
+                .admin(Method::POST, &path, &cookie, Some(request))
+                .await?
+                .status(),
+            StatusCode::CONFLICT
+        );
+    }
     Ok(())
 }
 

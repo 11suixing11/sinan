@@ -9,7 +9,7 @@ async function main() {
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } })
     const errors = [], requests = [], refreshes = []
-    let activity = 'unknown', ready = true
+    let activity = 'unknown', ready = true, reports = []
     page.on('pageerror', error => errors.push(error.message))
     await page.route('**/api/**', async route => {
       const request = route.request(), path = new URL(request.url()).pathname
@@ -22,7 +22,7 @@ async function main() {
       else if (path.endsWith('/deployments')) data = { status: null, history: [] }
       else if (path.endsWith('/agent-settings')) data = { sample_interval_secs: 1, upload_interval_secs: 3, auto_update: false, discover_public_ips: false }
       else if (path.endsWith('/node-quality/reports') && request.method() === 'GET') data = {
-        ip_addresses: ['192.0.2.1'], quality: [], plugin_ready: ready, plugin_reason: ready ? null : '请升级支持日常检查入口的 Linux Agent', reports: [],
+        plugin_ready: ready, cancel_supported: true, plugin_reason: ready ? null : '请升级支持日常检查入口的 Linux Agent', reports,
         proxy_activity: { state: activity, reason: activity === 'active' ? '最近一分钟记录到代理流量，完整验机会影响连接。' : '代理流量状态未知，不能确认当前无活跃连接。', checked_at: 1700000000, last_positive_at: null },
       }
       else if (path.endsWith('/node-quality/reports') && request.method() === 'POST') {
@@ -67,8 +67,21 @@ async function main() {
     await page.getByText('请升级支持日常检查入口的 Linux Agent', { exact: true }).waitFor()
     assert(await page.getByRole('button', { name: '日常检查', exact: true }).isDisabled())
     assert(await full.isDisabled())
+    ready = true
+    reports = [{ id: 'TEST_ONLY_CANCEL', status: 'cancel_requested', agent_completed: false,
+      cancel_requested_at: 1700000000, cancel_error: null, job: { plugin: 'nodequality', options: { mode: 'daily', ip_version: 'ipv4', network_mode: 'low', upload_report: 'false' } },
+      report: null, error: null, created_at: 1700000000, updated_at: 1700000000, expires_at: 1700000090,
+      expected_sections: ['environment', 'net_quality'], report_completeness: 'partial', sections: [
+        { name: 'environment', text: 'MemoryMax: 67108864; load_one: 0.750', complete: true, revision: 1, collected_at: 1700000000 },
+      ] }]
+    await page.reload()
+    await page.getByText('取消请求已保存，等待设备确认取消。只有设备确认进程与挂载已清理后才显示已取消；设备断连或重启后会继续处理。', { exact: true }).waitFor()
+    assert(await page.getByRole('button', { name: '日常检查', exact: true }).isDisabled())
+    assert(await page.getByRole('button', { name: '报告正在执行', exact: true }).isDisabled())
+    await page.locator('summary').filter({ hasText: '资源限制与开始负载' }).click()
+    await page.getByText('MemoryMax: 67108864; load_one: 0.750', { exact: true }).waitFor()
     assert.deepEqual(errors, [])
-    console.log(JSON.stringify({ passed: ['full-confirmation', 'unknown-traffic-confirmation', 'active-traffic-warning', 'daily-forces-bounded-profile', 'ip-403-visible', 'old-agent-gate-mobile'], browser_errors: 0 }))
+    console.log(JSON.stringify({ passed: ['full-confirmation', 'unknown-traffic-confirmation', 'active-traffic-warning', 'daily-forces-bounded-profile', 'ip-403-visible', 'old-agent-gate-mobile', 'cancel-request-blocks-new-modes-keeps-environment'], browser_errors: 0 }))
   } finally { await browser.close() }
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })
