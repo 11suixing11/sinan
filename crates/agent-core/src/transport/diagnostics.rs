@@ -72,7 +72,6 @@ impl DiagnosticWorker {
         let mut registered = BTreeMap::new();
         for adapter in adapters {
             let descriptor = adapter.describe();
-            let auxiliary_files = adapter.auxiliary_files();
             ensure!(
                 safe_component(&descriptor.plugin_name) && safe_component(&descriptor.binary_name),
                 "invalid diagnostic plugin descriptor"

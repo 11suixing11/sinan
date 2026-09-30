@@ -151,9 +151,12 @@ def release_snapshot(github, tag):
 
 def require_components(metadata):
     identities = {(entry["name"], entry["arch"]) for entry in metadata["artifacts"]}
-    ensure(len(metadata["artifacts"]) == 6 and identities == {
-        (name, arch) for name in ("agent", "sing-box", "nodequality")
-        for arch in ("amd64", "arm64")}, "release must contain every module on both architectures")
+    required = {(name, arch) for name in ("agent", "sing-box", "nodequality")
+                for arch in ("amd64", "arm64")}
+    if any(name == "tcpquality" for name, _ in identities):
+        required |= {("tcpquality", arch) for arch in ("amd64", "arm64")}
+    ensure(len(metadata["artifacts"]) == len(required) and identities == required,
+           "release must contain every selected module on both architectures")
 
 
 def checked_publication(github, tag, roots, minisign, publish=False):
