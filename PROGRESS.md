@@ -533,3 +533,12 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 合并审查继续正常整合 main `c958ba2`（PR #44），保留双方正常祖先、未知字段过滤和遥测时间类型，重新生成最终 dist。补修独立采集线程退出：异步硬件命令使用 4 秒 / 128 KiB 的受限执行与进程组 guard，退出发取消信号并最多等 1 秒确认清理；同步永久阻塞的 Collector 不 join，不生成替代线程。缓存测试拆为子模块，新增真实 Unix 子树取消、失败/超时后恢复和 CPU 忙循环隔离回归。
 - 本轮本机独立 PostgreSQL / macOS 专项 Rust 共 21 项通过、0 失败/忽略：遥测/core 13、真实 WebSocket 心跳与初始 ABI 就绪/usage 重放 3、阻塞采集期间退役与 HTTP503→ACK 补报 1、panel telemetry 4。全 workspace/all-targets Clippy（warnings 为错误）、fmt、core 门禁、差异与 baseline Python 7 项通过，日志前缀 `/tmp/sinan-pr48-`。Rust 验证对应作者 `03f7d30` 加退出补修；随后合入的 `c958ba2` 只修改 IP 质量 Rust 文件，core/SDK/protocol、遥测相关 panel/test 文件与 Cargo 清单/锁完全相同，不重复无交集构建，也不以此前 246 项记录代替本轮验证。
 - 最新合并源通过 Bun 1.4.2 冻结安装、TypeScript/Vite 重建，4 项字段测试 / 637 断言，最终 dist 的 Chromium 回环遥测 6 场景全部通过、浏览器错误 0。真实 Linux/systemd 和完整受保护节点负载仍按最终发布 HEAD 的 CI/独立验收核对；本轮 Unix 子树取消通过不冒称已完成平台全验收。
+
+## 2026-10-01：发布草稿查找修正（独立 PR）
+
+- [Issue #52](https://github.com/theLucius7/sinan/issues/52)：真实草稿的 tag 查询返回 404，而已认证 List releases 与按 ID 查询可读。发布器改为每页 100 条、最多 10 页查找精确且唯一的 tag，再按 ID 复核 ID、tag、完整 build SHA；缺失、重复、异常、扫描超限或身份变化均拒绝。原有 CI、资产摘要、签名与发布前后身份门禁保留。
+- Fake API 对草稿 tag 查询明确返回 404；新增回归先在旧发布器下失败，再在修复后通过。分页、相似标签、歧义、重复 ID、页数上限及下载期间身份变化均有覆盖。发布专项 22 项全部通过；Python discovery 共 88 项，83 项通过、5 项依既有条件跳过（需要隔离 Linux root）。本次只修改发布工具、测试与文档，未运行 Cargo，也未据此宣称正式 Release 已发布。
+- 候选源码 `75cd846`、`agent-v0.3.0` 标签与原有资产保持冻结；本修复须独立审阅，随后从已审阅的工具分支验证同一草稿，正式签名与公开状态另行记录。
+- 对真实 GitHub 草稿执行只读验证成功：固定 Release ID、完整 build SHA 和九项资产 ID/摘要/大小与已下载并审核的候选完全一致，未执行签名或发布写操作。
+
+- 合并审查：发布器专项 22 项重新通过，core 门禁与差异检查通过。真实 GitHub 草稿只读查找再次确认 ID、冻结 build SHA 及九项资产名称；没有执行签名或发布写入。
