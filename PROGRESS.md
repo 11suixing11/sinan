@@ -449,3 +449,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - `1ea10e7` 的运行时 transcript 与任务事件确认：计划任务启动后约 28 秒 PowerShell 才开始执行脚本，30 秒健康期限届满即被 Agent 回滚，留给真实代理的启动时间约 2 秒；ApplyResult 连续报告 `runtime failed health check`。
 - Windows 运行时健康期限调整为有界 90 秒，服务状态查询允许底层 PowerShell 命令已有的 30 秒期限，避免在较短的外层超时反复取消查询。仍须通过计划任务状态、全部监听和统计 RPC 检查；Linux、macOS、FreeBSD 的时限不变。等待新的 Windows 原生冷启动、重载与独立服务验证。
 - 本地 fmt、Clippy 和完整 Rust/PostgreSQL 回归通过（216 项成功、5 项原有实机专项忽略）；Windows 冷启动行为以原生 CI 为准。
+
+### Windows 已通过，修复静态 Agent 的运行时 libc 选择
+
+- [cf93e4a 的 CI](https://github.com/imengying/sinan/actions/runs/36760693539) 中 Windows 双架构完整常驻服务通过，共 14/16 项成功。剩余失败为真实 Reality 安装后等待健康应用及上游新增的 systemd 资源预算专项。
+- Reality 公开摘要定位到 `install` 阶段的 `ready` 等待。代码确认静态 Agent 将编译时 musl 同时用于外部运行时下发；验收提供已签旧格式 GNU 运行时，面板会拒绝选择。保留 Agent 自更新使用的 `libc`，新增可选 `runtime_libc`，从系统程序有界 ELF 解释器信息识别宿主，面板下发及 core 签名/缓存预检一致采用宿主 ABI。无法识别与旧字段缺失的行为明确回退，不放宽签名、摘要或平台校验。
+- 新增协议兼容、GNU/musl ELF 与截断输入、签名运行时平台拒绝、GNU 宿主上的静态 Agent 下发及篡改拒绝回归；已有 Agent 更新测试同时证明 GNU 宿主仍选择 musl Agent 更新。Ubuntu 四种 Agent 行为任务增加实际宿主 libc 上报断言。主检查为两个真实 systemd 专项补充公开失败摘要与具体预算状态，保留所有限制断言。
+- fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过（221 项成功、5 项原有实机专项忽略），两个工作流语法与 core 分层检查通过。真实 Reality 和 systemd 资源预算仍须以下一轮 CI 为准。

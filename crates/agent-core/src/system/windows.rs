@@ -1,6 +1,8 @@
 pub use sinan_adapter_sdk::{Privileged, ServiceManager};
 #[path = "execution.rs"]
 mod execution;
+#[path = "platform.rs"]
+pub(crate) mod platform;
 #[path = "publication.rs"]
 mod publication;
 #[path = "services.rs"]

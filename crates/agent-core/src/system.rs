@@ -4,6 +4,7 @@ mod openrc_jobs;
 pub use openrc_jobs::run_job;
 pub mod deploy;
 mod jobs;
+pub(crate) mod platform;
 mod publication;
 
 pub use sinan_adapter_sdk::{Privileged, ServiceManager};

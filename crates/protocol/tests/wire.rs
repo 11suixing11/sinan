@@ -42,6 +42,7 @@ fn known_messages() -> Vec<Message> {
         Message::TelemetryStatic(StaticInfo {
             os: None,
             libc: None,
+            runtime_libc: None,
             ip_addresses: vec!["192.0.2.10".into(), "2001:db8::10".into()],
             system: Some("Debian GNU/Linux 12".into()),
             kernel: Some("6.1.0".into()),
@@ -358,6 +359,7 @@ fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
     }
     let old_info: StaticInfo = serde_json::from_value(json!({"arch":"amd64"})).unwrap();
     assert!(old_info.ip_addresses.is_empty());
+    assert!(old_info.runtime_libc.is_none());
     assert!(
         serde_json::to_value(old_info)
             .unwrap()
@@ -368,4 +370,13 @@ fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
     assert!(
         serde_json::from_value::<DiagnosticUpdate>(json!({"id":job.id,"status":"queued"})).is_err()
     );
+}
+
+#[test]
+fn static_agent_and_host_runtime_abis_roundtrip_independently() {
+    let value = json!({"os":"linux","arch":"amd64","libc":"musl","runtime_libc":"gnu"});
+    let info: StaticInfo = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(info.libc.as_deref(), Some("musl"));
+    assert_eq!(info.runtime_libc.as_deref(), Some("gnu"));
+    assert_eq!(serde_json::to_value(info).unwrap(), value);
 }

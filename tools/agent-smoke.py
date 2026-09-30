@@ -406,7 +406,9 @@ def main():
                 assert len(panel.command_results) == 1, 'command executed twice after restart'
                 sample = list(panel.samples.values())[-1]['metrics']
                 assert sample['processes'] > 0 and sample['memory_used'] > 0
-                assert any(m['type'] == 'telemetry.static' for m in panel.messages)
+                static = next(m['payload'] for m in panel.messages if m['type'] == 'telemetry.static')
+                if expected_libc := os.environ.get('SINAN_EXPECT_RUNTIME_LIBC'):
+                    assert static.get('runtime_libc') == expected_libc, static.get('runtime_libc')
                 if sys.platform.startswith('freebsd'):
                     # Repeated startup overlaps static inventories with one-second sampling.
                     for _ in range(5):

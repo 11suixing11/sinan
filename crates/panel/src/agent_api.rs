@@ -339,16 +339,21 @@ pub async fn manifest(
             Some("x86_64" | "amd64") => "amd64",
             _ => return Err(ApiError::BadRequest("设备架构未知".into())),
         };
-        let target = info["os"].as_str().and_then(|os| {
-            sinan_protocol::platform::artifact_target(os, info["libc"].as_str(), arch)
-        });
+        let libc = info["runtime_libc"]
+            .as_str()
+            .or_else(|| info["libc"].as_str());
+        let target = info["os"]
+            .as_str()
+            .and_then(|os| sinan_protocol::platform::artifact_target(os, libc, arch));
         if info["os"].is_string() && target.is_none() {
             return Err(ApiError::BadRequest("设备平台或 libc 未受支持".into()));
         }
         let artifact = if let Some(target) = target {
             match artifacts::descriptor(&state, "sing-box", "1.14.2", &target).await {
                 Ok(artifact) => artifact,
-                Err(ApiError::NotFound) if info["os"] == "linux" && info["libc"] == "gnu" => {
+                Err(ApiError::NotFound)
+                    if info["os"] == "linux" && matches!(libc, Some("gnu" | "glibc")) =>
+                {
                     artifacts::descriptor(&state, "sing-box", "1.14.2", arch).await?
                 }
                 Err(error) => return Err(error),

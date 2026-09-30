@@ -64,7 +64,7 @@ jobs:
         run: |
           cargo test -p sinan-agent-core --lib --no-run --message-format=json > /tmp/sinan-core-tests.jsonl
           diagnostic_test_binary=$(python3 -c 'import json; print(next(item["executable"] for item in (json.loads(line) for line in open("/tmp/sinan-core-tests.jsonl")) if item.get("reason") == "compiler-artifact" and item.get("executable") and item["target"]["name"] == "sinan_agent_core"))')
-          sudo "$diagnostic_test_binary" real_systemd_diagnostic_ --ignored
+          python3 tools/ci-run.py sudo "$diagnostic_test_binary" real_systemd_diagnostic_ --ignored
 
   compose-smoke:
     runs-on: ubuntu-24.04
@@ -133,6 +133,8 @@ jobs:
         if: matrix.libc == 'gnu'
         run: python3 tools/build-agent.py '${{ matrix.target }}' '${{ runner.temp }}/sinan-artifacts'
       - name: Verify native Agent operation and failed-update recovery
+        env:
+          SINAN_EXPECT_RUNTIME_LIBC: gnu
         run: python3 tools/ci-run.py python3 tools/agent-smoke.py 'target/${{ matrix.target }}/release/sinan-agent'
       - uses: actions/upload-artifact@v7.0.1
         with:

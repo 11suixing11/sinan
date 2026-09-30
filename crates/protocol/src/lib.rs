@@ -189,6 +189,8 @@ pub struct StaticInfo {
     pub os: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub libc: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_libc: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ip_addresses: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

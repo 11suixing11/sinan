@@ -12,7 +12,7 @@
 | FreeBSD amd64/arm64 | FreeBSD 13 sysroot 构建 | rc.d / daemon | 对应架构原生 |
 | Windows amd64/arm64 | MSVC 静态 CRT | 计划任务 | 对应架构原生及已签 DLL |
 
-init 与 libc 分别选择。Alpine 不能执行 glibc 运行时；每个制品必须对应 Agent 上报的平台和架构。Linux musl 制品保留原目录兼容，其余制品使用完整平台标识。日常 CI 的 Agent 使用公开 TEST_ONLY 信任根，制品名称带 TEST_ONLY，禁止用于正式节点或发布；正式发布工作流当前生成 Linux 双架构六个组件制品；原生平台的生产签名 bundle、独立来源核验与发布验证须另行完成。Linux bootstrap 的静态安装器不代表原生平台已经具有相同的自动首装入口。
+init 与 libc 分别选择。Alpine 不能执行 glibc 运行时；每个制品必须对应 Agent 上报的平台和架构。静态信息中的 `libc` 保留 Agent 编译 ABI，用于自身更新；新增可选 `runtime_libc` 从系统程序的 ELF 解释器识别宿主 libc，用于运行时下发、签名与缓存预检。旧 Agent 未上报时仍按 `libc` 选择，无法识别系统程序时使用 Agent 编译 ABI。静态 musl Agent 在 Ubuntu 上因此选择 GNU 运行时，在 Alpine 上选择 musl。Linux musl 制品保留原目录兼容，其余制品使用完整平台标识。日常 CI 的 Agent 使用公开 TEST_ONLY 信任根，制品名称带 TEST_ONLY，禁止用于正式节点或发布；正式发布工作流当前生成 Linux 双架构六个组件制品；原生平台的生产签名 bundle、独立来源核验与发布验证须另行完成。Linux bootstrap 的静态安装器不代表原生平台已经具有相同的自动首装入口。
 
 原生生产安装先独立验证签名、metadata 和待执行 Agent 的实际内容，将 proof 三文件保存在版本目录后再注册服务；`install-service` 在任何账户或服务修改前以编译根复验自身，并验证安装后的副本。缺少匹配 proof 的生产接入保持拒绝。
 

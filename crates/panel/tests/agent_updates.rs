@@ -52,7 +52,7 @@ async fn updates_require_opt_in_matching_platform_and_newer_verified_stable_rele
     )?;
     sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
         .bind(server)
-        .bind(json!({"os":"linux","arch":"amd64","libc":"musl","agent_version":"0.3.0"}))
+        .bind(json!({"os":"linux","arch":"amd64","libc":"musl","runtime_libc":"gnu","agent_version":"0.3.0"}))
         .execute(&panel.state.pool)
         .await?;
     let fetch = || {

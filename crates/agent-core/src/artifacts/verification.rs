@@ -3,8 +3,8 @@ use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
 use sinan_adapter_sdk::Descriptor;
 use sinan_protocol::release::{
-    MAX_CHECKSUMS_BYTES, MAX_METADATA_BYTES, MAX_SIGNATURE_BYTES, ReleaseProof, TrustedKeys,
-    VerifiedArtifact, VerifiedRelease, verify_release,
+    MAX_CHECKSUMS_BYTES, MAX_METADATA_BYTES, MAX_SIGNATURE_BYTES, ReleaseError, ReleaseProof,
+    TrustedKeys, VerifiedArtifact, VerifiedRelease, verify_release,
 };
 use std::path::Path;
 use tokio::io::AsyncReadExt;
@@ -114,7 +114,7 @@ pub(super) fn signed_artifact(
     keys: &TrustedKeys,
 ) -> Result<VerifiedArtifact> {
     let release = signed_release(proof, keys)?;
-    let verified = release.native_artifact(&descriptor.plugin_name, version)?;
+    let verified = runtime_artifact(&release, &descriptor.plugin_name, version)?;
     ensure!(
         verified.metadata().binary_name == descriptor.binary_name
             && verified.metadata().format == "tar.gz"
@@ -132,6 +132,43 @@ pub(super) fn signed_artifact(
         "signed artifact format or executable name differs from adapter"
     );
     Ok(verified)
+}
+
+pub(super) fn runtime_artifact(
+    release: &VerifiedRelease,
+    name: &str,
+    version: &str,
+) -> Result<VerifiedArtifact> {
+    let target = crate::system::platform::runtime_target()?;
+    runtime_artifact_for_target(
+        release,
+        name,
+        version,
+        &target,
+        sinan_protocol::release::native_arch()?,
+    )
+}
+
+fn runtime_artifact_for_target(
+    release: &VerifiedRelease,
+    name: &str,
+    version: &str,
+    target: &str,
+    arch: &str,
+) -> Result<VerifiedArtifact> {
+    let mut targets = vec![target.to_owned(), arch.to_owned()];
+    // Existing signed static runtime caches remain executable on GNU hosts.
+    if target == format!("linux-gnu-{arch}") {
+        targets.push(format!("linux-musl-{arch}"));
+    }
+    for target in targets {
+        match release.artifact(name, version, &target) {
+            Ok(artifact) => return Ok(artifact),
+            Err(ReleaseError::MissingArtifact) => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Err(ReleaseError::MissingArtifact.into())
 }
 
 pub(crate) async fn verify_expected(
@@ -199,7 +236,11 @@ pub(super) async fn verify_binary_with_keys(
         .context("invalid binary path")?;
     let proof = read_proof(&resolved).await?;
     let release = signed_release(&proof, keys)?;
-    let verified = release.native_artifact(expected_name, version)?;
+    let verified = if expected_name == "agent" {
+        release.native_artifact(expected_name, version)?
+    } else {
+        runtime_artifact(&release, expected_name, version)?
+    };
     ensure!(
         verified.metadata().binary_name == name && verified.metadata().format == expected_format,
         "installed artifact role, format, or executable name differs from requested identity"
@@ -244,4 +285,50 @@ pub async fn verify_release_directory(directory: &Path) -> Result<()> {
     };
     signed_release(&proof, &TrustedKeys::compiled()?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod platform_tests {
+    use super::*;
+    use crate::release_test_support as fixture;
+
+    fn release(targets: &[&str]) -> VerifiedRelease {
+        let entries = targets
+            .iter()
+            .map(|target| {
+                let binary = target.as_bytes();
+                let mut entry = fixture::entry("runtime", "1", "runtime", "tar.gz", binary, binary);
+                entry.arch = (*target).into();
+                entry.asset_name = sinan_protocol::release::canonical_asset_name(&entry).unwrap();
+                (entry, binary.to_vec())
+            })
+            .collect();
+        signed_release(&fixture::signed_release(entries), &fixture::trusted_keys()).unwrap()
+    }
+
+    #[test]
+    fn runtime_proof_uses_host_abi_and_rejects_foreign_targets() {
+        let both = release(&["linux-gnu-amd64", "linux-musl-amd64"]);
+        for target in ["linux-gnu-amd64", "linux-musl-amd64"] {
+            let selected =
+                runtime_artifact_for_target(&both, "runtime", "1", target, "amd64").unwrap();
+            assert_eq!(selected.metadata().arch, target);
+            selected.verify_binary(target.as_bytes()).unwrap();
+        }
+        let gnu = release(&["linux-gnu-amd64"]);
+        assert!(
+            runtime_artifact_for_target(&gnu, "runtime", "1", "linux-musl-amd64", "amd64").is_err()
+        );
+        assert!(
+            runtime_artifact_for_target(&gnu, "runtime", "1", "linux-gnu-arm64", "arm64").is_err()
+        );
+        let static_only = release(&["linux-musl-amd64"]);
+        assert_eq!(
+            runtime_artifact_for_target(&static_only, "runtime", "1", "linux-gnu-amd64", "amd64")
+                .unwrap()
+                .metadata()
+                .arch,
+            "linux-musl-amd64"
+        );
+    }
 }
