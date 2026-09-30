@@ -22,3 +22,5 @@
 实现阶段：Python 端到端验收驱动的 21 项回归通过，workspace fmt 通过，TypeScript/Vite 构建通过。整合 main `6a583af` 后实际 dist 的桌面（1280）/手机（390）浏览器场景均通过，未启用服务器不发业务请求、显式启用、只读来源、管理员/代理用户导航和横向溢出检查均通过，页面错误为零。在独立 Debian 12 构建容器（1.5 GiB / 2 CPU / pids512 / 禁止额外 swap）通过最终代码 `b22386f` 的 workspace fmt、全 targets Clippy（warnings 为错误）和完整 Rust/PostgreSQL 291 项成功 / 0 失败 / 8 项既有 root/systemd/外部运行时条件忽略。新增三项启用/真实迁移测试无忽略。容器 exit0、OOM=false。首次 Clippy 报告抽取残留 import/多余引用，修正后重新 touch 全部源和资源并完整复跑；先前失败不记为通过。
 
 远端日志位于 `/home/lucius7/sinan-remediation-build/target/singbox-business-{fmt,clippy,test}.log`，共享 target 的验证快照在运行前重新更新时间，避免跨分支旧 rlib。容器已移除，编译槽已释放。本提交 CI、专用节点和生产迁移独立核对，不由普通构建容器推断实机迁移通过。
+
+最终正常整合 main `229becc`（已合并取消 #51 和独立包装器夹具修复 #56），保留取消 API、报告章节与遥测字段，再构建 dist；业务桌面/手机及取消浏览器回归通过。上述 291 项仅对应 `b22386f` 的旧 base，本轮 Rust/CI 按最终 head 单独验证。

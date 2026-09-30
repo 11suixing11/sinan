@@ -587,3 +587,5 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 面板代理节点、代理用户、授权、订阅、用户流量、发布及设备运行时清单移入 plugins/singbox；管理 API 与前端导航切换插件命名空间。系统管理员和代理用户使用不同名称，core 继续管理网卡总流量，epoch 仍标记计数器重置。
 - 0012 仅新增启用证据表：当前设备能力、管理员明确启用、已有节点或 singbox 部署才启用；未知能力纯监控机关闭。订阅旧路径永久保留，旧表名和业务 ID/令牌/密钥/授权/历史账本不修改。
 - Python 验收驱动 21 项通过、workspace fmt 与 TypeScript/Vite 构建通过。整合 main `6a583af` 后实际 dist 桌面/手机浏览器场景通过，页面错误为零、关闭服务器不发业务请求；独立 Debian 12 限制容器最终代码 `b22386f` 的 fmt / 全 targets Clippy -D warnings / 完整 Rust+PG 291通过、0失败、8既有条件ignore，新三项启用/真实旧数据迁移测试无忽略；exit0/OOM=false、容器已移除。首次抽取 Clippy 两项已修并完整复跑，本次 CI 尚单独核对；未宣称专用节点或生产迁移通过。设计见 ADR 0030，独立验收见 docs/acceptance/singbox-plugin-business.md。
+
+- 业务归位 #55 正常整合 main `229becc`，保留已合并 #51 取消与 #56 独立夹具修复。重建实际 dist 后业务桌面/手机和取消浏览器回归、fmt/core 门禁/差异检查通过；291 项完整 Rust 证据仍限定旧 base，本轮 CI 单独核对。
