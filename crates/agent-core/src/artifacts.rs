@@ -1,17 +1,24 @@
 use crate::config::validate_panel_url;
+mod preflight;
+#[cfg(test)]
+mod tests;
+mod verification;
 use anyhow::{Context, Result, ensure};
 use futures_util::StreamExt;
+pub use preflight::verify_cache;
 use reqwest::{Client, Url, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sinan_adapter_sdk::{Descriptor, Privileged};
+use sinan_protocol::release::{ReleaseError, ReleaseProof, TrustedKeys, VerifiedArtifact};
 use sinan_protocol::{Artifact, Bundle, DiagnosticJob, DiagnosticUpdate, Manifest};
 use std::{
     path::{Component, Path, PathBuf},
     time::Duration,
 };
-use tokio::io::AsyncReadExt;
 use uuid::Uuid;
+pub(crate) use verification::verify_expected;
+pub use verification::{verify_installed_binary, verify_release_directory};
 
 const MAX_DOWNLOAD: usize = 512 * 1024 * 1024;
 const MAX_JSON: usize = 32 * 1024 * 1024;
@@ -32,12 +39,13 @@ pub struct PanelClient {
     client: Client,
     panel: Url,
     session_token: String,
+    keys: std::result::Result<TrustedKeys, ReleaseError>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct InstalledArtifact {
-    archive_sha256: String,
-    binary_sha256: String,
+    #[serde(default)]
+    proof: Option<ReleaseProof>,
 }
 
 fn normalized_hash(value: &str) -> Result<String> {
@@ -91,7 +99,43 @@ impl PanelClient {
                 .build()?,
             panel: validate_panel_url(panel_url)?,
             session_token: session_token.to_owned(),
+            keys: TrustedKeys::compiled(),
         })
+    }
+
+    /// Explicit trusted roots for an embedding caller or deterministic tests.
+    pub fn with_trusted_keys(mut self, keys: TrustedKeys) -> Self {
+        self.keys = Ok(keys);
+        self
+    }
+
+    pub(crate) fn keys(&self) -> Result<&TrustedKeys> {
+        self.keys
+            .as_ref()
+            .map_err(|error| anyhow::anyhow!(error.to_string()))
+    }
+
+    pub(crate) fn verify_artifact(
+        &self,
+        artifact: &Artifact,
+        version: &str,
+        descriptor: &Descriptor,
+    ) -> Result<VerifiedArtifact> {
+        let url = self.validate_url(&artifact.url)?;
+        let proof = artifact
+            .proof
+            .as_ref()
+            .context("artifact has no signed release proof")?;
+        let verified = verification::signed_artifact(proof, descriptor, version, self.keys()?)?;
+        ensure!(
+            url.path() == format!("/api/agent/v1/artifacts/{}", verified.path()),
+            "artifact URL differs from signed identity"
+        );
+        ensure!(
+            normalized_hash(&artifact.sha256)? == verified.sha256(),
+            "artifact digest differs from signed release"
+        );
+        Ok(verified)
     }
 
     fn validate_url(&self, value: &str) -> Result<Url> {
@@ -197,8 +241,8 @@ impl PanelClient {
                 && safe_component(&descriptor.binary_name),
             "invalid artifact version or descriptor path"
         );
-        self.validate_url(&artifact.url)?;
-        let expected = normalized_hash(&artifact.sha256)?;
+        let verified = self.verify_artifact(artifact, version, descriptor)?;
+        ensure_ordinary_directory_if_present(install_root).await?;
         let plugin = install_root.join(&descriptor.plugin_name);
         let directory = plugin.join(version);
         let binary = directory.join(&descriptor.binary_name);
@@ -213,59 +257,93 @@ impl PanelClient {
                     tokio::fs::symlink_metadata(&binary).await?.is_file(),
                     "cached artifact is not an ordinary file"
                 );
-                let marker = directory.join(MARKER);
-                let metadata = tokio::fs::symlink_metadata(&marker)
-                    .await
-                    .context("existing artifact has no cache metadata; refusing to overwrite")?;
+                let proof = verification::read_proof(&directory).await?;
+                let cached =
+                    verification::signed_artifact(&proof, descriptor, version, self.keys()?)?;
                 ensure!(
-                    metadata.is_file() && metadata.len() <= 4096,
-                    "invalid artifact cache metadata"
+                    cached.sha256() == verified.sha256(),
+                    "existing artifact version has different signed contents"
                 );
-                let cached: InstalledArtifact =
-                    serde_json::from_slice(&tokio::fs::read(marker).await?)?;
-                ensure!(
-                    cached.archive_sha256 == expected,
-                    "existing artifact version has a different SHA256; refusing to overwrite"
-                );
-                ensure!(
-                    file_digest(&binary).await? == cached.binary_sha256,
-                    "cached artifact binary was modified"
-                );
+                verification::verify_file(&binary, &verified).await?;
                 return Ok(binary);
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
         let bytes = self.download(&artifact.url, MAX_DOWNLOAD).await?;
-        ensure!(digest(&bytes) == expected, "artifact SHA256 mismatch");
+        verified.verify_archive(&bytes)?;
         ops.create_dir(&plugin, 0o755, None).await?;
         let archive = plugin.join(format!(".download-{}.tar.gz", Uuid::new_v4()));
         ops.write_file(&archive, &bytes, 0o600, None).await?;
-        let installed = ops
-            .install_archive(&archive, &directory, &descriptor.binary_name)
-            .await;
+        let staging = plugin.join(format!(".verified-{}", Uuid::new_v4()));
+        let installed: Result<()> = async {
+            ops.install_archive(&archive, &staging, &descriptor.binary_name)
+                .await?;
+            verification::verify_file(&staging.join(&descriptor.binary_name), &verified).await?;
+            let proof = artifact
+                .proof
+                .as_ref()
+                .context("artifact has no signed proof")?;
+            for (name, bytes) in [
+                ("release.json", proof.metadata_json.as_bytes()),
+                ("SHA256SUMS", proof.checksums.as_bytes()),
+                ("SHA256SUMS.minisig", proof.signature.as_bytes()),
+            ] {
+                ops.write_file(&staging.join(name), bytes, 0o644, None)
+                    .await?;
+            }
+            let marker = InstalledArtifact {
+                proof: Some(proof.clone()),
+            };
+            ops.write_file(
+                &staging.join(MARKER),
+                &serde_json::to_vec(&marker)?,
+                0o644,
+                None,
+            )
+            .await?;
+            let moved = ops
+                .execute(
+                    Path::new("/bin/mv"),
+                    &[
+                        "--no-clobber".into(),
+                        "--no-target-directory".into(),
+                        "--".into(),
+                        staging.to_string_lossy().into_owned(),
+                        directory.to_string_lossy().into_owned(),
+                    ],
+                )
+                .await?;
+            ensure!(
+                moved.success,
+                "publishing verified artifact directory failed"
+            );
+            verify_expected(&binary, descriptor, version, self.keys()?).await?;
+            let actual = verification::signed_artifact(
+                &verification::read_proof(&directory).await?,
+                descriptor,
+                version,
+                self.keys()?,
+            )?;
+            ensure!(
+                actual.sha256() == verified.sha256(),
+                "artifact publication raced with different contents"
+            );
+            Ok(())
+        }
+        .await;
         let _ = ops
             .execute(
                 Path::new("rm"),
                 &[
-                    "-f".into(),
+                    "-rf".into(),
                     "--".into(),
                     archive.to_string_lossy().into_owned(),
+                    staging.to_string_lossy().into_owned(),
                 ],
             )
             .await;
         installed?;
-        let marker = InstalledArtifact {
-            archive_sha256: expected,
-            binary_sha256: file_digest(&binary).await?,
-        };
-        ops.write_file(
-            &directory.join(MARKER),
-            &serde_json::to_vec(&marker)?,
-            0o644,
-            None,
-        )
-        .await?;
         Ok(binary)
     }
 }
@@ -284,24 +362,4 @@ async fn ensure_ordinary_directory_if_present(path: &Path) -> Result<()> {
 
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
-}
-
-async fn file_digest(path: &Path) -> Result<String> {
-    let mut file = tokio::fs::File::open(path).await?;
-    let mut hash = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    let mut length = 0_u64;
-    loop {
-        let count = file.read(&mut buffer).await?;
-        if count == 0 {
-            break;
-        }
-        length += count as u64;
-        ensure!(
-            length <= 256 * 1024 * 1024,
-            "cached artifact exceeds size limit"
-        );
-        hash.update(&buffer[..count]);
-    }
-    Ok(format!("{:x}", hash.finalize()))
 }

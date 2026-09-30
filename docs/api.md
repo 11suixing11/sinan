@@ -24,7 +24,7 @@
 | `GET /api/servers/{id}` | 服务器详情 |
 | `PATCH /api/servers/{id}` | `{"name":"新名称"}` |
 | `DELETE /api/servers/{id}` | 从面板删除并吊销该设备的面板会话 |
-| `POST /api/servers/{id}/enrollment` | 签发一次性接入令牌，无请求体 |
+| `POST /api/servers/{id}/enrollment` | 签发一次性接入令牌，无请求体；可选查询 `agent_version=0.3.0` 指定已导入版本 |
 
 服务器对象：
 
@@ -43,7 +43,7 @@
 
 `last_seen` 为 Unix 秒，距最后消息不超过 60 秒视为在线。静态信息和指标字段见 [协议文档](protocol.md)。未采集到的指标缺省，前端显示“暂无数据”；不得把缺失值显示为测得的零。
 
-接入令牌响应为 `{"token":"…","expires_at":1790000000,"install_command":"curl … | sh"}`。令牌 24 小时有效、成功注册后只能消费一次。安装命令直接展示并允许复制。重新签发令牌可用于原设备升级，已经注册的服务器只接受同一设备公钥。设备注册、WebSocket、制品下载的鉴权方式见协议文档。
+接入令牌响应为 `{token,expires_at,install_command,installation,warning}`。有兼容的签名 Agent 时，`installation={version,tag}`、`install_command` 为可信 `sinan-bootstrap` 的接入命令；缺少制品或指定版本不可用时，命令与版本为 null，并返回中文 warning。未指定版本时按已签 metadata 选择最新协议兼容版本，不使用面板产品版本。令牌 24 小时有效、成功注册后只能消费一次。操作者先按部署文档准备独立可信 bootstrap，再复制命令。重新签发令牌可用于原设备升级，已经注册的服务器只接受同一设备公钥。设备注册、WebSocket、制品下载的鉴权方式见协议文档。旧 `/install.sh` 不再提供可执行面板脚本，返回 409 提示可信 bootstrap。
 
 删除服务器保留历史用量，节点和订阅不再包含该服务器。Agent 离线时会继续运行本机最后一份可用配置，因此面板删除不是远程停止服务；需由管理员在服务器本地停止相关服务。
 
@@ -152,7 +152,9 @@
 
 所有字节总量都是精确十进制字符串，避免浏览器整数精度损失。分组数组只包含有流量的项目；`deleted` 表示对应对象已删除，用于显示历史记录。按 `(server_id, epoch, seq)` 在事务中去重，持久化成功才确认，设备重传不会重复计费。这里的流量仅来自代理统计，与服务器网卡指标分开显示。
 
-`GET /api/artifacts` 返回已通过 SHA-256 校验的可用制品数组，每项为 `{"name":"agent、sing-box 或 nodequality","version":"版本","arch":"amd64 或 arm64","sha256":"摘要","bytes":123}`。制品上传由管理员放入配置的数据目录完成，MVP 没有网页上传接口。目录布局和安装步骤见部署文档及协议文档。
+`GET /api/artifacts` 返回签名与实际内容均验证通过的制品数组，每项为 `{"name":"agent、sing-box 或 nodequality","version":"版本","arch":"amd64 或 arm64","sha256":"摘要","bytes":123}`。
+
+`POST /api/artifacts/import-release` 请求 `{"tag":"agent-v0.3.0"}`，只接受固定官方仓库的规范 tag，不接受 URL 或其他字段。成功返回 `{tag,artifacts,signature_verified:true}`。先验证签名再下载全部资产，在同文件系统 staging 完成核对后整体发布；失败保留原集合，相同签名集合幂等，相同版本不同内容返回 409，并发导入返回 429。草稿、缺签名、非法根、软链路径或内容篡改均拒绝；面板镜像缺少编译时公钥时也返回 409。目录布局、独立 bootstrap 和轮换步骤见部署文档与 ADR 0017。
 
 ## IP 质量与节点报告
 
@@ -162,7 +164,7 @@
 | `POST /api/servers/{id}/node-quality/refresh` | 无请求体；查询并保存质量结果，返回质量数组 |
 | `POST /api/servers/{id}/node-quality/reports` | `{ip_version:"both",network_mode:"low"}`；创建一次性报告，返回 201 和任务记录 |
 
-详情响应为 `{ip_addresses,quality,plugin_ready,plugin_reason,reports}`。`plugin_ready` 需要设备在线、声明 `diagnostic:nodequality` 能力、支持的架构、有效对应制品；未就绪时 `plugin_reason` 提供原因。仅声明旧运行时能力的 Agent 不能领取诊断任务。
+详情响应为 `{ip_addresses,quality,plugin_ready,plugin_reason,reports}`。`plugin_ready` 需要设备在线、声明 `diagnostic:nodequality` 和 `artifact:minisign-v1` 能力、支持的架构、有效对应签名制品；未就绪时 `plugin_reason` 提供原因。仅声明旧运行时能力的 Agent 不能领取诊断任务。
 
 每个质量对象是 `{ip,checked_at,expires_at,status,databases}`，status 为 `succeeded`、`partial`、`failed`。每个数据库是 `{database,label,status,fields:[{label,value}],error}`；数字零和布尔 false 保持原值，缺失字段省略。面板请求 MaxMind 地理/ASN，以及 IPAPI、Scamalytics、AbuseIPDB、IP2Location、IPData、IPQualityScore；接口参数依据上游 IPQuality 源码，不假造 NodeQuality 的按 IP 查询接口。源之间独立展示，不推导统一评分。
 

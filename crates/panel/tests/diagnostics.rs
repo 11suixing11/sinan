@@ -1,12 +1,14 @@
 #![forbid(unsafe_code)]
 
 mod business_support;
+mod release_fixture;
+#[path = "../../protocol/tests/support/release.rs"]
+mod release_support;
 
 use anyhow::Result;
 use business_support::TestPanel;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use sinan_panel::{agent_api, diagnostics, ip_quality};
 use sinan_protocol::{Hello, HelloAck, Message, PROTOCOL_VERSION};
 use sqlx::PgPool;
@@ -19,7 +21,10 @@ async fn capable(panel: &TestPanel, server_id: i64) -> Result<()> {
         Message::Hello(Hello {
             agent_version: "diagnostic-test".into(),
             protocol_version: PROTOCOL_VERSION,
-            capabilities: vec!["diagnostic:nodequality".into()],
+            capabilities: vec![
+                "diagnostic:nodequality".into(),
+                sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY.into(),
+            ],
             applied: BTreeMap::new(),
         }),
     )
@@ -27,20 +32,17 @@ async fn capable(panel: &TestPanel, server_id: i64) -> Result<()> {
 }
 
 async fn fixture(panel: &TestPanel) -> Result<()> {
-    let directory = panel
-        .state
-        .config
-        .data_dir
-        .join("artifacts/nodequality")
-        .join(diagnostics::PLUGIN_VERSION);
-    tokio::fs::create_dir_all(&directory).await?;
-    let bytes = b"fixed diagnostic fixture";
-    tokio::fs::write(directory.join("amd64"), bytes).await?;
-    tokio::fs::write(
-        directory.join("SHA256SUMS"),
-        format!("{:x}  amd64\n", Sha256::digest(bytes)),
-    )
-    .await?;
+    let binary = b"fixed diagnostic fixture";
+    let archive = release_fixture::archive("nodequality", binary)?;
+    release_fixture::write(
+        &panel.state.config.data_dir,
+        "nodequality",
+        diagnostics::PLUGIN_VERSION,
+        "nodequality",
+        &archive,
+        binary,
+        "tar.gz",
+    )?;
     Ok(())
 }
 

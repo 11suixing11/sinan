@@ -2,6 +2,7 @@
 
 mod diagnostics;
 pub use diagnostics::*;
+pub mod release;
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -12,6 +13,8 @@ use std::{
 use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_MIN: u16 = 1;
+pub const PROTOCOL_MAX: u16 = 1;
 pub type ServerId = i64;
 pub type Revision = u64;
 pub type AppliedRevisions = BTreeMap<String, Revision>;
@@ -271,6 +274,8 @@ pub struct ManifestChanged {
 pub struct Artifact {
     pub url: String,
     pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proof: Option<release::ReleaseProof>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModuleManifest {

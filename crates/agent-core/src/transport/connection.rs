@@ -40,7 +40,7 @@ pub(super) async fn run(
         Envelope::new(
             "hello",
             Hello {
-                agent_version: env!("CARGO_PKG_VERSION").into(),
+                agent_version: runtime.agent_version.into(),
                 protocol_version: PROTOCOL_VERSION,
                 capabilities: runtime.capabilities.as_ref().clone(),
                 applied: runtime.applied()?,

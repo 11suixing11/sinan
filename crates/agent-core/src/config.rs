@@ -89,12 +89,62 @@ pub fn validate_panel_url(value: &str) -> anyhow::Result<reqwest::Url> {
     {
         bail!("panel URL must be an HTTP(S) origin without credentials, path, query, or fragment");
     }
+    let host = url.host_str().unwrap_or_default();
+    let literal = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(host);
+    let loopback = host == "localhost"
+        || literal
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback());
+    if url.scheme() == "http" && !loopback {
+        bail!(
+            "panel URL must use HTTPS; HTTP is restricted to literal loopback addresses or localhost"
+        );
+    }
     Ok(url)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn panel_transport_requires_https_outside_literal_loopback() {
+        for origin in [
+            "https://panel.example.test",
+            "https://192.0.2.1:8443",
+            "https://[2001:db8::1]",
+            "http://127.0.0.1:8080",
+            "http://127.12.34.56",
+            "http://[::1]:8080",
+            "http://localhost:8080",
+        ] {
+            assert!(
+                validate_panel_url(origin).is_ok(),
+                "valid origin rejected: {origin}"
+            );
+        }
+        for origin in [
+            "http://panel.example.test",
+            "http://localhost.example.test",
+            "http://192.0.2.1",
+            "http://10.0.0.1",
+            "http://[2001:db8::1]",
+            "http://[::]",
+            "ftp://localhost",
+            "https://user:password@panel.example.test",
+            "https://panel.example.test/path",
+            "https://panel.example.test?token=test",
+            "https://panel.example.test#fragment",
+        ] {
+            assert!(
+                validate_panel_url(origin).is_err(),
+                "invalid origin accepted: {origin}"
+            );
+        }
+    }
 
     #[test]
     fn public_ip_override_is_optional_and_validated() {

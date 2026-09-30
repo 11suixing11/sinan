@@ -4,6 +4,8 @@
 
 生产环境必须通过 HTTPS/WSS 暴露面板；本地测试可使用回环 HTTP。Agent 原生传输只访问已配置面板的同源地址，拒绝外站制品、重定向及路径穿越。按需执行的 NodeQuality 外插需要访问上游测试服务，见 ADR 0016。WebSocket 入口为 `GET /api/agent/v1/ws`。全部业务消息为 UTF-8 JSON 文本；单条消息应小于 1 MiB。
 
+Agent 与面板的产品版本独立；面板当前声明支持协议范围 `1..=1`，按协议版本和能力判断兼容，不要求产品版本相等。hello 和静态遥测报告 Agent 二进制自己的版本。
+
 信封：`{"v":1,"type":"heartbeat","id":"UUID","ts":1790000000,"payload":{}}`。
 
 `v` 为协议主版本，`id` 为消息 UUID，`ts` 为 UTC Unix 秒，`payload` 为对应类型对象。字段只能增加，接收方忽略未知字段；未知 `type` 记录后忽略，不断开已认证连接。无法解析的已知消息拒绝处理。消息 ID 不承担流量去重；流量使用自己的 epoch 和 seq。
@@ -45,9 +47,13 @@
 
 下列接口使用 `Authorization: Bearer <session_token>`，凭证只能访问绑定服务器的资源。
 
-- `GET /api/agent/v1/manifest` → `{rev,modules:{module:{kernel_version,artifact:{url,sha256},config_rev,bundle_url,bundle_sha256,stats_listen}}}`。
+- `GET /api/agent/v1/manifest` → `{rev,modules:{module:{kernel_version,artifact:{url,sha256,proof},config_rev,bundle_url,bundle_sha256,stats_listen}}}`。
 - 配置包 URL → `{files:{"config.json":"配置文件文本"}}`。sha256 是 HTTP 响应原始 UTF-8 字节的 SHA-256 小写十六进制，不是重新序列化的摘要。
-- `GET /api/agent/v1/artifacts/{name}/{version}/{arch}` → 制品原始字节。路径段限定安全字符；架构为 `amd64` 或 `arm64`。所有下载均校验清单中的 SHA-256。
+- `GET /api/agent/v1/artifacts/{name}/{version}/{arch}` → 制品原始字节。路径段限定安全字符；架构为 `amd64` 或 `arm64`。所有下载均校验已签清单中的 SHA-256。
+
+`proof` 为 `{metadata_json,checksums,signature}`；`signature` 保留完整四行 `SHA256SUMS.minisig`，正文是 `checksums` 原始 UTF-8 字节。已签清单绑定 metadata 原始摘要、制品路径与压缩包摘要，metadata 进一步绑定仓库、发布 tag、协议范围、版本、架构、格式、安装后二进制摘要和大小。新 Agent 在应用、缓存命中、恢复、回滚及诊断执行前都以构建时固定的多个公钥验证证明与实际内容，不能把本地 marker 中的未签摘要当作可信值。格式与信任根轮换见 [ADR 0017](adr/0017-signed-release-artifacts.md)。
+
+字段缺省时旧消息仍可解析，但新 Agent 拒绝执行无 proof 的制品。签名能力为 `artifact:minisign-v1`；面板拒绝向未声明该能力的旧设备提供新 manifest、制品或新诊断任务，继续接受旧设备的状态、流量和确认，保留已运行配置。缺根或缺能力都不降级到仅 SHA256 校验。
 
 清单 rev 单调增加，模块 config_rev 表示配置包版本。无部署时清单可以是 rev 0、空 modules。Agent 每 60 秒拉取全量清单，并响应变更通知；心跳版本不一致时面板补发通知。多个通知可合并，以最终读取的全量状态为准。
 
@@ -67,7 +73,7 @@
 
 设备接口继续使用绑定服务器身份的 Bearer session：
 
-- `GET /api/agent/v1/diagnostics` 返回该设备尚未终止的任务数组，每个为 `{id,plugin,version,artifact:{url,sha256},timeout_secs,expires_at?,options}`。
+- `GET /api/agent/v1/diagnostics` 返回该设备尚未终止的任务数组，每个为 `{id,plugin,version,artifact:{url,sha256,proof},timeout_secs,expires_at?,options}`。
 - `POST /api/agent/v1/diagnostics/{id}` 提交 `{id,status,report?,error?}`。设备可提交的 status 是 `running`、`succeeded`、`failed`，最终报告为 `{text,report_url?}`。数据库持久化后返回 204；其他设备不能更新该任务，过期会话不能取回任务。
 
 NodeQuality 的 plugin 标识为 `nodequality`，version 为固定上游提交加包装器版本（当前为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2`），制品同源、校验后安装。options 仅允许 `ip_version=both|ipv4|ipv6`、`network_mode=low|normal` 和 `upload_report=true|false`。`upload_report` 在管理员创建任务的 HTTP 请求中为布尔值，缺省 `false`；在公共任务中为固定字符串，缺少时新 Agent 按关闭处理。旧 Agent 拒绝新版本和未知选项，不通过忽略隐私选项继续运行旧包。升级必须准备 r2 包；已排队或运行的旧任务不受新缺省值影响，应先结束旧任务再升级。任务不携带任意命令、程序地址或自由 shell 参数。

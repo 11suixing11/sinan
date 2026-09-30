@@ -30,11 +30,13 @@ struct Runtime {
     capabilities: Arc<Vec<String>>,
     connected: Arc<AtomicBool>,
     public_ips: Arc<Vec<String>>,
+    agent_version: &'static str,
 }
 
 impl Runtime {
     fn static_info(&self) -> Result<sinan_protocol::StaticInfo> {
         let mut info = crate::telemetry::Collector::new().static_info();
+        info.agent_version = Some(self.agent_version.into());
         info.ip_addresses = crate::telemetry::normalized_addresses(
             info.ip_addresses
                 .iter()
@@ -74,8 +76,17 @@ pub async fn run(
     adapters: Vec<Arc<dyn Adapter>>,
     privileged: Arc<dyn Privileged>,
     services: Arc<dyn ServiceManager>,
+    agent_version: &'static str,
 ) -> Result<()> {
-    run_with_diagnostics(config, adapters, Vec::new(), privileged, services).await
+    run_with_diagnostics(
+        config,
+        adapters,
+        Vec::new(),
+        privileged,
+        services,
+        agent_version,
+    )
+    .await
 }
 
 pub async fn run_with_diagnostics(
@@ -84,6 +95,7 @@ pub async fn run_with_diagnostics(
     diagnostics: Vec<Arc<dyn DiagnosticAdapter>>,
     privileged: Arc<dyn Privileged>,
     services: Arc<dyn ServiceManager>,
+    agent_version: &'static str,
 ) -> Result<()> {
     config.validate()?;
     let identity = identity::load(&config)?;
@@ -107,6 +119,7 @@ pub async fn run_with_diagnostics(
         reconcilers.push((module, reconciler));
     }
     let mut capabilities = modules.clone();
+    capabilities.push(sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY.into());
     capabilities.extend(
         diagnostics
             .iter()
@@ -118,6 +131,7 @@ pub async fn run_with_diagnostics(
         capabilities: Arc::new(capabilities),
         connected: Arc::new(AtomicBool::new(false)),
         public_ips: Arc::new(config.public_ips.clone()),
+        agent_version,
     };
     let (client_tx, client_rx) = watch::channel::<Option<Arc<PanelClient>>>(None);
     let (trigger_tx, trigger_rx) = mpsc::channel(1);
@@ -235,6 +249,7 @@ mod tests {
             vec![adapter.clone()],
             Arc::new(SystemOps),
             services.clone(),
+            "fixture-agent",
         ));
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
@@ -272,6 +287,7 @@ mod tests {
             vec![adapter],
             Arc::new(SystemOps),
             services.clone(),
+            "fixture-agent",
         )
         .await
         .unwrap_err();

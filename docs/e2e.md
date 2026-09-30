@@ -1,12 +1,12 @@
 # 真实 Reality 验收驱动
 
-`scripts/e2e-driver.py` 通过真实面板 API 创建一套专用服务器、节点、用户和授权，记录健康部署及精确用量。操作者负责准备 Linux/systemd 设备、执行安装脚本、启动独立客户端、产生流量，以及重启或重载服务。完整人工验收边界仍见 `bash scripts/e2e-real.sh guide`。
+`scripts/e2e-driver.py` 通过真实面板 API 创建一套专用服务器、节点、用户和授权，记录健康部署及精确用量。操作者负责准备 Linux/systemd 设备、通过独立可信的 bootstrap 安装、启动独立客户端、产生流量，以及重启或重载服务。完整人工验收边界仍见 `bash scripts/e2e-real.sh guide`。
 
 驱动仅创建本次随机名称对应的资源，不修改或删除已有业务对象。每个创建步骤立即保存编号；若请求已提交但响应丢失，使用相同私有 state 重试可以按本次唯一名称恢复。不要删除 state 后在同一设备重新开始，也不要同时运行两个使用相同 state 的驱动。
 
 ## 准备与安装
 
-需要 Python 3.9 或以上，无第三方 Python 依赖。Linux 和 macOS 可以驱动面板，受管设备仍必须是 Linux/systemd。将面板地址、节点地址和伪装域名放在当前 shell 的私有环境变量中，真实地址、密码、脚本和证据均不得提交。
+需要 Python 3.9 或以上，无第三方 Python 依赖。Linux 和 macOS 可以驱动面板，受管设备仍必须是 Linux/systemd。先按[部署文档](deploy.md)独立配置可信 bootstrap 与发布公钥，并在面板导入协议兼容的已签名 Release。将面板地址、节点地址和伪装域名放在当前 shell 的私有环境变量中，真实地址、密码、脚本和证据均不得提交。
 
 ```sh
 E2E_PRIVATE=$(mktemp -d)
@@ -18,21 +18,33 @@ python3 scripts/e2e-driver.py --state "$E2E_PRIVATE/state.json" prepare \
   --origin "$PANEL_ORIGIN" --public-host "$NODE_PUBLIC_HOST" --sni "$REALITY_SNI"
 ```
 
-密码也可通过 `SINAN_E2E_ADMIN_PASSWORD` 提供，缺省则隐藏输入。密码和 Cookie 不写入 state、不打印；state、安装脚本、客户端凭据和阶段证据以 0600 保存，所在目录必须是仓库外的 0700 私有目录。
+密码也可通过 `SINAN_E2E_ADMIN_PASSWORD` 提供，缺省则隐藏输入。密码和 Cookie 不写入 state、不打印；state、安装描述、客户端凭据和阶段证据以 0600 保存，所在目录必须是仓库外的 0700 私有目录。
 
-`prepare` 在私有目录保存 `install.sh`；将该文件安全传到专用设备，以 root 执行。脚本包含一次性令牌，应按凭据保管。令牌过期或准备升级时，重新签发并保存安装脚本：
+`prepare` 在私有目录保存 `enrollment.json`，包含一次性令牌、面板来源、服务器编号及独立选择的 Agent 版本和标签；按凭据保管并安全传到专用设备。面板不再提供可直接执行的安装脚本。令牌过期或准备升级时，重新签发安装描述；省略版本参数会选择最新的兼容签名版本：
 
 ```sh
-python3 scripts/e2e-driver.py --state "$E2E_PRIVATE/state.json" install --refresh
+python3 scripts/e2e-driver.py --state "$E2E_PRIVATE/state.json" install --refresh --agent-version 0.3.0
 ```
 
-当前安装脚本始终选择面板自身版本对应的 Agent，不能通过该接口选择 0.1.0。0.1.0 到 0.2.0 验收需要先准备匹配的旧面板与旧制品，再切换到新面板或明确记录受控的安装 workaround；安装脚本不能因此被当作已验证任意版本升级。
+在已独立配置可信 bootstrap 的设备执行以下命令，令牌通过子进程环境传递，不打印到终端。`E2E_PRIVATE` 指向安全传入的私有目录：
+
+```sh
+sudo python3 - "$E2E_PRIVATE/enrollment.json" <<'PY'
+import json, os, pathlib, subprocess, sys
+descriptor = json.loads(pathlib.Path(sys.argv[1]).read_text())
+environment = dict(os.environ, SINAN_ENROLLMENT_TOKEN=descriptor["token"])
+subprocess.run(["/usr/local/bin/sinan-bootstrap", "--tag", descriptor["tag"],
+                "--panel", descriptor["origin"]], env=environment, check=True)
+PY
+```
+
+Agent 与面板产品版本独立；接入选定版本必须已导入且协议兼容。已有未签名安装先按[发布文档](release.md)迁移验证缓存。历史 0.1.0→0.2.0 真机验收保留在 `PROGRESS.md`；当前签名流程及同版本重装不能替代那次跨版本验收。
 
 ## 健康部署与独立客户端
 
 ```sh
 python3 scripts/e2e-driver.py --state "$E2E_PRIVATE/state.json" ready \
-  --agent-version 0.2.0 --timeout 600
+  --agent-version 0.3.0 --timeout 600
 ```
 
 `ready` 要求设备在线、目标版本等于已应用版本、健康为真且无部署错误，可同时核对 Agent 版本。只导出本次专用节点的 `client.json`，本地混合入口固定为 `127.0.0.1:2080`；初次成功保存 `ready` 用量基线，重复执行保留原基线。
@@ -84,7 +96,7 @@ python3 scripts/e2e-driver.py --state "$E2E_PRIVATE/state.json" traffic \
   --label resumed --after after-runtime --timeout 180
 ```
 
-升级后可重新执行 `ready --agent-version 0.2.0`，再用原稳定基线验证身份与已确认用量。设备身份文件、账本和运行时连续性仍应由操作者记录，不由面板公钥相等推断全部已通过。
+升级后可重新执行 `ready --agent-version 0.3.0`（改为实际选择的版本），再用原稳定基线验证身份与已确认用量。设备身份文件、账本和运行时连续性仍应由操作者记录，不由面板公钥相等推断全部已通过。
 
 ## 证据与失败处理
 

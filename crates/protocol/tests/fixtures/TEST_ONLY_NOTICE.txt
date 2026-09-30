@@ -1,0 +1,1 @@
+Publicly disclosed automated test signing keys. Never trust these keys for official releases. Formal publication must reject every TEST_ONLY*.pub record. TEST_ONLY.key is the public CLI fixture secret; TEST_ONLY_ROTATION.pub comes from the explicitly public deterministic 0x99 test seed in support/release.rs. These are test material, not credentials.
