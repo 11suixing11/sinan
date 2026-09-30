@@ -39,15 +39,21 @@ async fn spawn(
     ops.spawn_managed(&root.join(version).join(executable_name()), &args)
         .await
 }
+
+fn has_exited(process: &mut dyn ManagedProcess) -> Result<bool> {
+    let exited = process.try_wait()?.is_some();
+    if exited && process.exit_code() == Some(crate::retirement::RETIRED_EXIT_CODE) {
+        return Err(crate::retirement::Retired.into());
+    }
+    Ok(exited)
+}
+
 async fn ready(process: &mut dyn ManagedProcess, config: &Config, version: &str) -> Result<()> {
     let started = Instant::now();
     let startup_secs = if cfg!(windows) { 120 } else { 60 };
     let mut consecutive = 0;
     while started.elapsed() < Duration::from_secs(startup_secs) {
-        ensure!(
-            process.try_wait()?.is_none(),
-            "new Agent exited during startup"
-        );
+        ensure!(!has_exited(process)?, "new Agent exited during startup");
         if let Ok(status) = crate::transport::status(&config.status_socket).await
             && status["agent_version"] == version
             && status["pid"].as_u64() == Some(u64::from(process.id()))
@@ -138,10 +144,7 @@ pub async fn supervise(
             _ = tokio::time::sleep(Duration::from_secs(1)) => {},
             result = &mut shutdown => { result?; child.terminate().await?; return Ok(()); }
         }
-        if child.try_wait()?.is_some() {
-            if child.exit_code() == Some(crate::retirement::RETIRED_EXIT_CODE) {
-                return Err(crate::retirement::Retired.into());
-            }
+        if has_exited(child.as_mut())? {
             crashes = crashes.saturating_add(1);
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs((1u64 << crashes.min(5)).min(30))) => {},
@@ -181,6 +184,9 @@ pub async fn supervise(
             verify_cache_before_upgrade(&binary, &path, ops.as_ref()).await
         }
         .await;
+        // Validation runs asynchronously while the current Agent keeps working.
+        // Its terminal retirement must win over any pending update or rejection.
+        has_exited(child.as_mut())?;
         if let Err(error) = validation {
             tracing::warn!(version=%pending.version,%error,"Agent update validation failed");
             state.failed(pending.version);
@@ -195,6 +201,9 @@ pub async fn supervise(
         save(&root, &state, ops.as_ref()).await?;
         tracing::info!(version=%pending.version,"starting Agent update trial");
         child.terminate().await?;
+        // The current Agent may have retired after the preflight observation,
+        // including while its final exit was being collected during shutdown.
+        has_exited(child.as_mut())?;
         let attempt = match spawn(&root, &pending.version, &path, monitor_only, ops.as_ref()).await
         {
             Ok(mut candidate) => {
@@ -222,6 +231,9 @@ pub async fn supervise(
                 state.last_error = None;
                 crashes = 0;
             }
+            Err(error) if error.downcast_ref::<crate::retirement::Retired>().is_some() => {
+                return Err(error);
+            }
             Err(error) => {
                 tracing::warn!(version=%pending.version,%error,"Agent update failed; restoring previous release");
                 state.failed(pending.version);
@@ -235,3 +247,7 @@ pub async fn supervise(
             .await?;
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "supervisor_tests.rs"]
+mod tests;

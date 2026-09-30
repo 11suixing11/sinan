@@ -101,4 +101,4 @@ def proof(name, version, binary_name, data, format='raw', arch=None):
 
 def install(directory, release):
     for name, field in [('release.json', 'metadata_json'), ('SHA256SUMS', 'checksums'), ('SHA256SUMS.minisig', 'signature')]:
-        (Path(directory) / name).write_text(release[field], encoding='utf-8')
+        (Path(directory) / name).write_bytes(release[field].encode('utf-8'))
