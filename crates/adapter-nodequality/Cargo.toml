@@ -1,0 +1,11 @@
+[package]
+name = "sinan-adapter-nodequality"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sinan-adapter-sdk.workspace = true
+anyhow.workspace = true
+tokio.workspace = true

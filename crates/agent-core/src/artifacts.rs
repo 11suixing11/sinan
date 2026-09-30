@@ -5,7 +5,7 @@ use reqwest::{Client, Url, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sinan_adapter_sdk::{Descriptor, Privileged};
-use sinan_protocol::{Artifact, Bundle, Manifest};
+use sinan_protocol::{Artifact, Bundle, DiagnosticJob, DiagnosticUpdate, Manifest};
 use std::{
     path::{Component, Path, PathBuf},
     time::Duration,
@@ -141,6 +141,33 @@ impl PanelClient {
         Ok(serde_json::from_slice(
             &self.download(url.as_str(), MAX_JSON).await?,
         )?)
+    }
+
+    pub async fn diagnostic_jobs(&self) -> Result<Vec<DiagnosticJob>> {
+        let url = self.panel.join("/api/agent/v1/diagnostics")?;
+        let jobs: Vec<DiagnosticJob> =
+            serde_json::from_slice(&self.download(url.as_str(), 1024 * 1024).await?)?;
+        ensure!(jobs.len() <= 64, "too many pending diagnostic jobs");
+        Ok(jobs)
+    }
+
+    pub async fn diagnostic_update(&self, update: &DiagnosticUpdate) -> Result<()> {
+        let url = self
+            .panel
+            .join(&format!("/api/agent/v1/diagnostics/{}", update.id))?;
+        let response = self
+            .client
+            .post(url)
+            .bearer_auth(&self.session_token)
+            .json(update)
+            .send()
+            .await?;
+        ensure!(
+            response.status().is_success(),
+            "diagnostic update returned HTTP {}",
+            response.status()
+        );
+        Ok(())
     }
 
     pub async fn bundle(&self, url: &str, expected_sha256: &str) -> Result<Bundle> {

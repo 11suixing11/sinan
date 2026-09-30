@@ -1,3 +1,5 @@
+mod jobs;
+
 pub use sinan_adapter_sdk::{Privileged, ServiceManager};
 
 mod services;
@@ -6,7 +8,7 @@ pub use services::{ServiceBackend, SystemServiceManager};
 use crate::artifacts::safe_component;
 use anyhow::{Context, Result, ensure};
 use flate2::read::MultiGzDecoder;
-use sinan_adapter_sdk::{BoxFuture, CommandOutput};
+use sinan_adapter_sdk::{BoxFuture, CommandOutput, JobStatus, ServiceJob};
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
@@ -100,9 +102,9 @@ impl Privileged for SystemOps {
         Box::pin(async move {
             #[cfg(not(target_os = "linux"))]
             ensure!(
-                program
-                    .file_name()
-                    .is_none_or(|name| name != "systemctl" && name != "rc-service"),
+                program.file_name().is_none_or(|name| {
+                    name != "systemctl" && name != "rc-service" && name != "systemd-run"
+                }),
                 "service management requires Linux"
             );
             let output = timeout(

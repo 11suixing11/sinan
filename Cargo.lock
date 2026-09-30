@@ -2416,8 +2416,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
+name = "sinan-adapter-nodequality"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "sinan-adapter-sdk",
+ "tokio",
+]
+
+[[package]]
 name = "sinan-adapter-sdk"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -2425,7 +2434,7 @@ dependencies = [
 
 [[package]]
 name = "sinan-adapter-singbox"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "prost",
@@ -2440,11 +2449,12 @@ dependencies = [
 
 [[package]]
 name = "sinan-agent"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
  "serde_json",
+ "sinan-adapter-nodequality",
  "sinan-adapter-sdk",
  "sinan-adapter-singbox",
  "sinan-agent-core",
@@ -2455,7 +2465,7 @@ dependencies = [
 
 [[package]]
 name = "sinan-agent-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2483,7 +2493,7 @@ dependencies = [
 
 [[package]]
 name = "sinan-compiler"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -2494,7 +2504,7 @@ dependencies = [
 
 [[package]]
 name = "sinan-panel"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -2510,6 +2520,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "sinan-adapter-nodequality",
  "sinan-adapter-sdk",
  "sinan-agent-core",
  "sinan-compiler",
@@ -2528,7 +2539,7 @@ dependencies = [
 
 [[package]]
 name = "sinan-protocol"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",

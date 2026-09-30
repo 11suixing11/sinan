@@ -64,7 +64,7 @@ MVP 完成的标志是下面这条链路可以完整跑通：
 
 ### 不做（严禁实现）
 
-链路、转发、链式代理、外部出口、出口池；用户分组；配额强制执行与计费；DDNS；WebSSH；frp；Shadowsocks 与 SSM API；VLESS+Reality 以外的任何协议；xray；多个 sing-box 实例；独立的特权 helper 进程（只定义 trait）；防火墙和 nftables；正式的自更新机制（MVP 靠重新执行安装脚本升级）；非 Linux 运行平台；Clash 订阅格式；多管理员与权限；多语言界面（界面只用中文）；面板高可用。OpenRC 已按用户追加要求纳入，详见 ADR 0016；非 Linux 编译产物范围见 ADR 0015。
+链路、转发、链式代理、外部出口、出口池；用户分组；配额强制执行与计费；DDNS；WebSSH；frp；Shadowsocks 与 SSM API；VLESS+Reality 以外的任何协议；xray；多个 sing-box 实例；独立的特权 helper 进程（只定义 trait）；防火墙和 nftables；正式的自更新机制（MVP 靠重新执行安装脚本升级）；非 Linux 运行平台；Clash 订阅格式；多管理员与权限；多语言界面（界面只用中文）；面板高可用。OpenRC 已按用户追加要求纳入，详见 ADR 0017；非 Linux 编译产物范围见 ADR 0015。
 
 ### 可选加分项（只有在 G1–G9 全部完成后才做）
 

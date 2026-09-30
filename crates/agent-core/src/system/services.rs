@@ -1,6 +1,6 @@
 use super::{COMMAND_TIMEOUT, Privileged, ServiceManager};
 use anyhow::{Context, Result, ensure};
-use sinan_adapter_sdk::{BoxFuture, CommandOutput};
+use sinan_adapter_sdk::{BoxFuture, CommandOutput, JobStatus, ServiceJob};
 use std::{path::Path, sync::Arc};
 use tokio::time::timeout;
 
@@ -34,8 +34,8 @@ impl ServiceBackend {
 }
 
 pub struct SystemServiceManager {
-    privileged: Arc<dyn Privileged>,
-    backend: ServiceBackend,
+    pub(super) privileged: Arc<dyn Privileged>,
+    pub(super) backend: ServiceBackend,
 }
 
 impl SystemServiceManager {
@@ -110,6 +110,12 @@ impl ServiceManager for SystemServiceManager {
     }
     fn is_active<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, bool> {
         Box::pin(async move { Ok(self.call("is-active", unit, true).await?.success) })
+    }
+    fn start_job<'a>(&'a self, job: &'a ServiceJob) -> BoxFuture<'a, ()> {
+        self.start_diagnostic_job(job)
+    }
+    fn job_status<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, JobStatus> {
+        self.diagnostic_job_status(unit)
     }
 }
 

@@ -55,6 +55,15 @@ impl State {
         write_json(&self.connection, key, value)
     }
 
+    pub fn set_json_batch(&mut self, updates: &[(String, serde_json::Value)]) -> Result<()> {
+        let transaction = self.connection.transaction()?;
+        for (key, value) in updates {
+            write_json(&transaction, key, value)?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn remove_json(&mut self, key: &str) -> Result<()> {
         self.connection
             .execute("DELETE FROM kv WHERE key = ?1", [key])?;

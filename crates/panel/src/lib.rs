@@ -7,8 +7,10 @@ pub mod auth;
 pub mod business;
 pub mod config;
 pub mod deployments;
+pub mod diagnostics;
 pub mod error;
 pub mod frontend;
+pub mod ip_quality;
 pub mod nodes;
 pub mod publisher;
 pub mod servers;
@@ -37,6 +39,7 @@ pub struct AgentConnection {
 pub struct AppState {
     pub pool: PgPool,
     pub login_permits: Arc<Semaphore>,
+    pub quality_permits: Arc<Semaphore>,
     pub config: Arc<Config>,
     pub connections: Arc<RwLock<HashMap<i64, AgentConnection>>>,
 }
@@ -48,6 +51,7 @@ impl AppState {
         Ok(Self {
             pool,
             login_permits: Arc::new(Semaphore::new(4)),
+            quality_permits: Arc::new(Semaphore::new(2)),
             config: Arc::new(config),
             connections: Arc::default(),
         })
@@ -72,6 +76,15 @@ pub fn router(state: AppState) -> Router {
             post(servers::issue_enrollment),
         )
         .route("/api/servers/{id}/deployments", get(deployments::get))
+        .route("/api/servers/{id}/node-quality", get(diagnostics::get))
+        .route(
+            "/api/servers/{id}/node-quality/refresh",
+            post(ip_quality::refresh),
+        )
+        .route(
+            "/api/servers/{id}/node-quality/reports",
+            post(diagnostics::create),
+        )
         .route("/api/nodes", get(nodes::list).post(nodes::create))
         .route(
             "/api/nodes/{id}",
@@ -95,6 +108,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/agent/v1/enroll", post(servers::enroll))
         .route("/api/agent/v1/ws", get(agent_api::websocket))
         .route("/api/agent/v1/manifest", get(agent_api::manifest))
+        .route("/api/agent/v1/diagnostics", get(diagnostics::pending))
+        .route("/api/agent/v1/diagnostics/{id}", post(diagnostics::update))
         .route("/api/agent/v1/bundles/{rev}", get(agent_api::bundle))
         .route(
             "/api/agent/v1/artifacts/{name}/{version}/{arch}",

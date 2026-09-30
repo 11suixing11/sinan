@@ -45,7 +45,7 @@ async fn artifact_path(
     version: &str,
     arch: &str,
 ) -> ApiResult<PathBuf> {
-    if !matches!(name, "agent" | "sing-box")
+    if !matches!(name, "agent" | "sing-box" | "nodequality")
         || !safe_segment(version)
         || !matches!(arch, "amd64" | "arm64")
     {
@@ -175,7 +175,7 @@ pub async fn list(
 ) -> ApiResult<Json<Vec<ArtifactEntry>>> {
     auth::require_admin(&state, &headers).await?;
     let mut entries = Vec::new();
-    for name in ["agent", "sing-box"] {
+    for name in ["agent", "sing-box", "nodequality"] {
         let Ok(mut versions) =
             tokio::fs::read_dir(state.config.data_dir.join("artifacts").join(name)).await
         else {

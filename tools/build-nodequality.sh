@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# Package the pinned, unmodified NodeQuality source as one executable runner.
+set -euo pipefail
+umask 022
+
+usage() {
+  cat <<'USAGE'
+Usage: tools/build-nodequality.sh <amd64|arm64> <ARTIFACT_ROOT>
+
+Build prerequisites: bash, curl, python3. No benchmark runs during packaging.
+Output: ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2/<arch>
+        ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2/SHA256SUMS
+
+Both targets contain one architecture-independent executable named nodequality.
+The original upstream source and its full AGPL-3.0 license are embedded verbatim.
+Existing architecture files are immutable. Packaging verifies and retains the
+other architecture's checksum entry. Run architectures sequentially.
+USAGE
+}
+die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
+if [[ ${1:-} == --help || ${1:-} == -h ]]; then usage; exit 0; fi
+[[ $# == 2 ]] || { usage >&2; exit 2; }
+arch=$1
+case "$arch" in amd64|arm64) ;; *) die 'architecture must be amd64 or arm64' ;; esac
+[[ -n $2 ]] || die 'ARTIFACT_ROOT must not be empty'
+for tool in curl python3; do command -v "$tool" >/dev/null || die "missing build tool: $tool"; done
+upstream_revision=a92fca6c0067df29ddd03fdc2fee6f3000f64545
+version=$upstream_revision-r2
+output=$2/nodequality/$version
+[[ ! -L $output ]] || die 'output version directory must not be a symlink'
+mkdir -p "$output"
+output=$(cd "$output" && pwd -P)
+lock=$output/.build.lock
+mkdir "$lock" 2>/dev/null || die "another build owns $lock; remove only after confirming that build has stopped"
+scratch=
+stage_file=
+sums_file=
+output_created=0
+committed=0
+cleanup() {
+  if [[ $output_created == 1 && $committed == 0 ]]; then rm -f -- "$output/$arch"; fi
+  [[ -z $stage_file ]] || rm -f -- "$stage_file"
+  [[ -z $sums_file ]] || rm -f -- "$sums_file"
+  [[ -z $scratch ]] || rm -rf -- "$scratch"
+  rmdir -- "$lock"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+[[ ! -e $output/$arch && ! -L $output/$arch ]] || die "immutable artifact already exists: $output/$arch"
+python3 - "$output" <<'PY'
+import hashlib
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+manifest = root / "SHA256SUMS"
+expected = {}
+if manifest.is_symlink() or (manifest.exists() and not manifest.is_file()):
+    raise SystemExit("SHA256SUMS must be an ordinary file")
+if manifest.exists():
+    for line in manifest.read_text().splitlines():
+        match = re.fullmatch(r"([0-9a-fA-F]{64}) [ *](amd64|arm64)", line)
+        if not match or match[2] in expected:
+            raise SystemExit("invalid or duplicate SHA256SUMS entry")
+        expected[match[2]] = match[1].lower()
+for arch in ("amd64", "arm64"):
+    artifact = root / arch
+    if artifact.is_symlink() or (artifact.exists() and not artifact.is_file()):
+        raise SystemExit(f"{arch} must be an ordinary file")
+    if artifact.exists():
+        actual = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        if expected.get(arch) != actual:
+            raise SystemExit(f"existing {arch} lacks a matching checksum; refusing to replace the manifest")
+    elif arch in expected:
+        raise SystemExit(f"SHA256SUMS refers to missing {arch}")
+PY
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/sinan-nodequality-build.XXXXXX")
+source_url=https://raw.githubusercontent.com/LloydAsp/NodeQuality/$upstream_revision
+curl --fail --silent --show-error --location --connect-timeout 15 --max-time 60 \
+  "$source_url/NodeQuality.sh" -o "$scratch/NodeQuality.sh"
+curl --fail --silent --show-error --location --connect-timeout 15 --max-time 60 \
+  "$source_url/LICENSE" -o "$scratch/LICENSE"
+script_dir=$(cd "$(dirname "$0")" && pwd -P)
+plugin_dir=$script_dir/../plugins/nodequality
+python3 - "$scratch" "$plugin_dir" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+scratch, plugin = map(pathlib.Path, sys.argv[1:])
+expected = {
+    "NodeQuality.sh": "4e1b25894cadf908ef61fb0d9ce874a75524c6dafc2ea26f0477107288e0c018",
+    "LICENSE": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+}
+for filename, digest in expected.items():
+    if hashlib.sha256((scratch / filename).read_bytes()).hexdigest() != digest:
+        raise SystemExit("pinned upstream source checksum mismatch: " + filename)
+runner = (plugin / "runner.sh.tmpl").read_bytes()
+for marker, path in (
+    ("NODEQUALITY_SOURCE", scratch / "NodeQuality.sh"),
+    ("NODEQUALITY_LICENSE", scratch / "LICENSE"),
+    ("REPORT_HELPER", plugin / "report.py"),
+    ("CURL_SHIM", plugin / "curl-shim.sh"),
+    ("CHROOT_SHIM", plugin / "chroot-shim.sh"),
+):
+    placeholder = ("@" + marker + "@\n").encode()
+    if runner.count(placeholder) != 1:
+        raise SystemExit("invalid runner template placeholder: " + marker)
+    payload = path.read_bytes()
+    if not payload.endswith(b"\n"):
+        raise SystemExit("embedded source must end with a newline: " + marker)
+    runner = runner.replace(placeholder, payload)
+target = scratch / "nodequality"
+target.write_bytes(runner)
+target.chmod(0o755)
+PY
+bash -n "$scratch/nodequality"
+[[ $(bash "$scratch/nodequality" --version) == "nodequality $version" ]] || die 'runner version check failed'
+stage_file=$(mktemp "$output/.$arch.XXXXXX")
+python3 - "$scratch/nodequality" "$stage_file" <<'PY'
+import gzip
+import io
+import pathlib
+import sys
+import tarfile
+
+source, target = map(pathlib.Path, sys.argv[1:])
+content = source.read_bytes()
+entry = tarfile.TarInfo("nodequality")
+entry.size = len(content)
+entry.mode = 0o755
+entry.uid = entry.gid = entry.mtime = 0
+with target.open("wb") as destination:
+    with gzip.GzipFile(filename="", mode="wb", fileobj=destination, mtime=0, compresslevel=9) as compressed:
+        with tarfile.open(fileobj=compressed, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+            archive.addfile(entry, io.BytesIO(content))
+PY
+chmod 0644 "$stage_file"
+ln -- "$stage_file" "$output/$arch"
+output_created=1
+sums_file=$(mktemp "$output/.SHA256SUMS.XXXXXX")
+python3 - "$output" "$sums_file" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+root, manifest = map(pathlib.Path, sys.argv[1:])
+lines = []
+for arch in ("amd64", "arm64"):
+    artifact = root / arch
+    if artifact.is_file():
+        lines.append(hashlib.sha256(artifact.read_bytes()).hexdigest() + "  " + arch + "\n")
+manifest.write_text("".join(lines))
+manifest.chmod(0o644)
+manifest.replace(root / "SHA256SUMS")
+PY
+committed=1
+printf 'Artifact: %s/%s\n' "$output" "$arch"
+cat "$output/SHA256SUMS"

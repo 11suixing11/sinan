@@ -110,6 +110,7 @@ impl Harness {
             install_root: root.join("install"),
             status_socket: root.join("run/status.sock"),
             operation_timeout_secs: 5,
+            public_ips: Vec::new(),
         }
     }
 

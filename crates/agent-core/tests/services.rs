@@ -2,7 +2,9 @@
 #![cfg(unix)]
 
 use anyhow::{Result, bail};
-use sinan_adapter_sdk::{BoxFuture, CommandOutput, Privileged, ServiceManager};
+use sinan_adapter_sdk::{
+    BoxFuture, CommandOutput, JobStatus, Privileged, ServiceJob, ServiceManager,
+};
 use sinan_agent_core::system::{ServiceBackend, SystemServiceManager};
 use std::{
     path::{Path, PathBuf},
@@ -155,4 +157,55 @@ async fn rejects_untrusted_service_names_before_any_privileged_command() {
         }
         assert!(ops.calls.lock().unwrap().is_empty());
     }
+}
+
+#[tokio::test]
+async fn openrc_rejects_diagnostic_jobs_without_invoking_systemd() {
+    let ops = RecordingOps::successful();
+    let services = SystemServiceManager::new(ops.clone(), ServiceBackend::OpenRc);
+    let job = ServiceJob {
+        unit: format!("sinan-diagnostic-{}.service", uuid::Uuid::new_v4()),
+        program: "/bin/true".into(),
+        args: Vec::new(),
+        working_directory: "/tmp".into(),
+        timeout_secs: 10,
+    };
+    let error = services.start_job(&job).await.unwrap_err();
+    assert!(error.to_string().contains("OpenRC"));
+    let error = services.job_status(&job.unit).await.unwrap_err();
+    assert!(error.to_string().contains("OpenRC"));
+    assert!(ops.calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn systemd_diagnostic_jobs_keep_independent_supervision_and_status() -> Result<()> {
+    let ops = RecordingOps::successful();
+    let services = SystemServiceManager::new(ops.clone(), ServiceBackend::Systemd);
+    let job = ServiceJob {
+        unit: format!("sinan-diagnostic-{}.service", uuid::Uuid::new_v4()),
+        program: "/bin/true".into(),
+        args: Vec::new(),
+        working_directory: "/tmp".into(),
+        timeout_secs: 10,
+    };
+    services.start_job(&job).await?;
+    ops.output.lock().unwrap().stdout = "LoadState=loaded\nActiveState=active\nSubState=exited\nResult=success\nExecMainStatus=0\nExecMainCode=1\nExecMainStartTimestampMonotonic=1\n".into();
+    assert_eq!(services.job_status(&job.unit).await?, JobStatus::Succeeded);
+    let calls = ops.calls.lock().unwrap();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].0, Path::new("systemd-run"));
+    assert!(
+        calls[0]
+            .1
+            .contains(&"--property=KillMode=control-group".into())
+    );
+    assert!(calls[0].1.contains(&"--property=PrivateMounts=yes".into()));
+    assert!(
+        calls[0]
+            .1
+            .contains(&"--property=TimeoutStartSec=10s".into())
+    );
+    assert_eq!(calls[1].0, Path::new("systemctl"));
+    assert_eq!(calls[1].1.last(), Some(&job.unit));
+    Ok(())
 }

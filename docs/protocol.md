@@ -2,7 +2,7 @@
 
 ## 传输与兼容
 
-生产环境必须通过 HTTPS/WSS 暴露面板；本地测试可使用回环 HTTP。Agent 只访问已配置面板的同源地址，拒绝外站制品、重定向及路径穿越。WebSocket 入口为 `GET /api/agent/v1/ws`。全部业务消息为 UTF-8 JSON 文本；单条消息应小于 1 MiB。
+生产环境必须通过 HTTPS/WSS 暴露面板；本地测试可使用回环 HTTP。Agent 原生传输只访问已配置面板的同源地址，拒绝外站制品、重定向及路径穿越。按需执行的 NodeQuality 外插需要访问上游测试服务，见 ADR 0016。WebSocket 入口为 `GET /api/agent/v1/ws`。全部业务消息为 UTF-8 JSON 文本；单条消息应小于 1 MiB。
 
 信封：`{"v":1,"type":"heartbeat","id":"UUID","ts":1790000000,"payload":{}}`。
 
@@ -32,7 +32,7 @@
 | 面板 → Agent | `hello.ack` | `{server_time,session_token,session_expires_at}` |
 | Agent → 面板 | `hello` | `{agent_version,protocol_version,capabilities,applied}` |
 | Agent → 面板 | `heartbeat` | `{applied,uptime_secs}` |
-| Agent → 面板 | `telemetry.static` | 系统、内核、架构、CPU 型号与核数、内存与磁盘总量、虚拟化、主机名、Agent 与模块版本 |
+| Agent → 面板 | `telemetry.static` | 系统、内核、架构、CPU 型号与核数、内存与磁盘总量、虚拟化、主机名、Agent 与模块版本、`ip_addresses`（IPv4/IPv6 字符串数组） |
 | Agent → 面板 | `telemetry.metrics` | CPU 百分比、内存使用、load 1/5/15、磁盘使用、网卡累计和速率、TCP/UDP 连接数、运行时间 |
 | 面板 → Agent | `manifest.changed` | `{rev}`，提示重新读取全量清单 |
 | Agent → 面板 | `apply.result` | `{module,rev,op_id,status,healthy,error?}`，status 为 `applied` 或 `failed` |
@@ -60,3 +60,18 @@
 运行时重载前采集终值，再换 epoch。无法读取终值时应阻止主动破坏旧计数；外部重启导致计数下降则开启新 epoch，并记录可能丢失窗口。Agent 自身重启不换 epoch，保留已写入本地数据库的基线和未确认批次。
 
 统计用户名格式为 `u{user_id}_n{node_id}`，用于唯一定位用户与节点，不应从入站标签猜测归属。
+
+## 一次性诊断外插
+
+新增内容保持协议主版本 1。旧 Agent 不发送 `ip_addresses` 时按空数组处理，不声明诊断能力时面板不下发新任务。新 Agent 在 hello 的 capabilities 中声明 `diagnostic:nodequality`，仍独立声明已有运行时模块。
+
+设备接口继续使用绑定服务器身份的 Bearer session：
+
+- `GET /api/agent/v1/diagnostics` 返回该设备尚未终止的任务数组，每个为 `{id,plugin,version,artifact:{url,sha256},timeout_secs,expires_at?,options}`。
+- `POST /api/agent/v1/diagnostics/{id}` 提交 `{id,status,report?,error?}`。设备可提交的 status 是 `running`、`succeeded`、`failed`，最终报告为 `{text,report_url?}`。数据库持久化后返回 204；其他设备不能更新该任务，过期会话不能取回任务。
+
+NodeQuality 的 plugin 标识为 `nodequality`，version 为固定上游提交加包装器版本（当前为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2`），制品同源、校验后安装。options 仅允许 `ip_version=both|ipv4|ipv6`、`network_mode=low|normal` 和 `upload_report=true|false`。`upload_report` 在管理员创建任务的 HTTP 请求中为布尔值，缺省 `false`；在公共任务中为固定字符串，缺少时新 Agent 按关闭处理。旧 Agent 拒绝新版本和未知选项，不通过忽略隐私选项继续运行旧包。升级必须准备 r2 包；已排队或运行的旧任务不受新缺省值影响，应先结束旧任务再升级。任务不携带任意命令、程序地址或自由 shell 参数。
+
+任务 ID 同时用于设备持久 checkpoint、独立服务及面板去重。先记录启动意图再创建 systemd 服务；Agent 重启检查已有服务并继续观察，不自动重复运行。启动边界状态不明或服务消失时回报失败，管理员可另发新任务。结果确认前保存并重传；终态不能被晚到的 running 覆盖。每台设备最多一个活跃任务。代理配置版本与用户流量周期不会因诊断任务变化。
+
+IP 地址来自网卡和可选的 Agent `public_ips` 配置。面板仅向固定的 IPQuality 查询域名请求公网地址，私网、回环、链路本地等地址可展示但不参与外部查询。每个数据库分别保存结果或错误；未知风险不能填成零风险。

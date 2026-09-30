@@ -1,0 +1,14 @@
+NodeQuality upstream: https://github.com/LloydAsp/NodeQuality
+Pinned source commit: a92fca6c0067df29ddd03fdc2fee6f3000f64545
+NodeQuality.sh SHA256: 4e1b25894cadf908ef61fb0d9ce874a75524c6dafc2ea26f0477107288e0c018
+Upstream LICENSE SHA256: 8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef
+License: GNU Affero General Public License version 3
+
+The artifact contains the unmodified upstream script and full upstream license.
+The runner and its bounded report collector are maintained by Sinan.
+The chroot command shim maps the pinned loader's fixed AMD64 trace download to
+the corresponding upstream ARM64 asset on ARM64 hosts; source bytes stay intact.
+NodeQuality downloads BenchOS v0.0.2 and additional upstream test loaders at run
+time. Only an explicit administrator diagnostic action runs those tests.
+Linux runtime prerequisites: Bash >= 4, Python 3, curl, tar, base64, mount,
+umount, chroot, coreutils, and systemd with private mount namespaces.

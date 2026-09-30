@@ -26,7 +26,7 @@ import sys
 import time
 
 if sys.argv[1] == "--version":
-    print("sinan-agent 0.1.0")
+    print("sinan-agent 0.2.0")
 elif sys.argv[1] == "status":
     print('{"fixture":true,"connected":true,"pending_batches":0}')
 elif sys.argv[1] == "enroll":
@@ -107,7 +107,7 @@ def install_script(origin):
     values = {
         "PANEL": f"'{origin}'",
         "TOKEN": f"'{TOKEN}'",
-        "VERSION": "'0.1.0'",
+        "VERSION": "'0.2.0'",
         "AMD64_HASH": f"'{hashlib.sha256(AGENT).hexdigest()}'",
         "ARM64_HASH": f"'{hashlib.sha256(AGENT).hexdigest()}'",
         "AGENT_UNIT": (ROOT / "deploy/sinan-agent.service").read_text().rstrip(),
@@ -140,7 +140,7 @@ def main():
 
     class Download(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            assert self.path.startswith("/api/bootstrap/0.1.0/")
+            assert self.path.startswith("/api/bootstrap/0.2.0/")
             assert self.path.endswith(f"?token={TOKEN}")
             self.send_response(200)
             self.send_header("Content-Length", str(len(AGENT)))

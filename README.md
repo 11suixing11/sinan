@@ -2,7 +2,7 @@
 
 自托管的服务器与代理节点控制面板。面板保存期望配置；Linux Agent 主动连接面板，负责配置对账、应用恢复、系统遥测和按用户计量。代理运行时作为独立 systemd 或 OpenRC 服务运行，面板或 Agent 暂时离线时，最后一份可用配置继续工作。
 
-MVP 提供中文管理界面、单管理员登录、服务器接入、VLESS + Reality 节点、用户授权、两种订阅格式、部署状态与流量汇总。运行时固定为上游 **sing-box 1.14.2**，保留官方默认构建标签，额外启用 `with_v2ray_api`，不修改上游源码。
+MVP 提供中文管理界面、单管理员登录、服务器接入、VLESS + Reality 节点、用户授权、两种订阅格式、部署状态与流量汇总。运行时固定为上游 **sing-box 1.14.2**，保留官方默认构建标签，额外启用 `with_v2ray_api`，不修改上游源码。后续新增 **NodeQuality 外插**：Agent 上报 IP，面板查询 IP 质量，管理员可一键在该服务器运行测试并获取报告。
 
 本地测试覆盖真实 PostgreSQL、协议、编译、应用回滚、持久化计量和面板—Agent 通信；真实上游二进制已用于配置、密钥、统计接口等专项验证，浏览器已验证主要管理操作。当前工作机尚未实际运行 Docker Compose 和 Linux musl 制品构建，相关 CI 配置的存在不代表远端运行已经通过。**这不等于已经完成全新 Debian 12、systemd 与公网 Reality 客户端的完整实机验收。** 实际完成范围和限制见 [PROGRESS.md](PROGRESS.md)，实机步骤见后文及 [scripts/e2e-real.sh](scripts/e2e-real.sh)。
 
@@ -71,7 +71,7 @@ docker compose --project-name sinan --env-file .env -f deploy/docker-compose.yml
 ```text
 data/artifacts/
 ├── agent/
-│   └── 0.1.0/
+│   └── 0.2.0/
 │       ├── amd64          # Raw, statically linked Linux Agent ELF
 │       ├── arm64          # Optional; provide only deployed architectures
 │       └── SHA256SUMS
@@ -82,7 +82,7 @@ data/artifacts/
         └── SHA256SUMS
 ```
 
-每个 `SHA256SUMS` 中的文件名为 `amd64` / `arm64`，不是下载 URL。构建脚本会生成清单，并在添加另一架构时验证和保留已有条目。同一版本、同一架构的制品不可覆盖；不要用不同内容复用运行时版本。Agent 制品版本必须与面板编译时的 workspace 版本一致，当前为 `0.1.0`。
+每个 `SHA256SUMS` 中的文件名为 `amd64` / `arm64`，不是下载 URL。构建脚本会生成清单，并在添加另一架构时验证和保留已有条目。同一版本、同一架构的制品不可覆盖；不要用不同内容复用运行时版本。Agent 制品版本必须与面板编译时的 workspace 版本一致，当前为 `0.2.0`。
 
 ### 构建 Agent
 
@@ -145,7 +145,7 @@ bash tools/build-singbox.sh amd64 "$PWD/data/artifacts"
 bash tools/build-singbox.sh arm64 "$PWD/data/artifacts"
 ```
 
-构建脚本核对上游 tag、提交和工具链版本；使用上游默认标签加 `with_v2ray_api`。官方默认标签包含需要 Chromium 工具链的组件，因此脚本按上游方式获取对应 clang / sysroot，不能用简单的 `CGO_ENABLED=0` 构建替代。构建机需能访问上游源码及工具链下载站点，并准备足够的时间、磁盘和内存。Agent 自身只访问面板。
+构建脚本核对上游 tag、提交和工具链版本；使用上游默认标签加 `with_v2ray_api`。官方默认标签包含需要 Chromium 工具链的组件，因此脚本按上游方式获取对应 clang / sysroot，不能用简单的 `CGO_ENABLED=0` 构建替代。构建机需能访问上游源码及工具链下载站点，并准备足够的时间、磁盘和内存。Agent 原生传输与制品下载只访问面板；按需运行的 NodeQuality 测试外插需要访问上游测试和报告站点。
 
 也可使用仓库中的工具链容器，避免手动安装 Go 和构建依赖；以下两次运行顺序执行：
 
@@ -233,6 +233,8 @@ sudo rc-service sinan-singbox@main reload
 
 日志权限为 0640，应按设备现有日志轮转规则管理。运行时 reload 通过 supervisor 向实际代理进程发送 HUP，Agent 重启不会停止代理；运行时文件与账本路径和 systemd 相同。停用设备时分别停止这两个服务，取消开机启动使用 `rc-update del <服务名> default`。
 
+OpenRC 设备支持遥测、IP 上报、代理配置与流量计量，面板仍可查询 IP 质量；完整 NodeQuality 诊断报告需要 Linux systemd，OpenRC 设备的一键报告入口不可用。
+
 Agent musl 二进制可以运行在 Alpine；代理运行时仍需匹配宿主架构和 libc。仓库现有运行时构建使用 glibc，不能直接当作 Alpine musl 制品。OpenRC 支持与实际代理、公网 Reality 和整机重启验收分别记录；CI 的进程夹具检查不代替完整实机验收。
 
 ### 升级设备
@@ -240,6 +242,42 @@ Agent musl 二进制可以运行在 Alpine；代理运行时仍需匹配宿主�
 MVP 不做自动更新。在面板发布与新面板版本一致的 Agent 制品后，到原服务器详情点击“接入 / 升级”，签发**新的**一次性令牌，重新执行安装命令。保留原设备身份、面板地址和状态库；同一服务器只允许原公钥再次注册，不能复制其他设备的身份目录。已消费的旧命令不能再次使用。安装脚本先校验并注册暂存二进制，再切换当前版本并重启 Agent。
 
 删除面板服务器会撤销面板会话并移出订阅，**不会远程停止** 该设备最后一份可用配置。停用设备时由管理员在本地停止相关服务。
+
+## IP 质量与 NodeQuality 报告
+
+升级到 `0.2.0` Agent 后，服务器详情页显示上报的 IPv4/IPv6。网卡地址在连接建立时和运行中更新；NAT 服务器可在 `/etc/sinan/agent.toml` 增加公网地址，随后重启 Agent：
+
+```toml
+# Documentation addresses only; replace with this server's actual public IPs.
+public_ips = ["192.0.2.10", "2001:db8::10"]
+```
+
+点击“刷新 IP 质量”时，由面板访问 NodeQuality 使用的 [IPQuality](https://github.com/xykt/IPQuality) 数据库接口，查询位置、ASN、用途、风险及代理等信息。各数据库独立展示，包含更新时间、原始字段和错误；第三方数据可能缺失或互相矛盾，不合成为一个无依据的总分。私网和回环地址不向外部接口查询。本次开发环境对该接口的实际请求返回 403，因此记录了服务错误；成功字段解析和失败处理通过受控 HTTP 夹具验证，不能据此宣称线上数据库服务当前可用。
+
+完整报告需要先导入 NodeQuality 外插制品：
+
+```bash
+# Build on an operator's machine; this does not run benchmark tests.
+bash tools/build-nodequality.sh amd64 "$PWD/data/artifacts"
+bash tools/build-nodequality.sh arm64 "$PWD/data/artifacts"
+```
+
+制品位于 `nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2/`，按前述导入方法放入面板的 `artifacts` 目录。脚本固定 [NodeQuality 上游提交](https://github.com/LloydAsp/NodeQuality/tree/a92fca6c0067df29ddd03fdc2fee6f3000f64545)，保留原样源码和许可证，并生成同源下载的 SHA256 清单。升级 Agent 需重新构建 `agent/0.2.0`，已有 `0.1.0` 制品继续保留。本次隐私默认需要同步升级面板、Agent 和 `-r2` 外插；旧制品不能覆盖，旧 Agent 会拒绝新制品任务，旧的已排队或运行任务仍使用原选项。
+
+上游固定下载 amd64 版 NextTrace；包装器在 ARM64 节点仅将这条下载命令映射到官方 arm64 资产。外插工作路径不能包含空白或 shell 通配符，使用默认目录即可。
+
+目标服务器需要 Linux systemd、root、Bash、curl 和 Python 3，并能访问上游 BenchOS、测试和报告服务；最小 Debian 系统可先安装：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y bash curl python3 ca-certificates
+```
+
+在服务器详情点击“一键获取报告”，选择双栈/IPv4/IPv6和低流量/普通网络测试。任务运行硬件、IP、网络和回程测试，会消耗真实 CPU、磁盘和带宽；默认关闭公开报告上传，并采用低流量网络模式。只有创建任务时勾选“上传报告并生成公开链接”，才允许上传到 NodeQuality；报告可能包含节点网络和硬件信息。任务在该节点的独立 systemd 服务运行，Agent 重启后继续观察，不重复执行；每台服务器同时只允许一个任务。
+
+界面显示排队、运行、成功或失败，并保留本地文本报告及可用的在线链接。在线上传失败时，本地报告仍可查看。任务有整体运行时限；未安装依赖、上游下载失败、报告缺失和超时均返回错误。上游 chroot 用于隔离测试文件，systemd 使用独立挂载命名空间处理清理，不提供针对不可信程序的安全沙箱。外插按用户选择运行，运行时外网访问是 [ADR 0016](docs/adr/0016-nodequality-diagnostics.md) 明确记录的例外。
+
+面板报告文本最多 256 KiB，超过时显示截断说明；原始 `report.zip` 默认保存在节点的 `/var/lib/sinan/plugins/diagnostics/<任务 UUID>/`，可由管理员在节点本地读取。
 
 ## 本地开发与测试
 

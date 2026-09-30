@@ -79,6 +79,20 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 - 从已有依赖锁迁移到文本 `web/bun.lock`，验证后移除旧锁文件；自动构建使用 `bun install --frozen-lockfile`，不顺带更新前端依赖。
 - TypeScript、Vite 的开发、构建和预览脚本显式使用 Bun runtime，避免工具的 Node shebang 导致隐式回退；React、Vite 和 Rust 内嵌前端的结构保持原样。
 
+## 用户后续需求：NodeQuality
+
+- NodeQuality 上游没有指定 IP 的质量查询接口，提供的是测试编排与报告上传。按其使用的 IPQuality 源码，面板查询 `ipinfo.check.place` 已核实的七个数据库，显示独立来源和原值。网站的访问者 IP 接口不能用来冒充节点 IP 质量。
+- Agent 通过已有 sysinfo 获取网卡 IPv4/IPv6；NAT 公网地址可通过 `public_ips` 配置补充。未引入任意 IP 回显网站或猜测反向代理请求头，避免误将面板访问者、代理或出口当成节点地址。
+- 查询由管理员手工刷新，缓存一天；非公网地址不发送给外部服务。各源错误独立保存；本机实际查询 403，因此公开记录在线服务可用性未验证，测试夹具只证明接口解析及错误处理。
+- 新需求明确要求节点实际运行完整报告，采用独立 systemd 一次性服务和诊断适配器，不混入代理配置对账。主程序固定上游提交并由面板分发；测试外插运行时访问上游依赖和测试站点的必要例外记录于 ADR 0016。
+- NodeQuality 没有 `-y`，正常清理也可能 exit 1。包装器使用固定交互输入，保存完整本地结果，检查实际报告后才以成功结束；只有在线链接或日志不能视为完整报告。上传失败仍保留本地报告，链接为空。
+- 默认低流量、双栈，硬件/IP/网络/回程项目只在点击后执行；30 分钟超时，独立挂载命名空间和进程组终止。每台节点串行任务，启动前持久 checkpoint，启动边界不确定时检查原服务而不重跑。
+- 结果在本地持久后重传，确认后再清 outbox。面板主动过期与 Agent 真正终态分别记录，允许连接恢复后的最终报告保存；晚到 running 和重复终态不能倒退结果。已过期但尚未启动的任务不会在重连后突然运行。
+- workspace 版本升到 `0.2.0`：新增 Agent 能力需要新的不可变制品版本，不能用不同内容覆盖已经发布的 `agent/0.1.0`。协议主版本仍为 1，旧 Agent 的遥测、代理配置及计量继续兼容。
+- 上游 NextTrace 下载写死 amd64；在 ARM64 上通过包装器只映射精确的官方资产 URL，保留 NodeQuality 源码原样。上游存在未引用的工作路径，因此拒绝包含空白和通配符的自定义外插目录，避免错误展开。
+- 面板保留最多 256 KiB 报告文本并明确截断，节点保留原始 ZIP；上传响应流最多读取 64 KiB，包含 chunked 响应，避免上游服务无界写盘。
+- 延迟下载、准备或恢复不能延长任务绝对截止时间；启动服务时取配置时限与剩余时间的较小值，截止后恢复仍在运行的服务会被停止。已经完成但晚到的报告仍可回传。
+
 ## 后续调整：Agent 多平台编译产物
 
 - 用户明确选择仅增加可下载的 Agent 编译产物。增加 Linux glibc、macOS arm64、FreeBSD 与 Windows 双架构构建；非 Linux 的部署命令继续明确要求 Linux/systemd，避免把编译支持描述成设备部署支持。详见 ADR 0015。
@@ -88,12 +102,18 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 
 ## 后续调整：Rust 2024
 
-- 按用户要求，workspace edition 更新为 2024，七个 crate 继续继承统一设置。虚拟 workspace 显式使用 `resolver = "3"`，遵循 [Rust 2024 的依赖解析规则](https://doc.rust-lang.org/edition-guide/rust-2024/cargo-resolver.html)；现有最低 Rust 1.88 已支持该 edition。
+- 按用户要求，workspace edition 更新为 2024，全部 crate 继续继承统一设置。虚拟 workspace 显式使用 `resolver = "3"`，遵循 [Rust 2024 的依赖解析规则](https://doc.rust-lang.org/edition-guide/rust-2024/cargo-resolver.html)；现有最低 Rust 1.88 已支持该 edition。
 - Rust 2024 将进程环境变量修改标记为 unsafe，构建脚本改用现有 `tonic_build::Config::protoc_executable` 选择编译器。保留显式 `PROTOC` 与 vendored 回退，不增加依赖、不放宽 unsafe 禁令。
 
 ## 后续调整：OpenRC
 
-- 用户明确要求新增 OpenRC，覆盖原 MVP 对 OpenRC 的排除项；仍限 Linux。服务生命周期继续经过 `ServiceManager` 与 `Privileged`，不修改适配器、协议、账本或独立运行时架构，详见 ADR 0016。
+- 用户明确要求新增 OpenRC，覆盖原 MVP 对 OpenRC 的排除项；仍限 Linux。服务生命周期继续经过 `ServiceManager` 与 `Privileged`，不修改适配器、协议、账本或独立运行时架构，详见 ADR 0017。
 - 根据运行标记自动选择 init，systemd 优先；OpenRC 服务名由现有标识移除 `.service` 得到，保留 `@main`。不增加设备配置字段，旧 TOML 可继续使用。
 - 安装支持 shadow 工具或 BusyBox 系统账号工具；Agent 与运行时分别由 supervise-daemon 监督，日志写入 `/var/log/sinan/`。安装与升级只重启 Agent，HUP 发送给被监督的运行时进程。
 - 不因 OpenRC 扩大运行时 libc 构建范围：Alpine 需要另有匹配的 musl 运行时制品。真实 OpenRC 进程夹具、代理专项验证与公网实机验收分开记录。
+
+## PR 准备：同步上游后的 OpenRC 边界
+
+- 同步 `upstream/main` 的 `7a8fb70`，继承 NodeQuality、Agent `0.2.0`、公开报告上传缺省关闭和 Linux musl 双架构 CI；OpenRC 双架构检查作为本次 PR 的新增任务保留。
+- 上游诊断 ADR 已占用 0016，OpenRC ADR 顺延至 0017，并同步所有引用。临时项目设计参考及其入口、问题和进度记录按用户要求移除。
+- 一次性诊断依赖 systemd 的任务监督与挂载命名空间；OpenRC 入口不注册诊断适配器，服务管理器在执行任何命令前拒绝诊断启动和状态查询。普通代理服务的生命周期仍路由至所选 init；systemd 的诊断启动与恢复继续使用上游实现。

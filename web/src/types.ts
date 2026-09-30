@@ -2,6 +2,7 @@ export type StaticInfo = {
   system?: string; kernel?: string; arch?: string; cpu_model?: string; cpu_cores?: number;
   memory_total?: number; disk_total?: number; virtualization?: string; hostname?: string;
   agent_version?: string; runtime_version?: string;
+  ip_addresses?: string[];
 }
 export type Metrics = {
   cpu_percent?: number; memory_used?: number; load_1?: number; load_5?: number; load_15?: number;
@@ -16,3 +17,7 @@ export type Enrollment = { token: string; expires_at: number; install_command: s
 export type Deployment = { status: { module: string; target_rev: number; applied_rev: number; last_result_rev: number; healthy: boolean; last_error: string | null; updated_at: number } | null; history: { module: string; rev: number; bundle_sha256: string; created_at: number }[] }
 export type Usage = { uplink: string; downlink: string; total: string; by_user: { user_id: number; name: string; deleted: boolean; uplink: string; downlink: string }[]; by_node: { node_id: number; name: string; deleted: boolean; uplink: string; downlink: string }[] }
 export type Artifact = { name: string; version: string; arch: string; sha256: string; bytes: number }
+export type QualityDatabase = { database: string; label: string; status: 'succeeded' | 'failed'; fields: { label: string; value: string | number | boolean }[]; error: string | null }
+export type IpQuality = { ip: string; checked_at: number; expires_at: number; status: 'succeeded' | 'partial' | 'failed'; databases: QualityDatabase[] }
+export type DiagnosticRecord = { id: string; status: 'queued' | 'running' | 'succeeded' | 'failed'; job: { plugin: string; options: { ip_version: string; network_mode: string; upload_report?: string } }; report: { text: string; report_url?: string } | null; error: string | null; created_at: number; updated_at: number; expires_at: number }
+export type NodeQuality = { ip_addresses: string[]; quality: IpQuality[]; plugin_ready: boolean; plugin_reason: string | null; reports: DiagnosticRecord[] }

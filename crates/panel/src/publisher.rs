@@ -13,8 +13,16 @@ const DUE: &str = "dirty_at <= FLOOR(EXTRACT(EPOCH FROM clock_timestamp())*1000)
 pub async fn run(state: AppState) {
     let mut interval = tokio::time::interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut expiry_ticks = 30;
     loop {
         interval.tick().await;
+        expiry_ticks += 1;
+        if expiry_ticks >= 30 {
+            expiry_ticks = 0;
+            if let Err(error) = crate::diagnostics::expire(&state).await {
+                tracing::error!(%error, "diagnostic expiry cleanup failed");
+            }
+        }
         if let Err(error) = publish_due(&state).await {
             tracing::error!(%error, "configuration publication failed; pending work retained");
         }

@@ -4,7 +4,9 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 #[cfg(target_os = "linux")]
-use sinan_adapter_sdk::{Adapter, Privileged, ServiceManager};
+use sinan_adapter_nodequality::NodeQualityAdapter;
+#[cfg(target_os = "linux")]
+use sinan_adapter_sdk::{Adapter, DiagnosticAdapter, Privileged, ServiceManager};
 #[cfg(target_os = "linux")]
 use sinan_adapter_singbox::SingboxAdapter;
 #[cfg(target_os = "linux")]
@@ -85,9 +87,14 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             let config = Config::load(&path)?;
             let backend = ServiceBackend::detect()?;
             let adapters: Vec<Arc<dyn Adapter>> = vec![Arc::new(SingboxAdapter::new())];
+            let diagnostics: Vec<Arc<dyn DiagnosticAdapter>> = match backend {
+                ServiceBackend::Systemd => vec![Arc::new(NodeQualityAdapter::new())],
+                ServiceBackend::OpenRc => Vec::new(),
+            };
             let services: Arc<dyn ServiceManager> =
                 Arc::new(SystemServiceManager::new(privileged.clone(), backend));
-            transport::run(config, adapters, privileged, services).await
+            transport::run_with_diagnostics(config, adapters, diagnostics, privileged, services)
+                .await
         }
         Command::Status => {
             let config = Config::load(&path)?;

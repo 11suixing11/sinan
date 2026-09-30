@@ -634,17 +634,18 @@ async fn websocket_challenges_are_connection_bound_and_sessions_expire(pool: PgP
 async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifacts(
     pool: PgPool,
 ) -> Result<()> {
+    let version = env!("CARGO_PKG_VERSION");
     let panel = TestPanel::start(pool).await?;
     let cookie = panel.admin_cookie().await?;
     let server_id = panel.create_server(&cookie, "Bootstrap device").await?;
     let token = panel.token(&cookie, server_id).await?;
     let binary = b"test-agent-artifact";
     let hash = format!("{:x}", Sha256::digest(binary));
-    let artifact_dir = panel.directory.join("artifacts/agent/0.1.0");
+    let artifact_dir = panel.directory.join(format!("artifacts/agent/{version}"));
     std::fs::create_dir_all(&artifact_dir)?;
     std::fs::write(artifact_dir.join("amd64"), binary)?;
     std::fs::write(artifact_dir.join("SHA256SUMS"), format!("{hash}  amd64\n"))?;
-    let bootstrap_url = format!("{}/api/bootstrap/0.1.0/amd64", panel.base);
+    let bootstrap_url = format!("{}/api/bootstrap/{version}/amd64", panel.base);
     assert!(
         panel
             .client
@@ -708,7 +709,7 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
         panel
             .client
             .get(format!(
-                "{}/api/agent/v1/artifacts/agent/0.1.0/amd64",
+                "{}/api/agent/v1/artifacts/agent/{version}/amd64",
                 panel.base
             ))
             .query(&[("token", &token)])
@@ -730,7 +731,7 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
         assert_eq!(
             panel
                 .client
-                .get(format!("{}/api/bootstrap/0.1.0/arm64", panel.base))
+                .get(format!("{}/api/bootstrap/{version}/arm64", panel.base))
                 .query(&[("token", &token)])
                 .send()
                 .await?
@@ -783,7 +784,7 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
     let response = panel
         .client
         .get(format!(
-            "{}/api/agent/v1/artifacts/agent/0.1.0/amd64",
+            "{}/api/agent/v1/artifacts/agent/{version}/amd64",
             panel.base
         ))
         .bearer_auth(&ack.session_token)
