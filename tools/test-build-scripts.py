@@ -3,15 +3,71 @@
 
 import hashlib
 import pathlib
+import runpy
+import struct
 import subprocess
 import tempfile
 import unittest
 
 
 TOOLS = pathlib.Path(__file__).resolve().parent
+NATIVE_AGENT = runpy.run_path(str(TOOLS / "build-agent.py"))
 
 
 class BuildScriptTests(unittest.TestCase):
+    def test_native_agent_rejects_wrong_binary_architecture(self):
+        verify = NATIVE_AGENT["verify_architecture"]
+        with tempfile.TemporaryDirectory() as directory:
+            binary = pathlib.Path(directory) / "agent"
+            for target in NATIVE_AGENT["TARGETS"]:
+                with self.subTest(target=target):
+                    header = bytearray(128)
+                    arm = target.startswith("aarch64")
+                    if "windows" in target:
+                        header[:2] = b"MZ"
+                        struct.pack_into("<I", header, 60, 64)
+                        header[64:68] = b"PE\0\0"
+                        struct.pack_into("<H", header, 68, 0xAA64 if arm else 0x8664)
+                        machine_offset = 68
+                    elif "apple" in target:
+                        header[:4] = b"\xcf\xfa\xed\xfe"
+                        struct.pack_into("<I", header, 4, 0x0100000C)
+                        machine_offset = 4
+                    else:
+                        header[:6] = b"\x7fELF\x02\x01"
+                        struct.pack_into("<H", header, 18, 183 if arm else 62)
+                        machine_offset = 18
+                    binary.write_bytes(header)
+                    verify(binary, target)
+                    header[machine_offset] ^= 1
+                    binary.write_bytes(header)
+                    with self.assertRaises(ValueError):
+                        verify(binary, target)
+                    binary.write_bytes(b"not an executable")
+                    with self.assertRaises(ValueError):
+                        verify(binary, target)
+
+    def test_native_agent_artifacts_are_immutable_and_checksummed(self):
+        package = NATIVE_AGENT["package_binary"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            binary = root / "binary"
+            payload = b"verified native binary"
+            binary.write_bytes(payload)
+            for target in NATIVE_AGENT["TARGETS"]:
+                with self.subTest(target=target):
+                    output = package(binary, target, "0.1.0", root / "artifacts")
+                    name = "sinan-agent.exe" if "windows" in target else "sinan-agent"
+                    digest = hashlib.sha256(payload).hexdigest()
+                    self.assertEqual((output / name).read_bytes(), payload)
+                    self.assertEqual(
+                        (output / "SHA256SUMS").read_bytes(),
+                        f"{digest}  {name}\n".encode(),
+                    )
+                    with self.assertRaises(FileExistsError):
+                        package(binary, target, "0.1.0", root / "artifacts")
+                    self.assertEqual((output / name).read_bytes(), payload)
+
     def test_syntax_and_help(self):
         for name in ("build-agent.sh", "build-singbox.sh"):
             with self.subTest(script=name):

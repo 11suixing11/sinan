@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![cfg(unix)]
 
 use sinan_adapter_sdk::{Counter, Plan, Prepared, Privileged, RuntimeSpec};
 use sinan_agent_core::{

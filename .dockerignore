@@ -11,6 +11,8 @@ web/dist
 web/*.tsbuildinfo
 data
 artifacts
+.ci-artifacts
+tools/__pycache__
 **/*.db
 **/*.db-shm
 **/*.db-wal

@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![cfg(unix)]
 
 use anyhow::Result;
 use flate2::{write::GzEncoder, Compression};

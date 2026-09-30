@@ -78,3 +78,10 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 - 按用户要求，将前端依赖管理与脚本运行统一为 Bun 1.4.2；本地开发说明、Docker 前端构建阶段和 CI 固定同一版本。
 - 从已有依赖锁迁移到文本 `web/bun.lock`，验证后移除旧锁文件；自动构建使用 `bun install --frozen-lockfile`，不顺带更新前端依赖。
 - TypeScript、Vite 的开发、构建和预览脚本显式使用 Bun runtime，避免工具的 Node shebang 导致隐式回退；React、Vite 和 Rust 内嵌前端的结构保持原样。
+
+## 后续调整：Agent 多平台编译产物
+
+- 用户明确选择仅增加可下载的 Agent 编译产物。增加 Linux glibc、macOS arm64、FreeBSD 与 Windows 双架构构建；非 Linux 的部署命令继续明确要求 Linux/systemd，避免把编译支持描述成设备部署支持。详见 ADR 0015。
+- glibc 固定 Ubuntu 24.04 双架构的动态库；macOS 使用最新 arm64 runner，Windows 使用 Visual Studio 2026 双架构 runner，工具链均为最新 Rust stable。Actions 工具固定到本次核实的最新稳定版本。
+- “FreeBSD 13 以上”采用 13.5 基线构建，再验证同一产物在最新 14/15 系列 VM 的启动；早期 13 小版本及未来主版本不做未经验证的兼容承诺。FreeBSD 构建使用系统 `protoc`，其他平台保留 vendored 方案。
+- 原 Linux musl 制品可继续导入面板。新增制品按完整 target 分目录，附 `SHA256SUMS`；要替换为 Linux glibc 设备制品，需将对应二进制复制为面板期望的架构文件，并重新生成目录内校验清单。

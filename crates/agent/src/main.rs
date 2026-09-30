@@ -1,18 +1,21 @@
 #![forbid(unsafe_code)]
 
-use anyhow::{ensure, Context};
+#[cfg(target_os = "linux")]
+use anyhow::Context;
 use clap::{Parser, Subcommand};
+#[cfg(target_os = "linux")]
 use sinan_adapter_sdk::{Adapter, Privileged, ServiceManager};
+#[cfg(target_os = "linux")]
 use sinan_adapter_singbox::SingboxAdapter;
+#[cfg(target_os = "linux")]
 use sinan_agent_core::{
     identity,
     system::{SystemOps, SystemServiceManager},
     transport, Config,
 };
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::path::PathBuf;
+#[cfg(target_os = "linux")]
+use std::{path::Path, sync::Arc};
 
 #[derive(Parser)]
 #[command(name = "sinan-agent", version, about = "Sinan 服务器代理")]
@@ -41,10 +44,16 @@ enum Command {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    ensure!(
-        cfg!(target_os = "linux"),
-        "the production Agent requires Linux and systemd"
-    );
+    run_cli(cli).await
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn run_cli(_cli: Cli) -> anyhow::Result<()> {
+    anyhow::bail!("此平台仅提供编译产物和 CLI 检查；Agent 命令要求 Linux 和 systemd")
+}
+
+#[cfg(target_os = "linux")]
+async fn run_cli(cli: Cli) -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -88,6 +97,7 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn absolute_path(path: &Path) -> anyhow::Result<PathBuf> {
     if path.is_absolute() {
         Ok(path.to_path_buf())

@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![cfg(unix)]
 
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};

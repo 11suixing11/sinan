@@ -188,7 +188,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::os::unix::fs::{symlink, PermissionsExt};
