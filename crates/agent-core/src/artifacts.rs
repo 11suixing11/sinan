@@ -1,4 +1,5 @@
 mod cache;
+mod cancellation;
 use crate::config::validate_panel_url;
 mod preflight;
 #[cfg(test)]

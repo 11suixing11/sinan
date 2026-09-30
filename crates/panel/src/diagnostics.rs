@@ -21,6 +21,8 @@ pub const PLUGIN_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2";
 pub const REPORT_LIMIT: usize = 512 * 1024;
 const TIMEOUT_SECS: u64 = 1800;
 
+pub mod cancellation;
+
 #[derive(Serialize, FromRow)]
 pub struct ReportRecord {
     pub id: Uuid,
@@ -31,6 +33,9 @@ pub struct ReportRecord {
     pub created_at: i64,
     pub updated_at: i64,
     pub expires_at: i64,
+    pub agent_completed: bool,
+    pub cancel_requested_at: Option<i64>,
+    pub cancel_error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -40,6 +45,7 @@ pub struct NodeQualityView {
     pub plugin_ready: bool,
     pub plugin_reason: Option<String>,
     pub reports: Vec<ReportRecord>,
+    pub cancel_supported: bool,
 }
 
 #[derive(Deserialize)]
@@ -106,7 +112,7 @@ pub async fn expire(state: &AppState) -> Result<(), sqlx::Error> {
 }
 
 async fn history(state: &AppState, server_id: i64) -> ApiResult<Vec<ReportRecord>> {
-    Ok(sqlx::query_as("SELECT id,status,job,report,error,created_at,updated_at,expires_at FROM diagnostic_jobs WHERE server_id=$1 ORDER BY created_at DESC,id DESC LIMIT 10")
+    Ok(sqlx::query_as("SELECT id,status,job,report,error,created_at,updated_at,expires_at,agent_completed,cancel_requested_at,cancel_error FROM diagnostic_jobs WHERE server_id=$1 ORDER BY created_at DESC,id DESC LIMIT 10")
         .bind(server_id).fetch_all(&state.pool).await?)
 }
 
@@ -144,6 +150,7 @@ pub async fn get(
         plugin_ready: reason.is_none(),
         plugin_reason: reason,
         reports: history(&state, id).await?,
+        cancel_supported: cancellation::supported(&row.get::<Value, _>("capabilities")),
     }))
 }
 
@@ -166,7 +173,7 @@ pub async fn create(
     let now = now_timestamp();
     sqlx::query("UPDATE diagnostic_jobs SET status='failed',error='任务超时或设备未及时回报',updated_at=$2 WHERE server_id=$1 AND status IN ('queued','running') AND expires_at<=$2")
         .bind(id).bind(now).execute(&mut *tx).await?;
-    let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM diagnostic_jobs WHERE server_id=$1 AND status IN ('queued','running'))")
+    let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM diagnostic_jobs WHERE server_id=$1 AND status IN ('queued','running','cancel_requested'))")
         .bind(id).fetch_one(&mut *tx).await?;
     if active {
         return Err(ApiError::Conflict(
@@ -194,7 +201,7 @@ pub async fn create(
             ("upload_report".into(), request.upload_report.to_string()),
         ]),
     };
-    let record = sqlx::query_as("INSERT INTO diagnostic_jobs(id,server_id,job,created_at,updated_at,expires_at) VALUES($1,$2,$3,$4,$4,$5) RETURNING id,status,job,report,error,created_at,updated_at,expires_at")
+    let record = sqlx::query_as("INSERT INTO diagnostic_jobs(id,server_id,job,created_at,updated_at,expires_at) VALUES($1,$2,$3,$4,$4,$5) RETURNING id,status,job,report,error,created_at,updated_at,expires_at,agent_completed,cancel_requested_at,cancel_error")
         .bind(job.id).bind(id).bind(serde_json::to_value(job).map_err(anyhow::Error::from)?)
         .bind(now).bind(now + TIMEOUT_SECS as i64 + 300).fetch_one(&mut *tx).await?;
     tx.commit().await?;
@@ -281,7 +288,21 @@ pub async fn update(
     .await?
     .ok_or(ApiError::NotFound)?;
     let status: String = row.get("status");
-    if matches!(status.as_str(), "succeeded" | "failed")
+    if status == "cancel_requested" {
+        // A late natural result cannot confirm that cancellation has cleaned up.
+        let report = update
+            .report
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(anyhow::Error::from)?;
+        sqlx::query("UPDATE diagnostic_jobs SET report=COALESCE($2,report),agent_completed=agent_completed OR $3,updated_at=$4 WHERE id=$1")
+            .bind(id).bind(report).bind(update.status != DiagnosticStatus::Running).bind(now_timestamp())
+            .execute(&mut *tx).await?;
+        tx.commit().await?;
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    if matches!(status.as_str(), "succeeded" | "failed" | "cancelled")
         && (row.get::<bool, _>("agent_completed") || update.status == DiagnosticStatus::Running)
     {
         // Final updates are retried durably by devices; terminal results never regress.
@@ -328,36 +349,4 @@ pub async fn update(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{ReportRequest, safe_report_url};
-    use serde_json::json;
-
-    #[test]
-    fn report_upload_requires_an_explicit_boolean_opt_in() {
-        for request in [json!({}), json!({"upload_report":false})] {
-            let request: ReportRequest = serde_json::from_value(request).unwrap();
-            assert!(!request.upload_report);
-        }
-        let request: ReportRequest = serde_json::from_value(json!({"upload_report":true})).unwrap();
-        assert!(request.upload_report);
-        for value in [json!("true"), json!(1), json!(null)] {
-            assert!(
-                serde_json::from_value::<ReportRequest>(json!({"upload_report":value})).is_err()
-            );
-        }
-    }
-    #[test]
-    fn report_links_are_restricted_to_the_official_https_origin() {
-        assert!(safe_report_url("https://nodequality.com/r/example"));
-        for url in [
-            "http://nodequality.com/r/example",
-            "https://nodequality.com.evil.invalid/r/x",
-            "https://user:secret@nodequality.com/r/x",
-            "https://nodequality.com:8443/r/x",
-            "javascript:alert(1)",
-            "https://nodequality.com/r/x#fragment",
-        ] {
-            assert!(!safe_report_url(url), "{url}");
-        }
-    }
-}
+mod tests;

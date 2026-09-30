@@ -434,3 +434,6 @@ async fn report_readiness_and_quality_refresh_require_auth_and_preserve_unknown(
     );
     Ok(())
 }
+
+#[path = "diagnostics/cancellation.rs"]
+mod cancellation;

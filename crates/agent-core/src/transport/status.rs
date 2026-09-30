@@ -105,6 +105,7 @@ mod tests {
             public_ips: Arc::new(vec![]),
             agent_version: "fixture-agent",
             retirement: None,
+            cancellation: None,
         };
         let bound = bind(&socket).await?;
         assert_eq!(

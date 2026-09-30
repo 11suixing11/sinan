@@ -84,6 +84,10 @@ Linux 宿主 ABI 与 Agent 编译 ABI 不同时，运行时先保留旧的编译
 - `GET /api/agent/v1/diagnostics` 返回该设备尚未终止的任务数组，每个为 `{id,plugin,version,artifact:{url,sha256,proof},timeout_secs,expires_at?,options}`。
 - `POST /api/agent/v1/diagnostics/{id}` 提交 `{id,status,report?,error?}`。设备可提交的 status 是 `running`、`succeeded`、`failed`，最终报告为 `{text,report_url?}`。数据库持久化后返回 204；其他设备不能更新该任务，过期会话不能取回任务。
 
+确认式取消是独立扩展，能力为 `diagnostic:confirmed-cancel`。管理员取消接口先持久保存 `cancel_requested` 再发送 `diagnostic.cancel.request={server_id,job}`，其中 job 是该服务器已有任务；协议不接受任意单元名。设备先保存取消意图、停止绑定单元并核实进程与挂载都已清理，再发送 `diagnostic.cancel.result={server_id,id,plugin,confirmed,report?,error?}`。只有经设备身份认证的 `confirmed=true` 使任务进入 `cancelled`；普通 `DiagnosticUpdate` 不能提交取消状态。
+
+`GET /api/agent/v1/diagnostics/cancellations` 返回当前设备的待取消请求（最多 64 条），`POST /api/agent/v1/diagnostics/{id}/cancel-confirmation` 持久保存取消结果并返回 204。HTTP pending 与 Agent SQLite outbox 恢复断连和重启。确认前界面显示“等待设备确认取消”；负确认、过期或末尾自然报告不结束该状态，已有报告保留。重复请求和确认幂等，已自然完成任务拒绝新取消。缺少能力的旧 Agent / 服务后端明确不支持。具体清理证据与并发边界见 [ADR 0026](adr/0026-confirmed-diagnostic-cancellation.md)。
+
 NodeQuality 的 plugin 标识为 `nodequality`，version 为固定上游提交加包装器版本（当前为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2`），制品同源、校验后安装。options 仅允许 `ip_version=both|ipv4|ipv6`、`network_mode=low|normal` 和 `upload_report=true|false`。`upload_report` 在管理员创建任务的 HTTP 请求中为布尔值，缺省 `false`；在公共任务中为固定字符串，缺少时新 Agent 按关闭处理。旧 Agent 拒绝新版本和未知选项，不通过忽略隐私选项继续运行旧包。升级必须准备 r2 包；已排队或运行的旧任务不受新缺省值影响，应先结束旧任务再升级。任务不携带任意命令、程序地址或自由 shell 参数。
 
 任务 ID 同时用于设备持久 checkpoint、独立服务及面板去重。先记录启动意图再创建 systemd 服务；Agent 重启检查已有服务并继续观察，不自动重复运行。启动边界状态不明或服务消失时回报失败，管理员可另发新任务。结果确认前保存并重传；终态不能被晚到的 running 覆盖。每台设备最多一个活跃任务。代理配置版本与用户流量周期不会因诊断任务变化。

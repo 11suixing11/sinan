@@ -38,6 +38,7 @@ struct Runtime {
     public_ips: Arc<Vec<String>>,
     agent_version: &'static str,
     retirement: Option<Arc<crate::retirement::Retirement>>,
+    cancellation: Option<Arc<diagnostics::cancellation::CancellationControl>>,
 }
 
 impl Runtime {
@@ -174,6 +175,25 @@ pub async fn run_with_diagnostics(
             .iter()
             .map(|adapter| format!("diagnostic:{}", adapter.describe().plugin_name)),
     );
+    let (client_tx, client_rx) = watch::channel::<Option<Arc<PanelClient>>>(None);
+    let (trigger_tx, trigger_rx) = mpsc::channel(1);
+    let (outgoing_tx, mut outgoing_rx) = mpsc::channel(64);
+    let cancellation = if !diagnostics.is_empty() && services.supports_confirmed_cancellation() {
+        capabilities.push(sinan_protocol::DIAGNOSTIC_CANCEL_CAPABILITY.into());
+        Some(Arc::new(
+            diagnostics::cancellation::CancellationControl::new(
+                state.clone(),
+                identity.server_id,
+                diagnostics
+                    .iter()
+                    .map(|adapter| adapter.describe().plugin_name)
+                    .collect(),
+            )
+            .with_outgoing(outgoing_tx.clone()),
+        ))
+    } else {
+        None
+    };
     let runtime = Runtime {
         state: state.clone(),
         modules: Arc::new(modules),
@@ -182,10 +202,8 @@ pub async fn run_with_diagnostics(
         public_ips: Arc::new(config.public_ips.clone()),
         agent_version,
         retirement: Some(retirement.clone()),
+        cancellation: cancellation.clone(),
     };
-    let (client_tx, client_rx) = watch::channel::<Option<Arc<PanelClient>>>(None);
-    let (trigger_tx, trigger_rx) = mpsc::channel(1);
-    let (outgoing_tx, mut outgoing_rx) = mpsc::channel(64);
     let mut tasks = JoinSet::new();
     tasks.spawn(crate::upgrade::run(
         config.clone(),
@@ -215,16 +233,20 @@ pub async fn run_with_diagnostics(
         client_rx.clone(),
         retirement.clone(),
     ));
-    tasks.spawn(
-        diagnostics::DiagnosticWorker::new(
-            config.clone(),
-            state,
-            diagnostics,
-            privileged,
-            services,
-        )?
-        .run_guarded(client_rx.clone(), retirement.clone()),
-    );
+    let diagnostic_worker = diagnostics::DiagnosticWorker::new(
+        config.clone(),
+        state,
+        diagnostics,
+        privileged,
+        services,
+    )?;
+    let diagnostic_worker = if let Some(control) = cancellation {
+        tasks.spawn(control.clone().run(client_rx.clone()));
+        diagnostic_worker.with_cancellations(control)
+    } else {
+        diagnostic_worker
+    };
+    tasks.spawn(diagnostic_worker.run_guarded(client_rx.clone(), retirement.clone()));
     tasks.spawn(worker::run(
         reconcilers,
         runtime.clone(),

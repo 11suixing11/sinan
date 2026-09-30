@@ -23,6 +23,7 @@ const ACTIVE: &str = "diagnostics:active";
 const OUTBOX: &str = "diagnostics:outbox";
 const MAX_REPORT: usize = 512 * 1024;
 
+pub mod cancellation;
 mod monitoring;
 mod observation;
 mod safety;
@@ -51,6 +52,7 @@ pub struct DiagnosticWorker {
     privileged: Arc<dyn Privileged>,
     services: Arc<dyn ServiceManager>,
     keys: std::result::Result<TrustedKeys, ReleaseError>,
+    cancellations: Option<Arc<cancellation::CancellationControl>>,
 }
 
 impl DiagnosticWorker {
@@ -80,7 +82,13 @@ impl DiagnosticWorker {
             privileged,
             services,
             keys: TrustedKeys::compiled(),
+            cancellations: None,
         })
+    }
+
+    pub fn with_cancellations(mut self, control: Arc<cancellation::CancellationControl>) -> Self {
+        self.cancellations = Some(control);
+        self
     }
 
     /// Supplies roots already trusted by an embedding caller, including test fixtures.
@@ -182,6 +190,7 @@ impl DiagnosticWorker {
     async fn prepare(&self, job: DiagnosticJob, client: &PanelClient) -> Result<()> {
         let id = job.id;
         let result: Result<()> = async {
+            ensure!(!self.cancellation_requested(id)?, "diagnostic cancellation was requested");
             ensure!(!expired(&job), "diagnostic task has expired");
             let adapter = self.adapters.get(&job.plugin).context("diagnostic plugin is not registered")?;
             let descriptor = adapter.describe();
@@ -220,6 +229,7 @@ impl DiagnosticWorker {
             let mut checkpoint = Checkpoint::Started {
                 spec, service: service.clone(), started_at, plugin: job.plugin, start_error: None, expires_at: job.expires_at, protection_stop_reason: None,
             };
+            ensure!(!self.cancellation_requested(id)?, "diagnostic cancellation was requested before service start");
             self.save(&checkpoint)?;
             if let Err(error) = self.bounded(self.services.start_job(&service)).await {
                 tracing::warn!(%id, %error, "diagnostic start response is uncertain; inspecting service on next poll");
@@ -230,13 +240,16 @@ impl DiagnosticWorker {
             }
             Ok(())
         }.await;
-        if let Err(error) = result {
+        if let Err(error) = result
+            && !self.cancellation_requested(id)?
+        {
             self.finish(failure(id, format!("诊断准备失败：{error:#}"), None))?;
         }
         Ok(())
     }
 
     pub async fn tick(&self, client: Option<&PanelClient>) -> Result<()> {
+        self.process_cancellations().await?;
         if let Some(checkpoint @ Checkpoint::Started { .. }) = self.active()? {
             self.observe(&checkpoint).await?;
         }

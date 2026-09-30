@@ -93,6 +93,13 @@ pub(super) async fn run(
                         let envelope: Envelope = serde_json::from_str(&text)?;
                         anyhow::ensure!(envelope.v == PROTOCOL_VERSION, "incompatible panel protocol version");
                         match envelope.decode()? {
+                            Message::DiagnosticCancelRequest(request) => {
+                                if let Some(control) = &runtime.cancellation {
+                                    if let Err(error) = control.request(request) {
+                                        tracing::warn!(%error, "diagnostic cancellation request was rejected");
+                                    }
+                                } else { tracing::warn!("confirmed diagnostic cancellation is not supported"); }
+                            }
                             Message::RetirementRequest(request) => {
                                 let retirement = runtime.retirement.as_ref().context("retirement worker missing")?;
                                 let request_id = request.request_id;

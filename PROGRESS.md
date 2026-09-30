@@ -496,3 +496,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 独立 PostgreSQL 会话专项 1 项通过、0 失败、0 忽略，目标 Clippy、fmt、core 门禁和差异检查通过。main `13f2975` 的真实 Reality CI `36766239541` 已通过完整安装、计量、签名拒绝、重装和在线退役；本次最新整合提交的完整回归与 Linux 专项分别继续验证。
 
 - 随后保留贡献者 `98f86d8` 的生产修复：会话到期值与 hello.ack 取同一次签发时间。合并强制 PostgreSQL 会话写锁跨秒回归和认证前后窗口、token/server 数据库一致性检查；该专项 1 项实际通过，panel 全 targets Clippy、workspace fmt 与差异检查通过。Agent 仍提前 60 秒续期，认证 ACK 有 10 秒等待上限，服务端保留绝对到期拒绝。
+
+## 确认式诊断取消（Issue #19，独立 PR）
+
+- 完成管理员取消请求持久化、WS 请求 / 清理确认协议、HTTP pending / ACK 恢复、SQLite 持久取消意图与 outbox。请求期间显示“等待设备确认取消”；停止失败、仍有进程或挂载保持待确认重试。旧 Agent 与缺少清理证据的后端明确不支持。
+- 准备/下载期间可以取消且不再启动；已进入持久启动检查点的启动先结束再清理确认。任务绑定设备 / UUID / 模块 / 版本和已保存单元，取消不接受任意服务名。普通末尾报告不会提前结束取消状态，已有报告与任务根目录保留。
+- 协议、PG + WS + HTTP、SQLite 重启、挂起的签名下载、实际 Agent ↔ 面板及真实 systemd 私有挂载夹具已加入独立验收。Bun 实际 dist 和浏览器桌面/移动状态验收通过；基于 main `75cd846` 的最终本项源码在受限 Debian 12 构建容器 fmt、Clippy 全目标、完整工作区测试通过：271 通过 / 0 失败 / 9 项环境忽略，exit 0 / 未 OOM。Linux core 测试二进制已交付，专用节点 6 个 systemd 夹具结果待记录。
+- 设计见 [ADR 0026](docs/adr/0026-confirmed-diagnostic-cancellation.md)，独立验收见 [取消验收](docs/acceptance/diagnostic-cancellation.md)。不把本项夹具当作完整 NodeQuality / 持续代理流量验收。
