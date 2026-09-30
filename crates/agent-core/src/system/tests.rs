@@ -4,21 +4,36 @@ use super::*;
 fn job_status_distinguishes_running_exited_failed_and_missing() -> Result<()> {
     for (properties, expected) in [
         ("LoadState=not-found\n", JobStatus::Missing),
-        ("LoadState=loaded\nActiveState=activating\nSubState=start\n", JobStatus::Running),
-        ("LoadState=loaded\nActiveState=active\nSubState=exited\nResult=success\nExecMainStatus=0\nExecMainCode=1\nExecMainStartTimestampMonotonic=123\n", JobStatus::Succeeded),
+        (
+            "LoadState=loaded\nActiveState=activating\nSubState=start\n",
+            JobStatus::Running,
+        ),
+        (
+            "LoadState=loaded\nActiveState=active\nSubState=exited\nResult=success\nExecMainStatus=0\nExecMainCode=1\nExecMainStartTimestampMonotonic=123\n",
+            JobStatus::Succeeded,
+        ),
     ] {
-        assert_eq!(parse_job_status(&CommandOutput { success: true, stdout: properties.into(), stderr: String::new() })?, expected);
+        assert_eq!(
+            parse_job_status(&CommandOutput {
+                success: true,
+                stdout: properties.into(),
+                stderr: String::new()
+            })?,
+            expected
+        );
     }
     let failed = parse_job_status(&CommandOutput { success: true, stdout: "LoadState=loaded\nActiveState=failed\nResult=timeout\nExecMainCode=2\nExecMainStatus=15\n".into(), stderr: String::new() })?;
     assert!(matches!(failed, JobStatus::Failed { error } if error.contains("timeout")));
     let never_started = parse_job_status(&CommandOutput { success: true, stdout: "LoadState=loaded\nActiveState=inactive\nResult=success\nExecMainCode=0\nExecMainStatus=0\nExecMainStartTimestampMonotonic=0\n".into(), stderr: String::new() })?;
     assert!(matches!(never_started, JobStatus::Failed { .. }));
-    assert!(parse_job_status(&CommandOutput {
-        success: false,
-        stdout: String::new(),
-        stderr: "bus unavailable".into()
-    })
-    .is_err());
+    assert!(
+        parse_job_status(&CommandOutput {
+            success: false,
+            stdout: String::new(),
+            stderr: "bus unavailable".into()
+        })
+        .is_err()
+    );
     Ok(())
 }
 
@@ -32,20 +47,24 @@ async fn unsafe_unit_and_expansion_arguments_are_rejected_before_execution() -> 
         working_directory: "/tmp".into(),
         timeout_secs: 1,
     };
-    assert!(services
-        .start_job(&job)
-        .await
-        .unwrap_err()
-        .to_string()
-        .contains("expansion"));
+    assert!(
+        services
+            .start_job(&job)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("expansion")
+    );
     job.args.clear();
     job.unit = "arbitrary.service".into();
-    assert!(services
-        .start_job(&job)
-        .await
-        .unwrap_err()
-        .to_string()
-        .contains("unit"));
+    assert!(
+        services
+            .start_job(&job)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("unit")
+    );
     assert!(services.job_status("--bad").await.is_err());
     Ok(())
 }

@@ -1,6 +1,6 @@
-use crate::state::{read_json, write_json, State};
-use anyhow::{bail, Context, Result};
-use rusqlite::{params, OptionalExtension};
+use crate::state::{State, read_json, write_json};
+use anyhow::{Context, Result, bail};
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use sinan_adapter_sdk::Counter;
 use sinan_protocol::{UsageBatch, UsageRecord};
@@ -115,7 +115,10 @@ impl State {
         };
         transaction.commit()?;
         if decreased {
-            tracing::warn!(module, "cumulative usage counter decreased; a new epoch was opened and a missing collection window may exist");
+            tracing::warn!(
+                module,
+                "cumulative usage counter decreased; a new epoch was opened and a missing collection window may exist"
+            );
         }
         Ok(batch)
     }
@@ -125,10 +128,10 @@ impl State {
         validate_module(module)?;
         let transaction = self.connection.transaction()?;
         let key = clock_key(module);
-        if let Some(previous) = read_json::<UsageClock>(&transaction, &key)? {
-            if timestamp < previous.timestamp {
-                bail!("usage timestamp moved backwards");
-            }
+        if let Some(previous) = read_json::<UsageClock>(&transaction, &key)?
+            && timestamp < previous.timestamp
+        {
+            bail!("usage timestamp moved backwards");
         }
         transaction.execute("DELETE FROM usage_baselines WHERE module = ?1", [module])?;
         write_json(

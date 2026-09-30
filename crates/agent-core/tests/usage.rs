@@ -61,10 +61,12 @@ fn differences_are_durable_and_unchanged_samples_advance_time_without_sequence()
         (second.records[0].uplink, second.records[0].downlink),
         (60, 60)
     );
-    assert!(state
-        .sample_usage("runtime", &[counter("u1_n1", 160, 260)], 70)
-        .unwrap()
-        .is_none());
+    assert!(
+        state
+            .sample_usage("runtime", &[counter("u1_n1", 160, 260)], 70)
+            .unwrap()
+            .is_none()
+    );
     let third = state
         .sample_usage("runtime", &[counter("u1_n1", 170, 270)], 100)
         .unwrap()
@@ -225,17 +227,21 @@ fn duplicate_sample_and_sequence_overflow_roll_back_every_change() {
     state
         .sample_usage("runtime", &[counter("a", 100, 200)], 10)
         .unwrap();
-    assert!(state
-        .sample_usage(
-            "runtime",
-            &[counter("a", 110, 210), counter("a", 120, 220)],
-            20
-        )
-        .is_err());
+    assert!(
+        state
+            .sample_usage(
+                "runtime",
+                &[counter("a", 110, 210), counter("a", 120, 220)],
+                20
+            )
+            .is_err()
+    );
     state.set_json("usage:last_seq", &u64::MAX).unwrap();
-    assert!(state
-        .sample_usage("runtime", &[counter("a", 5, 250)], 20)
-        .is_err());
+    assert!(
+        state
+            .sample_usage("runtime", &[counter("a", 5, 250)], 20)
+            .is_err()
+    );
     assert_eq!(state.pending_usage_count().unwrap(), 1);
     state.set_json("usage:last_seq", &1_u64).unwrap();
     let batch = state
@@ -261,10 +267,12 @@ fn full_width_counters_do_not_overflow_sqlite_integers() {
     assert_eq!(batch.records[0].uplink, u64::MAX);
     drop(state);
     let mut state = database.open();
-    assert!(state
-        .sample_usage("runtime", &[counter("a", u64::MAX, u64::MAX - 1)], 20)
-        .unwrap()
-        .is_none());
+    assert!(
+        state
+            .sample_usage("runtime", &[counter("a", u64::MAX, u64::MAX - 1)], 20)
+            .unwrap()
+            .is_none()
+    );
     let batch = state
         .sample_usage("runtime", &[counter("a", u64::MAX, u64::MAX)], 30)
         .unwrap()
@@ -302,9 +310,11 @@ fn backwards_time_does_not_change_ledger_or_epoch() {
         .sample_usage("runtime", &[counter("a", 100, 100)], 10)
         .unwrap()
         .unwrap();
-    assert!(state
-        .sample_usage("runtime", &[counter("a", 110, 110)], 9)
-        .is_err());
+    assert!(
+        state
+            .sample_usage("runtime", &[counter("a", 110, 110)], 9)
+            .is_err()
+    );
     assert!(state.begin_usage_epoch("runtime", 9).is_err());
     let second = state
         .sample_usage("runtime", &[counter("a", 120, 120)], 20)
@@ -362,12 +372,14 @@ fn completing_an_intent_and_updating_kv_are_atomic() {
     state.set_json("health:runtime", &false).unwrap();
     let connection = rusqlite::Connection::open(&database.0).unwrap();
     connection.execute_batch("CREATE TRIGGER reject_completion BEFORE UPDATE ON intents BEGIN SELECT RAISE(ABORT, 'injected transaction failure'); END;").unwrap();
-    assert!(state
-        .complete_intent(
-            intent.op_id,
-            &[("health:runtime".into(), serde_json::json!(true))]
-        )
-        .is_err());
+    assert!(
+        state
+            .complete_intent(
+                intent.op_id,
+                &[("health:runtime".into(), serde_json::json!(true))]
+            )
+            .is_err()
+    );
     assert_eq!(
         state.get_json::<bool>("health:runtime").unwrap(),
         Some(false)

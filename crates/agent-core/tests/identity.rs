@@ -1,9 +1,10 @@
 #![forbid(unsafe_code)]
+#![cfg(unix)]
 
 use anyhow::{Context, Result};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use serde_json::{json, Value};
-use sinan_agent_core::{config::validate_panel_url, identity, Config};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use serde_json::{Value, json};
+use sinan_agent_core::{Config, config::validate_panel_url, identity};
 use std::{path::PathBuf, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -119,7 +120,10 @@ async fn read_request(stream: &mut TcpStream) -> Result<Value> {
 
 fn response(status: &str, body: &Value) -> String {
     let body = body.to_string();
-    format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
+    format!(
+        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
 }
 
 #[tokio::test]
@@ -194,9 +198,11 @@ async fn enrollment_refuses_redirects_without_contacting_another_origin() -> Res
     let request = panel.next().await?;
     request.reply.send(format!("HTTP/1.1 307 Temporary Redirect\r\nLocation: http://{}/must-not-receive-token\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", outside.local_addr()?)).unwrap();
     assert!(task.await?.is_err());
-    assert!(timeout(Duration::from_millis(100), outside.accept())
-        .await
-        .is_err());
+    assert!(
+        timeout(Duration::from_millis(100), outside.accept())
+            .await
+            .is_err()
+    );
     Ok(())
 }
 

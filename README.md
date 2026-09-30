@@ -100,6 +100,35 @@ bash tools/build-agent.sh amd64 "$PWD/data/artifacts"
 
 arm64 主机将目标改为 `aarch64-unknown-linux-musl`，脚本参数改为 `arm64`。脚本验证 ELF 架构、无动态解释器/动态库依赖，以及原生 `--version` / `--help` 运行结果，再发布制品。安装脚本的 curl 需要系统 CA 证书及基础安装工具；Agent 的 HTTPS/WebSocket 使用公共 WebPKI 根证书，目前没有自定义 CA 配置项。运行平台需要 systemd。
 
+### CI 可下载的 Agent 编译产物
+
+每次 push 或 PR 的 CI 包含以下构建。成功执行后，可在对应 Actions 运行页面的 Artifacts 下载，保留七天；当前执行结果以 Actions 为准。
+
+| 系统与链接方式 | 架构 | Artifact 名称 | 构建环境 |
+| --- | --- | --- | --- |
+| Linux musl 静态 | amd64、arm64 | `sinan-agent-linux-musl-<arch>` | Ubuntu 24.04 对应架构 |
+| Linux glibc 动态 | amd64、arm64 | `sinan-agent-linux-gnu-<arch>` | Ubuntu 24.04 对应架构及系统动态库 |
+| macOS | arm64 | `sinan-agent-macos-arm64` | GitHub 最新 macOS arm64 runner |
+| FreeBSD | amd64、arm64 | `sinan-agent-freebsd-<arch>` | FreeBSD 13.5，另在最新 14/15 系列检查同一产物启动 |
+| Windows MSVC | amd64、arm64 | `sinan-agent-windows-<arch>` | Visual Studio 2026 对应架构 runner，静态 CRT |
+
+新增目标使用最新 Rust stable，通过 Python 标准库脚本构建并检查 ELF、Mach-O 或 PE 架构和实际 `--version`、`--help` 启动。glibc 另外检查动态解释器、`libc.so.6` 和共享库解析。FreeBSD 的兼容基线是 13.5，未验证更早 13 小版本或未来主版本。
+
+musl 压缩包保持上方 `agent/<version>/<arch>` 的原部署结构。其余下载内容使用 `<version>/<Rust target>/sinan-agent`（Windows 为 `sinan-agent.exe`），各 target 目录附 `SHA256SUMS`。Actions ZIP 不保留 Unix 执行权限，直接运行下载文件前执行 `chmod +x sinan-agent`。
+
+这些平台提供的是**编译产物与 CLI 检查**。设备注册、常驻运行、状态查询及安装脚本仍要求 Linux/systemd；非 Linux 平台执行这些命令会明确返回限制。面板 Docker 和运行时构建范围见其他章节。
+
+在对应系统及架构安装 Rust stable、Python 3 和本机 C 工具链后，可以本地构建新增目标：
+
+```bash
+# Native Ubuntu 24.04 amd64, dynamically linked glibc:
+python3 tools/build-agent.py x86_64-unknown-linux-gnu "$PWD/artifacts"
+# Native Apple Silicon macOS:
+python3 tools/build-agent.py aarch64-apple-darwin "$PWD/artifacts"
+```
+
+FreeBSD 需要额外安装 protobuf 并设置 `PROTOC=/usr/local/bin/protoc`；Windows 使用 `python` 和对应 MSVC Rust toolchain。各平台均要求原生工具链与目标一致。新增下载包不能直接替代面板的原制品目录：Linux glibc 部署时，将对应二进制复制到 `agent/<version>/<arch>` 并重新生成 `SHA256SUMS`，确保同一版本、同一架构的已有制品不被覆盖。
+
 ### 构建运行时
 
 在 **Linux/amd64** 构建机上运行，支持输出 amd64 或交叉编译 arm64。要求 **Go 1.26.8** 和以下工具：
@@ -224,7 +253,7 @@ sudo apt-get install -y bash curl python3 ca-certificates
 
 在服务器详情点击“一键获取报告”，选择双栈/IPv4/IPv6和低流量/普通网络测试。任务运行硬件、IP、网络和回程测试，会消耗真实 CPU、磁盘和带宽；上游会尝试把报告上传到 NodeQuality 生成公开链接。默认采用低流量网络模式。任务在该节点的独立 systemd 服务运行，Agent 重启后继续观察，不重复执行；每台服务器同时只允许一个任务。
 
-界面显示排队、运行、成功或失败，并保留本地文本报告及可用的在线链接。在线上传失败时，本地报告仍可查看。任务有整体运行时限；未安装依赖、上游下载失败、报告缺失和超时均返回错误。上游 chroot 用于隔离测试文件，systemd 使用独立挂载命名空间处理清理，不提供针对不可信程序的安全沙箱。外插按用户选择运行，运行时外网访问是 [ADR 0015](docs/adr/0015-nodequality-diagnostics.md) 明确记录的例外。
+界面显示排队、运行、成功或失败，并保留本地文本报告及可用的在线链接。在线上传失败时，本地报告仍可查看。任务有整体运行时限；未安装依赖、上游下载失败、报告缺失和超时均返回错误。上游 chroot 用于隔离测试文件，systemd 使用独立挂载命名空间处理清理，不提供针对不可信程序的安全沙箱。外插按用户选择运行，运行时外网访问是 [ADR 0016](docs/adr/0016-nodequality-diagnostics.md) 明确记录的例外。
 
 面板报告文本最多 256 KiB，超过时显示截断说明；原始 `report.zip` 默认保存在节点的 `/var/lib/sinan/plugins/diagnostics/<任务 UUID>/`，可由管理员在节点本地读取。
 

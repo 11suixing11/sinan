@@ -1,10 +1,10 @@
 [workspace]
 members = ["crates/protocol", "crates/compiler", "crates/panel", "crates/agent", "crates/agent-core", "crates/adapter-sdk", "crates/adapter-singbox", "crates/adapter-nodequality"]
-resolver = "2"
+resolver = "3"
 
 [workspace.package]
 version = "0.2.0"
-edition = "2021"
+edition = "2024"
 license = "AGPL-3.0-only"
 rust-version = "1.88"
 

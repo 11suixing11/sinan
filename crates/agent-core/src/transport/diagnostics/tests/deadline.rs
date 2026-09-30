@@ -169,11 +169,13 @@ async fn recovered_running_service_is_stopped_at_its_saved_absolute_deadline() -
     assert!(recovered.active()?.is_none());
     let pending: Vec<DiagnosticUpdate> = recovered.read(OUTBOX)?.unwrap();
     assert_eq!(pending[0].status, DiagnosticStatus::Failed);
-    assert!(pending[0]
-        .error
-        .as_ref()
-        .unwrap()
-        .contains("absolute deadline"));
+    assert!(
+        pending[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("absolute deadline")
+    );
     assert!(services.stops.load(Ordering::Relaxed) >= 1);
     assert_eq!(services.starts.load(Ordering::Relaxed), 0);
     Ok(())

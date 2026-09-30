@@ -3,7 +3,7 @@
 mod business_support;
 
 use anyhow::Result;
-use business_support::{id, receive_envelope, send_envelope, TestPanel};
+use business_support::{TestPanel, id, receive_envelope, send_envelope};
 use reqwest::{Method, StatusCode};
 use serde_json::Value;
 use sinan_panel::usage;

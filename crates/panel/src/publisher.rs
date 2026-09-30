@@ -1,10 +1,9 @@
 use crate::{
-    agent_api,
-    business::{NodeRow, NODE_COLUMNS},
-    AppState,
+    AppState, agent_api,
+    business::{NODE_COLUMNS, NodeRow},
 };
 use sinan_compiler::{Access, Node};
-use sinan_protocol::{now_timestamp, Bundle, Envelope, ManifestChanged};
+use sinan_protocol::{Bundle, Envelope, ManifestChanged, now_timestamp};
 use sqlx::{Postgres, Row, Transaction};
 use std::{collections::BTreeMap, time::Duration};
 
@@ -47,7 +46,9 @@ pub async fn publish_due(state: &AppState) -> anyhow::Result<()> {
 }
 
 async fn snapshot(tx: &mut Transaction<'_, Postgres>, server_id: i64) -> anyhow::Result<Vec<Node>> {
-    let query = format!("SELECT {NODE_COLUMNS} FROM nodes n WHERE n.server_id=$1 AND n.deleted_at IS NULL ORDER BY n.id");
+    let query = format!(
+        "SELECT {NODE_COLUMNS} FROM nodes n WHERE n.server_id=$1 AND n.deleted_at IS NULL ORDER BY n.id"
+    );
     let nodes = sqlx::query_as::<_, NodeRow>(&query)
         .bind(server_id)
         .fetch_all(&mut **tx)
@@ -72,7 +73,9 @@ async fn snapshot(tx: &mut Transaction<'_, Postgres>, server_id: i64) -> anyhow:
 
 async fn publish_server(state: &AppState, server_id: i64) -> anyhow::Result<()> {
     let mut tx = state.pool.begin().await?;
-    let query = format!("SELECT manifest_rev FROM servers WHERE id=$1 AND deleted_at IS NULL AND {DUE} FOR UPDATE SKIP LOCKED");
+    let query = format!(
+        "SELECT manifest_rev FROM servers WHERE id=$1 AND deleted_at IS NULL AND {DUE} FOR UPDATE SKIP LOCKED"
+    );
     let Some(manifest_rev) = sqlx::query_scalar::<_, i64>(&query)
         .bind(server_id)
         .fetch_optional(&mut *tx)

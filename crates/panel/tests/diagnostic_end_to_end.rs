@@ -4,8 +4,8 @@
 mod e2e_support;
 
 use anyhow::{Context, Result};
-use e2e_support::{eventually, Harness};
-use flate2::{write::GzEncoder, Compression};
+use e2e_support::{Harness, eventually};
+use flate2::{Compression, write::GzEncoder};
 use reqwest::Method;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -18,8 +18,8 @@ use std::{
     fs,
     path::PathBuf,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 

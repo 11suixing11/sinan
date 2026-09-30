@@ -1,11 +1,11 @@
 #![forbid(unsafe_code)]
 
 use base64::{
-    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
     Engine,
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{collections::BTreeSet, net::IpAddr};
 use thiserror::Error;
 use uuid::Uuid;

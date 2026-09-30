@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
-use flate2::{write::GzEncoder, Compression};
-use reqwest::{header, Client, Method};
-use serde_json::{json, Value};
+use flate2::{Compression, write::GzEncoder};
+use reqwest::{Client, Method, header};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sinan_adapter_sdk::{
     Adapter, BoxFuture, Descriptor, Plan, Prepared, Privileged, RuntimeSpec, ServiceManager,
@@ -13,7 +13,7 @@ use sinan_agent_core::{
     system::SystemOps,
     transport,
 };
-use sinan_panel::{config::Config, publisher, router, AppState};
+use sinan_panel::{AppState, config::Config, publisher, router};
 use sqlx::PgPool;
 use std::{fs, future::Future, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{net::TcpListener, task::JoinHandle};

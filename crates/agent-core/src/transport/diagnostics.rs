@@ -1,5 +1,8 @@
-use crate::{artifacts::PanelClient, system::safe_component, Config, SharedState};
-use anyhow::{ensure, Context, Result};
+use crate::{
+    Config, SharedState,
+    artifacts::{PanelClient, safe_component},
+};
+use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use sinan_adapter_sdk::{
     Descriptor, DiagnosticAdapter, DiagnosticSpec, JobStatus, Privileged, ServiceJob,
@@ -251,11 +254,42 @@ impl DiagnosticWorker {
                 report_url: output.report_url.clone(),
             });
         let update = match status {
-            JobStatus::Succeeded if report.is_some() => DiagnosticUpdate { id, status: DiagnosticStatus::Succeeded, report, error: None },
-            JobStatus::Succeeded => failure(id, collected.err().map(|error| format!("collect diagnostic: {error}")).unwrap_or_else(|| "diagnostic completed without a valid report".into()), report),
+            JobStatus::Succeeded if report.is_some() => DiagnosticUpdate {
+                id,
+                status: DiagnosticStatus::Succeeded,
+                report,
+                error: None,
+            },
+            JobStatus::Succeeded => failure(
+                id,
+                collected
+                    .err()
+                    .map(|error| format!("collect diagnostic: {error}"))
+                    .unwrap_or_else(|| "diagnostic completed without a valid report".into()),
+                report,
+            ),
             JobStatus::Failed { error } => failure(id, error, report),
-            JobStatus::Missing => failure(id, format!("diagnostic service is missing after restart or an uncertain start; task was not repeated{}", start_error.as_ref().map(|error| format!("; start error: {error}")).unwrap_or_default()), report),
-            JobStatus::Running => failure(id, if deadline_reached { "diagnostic reached its absolute deadline" } else { "diagnostic exceeded its execution deadline" }.into(), report),
+            JobStatus::Missing => failure(
+                id,
+                format!(
+                    "diagnostic service is missing after restart or an uncertain start; task was not repeated{}",
+                    start_error
+                        .as_ref()
+                        .map(|error| format!("; start error: {error}"))
+                        .unwrap_or_default()
+                ),
+                report,
+            ),
+            JobStatus::Running => failure(
+                id,
+                if deadline_reached {
+                    "diagnostic reached its absolute deadline"
+                } else {
+                    "diagnostic exceeded its execution deadline"
+                }
+                .into(),
+                report,
+            ),
         };
         self.finish(update)?;
         if let Err(error) = self.bounded(self.services.stop(&service.unit)).await {

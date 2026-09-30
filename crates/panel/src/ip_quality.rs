@@ -1,14 +1,13 @@
 use crate::{
-    auth,
+    AppState, auth,
     error::{ApiError, ApiResult},
-    AppState,
 };
 use axum::{
+    Json,
     extract::{Path, State},
     http::HeaderMap,
-    Json,
 };
-use futures_util::{stream, StreamExt};
+use futures_util::{StreamExt, stream};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -437,11 +436,11 @@ fn parse_fields(database: &str, value: &Value) -> Vec<QualityField> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{http::StatusCode, response::IntoResponse, routing::get, Router};
+    use axum::{Router, http::StatusCode, response::IntoResponse, routing::get};
     use serde_json::json;
     use std::sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     };
 
     #[test]
@@ -520,17 +519,21 @@ mod tests {
                 .count(),
             2
         );
-        assert!(quality[0].databases[1]
-            .error
-            .as_deref()
-            .unwrap()
-            .contains("302"));
+        assert!(
+            quality[0].databases[1]
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("302")
+        );
         assert!(quality[0].databases[2].fields.is_empty());
-        assert!(quality[0].databases[2]
-            .error
-            .as_deref()
-            .unwrap()
-            .contains("403"));
+        assert!(
+            quality[0].databases[2]
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("403")
+        );
     }
 
     #[tokio::test]
@@ -557,14 +560,18 @@ mod tests {
             .build()
             .unwrap();
         let base = format!("http://{address}");
-        assert!(query_database(&client, &base, "192.0.2.1", "maxmind")
-            .await
-            .unwrap_err()
-            .contains("64 KiB"));
-        assert!(query_database(&client, &base, "192.0.2.1", "ipapi")
-            .await
-            .unwrap_err()
-            .contains("超时"));
+        assert!(
+            query_database(&client, &base, "192.0.2.1", "maxmind")
+                .await
+                .unwrap_err()
+                .contains("64 KiB")
+        );
+        assert!(
+            query_database(&client, &base, "192.0.2.1", "ipapi")
+                .await
+                .unwrap_err()
+                .contains("超时")
+        );
         task.abort();
     }
 }

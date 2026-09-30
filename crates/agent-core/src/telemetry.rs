@@ -253,11 +253,13 @@ mod tests {
         let mut collector = Collector::new();
         let metrics = collector.metrics();
         assert!(metrics.cpu_percent.is_none());
-        assert!(metrics
-            .network_interfaces
-            .values()
-            .all(|value| value.receive_bytes_per_sec.is_none()
-                && value.transmit_bytes_per_sec.is_none()));
+        assert!(
+            metrics
+                .network_interfaces
+                .values()
+                .all(|value| value.receive_bytes_per_sec.is_none()
+                    && value.transmit_bytes_per_sec.is_none())
+        );
         let encoded = serde_json::to_value(metrics).unwrap();
         assert!(encoded.get("cpu_percent").is_none());
     }

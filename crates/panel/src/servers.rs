@@ -1,18 +1,18 @@
 use crate::{
+    AppState,
     auth::{hash_token, random_token, require_admin},
     error::{ApiError, ApiResult},
-    AppState,
 };
 use axum::{
+    Json,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
-    Json,
 };
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::VerifyingKey;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use sinan_protocol::{now_timestamp, EnrollRequest, EnrollResponse};
+use serde_json::{Value, json};
+use sinan_protocol::{EnrollRequest, EnrollResponse, now_timestamp};
 use sqlx::{FromRow, PgPool, Row};
 
 const SERVER_COLUMNS: &str =
@@ -98,7 +98,9 @@ pub async fn update(
 ) -> ApiResult<Json<Server>> {
     require_admin(&state, &headers).await?;
     let name = valid_name(&request.name)?;
-    let query = format!("UPDATE servers SET name = $2 WHERE id = $1 AND deleted_at IS NULL RETURNING {SERVER_COLUMNS}");
+    let query = format!(
+        "UPDATE servers SET name = $2 WHERE id = $1 AND deleted_at IS NULL RETURNING {SERVER_COLUMNS}"
+    );
     let server = sqlx::query_as::<_, Server>(&query)
         .bind(id)
         .bind(name)

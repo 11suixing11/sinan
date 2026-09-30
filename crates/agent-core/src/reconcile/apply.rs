@@ -2,7 +2,7 @@ use super::{ApplyIntent, Reconciler};
 use crate::state::IntentRecord;
 use anyhow::{Context, Result};
 use sinan_adapter_sdk::{Plan, Prepared};
-use sinan_protocol::{now_timestamp, ApplyResult, ApplyStatus, UsageBatch};
+use sinan_protocol::{ApplyResult, ApplyStatus, UsageBatch, now_timestamp};
 use uuid::Uuid;
 
 impl Reconciler {
@@ -107,18 +107,15 @@ impl Reconciler {
                 module: descriptor.module.clone(),
                 payload: serde_json::to_value(&intent)?,
             })?;
-        if plan != Plan::Noop {
-            if let Some(previous) = &intent.previous {
-                if let Err(error) = self.sample_runtime(previous).await {
-                    self.state
-                        .lock()
-                        .map_err(|_| anyhow::anyhow!("state poisoned"))?
-                        .finish_intent(op_id)?;
-                    return Err(
-                        error.context("cannot capture terminal counters; application cancelled")
-                    );
-                }
-            }
+        if plan != Plan::Noop
+            && let Some(previous) = &intent.previous
+            && let Err(error) = self.sample_runtime(previous).await
+        {
+            self.state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("state poisoned"))?
+                .finish_intent(op_id)?;
+            return Err(error.context("cannot capture terminal counters; application cancelled"));
         }
         let attempt: Result<()> = async {
             self.switch(&intent.target).await?;

@@ -46,25 +46,31 @@ async fn rejects_wrong_version_missing_tags_and_failed_native_check() {
             version: Some(version.into()),
             ..TestOps::default()
         };
-        assert!(SingboxAdapter::new()
-            .prepare(spec.clone(), &ops)
-            .await
-            .is_err());
+        assert!(
+            SingboxAdapter::new()
+                .prepare(spec.clone(), &ops)
+                .await
+                .is_err()
+        );
         assert_eq!(ops.commands.lock().unwrap().len(), 1);
     }
     let ops = TestOps {
         check_ok: false,
         ..TestOps::default()
     };
-    assert!(SingboxAdapter::new()
-        .prepare(spec.clone(), &ops)
-        .await
-        .is_err());
+    assert!(
+        SingboxAdapter::new()
+            .prepare(spec.clone(), &ops)
+            .await
+            .is_err()
+    );
     std::fs::write(spec.revision_dir.join("config.json"), "{}").unwrap();
-    assert!(SingboxAdapter::new()
-        .prepare(spec, &TestOps::default())
-        .await
-        .is_err());
+    assert!(
+        SingboxAdapter::new()
+            .prepare(spec, &TestOps::default())
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]
@@ -79,10 +85,12 @@ async fn rejects_exposed_statistics_and_conflicting_native_ports() {
     ] {
         let mut target = spec.clone();
         target.stats_listen = address.into();
-        assert!(SingboxAdapter::new()
-            .prepare(target, &TestOps::default())
-            .await
-            .is_err());
+        assert!(
+            SingboxAdapter::new()
+                .prepare(target, &TestOps::default())
+                .await
+                .is_err()
+        );
     }
     for inbounds in [
         serde_json::json!([{"type":"vless", "listen":"::", "listen_port":18085}]),
@@ -91,17 +99,21 @@ async fn rejects_exposed_statistics_and_conflicting_native_ports() {
         serde_json::json!([{"type":"vless", "listen":"::", "listen_port":20000}, {"type":"vless", "listen":"127.0.0.1", "listen_port":20000}]),
     ] {
         let target = directory.spec(18085, inbounds);
-        assert!(SingboxAdapter::new()
-            .prepare(target, &TestOps::default())
-            .await
-            .is_err());
+        assert!(
+            SingboxAdapter::new()
+                .prepare(target, &TestOps::default())
+                .await
+                .is_err()
+        );
     }
     let mut mismatched = directory.spec(18085, serde_json::json!([]));
     mismatched.stats_listen = "127.0.0.1:18086".into();
-    assert!(SingboxAdapter::new()
-        .prepare(mismatched, &TestOps::default())
-        .await
-        .is_err());
+    assert!(
+        SingboxAdapter::new()
+            .prepare(mismatched, &TestOps::default())
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]

@@ -1,13 +1,13 @@
 #![forbid(unsafe_code)]
 
-use sinan_adapter_nodequality::{NodeQualityAdapter, MAX_REPORT_BYTES, VERSION};
+use sinan_adapter_nodequality::{MAX_REPORT_BYTES, NodeQualityAdapter, VERSION};
 use sinan_adapter_sdk::{BoxFuture, CommandOutput, DiagnosticAdapter, DiagnosticSpec, Privileged};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
         Mutex,
+        atomic::{AtomicU64, Ordering},
     },
 };
 
@@ -155,10 +155,12 @@ async fn prepare_rejects_unpinned_versions_unknown_options_and_expansion() {
             9 => spec.job_dir = scratch.0.join("question?mark"),
             _ => unreachable!(),
         }
-        assert!(NodeQualityAdapter::new()
-            .prepare(&spec, &privileged)
-            .await
-            .is_err());
+        assert!(
+            NodeQualityAdapter::new()
+                .prepare(&spec, &privileged)
+                .await
+                .is_err()
+        );
     }
     assert!(privileged.calls.lock().unwrap().is_empty());
 }
@@ -170,10 +172,12 @@ async fn prepare_rejects_an_artifact_that_does_not_match_its_version() {
         invalid_version: true,
         ..Default::default()
     };
-    assert!(NodeQualityAdapter::new()
-        .prepare(&scratch.spec(), &privileged)
-        .await
-        .is_err());
+    assert!(
+        NodeQualityAdapter::new()
+            .prepare(&scratch.spec(), &privileged)
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]
@@ -236,11 +240,13 @@ async fn collect_rejects_a_remote_or_malformed_url_and_oversized_report() {
 async fn collect_never_treats_a_log_or_stale_url_as_a_completed_report() {
     let scratch = Scratch::new();
     let spec = scratch.spec();
-    assert!(NodeQualityAdapter::new()
-        .collect(&spec)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        NodeQualityAdapter::new()
+            .collect(&spec)
+            .await
+            .unwrap()
+            .is_none()
+    );
     std::fs::create_dir(&spec.job_dir).unwrap();
     std::fs::write(spec.job_dir.join("log.txt"), "mount failed").unwrap();
     std::fs::write(
@@ -248,11 +254,13 @@ async fn collect_never_treats_a_log_or_stale_url_as_a_completed_report() {
         "https://nodequality.com/r/stale",
     )
     .unwrap();
-    assert!(NodeQualityAdapter::new()
-        .collect(&spec)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        NodeQualityAdapter::new()
+            .collect(&spec)
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[cfg(unix)]

@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use sinan_adapter_sdk::{
     BoxFuture, DiagnosticAdapter, DiagnosticDescriptor, DiagnosticOutput, DiagnosticSpec,
     Privileged, ServiceJob,

@@ -3,8 +3,8 @@ use sinan_adapter_sdk::{
     ServiceManager, UsageSource,
 };
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
     Mutex,
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use std::time::Duration;
 

@@ -18,9 +18,15 @@ impl SystemServiceManager {
                 .working_directory
                 .to_str()
                 .context("diagnostic working directory is not UTF-8")?;
-            ensure!(std::iter::once(program).chain(std::iter::once(directory)).chain(job.args.iter().map(String::as_str))
-                .all(|value| !value.chars().any(char::is_control) && !value.contains(['$', '%'])),
-                "diagnostic arguments cannot contain systemd expansion syntax or control characters");
+            ensure!(
+                std::iter::once(program)
+                    .chain(std::iter::once(directory))
+                    .chain(job.args.iter().map(String::as_str))
+                    .all(
+                        |value| !value.chars().any(char::is_control) && !value.contains(['$', '%'])
+                    ),
+                "diagnostic arguments cannot contain systemd expansion syntax or control characters"
+            );
             let mut args = vec![
                 format!("--unit={}", job.unit),
                 "--no-block".into(),

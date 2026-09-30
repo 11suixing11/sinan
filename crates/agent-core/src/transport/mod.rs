@@ -5,15 +5,15 @@ mod worker;
 
 pub use status::status;
 
-use crate::{artifacts::PanelClient, identity, reconcile::Reconciler, Config, SharedState, State};
+use crate::{Config, SharedState, State, artifacts::PanelClient, identity, reconcile::Reconciler};
 use anyhow::{Context, Result};
 use sinan_adapter_sdk::{Adapter, DiagnosticAdapter, Prepared, Privileged, ServiceManager};
 use sinan_protocol::AppliedRevisions;
 use std::{
     collections::BTreeMap,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };

@@ -1,21 +1,21 @@
 #![forbid(unsafe_code)]
 
-use anyhow::{bail, Context, Result};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use anyhow::{Context, Result, bail};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signer, SigningKey};
 use futures_util::{SinkExt, StreamExt};
-use reqwest::{header, Client, Response, StatusCode};
-use serde_json::{json, Value};
+use reqwest::{Client, Response, StatusCode, header};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use sinan_panel::{config::Config, router, AppState};
+use sinan_panel::{AppState, config::Config, router};
 use sinan_protocol::{
     AuthChallenge, AuthResponse, EnrollRequest, EnrollResponse, Envelope, Hello, HelloAck,
-    Manifest, StaticInfo, PROTOCOL_VERSION,
+    Manifest, PROTOCOL_VERSION, StaticInfo,
 };
 use sqlx::PgPool;
 use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 use tokio::{net::TcpListener, task::JoinHandle, time::timeout};
-use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
 use uuid::Uuid;
 
 const PASSWORD: &str = "foundation-test-password";
@@ -101,10 +101,12 @@ impl TestPanel {
             value["expires_at"].as_i64().context("token expiry")? > sinan_protocol::now_timestamp()
         );
         let token = value["token"].as_str().context("enrollment token")?;
-        assert!(value["install_command"]
-            .as_str()
-            .context("install command")?
-            .contains(token));
+        assert!(
+            value["install_command"]
+                .as_str()
+                .context("install command")?
+                .contains(token)
+        );
         Ok(token.to_string())
     }
 
@@ -267,14 +269,16 @@ async fn admin_sessions_are_scoped_expiring_and_not_reset_on_restart(pool: PgPoo
     assert!(attributes.contains("SameSite=Strict"));
     assert!(attributes.contains("Path=/"));
     let cookie = session_cookie(&response)?;
-    assert!(panel
-        .client
-        .get(format!("{}/api/me", panel.base))
-        .header(header::COOKIE, &cookie)
-        .send()
-        .await?
-        .status()
-        .is_success());
+    assert!(
+        panel
+            .client
+            .get(format!("{}/api/me", panel.base))
+            .header(header::COOKIE, &cookie)
+            .send()
+            .await?
+            .status()
+            .is_success()
+    );
     assert_eq!(
         panel
             .client
@@ -312,14 +316,16 @@ async fn admin_sessions_are_scoped_expiring_and_not_reset_on_restart(pool: PgPoo
         StatusCode::UNAUTHORIZED
     );
     let cookie = panel.admin_cookie().await?;
-    assert!(panel
-        .client
-        .post(format!("{}/api/logout", panel.base))
-        .header(header::COOKIE, &cookie)
-        .send()
-        .await?
-        .status()
-        .is_success());
+    assert!(
+        panel
+            .client
+            .post(format!("{}/api/logout", panel.base))
+            .header(header::COOKIE, &cookie)
+            .send()
+            .await?
+            .status()
+            .is_success()
+    );
     assert_eq!(
         panel
             .client
@@ -339,15 +345,17 @@ async fn server_crud_and_enrollment_consumption_are_atomic(pool: PgPool) -> Resu
     let cookie = panel.admin_cookie().await?;
     let server_id = panel.create_server(&cookie, "Before rename").await?;
     let url = format!("{}/api/servers/{server_id}", panel.base);
-    assert!(panel
-        .client
-        .patch(&url)
-        .header(header::COOKIE, &cookie)
-        .json(&json!({"name": "After rename"}))
-        .send()
-        .await?
-        .status()
-        .is_success());
+    assert!(
+        panel
+            .client
+            .patch(&url)
+            .header(header::COOKIE, &cookie)
+            .json(&json!({"name": "After rename"}))
+            .send()
+            .await?
+            .status()
+            .is_success()
+    );
     let server: Value = panel
         .client
         .get(&url)
@@ -374,19 +382,23 @@ async fn server_crud_and_enrollment_consumption_are_atomic(pool: PgPool) -> Resu
     };
     assert!(rejected.status().is_client_error());
     assert_eq!(winner.json::<EnrollResponse>().await?.server_id, server_id);
-    assert!(panel
-        .enroll(&first_request)
-        .await?
-        .status()
-        .is_client_error());
-    assert!(panel
-        .client
-        .delete(&url)
-        .header(header::COOKIE, &cookie)
-        .send()
-        .await?
-        .status()
-        .is_success());
+    assert!(
+        panel
+            .enroll(&first_request)
+            .await?
+            .status()
+            .is_client_error()
+    );
+    assert!(
+        panel
+            .client
+            .delete(&url)
+            .header(header::COOKIE, &cookie)
+            .send()
+            .await?
+            .status()
+            .is_success()
+    );
     assert_eq!(
         panel
             .client
@@ -438,11 +450,13 @@ async fn invalid_keys_do_not_consume_tokens_and_expired_tokens_cannot_enroll(
         .bind(expired_server)
         .execute(&pool)
         .await?;
-    assert!(panel
-        .enroll(&expired_request)
-        .await?
-        .status()
-        .is_client_error());
+    assert!(
+        panel
+            .enroll(&expired_request)
+            .await?
+            .status()
+            .is_client_error()
+    );
     Ok(())
 }
 
@@ -632,13 +646,15 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
     std::fs::write(artifact_dir.join("amd64"), binary)?;
     std::fs::write(artifact_dir.join("SHA256SUMS"), format!("{hash}  amd64\n"))?;
     let bootstrap_url = format!("{}/api/bootstrap/{version}/amd64", panel.base);
-    assert!(panel
-        .client
-        .get(&bootstrap_url)
-        .send()
-        .await?
-        .status()
-        .is_client_error());
+    assert!(
+        panel
+            .client
+            .get(&bootstrap_url)
+            .send()
+            .await?
+            .status()
+            .is_client_error()
+    );
     assert_eq!(
         panel
             .client

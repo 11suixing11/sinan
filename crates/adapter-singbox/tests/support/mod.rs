@@ -1,4 +1,4 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use sinan_adapter_sdk::{BoxFuture, CommandOutput, Privileged, RuntimeSpec, ServiceManager};
 use std::{
     path::{Path, PathBuf},

@@ -1,12 +1,12 @@
 use super::*;
-use crate::{fake::FakeServiceManager, system::SystemOps, State};
+use crate::{State, fake::FakeServiceManager, system::SystemOps};
 use sinan_adapter_sdk::{BoxFuture, DiagnosticDescriptor, DiagnosticOutput};
 use sinan_protocol::Artifact;
 use std::{
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
         Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
@@ -210,11 +210,13 @@ async fn uncertain_missing_start_fails_without_running_again() -> Result<()> {
     let pending: Vec<DiagnosticUpdate> = recovered.read(OUTBOX)?.unwrap();
     assert_eq!(pending[0].status, DiagnosticStatus::Failed);
     assert!(pending[0].error.as_ref().unwrap().contains("not repeated"));
-    assert!(pending[0]
-        .error
-        .as_ref()
-        .unwrap()
-        .contains("permission denied"));
+    assert!(
+        pending[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("permission denied")
+    );
     assert_eq!(services.starts.load(Ordering::Relaxed), 0);
     Ok(())
 }
@@ -255,9 +257,11 @@ fn unknown_plugins_and_invalid_timeouts_never_become_services() -> Result<()> {
     assert!(worker.active()?.is_none());
     let pending: Vec<DiagnosticUpdate> = worker.read(OUTBOX)?.unwrap();
     assert_eq!(pending.len(), 2);
-    assert!(pending
-        .iter()
-        .all(|update| update.status == DiagnosticStatus::Failed));
+    assert!(
+        pending
+            .iter()
+            .all(|update| update.status == DiagnosticStatus::Failed)
+    );
     Ok(())
 }
 
@@ -271,18 +275,22 @@ async fn existing_service_implementations_default_to_unsupported_jobs() -> Resul
         working_directory: Path::new("/tmp").into(),
         timeout_secs: 1,
     };
-    assert!(services
-        .start_job(&job)
-        .await
-        .unwrap_err()
-        .to_string()
-        .contains("not supported"));
-    assert!(services
-        .job_status(&job.unit)
-        .await
-        .unwrap_err()
-        .to_string()
-        .contains("not supported"));
+    assert!(
+        services
+            .start_job(&job)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("not supported")
+    );
+    assert!(
+        services
+            .job_status(&job.unit)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("not supported")
+    );
     Ok(())
 }
 

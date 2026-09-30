@@ -5,7 +5,7 @@ mod business_support;
 use anyhow::Result;
 use business_support::TestPanel;
 use reqwest::{Method, StatusCode};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sinan_panel::{agent_api, diagnostics, ip_quality};
 use sinan_protocol::{Hello, HelloAck, Message, PROTOCOL_VERSION};
@@ -340,17 +340,17 @@ async fn report_readiness_and_quality_refresh_require_auth_and_preserve_unknown(
         .json()
         .await?;
     assert_eq!(refreshed.as_array().unwrap().len(), 2);
-    assert!(refreshed
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|entry| entry["status"] == "failed"
+    assert!(refreshed.as_array().unwrap().iter().all(|entry| {
+        entry["status"] == "failed"
             && entry["databases"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .all(|database| database["fields"] == json!([])
-                    && database["error"].as_str().unwrap().contains("公网"))));
+                .all(|database| {
+                    database["fields"] == json!([])
+                        && database["error"].as_str().unwrap().contains("公网")
+                })
+    }));
     let persisted = ip_quality::cached(&panel.state, server_id, &["192.0.2.1".into()]).await?;
     assert_eq!(persisted.len(), 1);
     assert_eq!(persisted[0].status, "failed");

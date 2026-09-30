@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
-use serde::{de::DeserializeOwned, Serialize};
-use serde_json::{json, Value};
+use serde::{Serialize, de::DeserializeOwned};
+use serde_json::{Value, json};
 use sinan_protocol::*;
 use std::{collections::BTreeMap, fmt::Debug};
 use uuid::Uuid;
@@ -335,10 +335,12 @@ fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
     }
     let old_info: StaticInfo = serde_json::from_value(json!({"arch":"amd64"})).unwrap();
     assert!(old_info.ip_addresses.is_empty());
-    assert!(serde_json::to_value(old_info)
-        .unwrap()
-        .get("ip_addresses")
-        .is_none());
+    assert!(
+        serde_json::to_value(old_info)
+            .unwrap()
+            .get("ip_addresses")
+            .is_none()
+    );
     assert!(serde_json::from_value::<DiagnosticJob>(json!({"plugin":"nodequality"})).is_err());
     assert!(
         serde_json::from_value::<DiagnosticUpdate>(json!({"id":job.id,"status":"queued"})).is_err()

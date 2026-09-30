@@ -3,7 +3,7 @@
 以任务说明为验收基准，顺序推进 G1–G9。每阶段完成 fmt、clippy（-D warnings）、test，更新 PROGRESS 并提交 Conventional Commit。
 
 ## G1：基础结构
-- Rust 2021 workspace、七个 crate、unsafe 禁令与内部依赖边界。
+- Rust 2024 workspace、七个 crate、unsafe 禁令与内部依赖边界。
 - AGENTS、术语表、11 条架构 ADR、CI、忽略规则。
 - 工具链与数据库环境；cargo build 验证。
 

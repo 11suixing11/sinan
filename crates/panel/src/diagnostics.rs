@@ -1,18 +1,17 @@
 use crate::{
-    artifacts, auth,
+    AppState, artifacts, auth,
     error::{ApiError, ApiResult},
     ip_quality::{self, IpQuality},
-    AppState,
 };
 use axum::{
+    Json,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
-    Json,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sinan_protocol::{
-    now_timestamp, DiagnosticJob, DiagnosticReport, DiagnosticStatus, DiagnosticUpdate,
+    DiagnosticJob, DiagnosticReport, DiagnosticStatus, DiagnosticUpdate, now_timestamp,
 };
 use sqlx::{FromRow, Row};
 use std::collections::BTreeMap;
@@ -210,12 +209,14 @@ fn validate_report(report: &DiagnosticReport) -> ApiResult<()> {
     if report.text.trim().is_empty() || report.text.len() > REPORT_LIMIT {
         return Err(ApiError::BadRequest("报告文本为空或超过 512 KiB".into()));
     }
-    if let Some(url) = &report.report_url {
-        if !safe_report_url(url) {
-            return Err(ApiError::BadRequest(
-                "报告链接必须是 NodeQuality 官方 HTTPS 地址".into(),
-            ));
-        }
+    if report
+        .report_url
+        .as_ref()
+        .is_some_and(|url| !safe_report_url(url))
+    {
+        return Err(ApiError::BadRequest(
+            "报告链接必须是 NodeQuality 官方 HTTPS 地址".into(),
+        ));
     }
     Ok(())
 }

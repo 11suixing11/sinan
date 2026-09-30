@@ -60,7 +60,7 @@ pub struct CommandOutput {
 
 pub trait Privileged: Send + Sync {
     fn execute<'a>(&'a self, program: &'a Path, args: &'a [String])
-        -> BoxFuture<'a, CommandOutput>;
+    -> BoxFuture<'a, CommandOutput>;
     fn create_dir<'a>(
         &'a self,
         path: &'a Path,

@@ -4,7 +4,7 @@ mod business_support;
 
 use anyhow::{Context, Result};
 use business_support::TestPanel;
-use reqwest::{header, StatusCode};
+use reqwest::{StatusCode, header};
 use sqlx::PgPool;
 
 #[sqlx::test(migrations = "./migrations")]
@@ -64,9 +64,11 @@ async fn embedded_frontend_serves_real_assets_without_masking_missing_endpoints(
             let bytes = response.bytes().await?;
             assert_eq!(bytes.len(), length);
             assert!(!bytes.is_empty());
-            assert!(!String::from_utf8_lossy(&bytes)
-                .to_ascii_lowercase()
-                .contains("<!doctype html>"));
+            assert!(
+                !String::from_utf8_lossy(&bytes)
+                    .to_ascii_lowercase()
+                    .contains("<!doctype html>")
+            );
             let head = panel.client.head(&url).send().await?.error_for_status()?;
             assert_eq!(head.headers()[header::CONTENT_TYPE], content_type);
             assert_eq!(head.headers()[header::CONTENT_LENGTH], length.to_string());
