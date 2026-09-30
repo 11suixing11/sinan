@@ -23,7 +23,7 @@ EXCEPTIONS = {
         r"\bUSER_RIGHTS\b",
     ),
     "src/system/deploy/native/unix.rs": (
-        r"/Users\b",
+        r'(?<=")/Users(?=/|")',
         r'"UserShell"',
         r"<key>UserName</key>",
     ),

@@ -41,6 +41,16 @@ class CoreBoundaryTests(unittest.TestCase):
     def test_api_names_and_existing_account_terms_do_not_match_business(self):
         self.assertFalse(boundary.violations("src/config.rs", "url.username(); account_name; usershow; useradd"))
 
+    def test_macos_account_path_exception_does_not_hide_business_routes(self):
+        relative = "src/system/deploy/native/unix.rs"
+        for source in ('"/Users".into()', 'format!("/Users/{name}")'):
+            with self.subTest(source=source):
+                self.assertFalse(boundary.violations(relative, source))
+        for source in ('let route = "/api/Users";', 'let path = "/proxy/Users/example";',
+                       'let path = format!("{root}/Users");', 'let path = "/Users/user_id";'):
+            with self.subTest(source=source):
+                self.assertTrue(boundary.violations(relative, source))
+
     def test_new_file_is_scanned_and_current_core_passes(self):
         self.assertTrue(boundary.check(SCRIPT.parents[1] / "crates/agent-core"))
         with tempfile.TemporaryDirectory() as directory:

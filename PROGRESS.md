@@ -421,4 +421,4 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - ADR 0023 固定服务器 core 与 sing-box 业务的所有权，明确管理员与代理用户命名、保留 ID/令牌/旧订阅路径/凭据/授权/流量、暂不改表名，以及网卡总流量与计量 epoch 的语义。用户追加授权的成本、账单网卡配额、周期拨测和插件用户配额覆盖原 MVP 对应排除项，仓库规则同步。
 - CI 分层检查继续禁止具体运行时名称，并新增 user/subscription/quota 及复数、蛇形、驼峰引用检查。原生账户和 SQLite 系统 API 仅有按文件、表达式限定的例外；同一行其他业务引用仍失败。原生本地变量和示例 URL 凭据改为 account，没有路由、模型、协议或持久化改变。
-- 独立验收文档为 docs/acceptance/proxy-business-boundary.md。当前 core 检查、5 项门禁行为测试、workspace 格式和差异空白检查通过；完整 Rust/Clippy 由本 PR CI 验证。业务搬迁与旧订阅的实机兼容验收属于后续独立 PR，本项未声称已完成搬迁。
+- 独立验收文档为 docs/acceptance/proxy-business-boundary.md。当前 core 检查、6 项门禁行为测试、workspace 格式和差异空白检查通过；完整 Rust/Clippy 由本 PR CI 验证。macOS 账户路径例外限定于以 `/Users` 开始的字符串，同文件的 `/api/Users` 业务路由仍被拒绝。业务搬迁与旧订阅的实机兼容验收属于后续独立 PR，本项未声称已完成搬迁。
