@@ -60,7 +60,6 @@ pub struct NodeQualityView {
     pub plugin_ready: bool,
     pub plugin_reason: Option<String>,
     pub reports: Vec<ReportRecord>,
-    pub proxy_activity: modes::ProxyActivity,
     pub cancel_supported: bool,
     pub proxy_activity: modes::ProxyActivity,
 }

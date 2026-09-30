@@ -24,7 +24,6 @@ const ACTIVE: &str = "diagnostics:active";
 const OUTBOX: &str = "diagnostics:outbox";
 const MAX_REPORT: usize = 512 * 1024;
 
-mod environment;
 pub mod cancellation;
 mod environment;
 mod monitoring;
