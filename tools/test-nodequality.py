@@ -529,7 +529,7 @@ set -uo pipefail
 chroot_run(){ :; }
 clear_mount(){ :; }
 post_check_mount(){ :; }
-sig_cleanup(){ post_cleanup; }
+sig_cleanup(){ trap '' INT TERM SIGHUP EXIT; post_cleanup; }
 main(){
 while [[ $# != 0 ]]; do
   case "$1" in -d) workspace=$2; shift 2 ;; -4|-6) ip=$1; shift ;; *) exit 5 ;; esac
@@ -539,6 +539,9 @@ printf '%s/%s/%s/%s/%s\\n' "$hardware" "$ip_test" "$network" "$trace" "${ip:-bot
 mkdir -p "$workspace/.nodequalityfixture/BenchOs/dev" "$workspace/.nodequalityfixture/BenchOs/sys" "$workspace/.nodequalityfixture/BenchOs/proc"
 work_dir=$workspace/.nodequalityfixture
 '''
+        if mode == "report":
+            # Match the pinned main's EXIT trap as well as its terminal branch.
+            fixture += "trap 'sig_cleanup' INT TERM SIGHUP EXIT\n"
         if mode in ("report", "success", "nonzero", "failed", "early-one", "signal-cleanup", "cleanup-refused"):
             self.fixture_archive = make_archive()
             encoded = base64.b64encode(self.fixture_archive).decode()
