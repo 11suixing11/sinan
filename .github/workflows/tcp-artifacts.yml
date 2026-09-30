@@ -78,7 +78,10 @@ jobs:
           apt-get install -y --no-install-recommends python3 minisign musl-tools build-essential
           rustup target add x86_64-unknown-linux-musl
       - name: Build and execute the pinned native tool in Debian 12
-        run: python3 tools/build-tcp-probe.py amd64 "$RUNNER_TEMP/tcp-artifacts" --source-commit "$TCP_SOURCE_COMMIT"
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git rev-parse --verify "$TCP_SOURCE_COMMIT^{commit}"
+          python3 tools/build-tcp-probe.py amd64 "$RUNNER_TEMP/tcp-artifacts" --source-commit "$TCP_SOURCE_COMMIT"
       - name: Verify all source, license and TEST_ONLY signature contracts
         env:
           SINAN_TCP_ARCH: amd64

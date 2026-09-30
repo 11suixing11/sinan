@@ -68,3 +68,5 @@ python3 tools/release.py assemble --source <制品根目录> --output <新输出
 - 最终证据、制品、build-info、日志、SHA256SUMS 与源码标记保存于受控构建机的 evidence/tcp-artifacts-final-5e843f0；原生 binary 与来自明确源500的 core测试 binary 单独保存于 binaries/tcp-artifacts-head。
 
 上述 workspace 全量来自明确的500源码，不替代后续 main 新增功能的验收；本后续 PR 的最新 GitHub 两架构及 Debian12 任务仍须按实际状态核对。没有正式签名/发布，没有执行外部探测或真实 systemd 诊断。所有签名夹具为 TEST_ONLY。
+
+首次后续CI（464f0ff）Ubuntu原生amd64/arm64制品均通过，新增Bookworm任务在构建前Git目录所有权检查返回128。checkout只设置临时HOME的safe.directory，后续容器步骤需对实际GITHUB_WORKSPACE设置精确例外；受限容器复现了dubious ownership，精确设置/workspace后同一固定对象解析通过。工作流只允许本任务检出的目录，不设置全局通配符、不跳过源码对象检查；补修后最新CI另行核对，永久工具源5e未变化。
