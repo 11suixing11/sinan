@@ -72,3 +72,9 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 - 上游 `release/DEFAULT_BUILD_TAGS` 包含 `with_naive_outbound`，保留全部标签的 Linux 构建需要 CGO/glibc 和上游 Chromium 工具链。固定 Linux/amd64 构建容器，交叉输出 amd64/arm64；只追加 `with_v2ray_api`，不追加 purego/musl 标签，不修改上游源码。只有 Agent 要求 musl 静态链接。
 - sing-box 固定 v1.14.2 及对应提交，使用上游指定 cronet 工具链版本；GPG keyring 使用临时私有目录，避免影响构建者的默认密钥环。归档仅包含一个可执行文件，固定归档元数据；同版本同架构产物不可覆盖，添加另一架构时保留并核验既有校验和。
 - 本机为 macOS 且无 Docker；本地已启动真实 PostgreSQL、面板和浏览器，并验证真实上游运行时 check/统计/HUP。Docker 部署和 Linux musl 构建通过 GitHub CI 验证，结果在最终报告单列；真实 Debian systemd、公网 Reality 客户端与网络条件仍需执行手工验收。
+
+## 后续调整：使用 Bun
+
+- 按用户要求，将前端依赖管理与脚本运行统一为 Bun 1.4.2；本地开发说明、Docker 前端构建阶段和 CI 固定同一版本。
+- 从已有依赖锁迁移到文本 `web/bun.lock`，验证后移除旧锁文件；自动构建使用 `bun install --frozen-lockfile`，不顺带更新前端依赖。
+- TypeScript、Vite 的开发、构建和预览脚本显式使用 Bun runtime，避免工具的 Node shebang 导致隐式回退；React、Vite 和 Rust 内嵌前端的结构保持原样。

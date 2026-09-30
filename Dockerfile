@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1
-FROM node:22-bookworm-slim AS web
+FROM oven/bun:1.4.2 AS web
 WORKDIR /src/web
-COPY web/package.json web/package-lock.json ./
-RUN npm ci
+COPY web/package.json web/bun.lock ./
+RUN bun install --frozen-lockfile
 COPY web/ ./
-RUN npm run build
+RUN bun run build
 
 FROM rust:1-bookworm AS builder
 WORKDIR /src

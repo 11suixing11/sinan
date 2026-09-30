@@ -194,7 +194,15 @@ MVP 不做自动更新。在面板发布与新面板版本一致的 Agent 制品
 
 ## 本地开发与测试
 
-需要 Rust stable、PostgreSQL 16。仓库提交了 `web/dist`，不修改前端时可直接编译面板；修改前端时需要 Node.js 22.12+ 与 npm，并同步构建产物。
+需要 Rust stable、PostgreSQL 16。仓库提交了 `web/dist`，不修改前端时可直接编译面板；修改前端时使用固定版本 **Bun 1.4.2** 管理依赖和运行构建，并同步构建产物。CI 与 Docker 前端构建使用相同版本。
+
+尚未安装 Bun 时，按[官方安装说明](https://bun.com/docs/installation)安装指定版本，并确认当前终端可调用：
+
+```bash
+curl -fsSL https://bun.com/install | bash -s "bun-v1.4.2"
+export PATH="$HOME/.bun/bin:$PATH"
+bun --version  # Must report 1.4.2.
+```
 
 如果不使用 Compose 面板，可以单独启动一个开发数据库。在前面的 `.env` 已生成、且没有占用 5432 端口的环境中运行：
 
@@ -224,10 +232,10 @@ cargo run --locked -p sinan-panel
 
 ```bash
 cd web
-npm ci
-npm run dev
+bun install --frozen-lockfile
+bun run dev
 # After editing the frontend:
-npm run build
+bun run build
 ```
 
 提交前运行：
@@ -237,7 +245,7 @@ npm run build
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
-(cd web && npm ci && npm run build)
+(cd web && bun install --frozen-lockfile && bun run build)
 git diff --exit-code -- web/dist
 ```
 
