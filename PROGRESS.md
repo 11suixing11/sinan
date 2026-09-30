@@ -672,6 +672,7 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 包内二进制 + build-info、许可证、完整源码归档、锁文件和第三方原文使用现有 release/minisign 精确签名契约；release 显式选入第四模块，旧三模块默认不变。
 - SDK 默认空辅助文件声明由 core 同时用于签名前检查与下载，含五文件实际安装/缓存篡改/启动前再校验回归；不登记 TCP 插件或修改 UI。
 - Python TCP 来源/签名/许可 11 项、旧 Release 32 项、build-script 5 项通过；实际锁定原文库存 35 包 / 2,006,844 bytes。Rust 与真实 musl 和双架构 CI 尚待完成，正式 release 未发布。独立验收见 docs/acceptance/native-tcp-artifacts.md，决策见 ADR 0032。
+- 最终正常保留最新作者 `bf56d5e` 与正式主线 `fb79388`，源码基线 `644e785`。多余aux读取删除且准备阶段集合保持一致，五辅助文件下载/缓存篡改/签名前及启动前拒绝与旧适配器兼容保留；显式选入TCP时严格要求双架构及旧三模块完整。独占槽Rust专项90通过/0失败/0忽略（制品14、release6、wire12、诊断/取消/预算/来源40、SDK1、TCP17），workspace全targets Clippy、fmt、core门禁/六项行为、actionlint及差异检查通过。Python最新契约12与模拟发布22项通过，无真实发布。#70的11个前端/门禁哈希原样保留，含暂停完整入口与 `index-OopWuqxH.js`、中性活动桥/r5；未重复无交集浏览器、PG或完整workspace。本机没有Linuxmusl构建、真实systemd、生产节点或正式Release，最终CI继续独立核对。详见 [制品最终验收](docs/acceptance/native-tcp-artifacts.md)。
 ## 2026-10-01：共用诊断任务服务（Issue #27）
 
 将 NodeQuality 的参数、工具版本和报告规则移到登记插件，创建/能力/签名制品/预算/互斥/结果/历史改为共用服务，保留原 API 和原任务历史。协议新增可空预算，Agent 只收紧既有适配器上限；新任务要求能力握手。新增路由竞争、跨插件互斥、历史/部分报告与预算权限夹具。
