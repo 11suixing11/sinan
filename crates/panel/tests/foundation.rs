@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use sinan_panel::{AppState, config::Config, router};
 use sinan_protocol::{
     AuthChallenge, AuthResponse, EnrollRequest, EnrollResponse, Envelope, Hello, HelloAck,
-    Manifest, PROTOCOL_VERSION, StaticInfo,
+    Manifest, PROTOCOL_VERSION, StaticInfo, now_timestamp,
 };
 use sqlx::PgPool;
 use std::{collections::BTreeMap, path::PathBuf, time::Duration};
@@ -593,11 +593,24 @@ async fn websocket_challenges_are_connection_bound_and_sessions_expire(pool: PgP
     .await?;
     expect_rejected(&mut unknown).await?;
 
+    let auth_started_at = now_timestamp();
     send_envelope(&mut first, Envelope::new("auth.response", response)?).await?;
     let ack = receive_envelope(&mut first).await?;
+    let ack_received_at = now_timestamp();
     assert_eq!(ack.message_type, "hello.ack");
     let ack: HelloAck = ack.to_payload()?;
-    assert_eq!(ack.session_expires_at - ack.server_time, 3600);
+    // Session issuance and the acknowledgement can legitimately cross a second.
+    let issued_at = ack.session_expires_at - 3600;
+    assert!((auth_started_at..=ack_received_at).contains(&issued_at));
+    assert!((issued_at..=ack_received_at).contains(&ack.server_time));
+    let stored_expiry: i64 = sqlx::query_scalar(
+        "SELECT expires_at FROM sessions WHERE token_hash = $1 AND server_id = $2",
+    )
+    .bind(sinan_panel::auth::hash_token(&ack.session_token))
+    .bind(server_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(ack.session_expires_at, stored_expiry);
     assert_eq!(
         panel
             .client
