@@ -27,8 +27,14 @@ async fn saved_preparing_full_is_refused_after_upgrade_without_starting_a_servic
         enrollment["token"].as_str().context("enrollment token")?,
     )
     .await?;
-    let artifact =
-        sinan_panel::artifacts::descriptor(&harness.state, "nodequality", VERSION, "amd64").await?;
+    // A resumed Preparing task verifies the signed host architecture before adapter preparation.
+    let artifact = sinan_panel::artifacts::descriptor(
+        &harness.state,
+        "nodequality",
+        VERSION,
+        sinan_protocol::release::native_arch()?,
+    )
+    .await?;
     let now = sinan_protocol::now_timestamp();
     let job = sinan_protocol::DiagnosticJob {
         id: uuid::Uuid::new_v4(),

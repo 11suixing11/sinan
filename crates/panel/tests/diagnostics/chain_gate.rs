@@ -122,6 +122,41 @@ async fn queued_full_is_failed_without_finalizing_a_device_or_blocking_daily(
         assert!(row.1.contains("离线受控工具链"));
         assert!(!row.2);
     }
+    // A device may have collected a registered chapter before its queued panel row was gated.
+    sqlx::query(
+        "UPDATE diagnostic_jobs SET expected_sections=ARRAY['hardware_quality'] WHERE id=$1",
+    )
+    .bind(ids[1])
+    .execute(&panel.state.pool)
+    .await?;
+    let late_chapter = json!({
+        "id": ids[1], "name": "hardware_quality", "text": "门禁前保存，断连后补报的硬件章节",
+        "complete": true, "revision": 1, "collected_at": sinan_protocol::now_timestamp(),
+    });
+    assert_eq!(
+        panel
+            .client
+            .post(format!(
+                "{}/api/agent/v1/diagnostics/{}/sections",
+                panel.base, ids[1]
+            ))
+            .bearer_auth(&ack.session_token)
+            .json(&late_chapter)
+            .send()
+            .await?
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    let preserved: (String, String, bool, String) = sqlx::query_as(
+        "SELECT status,error,agent_completed,report_completeness FROM diagnostic_jobs WHERE id=$1",
+    )
+    .bind(ids[1])
+    .fetch_one(&panel.state.pool)
+    .await?;
+    assert_eq!(preserved.0, "failed");
+    assert!(preserved.1.contains("离线受控工具链"));
+    assert!(!preserved.2);
+    assert_eq!(preserved.3, "complete");
     // A queued panel state can lag a device's durable Started checkpoint.
     let id = ids[0].to_string();
     assert_eq!(
