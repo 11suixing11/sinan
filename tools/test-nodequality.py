@@ -2,6 +2,7 @@
 """Verify capture, upload failure and report boundaries without running tests."""
 
 import base64
+import json
 import hashlib
 import importlib.util
 import io
@@ -137,6 +138,88 @@ class ReportTests(unittest.TestCase):
             self.assertEqual((root / "upload-status.txt").read_text(), "403")
 
 
+class ChapterTests(unittest.TestCase):
+    def test_missing_chapter_preserves_the_other_four(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "upload.base64").write_bytes(base64.encodebytes(make_archive(missing="net_quality")))
+            with self.assertRaises(ValueError):
+                report.render(root)
+            self.assertFalse((root / "result.txt").exists())
+            chapters = list(root.glob("section-*.json"))
+            self.assertEqual(len(chapters), 4)
+            self.assertTrue(all(json.loads(path.read_text())["complete"] for path in chapters))
+            self.assertIn("Actual ip_quality report", json.loads((root / "section-ip_quality.json").read_text())["text"])
+
+    def test_running_snapshots_survive_stop_and_monotonically_resume(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            live = root / ".nodequalityfixture/BenchOs/result"
+            live.mkdir(parents=True)
+            (live / "header_info.log").write_text("real header")
+            (live / "hardware_quality.log").write_text("hardware progress")
+            report.snapshot(root)
+            header = json.loads((root / "section-header_info.json").read_text())
+            hardware = json.loads((root / "section-hardware_quality.json").read_text())
+            self.assertTrue(header["complete"])
+            self.assertFalse(hardware["complete"])
+            self.assertEqual(hardware["revision"], 1)
+            report.snapshot(root)
+            self.assertEqual(json.loads((root / "section-hardware_quality.json").read_text())["revision"], 1)
+            (live / "hardware_quality.json").write_text('{"actual":true}')
+            (live / "ip_quality.log").write_text("next stage")
+            report.snapshot(root)
+            hardware = json.loads((root / "section-hardware_quality.json").read_text())
+            self.assertTrue(hardware["complete"])
+            self.assertEqual(hardware["revision"], 2)
+            for path in live.iterdir():
+                path.unlink()
+            report.snapshot(root)
+            self.assertEqual(json.loads((root / "section-hardware_quality.json").read_text()), hardware)
+
+    def test_invalid_json_leaves_a_readable_incomplete_chapter(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            live = root / ".nodequalityfixture/BenchOs/result"
+            live.mkdir(parents=True)
+            (live / "ip_quality.log").write_text("partial IP output")
+            (live / "ip_quality.json").write_text('{"unfinished":')
+            (live / "net_quality.log").write_text("next stage")
+            report.snapshot(root)
+            chapter = json.loads((root / "section-ip_quality.json").read_text())
+            self.assertFalse(chapter["complete"])
+            self.assertIn("partial IP", chapter["text"])
+
+    def test_live_paths_do_not_follow_symlinks_or_oversize_files(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as outside:
+            root = pathlib.Path(directory)
+            secret = pathlib.Path(outside)
+            (secret / "header_info.log").write_text("private")
+            live = root / ".nodequalityfixture/BenchOs/result"
+            live.parent.mkdir(parents=True)
+            live.symlink_to(secret, target_is_directory=True)
+            report.snapshot(root)
+            self.assertEqual(list(root.glob("section-*.json")), [])
+            live.unlink()
+            live.mkdir()
+            (live / "header_info.log").symlink_to(secret / "header_info.log")
+            (live / "hardware_quality.log").write_bytes(b"x" * (8 * 1024 * 1024 + 1))
+            report.snapshot(root)
+            self.assertEqual(list(root.glob("section-*.json")), [])
+
+    def test_section_preview_is_bounded_without_destroying_the_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            data = make_archive(large=True)
+            (root / "upload.base64").write_bytes(base64.encodebytes(data))
+            report.render(root)
+            self.assertEqual((root / "report.zip").read_bytes(), data)
+            for path in root.glob("section-*.json"):
+                chapter = json.loads(path.read_text())
+                self.assertLessEqual(len(chapter["text"].encode()), report.MAX_SECTION)
+                self.assertTrue(chapter["complete"])
+
+
 class UploadPolicyTests(unittest.TestCase):
     def test_upload_never_calls_the_service_without_explicit_true(self):
         for option in (None, "false", "true", "yes"):
@@ -172,7 +255,7 @@ sys.stdout.write("https://nodequality.com/r/fixture\\nSINAN_RESPONSE_STATUS:200"
 class BuildTests(unittest.TestCase):
     def test_repeated_build_refuses_to_modify_the_existing_artifact_and_checksum(self):
         with tempfile.TemporaryDirectory() as directory:
-            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2"
+            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3"
             root = pathlib.Path(directory) / "nodequality" / version
             root.mkdir(parents=True)
             artifact = root / "amd64"
@@ -229,7 +312,7 @@ class BuildTests(unittest.TestCase):
             subprocess.run(["bash", "-n", str(script)], check=True)
         result = subprocess.run(["bash", str(PLUGIN / "runner.sh.tmpl"), "--version"],
                                 capture_output=True, text=True, check=True)
-        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2")
+        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3")
 
     def test_existing_architecture_checksums_are_not_replaced(self):
         script = (PLUGIN.parents[1] / "tools/build-nodequality.sh").read_text()

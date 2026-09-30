@@ -291,7 +291,7 @@ async fn stalled_panel_request_does_not_delay_five_second_memory_protection() ->
     tokio::time::timeout(Duration::from_secs(2), request).await??;
     low_memory(&ops);
     tokio::time::timeout(Duration::from_secs(7), async {
-        while services.stops.load(Ordering::Relaxed) == 0 {
+        while services.stops.load(Ordering::Relaxed) == 0 || worker.active()?.is_some() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })

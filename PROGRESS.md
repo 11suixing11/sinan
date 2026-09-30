@@ -474,3 +474,9 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 在447MiB专用Debian12节点，用主线541f52d的签名测试Agent提交一次硬件启用、IPv4、低网络流量、关闭上传的完整NodeQuality入口，同步采集cgtop/内核OOM/磁盘/设备状态与面板时间。
 - 已复现globalOOM：被杀Geekbench属于诊断单元，anon-rss275192KiB、oom_score_adj500；诊断Result=oom-kill，最终failed且无完整报告。Agent子进程/监督进程和sing-box PID均保留，NRestarts0。SSH恢复后停止诊断，cgroup进程与相关挂载为空。
 - 旧API没有专用心跳/指标时间显示，last_seen是“最后消息”；私有DB只读指标时间的最大采样跳跃319.014秒，测试SSH隧道也中断，因此不把此值等同纯心跳中断或停止采集时长。独立验收见docs/acceptance/nodequality-oom-baseline.md；原始证据不进Git，未宣称P0整体验收通过。
+
+## 2026-10-01：诊断章节独立持久化（独立 PR）
+
+- 独立章节表和完整度字段与执行状态分开；保留原整份文本及 r2 历史/恢复。NodeQuality r3 包装器每阶段原子保存章节，缺一章仍可读其他已存部分。
+- Agent 离线观察也写 SQLite 章节 outbox，重启继续上传；HTTP 503 不阻止终态回报，版本和设备范围校验避免迟到覆盖。界面分别显示执行状态、完整度、每章预览/完成及缺失章节。
+- Python 25 项首轮 20 通过、5 项既有 Linux/root 夹具忽略；本机 fmt、分层检查、差异检查和 TypeScript/Vite 构建通过。远端 Clippy、完整 Rust/PG、Linux 夹具和实际浏览器验收待完成，尚未声称整体验收完成。独立步骤见 [章节保存验收](docs/acceptance/diagnostic-report-sections.md)。
