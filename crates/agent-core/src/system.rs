@@ -1,25 +1,32 @@
+mod archive;
+mod execution;
+mod openrc_jobs;
+pub use openrc_jobs::run_job;
+pub mod deploy;
 mod jobs;
 mod publication;
 
 pub use sinan_adapter_sdk::{Privileged, ServiceManager};
 
+mod services;
+#[cfg(test)]
+use services::parse_runtime_active;
+pub use services::{ServiceBackend, SystemServiceManager};
+
 use crate::artifacts::safe_component;
 use anyhow::{Context, Result, ensure};
-use flate2::read::MultiGzDecoder;
 use sinan_adapter_sdk::{BoxFuture, CommandOutput, JobStatus, ServiceJob};
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::Write,
     os::unix::fs::{OpenOptionsExt, PermissionsExt, symlink},
     path::Path,
-    sync::Arc,
     time::Duration,
 };
 use tokio::{process::Command, time::timeout};
 use uuid::Uuid;
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
-const MAX_UNPACKED: u64 = 256 * 1024 * 1024;
 
 #[derive(Default)]
 pub struct SystemOps;
@@ -93,6 +100,22 @@ impl SystemOps {
 }
 
 impl Privileged for SystemOps {
+    fn spawn_managed<'a>(
+        &'a self,
+        program: &'a Path,
+        args: &'a [String],
+    ) -> BoxFuture<'a, Box<dyn sinan_adapter_sdk::ManagedProcess>> {
+        Box::pin(async move { execution::spawn(program, args) })
+    }
+    fn execute_bounded<'a>(
+        &'a self,
+        program: &'a Path,
+        args: &'a [String],
+        seconds: u32,
+        maximum: usize,
+    ) -> BoxFuture<'a, sinan_adapter_sdk::Execution> {
+        Box::pin(execution::execute(program, args, seconds, maximum))
+    }
     fn execute<'a>(
         &'a self,
         program: &'a Path,
@@ -109,10 +132,10 @@ impl Privileged for SystemOps {
             }
             #[cfg(not(target_os = "linux"))]
             ensure!(
-                program
-                    .file_name()
-                    .is_none_or(|name| name != "systemctl" && name != "systemd-run"),
-                "systemd operations require Linux"
+                program.file_name().is_none_or(|name| {
+                    name != "systemctl" && name != "rc-service" && name != "systemd-run"
+                }),
+                "service management requires Linux"
             );
             let output = timeout(
                 COMMAND_TIMEOUT,
@@ -221,6 +244,16 @@ impl Privileged for SystemOps {
         })
     }
 
+    fn remove_path<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let metadata = match fs::symlink_metadata(path) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(error) => return Err(error.into()),
+            };
+            remove_managed(path, metadata.is_dir())
+        })
+    }
     fn remove_file<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, ()> {
         Box::pin(async move { remove_managed(path, false) })
     }
@@ -237,207 +270,33 @@ impl Privileged for SystemOps {
             let archive = archive.to_owned();
             let directory = directory.to_owned();
             let binary_name = binary_name.to_owned();
-            tokio::task::spawn_blocking(move || install_archive(&archive, &directory, &binary_name))
-                .await?
+            tokio::task::spawn_blocking(move || {
+                archive::install(&archive, &directory, &binary_name, &[])
+            })
+            .await?
         })
     }
-}
-
-fn install_archive(archive: &Path, directory: &Path, binary_name: &str) -> Result<()> {
-    ensure!(safe_component(binary_name), "invalid binary name");
-    ensure!(
-        fs::symlink_metadata(directory).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound),
-        "artifact version already exists"
-    );
-    let parent = parent_directory(directory)?;
-    ensure_directory(parent)?;
-    let staging = parent.join(format!(".unpack-{}", Uuid::new_v4()));
-    fs::create_dir(&staging)?;
-    fs::set_permissions(&staging, fs::Permissions::from_mode(0o700))?;
-    let result = (|| -> Result<()> {
-        let decoder = MultiGzDecoder::new(File::open(archive)?).take(MAX_UNPACKED + 1);
-        let mut archive = tar::Archive::new(decoder);
-        let mut found = false;
-        for entry in archive.entries()?.raw(true) {
-            let mut entry = entry?;
-            ensure!(!found, "archive must contain exactly one file");
-            ensure!(
-                entry.header().entry_type().is_file(),
-                "archive contains a non-ordinary file"
-            );
-            ensure!(
-                entry.path_bytes().as_ref() == binary_name.as_bytes(),
-                "archive file name does not match expected binary"
-            );
-            ensure!(
-                entry.size() <= MAX_UNPACKED,
-                "artifact exceeds unpacked size limit"
-            );
-            let output = staging.join(binary_name);
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o700)
-                .open(output)?;
-            let size = entry.size();
-            ensure!(
-                std::io::copy(&mut entry, &mut file)? == size,
-                "archive file was truncated"
-            );
-            file.set_permissions(fs::Permissions::from_mode(0o755))?;
-            file.sync_all()?;
-            found = true;
-        }
-        ensure!(found, "archive does not contain the expected binary");
-        let mut decoder = archive.into_inner();
-        let mut tail = [0_u8; 8192];
-        loop {
-            let count = decoder.read(&mut tail)?;
-            if count == 0 {
-                break;
-            }
-            ensure!(
-                tail[..count].iter().all(|byte| *byte == 0),
-                "archive contains trailing data"
-            );
-        }
-        ensure!(decoder.limit() > 0, "artifact exceeds unpacked size limit");
-        fs::set_permissions(&staging, fs::Permissions::from_mode(0o755))?;
-        sync_directory(&staging)?;
-        ensure!(
-            fs::symlink_metadata(directory)
-                .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound),
-            "artifact version appeared during installation"
-        );
-        fs::rename(&staging, directory)?;
-        sync_directory(parent)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_dir_all(staging);
-    }
-    result
-}
-
-pub struct SystemServiceManager {
-    privileged: Arc<dyn Privileged>,
-}
-
-impl SystemServiceManager {
-    pub fn new(privileged: Arc<dyn Privileged>) -> Self {
-        Self { privileged }
-    }
-
-    async fn call(
-        &self,
-        action: &str,
-        unit: &str,
-        properties: Option<&str>,
-    ) -> Result<CommandOutput> {
-        ensure!(
-            !unit.is_empty()
-                && !unit.starts_with('-')
-                && unit.len() <= 255
-                && unit
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'@')),
-            "invalid service unit"
-        );
-        let mut args = vec![action.to_owned()];
-        if let Some(properties) = properties {
-            args.push(format!("--property={properties}"));
-        }
-        args.extend(["--".into(), unit.to_owned()]);
-        timeout(
-            COMMAND_TIMEOUT,
-            self.privileged.execute(Path::new("systemctl"), &args),
-        )
-        .await
-        .context("service operation timed out")?
-    }
-
-    async fn change(&self, action: &str, unit: &str) -> Result<()> {
-        let output = self.call(action, unit, None).await?;
-        ensure!(
-            output.success,
-            "service operation failed: {}",
-            output.stderr
-        );
-        Ok(())
-    }
-}
-
-impl ServiceManager for SystemServiceManager {
-    fn reload<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(self.change("reload", unit))
-    }
-    fn restart<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(self.change("restart", unit))
-    }
-    fn stop<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(self.change("stop", unit))
-    }
-    fn is_active<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, bool> {
+    fn install_archive_files<'a>(
+        &'a self,
+        path: &'a Path,
+        directory: &'a Path,
+        binary_name: &'a str,
+        extras: &'a [String],
+    ) -> BoxFuture<'a, ()> {
         Box::pin(async move {
-            let output = self
-                .call(
-                    "show",
-                    unit,
-                    Some("LoadState,ActiveState,MainPID,ControlPID"),
-                )
-                .await?;
-            parse_runtime_active(&output)
+            let (path, directory, binary_name, extras) = (
+                path.to_owned(),
+                directory.to_owned(),
+                binary_name.to_owned(),
+                extras.to_vec(),
+            );
+            tokio::task::spawn_blocking(move || {
+                archive::install(&path, &directory, &binary_name, &extras)
+            })
+            .await?
         })
     }
-    fn start_job<'a>(&'a self, job: &'a ServiceJob) -> BoxFuture<'a, ()> {
-        self.start_diagnostic_job(job)
-    }
-    fn job_status<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, JobStatus> {
-        self.diagnostic_job_status(unit)
-    }
 }
-
-fn parse_runtime_active(output: &CommandOutput) -> Result<bool> {
-    ensure!(
-        output.success,
-        "runtime service status query failed: {}",
-        output.stderr
-    );
-    let properties: std::collections::BTreeMap<_, _> = output
-        .stdout
-        .lines()
-        .filter_map(|line| line.split_once('='))
-        .collect();
-    let pid = |name| -> Result<u32> {
-        properties
-            .get(name)
-            .with_context(|| format!("service status is missing {name}"))?
-            .parse()
-            .with_context(|| format!("service status has invalid {name}"))
-    };
-    let load = properties.get("LoadState").copied();
-    // A never-installed runtime is safe only when systemd explicitly reports
-    // the missing unit and confirms that no main or control process exists.
-    if load == Some("not-found") {
-        ensure!(
-            properties.get("ActiveState") == Some(&"inactive")
-                && pid("MainPID")? == 0
-                && pid("ControlPID")? == 0,
-            "missing runtime service still has unknown or active processes"
-        );
-        return Ok(false);
-    }
-    ensure!(
-        matches!(load, Some("loaded" | "masked")),
-        "runtime service load state is unknown"
-    );
-    let running = pid("MainPID")? != 0 || pid("ControlPID")? != 0;
-    match properties.get("ActiveState").copied() {
-        Some("active" | "activating" | "deactivating" | "reloading") => Ok(true),
-        Some("inactive" | "failed") => Ok(running),
-        _ => anyhow::bail!("runtime service active state is unknown"),
-    }
-}
-
 fn remove_managed(path: &Path, directory: bool) -> Result<()> {
     ensure!(
         path.is_absolute(),

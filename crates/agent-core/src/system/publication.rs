@@ -40,23 +40,48 @@ pub(super) fn validate(args: &[String]) -> Result<()> {
 
 #[cfg(not(target_os = "linux"))]
 pub(super) async fn simulate(args: &[String]) -> Result<CommandOutput> {
-    // Portable filesystem tests do not certify GNU mv or a non-Linux Agent lifecycle.
+    // All native publications cooperate through an exclusive sibling lock.
+    // This also prevents Unix rename from replacing a concurrently created
+    // empty version directory in another Agent installation.
     let source = PathBuf::from(&args[3]);
     let destination = PathBuf::from(&args[4]);
     tokio::task::spawn_blocking(move || -> Result<CommandOutput> {
-        ensure!(
-            fs::symlink_metadata(&destination)
-                .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound),
-            "artifact destination already exists"
-        );
-        fs::rename(&source, &destination)?;
-        sync_directory(&destination)?;
-        sync_directory(parent_directory(&destination)?)?;
-        Ok(CommandOutput {
-            success: true,
-            stdout: String::new(),
-            stderr: String::new(),
-        })
+        let parent = parent_directory(&destination)?;
+        let lock = parent.join(format!(
+            ".publish-{}.lock",
+            destination
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| anyhow::anyhow!("invalid artifact destination"))?
+        ));
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let guard = options
+            .open(&lock)
+            .map_err(|error| anyhow::anyhow!("cannot lock artifact publication: {error}"))?;
+        let result = (|| -> Result<CommandOutput> {
+            ensure!(
+                fs::symlink_metadata(&destination)
+                    .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound),
+                "artifact destination already exists"
+            );
+            fs::rename(&source, &destination)?;
+            sync_directory(&destination)?;
+            sync_directory(parent_directory(&destination)?)?;
+            Ok(CommandOutput {
+                success: true,
+                stdout: String::new(),
+                stderr: String::new(),
+            })
+        })();
+        drop(guard);
+        fs::remove_file(&lock)?;
+        result
     })
     .await?
 }

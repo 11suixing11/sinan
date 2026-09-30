@@ -15,6 +15,8 @@ pub struct Descriptor {
     pub module: String,
     pub plugin_name: String,
     pub binary_name: String,
+    #[serde(default)]
+    pub auxiliary_files: Vec<String>,
     pub service_unit: String,
     pub service_group: String,
 }
@@ -58,9 +60,56 @@ pub struct CommandOutput {
     pub stderr: String,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Execution {
+    pub output: CommandOutput,
+    pub timed_out: bool,
+    pub truncated: bool,
+}
+
+pub trait ManagedProcess: Send {
+    fn id(&self) -> u32;
+    fn try_wait(&mut self) -> anyhow::Result<Option<bool>>;
+    fn exit_code(&self) -> Option<i32> {
+        None
+    }
+    fn terminate(&mut self) -> BoxFuture<'_, ()>;
+}
+
 pub trait Privileged: Send + Sync {
+    fn spawn_managed<'a>(
+        &'a self,
+        _program: &'a Path,
+        _args: &'a [String],
+    ) -> BoxFuture<'a, Box<dyn ManagedProcess>> {
+        Box::pin(async { anyhow::bail!("managed process spawning is not supported") })
+    }
     fn execute<'a>(&'a self, program: &'a Path, args: &'a [String])
     -> BoxFuture<'a, CommandOutput>;
+    fn execute_bounded<'a>(
+        &'a self,
+        program: &'a Path,
+        args: &'a [String],
+        _timeout_secs: u32,
+        maximum: usize,
+    ) -> BoxFuture<'a, Execution> {
+        Box::pin(async move {
+            let mut output = self.execute(program, args).await?;
+            let truncated = output.stdout.len() > maximum || output.stderr.len() > maximum;
+            for value in [&mut output.stdout, &mut output.stderr] {
+                let mut limit = value.len().min(maximum);
+                while !value.is_char_boundary(limit) {
+                    limit -= 1;
+                }
+                value.truncate(limit);
+            }
+            Ok(Execution {
+                output,
+                timed_out: false,
+                truncated,
+            })
+        })
+    }
     fn create_dir<'a>(
         &'a self,
         path: &'a Path,
@@ -82,12 +131,79 @@ pub trait Privileged: Send + Sync {
     fn remove_managed_directory<'a>(&'a self, _path: &'a Path) -> BoxFuture<'a, ()> {
         Box::pin(async { anyhow::bail!("managed directory removal is not supported") })
     }
+    /// Remove an ordinary temporary artifact path after publication or failure.
+    fn remove_path<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let output = self
+                .execute(
+                    Path::new("rm"),
+                    &[
+                        "-rf".into(),
+                        "--".into(),
+                        path.to_string_lossy().into_owned(),
+                    ],
+                )
+                .await?;
+            anyhow::ensure!(
+                output.success,
+                "temporary artifact cleanup failed: {}",
+                output.stderr
+            );
+            Ok(())
+        })
+    }
+    /// Publish a verified sibling staging directory without replacing a version.
+    fn publish_directory<'a>(
+        &'a self,
+        source: &'a Path,
+        destination: &'a Path,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let output = self
+                .execute(
+                    Path::new("/bin/mv"),
+                    &[
+                        "--no-clobber".into(),
+                        "--no-target-directory".into(),
+                        "--".into(),
+                        source.to_string_lossy().into_owned(),
+                        destination.to_string_lossy().into_owned(),
+                    ],
+                )
+                .await?;
+            anyhow::ensure!(
+                output.success,
+                "artifact publication failed: {}",
+                output.stderr
+            );
+            anyhow::ensure!(
+                !source.try_exists()?,
+                "artifact version appeared during publication"
+            );
+            Ok(())
+        })
+    }
     fn install_archive<'a>(
         &'a self,
         archive: &'a Path,
         directory: &'a Path,
         binary_name: &'a str,
     ) -> BoxFuture<'a, ()>;
+    fn install_archive_files<'a>(
+        &'a self,
+        archive: &'a Path,
+        directory: &'a Path,
+        binary_name: &'a str,
+        auxiliary_files: &'a [String],
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            anyhow::ensure!(
+                auxiliary_files.is_empty(),
+                "additional artifact files are not supported"
+            );
+            self.install_archive(archive, directory, binary_name).await
+        })
+    }
 }
 
 pub trait ServiceManager: Send + Sync {
@@ -128,7 +244,8 @@ pub struct ServiceJob {
     pub timeout_secs: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum JobStatus {
     Missing,
     Running,

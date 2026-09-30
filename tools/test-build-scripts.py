@@ -2,10 +2,12 @@
 """Exercise artifact guards without requiring a Linux compiler toolchain."""
 
 import hashlib
+import os
 import pathlib
 import runpy
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -15,6 +17,26 @@ NATIVE_AGENT = runpy.run_path(str(TOOLS / "build-agent.py"))
 
 
 class BuildScriptTests(unittest.TestCase):
+    def test_prebuilt_agent_rejects_invalid_architecture_without_rust(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            binary = root / "agent"
+            binary.write_bytes(b"not an executable")
+            for target in NATIVE_AGENT["TARGETS"]:
+                with self.subTest(target=target):
+                    artifact_root = root / target
+                    result = subprocess.run(
+                        [sys.executable, str(TOOLS / "build-agent.py"), target,
+                         str(artifact_root), "--binary", str(binary)],
+                        capture_output=True, text=True,
+                        env={**os.environ, "PATH": str(root)},
+                        timeout=30,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("ValueError", result.stderr)
+                    self.assertNotIn("FileNotFoundError", result.stderr)
+                    self.assertFalse(artifact_root.exists())
+
     def test_native_agent_rejects_wrong_binary_architecture(self):
         verify = NATIVE_AGENT["verify_architecture"]
         with tempfile.TemporaryDirectory() as directory:

@@ -76,11 +76,11 @@ if manifest.is_symlink() or (manifest.exists() and not manifest.is_file()):
     raise SystemExit("SHA256SUMS must be an ordinary file")
 if manifest.exists():
     for line in manifest.read_text().splitlines():
-        match = re.fullmatch(r"([0-9a-fA-F]{64}) [ *](amd64|arm64)", line)
+        match = re.fullmatch(r"([0-9a-fA-F]{64}) [ *](amd64|arm64|linux-(?:gnu|musl)-(?:amd64|arm64)|macos-arm64|(?:windows|freebsd)-(?:amd64|arm64))", line)
         if not match or match[2] in expected:
             raise SystemExit("invalid or duplicate SHA256SUMS entry")
         expected[match[2]] = match[1].lower()
-for arch in ("amd64", "arm64"):
+for arch in ("amd64", "arm64", "linux-musl-amd64", "linux-musl-arm64", "linux-gnu-amd64", "linux-gnu-arm64", "macos-arm64", "windows-amd64", "windows-arm64", "freebsd-amd64", "freebsd-arm64"):
     artifact = root / arch
     if artifact.is_symlink() or (artifact.exists() and not artifact.is_file()):
         raise SystemExit(f"{arch} must be an ordinary file")
@@ -114,20 +114,17 @@ dynamic_entries=$(readelf -dW "$binary")
 [[ $program_headers != *INTERP* && $dynamic_entries != *NEEDED* ]] || die 'Agent is not statically linked'
 [[ $(timeout 30 "$binary" --version) == "sinan-agent $version" ]] || die 'Agent version verification failed'
 timeout 30 "$binary" --help
-stage_file=$(mktemp "$output/.$arch.XXXXXX")
-cp -- "$binary" "$stage_file"
-chmod 0755 "$stage_file"
-ln -- "$stage_file" "$output/$arch"
-output_created=1
-sums_file=$(mktemp "$output/.SHA256SUMS.XXXXXX")
-(
-  cd "$output"
-  for candidate in amd64 arm64; do
-    if [[ -f $candidate ]]; then sha256sum "$candidate"; fi
-  done
-) > "$sums_file"
-chmod 0644 "$sums_file"
-mv -T -- "$sums_file" "$output/SHA256SUMS"
+python3 - "$repo/tools" "$output" "$arch" "$binary" <<'PY_PUBLISH'
+import pathlib
+import sys
+sys.path.insert(0, sys.argv[1])
+from artifact_manifest import publish
+root, arch, binary = pathlib.Path(sys.argv[2]), sys.argv[3], pathlib.Path(sys.argv[4])
+publish(root, arch, binary.read_bytes())
+publish(root, f"linux-musl-{arch}", binary.read_bytes())
+(root / arch).chmod(0o755)
+(root / f"linux-musl-{arch}").chmod(0o755)
+PY_PUBLISH
 committed=1
 printf 'Artifact: %s/%s\n' "$output" "$arch"
 cat "$output/SHA256SUMS"

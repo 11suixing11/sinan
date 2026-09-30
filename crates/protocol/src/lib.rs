@@ -1,5 +1,15 @@
 #![forbid(unsafe_code)]
 
+pub mod platform;
+pub mod tasks;
+pub mod upgrade;
+pub use upgrade::{AgentRelease, release_version};
+pub mod telemetry;
+pub use tasks::*;
+pub use telemetry::{
+    AgentSettings, DiskMetrics, GpuMetrics, TelemetryAck, TelemetryBatch, TelemetrySample,
+};
+
 mod diagnostics;
 mod retirement;
 pub use diagnostics::*;
@@ -175,6 +185,10 @@ pub struct Heartbeat {
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StaticInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub os: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub libc: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ip_addresses: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -205,6 +219,16 @@ pub struct StaticInfo {
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Metrics {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swap_used: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swap_total: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub processes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disks: Vec<DiskMetrics>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gpus: Vec<GpuMetrics>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_percent: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

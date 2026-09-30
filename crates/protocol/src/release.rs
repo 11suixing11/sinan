@@ -45,6 +45,15 @@ pub struct ReleaseArtifact {
     pub binary_sha256: String,
     pub binary_size: u64,
     pub asset_name: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub auxiliary_files: BTreeMap<String, ReleaseFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReleaseFile {
+    pub sha256: String,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone, Error)]
@@ -252,6 +261,19 @@ pub fn verify_release(
             || artifact.binary_size == 0
             || artifact.binary_size > MAX_BINARY_BYTES
             || artifact.asset_name != canonical_asset_name(artifact)?
+            || artifact.auxiliary_files.len() > 7
+            || artifact.auxiliary_files.iter().any(|(name, file)| {
+                !safe_component(name)
+                    || name == &artifact.binary_name
+                    || matches!(
+                        name.as_str(),
+                        "release.json" | "SHA256SUMS" | "SHA256SUMS.minisig" | ".artifact.json"
+                    )
+                    || !valid_digest(&file.sha256)
+                    || file.size == 0
+                    || file.size > MAX_BINARY_BYTES
+            })
+            || (artifact.format == "raw" && !artifact.auxiliary_files.is_empty())
             || !expected_paths.insert(path.clone())
             || !assets.insert(artifact.asset_name.clone())
         {
@@ -310,7 +332,10 @@ pub fn safe_component(value: &str) -> bool {
 }
 
 pub fn canonical_path(name: &str, version: &str, arch: &str) -> Result<String, ReleaseError> {
-    if !safe_component(name) || !safe_component(version) || !matches!(arch, "amd64" | "arm64") {
+    if !safe_component(name)
+        || !safe_component(version)
+        || !crate::platform::ARTIFACT_TARGETS.contains(&arch)
+    {
         return Err(ReleaseError::IdentityMismatch);
     }
     Ok(format!("{name}/{version}/{arch}"))
@@ -318,6 +343,17 @@ pub fn canonical_path(name: &str, version: &str, arch: &str) -> Result<String, R
 
 pub fn canonical_asset_name(artifact: &ReleaseArtifact) -> Result<String, ReleaseError> {
     canonical_path(&artifact.name, &artifact.version, &artifact.arch)?;
+    if !matches!(artifact.arch.as_str(), "amd64" | "arm64") {
+        let extension = match artifact.format.as_str() {
+            "raw" => "",
+            "tar.gz" => ".tar.gz",
+            _ => return Err(ReleaseError::InvalidMetadata),
+        };
+        return Ok(format!(
+            "{}-{}-{}{extension}",
+            artifact.name, artifact.version, artifact.arch
+        ));
+    }
     match artifact.format.as_str() {
         "raw" => Ok(format!(
             "{}-{}-linux-musl-{}",
@@ -336,6 +372,34 @@ pub fn native_arch() -> Result<&'static str, ReleaseError> {
         "x86_64" => Ok("amd64"),
         "aarch64" => Ok("arm64"),
         _ => Err(ReleaseError::IdentityMismatch),
+    }
+}
+
+pub fn native_target() -> Result<String, ReleaseError> {
+    crate::platform::artifact_target(
+        std::env::consts::OS,
+        if cfg!(target_env = "musl") {
+            Some("musl")
+        } else {
+            Some("gnu")
+        },
+        std::env::consts::ARCH,
+    )
+    .ok_or(ReleaseError::IdentityMismatch)
+}
+
+impl VerifiedRelease {
+    pub fn native_artifact(
+        &self,
+        name: &str,
+        version: &str,
+    ) -> Result<VerifiedArtifact, ReleaseError> {
+        let target = native_target()?;
+        match self.artifact(name, version, &target) {
+            Ok(artifact) => Ok(artifact),
+            Err(ReleaseError::MissingArtifact) => self.artifact(name, version, native_arch()?),
+            Err(error) => Err(error),
+        }
     }
 }
 

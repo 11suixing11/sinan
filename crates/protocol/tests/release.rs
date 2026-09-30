@@ -113,3 +113,122 @@ fn explicit_roots_allow_rotation_but_reject_wrong_and_duplicate_keys() {
     );
     assert_eq!(expected, include_str!("fixtures/TEST_ONLY_ROTATION.pub"));
 }
+
+#[test]
+fn signed_platform_identities_preserve_canonical_asset_names() {
+    use sinan_protocol::release::{canonical_asset_name, canonical_path};
+    let bytes = b"platform executable";
+    for target in sinan_protocol::platform::ARTIFACT_TARGETS {
+        let binary_name = if target.starts_with("windows-") {
+            "sinan-agent.exe"
+        } else {
+            "sinan-agent"
+        };
+        let mut entry = support::entry("agent", "0.3.0", binary_name, "raw", bytes, bytes);
+        entry.arch = (*target).into();
+        entry.asset_name = canonical_asset_name(&entry).unwrap();
+        let proof = support::signed_release(vec![(entry.clone(), bytes.to_vec())]);
+        let verified = verify_release(&proof, &support::trusted_keys()).unwrap();
+        let artifact = verified.artifact("agent", "0.3.0", target).unwrap();
+        artifact.verify_binary(bytes).unwrap();
+        assert_eq!(
+            artifact.path(),
+            canonical_path("agent", "0.3.0", target).unwrap()
+        );
+        assert_eq!(artifact.metadata().asset_name, entry.asset_name);
+        assert!(verified.artifact("agent", "0.3.0", "riscv64").is_err());
+    }
+}
+
+#[test]
+fn signed_auxiliary_metadata_rejects_reserved_names_unbounded_lists_and_raw_files() {
+    use sinan_protocol::release::{ReleaseFile, canonical_asset_name};
+    let bytes = b"signed archive fixture";
+    let valid_file = ReleaseFile {
+        sha256: support::hash(b"DLL"),
+        size: 3,
+    };
+    let mut entry = support::entry(
+        "sing-box",
+        "1.14.2",
+        "sing-box.exe",
+        "tar.gz",
+        bytes,
+        b"binary",
+    );
+    entry.arch = "windows-amd64".into();
+    entry.asset_name = canonical_asset_name(&entry).unwrap();
+    entry
+        .auxiliary_files
+        .insert("wintun.dll".into(), valid_file.clone());
+    let valid = support::signed_release(vec![(entry.clone(), bytes.to_vec())]);
+    let verified = verify_release(&valid, &support::trusted_keys()).unwrap();
+    assert_eq!(
+        verified
+            .artifact("sing-box", "1.14.2", "windows-amd64")
+            .unwrap()
+            .metadata()
+            .auxiliary_files["wintun.dll"],
+        valid_file
+    );
+    for name in [
+        "../wintun.dll",
+        "sing-box.exe",
+        "release.json",
+        "SHA256SUMS",
+        "SHA256SUMS.minisig",
+        ".artifact.json",
+    ] {
+        let mut invalid = entry.clone();
+        invalid.auxiliary_files.clear();
+        invalid
+            .auxiliary_files
+            .insert(name.into(), valid_file.clone());
+        let proof = support::signed_release(vec![(invalid, bytes.to_vec())]);
+        assert!(verify_release(&proof, &support::trusted_keys()).is_err());
+    }
+    for file in [
+        ReleaseFile {
+            size: 0,
+            ..valid_file.clone()
+        },
+        ReleaseFile {
+            size: 256 * 1024 * 1024 + 1,
+            ..valid_file.clone()
+        },
+        ReleaseFile {
+            sha256: "g".repeat(64),
+            ..valid_file.clone()
+        },
+    ] {
+        let mut invalid = entry.clone();
+        invalid.auxiliary_files.insert("wintun.dll".into(), file);
+        let proof = support::signed_release(vec![(invalid, bytes.to_vec())]);
+        assert!(verify_release(&proof, &support::trusted_keys()).is_err());
+    }
+    let mut invalid = entry.clone();
+    invalid.auxiliary_files = (0..8)
+        .map(|number| (format!("extra-{number}.dll"), valid_file.clone()))
+        .collect();
+    assert!(
+        verify_release(
+            &support::signed_release(vec![(invalid, bytes.to_vec())]),
+            &support::trusted_keys()
+        )
+        .is_err()
+    );
+    let mut raw = support::entry("agent", "0.3.0", "sinan-agent", "raw", bytes, bytes);
+    raw.auxiliary_files.insert("wintun.dll".into(), valid_file);
+    assert!(
+        verify_release(
+            &support::signed_release(vec![(raw, bytes.to_vec())]),
+            &support::trusted_keys()
+        )
+        .is_err()
+    );
+    let mut tampered = valid;
+    tampered.metadata_json = tampered
+        .metadata_json
+        .replace("wintun.dll", "untrusted.dll");
+    assert!(verify_release(&tampered, &support::trusted_keys()).is_err());
+}

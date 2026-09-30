@@ -6,7 +6,7 @@ use serde::Deserialize;
 use sinan_adapter_sdk::{DiagnosticSpec, Prepared, ServiceJob};
 use sinan_protocol::{
     DiagnosticJob,
-    release::{TrustedKeys, native_arch, safe_component},
+    release::{TrustedKeys, safe_component},
 };
 use std::{
     path::{Component, PathBuf},
@@ -122,7 +122,7 @@ fn saved_references(config: &Config, keys: &TrustedKeys) -> Result<Vec<Reference
                         .context("pending diagnostic artifact has no signed proof")?,
                     keys,
                 )?;
-                let artifact = release.artifact(&job.plugin, &job.version, native_arch()?)?;
+                let artifact = release.native_artifact(&job.plugin, &job.version)?;
                 ensure!(
                     artifact.metadata().format == "tar.gz",
                     "pending diagnostic artifact has an unsupported format"
@@ -186,7 +186,7 @@ async fn verify_reference(
     );
     let proof = verification::read_proof(version_dir).await?;
     let release = verification::signed_release(&proof, keys)?;
-    let artifact = release.artifact(plugin, &reference.version, native_arch()?)?;
+    let artifact = release.native_artifact(plugin, &reference.version)?;
     ensure!(
         artifact.metadata().format == "tar.gz",
         "cached plugin artifact has an unsupported format"
@@ -217,12 +217,21 @@ async fn current_references(config: &Config, keys: &TrustedKeys) -> Result<Vec<R
         let current = plugin.path().join("current");
         match tokio::fs::symlink_metadata(&current).await {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            result => ensure!(
-                result?.file_type().is_symlink(),
-                "current artifact path must be a controlled symlink"
-            ),
+            result => {
+                let metadata = result?;
+                #[cfg(unix)]
+                ensure!(
+                    metadata.file_type().is_symlink(),
+                    "current artifact path must be a controlled symlink"
+                );
+                #[cfg(windows)]
+                ensure!(
+                    metadata.is_file() && !metadata.file_type().is_symlink(),
+                    "current artifact path must be a controlled reference"
+                );
+            }
         }
-        let resolved = tokio::fs::canonicalize(&current).await?;
+        let resolved = tokio::fs::canonicalize(crate::system::deploy::reference(&current)?).await?;
         ensure!(
             resolved.parent() == Some(tokio::fs::canonicalize(plugin.path()).await?.as_path()),
             "current artifact link escapes its installation directory"
@@ -237,7 +246,7 @@ async fn current_references(config: &Config, keys: &TrustedKeys) -> Result<Vec<R
             .map_err(|_| anyhow::anyhow!("invalid current artifact plugin"))?;
         let proof = verification::read_proof(&resolved).await?;
         let release = verification::signed_release(&proof, keys)?;
-        let artifact = release.artifact(&plugin_name, version, native_arch()?)?;
+        let artifact = release.native_artifact(&plugin_name, version)?;
         references.push(Reference {
             binary: plugin
                 .path()
@@ -253,10 +262,10 @@ async fn current_references(config: &Config, keys: &TrustedKeys) -> Result<Vec<R
 pub(super) async fn verify_cache_with_keys(config: &Config, keys: &TrustedKeys) -> Result<()> {
     ensure!(
         config.install_root.is_absolute()
-            && config
-                .install_root
-                .components()
-                .all(|component| matches!(component, Component::RootDir | Component::Normal(_))),
+            && config.install_root.components().all(|component| matches!(
+                component,
+                Component::RootDir | Component::Normal(_) | Component::Prefix(_)
+            )),
         "invalid artifact installation root"
     );
     ensure_ordinary_directory_if_present(&config.install_root).await?;

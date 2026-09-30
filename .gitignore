@@ -6,6 +6,7 @@
 /data/
 /artifacts/
 /.ci-artifacts/
+/.ci-binaries/
 /tools/__pycache__/
 *.db
 *.db-shm

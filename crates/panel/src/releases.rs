@@ -26,6 +26,7 @@ use uuid::Uuid;
 
 const MAX_ARTIFACT: usize = 512 * 1024 * 1024;
 const MAX_INSTALLER: usize = 256 * 1024;
+const MAX_UNPACKED: u64 = 256 * 1024 * 1024;
 type Identity = (String, String, String);
 
 struct StoredRelease {
@@ -142,22 +143,57 @@ pub fn verify_payload(artifact: &VerifiedArtifact, bytes: &[u8]) -> Result<()> {
         artifact.verify_binary(bytes)?;
         return Ok(());
     }
-    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(bytes));
-    let mut entries = archive.entries()?;
-    let mut item = entries.next().context("archive is empty")??;
+    let decoder = flate2::read::MultiGzDecoder::new(bytes).take(MAX_UNPACKED + 1);
+    let mut archive = tar::Archive::new(decoder);
+    let expected: BTreeSet<_> = std::iter::once(entry.binary_name.as_str())
+        .chain(entry.auxiliary_files.keys().map(String::as_str))
+        .collect();
+    let mut seen = BTreeSet::new();
+    for item in archive.entries()?.raw(true) {
+        let mut item = item?;
+        let name = std::str::from_utf8(item.path_bytes().as_ref())?.to_owned();
+        ensure!(
+            item.header().entry_type().is_file()
+                && expected.contains(name.as_str())
+                && seen.insert(name.clone()),
+            "archive has an unexpected or duplicate file"
+        );
+        let size = if name == entry.binary_name {
+            entry.binary_size
+        } else {
+            entry.auxiliary_files[&name].size
+        };
+        ensure!(item.header().size()? == size, "archive file size differs");
+        let mut content = Vec::new();
+        item.by_ref().take(size + 1).read_to_end(&mut content)?;
+        if name == entry.binary_name {
+            artifact.verify_binary(&content)?;
+        } else {
+            ensure!(
+                content.len() as u64 == size
+                    && format!("{:x}", Sha256::digest(&content))
+                        == entry.auxiliary_files[&name].sha256,
+                "auxiliary file digest or size differs"
+            );
+        }
+    }
     ensure!(
-        item.header().entry_type().is_file()
-            && item.path()?.as_ref() == Path::new(&entry.binary_name)
-            && item.header().size()? == entry.binary_size,
-        "archive has an unexpected file"
+        seen.iter().map(String::as_str).collect::<BTreeSet<_>>() == expected,
+        "archive is missing a signed file"
     );
-    let mut binary = Vec::new();
-    item.by_ref()
-        .take(entry.binary_size + 1)
-        .read_to_end(&mut binary)?;
-    artifact.verify_binary(&binary)?;
-    drop(item);
-    ensure!(entries.next().is_none(), "archive contains extra entries");
+    let mut decoder = archive.into_inner();
+    let mut tail = [0u8; 8192];
+    loop {
+        let count = decoder.read(&mut tail)?;
+        if count == 0 {
+            break;
+        }
+        ensure!(
+            tail[..count].iter().all(|value| *value == 0),
+            "archive contains trailing data"
+        );
+    }
+    ensure!(decoder.limit() > 0, "archive exceeds unpacked size limit");
     Ok(())
 }
 
@@ -208,6 +244,7 @@ fn same_identity(old: &VerifiedArtifact, new: &VerifiedArtifact) -> bool {
         && a.binary_size == b.binary_size
         && a.binary_name == b.binary_name
         && a.format == b.format
+        && a.auxiliary_files == b.auxiliary_files
 }
 
 fn inventory(releases: &[StoredRelease]) -> Result<BTreeMap<Identity, (usize, VerifiedArtifact)>> {
@@ -300,6 +337,58 @@ pub async fn select_agent(state: &AppState, version: Option<&str>) -> ApiResult<
         .pop()
         .map(|(_, version, tag)| (version, tag))
         .ok_or_else(|| ApiError::Conflict("请先导入协议兼容且已签名的 Agent Release".into()))
+}
+
+/// Returns only protocol-compatible, signed updates for the requested ABI.
+pub async fn newer_agent(
+    state: &AppState,
+    targets: &[String],
+    current: (u64, u64, u64),
+) -> ApiResult<Option<sinan_protocol::AgentRelease>> {
+    let releases = released(state).await?;
+    let inventory = inventory(&releases).map_err(invalid)?;
+    let mut candidates = Vec::new();
+    for ((name, version, target), (index, artifact)) in inventory {
+        let metadata = releases[index].verified.metadata();
+        if name != "agent"
+            || metadata.protocol_min > PROTOCOL_MAX
+            || metadata.protocol_max < PROTOCOL_MIN
+        {
+            continue;
+        }
+        let Some(priority) = targets.iter().position(|value| value == &target) else {
+            continue;
+        };
+        let Some(key) = sinan_protocol::release_version(&version).filter(|key| *key > current)
+        else {
+            continue;
+        };
+        candidates.push((
+            key,
+            std::cmp::Reverse(priority),
+            version,
+            target,
+            index,
+            artifact,
+        ));
+    }
+    candidates.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+    let Some((_, _, version, target, index, artifact)) = candidates.pop() else {
+        return Ok(None);
+    };
+    let release = &releases[index];
+    stored_bytes(release, &artifact).await.map_err(invalid)?;
+    Ok(Some(sinan_protocol::AgentRelease {
+        version: version.clone(),
+        artifact: sinan_protocol::Artifact {
+            url: format!(
+                "{}/api/agent/v1/artifacts/agent/{version}/{target}",
+                state.config.public_url
+            ),
+            sha256: artifact.sha256().into(),
+            proof: Some(release.proof.clone()),
+        },
+    }))
 }
 
 #[derive(Deserialize)]

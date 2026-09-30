@@ -39,7 +39,7 @@ minisign -S -m SHA256SUMS -s /离线设备中的私钥路径 \
 
 签名前需确认全部资产、源码版本与清单来自本次构建。只上传完整 `SHA256SUMS.minisig`，不上传私钥。运行 `Signed release draft` 的手动校验，提供 tag；默认仅验证，显式选择 publish 才在完整签名、metadata、安装器及所有资产校验通过后公开草稿。未知资产、重复路径、缺模块或缺架构、旧式签名、篡改的可信注释或测试钥都会失败。
 
-tag 的最终 commit 必须与草稿记录的完整 build SHA 一致，并有同一 commit 的最新 main push CI 成功记录；以下五个 job 缺失、跳过、未完成或失败都会拒绝：`check`、`compose-smoke`、`Agent musl (amd64)`、`Agent musl (arm64)`、`Reality installation and accounting`。因此应先等待 main CI 通过，再创建指向该提交的 Agent tag。正式生产根尚未提供时，发布流程保持 fail closed；测试根可用于本地和 PR 验收，不能生成正式候选。
+tag 的最终 commit 必须与草稿记录的完整 build SHA 一致，并有同一 commit 的最新 main push CI 成功记录；以下五个 job 缺失、跳过、未完成或失败都会拒绝：`check`、`compose-smoke`、`Agent Linux musl (amd64)`、`Agent Linux musl (arm64)`、`Reality installation and accounting`。因此应先等待 main CI 通过，再创建指向该提交的 Agent tag。正式生产根尚未提供时，发布流程保持 fail closed；测试根可用于本地和 PR 验收，不能生成正式候选。
 
 发布工具记录每个 GitHub asset 的 ID、name、digest、size、state，按已选 ID 下载，先检查 GitHub digest 与实际 bytes 一致，再以独立生产根验证完整 minisign 和所有制品。GitHub digest 不是签名替代。验完后重新读取 tag 对象与 commit、完整 asset 集合及 CI run/attempt/job ID，必须与验证前一致才调用唯一的 draft→published PATCH；发布后还复查资产和 tag，并保存公开验证证据。workflow concurrency 串行同 tag 的本流程操作。
 

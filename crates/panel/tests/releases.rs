@@ -392,3 +392,96 @@ async fn missing_trust_root_and_custom_source_fields_are_rejected() -> Result<()
     );
     Ok(())
 }
+
+#[test]
+fn native_runtime_archives_require_the_exact_signed_auxiliary_files() -> Result<()> {
+    let binary = b"runtime-fixture";
+    let dll = b"dll-fixture";
+    for (files, accepted) in [
+        (
+            vec![
+                ("sing-box.exe", binary.as_slice()),
+                ("wintun.dll", dll.as_slice()),
+            ],
+            true,
+        ),
+        (vec![("sing-box.exe", binary.as_slice())], false),
+        (
+            vec![
+                ("sing-box.exe", binary.as_slice()),
+                ("wintun.dll", b"changed".as_slice()),
+            ],
+            false,
+        ),
+        (
+            vec![
+                ("sing-box.exe", binary.as_slice()),
+                ("wintun.dll", dll.as_slice()),
+                ("extra.dll", dll.as_slice()),
+            ],
+            false,
+        ),
+        (
+            vec![
+                ("sing-box.exe", binary.as_slice()),
+                ("wintun.dll", dll.as_slice()),
+                ("wintun.dll", dll.as_slice()),
+            ],
+            false,
+        ),
+    ] {
+        let mut archive = tar::Builder::new(flate2::write::GzEncoder::new(
+            Vec::new(),
+            flate2::Compression::default(),
+        ));
+        for (name, bytes) in files {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(bytes.len() as u64);
+            header.set_mode(0o755);
+            header.set_cksum();
+            archive.append_data(&mut header, name, bytes)?;
+        }
+        let bytes = archive.into_inner()?.finish()?;
+        let mut entry = signing::entry(
+            "sing-box",
+            "1.14.2",
+            "sing-box.exe",
+            "tar.gz",
+            &bytes,
+            binary,
+        );
+        entry.arch = "windows-amd64".into();
+        entry.asset_name = sinan_protocol::release::canonical_asset_name(&entry)?;
+        entry.auxiliary_files.insert(
+            "wintun.dll".into(),
+            sinan_protocol::release::ReleaseFile {
+                sha256: signing::hash(dll),
+                size: dll.len() as u64,
+            },
+        );
+        let proof = signing::signed_release(vec![(entry, bytes.clone())]);
+        let release = sinan_protocol::release::verify_release(&proof, &signing::trusted_keys())?;
+        let artifact = release.artifact("sing-box", "1.14.2", "windows-amd64")?;
+        assert_eq!(
+            releases::verify_payload(&artifact, &bytes).is_ok(),
+            accepted
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn concatenated_gzip_cannot_hide_nonzero_archive_tail() -> Result<()> {
+    use std::io::Write;
+    let binary = b"runtime fixture";
+    let mut bytes = release_fixture::archive("sing-box", binary)?;
+    let mut tail = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    tail.write_all(b"unlisted trailing payload")?;
+    bytes.extend(tail.finish()?);
+    let entry = signing::entry("sing-box", "1.14.2", "sing-box", "tar.gz", &bytes, binary);
+    let proof = signing::signed_release(vec![(entry, bytes.clone())]);
+    let release = sinan_protocol::release::verify_release(&proof, &signing::trusted_keys())?;
+    let artifact = release.artifact("sing-box", "1.14.2", native_arch()?)?;
+    assert!(releases::verify_payload(&artifact, &bytes).is_err());
+    Ok(())
+}

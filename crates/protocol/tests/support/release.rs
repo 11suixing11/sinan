@@ -82,6 +82,7 @@ pub fn entry(
         binary_sha256: hash(binary),
         binary_size: binary.len() as u64,
         asset_name: String::new(),
+        auxiliary_files: BTreeMap::new(),
     };
     value.asset_name = canonical_asset_name(&value).unwrap();
     value
