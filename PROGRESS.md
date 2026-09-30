@@ -634,3 +634,9 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 最终正常合入正式模式主线 `2ea4bb9`（含许可文档），保留 DNS 双家族修复。r5 同时内嵌 daily helper 与 full 分支观察器；r4 已签模式任务继续使用自身版本、参数及目标预算恢复，r2/r3 保留旧参数且拒绝 mode 参数，不能用 r5 二进制替代 r4 身份。新任务实际创建为 r5。macOS 和正式主线后的断网 Linux root：包装器 34 项与 daily helper 7 项，共 41 项全部通过、0 跳过；无真实硬件压测或公开上传。独占短槽下适配器 16 项（新增版本接收/恢复 4 项）及 PostgreSQL 模式创建 1 项，共 17 项通过、0 失败/忽略；适配器全 targets Clippy（warnings 为错误）、fmt、core 门禁、actionlint 与差异检查通过，已释放构建槽，不重复完整 workspace。
 - 本地双架构 r5 打包成功且 runner 原字节相同，归档 SHA-256 均为 `385a8c42e5a54542544b6459e1246958d0abe8bd860c3e44dd8e1996efbdbcb1`；包内原入口与 AGPL 许可证 SHA-256 和固定值完全一致，daily/observer 都已内嵌、无未替换 marker。当前构建说明与固定旧 r2 草稿候选分开，未签名、发布或修改任何旧 Release；最终整合全 workspace 与实机压力继续独立核对。
+## 2026-10-01：原生 TCP 连接工具（独立 PR，尚未接服务）
+
+- 用户授权无上游许可时自行实现；仅新增自有 AGPL Rust 库/二进制，不复制上游代码/目标/rootfs，不注册 panel/Agent 第二插件或改 UI/签名管线。未来目标由已配置 TCP 拨测冻结提供，不修改 ProbeSpec/协议兼容。
+- 最多八目标/16 KiB 快照与摘要核对，IPv4/6、count4/8、concurrency1/2；DNS2秒/单连接1秒/间隔250ms，总60秒含排队并预留2秒发布。只连一个同族 SocketAddr、关闭连接且零应用 payload，必须 --no-rank-upload，宿主/测速/未知选项拒绝。
+- 有界 JSON 与原子独立章节保留部分结果，明示连接成功率/建连耗时，不冒称包丢失/测速、没有排名，未知不补0。编译期源码 SHA 未提供则 null；固定源码/锁和签名打包及框架注册均为后续独立 PR。
+- 本机 fmt/locked offline metadata/core 门禁/差异检查完成，新增真实 IPv4/6/CLI/外层取消与有界DNS/并发/截止/输入安全回归，Rust/Clippy/全工作区待受限 Debian 12 独立槽与 CI；不宣称服务或真实网络压力验收完成。独立范围与命令见 [原生 TCP 验收](docs/acceptance/native-tcp-probe.md)。
