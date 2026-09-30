@@ -1,0 +1,325 @@
+use super::*;
+use crate::ip_quality::{QueryErrorKind, query_all};
+use anyhow::Result;
+use axum::{
+    Json, Router,
+    extract::{Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    routing::get,
+};
+use reqwest::Client;
+use serde_json::json;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
+use tokio::task::JoinHandle;
+
+struct Source {
+    origin: String,
+    mode: Arc<AtomicUsize>,
+    client: Client,
+    task: JoinHandle<()>,
+}
+
+impl Source {
+    async fn start() -> Result<Self> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let origin = format!("http://{}", listener.local_addr()?);
+        let mode = Arc::new(AtomicUsize::new(0));
+        let app = Router::new()
+            .route(
+                "/{ip}",
+                get(
+                    |State(mode): State<Arc<AtomicUsize>>,
+                     Query(query): Query<BTreeMap<String, String>>| async move {
+                        match mode.load(Ordering::SeqCst) {
+                            1 => (StatusCode::FORBIDDEN, "fixture denied").into_response(),
+                            2 => (StatusCode::TOO_MANY_REQUESTS, "fixture limited").into_response(),
+                            3 => {
+                                tokio::time::sleep(Duration::from_secs(1)).await;
+                                Json(json!({})).into_response()
+                            }
+                            4 if query.get("db").is_none_or(|database| database != "ipapi") => {
+                                (StatusCode::FORBIDDEN, "fixture partial").into_response()
+                            }
+                            mode => Json(json!({
+                                "ASN":{"AutonomousSystemNumber":64500},
+                                "company":{"abuser_score":if mode==4 {7} else {0}},
+                                "scamalytics":{"scamalytics_score":0},
+                                "data":{"abuseConfidenceScore":0},
+                                "fraud_score":0,"proxy":false,"is_proxy":false,
+                                "threat":{"is_proxy":false}
+                            }))
+                            .into_response(),
+                        }
+                    },
+                ),
+            )
+            .with_state(mode.clone());
+        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let client = Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(2))
+            .build()?;
+        Ok(Self {
+            origin,
+            mode,
+            client,
+            task,
+        })
+    }
+
+    async fn query(&self, ips: &[String], at: i64) -> Vec<IpQuality> {
+        let timeout_client = Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_millis(100))
+            .build()
+            .unwrap();
+        let client = if self.mode.load(Ordering::SeqCst) == 3 {
+            &timeout_client
+        } else {
+            &self.client
+        };
+        let mut values = query_all(client, &self.origin, ips, true).await;
+        // Fix only the clock to make persistence ordering and expiry deterministic.
+        for entry in &mut values {
+            entry.checked_at = at;
+            for dataset in &mut entry.databases {
+                dataset.attempted_at = Some(at);
+                dataset.last_success_at = (dataset.status == "succeeded").then_some(at);
+                dataset.fresh_until = dataset.last_success_at.map(|at| at + CACHE_SECS);
+            }
+        }
+        values
+    }
+}
+
+impl Drop for Source {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+async fn server(pool: &PgPool) -> Result<i64> {
+    Ok(sqlx::query_scalar(
+        "INSERT INTO servers(name,static_info) VALUES('cache fixture',$1) RETURNING id",
+    )
+    .bind(json!({"ip_addresses":["192.0.2.1"]}))
+    .fetch_one(pool)
+    .await?)
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn success_survives_real_403_429_timeout_and_a_new_pool(pool: PgPool) -> Result<()> {
+    let id = server(&pool).await?;
+    let source = Source::start().await?;
+    let ips = ["192.0.2.1".into()];
+    let at = now_timestamp() - 120;
+    persist(&pool, id, &source.query(&ips, at).await).await?;
+    let initial = read(&pool, id, &ips).await?.remove(0);
+    assert_eq!(initial.status, "succeeded");
+    assert_eq!(initial.last_success_at, Some(at));
+    assert_eq!(initial.fresh_until, Some(at + CACHE_SECS));
+    assert!(initial.databases.iter().all(|dataset| !dataset.historical));
+    for (mode, kind) in [
+        (1, QueryErrorKind::Http403),
+        (2, QueryErrorKind::Http429),
+        (3, QueryErrorKind::Timeout),
+    ] {
+        source.mode.store(mode, Ordering::SeqCst);
+        persist(&pool, id, &source.query(&ips, at + mode as i64).await).await?;
+        let reopened = PgPool::connect_with((*pool.connect_options()).clone()).await?;
+        let failed = read(&reopened, id, &ips).await?.remove(0);
+        reopened.close().await;
+        assert_eq!(failed.status, "failed");
+        assert_eq!(failed.last_attempt_at, Some(at + mode as i64));
+        assert_eq!(failed.last_success_at, Some(at));
+        assert_eq!(failed.fresh_until, initial.fresh_until);
+        assert_eq!(failed.expires_at, initial.expires_at);
+        for (dataset, before) in failed.databases.iter().zip(&initial.databases) {
+            assert_eq!(dataset.status, "failed");
+            assert_eq!(dataset.error_kind, Some(kind));
+            assert_eq!(dataset.last_error.as_ref().unwrap().kind, Some(kind));
+            assert_eq!(encode(&dataset.fields)?, encode(&before.fields)?);
+            assert_eq!(dataset.last_success_at, before.last_success_at);
+            assert_eq!(dataset.fresh_until, before.fresh_until);
+            assert!(dataset.historical);
+        }
+    }
+    assert_eq!(initial.databases[6].fields[0].value, json!(0));
+    assert_eq!(initial.databases[6].fields[1].value, json!(false));
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn partial_datasets_providers_and_old_ips_remain_independent(pool: PgPool) -> Result<()> {
+    let id = server(&pool).await?;
+    let source = Source::start().await?;
+    let ips = ["192.0.2.1".into(), "2001:db8::1".into()];
+    let at = now_timestamp() - 120;
+    let initial = source.query(&ips, at).await;
+    persist(&pool, id, &initial).await?;
+    let mut other = initial[0].clone();
+    other.provider = "provider-fixture".into();
+    other.databases[0].fields[0].value = json!(64501);
+    persist(&pool, id, &[other]).await?;
+    source.mode.store(4, Ordering::SeqCst);
+    persist(&pool, id, &source.query(&ips[..1], at + 10).await).await?;
+    let mixed = read(&pool, id, &ips).await?;
+    assert_eq!(mixed.len(), 3);
+    let current = mixed
+        .iter()
+        .find(|entry| entry.ip == ips[0] && entry.provider == "check-place")
+        .unwrap();
+    assert_eq!(current.status, "partial");
+    assert_eq!(current.databases[1].status, "succeeded");
+    assert_eq!(current.databases[1].last_success_at, Some(at + 10));
+    assert_eq!(current.databases[1].fields[0].value, json!(7));
+    assert!(!current.databases[1].historical);
+    assert!(
+        current
+            .databases
+            .iter()
+            .enumerate()
+            .all(|(index, dataset)| index == 1
+                || (dataset.historical && dataset.last_success_at == Some(at)))
+    );
+    let alternate = mixed
+        .iter()
+        .find(|entry| entry.provider == "provider-fixture")
+        .unwrap();
+    assert_eq!(alternate.last_attempt_at, Some(at));
+    assert_eq!(alternate.databases[0].fields[0].value, json!(64501));
+    let ipv6 = mixed.iter().find(|entry| entry.ip == ips[1]).unwrap();
+    assert_eq!(ipv6.last_attempt_at, Some(at));
+    source.mode.store(0, Ordering::SeqCst);
+    let new_ips = ["192.0.2.2".into()];
+    persist(&pool, id, &source.query(&new_ips, at + 20).await).await?;
+    assert_eq!(read(&pool, id, &new_ips).await?.len(), 1);
+    assert_eq!(read(&pool, id, &ips).await?.len(), 3);
+    // A delayed earlier result must not replace the later partial attempt.
+    persist(&pool, id, &initial).await?;
+    let after = read(&pool, id, &ips[..1]).await?;
+    assert_eq!(
+        after
+            .iter()
+            .find(|entry| entry.provider == "check-place")
+            .unwrap()
+            .status,
+        "partial"
+    );
+    Ok(())
+}
+
+#[sqlx::test(migrations = false)]
+async fn migration_preserves_old_payload_success_and_unknown_times(pool: PgPool) -> Result<()> {
+    sqlx::raw_sql(include_str!("../../../migrations/0001_initial.sql"))
+        .execute(&pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/0003_node_quality.sql"))
+        .execute(&pool)
+        .await?;
+    let id = server(&pool).await?;
+    let old = json!({"ip":"192.0.2.1","checked_at":1000,"expires_at":2000,"status":"partial","databases":[
+        {"database":"ipqualityscore","label":"old success","status":"succeeded","fields":[{"label":"risk","value":0},{"label":"proxy","value":false}],"error":null},
+        {"database":"ipapi","label":"old error","status":"failed","fields":[],"error":"old failure"}
+    ]});
+    sqlx::query("INSERT INTO server_ip_quality(server_id,ip,payload,checked_at) VALUES($1,'192.0.2.1',$2,1000)").bind(id).bind(&old).execute(&pool).await?;
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/0008_ip_provider_cache.sql"
+    ))
+    .execute(&pool)
+    .await?;
+    let unchanged: Value =
+        sqlx::query_scalar("SELECT payload FROM server_ip_quality WHERE server_id=$1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(unchanged, old);
+    let migrated = read(&pool, id, &["192.0.2.1".into()]).await?.remove(0);
+    assert_eq!(migrated.last_success_at, Some(1000));
+    assert_eq!(migrated.last_attempt_at, Some(1000));
+    assert_eq!(migrated.fresh_until, None);
+    assert_eq!(migrated.databases[0].fields[0].value, json!(0));
+    assert_eq!(migrated.databases[0].fields[1].value, json!(false));
+    assert!(migrated.databases[0].historical);
+    assert_eq!(migrated.databases[0].last_attempt_at, None);
+    assert_eq!(migrated.databases[0].fresh_until, Some(2000));
+    assert!(migrated.databases[1].fields.is_empty());
+    assert_eq!(migrated.databases[1].last_success_at, None);
+    assert_eq!(
+        migrated.databases[1].last_error.as_ref().unwrap().kind,
+        None
+    );
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn concurrent_admission_and_an_interrupted_refresh_use_durable_locks(
+    pool: PgPool,
+) -> Result<()> {
+    let id = server(&pool).await?;
+    let now = now_timestamp();
+    let (first, second) =
+        tokio::join!(begin_refresh(&pool, id, now), begin_refresh(&pool, id, now));
+    assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+    assert!(matches!(
+        first.as_ref().err().or(second.as_ref().err()),
+        Some(ApiError::Conflict(_))
+    ));
+    // Simulate process exit without clearing the persisted admission lease.
+    let reopened = PgPool::connect_with((*pool.connect_options()).clone()).await?;
+    assert!(matches!(
+        begin_refresh(&reopened, id, now + 60).await,
+        Err(ApiError::Conflict(_))
+    ));
+    begin_refresh(&reopened, id, now + 61).await?;
+    let cleared = sqlx::query("UPDATE servers SET quality_refresh_started=NULL WHERE id=$1 AND quality_refresh_started=$2").bind(id).bind(now).execute(&pool).await?;
+    assert_eq!(cleared.rows_affected(), 0);
+    sqlx::query("UPDATE servers SET quality_refresh_started=NULL WHERE id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await?;
+    let mut failed = query_all(
+        &Client::new(),
+        "http://source.invalid",
+        &["192.0.2.1".into()],
+        false,
+    )
+    .await;
+    failed[0].checked_at = now + 61;
+    persist(&pool, id, &failed).await?;
+    assert!(matches!(
+        begin_refresh(&reopened, id, now + 62).await,
+        Err(ApiError::Conflict(_))
+    ));
+    begin_refresh(&reopened, id, now + 122).await?;
+    reopened.close().await;
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_deleted_server_cannot_replace_its_durable_cache(pool: PgPool) -> Result<()> {
+    let id = server(&pool).await?;
+    let source = Source::start().await?;
+    let ips = ["192.0.2.1".into()];
+    let at = now_timestamp();
+    persist(&pool, id, &source.query(&ips, at).await).await?;
+    sqlx::query("UPDATE servers SET deleted_at=$2 WHERE id=$1")
+        .bind(id)
+        .bind(at)
+        .execute(&pool)
+        .await?;
+    source.mode.store(1, Ordering::SeqCst);
+    assert!(matches!(
+        persist(&pool, id, &source.query(&ips, at + 1).await).await,
+        Err(ApiError::NotFound)
+    ));
+    assert_eq!(read(&pool, id, &ips).await?[0].status, "succeeded");
+    Ok(())
+}

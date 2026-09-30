@@ -198,11 +198,15 @@
 
 详情响应为 `{ip_addresses,quality,plugin_ready,plugin_reason,reports}`。`plugin_ready` 需要设备在线、声明 `diagnostic:nodequality` 和 `artifact:minisign-v1` 能力、支持的架构、有效对应签名制品；未就绪时 `plugin_reason` 提供原因。仅声明旧运行时能力的 Agent 不能领取诊断任务。
 
-每个质量对象是 `{ip,checked_at,expires_at,status,databases}`，status 为 `succeeded`、`partial`、`failed`。每个数据库是 `{database,label,status,fields:[{label,value}],error,provider,target_ip,attempted_at,elapsed_ms,error_kind,http_status}`；数字零和布尔 false 保持原值，缺失字段省略。`provider` 为真实查询入口 `check-place`，七个 `database` 是同一入口的响应形状（MaxMind 地理/ASN、IPAPI、Scamalytics、AbuseIPDB、IP2Location、IPData、IPQualityScore）。接口参数依据上游 IPQuality 源码，不假造 NodeQuality 的按 IP 查询接口。每种响应分别展示，不推导统一评分。
+每个质量对象是 `{ip,checked_at,expires_at,status,databases,provider,last_attempt_at,last_success_at,fresh_until,last_error}`，status 为最近查询批次的 `succeeded`、`partial`、`failed`。每个数据库是 `{database,label,status,fields:[{label,value}],error,provider,target_ip,attempted_at,elapsed_ms,error_kind,http_status,last_attempt_at,last_success_at,fresh_until,last_error,historical}`；数字零和布尔 false 保持原值，缺失字段省略。`provider` 为真实查询入口 `check-place`，七个 `database` 是同一入口的响应形状（MaxMind 地理/ASN、IPAPI、Scamalytics、AbuseIPDB、IP2Location、IPData、IPQualityScore）。接口参数依据上游 IPQuality 源码，不假造 NodeQuality 的按 IP 查询接口。每种响应分别展示，不推导统一评分。
 
 `target_ip` 是查询目标；`attempted_at` 为本条尝试开始的 Unix 秒，`elapsed_ms` 为包含解析、连接和响应读取的耗时毫秒。成功时 `error_kind` 和 `http_status` 为空；失败类别为 `dns`、`connect`、`tls`、`timeout`、`http_403`、`http_429`、`http_other`、`non_json`、`schema_mismatch`、`body_error`、`response_limit`、`request_error`。本地拒绝非公网 IP 为 `not_public`，入口地址无效为 `invalid_origin`，批次总超时前未开始的请求为 `not_attempted`，后者不编造尝试时间或耗时。HTTP 失败另保存 `http_status`；旧记录没有逐条时间、耗时或分类时这些字段为空，保留原错误和数据。
 
-缓存保留一天，页面读取不自动刷新；管理员手工刷新至少间隔一分钟。最多处理八个地址，每个源有限时及 64 KiB 响应上限，整体限时并限制并发。非公网地址不向第三方发送，并明确说明原因；外部服务 403、429、超时、非 JSON 或未知响应形状都作为相应源的失败保存，不是零风险。
+缓存按 `(server_id,ip,provider)` 保存，每个数据库独立保留最后成功快照。数据库的 status/error 和逐条尝试元数据始终描述最近尝试，fields 可以同时包含之前成功的字段；此时 `historical=true`。成功快照超过原有效期也标为历史；从未保存成功数据时 fields 为空，信息未知。`last_success_at` 只在该数据库成功时更新，`fresh_until` 为该成功时间加一天；失败不会覆盖成功数据或延长其有效期。`last_error` 为最近尝试的 `{kind,message,http_status,attempted_at,elapsed_ms}`，成功后为空，旧错误的 kind 可以为空。
+
+入口 `last_attempt_at` 为查询批次时间，`last_success_at` 为最近一个数据库成功时间；仅所有已知数据库都有成功快照时入口 fresh_until 有值，取各数据库有效期的最早值，不能据此推断本轮全成功。入口 `last_error` 按 database 索引本轮错误。兼容字段 expires_at 取入口 fresh_until，缺少时为 0；它不再随着失败刷新向后延长。旧 payload 原样保留并迁移明确成功的字段，旧成功时间精度只到原查询批次，未知逐条时间与分类不补造。
+
+页面读取不自动刷新；管理员手工刷新至少间隔一分钟，同机并发刷新在服务器行锁事务内去重。异常退出的运行租约过期后允许恢复。最多处理八个地址，每个源有限时及 64 KiB 响应上限，整体限时并限制并发。非公网地址不向第三方发送，并明确说明原因；外部服务 403、429、超时、非 JSON 或未知响应形状都作为相应源的失败保存，不是零风险。换 IP 不删除旧记录；页面仍只显示当前 IP，旧 IP 再出现时可读取原成功数据。
 
 任务记录为 `{id,status,job,report,error,created_at,updated_at,expires_at}`。status 为 `queued`、`running`、`succeeded`、`failed`；job 的协议结构见 [设备协议](protocol.md)。选项仅允许 `ip_version=both|ipv4|ipv6`、`network_mode=low|normal`，默认 both/low。每台设备同时最多一个活跃任务；并发点击由事务锁与数据库唯一约束去重，返回 409。整体执行时限为 30 分钟，面板另留五分钟传输窗口。
 
