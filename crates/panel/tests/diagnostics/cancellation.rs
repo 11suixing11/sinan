@@ -33,7 +33,12 @@ async fn cancellation_waits_for_device_confirmation_and_preserves_late_reports(
     fixture(&panel).await?;
     let reports = format!("/api/servers/{server_id}/node-quality/reports");
     let record: Value = panel
-        .admin(Method::POST, &reports, &cookie, Some(json!({})))
+        .admin(
+            Method::POST,
+            &reports,
+            &cookie,
+            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
+        )
         .await?
         .error_for_status()?
         .json()
@@ -304,7 +309,12 @@ async fn natural_completion_rejects_cancellation_and_requested_cleanup_blocks_ne
     fixture(&panel).await?;
     let reports = format!("/api/servers/{server_id}/node-quality/reports");
     let first: Value = panel
-        .admin(Method::POST, &reports, &cookie, Some(json!({})))
+        .admin(
+            Method::POST,
+            &reports,
+            &cookie,
+            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
+        )
         .await?
         .error_for_status()?
         .json()
@@ -334,7 +344,12 @@ async fn natural_completion_rejects_cancellation_and_requested_cleanup_blocks_ne
         StatusCode::CONFLICT
     );
     let second: Value = panel
-        .admin(Method::POST, &reports, &cookie, Some(json!({})))
+        .admin(
+            Method::POST,
+            &reports,
+            &cookie,
+            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
+        )
         .await?
         .error_for_status()?
         .json()
@@ -354,7 +369,12 @@ async fn natural_completion_rejects_cancellation_and_requested_cleanup_blocks_ne
     );
     assert_eq!(
         panel
-            .admin(Method::POST, &reports, &cookie, Some(json!({})))
+            .admin(
+                Method::POST,
+                &reports,
+                &cookie,
+                Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true}))
+            )
             .await?
             .status(),
         StatusCode::CONFLICT

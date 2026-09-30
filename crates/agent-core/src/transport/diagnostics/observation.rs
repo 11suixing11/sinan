@@ -10,6 +10,7 @@ impl DiagnosticWorker {
             start_error,
             expires_at,
             protection_stop_reason,
+            ..
         } = checkpoint
         else {
             anyhow::bail!("only a started diagnostic can be observed");
@@ -22,6 +23,9 @@ impl DiagnosticWorker {
             .status_with_memory_protection(&service.unit, protection_stop_reason.as_deref())
             .await?;
         let now = unix_time();
+        if let Err(error) = self.capture_environment(checkpoint) {
+            tracing::warn!(%id, %error, "execution environment capture failed; resource protection continues");
+        }
         let deadline_reached = expires_at.is_some_and(|deadline| deadline <= now as i64);
         if protection_stop_reason.is_none()
             && let Some(reason) = &stop_reason

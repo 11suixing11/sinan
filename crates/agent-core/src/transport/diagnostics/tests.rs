@@ -1,3 +1,5 @@
+#[path = "tests/environment.rs"]
+mod environment;
 use super::*;
 use crate::release_test_support as release_support;
 use crate::{
@@ -214,6 +216,7 @@ fn checkpoint(config: &Config, id: Uuid) -> Checkpoint {
         start_error: None,
         expires_at: None,
         protection_stop_reason: None,
+        environment: None,
     }
 }
 

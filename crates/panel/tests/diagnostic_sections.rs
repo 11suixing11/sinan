@@ -15,6 +15,12 @@ use sqlx::PgPool;
 use std::collections::BTreeMap;
 
 async fn capable(panel: &TestPanel, server_id: i64) -> Result<()> {
+    sqlx::query(
+        "UPDATE servers SET static_info=static_info || '{\"os\":\"linux\"}'::jsonb WHERE id=$1",
+    )
+    .bind(server_id)
+    .execute(&panel.state.pool)
+    .await?;
     agent_api::process_message(
         &panel.state,
         server_id,
@@ -23,6 +29,7 @@ async fn capable(panel: &TestPanel, server_id: i64) -> Result<()> {
             protocol_version: PROTOCOL_VERSION,
             capabilities: vec![
                 "diagnostic:nodequality".into(),
+                "diagnostic:nodequality-modes".into(),
                 sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY.into(),
                 sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY.into(),
             ],
@@ -78,7 +85,7 @@ async fn diagnostic_chapters_survive_failure_duplicates_late_delivery_and_recrea
             Method::POST,
             &format!("/api/servers/{server_id}/node-quality/reports"),
             &cookie,
-            Some(json!({})),
+            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
         )
         .await?
         .error_for_status()?
@@ -192,6 +199,7 @@ async fn diagnostic_chapters_survive_failure_duplicates_late_delivery_and_recrea
         "ip_quality",
         "net_quality",
         "backroute_trace",
+        "environment",
     ] {
         let final_chapter = json!({"id":id,"name":name,"text":format!("saved {name}"),"complete":true,"revision":3,"collected_at":sinan_protocol::now_timestamp()});
         assert_eq!(

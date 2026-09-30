@@ -185,6 +185,11 @@ pub async fn run_with_diagnostics(
     capabilities.extend(
         diagnostics
             .iter()
+            .flat_map(|adapter| adapter.capabilities()),
+    );
+    capabilities.extend(
+        diagnostics
+            .iter()
             .map(|adapter| format!("diagnostic:{}", adapter.describe().plugin_name)),
     );
     let (client_tx, client_rx) = watch::channel::<Option<Arc<PanelClient>>>(None);

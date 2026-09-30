@@ -578,6 +578,16 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 合并审查最终保留 main `6a583af` 与作者最新 `84938ba` 正常祖先；作者新提交与已验证 `e0d6bda` 的全部 Rust/Cargo/CI/工具脚本及 web 源和 dist 完全相同，仅更新两项文档，不重复相同源码构建。完整 locked workspace/all-targets Rust/PostgreSQL 回归 289 项通过、0 失败、8 项既有 Linux/root/systemd 或外部运行时条件忽略；workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁、actionlint 与差异检查通过。Python discovery 83 项通过/5 跳过，NodeQuality 包装器 23 项通过/5 跳过；Bun 4 项/637 断言与 TypeScript/Vite 通过。最终 dist 实际 Chromium 桌面 1280×900/手机 390×844 共 9 组场景通过、页面错误 0，包含严格未知/有效0和false、IP失败隔离、旧报告与独立章节、指标过期与三类时间、独立导航；本轮未测试取消或实机完整诊断，最终 Linux CI 单独核对。
 
+## 2026-10-01 两个诊断入口（Issue #21，独立 PR）
+
+- 新 r4 不可变 runner 将日常检查限制为自有标准库 TCP 探测，最多 4 个已配置启用目标、每 IP 族 4 次、DNS 2 秒/连接 1 秒/任务 90 秒，无硬件/rootfs/测速/上游/公开上传。IP 刷新复用逐源缓存，明确不是节点流媒体证据。
+- 日常固定 64MiB/32tasks，完整512MiB/128；不降低256MiB启动预留、2GiB磁盘与128MiB运行保护。服务端完整入口必须管理员确认；正向计量活跃与缺少新计量证据的未知都需要警告确认。时间和证据随任务保存，不用网卡总流量冒充代理流量。
+- preflight实际资源/负载/最终预算随Started检查点持久化，environment独立章复用r3补报。日常2章、完整6章；旧r2/r3签名队列/检查点继续恢复收集，不重复运行。新mode独立capability与Linux gate防止旧Agent误ready。
+- 本机fmt/core门禁、Python discovery 88（83通过/5环境skip）、daily helper6、Bun/dist与真实Chromium6（0错误）通过。main 6a583af 上的模式源在集中Debian12容器（1.5GiB/2CPU/无swap）通过完整Rust/PostgreSQL293项/0失败/8既有环境ignored、全targets Clippy、fmt与Agent/Panel build，OOM=false；Linux wrapper29/helper6通过。wrapper首轮三个既有exit1期望0夹具需独立PR#56修复，远端临时对齐后验证，不混入本项实现。二进制保存binaries/modes-head；后续整合HEAD CI另核对。本机磁盘不足未从头Cargo。独立验收见 [diagnostic-modes](docs/acceptance/diagnostic-modes.md)，实际小节点保护/持续代理流量/取消矩阵由总任务整合验证。
+
+- 发布前整合 main af43ccf 的独立 IP/NodeQuality 视图，保留拆分API与导航；日常入口改为独立IP刷新接口。fmt/core门禁、Python discovery83通过/5skip、helper6、Bun4项/637断言与TypeScript/Vite重建、最终dist Chromium6场景/0错误再次通过。整合Rust及取消状态兼容交最终HEAD CI，不用先前293项结果代替。
+
+
 ## 2026-10-01：P0 IP 查询入口适配（独立 PR）
 
 - Issue #24：注册真实入口，check-place 是一个旧聚合入口、七种响应视图；新增 AbuseIPDB 官方 v2 CHECK 只读适配，固定 30 天窗口、目标身份与字段契约，Key 仅敏感请求头、无 UA/重试/重定向/verbose/上传。缺私有凭据明确未启用和信息未知，既有成功快照继续保留并标历史。
@@ -598,8 +608,24 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 继续正常合入 main `229becc`（PR #56）：与已验证 `c2b01cc` 相比仅修改 `tools/test-nodequality.py`，所有 Rust/Cargo、生产工具、web 源与 dist 完全相同，未重复无交集 Cargo。包装器 Python 28 项中 23 项通过、5 项既有 Linux/root 条件跳过；core 门禁与差异检查再次通过。真实 Linux 正常退出的生产工具补修仍由独立任务验收，本项不将本机跳过计为通过。
 
+## 2026-10-01 两个诊断入口（Issue #21，独立 PR）
+
+- 新 r4 不可变 runner 将日常检查限制为自有标准库 TCP 探测，最多 4 个已配置启用目标、每 IP 族 4 次、DNS 2 秒/连接 1 秒/任务 90 秒，无硬件/rootfs/测速/上游/公开上传。IP 刷新复用逐源缓存，明确不是节点流媒体证据。
+- 日常固定 64MiB/32tasks，完整512MiB/128；不降低256MiB启动预留、2GiB磁盘与128MiB运行保护。服务端完整入口必须管理员确认；正向计量活跃与缺少新计量证据的未知都需要警告确认。时间和证据随任务保存，不用网卡总流量冒充代理流量。
+- preflight实际资源/负载/最终预算随Started检查点持久化，environment独立章复用r3补报。日常2章、完整6章；旧r2/r3签名队列/检查点继续恢复收集，不重复运行。新mode独立capability与Linux gate防止旧Agent误ready。
+- 本机fmt/core门禁、Python discovery 88（83通过/5环境skip）、daily helper6、Bun/dist与真实Chromium6（0错误）通过。main 6a583af 上的模式源在集中Debian12容器（1.5GiB/2CPU/无swap）通过完整Rust/PostgreSQL293项/0失败/8既有环境ignored、全targets Clippy、fmt与Agent/Panel build，OOM=false；Linux wrapper29/helper6通过。wrapper首轮三个既有exit1期望0夹具需独立PR#56修复，远端临时对齐后验证，不混入本项实现。二进制保存binaries/modes-head；后续整合HEAD CI另核对。本机磁盘不足未从头Cargo。独立验收见 [diagnostic-modes](docs/acceptance/diagnostic-modes.md)，实际小节点保护/持续代理流量/取消矩阵由总任务整合验证。
+
+- 发布前整合 main af43ccf 的独立 IP/NodeQuality 视图，保留拆分API与导航；日常入口改为独立IP刷新接口。fmt/core门禁、Python discovery83通过/5skip、helper6、Bun4项/637断言与TypeScript/Vite重建、最终dist Chromium6场景/0错误再次通过。整合Rust及取消状态兼容交最终HEAD CI，不用先前293项结果代替。
+
+- 继续整合 main229becc，保留已合并#51确认取消与#56正常/非零退出夹具；新创建任务返回完整取消字段，cancel_requested同时阻止两种入口。最终dist重建与Chromium7场景（含等待取消和资源章）通过、错误0；fmt/core门禁、Python83通过/5skip与Bun4/637断言复验通过。最终Rust/平台CI另核对。
+
+- main7848268合入独立查询来源适配层后再次整合，保留providers字段与独立IP查询接口；fmt/core门禁、Bun5项/711断言、TypeScript/Vite与dist重建通过。main229becc上的7c784e6已由CI36779254979验证workspace309通过/0失败/9忽略，随后真实systemd6项通过，Compose与AMD/ARM musl/OpenRC也通过；这些记录不替代新来源整合提交的CI。
+
 ## 2026-10-01：TcpQuality 许可与原生路径（Issue #58）
 
 固定检查 ibsgss/TcpQuality c2295ae 的完整树与 README，未发现明确分发许可。已创建作者授权询问 ibsgss/TcpQuality#27，当前无回复。按用户提供的备选方案采用独立 Rust TCP 建连诊断，不分发、执行或复制上游脚本/rootfs/helper，详见 ADR0029。
 
 本次仅许可审计和决策；原生引擎、固定/签名制品、参数、无上传与宿主修改、共用框架登记及报告均各自验收。没有实际执行上游工具或访问生产节点。
+
+
+- 最终合并审查正常保留旧作者 `ec7c663`、最新作者 `a374c12` 与 main `c47fc69`（含 #51 确认取消、#54 真实 IP 来源和 #59 许可文档）。修复 DNS 列表前八项同属一个 IP 家族时 `both` 静默漏测另一家族：先按家族选择，仍至多两个地址、每家族四次连接；新增两种顺序回归。portable 端到端夹具明确使用模拟 Linux 服务身份，不放宽生产 Linux 门禁。最终集中 Rust/PostgreSQL 专项 89 项通过、0 失败/忽略（适配器12、Agent诊断37、IP/provider25、diagnostics API10、章节3、真实Agent WS/HTTP/restart2），workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁及六项行为回归、差异检查通过。Bun 1.4.2 五项字段测试/711 断言与 TypeScript/Vite 重建通过，最终 dist 为 `index-CtZ2u8uf.js`；实际 Chromium 桌面与390px手机模式各7场景、确认取消与来源展示通过，页面错误0。Python discovery 83通过/5跳过、daily helper7通过、r4包装器23通过/6项Linux/root条件跳过。所有测试移除真实 `SINAN_ABUSEIPDB_API_KEY`，仅回环与合成凭据；本轮未重复完整 workspace，也未在本机执行真实 Linux/root/systemd、上游完整验机负载或正式 API 账户/配额验收。最终提交 CI 单独核对，R5正常退出契约修复继续独立合并。
