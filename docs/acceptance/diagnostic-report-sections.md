@@ -25,3 +25,5 @@
 - 合并整合新增并发发布和非零退出回归：Python 28 项中 23 通过、5 项既有 Linux/root 条件忽略。并发的唯一临时文件保持完整字节与 0600 权限，稳定目录锁避免已完成章节被迟到预览覆盖；两项回归均能拒绝原实现。包装器 fixture 不运行硬件压测，上游 exit 0/7 均保留原 ZIP 与五章，执行返回值与上游一致。章节截断提示仍在 64 KiB 内，完整 ZIP 不变。
 
 - 合并作者 `93356dd` 与 main `c958ba2` 后，本机专项 64 项通过、0 失败/忽略：protocol/SDK/适配器 29 项，Agent 诊断 29 项，独立 PostgreSQL 章节及 diagnostics API 6 项。全 workspace/all-targets Clippy、fmt、core 门禁与文档链接通过；Bun 4 项/637 断言及 TypeScript/Vite 重建保留未知字段严格校验。完整硬件压测和最终提交的 Linux/root 包装器夹具不由这些本机结果替代。
+
+- 最终继续合入遥测隔离 `47c066b` 和草稿发布器 `7a6f104`：Agent 章节重启/HTTP ACK 2 项与 PostgreSQL 章节 2 项重新通过，workspace 全 targets Clippy、fmt、core 门禁通过，Bun 4 项/637 断言与合并源 dist 重建通过。发布器 Python 22 项通过；它没有改变 Rust 源，保留此前专项证据而不重复完整工作区。

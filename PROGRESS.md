@@ -552,3 +552,5 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 合并整合修复 watcher、capture 和退出快照并发发布：固定私有锁序列化版本更新，唯一 0600 临时文件原子替换并同步目录；保留已完成章节和原 ZIP。上游非零退出即使已生成完整报告也保持执行失败，超限章节明确提示截断。新增并发与 exit 0/7 包装器回归；原实现分别触发临时路径冲突、完整章退回预览及 exit 7 被改成 0，修复后 Python 共 28 项，23 通过 / 5 项既有 Linux/root 条件忽略。core 门禁及 6 项行为回归、fmt、actionlint、Bash/Python 语法、差异检查和 Bun 1.4.2 TypeScript/Vite 重建通过；Rust/PostgreSQL 专项待共享构建槽验证。
 
 - 正常合入作者最新 `93356dd` 和 main `c958ba2`，保留缓存、未知字段严格校验及 4 项前端回归（637 项断言），重建 dist。独立 PostgreSQL 下 protocol/SDK/NodeQuality adapter 29 项、Agent 诊断 29 项、章节接口及既有 diagnostics API 6 项，共 64 项通过、0 失败/忽略；覆盖旧 payload/r2、断连重启、HTTP 503 与 ACK 持久化、执行失败但章节完整、迟到章节、内存保护和终态恢复。workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁及文档相对链接通过。未重复完整 workspace 或真实 NodeQuality 硬件压测，Linux/root 包装器 5 项仍须最终 CI 验证。
+
+- 发布前继续正常合入 main `47c066b`（遥测隔离）及 `7a6f104`（草稿发布器），保留遥测线程/心跳时间、严格 IP 类型和全部验收章节。因遥测依赖变化，仅复验 Agent 章节重启/HTTP ACK 2 项与新增心跳迁移下的 PostgreSQL 章节 2 项，4 项全部通过、0 失败/忽略；全 workspace/all-targets Clippy、fmt、core 门禁通过。Bun 4 项/637 断言及 TypeScript/Vite 再次通过并重建最终 dist；发布 Python 22 项通过。草稿查找没有改变 Rust 源，不重复此前 64 项或全工作区测试；最终提交的 CI 与真实负载验收仍单独核对。
