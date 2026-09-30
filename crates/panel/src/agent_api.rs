@@ -361,10 +361,14 @@ pub async fn manifest(
         let mut targets = Vec::new();
         if let Some(target) = target {
             let gnu_host = info["os"] == "linux" && matches!(runtime_libc, Some("gnu" | "glibc"));
-            let preserve_legacy = gnu_host && info["libc"] == "musl";
+            let compiled_target = info["os"].as_str().and_then(|os| {
+                sinan_protocol::platform::artifact_target(os, info["libc"].as_str(), arch)
+            });
+            let preserve_legacy =
+                info["os"] == "linux" && compiled_target.as_ref().is_some_and(|old| old != &target);
             if preserve_legacy {
-                // Keep the old musl/legacy preference for already signed caches.
-                targets.push(format!("linux-musl-{arch}"));
+                // Preserve caches from either Linux ABI compatibility direction.
+                targets.push(compiled_target.expect("checked compiled target"));
                 targets.push(arch.into());
             }
             targets.push(target);

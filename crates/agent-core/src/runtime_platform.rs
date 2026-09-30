@@ -109,10 +109,13 @@ fn artifact_for_targets(
         // Self-updates remain bound to the ABI of this Agent executable.
         return release.native_artifact(name, version);
     }
-    // Preserve the full previous selection order for a static musl Agent on a
-    // GNU host, including architecture-only caches. Add the compatible host GNU
-    // target only after both identities understood by the old Agent are absent.
-    if compiled_target.starts_with("linux-musl-") && runtime_target.starts_with("linux-gnu-") {
+    // Preserve the previous identity of signed Linux caches when the host ABI
+    // differs, including GNU Agents already running on a musl compatibility
+    // layer. A new host target follows both identities known by the old Agent.
+    let different_linux_abis = (compiled_target.starts_with("linux-musl-")
+        && runtime_target.starts_with("linux-gnu-"))
+        || (compiled_target.starts_with("linux-gnu-") && runtime_target.starts_with("linux-musl-"));
+    if different_linux_abis {
         for target in [compiled_target, native_arch()?] {
             match release.artifact(name, version, target) {
                 Ok(artifact) => return Ok(artifact),
@@ -198,6 +201,7 @@ mod tests {
             ("runtime", gnu.as_str()),
             ("runtime", musl.as_str()),
             ("gnu-only-runtime", gnu.as_str()),
+            ("musl-only-runtime", musl.as_str()),
             ("gnu-and-legacy", gnu.as_str()),
             ("gnu-and-legacy", arch),
             ("musl-and-legacy", musl.as_str()),
@@ -220,6 +224,7 @@ mod tests {
             (&gnu, &gnu, &gnu),
             (&gnu, &musl, &musl),
             (&musl, &musl, &musl),
+            (&musl, &gnu, &gnu),
         ] {
             assert_eq!(
                 artifact_for_targets(&release, "runtime", "0.3.0", target, compiled)
@@ -251,9 +256,32 @@ mod tests {
             gnu
         );
         assert!(artifact_for_targets(&release, "gnu-only-runtime", "0.3.0", &musl, &musl).is_err());
+        assert_eq!(
+            artifact_for_targets(&release, "gnu-only-runtime", "0.3.0", &musl, &gnu)
+                .unwrap()
+                .metadata()
+                .arch,
+            gnu
+        );
+        assert_eq!(
+            artifact_for_targets(&release, "musl-only-runtime", "0.3.0", &musl, &gnu)
+                .unwrap()
+                .metadata()
+                .arch,
+            musl
+        );
         for (name, expected) in [("gnu-and-legacy", arch), ("musl-and-legacy", musl.as_str())] {
             assert_eq!(
                 artifact_for_targets(&release, name, "0.3.0", &gnu, &musl)
+                    .unwrap()
+                    .metadata()
+                    .arch,
+                expected
+            );
+        }
+        for (name, expected) in [("gnu-and-legacy", gnu.as_str()), ("musl-and-legacy", arch)] {
+            assert_eq!(
+                artifact_for_targets(&release, name, "0.3.0", &musl, &gnu)
                     .unwrap()
                     .metadata()
                     .arch,
