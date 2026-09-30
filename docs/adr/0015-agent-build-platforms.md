@@ -37,3 +37,7 @@ musl 双架构的 CI 先使用同一源码、目标、工具链和构建脚本�
 继承工作区中曾加入 `tools/test-freebsd-rust.py` 的主 CI 步骤，但当前仓库并无该测试文件，因此主 CI 不执行此不存在的步骤。原始 workflow 改动已经在仓库外保留，官方工具链安装器保持原样未提交。此次不新建依赖该未提交文件的手动 workflow；后续恢复可选平台时应将安装器与完整测试一并评审。
 
 最新 main 提交 `fc8467d` 的 [CI 36681900051](https://github.com/theLucius7/sinan/actions/runs/36681900051) 中，检查、Compose smoke 和 musl 双架构均已通过；唯一失败是 FreeBSD arm64 在 rustup 安装阶段收到 404，尚未进入 Cargo。此次调整直接收敛到既定 Linux 部署范围。新的完整 CI 结果仍须以本次提交的实际 Actions 运行为准。
+
+## 后续执行：第 2 阶段复用体积证据
+
+第 0 阶段已在同一源码、架构和工具链下完成原 release profile 与优化 profile 的体积对照，实际字节数保存在对应 CI 摘要与制品中。第 2 阶段开始，常规 push/PR 的 musl job 只构建优化制品，不再重复编译旧 profile 或生成体积对照；真实端到端 job 复用本次运行的优化 Agent 制品。

@@ -27,6 +27,17 @@
 - 新增可恢复的专用资源 API 驱动、私有证据保存与精确流量/健康/身份/outbox 断言，以及受控双向 HTTP fixture。7 项驱动契约测试通过；全 workspace fmt、所有 targets Clippy（warnings 为错误）、cargo test 通过，116 项通过、4 项按既有原因默认忽略，数据库测试使用真实 PostgreSQL 16.15。
 - 下一步：将实际安装、systemd、Reality 流量和账本复核固化为每个 PR 的 CI；签名阶段按用户指定 minisign、多编译时公钥及本地离线签名执行。
 
+## 交付加固第 2 阶段：已实现，本地验证通过，PR 真实 CI 待验
+
+- 新增 Ubuntu 24.04 `real-e2e`，在每个 PR 与 main push 执行。复用同次 CI 的优化 musl amd64 Agent；固定上游运行时 1.14.2，以版本和构建脚本摘要缓存，并在每次恢复后核对 SHA-256、归档边界、ELF 架构、Go 1.26.8、固定 revision 与完整默认标签加统计标签。第 0 阶段已有同源体积对照，常规 CI 不再重复构建旧 profile。
+- 专用 Compose 面板与 PostgreSQL 提供制品；真实安装脚本在干净 runner 宿主安装，由 systemd 启动 Agent 和独立运行时。本地 Reality 客户端向受控回环 HTTP fixture 下载 2 MiB、上传 1 MiB，核对内容和精确计量增量。暂停后连续三样本、间隔 35 秒确认计量稳定与 outbox 空，再验证 Agent 重启、运行时 HUP、恢复流量和同版本重新安装的计量、身份与运行时 PID 连续性。
+- 脚本先拒绝已有 Sinan 安装，仅清理本次创建的服务、Compose 项目、私有临时目录与测试映射。公开 artifact 和 Actions summary 仅包含白名单中的版本、阶段与十进制用量，不上传身份、令牌、订阅、配置或原始日志。
+- README 精简并拆出 `docs/deploy.md`、`docs/dev.md`；部署文档保留真机发现的版本耦合、CDN 拒绝、端口映射和公网超时问题。Docker 面板默认两个 Rust 编译任务，降低 LTO 构建的内存压力。
+- 本地验证：Shell/Python 语法（含全部嵌入块）、Markdown 相对链接、actionlint、diff 检查通过；7 项驱动与 3 项运行时缓存契约测试通过。缓存修改在执行前拒绝，正确摘要不能放行归档路径/符号链接，缺失上游默认标签被拒绝。已用真机现有 Linux 制品执行完整缓存校验通过；本机临时 Reality 与 TLS 伪装夹具的双向流量通过。
+- `cargo fmt --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked` 全部通过；116 项通过、4 项按既有原因默认忽略，数据库测试使用真实 PostgreSQL 16.15。日志保存在仓库外 `/tmp/stage2-checks.log`。
+- 验收边界：新 job 尚待此提交的真实 GitHub PR 执行，不以 YAML 或本地契约测试宣称每个 PR 已通过。回环 CI 不覆盖外部 CDN、云 DNS、防火墙或公网超时，也不替代第 1 阶段的 0.1.0→0.2.0 跨版本升级证据。此阶段制品尚无签名，第 3 阶段加入独立测试公钥与正式离线签名信任链。
+- 下一步：创建 PR 跟进真实端到端 job，通过后记录对应 Actions；继续发布与信任链阶段。
+
 ## G1：已完成
 
 - 建立七个 crate 的 Rust 2021 workspace，每个 crate 根禁止 unsafe。
