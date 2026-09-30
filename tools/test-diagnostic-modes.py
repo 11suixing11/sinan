@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import Mock, patch
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HELPER = ROOT / "plugins/nodequality/daily.py"
@@ -76,6 +77,19 @@ class DailyChecks(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertLess(time.monotonic() - started, 6)
             self.assertIn("DNS 解析超过 2 秒", (root / "result.txt").read_text())
+
+    def test_both_preserves_each_family_after_many_resolver_addresses(self):
+        ipv4 = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))
+        ipv6 = (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 443, 0, 0))
+        for first, second in ((ipv6, ipv4), (ipv4, ipv6)):
+            with self.subTest(first=first[0]):
+                sender = Mock()
+                with patch.object(daily.socket, "getaddrinfo", return_value=[first] * 8 + [second]):
+                    daily.resolve_child("private.invalid", 443, socket.AF_UNSPEC, sender)
+                addresses = sender.send.call_args.args[0]
+                self.assertEqual(dict(addresses), {first[0]: first[4], second[0]: second[4]})
+                self.assertEqual(len(addresses), 2)
+                sender.close.assert_called_once()
 
     def test_ipv6_whitelist_does_not_silently_use_ipv4(self):
         with tempfile.TemporaryDirectory() as directory:
