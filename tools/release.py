@@ -4,6 +4,7 @@
 import argparse
 import base64
 import hashlib
+import gzip
 import io
 import json
 from pathlib import Path
@@ -41,32 +42,82 @@ def read_regular(path, limit=MAX_BINARY):
 def canonical_path(entry):
     ensure(entry["name"] in ("agent", "sing-box", "nodequality"), "unsupported module")
     ensure(SEGMENT.fullmatch(entry["version"]), "invalid version segment")
-    ensure(entry["arch"] in ("amd64", "arm64"), "unsupported architecture")
+    ensure(entry["arch"] in ("amd64", "arm64", "linux-gnu-amd64", "linux-gnu-arm64", "linux-musl-amd64", "linux-musl-arm64", "macos-arm64", "freebsd-amd64", "freebsd-arm64", "windows-amd64", "windows-arm64"), "unsupported architecture")
     return "/".join(entry[k] for k in ("name", "version", "arch"))
 
 
 def asset_name(entry):
     name, version, arch = (entry[k] for k in ("name", "version", "arch"))
     ensure(entry["format"] in ("raw", "tar.gz"), "unsupported format")
+    if arch not in ("amd64", "arm64"):
+        return f"{name}-{version}-{arch}" + (".tar.gz" if entry["format"] == "tar.gz" else "")
     return (f"{name}-{version}-linux-musl-{arch}" if entry["format"] == "raw"
             else f"{name}-{version}-linux-{arch}.tar.gz")
 
 
-def binary_bytes(data, archive_format, binary_name):
+def validate_auxiliary_files(value, binary_name, archive_format):
+    ensure(isinstance(value, dict) and len(value) <= 7, "invalid auxiliary file list")
+    ensure(not value or archive_format == "tar.gz", "raw artifacts cannot contain auxiliary files")
+    for name, entry in value.items():
+        ensure(isinstance(name, str) and re.fullmatch(r"[0-9A-Za-z._-]{1,128}", name)
+               and name not in (".", "..", binary_name, "release.json", "SHA256SUMS",
+                                "SHA256SUMS.minisig", ".artifact.json") and not name.startswith("-"),
+               "invalid auxiliary file name")
+        ensure(isinstance(entry, dict) and set(entry) == {"sha256", "size"},
+               "invalid auxiliary file metadata")
+        ensure(type(entry["size"]) is int and 0 < entry["size"] <= MAX_BINARY,
+               "invalid auxiliary file size")
+        ensure(isinstance(entry["sha256"], str) and re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]),
+               "invalid auxiliary file digest")
+    return value
+
+
+def binary_bytes(data, archive_format, binary_name, auxiliary_files=None):
+    auxiliary = validate_auxiliary_files(auxiliary_files if auxiliary_files is not None else {},
+                                         binary_name, archive_format)
     if archive_format == "raw":
         return data
     ensure(archive_format == "tar.gz", "unsupported format")
-    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
-        members = archive.getmembers()
-        ensure(len(members) == 1, "archive must contain exactly one binary")
-        member = members[0]
-        ensure(member.name == binary_name and member.isfile(), "unsafe archive member")
-        ensure(0 < member.size <= MAX_BINARY, "invalid binary size")
-        file = archive.extractfile(member)
-        ensure(file is not None, "archive binary unavailable")
-        binary = file.read(MAX_BINARY + 1)
-        ensure(len(binary) == member.size, "archive binary length mismatch")
-        return binary
+    expected = {binary_name} | set(auxiliary)
+    seen, binary, consumed = set(), None, 0
+    with gzip.GzipFile(fileobj=io.BytesIO(data), mode="rb") as compressed:
+        def read(size):
+            nonlocal consumed
+            content = compressed.read(min(size, MAX_BINARY - consumed + 1))
+            consumed += len(content)
+            ensure(consumed <= MAX_BINARY, "archive exceeds unpacked size limit")
+            return content
+
+        while True:
+            header = read(tarfile.BLOCKSIZE)
+            ensure(len(header) in (0, tarfile.BLOCKSIZE), "truncated archive header")
+            if not header or not any(header):
+                break
+            try:
+                member = tarfile.TarInfo.frombuf(header, encoding="utf-8", errors="strict")
+            except tarfile.HeaderError as error:
+                raise ValueError("invalid archive header") from error
+            ensure(member.name in expected and member.name not in seen
+                   and member.type in (tarfile.REGTYPE, tarfile.AREGTYPE), "unsafe archive member")
+            seen.add(member.name)
+            ensure(0 < member.size <= MAX_BINARY, "invalid archive member size")
+            if member.name != binary_name:
+                ensure(member.size == auxiliary[member.name]["size"], "auxiliary file size mismatch")
+            content = read(member.size)
+            ensure(len(content) == member.size, "archive file length mismatch")
+            if member.name == binary_name:
+                binary = content
+            else:
+                ensure(digest(content) == auxiliary[member.name]["sha256"], "auxiliary file digest mismatch")
+            padding = (-member.size) % tarfile.BLOCKSIZE
+            ensure(len(read(padding)) == padding, "truncated archive padding")
+        ensure(seen == expected, "archive does not contain the exact signed file set")
+        while True:
+            tail = read(8192)
+            if not tail:
+                break
+            ensure(not any(tail), "archive contains trailing data")
+    return binary
 
 
 def assemble(args):
@@ -115,6 +166,11 @@ def render_installer(args):
                              ("@@RUNTIME_UNIT@@", args.runtime_unit)):
         ensure(text.count(marker) == 1, "missing or duplicate installer unit marker")
         text = text.replace(marker, read_regular(Path(filename), 65536).decode("utf-8").rstrip())
+    for marker, filename in (("@@AGENT_OPENRC@@", SOURCE_ROOT / "deploy/sinan-agent.openrc"),
+                             ("@@RUNTIME_OPENRC@@", SOURCE_ROOT / "plugins/sing-box/sinan-singbox.openrc")):
+        if marker in text:
+            ensure(text.count(marker) == 1, "duplicate installer unit marker")
+            text = text.replace(marker, read_regular(filename, 65536).decode("utf-8").rstrip())
     ensure("@@" not in text, "unexpanded installer marker")
     output = Path(args.output)
     ensure(not output.exists(), "installer output exists")
@@ -217,12 +273,14 @@ def validate_manifest(bundle, expected_tag=None):
            and metadata["protocol_min"] == 1 and metadata["protocol_max"] == 1,
            "unsupported protocol range")
     ensure(expected_tag is None or metadata["tag"] == expected_tag, "wrong release tag")
-    ensure(isinstance(metadata["artifacts"], list) and 0 < len(metadata["artifacts"]) <= 16,
+    ensure(isinstance(metadata["artifacts"], list) and 0 < len(metadata["artifacts"]) <= 30,
            "invalid artifact list")
     expected_paths = {"release.json", "install.sh"}
     for entry in metadata["artifacts"]:
-        ensure(set(entry) == {"name", "version", "arch", "format", "binary_name", "archive_size",
-                              "binary_sha256", "binary_size", "asset_name"}, "unexpected artifact fields")
+        required = {"name", "version", "arch", "format", "binary_name", "archive_size",
+                    "binary_sha256", "binary_size", "asset_name"}
+        ensure(isinstance(entry, dict) and set(entry) in (required, required | {"auxiliary_files"}),
+               "unexpected artifact fields")
         path = canonical_path(entry)
         ensure(path not in expected_paths, "duplicate artifact identity")
         expected_paths.add(path)
@@ -234,9 +292,11 @@ def validate_manifest(bundle, expected_tag=None):
                and re.fullmatch(r"[0-9a-f]{64}", entry["binary_sha256"]), "invalid binary digest")
         ensure(isinstance(entry["binary_name"], str) and SEGMENT.fullmatch(entry["binary_name"])
                and entry["binary_name"] not in (".", ".."), "invalid signed binary name")
+        validate_auxiliary_files(entry.get("auxiliary_files", {}), entry["binary_name"], entry["format"])
         if entry["name"] == "agent":
+            binary_name = "sinan-agent.exe" if entry["arch"].startswith("windows-") else "sinan-agent"
             ensure(metadata["tag"] == "agent-v" + entry["version"] and entry["format"] == "raw"
-                   and entry["binary_name"] == "sinan-agent", "wrong Agent release identity")
+                   and entry["binary_name"] == binary_name, "wrong Agent release identity")
         if entry["format"] == "raw":
             ensure(entry["archive_size"] == entry["binary_size"]
                    and rows.get(path) == entry["binary_sha256"], "raw binary proof mismatch")
@@ -254,7 +314,7 @@ def verify_bundle(bundle, roots, minisign, expected_tag=None, exact_assets=True)
         expected_files.add(entry["asset_name"])
         data = read_regular(bundle / entry["asset_name"])
         ensure(len(data) == entry["archive_size"] and rows.get(path) == digest(data), "archive mismatch")
-        binary = binary_bytes(data, entry["format"], entry["binary_name"])
+        binary = binary_bytes(data, entry["format"], entry["binary_name"], entry.get("auxiliary_files", {}))
         ensure(len(binary) == entry["binary_size"] and digest(binary) == entry["binary_sha256"], "binary mismatch")
     if exact_assets:
         ensure({p.name for p in bundle.iterdir()} == expected_files, "missing or extra release assets")

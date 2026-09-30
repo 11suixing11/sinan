@@ -1,6 +1,6 @@
 # 司南 Sinan
 
-自托管的中文服务器与代理节点控制面板。面板保存期望配置；Linux Agent 主动连接，负责对账、应用恢复、系统遥测和按用户计量。代理运行时由独立 systemd 服务管理，Agent 重启时继续提供服务。
+自托管的中文服务器与代理节点控制面板。面板保存期望配置；Agent 主动连接，负责对账、应用恢复、系统遥测和按用户计量。代理运行时由独立系统服务管理，Agent 重启时继续提供服务。
 
 提供 VLESS + Reality、用户授权、订阅、部署状态与流量汇总。节点端口可指定为 443 等可用端口，订阅链接可一键重置；管理员登录支持限速和 TOTP 二步验证。删除在线设备时先停服务、清凭据，离线设备仅删除面板记录。
 
@@ -23,4 +23,4 @@ docker compose --project-name sinan --env-file .env \
 - [架构决策](docs/adr/0001-declarative-snapshots.md) / [问题与选择](docs/open-questions.md)
 - [执行计划](docs/PLAN.md) / [验证进度](PROGRESS.md)
 
-MVP 仅支持 Linux/systemd、单运行时和单管理员，范围见架构决策。许可证：AGPL-3.0-only。
+支持 Linux systemd/OpenRC、macOS launchd、FreeBSD rc.d 和 Windows 计划任务；各平台的服务、升级及验收边界见 [设备平台与能力](docs/platforms.md)。当前业务协议与单实例范围见架构决策。许可证：AGPL-3.0-only。

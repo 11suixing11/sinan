@@ -2,9 +2,11 @@
 
 pub mod accesses;
 pub mod agent_api;
+pub mod agent_updates;
 pub mod artifacts;
 pub mod auth;
 pub mod business;
+pub mod commands;
 pub mod config;
 pub mod deployments;
 pub mod diagnostics;
@@ -12,11 +14,13 @@ pub mod error;
 pub mod frontend;
 pub mod ip_quality;
 pub mod nodes;
+pub mod probes;
 pub mod publisher;
 pub mod releases;
 pub mod retirement;
 pub mod servers;
 pub mod subscriptions;
+pub mod telemetry;
 pub mod usage;
 pub mod users;
 
@@ -90,6 +94,24 @@ pub fn router(state: AppState) -> Router {
             post(servers::issue_enrollment),
         )
         .route("/api/servers/{id}/deployments", get(deployments::get))
+        .route(
+            "/api/servers/{id}/agent-settings",
+            get(telemetry::settings).patch(telemetry::update_settings),
+        )
+        .route("/api/servers/{id}/metrics", get(telemetry::history))
+        .route(
+            "/api/servers/{id}/commands",
+            get(commands::list).post(commands::create),
+        )
+        .route(
+            "/api/servers/{id}/probes",
+            get(probes::list).post(probes::create),
+        )
+        .route(
+            "/api/servers/{id}/probes/{probe}",
+            axum::routing::patch(probes::update).delete(probes::remove),
+        )
+        .route("/api/servers/{id}/probe-results", get(probes::history))
         .route("/api/servers/{id}/node-quality", get(diagnostics::get))
         .route(
             "/api/servers/{id}/node-quality/refresh",
@@ -130,6 +152,13 @@ pub fn router(state: AppState) -> Router {
             post(retirement::receipt),
         )
         .route("/api/agent/v1/manifest", get(agent_api::manifest))
+        .route("/api/agent/v1/settings", get(telemetry::agent_settings))
+        .route("/api/agent/v1/update", get(agent_updates::available))
+        .route("/api/agent/v1/telemetry", post(telemetry::ingest))
+        .route("/api/agent/v1/commands", get(commands::pending))
+        .route("/api/agent/v1/commands/{id}", post(commands::complete))
+        .route("/api/agent/v1/probes", get(probes::agent_list))
+        .route("/api/agent/v1/probe-results", post(probes::ingest))
         .route("/api/agent/v1/diagnostics", get(diagnostics::pending))
         .route("/api/agent/v1/diagnostics/{id}", post(diagnostics::update))
         .route("/api/agent/v1/bundles/{rev}", get(agent_api::bundle))
@@ -141,6 +170,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/artifacts/import-release", post(releases::import))
         .route("/api/bootstrap/{version}/{arch}", get(artifacts::bootstrap))
         .route("/install.sh", get(artifacts::install_script))
+        .route("/install.ps1", get(artifacts::install_powershell))
         .fallback(frontend::serve)
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
         .with_state(state)

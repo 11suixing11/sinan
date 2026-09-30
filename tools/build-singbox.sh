@@ -5,13 +5,15 @@ umask 022
 
 usage() {
   cat <<'USAGE'
-Usage: tools/build-singbox.sh <amd64|arm64> <ARTIFACT_ROOT>
+Usage: tools/build-singbox.sh <amd64|arm64> <ARTIFACT_ROOT> [--libc=gnu|--libc=musl]
 
 Run on Linux/amd64 with Go 1.26.8. Both targets use the upstream Chromium
-clang/sysroot toolchain; the resulting runtime uses glibc >= 2.31.
+clang/sysroot toolchain. GNU uses glibc >= 2.31; musl is statically linked.
 
 Output: ARTIFACT_ROOT/sing-box/1.14.2/<arch> (a gzip archive with one binary)
         ARTIFACT_ROOT/sing-box/1.14.2/SHA256SUMS
+With --libc, the artifact filename is linux-<libc>-<arch>. The legacy default
+remains GNU under <arch>. musl retains all upstream default tags.
 
 Debian build prerequisites:
   ca-certificates git curl python3 python3-requests gnupg dirmngr xz-utils
@@ -25,9 +27,15 @@ USAGE
 }
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 if [[ ${1:-} == --help || ${1:-} == -h ]]; then usage; exit 0; fi
-[[ $# == 2 ]] || { usage >&2; exit 2; }
+[[ $# == 2 || $# == 3 ]] || { usage >&2; exit 2; }
 arch=$1
 case "$arch" in amd64|arm64) ;; *) die 'architecture must be amd64 or arm64' ;; esac
+libc=gnu
+artifact=$arch
+if [[ $# == 3 ]]; then
+  case "$3" in --libc=gnu) libc=gnu ;; --libc=musl) libc=musl ;; *) die 'expected --libc=gnu or --libc=musl' ;; esac
+  artifact=linux-$libc-$arch
+fi
 [[ -n $2 ]] || die 'ARTIFACT_ROOT must not be empty'
 for tool in go git curl python3 gpg gpgconf gpgv tar gzip sha256sum readelf timeout \
   file xz unzip bzip2 zstd dpkg-deb pkg-config make gcc g++ ar; do
@@ -60,7 +68,7 @@ sums_file=
 output_created=0
 committed=0
 cleanup() {
-  if [[ $output_created == 1 && $committed == 0 ]]; then rm -f -- "$output/$arch"; fi
+  if [[ $output_created == 1 && $committed == 0 ]]; then rm -f -- "$output/$artifact"; fi
   [[ -z $stage_file ]] || rm -f -- "$stage_file"
   [[ -z $sums_file ]] || rm -f -- "$sums_file"
   if [[ -n $scratch && -d $scratch/gnupg ]]; then
@@ -72,7 +80,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-[[ ! -e $output/$arch && ! -L $output/$arch ]] || die "immutable artifact already exists: $output/$arch"
+[[ ! -e $output/$artifact && ! -L $output/$artifact ]] || die "immutable artifact already exists: $output/$artifact"
 python3 - "$output" <<'PY'
 import hashlib
 import pathlib
@@ -86,11 +94,11 @@ if manifest.is_symlink() or (manifest.exists() and not manifest.is_file()):
     raise SystemExit("SHA256SUMS must be an ordinary file")
 if manifest.exists():
     for line in manifest.read_text().splitlines():
-        match = re.fullmatch(r"([0-9a-fA-F]{64}) [ *](amd64|arm64)", line)
+        match = re.fullmatch(r"([0-9a-fA-F]{64}) [ *]((?:linux-(?:gnu|musl)-)?(?:amd64|arm64))", line)
         if not match or match[2] in expected:
             raise SystemExit("invalid or duplicate SHA256SUMS entry")
         expected[match[2]] = match[1].lower()
-for arch in ("amd64", "arm64"):
+for arch in ("amd64", "arm64", "linux-gnu-amd64", "linux-gnu-arm64", "linux-musl-amd64", "linux-musl-arm64"):
     artifact = root / arch
     if artifact.is_symlink() or (artifact.exists() and not artifact.is_file()):
         raise SystemExit(f"{arch} must be an ordinary file")
@@ -127,8 +135,10 @@ mkdir -m 0700 "$scratch/gnupg"
   cd "$cronet_dir"
   rm -f naiveproxy/src/build/linux/sysroot_scripts/keyring.gpg
   GNUPGHOME="$scratch/gnupg" GPG_TTY=/dev/null ./naiveproxy/src/build/linux/sysroot_scripts/generate_keyring.sh
-  GOFLAGS= go run ./cmd/build-naive --target="linux/$arch" download-toolchain
-  GOFLAGS= go run ./cmd/build-naive --target="linux/$arch" env > "$scratch/toolchain.env"
+  toolchain_args=(--target="linux/$arch")
+  [[ $libc != musl ]] || toolchain_args+=(--libc=musl)
+  GOFLAGS= go run ./cmd/build-naive "${toolchain_args[@]}" download-toolchain
+  GOFLAGS= go run ./cmd/build-naive "${toolchain_args[@]}" env > "$scratch/toolchain.env"
 )
 caller_cgo_ldflags=${CGO_LDFLAGS:-}
 while IFS='=' read -r name value; do
@@ -142,17 +152,32 @@ done < "$scratch/toolchain.env"
 
 cd "$source_dir"
 tags="$(cat release/DEFAULT_BUILD_TAGS),with_v2ray_api"
+[[ $libc != musl ]] || tags="$tags,with_musl"
 shared_ldflags=$(cat release/LDFLAGS)
 mkdir "$scratch/stage"
-CGO_ENABLED=1 GOOS=linux GOARCH="$arch" GOFLAGS= \
-  go build -mod=readonly -v -trimpath -tags "$tags" \
-    -ldflags "-X github.com/sagernet/sing-box/constant.Version=$version $shared_ldflags -s -w -buildid=" \
-    -o "$scratch/stage/sing-box" ./cmd/sing-box
+for attempt in 1 2 3; do
+  if CGO_ENABLED=1 GOOS=linux GOARCH="$arch" GOFLAGS= \
+    go build -mod=readonly -v -trimpath -tags "$tags" \
+      -ldflags "-X github.com/sagernet/sing-box/constant.Version=$version $shared_ldflags -s -w -buildid=" \
+      -o "$scratch/stage/sing-box" ./cmd/sing-box; then
+    break
+  fi
+  [[ $attempt != 3 ]] || die 'runtime build failed after three attempts'
+  printf 'Runtime build attempt %s failed; retrying with the existing module cache.\n' "$attempt" >&2
+  sleep 5
+done
 [[ -z $(git status --porcelain) ]] || die 'upstream source changed during the build'
 binary=$scratch/stage/sing-box
 chmod 0755 "$binary"
 go version -m "$binary"
 header=$(readelf -h "$binary")
+if [[ $libc == musl ]]; then
+  program_headers=$(readelf -lW "$binary")
+  dynamic=$(readelf -dW "$binary")
+  [[ $program_headers != *INTERP* && $dynamic != *NEEDED* ]] || die 'musl runtime must be statically linked'
+  build_metadata=$(go version -m "$binary")
+  [[ $build_metadata == *with_musl* ]] || die 'musl runtime lacks its upstream build tag'
+fi
 if [[ $arch == amd64 ]]; then
   [[ $header == *'Advanced Micro Devices X86-64'* ]] || die 'built binary has the wrong architecture'
   runtime_version=$(timeout 30 "$binary" version)
@@ -162,21 +187,21 @@ else
   [[ $header == *AArch64* ]] || die 'built binary has the wrong architecture'
   printf '%s\n' 'Cross-compiled arm64: ELF/build metadata verified; execute version on an arm64 host before deployment.'
 fi
-stage_file=$(mktemp "$output/.$arch.XXXXXX")
+stage_file=$(mktemp "$output/.$artifact.XXXXXX")
 tar --format=ustar --mtime=@0 --owner=0 --group=0 --numeric-owner --sort=name \
   -cf - -C "$scratch/stage" sing-box | gzip -n -9 > "$stage_file"
 chmod 0644 "$stage_file"
-ln -- "$stage_file" "$output/$arch"
+ln -- "$stage_file" "$output/$artifact"
 output_created=1
 sums_file=$(mktemp "$output/.SHA256SUMS.XXXXXX")
 (
   cd "$output"
-  for candidate in amd64 arm64; do
+  for candidate in amd64 arm64 linux-gnu-amd64 linux-gnu-arm64 linux-musl-amd64 linux-musl-arm64; do
     if [[ -f $candidate ]]; then sha256sum "$candidate"; fi
   done
 ) > "$sums_file"
 chmod 0644 "$sums_file"
 mv -T -- "$sums_file" "$output/SHA256SUMS"
 committed=1
-printf 'Artifact: %s/%s\n' "$output" "$arch"
+printf 'Artifact: %s/%s\n' "$output" "$artifact"
 cat "$output/SHA256SUMS"

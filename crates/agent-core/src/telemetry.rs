@@ -1,10 +1,14 @@
-use sinan_protocol::{Metrics, NetworkMetrics, StaticInfo};
+mod hardware;
+mod outbox;
+pub mod worker;
+
+use sinan_protocol::{DiskMetrics, Metrics, NetworkMetrics, StaticInfo};
 use std::{
     collections::{BTreeMap, BTreeSet},
     net::IpAddr,
     time::Instant,
 };
-use sysinfo::{Disks, Networks, System};
+use sysinfo::{Disks, Networks, ProcessRefreshKind, ProcessesToUpdate, System};
 
 type NetworkTotals = BTreeMap<String, (u64, u64)>;
 
@@ -14,6 +18,7 @@ pub struct Collector {
     networks: Networks,
     last_cpu: Option<Instant>,
     last_network: Option<(Instant, NetworkTotals)>,
+    last_disks: Option<(Instant, NetworkTotals)>,
 }
 
 impl Default for Collector {
@@ -29,15 +34,29 @@ impl Collector {
         system.refresh_memory();
         Self {
             system,
-            disks: Disks::new_with_refreshed_list(),
+            disks: refreshed_disks(),
             networks: Networks::new_with_refreshed_list(),
             last_cpu: None,
             last_network: None,
+            last_disks: None,
         }
     }
 
     pub fn static_info(&self) -> StaticInfo {
         StaticInfo {
+            os: Some(std::env::consts::OS.into()),
+            libc: if cfg!(target_os = "linux") {
+                Some(
+                    if cfg!(target_env = "musl") {
+                        "musl"
+                    } else {
+                        "gnu"
+                    }
+                    .into(),
+                )
+            } else {
+                None
+            },
             system: System::long_os_version().or_else(System::name),
             kernel: System::kernel_version(),
             arch: Some(std::env::consts::ARCH.into()),
@@ -68,8 +87,13 @@ impl Collector {
         let now = Instant::now();
         self.system.refresh_cpu_all();
         self.system.refresh_memory();
+        self.system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing(),
+        );
         // Fresh inventories do not retain measurements after a failed refresh.
-        self.disks = Disks::new_with_refreshed_list();
+        self.disks = refreshed_disks();
         self.networks = Networks::new_with_refreshed_list();
         let cpu = self
             .last_cpu
@@ -122,8 +146,45 @@ impl Collector {
             })
             .collect();
         self.last_network = Some((now, totals));
+        let mut disk_counts = BTreeMap::new();
+        let disks =
+            self.disks
+                .iter()
+                .map(|disk| {
+                    let name = disk.name().to_string_lossy().into_owned();
+                    let usage = disk.usage();
+                    let current = (usage.total_read_bytes, usage.total_written_bytes);
+                    let previous = self.last_disks.as_ref().and_then(|(time, values)| {
+                        values.get(&name).map(|counts| (*time, *counts))
+                    });
+                    let rates = previous.and_then(|(time, (read, written))| {
+                        let elapsed = now.duration_since(time).as_secs_f64();
+                        (elapsed > 0.0).then(|| {
+                            (
+                                current.0.checked_sub(read).map(|v| v as f64 / elapsed),
+                                current.1.checked_sub(written).map(|v| v as f64 / elapsed),
+                            )
+                        })
+                    });
+                    disk_counts.insert(name.clone(), current);
+                    DiskMetrics {
+                        name,
+                        mount_point: disk.mount_point().to_string_lossy().into_owned(),
+                        total_bytes: positive(disk.total_space()),
+                        used_bytes: disk.total_space().checked_sub(disk.available_space()),
+                        read_bytes_per_sec: rates.and_then(|v| v.0),
+                        write_bytes_per_sec: rates.and_then(|v| v.1),
+                        ..DiskMetrics::default()
+                    }
+                })
+                .collect();
+        self.last_disks = Some((now, disk_counts));
         let load = load_average();
         Metrics {
+            swap_total: Some(self.system.total_swap()),
+            swap_used: Some(self.system.used_swap()),
+            processes: u64::try_from(self.system.processes().len()).ok(),
+            disks,
             cpu_percent: cpu,
             memory_used: positive(self.system.total_memory()).map(|_| self.system.used_memory()),
             load_1: load.map(|value| value.0),
@@ -137,6 +198,16 @@ impl Collector {
             ..Metrics::default()
         }
     }
+}
+
+fn refreshed_disks() -> Disks {
+    // FreeBSD getmntinfo and libgeom use process-global storage. Keep the lock
+    // until sysinfo has copied every mount and completed its I/O snapshot.
+    #[cfg(target_os = "freebsd")]
+    static DISKS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    #[cfg(target_os = "freebsd")]
+    let _guard = DISKS.lock().unwrap_or_else(|error| error.into_inner());
+    Disks::new_with_refreshed_list()
 }
 
 pub(crate) fn normalized_addresses(addresses: impl IntoIterator<Item = IpAddr>) -> Vec<String> {
@@ -192,7 +263,11 @@ fn load_average() -> Option<(f64, f64, f64)> {
             fields.next()?.parse().ok()?,
         ))
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        None
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let load = System::load_average();
         (load.one.is_finite() && load.five.is_finite() && load.fifteen.is_finite()).then_some((

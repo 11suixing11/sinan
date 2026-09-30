@@ -101,3 +101,9 @@ cargo test --locked -p sinan-agent-core --lib retirement::tests
 CI 公开制品仅包含版本、阶段和精确用量摘要；完整配置、订阅凭据、设备身份、安装令牌和日志不上传。此 job 使用回环 HTTP 路径和本地 TLS 伪装目标，不覆盖外部 CDN、DNS、证书部署或云防火墙配置。
 
 新 job 的实际执行结果见对应提交的 [Actions](https://github.com/theLucius7/sinan/actions)，验收范围只在该 job 通过后成立。运行 0.1.0 到 0.2.0 升级属于真机专项，不能由同版本重装测试推断。
+
+## 原生平台与 OpenRC 检查
+
+平台目标及服务边界见 [设备平台与能力](platforms.md)。日常 CI 同时构建 Linux libc × 架构、macOS ARM64、FreeBSD 与 Windows 双架构；原生 Agent 行为夹具和服务夹具使用公开 TEST_ONLY 证明，Python 签名支持仅属于 CI。FreeBSD Linux cross 构建编译同一个测试公钥，再由 FreeBSD 13.5/14/15 验证同一二进制。
+
+Linux musl 任务运行 `scripts/ci-openrc-smoke.sh`，必须在隔离 Alpine 容器中执行。进程夹具通过真实 OpenRC 验证监督、HUP、权限、依赖树刷新和重复安装，安装前使用独立 minisign/bootstrap 验证静态安装器；同一任务另用实际 Agent 执行诊断服务、命名空间、失败、超时和完成任务不可重放检查。该进程夹具的缓存预检为明确的 stub，真实签名缓存与未完成操作由 Rust 测试和 systemd real-e2e 验证。

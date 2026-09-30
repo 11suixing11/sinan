@@ -109,11 +109,16 @@ impl Harness {
     pub fn agent_config(&self) -> AgentConfig {
         let root = self.directory.join("agent");
         AgentConfig {
+            settings: sinan_protocol::AgentSettings {
+                discover_public_ips: false,
+                ..Default::default()
+            },
             panel_url: self.base.clone(),
             identity_dir: root.join("identity"),
             state_db: root.join("state.db"),
             runtime_root: root.join("runtime"),
             install_root: root.join("install"),
+            agent_root: root.join("core"),
             status_socket: root.join("run/status.sock"),
             operation_timeout_secs: 5,
             public_ips: Vec::new(),
@@ -129,15 +134,12 @@ impl Harness {
         header.set_cksum();
         archive.append_data(&mut header, "demo", binary.as_slice())?;
         let archive = archive.into_inner()?.finish()?;
-        release_fixture::write(
-            &self.state.config.data_dir,
-            "sing-box",
-            "1.14.2",
-            "demo",
-            &archive,
-            binary,
-            "tar.gz",
-        )?;
+        let mut entry =
+            release_support::entry("sing-box", "1.14.2", "demo", "tar.gz", &archive, binary);
+        // Real telemetry reports the host ABI; this fake runtime must use that signed identity.
+        entry.arch = sinan_protocol::release::native_target()?;
+        entry.asset_name = sinan_protocol::release::canonical_asset_name(&entry)?;
+        release_fixture::write_entries(&self.state.config.data_dir, vec![(entry, archive)])?;
         Ok(binary.to_vec())
     }
 }

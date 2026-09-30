@@ -1,6 +1,6 @@
 # 诊断资源预算独立验收
 
-对应第 1 步的资源预算项及 Issue #14。诊断适配器返回类型安全的 ServiceJob 预算，core 通过 Privileged/ServiceManager 边界将预算传给 systemd-run。NodeQuality 和缺少预算字段的旧持久任务均采用下表的默认值。
+对应第 1 步的 systemd 资源预算项及 Issue #14。诊断适配器返回类型安全的 ServiceJob 预算，core 通过 Privileged/ServiceManager 边界将预算传给 systemd-run。NodeQuality 和缺少预算字段的旧持久任务均采用下表的默认值。
 
 | 属性 | 默认值 | 输入约束 |
 | --- | --- | --- |
@@ -47,6 +47,8 @@ sudo "$diagnostic_test_binary" real_systemd_diagnostic_ --ignored
 这些夹具只运行有限的本地内存分配和最多 64 次派生尝试，不执行完整 NodeQuality、网络测试或上传。实际流水线结果须对应本 PR 最终提交，不能用测试配置代替执行证据。
 
 ## 兼容及验收边界
+
+本项的资源预算强制执行仅覆盖 systemd。OpenRC 继续保留已有的独立诊断进程、挂载命名空间、超时和进程清理行为，启动时明确记录警告：它不执行这些 systemd cgroup 预算，包括 MemorySwapMax。ServiceJob 中持久化的有限默认值不代表 OpenRC 已获得同等的内存、任务数、CPU/I/O 权重或 OOM 限制；其他原生平台未新增诊断服务支持。OpenRC 的总进程树资源限制需要另行实现和验收，不能用每进程 rlimit 代替上述 cgroup 限制。
 
 新字段只影响此版本启动的新单元。升级期间已经运行的旧单元继续按已有 systemd 属性运行，默认反序列化用于恢复和观察，不会追溯设置属性或重跑任务。
 

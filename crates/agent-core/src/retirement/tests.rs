@@ -42,6 +42,7 @@ impl Fixture {
             status_socket: root.join("status.sock"),
             operation_timeout_secs: 1,
             public_ips: vec![],
+            ..Config::default()
         };
         fs::create_dir(&config.identity_dir)?;
         fs::write(config.identity_dir.join("device.key"), [19_u8; 32])?;
@@ -172,6 +173,48 @@ async fn shutdown_waits_for_inflight_operations_and_failure_keeps_credentials() 
 #[tokio::test]
 async fn acknowledged_usage_is_preserved_while_keys_and_configuration_are_removed() -> Result<()> {
     let fixture = Fixture::new()?;
+    {
+        let mut state = fixture.state.lock().unwrap();
+        let command = sinan_protocol::RemoteCommand {
+            id: Uuid::new_v4(),
+            command: "TEST_ONLY_command_secret".into(),
+            timeout_secs: 1,
+            expires_at: sinan_protocol::now_timestamp() + 600,
+        };
+        state.begin_command(&command)?;
+        state.finish_command(&sinan_protocol::CommandResult {
+            id: command.id,
+            status: sinan_protocol::CommandStatus::Succeeded,
+            finished_at: sinan_protocol::now_timestamp(),
+            stdout: "TEST_ONLY_command_output".into(),
+            stderr: String::new(),
+            timed_out: false,
+            truncated: false,
+        })?;
+        state.save_probe_result(&sinan_protocol::ProbeResult {
+            id: Uuid::new_v4(),
+            probe_id: Uuid::new_v4(),
+            sampled_at: sinan_protocol::telemetry::now_millis(),
+            latency_ms: None,
+            loss_percent: 100.0,
+            error: Some("TEST_ONLY_probe_error".into()),
+        })?;
+        state.save_telemetry(&sinan_protocol::TelemetrySample {
+            id: Uuid::new_v4(),
+            sampled_at: sinan_protocol::telemetry::now_millis(),
+            metrics: sinan_protocol::Metrics::default(),
+        })?;
+        for table in ["command_journal", "probe_outbox", "telemetry_outbox"] {
+            assert_eq!(
+                state.connection.query_row(
+                    &format!("SELECT COUNT(*) FROM {table}"),
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )?,
+                1
+            );
+        }
+    }
     fixture.request()?;
     let batch = fixture
         .state
@@ -251,6 +294,16 @@ async fn acknowledged_usage_is_preserved_while_keys_and_configuration_are_remove
                 .get::<_, i64>(0))?,
         1
     );
+    for table in ["command_journal", "probe_outbox", "telemetry_outbox"] {
+        assert_eq!(
+            state
+                .connection
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row
+                    .get::<_, i64>(0))?,
+            0,
+            "retirement retained {table}"
+        );
+    }
     assert_eq!(state.pending_usage_count()?, 0);
     Ok(())
 }
@@ -524,7 +577,10 @@ async fn systemd_query_failure_cannot_clear_credentials_or_confirm_retirement() 
         fixture.state.clone(),
         vec![Arc::new(FakeAdapter::default())],
         Arc::new(SystemOps),
-        Arc::new(SystemServiceManager::new(systemctl.clone())),
+        Arc::new(SystemServiceManager::new(
+            systemctl.clone(),
+            crate::system::ServiceBackend::Systemd,
+        )),
     )?;
     assert!(retirement.prepare().await.is_err());
     assert!(systemctl.running.load(Ordering::SeqCst));
@@ -565,5 +621,123 @@ async fn systemd_query_failure_cannot_clear_credentials_or_confirm_retirement() 
             .exists()
     );
     assert!(ensure_enrollment_allowed(&fixture.config).is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn requested_retirement_quiesces_task_update_and_telemetry_workers() -> Result<()> {
+    use crate::artifacts::PanelClient;
+    use sinan_protocol::{RemoteCommand, now_timestamp};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+        sync::watch,
+        task::JoinSet,
+        time::timeout,
+    };
+    let fixture = Fixture::new()?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let origin = format!("http://{}", listener.local_addr()?);
+    let requests = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let captured = requests.clone();
+    let marker = fixture.root.join("unexpected-command");
+    let command = RemoteCommand {
+        id: Uuid::new_v4(),
+        command: format!(": > '{}';", marker.display()),
+        timeout_secs: 1,
+        expires_at: now_timestamp() + 600,
+    };
+    let server = tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let mut buffer = vec![0; 16 * 1024];
+            let length = stream.read(&mut buffer).await.unwrap_or(0);
+            captured.fetch_add(1, Ordering::SeqCst);
+            let request = String::from_utf8_lossy(&buffer[..length]);
+            let body = if request.starts_with("GET /api/agent/v1/commands ") {
+                serde_json::to_vec(&vec![command.clone()]).unwrap()
+            } else if request.starts_with("GET /api/agent/v1/probes ") {
+                b"[]".to_vec()
+            } else {
+                b"null".to_vec()
+            };
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(header.as_bytes()).await;
+            let _ = stream.write_all(&body).await;
+        }
+    });
+    fixture.request()?;
+    fixture.retirement.prepare().await?;
+    fixture.retirement.complete(&fixture.identity).await?;
+    let mut config = fixture.config.clone();
+    config.panel_url = origin.clone();
+    config.agent_root = fixture.root.join("core");
+    config.settings.auto_update = true;
+    fs::create_dir(&config.agent_root)?;
+    fs::write(
+        config.agent_root.join("update-state.json"),
+        serde_json::to_vec(&crate::upgrade::UpgradeState {
+            current: env!("CARGO_PKG_VERSION").into(),
+            ..Default::default()
+        })?,
+    )?;
+    let client = Arc::new(PanelClient::new(&origin, "retirement-worker-fixture")?);
+    let (_clients, receiver) = watch::channel(Some(client));
+    let mut workers = JoinSet::new();
+    workers.spawn(crate::tasks::run(
+        fixture.state.clone(),
+        Arc::new(SystemOps),
+        receiver.clone(),
+        fixture.retirement.clone(),
+    ));
+    workers.spawn(crate::upgrade::run(
+        config.clone(),
+        fixture.state.clone(),
+        Arc::new(SystemOps),
+        receiver.clone(),
+        fixture.retirement.clone(),
+    ));
+    workers.spawn(crate::telemetry::worker::run(
+        config.clone(),
+        fixture.state.clone(),
+        Arc::new(SystemOps),
+        receiver,
+        fixture.retirement.clone(),
+    ));
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    // Quiescent workers must release the read gate before their timer waits.
+    drop(timeout(Duration::from_secs(1), fixture.retirement.gate.write()).await?);
+    assert_eq!(
+        requests.load(Ordering::SeqCst),
+        0,
+        "retired workers must not fetch or accept new panel work"
+    );
+    assert!(
+        !marker.exists(),
+        "a queued command executed after retirement"
+    );
+    assert!(!config.agent_root.join("pending-update.json").exists());
+    {
+        let state = fixture.state.lock().unwrap();
+        assert!(state.pending_telemetry()?.is_empty());
+        assert!(state.command_results()?.is_empty());
+        assert!(state.probe_results()?.is_empty());
+        assert!(
+            state
+                .get_json::<serde_json::Value>("probes:configuration")?
+                .is_none()
+        );
+        assert!(
+            state
+                .get_json::<serde_json::Value>("agent_settings")?
+                .is_none()
+        );
+    }
+    workers.abort_all();
+    while workers.join_next().await.is_some() {}
+    server.abort();
+    let _ = server.await;
     Ok(())
 }

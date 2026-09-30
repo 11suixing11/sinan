@@ -56,7 +56,7 @@ fn legacy_service() -> serde_json::Value {
 #[tokio::test]
 async fn service_command_applies_every_budget_before_the_program_separator() -> Result<()> {
     let ops = Arc::new(RecordingOps::default());
-    let services = SystemServiceManager::new(ops.clone());
+    let services = SystemServiceManager::new(ops.clone(), ServiceBackend::Systemd);
     let mut job: ServiceJob = serde_json::from_value(legacy_service())?;
     assert_eq!(job.memory_max.get(), 512 * 1024 * 1024);
     assert_eq!(job.tasks_max.get(), 128);
@@ -146,7 +146,7 @@ async fn real_systemd_diagnostic_resource_budget_restricts_memory_and_children()
         "requires cgroup v2"
     );
     let ops: Arc<dyn Privileged> = Arc::new(SystemOps);
-    let services = SystemServiceManager::new(ops.clone());
+    let services = SystemServiceManager::new(ops.clone(), ServiceBackend::Systemd);
     let directory = std::env::temp_dir().join(format!("sinan-budget-test-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&directory)?;
     let script = directory.join("children.py");

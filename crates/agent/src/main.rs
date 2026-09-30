@@ -1,28 +1,23 @@
 #![forbid(unsafe_code)]
 
-#[cfg(target_os = "linux")]
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 #[cfg(target_os = "linux")]
 use sinan_adapter_nodequality::NodeQualityAdapter;
-#[cfg(target_os = "linux")]
 use sinan_adapter_sdk::{Adapter, DiagnosticAdapter, Privileged, ServiceManager};
-#[cfg(target_os = "linux")]
 use sinan_adapter_singbox::SingboxAdapter;
-#[cfg(target_os = "linux")]
 use sinan_agent_core::{
     Config, identity,
-    system::{SystemOps, SystemServiceManager},
+    system::{ServiceBackend, SystemOps, SystemServiceManager},
     transport,
 };
 use std::path::PathBuf;
-#[cfg(target_os = "linux")]
 use std::{path::Path, sync::Arc};
 
 #[derive(Parser)]
 #[command(name = "sinan-agent", version, about = "Sinan 服务器代理")]
 struct Cli {
-    #[arg(long, global = true, default_value = "/etc/sinan/agent.toml")]
+    #[arg(long, global = true, default_value_os_t = sinan_agent_core::config::default_path())]
     config: PathBuf,
     #[command(subcommand)]
     command: Command,
@@ -38,9 +33,36 @@ enum Command {
         token: String,
     },
     /// Maintain connectivity, telemetry, accounting, and desired state.
-    Run,
+    Run {
+        #[arg(long)]
+        monitor_only: bool,
+    },
     /// Query the running agent through its protected local socket.
     Status,
+    /// Install native operating system services after enrollment.
+    InstallService {
+        #[arg(long)]
+        monitor_only: bool,
+    },
+    /// Supervise the Agent and recover failed updates.
+    Supervise {
+        #[arg(long)]
+        monitor_only: bool,
+    },
+    #[cfg(target_os = "linux")]
+    #[command(hide = true)]
+    RunJob {
+        #[arg(long)]
+        spec: PathBuf,
+    },
+    #[cfg(target_os = "linux")]
+    #[command(hide = true)]
+    ServiceJob {
+        #[arg(long)]
+        spec: PathBuf,
+        #[arg(long)]
+        status: bool,
+    },
     /// Verify a cached executable using only the compiled release trust roots.
     VerifyInstalled {
         #[arg(long)]
@@ -63,7 +85,6 @@ enum Command {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let result = run_cli(cli).await;
-    #[cfg(target_os = "linux")]
     if result.as_ref().is_err_and(|error| {
         error
             .downcast_ref::<sinan_agent_core::retirement::Retired>()
@@ -74,12 +95,6 @@ async fn main() -> anyhow::Result<()> {
     result
 }
 
-#[cfg(not(target_os = "linux"))]
-async fn run_cli(_cli: Cli) -> anyhow::Result<()> {
-    anyhow::bail!("此平台仅提供编译产物和 CLI 检查；Agent 命令要求 Linux 和 systemd")
-}
-
-#[cfg(target_os = "linux")]
 async fn run_cli(cli: Cli) -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -108,28 +123,74 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             println!("注册成功，服务器 ID：{server_id}");
             Ok(())
         }
-        Command::Run => {
+        Command::Run { monitor_only } => {
             let config = Config::load(&path)?;
-            let adapters: Vec<Arc<dyn Adapter>> = vec![Arc::new(SingboxAdapter::new())];
-            let diagnostics: Vec<Arc<dyn DiagnosticAdapter>> =
-                vec![Arc::new(NodeQualityAdapter::new())];
-            let services: Arc<dyn ServiceManager> =
-                Arc::new(SystemServiceManager::new(privileged.clone()));
-            transport::run_with_diagnostics(
-                config,
-                adapters,
-                diagnostics,
-                privileged,
-                services,
-                env!("CARGO_PKG_VERSION"),
-            )
-            .await
+            let backend = if monitor_only {
+                ServiceBackend::Unmanaged
+            } else {
+                ServiceBackend::detect()?
+            };
+            let adapters: Vec<Arc<dyn Adapter>> = if monitor_only {
+                Vec::new()
+            } else {
+                vec![Arc::new(SingboxAdapter::new())]
+            };
+            #[cfg(target_os = "linux")]
+            let diagnostics: Vec<Arc<dyn DiagnosticAdapter>> = if monitor_only {
+                Vec::new()
+            } else {
+                vec![Arc::new(NodeQualityAdapter::new())]
+            };
+            #[cfg(not(target_os = "linux"))]
+            let diagnostics: Vec<Arc<dyn DiagnosticAdapter>> = Vec::new();
+            let services: Arc<dyn ServiceManager> = Arc::new(
+                SystemServiceManager::new(privileged.clone(), backend).with_job_root(
+                    config
+                        .state_db
+                        .parent()
+                        .context("state has no parent")?
+                        .join("service-jobs"),
+                ),
+            );
+            tokio::select! {
+                result = transport::run_with_diagnostics(config, adapters, diagnostics, privileged, services, env!("CARGO_PKG_VERSION")) => result,
+                result = shutdown() => result,
+            }
         }
         Command::Status => {
             let config = Config::load(&path)?;
-            let status = transport::status(&config.status_socket).await?;
+            let mut status = transport::status(&config.status_socket).await?;
+            status["update"] = serde_json::to_value(sinan_agent_core::upgrade::state(&config)?)?;
             println!("{}", serde_json::to_string_pretty(&status)?);
             Ok(())
+        }
+        Command::InstallService { monitor_only } => {
+            let config = Config::load(&path)?;
+            let descriptor = (!monitor_only).then(|| SingboxAdapter::new().describe());
+            sinan_agent_core::system::deploy::install_services(&config, &path, descriptor.as_ref())
+                .await?;
+            println!("服务安装完成，可运行 sinan-agent status 查看状态。");
+            Ok(())
+        }
+        Command::Supervise { monitor_only } => {
+            let config = Config::load(&path)?;
+            sinan_agent_core::upgrade::supervise(config, path, monitor_only, privileged).await
+        }
+        #[cfg(target_os = "linux")]
+        Command::RunJob { spec } => sinan_agent_core::system::run_job(&absolute_path(&spec)?).await,
+        #[cfg(target_os = "linux")]
+        Command::ServiceJob { spec, status } => {
+            let job: sinan_adapter_sdk::ServiceJob = serde_json::from_slice(&std::fs::read(spec)?)?;
+            let services = SystemServiceManager::new(privileged, ServiceBackend::detect()?);
+            if status {
+                println!(
+                    "{}",
+                    serde_json::to_string(&services.job_status(&job.unit).await?)?
+                );
+                Ok(())
+            } else {
+                services.start_job(&job).await
+            }
         }
         Command::VerifyInstalled {
             binary,
@@ -153,11 +214,21 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn absolute_path(path: &Path) -> anyhow::Result<PathBuf> {
     if path.is_absolute() {
         Ok(path.to_path_buf())
     } else {
         Ok(std::env::current_dir()?.join(path))
     }
+}
+
+async fn shutdown() -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        tokio::select! { _=term.recv()=>{}, result=tokio::signal::ctrl_c()=>{result?;} }
+    }
+    #[cfg(windows)]
+    tokio::signal::ctrl_c().await?;
+    Ok(())
 }

@@ -54,7 +54,7 @@ resource_value!(
     1,
     u64::MAX - 1,
     512 * 1024 * 1024,
-    "A finite, positive cgroup memory limit in bytes; defaults to 512 MiB."
+    "A finite, positive systemd cgroup memory limit in bytes; defaults to 512 MiB."
 );
 resource_value!(
     TasksMax,
@@ -63,7 +63,7 @@ resource_value!(
     1,
     u32::MAX - 1,
     128,
-    "A finite, positive cgroup thread/process limit; defaults to 128."
+    "A finite, positive systemd cgroup thread/process limit; defaults to 128."
 );
 resource_value!(
     CpuWeight,
@@ -90,7 +90,7 @@ resource_value!(
     0,
     1000,
     500,
-    "A diagnostic OOM adjustment in 0..=1000; diagnostics cannot protect themselves from OOM."
+    "A systemd diagnostic OOM adjustment in 0..=1000; diagnostics cannot request negative protection."
 );
 
 #[cfg(test)]
