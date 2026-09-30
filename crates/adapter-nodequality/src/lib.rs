@@ -8,7 +8,8 @@ use sinan_adapter_sdk::{
 use std::{path::Path, time::Duration};
 use tokio::{io::AsyncReadExt, time::timeout};
 
-pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4";
+pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5";
+const MODES_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4";
 pub const MODES_CAPABILITY: &str = "diagnostic:nodequality-modes";
 const LEGACY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2";
 const CHAPTER_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3";
@@ -50,10 +51,14 @@ fn path_argument(path: &Path) -> Result<String> {
     Ok(value.into())
 }
 
+fn supports_modes(version: &str) -> bool {
+    matches!(version, VERSION | MODES_VERSION)
+}
+
 fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String, String)> {
     if !matches!(
         spec.version.as_str(),
-        VERSION | CHAPTER_VERSION | LEGACY_VERSION
+        VERSION | MODES_VERSION | CHAPTER_VERSION | LEGACY_VERSION
     ) {
         bail!("unsupported diagnostic version");
     }
@@ -204,7 +209,7 @@ impl DiagnosticAdapter for NodeQualityAdapter {
                 "--upload-report".into(),
                 upload_report,
             ];
-            if spec.version == VERSION {
+            if supports_modes(&spec.version) {
                 args.extend(["--mode".into(), mode.name.into()]);
             }
             if let Some(targets) = &mode.targets {

@@ -48,6 +48,7 @@ impl Drop for Scratch {
 struct FakePrivileged {
     calls: Mutex<Vec<Vec<String>>>,
     invalid_version: bool,
+    artifact_version: Option<String>,
 }
 
 impl Privileged for FakePrivileged {
@@ -59,7 +60,10 @@ impl Privileged for FakePrivileged {
                 stdout: if self.invalid_version {
                     "another program".into()
                 } else {
-                    format!("nodequality {VERSION}\n")
+                    format!(
+                        "nodequality {}\n",
+                        self.artifact_version.as_deref().unwrap_or(VERSION)
+                    )
                 },
                 stderr: String::new(),
             })
@@ -411,13 +415,18 @@ async fn chapters_remain_readable_when_the_final_report_is_missing_or_another_ch
     assert_eq!(chapters.len(), 1);
     assert_eq!(chapters[0].text, "saved header");
     assert!(chapters[0].complete);
-    let mut legacy = spec;
-    legacy.version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2".into();
-    std::fs::write(legacy.job_dir.join("result.txt"), "unchanged old report").unwrap();
-    assert_eq!(
-        adapter.collect(&legacy).await.unwrap().unwrap().text,
-        "unchanged old report"
-    );
+    for revision in ["r2", "r3"] {
+        let mut legacy = spec.clone();
+        legacy.version = format!("a92fca6c0067df29ddd03fdc2fee6f3000f64545-{revision}");
+        std::fs::write(legacy.job_dir.join("result.txt"), "unchanged old report").unwrap();
+        assert_eq!(
+            adapter.collect(&legacy).await.unwrap().unwrap().text,
+            "unchanged old report"
+        );
+        let chapters = adapter.collect_sections(&legacy).await.unwrap();
+        assert_eq!(chapters.len(), 1);
+        assert_eq!(chapters[0].text, "saved header");
+    }
 }
 
 #[cfg(unix)]
@@ -438,3 +447,6 @@ async fn chapter_collection_never_follows_symlinks_and_rejects_mismatched_names(
             .is_empty()
     );
 }
+
+#[path = "diagnostic/versions.rs"]
+mod versions;

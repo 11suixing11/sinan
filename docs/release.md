@@ -2,7 +2,7 @@
 
 Agent 在 `crates/agent/Cargo.toml` 独立声明版本，面板使用根 `Cargo.toml` 的 workspace 版本；当前两者恰好都为 `0.3.0`，后续可以分别演进。Agent 标签使用 `agent-v<Agent版本>`。当前 wire 协议兼容范围为 `1..1`，记录在已签 `release.json`，不以面板产品版本代替协议兼容判断。
 
-CI 为两种架构构建 musl Agent，为两种架构构建固定上游运行时和 NodeQuality r2，生成六个平铺资产、静态 `install.sh`、`release.json` 与规范 `SHA256SUMS`，只建立 GitHub Release 草稿。运行时按固定版本、架构和构建脚本内容缓存；固定 Go 工具链在 amd64 构建机交叉编译 arm64。Agent 两种架构都使用对应原生 runner。NodeQuality 包装器不运行基准测试，只按既有固定提交与 r2 包装修订打包；外部诊断下载继续遵循 ADR 0016。
+CI 为两种架构构建 musl Agent、固定上游运行时和当前 NodeQuality 包装器，生成六个平铺资产、静态 `install.sh`、`release.json` 与规范 `SHA256SUMS`，只建立 GitHub Release 草稿。运行时按固定版本、架构和构建脚本内容缓存；固定 Go 工具链在 amd64 构建机交叉编译 arm64。Agent 两种架构都使用对应原生 runner。NodeQuality 当前源码默认构建 r5：固定上游提交、原入口 SHA-256 和 AGPL-3.0 许可证不变，新增模式与正常清理退出契约属于包装器内容，需使用新的不可变组件版本。打包不运行基准测试；外部诊断下载继续遵循 ADR 0016。已冻结的 `agent-v0.3.0` 旧候选仍包含 r2，不会因源码默认值变化被重打包、替换或发布。
 
 缓存命中和新构建都先经过 `tools/verify-release-runtime.py`：检查归档与 SHA256、单个普通二进制、ELF 架构，以及 `go version -m` 读取的 Go 版本、目标平台、构建标签、CGO 和固定源码 revision。这个步骤只读取缓存内容，不执行缓存二进制。源码 revision 与预期版本的关联用于发现错误构建；这些可写入二进制的 metadata 不构成独立构建证明，运行时版本的链接参数也不一定保留在 Go metadata 中。维护者仍需核对候选和构建证据后签名。
 
