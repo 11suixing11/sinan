@@ -99,6 +99,28 @@ fn job_status_distinguishes_running_exited_failed_and_missing() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn queued_start_and_restart_are_running_until_systemd_finishes_the_job() -> Result<()> {
+    for execution in [
+        "ActiveState=inactive\nSubState=dead\nResult=success\nExecMainCode=0\nExecMainStatus=0\nExecMainStartTimestampMonotonic=0\n",
+        "ActiveState=active\nSubState=exited\nResult=success\nExecMainCode=1\nExecMainStatus=0\nExecMainStartTimestampMonotonic=123\n",
+    ] {
+        let response = |job: &str| CommandOutput {
+            success: true,
+            stdout: format!("LoadState=loaded\nJob={job}\n{execution}"),
+            stderr: String::new(),
+        };
+        assert_eq!(parse_job_status(&response("1234"))?, JobStatus::Running);
+        for finished in ["", "0"] {
+            assert_ne!(parse_job_status(&response(finished))?, JobStatus::Running);
+        }
+        for malformed in ["pending", "-1", "4294967296"] {
+            assert!(parse_job_status(&response(malformed)).is_err());
+        }
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn unsafe_unit_and_expansion_arguments_are_rejected_before_execution() -> Result<()> {
     let services = SystemServiceManager::new(Arc::new(SystemOps), ServiceBackend::Systemd);

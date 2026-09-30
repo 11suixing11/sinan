@@ -79,7 +79,7 @@ impl SystemServiceManager {
                 self.backend == ServiceBackend::Systemd,
                 "diagnostic jobs require Linux"
             );
-            let args = vec!["show".into(), "--property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,ExecMainStartTimestampMonotonic".into(), "--".into(), unit.into()];
+            let args = vec!["show".into(), "--property=LoadState,ActiveState,SubState,Job,Result,ExecMainCode,ExecMainStatus,ExecMainStartTimestampMonotonic".into(), "--".into(), unit.into()];
             let output = self
                 .privileged
                 .execute(Path::new("systemctl"), &args)
@@ -113,6 +113,20 @@ fn parse_job_status(output: &CommandOutput) -> Result<JobStatus> {
         properties.get("LoadState") == Some(&"loaded"),
         "diagnostic service load state is unknown"
     );
+    let queued = properties
+        .get("Job")
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            value
+                .parse::<u32>()
+                .context("invalid systemd job identifier")
+        })
+        .transpose()?;
+    // --no-block may return before the queued start changes ActiveState. A
+    // pending restart must also hide the previous execution's terminal state.
+    if queued.is_some_and(|id| id != 0) {
+        return Ok(JobStatus::Running);
+    }
     match properties.get("ActiveState").copied() {
         Some("activating" | "deactivating" | "reloading") => Ok(JobStatus::Running),
         Some("active") if properties.get("SubState") != Some(&"exited") => Ok(JobStatus::Running),
@@ -128,10 +142,13 @@ fn parse_job_status(output: &CommandOutput) -> Result<JobStatus> {
         }
         Some("failed" | "inactive" | "active") => Ok(JobStatus::Failed {
             error: format!(
-                "diagnostic service failed: result={}, code={}, status={}",
+                "diagnostic service failed: result={}, code={}, status={}, active={}, sub={}, job={}",
                 properties.get("Result").unwrap_or(&"unknown"),
                 properties.get("ExecMainCode").unwrap_or(&"unknown"),
-                properties.get("ExecMainStatus").unwrap_or(&"unknown")
+                properties.get("ExecMainStatus").unwrap_or(&"unknown"),
+                properties.get("ActiveState").unwrap_or(&"unknown"),
+                properties.get("SubState").unwrap_or(&"unknown"),
+                properties.get("Job").unwrap_or(&"unknown")
             ),
         }),
         _ => anyhow::bail!("diagnostic service active state is unknown"),

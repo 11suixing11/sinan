@@ -456,3 +456,9 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - Reality 公开摘要定位到 `install` 阶段的 `ready` 等待。代码确认静态 Agent 将编译时 musl 同时用于外部运行时下发；验收提供已签旧格式 GNU 运行时，面板会拒绝选择。保留 Agent 自更新使用的 `libc`，新增可选 `runtime_libc`，从系统程序有界 ELF 解释器信息识别宿主，面板下发及 core 签名/缓存预检一致采用宿主 ABI。无法识别与旧字段缺失的行为明确回退，不放宽签名、摘要或平台校验。
 - 新增协议兼容、GNU/musl ELF 与截断输入、签名运行时平台拒绝、GNU 宿主上的静态 Agent 下发及篡改拒绝回归；已有 Agent 更新测试同时证明 GNU 宿主仍选择 musl Agent 更新。Ubuntu 四种 Agent 行为任务增加实际宿主 libc 上报断言。主检查为两个真实 systemd 专项补充公开失败摘要与具体预算状态，保留所有限制断言。
 - fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过（221 项成功、5 项原有实机专项忽略），两个工作流语法与 core 分层检查通过。真实 Reality 和 systemd 资源预算仍须以下一轮 CI 为准。
+
+### 修复 systemd 排队任务被误判失败
+
+- `9cd112a` 的四种 Linux Agent、OpenRC、四种运行时和 Compose 已通过，包含 Ubuntu 上的实际宿主 libc 断言；本地实际签名 Agent 的注册、补报、命令、双拨测、升级和回退也通过。Reality 与原生服务继续执行。
+- 主检查公开摘要确认新预算专项在子进程测试首次状态查询得到 `result=success, code=0, status=0` 后提前失败；这是异步启动尚未执行的状态。读取 systemd `Job` 属性，非零待执行 Job 视为运行中，包括排队重启时仍残留上一次终态的情况；没有待执行 Job 的未启动单元仍不能被当作成功。
+- 新增排队启动/重启、空值/零值及非法 Job 标识回归，保留 OOM、TasksMax、PID 清理断言。fmt、Clippy、完整 Rust/PostgreSQL 检查通过（222 项成功、5 项原有实机专项忽略）；真实 systemd 验证交由新一轮 CI。
