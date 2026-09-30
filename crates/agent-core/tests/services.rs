@@ -18,6 +18,8 @@ struct RecordingOps {
     unavailable: Mutex<bool>,
     files: Mutex<Vec<(PathBuf, Vec<u8>)>>,
     allow_files: bool,
+    allow_diagnostic_lock: bool,
+    lock_preparations: Mutex<usize>,
 }
 
 impl RecordingOps {
@@ -26,6 +28,18 @@ impl RecordingOps {
             output: Mutex::new(CommandOutput {
                 success: true,
                 stdout: "LoadState=loaded\nActiveState=active\nMainPID=123\nControlPID=0\n".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+    }
+
+    fn diagnostic(allow_files: bool) -> Arc<Self> {
+        Arc::new(Self {
+            allow_files,
+            allow_diagnostic_lock: true,
+            output: Mutex::new(CommandOutput {
+                success: true,
                 ..Default::default()
             }),
             ..Default::default()
@@ -47,16 +61,37 @@ impl Privileged for RecordingOps {
             if *self.unavailable.lock().unwrap() {
                 bail!("service command unavailable");
             }
+            if program == Path::new("stat") {
+                anyhow::ensure!(
+                    self.allow_diagnostic_lock
+                        && *self.lock_preparations.lock().unwrap() > 0
+                        && args == ["-c", "%f %u", "--", "/run/sinan-diagnostic"],
+                    "unexpected diagnostic lock inspection"
+                );
+                return Ok(CommandOutput {
+                    success: true,
+                    stdout: "41c0 0\n".into(), // Ordinary root-owned 0700 directory.
+                    ..Default::default()
+                });
+            }
             Ok(self.output.lock().unwrap().clone())
         })
     }
     fn create_dir<'a>(
         &'a self,
-        _path: &'a Path,
-        _mode: u32,
-        _group: Option<&'a str>,
+        path: &'a Path,
+        mode: u32,
+        group: Option<&'a str>,
     ) -> BoxFuture<'a, ()> {
-        Box::pin(async {
+        Box::pin(async move {
+            if path == Path::new("/run/sinan-diagnostic") {
+                anyhow::ensure!(
+                    self.allow_diagnostic_lock && mode == 0o700 && group == Some("root"),
+                    "unexpected diagnostic lock directory permissions"
+                );
+                *self.lock_preparations.lock().unwrap() += 1;
+                return Ok(());
+            }
             anyhow::ensure!(self.allow_files, "unexpected filesystem operation");
             Ok(())
         })
@@ -236,14 +271,7 @@ async fn rejects_untrusted_service_names_before_any_privileged_command() {
 
 #[tokio::test]
 async fn openrc_starts_independent_diagnostic_jobs_without_invoking_systemd() -> Result<()> {
-    let ops = Arc::new(RecordingOps {
-        allow_files: true,
-        output: Mutex::new(CommandOutput {
-            success: true,
-            ..Default::default()
-        }),
-        ..Default::default()
-    });
+    let ops = RecordingOps::diagnostic(true);
     let services = SystemServiceManager::new(ops.clone(), ServiceBackend::OpenRc);
     let job = ServiceJob {
         unit: format!("sinan-diagnostic-{}.service", uuid::Uuid::new_v4()),
@@ -258,15 +286,19 @@ async fn openrc_starts_independent_diagnostic_jobs_without_invoking_systemd() ->
         oom_score_adjust: Default::default(),
     };
     services.start_job(&job).await?;
+    assert_eq!(*ops.lock_preparations.lock().unwrap(), 1);
     let calls = ops.calls.lock().unwrap();
-    assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].0, Path::new("rc-service"));
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].0, Path::new("stat"));
+    assert_eq!(calls[0].1, ["-c", "%f %u", "--", "/run/sinan-diagnostic"]);
+    assert_eq!(calls[1].0, Path::new("rc-service"));
     let files = ops.files.lock().unwrap();
     assert_eq!(files.len(), 2);
     let saved: ServiceJob = serde_json::from_slice(&files[0].1)?;
     assert_eq!(saved, job);
     let script = String::from_utf8(files[1].1.clone())?;
     assert!(script.contains("command_background=true"));
+    assert!(script.lines().any(|line| line == "umask=0077"));
     assert!(script.contains("run-job --spec"));
     assert!(!script.contains("respawn"));
     Ok(())
@@ -274,7 +306,7 @@ async fn openrc_starts_independent_diagnostic_jobs_without_invoking_systemd() ->
 
 #[tokio::test]
 async fn systemd_diagnostic_jobs_keep_independent_supervision_and_status() -> Result<()> {
-    let ops = RecordingOps::successful();
+    let ops = RecordingOps::diagnostic(false);
     let services = SystemServiceManager::new(ops.clone(), ServiceBackend::Systemd);
     let job = ServiceJob {
         unit: format!("sinan-diagnostic-{}.service", uuid::Uuid::new_v4()),
@@ -289,23 +321,39 @@ async fn systemd_diagnostic_jobs_keep_independent_supervision_and_status() -> Re
         oom_score_adjust: Default::default(),
     };
     services.start_job(&job).await?;
+    assert_eq!(*ops.lock_preparations.lock().unwrap(), 1);
     ops.output.lock().unwrap().stdout = "LoadState=loaded\nActiveState=active\nSubState=exited\nResult=success\nExecMainStatus=0\nExecMainCode=1\nExecMainStartTimestampMonotonic=1\n".into();
     assert_eq!(services.job_status(&job.unit).await?, JobStatus::Succeeded);
     let calls = ops.calls.lock().unwrap();
-    assert_eq!(calls.len(), 2);
-    assert_eq!(calls[0].0, Path::new("systemd-run"));
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls[0].0, Path::new("stat"));
+    assert_eq!(calls[0].1, ["-c", "%f %u", "--", "/run/sinan-diagnostic"]);
+    assert_eq!(calls[1].0, Path::new("systemd-run"));
     assert!(
-        calls[0]
+        calls[1]
             .1
             .contains(&"--property=KillMode=control-group".into())
     );
-    assert!(calls[0].1.contains(&"--property=PrivateMounts=yes".into()));
+    assert!(calls[1].1.contains(&"--property=PrivateMounts=yes".into()));
+    assert!(calls[1].1.contains(&"--property=UMask=0077".into()));
     assert!(
-        calls[0]
+        calls[1]
             .1
             .contains(&"--property=TimeoutStartSec=10s".into())
     );
-    assert_eq!(calls[1].0, Path::new("systemctl"));
-    assert_eq!(calls[1].1.last(), Some(&job.unit));
+    let separator = calls[1].1.iter().position(|arg| arg == "--").unwrap();
+    assert_eq!(
+        &calls[1].1[separator + 1..],
+        [
+            "/usr/bin/flock",
+            "--exclusive",
+            "--nonblock",
+            "--conflict-exit-code=75",
+            "/run/sinan-diagnostic/lock",
+            "/bin/true",
+        ]
+    );
+    assert_eq!(calls[2].0, Path::new("systemctl"));
+    assert_eq!(calls[2].1.last(), Some(&job.unit));
     Ok(())
 }

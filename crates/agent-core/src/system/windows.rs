@@ -321,6 +321,9 @@ pub fn read_reference(path: &Path) -> Result<PathBuf> {
 }
 
 impl SystemServiceManager {
+    pub(super) fn diagnostic_running_units(&self) -> BoxFuture<'_, Vec<String>> {
+        Box::pin(async { anyhow::bail!("安全诊断仅支持 Linux 服务后端") })
+    }
     fn start_diagnostic_job<'a>(&'a self, _job: &'a ServiceJob) -> BoxFuture<'a, ()> {
         Box::pin(async { anyhow::bail!("diagnostic jobs require Linux") })
     }

@@ -10,6 +10,7 @@ pub mod fake;
 pub mod identity;
 pub mod reconcile;
 pub mod retirement;
+mod runtime_platform;
 pub mod state;
 #[cfg(unix)]
 pub mod system;

@@ -7,6 +7,108 @@ mod budgets;
 mod queued;
 
 #[test]
+fn activity_listing_includes_other_workers_and_excludes_completed_units() -> Result<()> {
+    let first = format!("sinan-diagnostic-{}.service", Uuid::new_v4());
+    let second = format!("sinan-diagnostic-{}.service", Uuid::new_v4());
+    assert_eq!(
+        parse_running_units(&format!(
+            "{first} loaded activating start Diagnostic\n{second} loaded active exited Complete\n"
+        ))?,
+        vec![first]
+    );
+    for text in [
+        "unrelated.service loaded active running",
+        "sinan-diagnostic-bad.service loaded active running",
+        "malformed row",
+    ] {
+        assert!(parse_running_units(text).is_err());
+    }
+    let refusal = parse_job_status(&CommandOutput { success: true, stdout: "LoadState=loaded\nActiveState=failed\nResult=exit-code\nExecMainCode=1\nExecMainStatus=75\nExecMainStartTimestampMonotonic=123\n".into(), stderr: String::new() })?;
+    assert!(matches!(refusal, JobStatus::Failed { error } if error.contains("独占锁")));
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires Linux cgroup v2, root, flock, and a running systemd system manager"]
+async fn real_systemd_diagnostic_preflight_reads_resources_and_enforces_exclusive_execution()
+-> Result<()> {
+    ensure!(cfg!(target_os = "linux"), "requires Linux/systemd");
+    let ops: Arc<dyn Privileged> = Arc::new(SystemOps);
+    let services = SystemServiceManager::new(ops.clone(), ServiceBackend::Systemd);
+    let directory = std::env::temp_dir().join(format!("sinan-preflight-test-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&directory)?;
+    let job = |program: &str, args: Vec<String>| ServiceJob {
+        unit: format!("sinan-diagnostic-{}.service", Uuid::new_v4()),
+        program: program.into(),
+        args,
+        working_directory: directory.clone(),
+        timeout_secs: 30,
+        memory_max: Default::default(),
+        tasks_max: Default::default(),
+        cpu_weight: Default::default(),
+        io_weight: Default::default(),
+        oom_score_adjust: Default::default(),
+    };
+    let script = directory.join("first.sh");
+    std::fs::write(&script, "#!/bin/sh\n: > first-ran\nsleep 25\n")?;
+    let first = job("/bin/sh", vec![script.to_str().unwrap().into()]);
+    let second = job(
+        "/usr/bin/touch",
+        vec![directory.join("second-ran").to_str().unwrap().into()],
+    );
+    let result = async {
+        let snapshot = ops.diagnostic_resources(&directory).await?;
+        assert!(snapshot.memory.available_bytes() <= snapshot.memory.host_available_bytes);
+        assert!(snapshot.cpu_count > 0 && snapshot.load_one.is_finite());
+        services.start_job(&first).await?;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if directory.join("first-ran").exists() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        assert!(
+            services
+                .running_diagnostic_units()
+                .await?
+                .contains(&first.unit)
+        );
+        services.start_job(&second).await?;
+        let refusal = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let status = services.job_status(&second.unit).await?;
+                if matches!(&status, JobStatus::Failed { error } if error.contains("独占锁")) {
+                    return Ok::<_, anyhow::Error>(status);
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await??;
+        assert!(matches!(refusal, JobStatus::Failed { .. }));
+        assert!(!directory.join("second-ran").exists());
+        services.stop(&first.unit).await?;
+        assert!(!services.is_active(&first.unit).await?);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    for unit in [&first.unit, &second.unit] {
+        let _ = services.stop(unit).await;
+        let _ = ops
+            .execute(
+                Path::new("systemctl"),
+                &["reset-failed".into(), "--".into(), unit.clone()],
+            )
+            .await;
+    }
+    std::fs::remove_dir_all(directory)?;
+    result
+}
+
+#[test]
 fn runtime_status_requires_explicit_process_free_shutdown() -> Result<()> {
     let response = |success, load, active, main, control| CommandOutput {
         success,
