@@ -1,3 +1,4 @@
+#[path = "../../../../plugins/singbox/panel/mod.rs"]
 pub mod singbox;
 
 use crate::AppState;

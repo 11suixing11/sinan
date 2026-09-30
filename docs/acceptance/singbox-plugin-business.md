@@ -42,3 +42,9 @@ Compose 与 musl amd64/arm64 成功，该 PR 事件的 Reality 安装计量任�
 本机磁盘耗尽曾中断整套链接，未将中断计为成功。随后按 Cargo target 清单串行完成全部八个 workspace 包的 all-targets 覆盖，并在统一 workspace 依赖图补跑所有 library 与 sing-box adapter/runtime：去重后 **325 成功 / 0 失败 / 9 既有环境条件忽略**（Panel100、protocol19、compiler7、NodeQuality16、SDK1、Agent core168、Agent2、sing-box12）。真实 PostgreSQL 包含 0012 故障回滚/重试/幂等、十张旧表完整快照、旧订阅两种格式、旧账本重放与改 payload 拒绝，以及取消、章节、模式和 provider 交互。统一 workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁及六项行为回归、actionlint、差异检查全部通过。
 
 Bun 1.4.2 冻结依赖、五项字段测试/711 断言及 TypeScript/Vite 构建通过；最终 dist 为 `index-Hx7wA0D0.js`。实际 Chromium 桌面和 390px 手机运行插件启用/导航/零业务请求、确认取消、IP 来源展示与每种尺寸七个模式场景，页面错误为零；浏览器 API 使用明确夹具，与上述真实 PostgreSQL 后端验证分别记录。Python discovery83通过/5条件跳过、R5包装器34通过、daily helper7通过。测试显式移除真实 `SINAN_ABUSEIPDB_API_KEY`，仅用合成凭据和回环 HTTP。本轮 macOS 未执行真实 Linux/root/systemd、正式 API 账户/配额、完整上游负载或生产迁移；最终 head CI 与专用节点继续独立核对。
+
+## 根插件目录恢复（独立后续 PR）
+
+业务代码由 crates/panel/src/plugins/singbox/ 恢复至根 plugins/singbox/panel/，落实用户要求与 ADR0023。面板 plugins/mod.rs 只通过明确的 path 属性嵌入同一模块；13个文件使用 git mv，逐一对比迁移前后 Git blob SHA，所有业务与测试字节完全相同。原 API、旧 /sub/{token} 路径、设备凭据、用户ID/令牌、授权、账本及 epoch 语义未修改；本项不新增数据库迁移、不改前端或套餐功能。
+
+现有 Dockerfile 已 COPY plugins/，无需改变镜像构建上下文。验证分为：直接 rustfmt/core 门禁与 Git差异检查；最新 PR 的 Rust编译、Clippy和既有插件/订阅/账本测试由独立CI核对。物理路径变更不冒用业务首次实机流量证据，新的CI尚未完成前仅记为待验。
