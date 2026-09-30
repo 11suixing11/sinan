@@ -86,13 +86,15 @@ async fn diagnostic_chapters_survive_failure_duplicates_late_delivery_and_recrea
             Method::POST,
             &format!("/api/servers/{server_id}/node-quality/reports"),
             &cookie,
-            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
+            Some(json!({"mode":"daily"})),
         )
         .await?
         .error_for_status()?
         .json()
         .await?;
     let id = record["id"].as_str().unwrap();
+    sqlx::query("UPDATE diagnostic_jobs SET status='running',job=jsonb_set(job,'{options,mode}','\"full\"'),expected_sections=ARRAY['header_info','hardware_quality','ip_quality','net_quality','backroute_trace','environment'] WHERE id=$1")
+        .bind(uuid::Uuid::parse_str(id)?).execute(&panel.state.pool).await?;
     let endpoint = format!("{}/api/agent/v1/diagnostics/{id}/sections", panel.base);
     let chapter = json!({"id":id,"name":"header_info","text":"已经完成的报告信息","complete":true,"revision":2,"collected_at":sinan_protocol::now_timestamp()});
     assert_eq!(

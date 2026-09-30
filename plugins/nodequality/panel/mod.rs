@@ -19,6 +19,8 @@ use sqlx::Row;
 use std::collections::BTreeMap;
 mod modes;
 pub const PLUGIN_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5";
+pub const FULL_START_GATE_CAPABILITY: &str = "diagnostic:nodequality-full-start-gate";
+pub const FULL_START_DENIAL: &str = "完整验机已暂停：离线受控工具链尚未就绪，旧工具链仍会下载在线代码、上传内层报告或修改宿主 swap。日常检查和已有报告回收、取消仍可使用。";
 const TIMEOUT_SECS: u64 = 1800;
 const EXPECTED_SECTIONS: [&str; 5] = [
     "header_info",
@@ -31,6 +33,8 @@ const EXPECTED_SECTIONS: [&str; 5] = [
 pub struct NodeQualityView {
     pub plugin_ready: bool,
     pub plugin_reason: Option<String>,
+    pub full_ready: bool,
+    pub full_reason: Option<String>,
     pub reports: Vec<ReportRecord>,
     pub cancel_supported: bool,
     pub proxy_activity: modes::ProxyActivity,
@@ -86,6 +90,17 @@ impl DiagnosticPlugin for NodeQualityPlugin {
     fn required_capabilities(&self) -> &'static [&'static str] {
         &["diagnostic:nodequality", "diagnostic:nodequality-modes"]
     }
+    fn start_denial(&self, job: &Value) -> Option<&'static str> {
+        (job["options"]["mode"].as_str() != Some("daily")).then_some(FULL_START_DENIAL)
+    }
+    fn can_dispatch(&self, job: &Value, capabilities: &Value) -> bool {
+        job["options"]["mode"].as_str() == Some("daily")
+            || capabilities.as_array().is_some_and(|items| {
+                items
+                    .iter()
+                    .any(|item| item.as_str() == Some(FULL_START_GATE_CAPABILITY))
+            })
+    }
     fn plan<'a>(
         &'a self,
         request: Value,
@@ -96,6 +111,9 @@ impl DiagnosticPlugin for NodeQualityPlugin {
             let request: ReportRequest = serde_json::from_value(request)
                 .map_err(|_| ApiError::BadRequest("诊断参数格式无效".into()))?;
             modes::validate_request(&request)?;
+            if request.mode == "full" {
+                return Err(ApiError::Conflict(FULL_START_DENIAL.into()));
+            }
             if !matches!(request.ip_version.as_str(), "both" | "ipv4" | "ipv6")
                 || !matches!(request.network_mode.as_str(), "low" | "normal")
             {
@@ -228,6 +246,8 @@ async fn view(state: &AppState, id: i64) -> ApiResult<NodeQualityView> {
     Ok(NodeQualityView {
         plugin_ready: reason.is_none(),
         plugin_reason: reason,
+        full_ready: false,
+        full_reason: Some(FULL_START_DENIAL.into()),
         reports: service::history(state, id, Some("nodequality")).await?,
         cancel_supported: service::cancel_supported(&row.get::<Value, _>("capabilities")),
         proxy_activity: modes::activity(&state.pool, id).await?,

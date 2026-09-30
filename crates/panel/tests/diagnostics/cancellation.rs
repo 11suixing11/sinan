@@ -37,7 +37,7 @@ async fn cancellation_waits_for_device_confirmation_and_preserves_late_reports(
             Method::POST,
             &reports,
             &cookie,
-            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
+            Some(json!({"mode":"daily"})),
         )
         .await?
         .error_for_status()?
@@ -313,7 +313,7 @@ async fn natural_completion_rejects_cancellation_and_requested_cleanup_blocks_ne
             Method::POST,
             &reports,
             &cookie,
-            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
+            Some(json!({"mode":"daily"})),
         )
         .await?
         .error_for_status()?
@@ -348,7 +348,7 @@ async fn natural_completion_rejects_cancellation_and_requested_cleanup_blocks_ne
             Method::POST,
             &reports,
             &cookie,
-            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
+            Some(json!({"mode":"daily"})),
         )
         .await?
         .error_for_status()?
@@ -373,7 +373,7 @@ async fn natural_completion_rejects_cancellation_and_requested_cleanup_blocks_ne
                 Method::POST,
                 &reports,
                 &cookie,
-                Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true}))
+                Some(json!({"mode":"daily"}))
             )
             .await?
             .status(),
