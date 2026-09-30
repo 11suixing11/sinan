@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 use rusqlite::{Connection, params};
+use rusqlite_migration::{M, Migrations};
 use sinan_adapter_sdk::Counter;
 use sinan_agent_core::{
     state::State,
@@ -331,7 +332,7 @@ fn failed_outbox_write_rolls_back_chunks_and_cumulative_baselines() {
 #[test]
 fn upgrading_an_existing_ledger_adds_indexes_without_rewriting_batch_identity() {
     let database = Database::new();
-    let connection = Connection::open(&database.0).unwrap();
+    let mut connection = Connection::open(&database.0).unwrap();
     connection
         .execute_batch(include_str!("../src/state/migrations/0001.sql"))
         .unwrap();
@@ -343,7 +344,17 @@ fn upgrading_an_existing_ledger_adds_indexes_without_rewriting_batch_identity() 
     let migration: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(migration, 2);
+    assert_eq!(migration, 1);
+    // The previous Agent's versioned migration must still reopen a trial ledger.
+    Migrations::new(vec![M::up(include_str!(
+        "../src/state/migrations/0001.sql"
+    ))])
+    .to_latest(&mut connection)
+    .unwrap();
+    assert_eq!(
+        database.open().pending_usage().unwrap(),
+        state.pending_usage().unwrap()
+    );
     let plan: String = connection.query_row(
         "EXPLAIN QUERY PLAN SELECT seq FROM usage_outbox INDEXED BY usage_outbox_pending_order_idx WHERE acknowledged=0 AND octet_length(batch)<=1048447 ORDER BY length(seq),seq LIMIT 64",
         [], |row| row.get(3),

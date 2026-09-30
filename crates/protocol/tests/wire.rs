@@ -40,6 +40,8 @@ fn known_messages() -> Vec<Message> {
             uptime_secs: 123,
         }),
         Message::TelemetryStatic(StaticInfo {
+            os: None,
+            libc: None,
             ip_addresses: vec!["192.0.2.10".into(), "2001:db8::10".into()],
             system: Some("Debian GNU/Linux 12".into()),
             kernel: Some("6.1.0".into()),
@@ -55,6 +57,11 @@ fn known_messages() -> Vec<Message> {
             extra: BTreeMap::new(),
         }),
         Message::TelemetryMetrics(Metrics {
+            swap_used: None,
+            swap_total: None,
+            processes: None,
+            disks: Vec::new(),
+            gpus: Vec::new(),
             cpu_percent: Some(12.5),
             memory_used: Some(1_000_000_000),
             load_1: Some(0.5),

@@ -1,0 +1,29 @@
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+$Panel = @@PANEL@@
+$Token = @@TOKEN@@
+$Version = @@VERSION@@
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw '请以管理员身份运行 PowerShell' }
+$Architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+switch ($Architecture) {
+    'X64' { $Target = 'windows-amd64'; $Expected = @@WINDOWS_AMD64_HASH@@ }
+    'Arm64' { $Target = 'windows-arm64'; $Expected = @@WINDOWS_ARM64_HASH@@ }
+    default { throw 'Windows 仅支持 x64 和 ARM64' }
+}
+if (-not $Expected) { throw '面板缺少匹配架构的 Agent 制品' }
+$Temporary = Join-Path ([IO.Path]::GetTempPath()) ('sinan-install-' + [Guid]::NewGuid().ToString())
+New-Item -ItemType Directory -Path $Temporary | Out-Null
+try {
+    $Binary = Join-Path $Temporary 'sinan-agent.exe'
+    Invoke-WebRequest -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 300 -Uri "$Panel/api/bootstrap/$Version/$Target`?token=$Token" -OutFile $Binary
+    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $Binary).Hash.ToLowerInvariant() -ne $Expected) { throw 'Agent SHA-256 校验失败' }
+    $ActualVersion = & $Binary --version
+    if ($LASTEXITCODE -ne 0 -or $ActualVersion.Trim() -ne "sinan-agent $Version") { throw 'Agent 版本校验失败' }
+    & $Binary enroll --panel $Panel --token $Token
+    if ($LASTEXITCODE -ne 0) { throw 'Agent 注册失败' }
+    & $Binary install-service
+    if ($LASTEXITCODE -ne 0) { throw 'Agent 服务安装失败' }
+    Write-Output "安装完成。查看状态：& `"$env:ProgramData\Sinan\core\$Version\sinan-agent.exe`" status"
+} finally {
+    Remove-Item -LiteralPath $Temporary -Recurse -Force
+}

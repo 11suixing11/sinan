@@ -1,8 +1,5 @@
 use super::Runtime;
-use crate::{
-    Config, artifacts::PanelClient, config::validate_panel_url, identity::Identity,
-    telemetry::Collector,
-};
+use crate::{Config, artifacts::PanelClient, config::validate_panel_url, identity::Identity};
 use anyhow::{Context, Result};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::Signer;
@@ -48,7 +45,6 @@ pub(super) async fn run(
         )?,
     )
     .await?;
-    let mut collector = Collector::new();
     send(
         &mut socket,
         Envelope::new("telemetry.static", runtime.static_info()?)?,
@@ -59,6 +55,17 @@ pub(super) async fn run(
         &ack.session_token,
     )?)));
     runtime.connected.store(true, Ordering::Relaxed);
+    runtime
+        .state
+        .lock()
+        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+        .set_json(
+            "clock_offset_ms",
+            &(ack
+                .server_time
+                .saturating_mul(1000)
+                .saturating_sub(sinan_protocol::telemetry::now_millis())),
+        )?;
     let _ = trigger.try_send(());
     let renew_after = ack
         .session_expires_at
@@ -68,7 +75,6 @@ pub(super) async fn run(
     let renewal = tokio::time::sleep(Duration::from_secs(renew_after));
     tokio::pin!(renewal);
     let mut heartbeat = interval(20);
-    let mut telemetry = interval(10);
     let mut resend = interval(15);
     let mut stale = interval(10);
     let mut static_refresh = interval(300);
@@ -152,9 +158,6 @@ pub(super) async fn run(
                 send(&mut socket, Envelope::new("heartbeat", Heartbeat {
                     applied: runtime.applied()?, uptime_secs: sysinfo::System::uptime(),
                 })?).await?;
-            }
-            _ = telemetry.tick() => {
-                send(&mut socket, Envelope::new("telemetry.metrics", collector.metrics())?).await?;
             }
             _ = static_refresh.tick() => {
                 send(&mut socket, Envelope::new("telemetry.static", runtime.static_info()?)?).await?;

@@ -13,8 +13,8 @@ import urllib.parse
 from release import (MAX_BINARY, REPOSITORY, VERSION, digest, ensure, load_roots,
                      read_regular, verify_bundle)
 
-REQUIRED_JOBS = frozenset(("check", "compose-smoke", "Agent musl (amd64)",
-                          "Agent musl (arm64)", "Reality installation and accounting"))
+REQUIRED_JOBS = frozenset(("check", "compose-smoke", "Agent Linux musl (amd64)",
+                          "Agent Linux musl (arm64)", "Reality installation and accounting"))
 
 
 class Github:

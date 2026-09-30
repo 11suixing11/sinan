@@ -1,10 +1,10 @@
 # ADR 0015：扩展 Agent 编译产物的平台
 
-状态：历史扩展决策已采纳；自动构建范围按下方 2026-09-30 的后续决策收敛。
+状态：已采纳；按最新后续决策，九个目标统一由日常 CI 构建，Linux 按 libc 与架构区分。
 
 ## 背景
 
-用户要求在已有 Linux musl 制品之外，增加 Ubuntu 24.04 glibc、macOS arm64、FreeBSD 13 系列及以上、Windows 的 Agent 编译产物，除 macOS 外均提供 amd64 和 arm64。用户已明确本次范围为“增加可下载的 Agent 编译产物”，因此这是对原 Linux 构建范围的明确扩展，服务部署仍遵循现有 Linux/systemd 架构。
+用户要求在已有 Linux musl 制品之外，增加 Ubuntu 24.04 glibc、macOS arm64、FreeBSD 13 系列及以上、Windows 的 Agent 编译产物，除 macOS 外均提供 amd64 和 arm64。用户已明确本次范围为“增加可下载的 Agent 编译产物”，因此这是对原 Linux 构建范围的明确扩展，服务部署仍限 Linux；后续 OpenRC 服务支持见 [ADR 0017](0021-openrc-services.md)。
 
 ## 决策
 
@@ -37,6 +37,22 @@ musl 双架构的 CI 先使用同一源码、目标、工具链和构建脚本�
 继承工作区中曾加入 `tools/test-freebsd-rust.py` 的主 CI 步骤，但当前仓库并无该测试文件，因此主 CI 不执行此不存在的步骤。原始 workflow 改动已经在仓库外保留，官方工具链安装器保持原样未提交。此次不新建依赖该未提交文件的手动 workflow；后续恢复可选平台时应将安装器与完整测试一并评审。
 
 最新 main 提交 `fc8467d` 的 [CI 36681900051](https://github.com/theLucius7/sinan/actions/runs/36681900051) 中，检查、Compose smoke 和 musl 双架构均已通过；唯一失败是 FreeBSD arm64 在 rustup 安装阶段收到 404，尚未进入 Cargo。此次调整直接收敛到既定 Linux 部署范围。新的完整 CI 结果仍须以本次提交的实际 Actions 运行为准。
+
+## 后续决策：参考多平台交叉构建
+
+按用户要求对照本地 NodeFlare 的 Actions，保留日常 CI 的 Linux 范围，新增 `Agent platform artifacts` 工作流，手动触发或在 `v*` 标签触发。glibc 继续使用 Ubuntu 24.04 系统动态库，macOS ARM64 和 Windows 双架构继续使用原生 runner，不照搬参考项目的 glibc 2.28 基线或较窄的 Windows 架构范围。
+
+FreeBSD 两个目标改为在 Linux 上安装 Rust stable 和目标标准库，使用参考项目相同的固定 cross 提交与 FreeBSD 13 sysroot 镜像摘要。构建后验证 ELF 架构，再在 FreeBSD 13.5、14、15 VM 执行同一个二进制；13.5/14 验证不依赖 EOL 包仓库，15 安装 Python 后运行共享校验和打包脚本。只有三个版本的验证均成功才上传制品。该流程避开 ARM64 FreeBSD 缺失的 rustup 安装器，也不放宽服务部署仍限 Linux 的边界。
+
+交叉编译只增加 CI 工具，不增加 Rust 运行依赖。构建脚本新增 `--binary` 用于在目标系统验证已有二进制，校验架构、版本、CLI 与非 Linux 部署限制后才创建带 `SHA256SUMS` 的不可覆盖制品目录。实际双架构和跨版本结果须以新工作流执行为准。
+
+## 后续决策：统一日常多平台 CI
+
+用户进一步明确多平台应随日常 CI 构建，OpenRC 不单独拆出。删除临时的手动/标签工作流，将其目标移回 `ci.yml`，在 push、PR 和手动触发时一并构建九个目标。
+
+Linux 构建合并为 libc × 架构矩阵：musl 静态 amd64/arm64、Ubuntu 24.04 glibc 动态 amd64/arm64。OpenRC 安装、缓存刷新、HUP、恢复与权限检查在 musl 任务内执行，不创建 OpenRC 二进制或单独任务。macOS 只构建 ARM64，Windows 与 FreeBSD 保留双架构；FreeBSD 继续使用固定 cross 工具链与 13.5/14/15 VM 验证。
+
+Alpine/OpenRC 的 Agent 使用 musl 静态版，Ubuntu 24.04/systemd 可使用 glibc 动态版。服务后端仍在运行时自动识别，二进制的 libc 兼容性独立于 init；不把所有 OpenRC 系统都视为 musl，也不改变安装接口或 Linux 服务管理边界。
 
 ## 后续执行：第 2 阶段复用体积证据
 

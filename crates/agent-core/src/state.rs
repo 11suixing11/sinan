@@ -42,11 +42,12 @@ impl State {
         connection.execute_batch(
             "PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON;",
         )?;
-        Migrations::new(vec![
-            M::up(include_str!("state/migrations/0001.sql")),
-            M::up(include_str!("state/migrations/0002_bounded_usage.sql")),
-        ])
-        .to_latest(&mut connection)?;
+        Migrations::new(vec![M::up(include_str!("state/migrations/0001.sql"))])
+            .to_latest(&mut connection)?;
+        // Auxiliary tables remain additive so an older Agent can reopen the ledger after rollback.
+        connection.execute_batch(include_str!("state/migrations/0002.sql"))?;
+        connection.execute_batch(include_str!("state/migrations/0003.sql"))?;
+        connection.execute_batch(include_str!("state/migrations/0002_bounded_usage.sql"))?;
         Ok(Self { connection })
     }
 
@@ -123,6 +124,9 @@ impl State {
     pub(crate) fn clear_retired_configuration(&mut self) -> Result<()> {
         let transaction = self.connection.transaction()?;
         transaction.execute("DELETE FROM intents", [])?;
+        transaction.execute("DELETE FROM command_journal", [])?;
+        transaction.execute("DELETE FROM probe_outbox", [])?;
+        transaction.execute("DELETE FROM telemetry_outbox", [])?;
         transaction.execute(
             "DELETE FROM kv WHERE key NOT LIKE 'usage:%' AND key <> 'retirement'",
             [],

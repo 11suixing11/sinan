@@ -1,3 +1,4 @@
+mod cache;
 use crate::config::validate_panel_url;
 mod preflight;
 #[cfg(test)]
@@ -84,6 +85,71 @@ pub fn validate_bundle_files(bundle: &Bundle) -> Result<()> {
 }
 
 impl PanelClient {
+    pub(crate) async fn agent_binary(&self, artifact: &Artifact, version: &str) -> Result<Vec<u8>> {
+        let proof = artifact
+            .proof
+            .as_ref()
+            .context("Agent update has no signed release proof")?;
+        let release = verification::signed_release(proof, self.keys()?)?;
+        let verified = release.native_artifact("agent", version)?;
+        let url = self.validate_url(&artifact.url)?;
+        ensure!(
+            verified.metadata().format == "raw"
+                && verified.metadata().binary_name == crate::system::deploy::executable_name()
+                && url.path() == format!("/api/agent/v1/artifacts/{}", verified.path()),
+            "Agent update identity differs from signed release"
+        );
+        ensure!(
+            normalized_hash(&artifact.sha256)? == verified.sha256(),
+            "Agent update SHA256 differs from signed release"
+        );
+        let bytes = self.download(&artifact.url, 128 * 1024 * 1024).await?;
+        verified.verify_archive(&bytes)?;
+        verified.verify_binary(&bytes)?;
+        Ok(bytes)
+    }
+    pub(crate) async fn get_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
+        let url = self.panel.join(path)?;
+        Ok(serde_json::from_slice(
+            &self.download(url.as_str(), 1024 * 1024).await?,
+        )?)
+    }
+
+    pub(crate) async fn post_json<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        value: &impl Serialize,
+    ) -> Result<T> {
+        let response = self
+            .client
+            .post(self.panel.join(path)?)
+            .bearer_auth(&self.session_token)
+            .json(value)
+            .send()
+            .await?;
+        ensure!(
+            response.status().is_success(),
+            "Agent request returned HTTP {}",
+            response.status()
+        );
+        Ok(serde_json::from_slice(
+            &Self::response_bytes(response, 16 * 1024).await?,
+        )?)
+    }
+
+    async fn response_bytes(response: reqwest::Response, maximum: usize) -> Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            ensure!(
+                chunk.len() <= maximum.saturating_sub(bytes.len()),
+                "Agent response exceeds size limit"
+            );
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(bytes)
+    }
     pub fn new(panel_url: &str, session_token: &str) -> Result<Self> {
         ensure!(
             !session_token.is_empty()
@@ -195,6 +261,52 @@ impl PanelClient {
         Ok(jobs)
     }
 
+    pub async fn agent_settings(&self) -> Result<sinan_protocol::AgentSettings> {
+        let url = self.panel.join("/api/agent/v1/settings")?;
+        let settings: sinan_protocol::AgentSettings =
+            serde_json::from_slice(&self.download(url.as_str(), 16 * 1024).await?)?;
+        ensure!(settings.valid(), "panel provided invalid Agent settings");
+        Ok(settings)
+    }
+
+    pub async fn telemetry(
+        &self,
+        batch: &sinan_protocol::TelemetryBatch,
+    ) -> Result<sinan_protocol::TelemetryAck> {
+        use std::io::Write;
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&serde_json::to_vec(batch)?)?;
+        let response = self
+            .client
+            .post(self.panel.join("/api/agent/v1/telemetry")?)
+            .bearer_auth(&self.session_token)
+            .header(reqwest::header::CONTENT_ENCODING, "gzip")
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(encoder.finish()?)
+            .send()
+            .await?;
+        ensure!(
+            response.status().is_success(),
+            "telemetry upload returned HTTP {}",
+            response.status()
+        );
+        let body = Self::response_bytes(response, 16 * 1024).await?;
+        ensure!(
+            body.len() <= 16 * 1024,
+            "telemetry acknowledgment exceeds size limit"
+        );
+        let ack: sinan_protocol::TelemetryAck = serde_json::from_slice(&body)?;
+        ensure!(
+            ack.ids.len() <= 64
+                && ack
+                    .ids
+                    .iter()
+                    .all(|id| batch.samples.iter().any(|sample| sample.id == *id)),
+            "panel acknowledged samples outside the submitted batch"
+        );
+        Ok(ack)
+    }
+
     pub async fn diagnostic_update(&self, update: &DiagnosticUpdate) -> Result<()> {
         let url = self
             .panel
@@ -222,130 +334,6 @@ impl PanelClient {
         validate_bundle_files(&bundle)?;
         Ok(bundle)
     }
-
-    pub async fn ensure_artifact(
-        &self,
-        artifact: &Artifact,
-        version: &str,
-        descriptor: &Descriptor,
-        install_root: &Path,
-        ops: &dyn Privileged,
-    ) -> Result<PathBuf> {
-        ensure!(
-            install_root.is_absolute(),
-            "artifact installation root must be absolute"
-        );
-        ensure!(
-            safe_component(version)
-                && safe_component(&descriptor.plugin_name)
-                && safe_component(&descriptor.binary_name),
-            "invalid artifact version or descriptor path"
-        );
-        let verified = self.verify_artifact(artifact, version, descriptor)?;
-        ensure_ordinary_directory_if_present(install_root).await?;
-        let plugin = install_root.join(&descriptor.plugin_name);
-        let directory = plugin.join(version);
-        let binary = directory.join(&descriptor.binary_name);
-        ensure_ordinary_directory_if_present(&plugin).await?;
-        match tokio::fs::symlink_metadata(&directory).await {
-            Ok(metadata) => {
-                ensure!(
-                    metadata.is_dir(),
-                    "cached artifact directory is not an ordinary directory"
-                );
-                ensure!(
-                    tokio::fs::symlink_metadata(&binary).await?.is_file(),
-                    "cached artifact is not an ordinary file"
-                );
-                let proof = verification::read_proof(&directory).await?;
-                let cached =
-                    verification::signed_artifact(&proof, descriptor, version, self.keys()?)?;
-                ensure!(
-                    cached.sha256() == verified.sha256(),
-                    "existing artifact version has different signed contents"
-                );
-                verification::verify_file(&binary, &verified).await?;
-                return Ok(binary);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
-        }
-        let bytes = self.download(&artifact.url, MAX_DOWNLOAD).await?;
-        verified.verify_archive(&bytes)?;
-        ops.create_dir(&plugin, 0o755, None).await?;
-        let archive = plugin.join(format!(".download-{}.tar.gz", Uuid::new_v4()));
-        ops.write_file(&archive, &bytes, 0o600, None).await?;
-        let staging = plugin.join(format!(".verified-{}", Uuid::new_v4()));
-        let installed: Result<()> = async {
-            ops.install_archive(&archive, &staging, &descriptor.binary_name)
-                .await?;
-            verification::verify_file(&staging.join(&descriptor.binary_name), &verified).await?;
-            let proof = artifact
-                .proof
-                .as_ref()
-                .context("artifact has no signed proof")?;
-            for (name, bytes) in [
-                ("release.json", proof.metadata_json.as_bytes()),
-                ("SHA256SUMS", proof.checksums.as_bytes()),
-                ("SHA256SUMS.minisig", proof.signature.as_bytes()),
-            ] {
-                ops.write_file(&staging.join(name), bytes, 0o644, None)
-                    .await?;
-            }
-            let marker = InstalledArtifact {
-                proof: Some(proof.clone()),
-            };
-            ops.write_file(
-                &staging.join(MARKER),
-                &serde_json::to_vec(&marker)?,
-                0o644,
-                None,
-            )
-            .await?;
-            let moved = ops
-                .execute(
-                    Path::new("/bin/mv"),
-                    &[
-                        "--no-clobber".into(),
-                        "--no-target-directory".into(),
-                        "--".into(),
-                        staging.to_string_lossy().into_owned(),
-                        directory.to_string_lossy().into_owned(),
-                    ],
-                )
-                .await?;
-            ensure!(
-                moved.success,
-                "publishing verified artifact directory failed"
-            );
-            verify_expected(&binary, descriptor, version, self.keys()?).await?;
-            let actual = verification::signed_artifact(
-                &verification::read_proof(&directory).await?,
-                descriptor,
-                version,
-                self.keys()?,
-            )?;
-            ensure!(
-                actual.sha256() == verified.sha256(),
-                "artifact publication raced with different contents"
-            );
-            Ok(())
-        }
-        .await;
-        let _ = ops
-            .execute(
-                Path::new("rm"),
-                &[
-                    "-rf".into(),
-                    "--".into(),
-                    archive.to_string_lossy().into_owned(),
-                    staging.to_string_lossy().into_owned(),
-                ],
-            )
-            .await;
-        installed?;
-        Ok(binary)
-    }
 }
 
 async fn ensure_ordinary_directory_if_present(path: &Path) -> Result<()> {
@@ -362,4 +350,20 @@ async fn ensure_ordinary_directory_if_present(path: &Path) -> Result<()> {
 
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+pub(crate) async fn verify_expected_agent(
+    binary: &Path,
+    version: &str,
+    keys: &TrustedKeys,
+) -> Result<()> {
+    ensure!(
+        binary
+            .parent()
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str())
+            == Some(version),
+        "Agent update version directory mismatch"
+    );
+    verification::verify_binary_with_keys(binary, "agent", "raw", keys).await
 }

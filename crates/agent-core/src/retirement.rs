@@ -360,5 +360,5 @@ pub(crate) fn ensure_enrollment_allowed(config: &Config) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests;
