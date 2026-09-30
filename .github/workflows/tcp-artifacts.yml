@@ -21,6 +21,8 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
+    env:
+      TCP_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -44,13 +46,13 @@ jobs:
           grep -q 'source commit must have 40 hexadecimal digits' "$RUNNER_TEMP/tcp-invalid-pin.log"
       - name: Build only the explicit Git snapshot using its own locked recipe
         run: |
-          python3 tools/build-tcp-probe.py '${{ matrix.arch }}' "$RUNNER_TEMP/tcp-artifacts" --source-commit "$(git rev-parse HEAD)"
+          python3 tools/build-tcp-probe.py '${{ matrix.arch }}' "$RUNNER_TEMP/tcp-artifacts" --source-commit "$TCP_SOURCE_COMMIT"
       - name: Verify real CLI, static ELF, provenance and TEST_ONLY signed Release
         env:
           SINAN_TCP_ARCH: ${{ matrix.arch }}
           SINAN_TCP_ARTIFACT_ROOT: ${{ runner.temp }}/tcp-artifacts
         run: |
-          export SINAN_TCP_SOURCE_COMMIT="$(git rev-parse HEAD)"
+          export SINAN_TCP_SOURCE_COMMIT="$TCP_SOURCE_COMMIT"
           python3 -m unittest discover -s tests -p test_tcp_probe_artifacts.py
           python3 -m unittest discover -s tests -p test_tcp_probe_native_bundle.py
       - uses: actions/upload-artifact@v7.0.1

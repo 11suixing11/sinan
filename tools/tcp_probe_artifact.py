@@ -10,7 +10,7 @@ import tomllib
 
 TOOL_VERSION = "0.3.0"
 BINARY = "sinan-tcp-probe"
-FILES = {BINARY, "build-info.json", "LICENSE", "source.tar.gz", "Cargo.lock"}
+FILES = {BINARY, "build-info.json", "LICENSE", "source.tar.gz", "Cargo.lock", "THIRD_PARTY_NOTICES.txt"}
 TARGETS = {"amd64": "x86_64-unknown-linux-musl", "arm64": "aarch64-unknown-linux-musl"}
 SOURCE_LIMIT = 16 * 1024 * 1024
 
@@ -77,7 +77,7 @@ def source_files(data, commit):
                 "crates/tcp-probe/src/lib.rs", "crates/tcp-probe/src/main.rs",
                 "crates/tcp-probe/src/cli.rs", "crates/tcp-probe/src/engine.rs",
                 "crates/tcp-probe/src/journal.rs", "crates/tcp-probe/src/model.rs",
-                "tools/build-tcp-probe.py", "tools/tcp_probe_artifact.py", "tools/artifact_manifest.py"}
+                "tools/build-tcp-probe.py", "tools/tcp_probe_artifact.py", "tools/artifact_manifest.py", "tools/tcp_probe_notices.py"}
     ensure(required <= files.keys(), "source archive is missing the tool or its build recipe")
     return files
 
@@ -88,7 +88,7 @@ def validate_files(files, version, arch):
     info = json.loads(files["build-info.json"])
     expected = {"schema", "tool", "tool_version", "artifact_version", "source_repo", "source_commit",
                 "target", "rustc", "cargo_locked", "source_sha256", "lock_sha256",
-                "license_sha256", "binary_sha256"}
+                "license_sha256", "binary_sha256", "notices_sha256"}
     ensure(isinstance(info, dict) and set(info) == expected, "invalid TCP build information")
     commit = info["source_commit"]
     ensure(version == artifact_version(commit) and info["artifact_version"] == version,
@@ -99,7 +99,8 @@ def validate_files(files, version, arch):
            and isinstance(info["rustc"], str) and info["rustc"].startswith("rustc ") and len(info["rustc"]) <= 4096,
            "wrong TCP build identity or unlocked build")
     for filename, field in [(BINARY, "binary_sha256"), ("source.tar.gz", "source_sha256"),
-                            ("Cargo.lock", "lock_sha256"), ("LICENSE", "license_sha256")]:
+                            ("Cargo.lock", "lock_sha256"), ("LICENSE", "license_sha256"),
+                            ("THIRD_PARTY_NOTICES.txt", "notices_sha256")]:
         ensure(info[field] == digest(files[filename]), "TCP provenance digest mismatch")
     source = source_files(files["source.tar.gz"], commit)
     ensure(source["Cargo.lock"] == files["Cargo.lock"] and source["LICENSE"] == files["LICENSE"],
@@ -110,6 +111,7 @@ def validate_files(files, version, arch):
            and workspace["workspace"]["package"]["license"] == "AGPL-3.0-only"
            and package["name"] == BINARY and package["version"] == {"workspace": True}
            and package["license"] == {"workspace": True}, "TCP source version or license mismatch")
+    validate_notices(files["THIRD_PARTY_NOTICES.txt"], files["Cargo.lock"], arch)
     verify_elf(files[BINARY], arch)
     return info
 
@@ -137,3 +139,45 @@ def pack(files):
                 member.mode = 0o755 if name == BINARY else 0o644
                 archive.addfile(member, io.BytesIO(files[name]))
     return output.getvalue()
+
+def validate_notices(encoded, lock_bytes, arch):
+    ensure(0 < len(encoded) <= 8 * 1024 * 1024, "invalid third-party notice inventory size")
+    data = json.loads(encoded)
+    ensure(isinstance(data, dict) and set(data) == {"schema", "target", "lock_sha256", "dependencies", "toolchain"}
+           and type(data["schema"]) is int and data["schema"] == 1 and data["target"] == TARGETS[arch]
+           and data["lock_sha256"] == digest(lock_bytes), "third-party inventory identity mismatch")
+    locked = {(p["name"], p["version"], p.get("source")): p for p in tomllib.loads(lock_bytes.decode())["package"]}
+    packages = data["dependencies"]
+    ensure(isinstance(packages, list) and 0 < len(packages) <= 256, "native dependency notices are missing")
+    seen = set()
+    def originals(notices):
+        ensure(isinstance(notices, list) and 0 < len(notices) <= 128, "license originals are missing")
+        names = set()
+        for item in notices:
+            ensure(isinstance(item, dict) and set(item) == {"path", "text"}
+                   and isinstance(item["path"], str) and 0 < len(item["path"]) <= 1024
+                   and item["path"] not in names and not item["path"].startswith("/")
+                   and all(p not in ("", ".", "..") for p in item["path"].split("/"))
+                   and isinstance(item["text"], str) and 0 < len(item["text"]) <= 8 * 1024 * 1024,
+                   "invalid license original")
+            names.add(item["path"])
+    for package in packages:
+        ensure(isinstance(package, dict) and set(package) == {"name", "version", "source", "checksum", "license", "notices"},
+               "invalid locked dependency notice")
+        identity = (package["name"], package["version"], package["source"])
+        ensure(all(isinstance(value, str) for value in identity) and identity not in seen
+               and identity in locked and locked[identity].get("checksum") == package["checksum"]
+               and isinstance(package["license"], str) and package["license"], "notice differs from locked dependency")
+        originals(package["notices"])
+        if "Unicode" in package["license"]:
+            ensure(any("unicode" in n["path"].lower() for n in package["notices"]), "Unicode license original is missing")
+        seen.add(identity)
+    libraries = data["toolchain"]
+    ensure(isinstance(libraries, list) and len(libraries) == 2
+           and {p.get("name") for p in libraries} == {"Rust standard library and bundled native libraries", "system musl linker libraries"},
+           "native library license originals are missing")
+    for library in libraries:
+        ensure(set(library) == {"name", "version", "notices"} and isinstance(library["version"], str)
+               and library["version"], "native library notice identity mismatch")
+        originals(library["notices"])
+    return data

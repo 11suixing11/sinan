@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import tomllib
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,7 +33,7 @@ def repository(root):
                  "crates/tcp-probe/src/lib.rs", "crates/tcp-probe/src/main.rs",
                  "crates/tcp-probe/src/cli.rs", "crates/tcp-probe/src/engine.rs",
                  "crates/tcp-probe/src/journal.rs", "crates/tcp-probe/src/model.rs",
-                 "tools/build-tcp-probe.py", "tools/tcp_probe_artifact.py", "tools/artifact_manifest.py"]:
+                 "tools/build-tcp-probe.py", "tools/tcp_probe_artifact.py", "tools/artifact_manifest.py", "tools/tcp_probe_notices.py"]:
         target = root / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / name, target)
@@ -59,11 +60,20 @@ def payload(repo, commit, arch):
     binary = elf(arch)
     files = {tcp.BINARY: binary, "source.tar.gz": archive,
              "Cargo.lock": (repo / "Cargo.lock").read_bytes(), "LICENSE": (repo / "LICENSE").read_bytes()}
+    locked = next(p for p in tomllib.loads(files["Cargo.lock"].decode())["package"] if p.get("checksum"))
+    original = dict(path="LICENSE", text="TEST_ONLY original dependency notice")
+    notices = dict(schema=1, target=tcp.TARGETS[arch], lock_sha256=tcp.digest(files["Cargo.lock"]),
+                   dependencies=[dict(name=locked["name"], version=locked["version"], source=locked["source"],
+                                      checksum=locked["checksum"], license="MIT", notices=[original])],
+                   toolchain=[dict(name=name, version="TEST_ONLY toolchain", notices=[original])
+                              for name in ["Rust standard library and bundled native libraries", "system musl linker libraries"]])
+    files["THIRD_PARTY_NOTICES.txt"] = json.dumps(notices).encode()
     info = dict(schema=1, tool=tcp.BINARY, tool_version=tcp.TOOL_VERSION,
                 artifact_version=version, source_repo=release.REPOSITORY, source_commit=commit,
                 target=tcp.TARGETS[arch], rustc="rustc TEST_ONLY fixture", cargo_locked=True,
                 source_sha256=tcp.digest(archive), lock_sha256=tcp.digest(files["Cargo.lock"]),
-                license_sha256=tcp.digest(files["LICENSE"]), binary_sha256=tcp.digest(binary))
+                license_sha256=tcp.digest(files["LICENSE"]), binary_sha256=tcp.digest(binary),
+                notices_sha256=tcp.digest(files["THIRD_PARTY_NOTICES.txt"]))
     files["build-info.json"] = json.dumps(info, sort_keys=True).encode()
     return version, files
 
@@ -264,3 +274,25 @@ class SignedTcpTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class NoticeInventoryTests(unittest.TestCase):
+    setUp = FixedSourceTests.setUp
+    tearDown = FixedSourceTests.tearDown
+    def test_locked_notice_checksums_and_required_originals_are_enforced(self):
+        version, files = payload(self.repo, self.commit, "amd64")
+        original = files["THIRD_PARTY_NOTICES.txt"]
+        for mutate in [
+            lambda d: d["dependencies"][0].update(checksum="0" * 64),
+            lambda d: d["dependencies"][0].update(notices=[]),
+            lambda d: d.update(toolchain=[]),
+            lambda d: d["dependencies"][0].update(license="MIT AND Unicode-3.0"),
+        ]:
+            with self.subTest(mutate=mutate):
+                notices = json.loads(original)
+                mutate(notices)
+                files["THIRD_PARTY_NOTICES.txt"] = json.dumps(notices).encode()
+                info = json.loads(files["build-info.json"])
+                info["notices_sha256"] = tcp.digest(files["THIRD_PARTY_NOTICES.txt"])
+                files["build-info.json"] = json.dumps(info).encode()
+                with self.assertRaises(ValueError):
+                    tcp.validate_files(files, version, "amd64")

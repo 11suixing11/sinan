@@ -12,6 +12,7 @@ import sys
 import tomllib
 
 from artifact_manifest import publish
+from tcp_probe_notices import collect as collect_notices
 from tcp_probe_artifact import BINARY, TARGETS, TOOL_VERSION, artifact_version, digest, ensure, pack, source_files, validate_files
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -105,19 +106,22 @@ def main():
     lock = output / ".build.lock"
     lock.mkdir()
     try:
+        notices = collect_notices(ROOT, args.arch)
         binary, compiler = build(ROOT, args.arch, args.source_commit)
+        ensure(collect_notices(ROOT, args.arch) == notices, "locked dependency or notices changed during build")
         # A concurrent source edit cannot be disguised by a previously captured source archive.
         final_version, final_source = pinned_source(args.source_repository, args.source_commit)
         ensure(final_version == version and final_source == source, "source changed during TCP build")
         ensure(all((ROOT / name).read_bytes() == data for name, data in snapshot.items()),
                "fixed snapshot changed during TCP build")
         files = {BINARY: binary.read_bytes(), "source.tar.gz": source,
-                 "Cargo.lock": (ROOT / "Cargo.lock").read_bytes(), "LICENSE": (ROOT / "LICENSE").read_bytes()}
+                 "Cargo.lock": (ROOT / "Cargo.lock").read_bytes(), "LICENSE": (ROOT / "LICENSE").read_bytes(), "THIRD_PARTY_NOTICES.txt": notices}
         info = {"schema": 1, "tool": BINARY, "tool_version": TOOL_VERSION, "artifact_version": version,
                 "source_repo": "theLucius7/sinan", "source_commit": args.source_commit,
                 "target": TARGETS[args.arch], "rustc": compiler, "cargo_locked": True,
                 "source_sha256": digest(source), "lock_sha256": digest(files["Cargo.lock"]),
-                "license_sha256": digest(files["LICENSE"]), "binary_sha256": digest(files[BINARY])}
+                "license_sha256": digest(files["LICENSE"]), "binary_sha256": digest(files[BINARY]),
+                "notices_sha256": digest(notices)}
         files["build-info.json"] = (json.dumps(info, sort_keys=True, separators=(",", ":")) + "\n").encode()
         validate_files(files, version, args.arch)
         publish(output, args.arch, pack(files))

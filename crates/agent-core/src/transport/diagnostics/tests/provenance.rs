@@ -1,6 +1,12 @@
 use super::*;
 
-const AUXILIARY_NAMES: [&str; 4] = ["build-info.json", "LICENSE", "source.tar.gz", "Cargo.lock"];
+const AUXILIARY_NAMES: [&str; 5] = [
+    "build-info.json",
+    "LICENSE",
+    "source.tar.gz",
+    "Cargo.lock",
+    "THIRD_PARTY_NOTICES.txt",
+];
 
 struct ProvenanceAdapter {
     declared: bool,
