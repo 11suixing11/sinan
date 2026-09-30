@@ -40,4 +40,6 @@ cargo test --locked
 
 这些测试使用记录型 Privileged、合成身份/报告和真实私有文件系统，明确不是真实签名归档安装或 native TCP 网络/服务测试。原生引擎真实回环/实际进程取消由 PR #68 验证；签名制品/许可证库存由 PR #69 验证；同机NodeQuality互斥、确认取消、压力与Panel/Agent完整接入由后续独立PR验证。
 
-本机只fmt、locked offline metadata/core门禁和差异检查，没有从头编译。源码 `9b560e7fcdb2b92085eae87f9d4cd029386751bb` 的 [GitHub check](https://github.com/theLucius7/sinan/actions/runs/36790254785/job/110141221984) 已通过：13项适配器测试、全 targets Clippy（warnings视为错误）、完整 Rust/PostgreSQL 353通过/0失败/9既有条件忽略，随后专门执行的六项真实systemd回归全部通过。Compose、Agent双架构musl与TCP制品双架构检查也已通过；第14项缺失nullable字段专项、Reality与最终制品依赖更新的HEAD另核对。真实systemd回归验证现有core框架，不能当作此尚未登记适配器的完整服务验收。
+作者初始本机只运行fmt、locked offline metadata/core门禁和差异检查，没有从头编译。源码 `9b560e7fcdb2b92085eae87f9d4cd029386751bb` 的 [GitHub check](https://github.com/theLucius7/sinan/actions/runs/36790254785/job/110141221984) 已通过：13项适配器测试、全 targets Clippy（warnings视为错误）、完整 Rust/PostgreSQL 353通过/0失败/9既有条件忽略，随后专门执行的六项真实systemd回归全部通过。Compose、Agent双架构musl与TCP制品双架构检查也已通过；第14项缺失nullable字段专项、Reality与最终制品依赖更新的HEAD另核对。真实systemd回归验证现有core框架，不能当作此尚未登记适配器的完整服务验收。
+
+最终正常整合作者 `972647cd841cd8315d2e650f3453369981b5b5b7` 与正式制品主线 `cbe5558`，保留显式 nullable 字段校验和新增缺字段回归。冻结源码 `7a70b11` 的本地定向验证全部通过：TCP 14 项报告/参数/恢复专项、1 项私有目录及文件 UID 校验，以及既有 NodeQuality 15 项，共30项、0失败/忽略。移除 UID 校验、收集时强制旧二进制存在的两个负对照都被回归抓住；恢复修复后再次通过。workspace 全 targets Clippy（warnings为错误）、fmt、core分层6项、actionlint及文档链接/差异检查通过。既有 core、SDK、native 引擎及前端与正式制品主线原字节一致，本轮未重复完整workspace、真实systemd、双架构制品或公开网络验收；最终整合提交CI继续单独核对。

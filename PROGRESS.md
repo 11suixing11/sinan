@@ -702,3 +702,5 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 仅新增依赖 SDK 的 TcpQualityAdapter，不登记第二插件或迁入生命周期/ProbeSpec/UI。版本目录与源码pin、精确version/build-info、五静态签名aux、参数/地区白名单、原字节目标摘要、私有目录/文件、有界IO与64MiB/32tasks/60秒预算均独立校验。
 - mandatory --no-rank-upload，不接受测速/宿主/rootfs/上传选项；仅返回ServiceJob，环境章core处理。严格报告目标/参数/source/UTC/实际地址/统计/null语义，最多十独立工具章，坏章不遮住好章，取消/重启前部分结果可继续读取。
 - 记录型Privileged与真实磁盘夹具覆盖参数先拒绝、身份失败不准备、预算/固定argv、0与未知、篡改、部分/重复、链接/超限和坏章。881cce5的fresh GitHub CI：13专项、全targets Clippy、完整Rust/PostgreSQL353通过/0失败/9既有条件忽略、六项core真实systemd回归，以及Compose/Agent双musl/TCP制品双arch通过；最终制品依赖HEAD另核。不会将合成报告或现有core回归称为已登记TCP的服务/签名安装验收。见 [TCP适配器验收](docs/acceptance/tcpquality-adapter.md)。
+
+- TCP 适配器最终正常整合最新作者 `972647c` 与正式制品主线 `cbe5558`，保留 nullable 字段必须显式出现、同族 literal 不得伪称家族不可用及原报告/章节完整度规则。prepare 比较可信签名缓存 binary UID，历史收集核对可信私有任务目录、输入、章节/报告及实际句柄 UID，删除旧二进制后仍可重复读取已有部分报告；调用方保持任务根目录及祖先可信。冻结源码 `7a70b11` 的 TCP14+owner1+NodeQuality15 共30项全部通过、0失败/忽略，两项移除 UID/错误依赖旧二进制的负对照被实际回归捕获，恢复后再通过；workspace 全 targets Clippy（warnings为错误）、fmt、core分层6项、actionlint与链接/差异检查通过。core/SDK/native/前端与正式主线原字节一致，未重复完整workspace或冒称TCP已登记/实网验收，已释放构建槽。
