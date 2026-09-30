@@ -75,6 +75,7 @@ pub(super) async fn run(
     let mut retirement_poll = interval(5);
     let mut last_received = Instant::now();
     let mut resend_queue = std::collections::VecDeque::new();
+    let mut resend_deadline = Instant::now();
     loop {
         tokio::select! {
             biased;
@@ -120,9 +121,8 @@ pub(super) async fn run(
                     })?).await?;
                     continue;
                 }
-                let pending = runtime.state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?.pending_usage()?;
-                if !pending.is_empty() {
-                    if resend_queue.is_empty() { resend_queue.extend(pending.into_iter().take(64)); }
+                let pending = runtime.state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?.pending_usage_count()?;
+                if pending != 0 {
                     continue;
                 }
                 let receipt = match retirement.complete(identity).await {
@@ -161,9 +161,15 @@ pub(super) async fn run(
             }
             _ = resend.tick() => {
                 if resend_queue.is_empty() {
-                    let pending = runtime.state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?.pending_usage()?;
-                    resend_queue.extend(pending.into_iter().take(64));
+                    let state = runtime.state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+                    let oversized = state.oversized_usage_count()?;
+                    if oversized != 0 {
+                        tracing::error!(oversized_batches = oversized,
+                            "legacy usage batches exceed the wire byte budget; preserved for ledger reconciliation");
+                    }
+                    resend_queue.extend(state.pending_usage()?);
                 }
+                resend_deadline = Instant::now() + Duration::from_secs(1);
             }
             _ = stale.tick() => {
                 anyhow::ensure!(last_received.elapsed() <= Duration::from_secs(60), "panel connection timed out");
@@ -172,10 +178,11 @@ pub(super) async fn run(
                 let _ = timeout(Duration::from_secs(2), socket.close(None)).await;
                 return Ok(());
             }
-            _ = std::future::ready(()), if !resend_queue.is_empty() => {
+            _ = std::future::ready(()), if !resend_queue.is_empty() && Instant::now() < resend_deadline => {
                 // Yield to input and timers between batches even when catching up after an outage.
                 let batch = resend_queue.pop_front().context("resend queue unexpectedly empty")?;
                 send(&mut socket, Envelope::new("usage.batch", batch)?).await?;
+                tokio::task::yield_now().await;
             }
         }
     }
@@ -271,3 +278,6 @@ async fn send(socket: &mut Socket, envelope: Envelope) -> Result<()> {
     .await??;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

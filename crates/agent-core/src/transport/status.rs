@@ -87,9 +87,14 @@ fn snapshot(runtime: &Runtime) -> Result<Value> {
                 .unwrap_or(false),
         );
     }
+    let oversized_usage_batches = state.oversized_usage_count()?;
     Ok(json!({
         "connected": runtime.connected.load(Ordering::Relaxed),
         "applied": applied, "healthy": healthy, "pending_batches": state.pending_usage_count()?,
+        "oversized_usage_batches": oversized_usage_batches,
+        "usage_outbox_error": (oversized_usage_batches > 0).then_some(
+            "Legacy usage batches exceed the wire byte budget; ledger reconciliation is required before acknowledging them."
+        ),
     }))
 }
 
@@ -139,11 +144,29 @@ mod tests {
         );
         assert!(bind(&socket).await.is_err());
         let mut tasks = JoinSet::new();
-        tasks.spawn(serve(bound, runtime));
+        tasks.spawn(serve(bound, runtime.clone()));
         let value = status(&socket).await?;
         assert_eq!(value["connected"], true);
         assert_eq!(value["applied"], json!({}));
         assert_eq!(value["pending_batches"], 0);
+        assert_eq!(value["oversized_usage_batches"], 0);
+        assert!(value["usage_outbox_error"].is_null());
+        runtime.state.lock().unwrap().connection.execute(
+            "INSERT INTO usage_outbox(epoch,seq,batch) VALUES (?1,'1',?2)",
+            rusqlite::params![
+                uuid::Uuid::nil().to_string(),
+                "x".repeat(crate::usage::MAX_PENDING_USAGE_BYTES)
+            ],
+        )?;
+        let blocked = status(&socket).await?;
+        assert_eq!(blocked["pending_batches"], 1);
+        assert_eq!(blocked["oversized_usage_batches"], 1);
+        assert!(
+            blocked["usage_outbox_error"]
+                .as_str()
+                .unwrap()
+                .contains("ledger reconciliation")
+        );
         tasks.abort_all();
         while tasks.join_next().await.is_some() {}
         assert!(!socket.exists());

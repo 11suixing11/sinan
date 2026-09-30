@@ -42,8 +42,11 @@ impl State {
         connection.execute_batch(
             "PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON;",
         )?;
-        Migrations::new(vec![M::up(include_str!("state/migrations/0001.sql"))])
-            .to_latest(&mut connection)?;
+        Migrations::new(vec![
+            M::up(include_str!("state/migrations/0001.sql")),
+            M::up(include_str!("state/migrations/0002_bounded_usage.sql")),
+        ])
+        .to_latest(&mut connection)?;
         Ok(Self { connection })
     }
 
