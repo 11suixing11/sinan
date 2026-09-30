@@ -69,7 +69,8 @@ async fn snapshot(tx: &mut Transaction<'_, Postgres>, server_id: i64) -> anyhow:
 async fn publish_server(state: &AppState, server_id: i64) -> anyhow::Result<()> {
     let mut tx = state.pool.begin().await?;
     let query = format!(
-        "SELECT manifest_rev FROM servers WHERE id=$1 AND deleted_at IS NULL AND {DUE} FOR UPDATE SKIP LOCKED"
+        "SELECT s.manifest_rev FROM servers s LEFT JOIN server_plugins p ON p.server_id=s.id AND p.plugin='sing-box' WHERE s.id=$1 AND s.deleted_at IS NULL AND {DUE} AND ({}) IS NOT NULL FOR UPDATE OF s SKIP LOCKED",
+        super::settings::SOURCE_SQL
     );
     let Some(manifest_rev) = sqlx::query_scalar::<_, i64>(&query)
         .bind(server_id)
