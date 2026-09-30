@@ -11,7 +11,7 @@ pub(super) fn validate(spec: &DiagnosticSpec) -> Result<Mode> {
         .get("mode")
         .map(String::as_str)
         .unwrap_or("full");
-    if spec.version != VERSION
+    if !supports_modes(&spec.version)
         && spec.options.keys().any(|key| {
             matches!(
                 key.as_str(),

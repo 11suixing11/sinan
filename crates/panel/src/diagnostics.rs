@@ -18,7 +18,7 @@ use sqlx::{FromRow, Row};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
-pub const PLUGIN_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4";
+pub const PLUGIN_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5";
 pub const REPORT_LIMIT: usize = 512 * 1024;
 const TIMEOUT_SECS: u64 = 1800;
 const EXPECTED_SECTIONS: [&str; 5] = [

@@ -2,7 +2,7 @@
 # Sinan runner for the original pinned NodeQuality script.
 set -euo pipefail
 umask 077
-version=a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4
+version=a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5
 usage() {
   cat <<'USAGE'
 Usage: nodequality --workspace <ABSOLUTE_DIRECTORY> --mode daily|full --ip-version both|ipv4|ipv6 --network-mode low|normal [--upload-report true|false]
@@ -112,6 +112,9 @@ SINAN_NODEQUALITY_LICENSE_A92FCA6
 cat > "$runtime/report.py" <<'SINAN_NODEQUALITY_REPORT_HELPER'
 @REPORT_HELPER@
 SINAN_NODEQUALITY_REPORT_HELPER
+cat > "$runtime/exit-observer.sh" <<'SINAN_NODEQUALITY_EXIT_OBSERVER'
+@EXIT_OBSERVER@
+SINAN_NODEQUALITY_EXIT_OBSERVER
 cat > "$runtime/bin/curl" <<'SINAN_NODEQUALITY_CURL_SHIM'
 @CURL_SHIM@
 SINAN_NODEQUALITY_CURL_SHIM
@@ -124,6 +127,7 @@ SINAN_REAL_CURL=$(command -v curl)
 SINAN_REAL_CHROOT=$(command -v chroot)
 export SINAN_REPORT_WORKSPACE=$workspace
 export SINAN_REPORT_HELPER=$runtime/report.py
+export SINAN_REPORT_UPSTREAM=$runtime/NodeQuality.sh
 export SINAN_UPLOAD_REPORT=$upload_report
 export PATH="$runtime/bin:$PATH"
 ip_arguments=()
@@ -134,7 +138,7 @@ printf 'y\ny\n%s\ny\n' "$network_answer" > "$runtime/answers.txt"
 python3 "$runtime/report.py" watch-sections "$workspace" &
 watcher_pid=$!
 set +e
-bash "$runtime/NodeQuality.sh" -d "$workspace" "${ip_arguments[@]}" \
+BASH_ENV="$runtime/exit-observer.sh" bash "$runtime/NodeQuality.sh" -d "$workspace" "${ip_arguments[@]}" \
   < "$runtime/answers.txt" 2>&1 | python3 "$runtime/report.py" stream-log "$workspace/log.txt"
 upstream_status=${PIPESTATUS[0]}
 set -e
@@ -145,5 +149,10 @@ if ! python3 "$runtime/report.py" render "$workspace" 2> "$workspace/collector-e
 fi
 printf 'Local NodeQuality report: %s/result.txt\n' "$workspace"
 [[ ! -f $workspace/report-url.txt ]] || cat "$workspace/report-url.txt"
-# Keep useful reports while preserving a failed upstream execution result.
+# The fixed entrypoint uses exit 1 for its proven normal cleanup branch. A ZIP
+# alone never turns an arbitrary nonzero result into successful execution.
+if [[ $upstream_status == 1 && -f $runtime/upstream-completed ]]; then
+  IFS= read -r completion < "$runtime/upstream-completed"
+  [[ $completion != pinned-normal-cleanup ]] || exit 0
+fi
 exit "$upstream_status"

@@ -8,8 +8,8 @@ usage() {
 Usage: tools/build-nodequality.sh <amd64|arm64> <ARTIFACT_ROOT>
 
 Build prerequisites: bash, curl, python3. No benchmark runs during packaging.
-Output: ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4/<arch>
-        ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4/SHA256SUMS
+Output: ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5/<arch>
+        ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5/SHA256SUMS
 
 Both targets contain one architecture-independent executable named nodequality.
 The original upstream source and its full AGPL-3.0 license are embedded verbatim.
@@ -25,7 +25,7 @@ case "$arch" in amd64|arm64) ;; *) die 'architecture must be amd64 or arm64' ;; 
 [[ -n $2 ]] || die 'ARTIFACT_ROOT must not be empty'
 for tool in curl python3; do command -v "$tool" >/dev/null || die "missing build tool: $tool"; done
 upstream_revision=a92fca6c0067df29ddd03fdc2fee6f3000f64545
-version=$upstream_revision-r4
+version=$upstream_revision-r5
 output=$2/nodequality/$version
 [[ ! -L $output ]] || die 'output version directory must not be a symlink'
 mkdir -p "$output"
@@ -102,6 +102,7 @@ for marker, path in (
     ("NODEQUALITY_SOURCE", scratch / "NodeQuality.sh"),
     ("NODEQUALITY_LICENSE", scratch / "LICENSE"),
     ("REPORT_HELPER", plugin / "report.py"),
+    ("EXIT_OBSERVER", plugin / "exit-observer.sh"),
     ("DAILY_HELPER", plugin / "daily.py"),
     ("CURL_SHIM", plugin / "curl-shim.sh"),
     ("CHROOT_SHIM", plugin / "chroot-shim.sh"),
