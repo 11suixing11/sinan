@@ -94,22 +94,24 @@ async fn queued_full_is_failed_without_finalizing_a_device_or_blocking_daily(
         diagnostics::PLUGIN_VERSION,
     ] {
         ids.push(saved_full(&panel, server, version, "queued").await?);
+        if ids.len() == 1 {
+            // Pre-registration payloads omitted plugin and mode; both default to full NodeQuality.
+            sqlx::query("UPDATE diagnostic_jobs SET job=job-'plugin' WHERE id=$1")
+                .bind(ids[0])
+                .execute(&panel.state.pool)
+                .await?;
+        }
+        let queue: Value = panel
+            .client
+            .get(format!("{}/api/agent/v1/diagnostics", panel.base))
+            .bearer_auth(&ack.session_token)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        assert_eq!(queue, json!([]));
     }
-    // Pre-registration payloads omitted plugin and mode; both default to full NodeQuality.
-    sqlx::query("UPDATE diagnostic_jobs SET job=job-'plugin' WHERE id=$1")
-        .bind(ids[0])
-        .execute(&panel.state.pool)
-        .await?;
-    let queue: Value = panel
-        .client
-        .get(format!("{}/api/agent/v1/diagnostics", panel.base))
-        .bearer_auth(&ack.session_token)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
-    assert_eq!(queue, json!([]));
     for id in &ids {
         let row: (String, String, bool) =
             sqlx::query_as("SELECT status,error,agent_completed FROM diagnostic_jobs WHERE id=$1")
