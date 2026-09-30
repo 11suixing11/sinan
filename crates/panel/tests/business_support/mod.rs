@@ -52,10 +52,14 @@ impl TestPanel {
         .await?;
         state.release_keys = Some(Arc::new(release_support::trusted_keys()));
         let app = router(state.clone());
-        let task =
-            tokio::spawn(
-                async move { axum::serve(listener, app).await.expect("test HTTP server") },
-            );
+        let task = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .expect("test HTTP server")
+        });
         Ok(Self {
             state,
             base,
@@ -176,6 +180,15 @@ impl TestPanel {
         cookie: &str,
         name: &str,
     ) -> Result<(i64, Socket, HelloAck)> {
+        let (server, socket, ack, _) = self.authenticated_device_with_key(cookie, name).await?;
+        Ok((server, socket, ack))
+    }
+
+    pub async fn authenticated_device_with_key(
+        &self,
+        cookie: &str,
+        name: &str,
+    ) -> Result<(i64, Socket, HelloAck, SigningKey)> {
         let server_id = self.create_server(cookie, name).await?;
         let value: Value = self
             .admin(
@@ -263,7 +276,7 @@ impl TestPanel {
             }
         })
         .await??;
-        Ok((server_id, socket, ack.to_payload()?))
+        Ok((server_id, socket, ack.to_payload()?, key))
     }
 }
 

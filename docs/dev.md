@@ -74,11 +74,29 @@ cargo test -p sinan-panel --test reality -- --ignored
 
 CI 另外检查分层禁用词、Linux 构建与 Compose 启动持久化。CI 的通过状态需要以远端实际运行结果为准。
 
+## 安全功能的开发与验证
+
+面板启动时应用登录安全与设备退役迁移，已有数据库的管理员密码、授权和用量仍保留；共享或正式数据库迁移前按部署文档备份。登录与二步验证写操作依赖实际 TCP peer，新增 HTTP 测试服务需使用 `app.into_make_service_with_connect_info::<std::net::SocketAddr>()`，不能通过伪造转发头设置来源。限速保存在 PostgreSQL；同一代理下的开发请求共享 8 次/60 秒额度，没有测试或回环地址豁免。只有通过来源与全局两级额度检查的认证尝试才同时计数；因额度或并发限制返回 429 时不消耗额度。
+
+使用上面的独立测试数据库与 TEST_ONLY 公钥，可以定向执行：
+
+```bash
+cargo test --locked -p sinan-panel \
+  --test auth_security --test node_ports --test subscription_reset --test retirement
+cargo test --locked -p sinan-agent-core --lib retirement::tests
+```
+
+面板测试通过真实 PostgreSQL 和 HTTP/WebSocket 检查 TOTP 会话绑定、过期和并发重放、限速与伪造转发头、443/默认端口分配和冲突、订阅旧链接失效，以及在线退役、离线软删除和回执验签。Agent 退役单元测试使用受控系统接口，检查操作互斥、待确认用量阻止清理、停服务失败、崩溃恢复和历史数据保留；它们不代替 Linux 上实际 systemd 停服验证。
+
+开发时不要把真实验证器秘密或设备凭据加入夹具。TOTP 确认与登录会消费验证码；自动化脚本需等待新的时间步，不能靠清空生产数据库的防重放状态重试。具体操作与部署所有者恢复步骤见[部署文档](deploy.md#管理员登录与二步验证)，API、状态码与订阅重置边界见 [API 文档](api.md)。
+
 ## 真实安装与 Reality CI
 
 `real-e2e` 在 Ubuntu 24.04 amd64 runner 上复用本次 musl Agent 制品，按版本与构建脚本摘要缓存固定上游运行时。缓存恢复后仍校验版本、架构、完整构建标签和 SHA-256。仅在隔离 CI 中使用仓库公开的 TEST_ONLY 私钥签署测试 Release；Agent 和面板均编译对应测试公钥，制品名称明确标记 TEST_ONLY。Compose 启动面板与 PostgreSQL 后，在干净宿主通过独立预置的公钥、minisign 与 bootstrap 执行已签安装器，由 systemd 管理 Agent 与独立运行时。
 
-本地客户端经 Reality 向回环夹具下载 2 MiB、上传 1 MiB，检查文件内容、上传响应与真实用户节点用量增量。暂停后连续 70 秒采样稳定、outbox 清空，再验证 Agent 重启不更换运行时 PID、运行时重载不重复入账；恢复同量流量时将面板新增量与只读账本新周期基准逐字节比较。同版本重装核对身份与用量连续性，缓存二进制、签名证明或缺少签名时必须被预检拒绝。端到端流程及私有 state 驱动见 [真实验收文档](e2e.md)。
+本地客户端经非 root 运行时的 Reality 443 端口向回环夹具下载 2 MiB、上传 1 MiB，检查文件内容、上传响应与真实用户节点用量增量。暂停后连续 70 秒采样稳定、outbox 清空，再验证 Agent 重启不更换运行时 PID、运行时重载不重复入账；恢复同量流量时将面板新增量与只读账本新周期基准逐字节比较。同版本重装核对身份与用量连续性，缓存二进制、签名证明或缺少签名时必须被预检拒绝。端到端流程及私有 state 驱动见 [真实验收文档](e2e.md)。
+
+人工验收已启用 TOTP 的面板时，在 `scripts/e2e-driver.py` 的子命令前加全局参数 `--totp`，或设置 `SINAN_E2E_TOTP=1`，隐藏输入本次验证码；`scripts/e2e-real.sh snapshot` 的可选面板查询也支持该环境变量。非交互调用可一次性提供 `SINAN_E2E_TOTP_CODE`，每次登录使用新码，脚本不保存种子、验证码或会话。TOTP 未启用时保持原调用即可；CI 的测试面板并不因此自动启用 TOTP。
 
 CI 公开制品仅包含版本、阶段和精确用量摘要；完整配置、订阅凭据、设备身份、安装令牌和日志不上传。此 job 使用回环 HTTP 路径和本地 TLS 伪装目标，不覆盖外部 CDN、DNS、证书部署或云防火墙配置。
 

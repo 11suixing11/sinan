@@ -40,6 +40,8 @@ Agent 与面板的产品版本独立；面板当前声明支持协议范围 `1..
 | Agent → 面板 | `apply.result` | `{module,rev,op_id,status,healthy,error?}`，status 为 `applied` 或 `failed` |
 | Agent → 面板 | `usage.batch` | `{epoch,seq,period_start,period_end,records:[{stat_name,uplink,downlink}]}` |
 | 面板 → Agent | `usage.ack` | `{epoch,seq}` |
+| 面板 → Agent | `retirement.request` | `{request_id}`，持久退役请求 UUID |
+| Agent → 面板 | `retirement.result` | `{request_id,success,error?,receipt?}`，成功须携带匹配的签名回执 |
 
 指标每 10 秒发送，采集失败字段省略，不用 0 代表未知。流量每 30 秒采集；上下载单位是字节，负数无效。epoch 为 UUID；seq 在本地持久递增。所有时间戳使用 UTC Unix 秒。
 
@@ -81,3 +83,13 @@ NodeQuality 的 plugin 标识为 `nodequality`，version 为固定上游提交�
 任务 ID 同时用于设备持久 checkpoint、独立服务及面板去重。先记录启动意图再创建 systemd 服务；Agent 重启检查已有服务并继续观察，不自动重复运行。启动边界状态不明或服务消失时回报失败，管理员可另发新任务。结果确认前保存并重传；终态不能被晚到的 running 覆盖。每台设备最多一个活跃任务。代理配置版本与用户流量周期不会因诊断任务变化。
 
 IP 地址来自网卡和可选的 Agent `public_ips` 配置。面板仅向固定的 IPQuality 查询域名请求公网地址，私网、回环、链路本地等地址可展示但不参与外部查询。每个数据库分别保存结果或错误；未知风险不能填成零风险。
+
+## 在线退役
+
+设备在 hello 声明 `server:retire-v1`。面板删除在线服务器时先保存并发送请求，收到成功回执后才完成软删除；没有能力的在线旧设备返回升级提示。离线软删除不证明设备清理成功。面板认证注册、删除与回执提交共同串行，在签发会话前再次检查服务器和公钥。
+
+Agent 收到请求后持久阻止新的受管操作，停止运行时与诊断，提交所有已持久用量，再清除本机身份、会话与受管运行配置；保留历史账本。相同请求可重试，不同请求不能覆盖未结束的退役。清理完成后进入终态，不再自动注册或恢复代理。
+
+回执为 `{server_id,request_id,signature}`；签名对象按顺序拼接 UTF-8 `sinan-retirement-v1`、一个零字节、8 字节大端有符号 server ID、16 字节请求 UUID。使用原设备 Ed25519 密钥，签名为 URL-safe base64，无填充。Agent 在删除私钥前持久保存回执，但只在清理完成后发送。面板使用保留的公钥和已存在请求验签。
+
+完成后的 Agent 也可向原绑定面板的 `POST /api/agent/v1/retirement/receipt` 发送该回执。此接口不需要 Bearer session；签名本身只授权对应退役确认，不能恢复设备会话。重复合法回执返回 204，错误回执拒绝。确认响应丢失时仍可恢复；未清理完成就被离线软删除的设备不具备此保证，需人工处理。详细崩溃与离线边界见 [ADR 0019](adr/0019-server-retirement.md)。

@@ -96,13 +96,24 @@ fn known_messages() -> Vec<Message> {
         }),
         Message::ManifestChanged(ManifestChanged { rev: 12 }),
         Message::UsageAck(UsageAck { epoch, seq: 1 }),
+        Message::RetirementRequest(RetirementRequest { request_id: epoch }),
+        Message::RetirementResult(RetirementResult {
+            request_id: epoch,
+            success: true,
+            error: None,
+            receipt: Some(RetirementReceipt {
+                server_id: 3,
+                request_id: epoch,
+                signature: "test-only-receipt".into(),
+            }),
+        }),
     ]
 }
 
 #[test]
 fn all_websocket_payloads_roundtrip_through_envelopes() {
     let messages = known_messages();
-    assert_eq!(messages.len(), 11);
+    assert_eq!(messages.len(), 13);
     for message in messages {
         let envelope = message.clone().into_envelope().unwrap();
         assert_eq!(envelope.message_type, message.message_type());

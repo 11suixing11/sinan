@@ -52,7 +52,12 @@ impl TestPanel {
         state.release_keys = Some(std::sync::Arc::new(release_support::trusted_keys()));
         let app = router(state.clone());
         let task = tokio::spawn(async move {
-            axum::serve(listener, app).await.expect("test HTTP server");
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .expect("test HTTP server");
         });
         Ok(Self {
             state,
@@ -491,7 +496,7 @@ async fn bundle_download_preserves_bytes_and_cannot_cross_server_identity(
 ) -> Result<()> {
     let panel = TestPanel::start(pool.clone()).await?;
     let cookie = panel.admin_cookie().await?;
-    let (server_id, _socket, ack) = panel.authenticated_device(&cookie, "Bundle owner").await?;
+    let (server_id, mut socket, ack) = panel.authenticated_device(&cookie, "Bundle owner").await?;
     let other_id = panel.create_server(&cookie, "Other bundle owner").await?;
     let bundle = "{\n  \"files\": {\"config.json\": \"{}\\n\"}\n}\n";
     let digest = format!("{:x}", Sha256::digest(bundle.as_bytes()));
@@ -526,6 +531,19 @@ async fn bundle_download_preserves_bytes_and_cannot_cross_server_identity(
             .status(),
         StatusCode::NOT_FOUND
     );
+    socket.close(None).await?;
+    timeout(Duration::from_secs(5), async {
+        while panel
+            .state
+            .connections
+            .read()
+            .await
+            .contains_key(&server_id)
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
     panel
         .client
         .delete(format!("{}/api/servers/{server_id}", panel.base))

@@ -190,7 +190,7 @@ async fn expiry_preserves_late_durable_reports_and_deleted_servers_cancel_work(
 ) -> Result<()> {
     let panel = TestPanel::start(pool).await?;
     let cookie = panel.admin_cookie().await?;
-    let (server_id, _socket, ack) = panel.authenticated_device(&cookie, "重连设备").await?;
+    let (server_id, mut socket, ack) = panel.authenticated_device(&cookie, "重连设备").await?;
     capable(&panel, server_id).await?;
     fixture(&panel).await?;
     let path = format!("/api/servers/{server_id}/node-quality/reports");
@@ -257,6 +257,20 @@ async fn expiry_preserves_late_durable_reports_and_deleted_servers_cancel_work(
         .json()
         .await?;
     assert_eq!(new["job"]["options"]["upload_report"], "true");
+    // This assertion exercises offline deletion; online deletion now requires retirement.
+    socket.close(None).await?;
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while panel
+            .state
+            .connections
+            .read()
+            .await
+            .contains_key(&server_id)
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
     assert_eq!(
         panel
             .admin(

@@ -191,8 +191,13 @@ if all(values):
         headers = {} if body is None else {'Content-Type': 'application/json'}
         with client.open(urllib.request.Request(origin + path, data=body, headers=headers), timeout=20) as response:
             return json.load(response)
-    request('/api/login', {'password': password})
-    del password
+    code = os.environ.pop('SINAN_E2E_TOTP_CODE', None)
+    if code is None and os.environ.get('SINAN_E2E_TOTP') == '1':
+        code = getpass.getpass('当前 TOTP 验证码（不保存，请用未使用的新码）：')
+    if code is not None and (len(code) != 6 or not code.isascii() or not code.isdecimal()):
+        raise SystemExit('TOTP 验证码需为六位数字')
+    request('/api/login', {'password': password, 'totp_code': code})
+    del password, code
     try:
         usage = request('/api/usage?' + urllib.parse.urlencode({'user_id': user, 'node_id': node}))
         node_data = request('/api/nodes/' + node)

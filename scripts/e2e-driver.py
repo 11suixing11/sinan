@@ -65,12 +65,12 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class Panel:
-    def __init__(self, base, password):
+    def __init__(self, base, password, totp_code=None):
         self.base = base
         self.client = urllib.request.build_opener(
             NoRedirect(), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
         )
-        self.request("/api/login", {"password": password})
+        self.request("/api/login", {"password": password, "totp_code": totp_code})
 
     def request(self, path, data=None, raw=False):
         body = None if data is None else json.dumps(data).encode()
@@ -102,6 +102,14 @@ def password():
         return path.read_text().rstrip("\r\n")
     value = os.environ.get("SINAN_E2E_ADMIN_PASSWORD")
     return value if value is not None else getpass.getpass("管理员密码（不保存）：")
+
+
+def totp_code(prompt=False):
+    value = os.environ.pop("SINAN_E2E_TOTP_CODE", None)
+    if value is None and (prompt or os.environ.get("SINAN_E2E_TOTP") == "1"):
+        value = getpass.getpass("当前 TOTP 验证码（不保存，请用未使用的新码）：")
+    ensure(value is None or re.fullmatch(r"[0-9]{6}", value), "TOTP 验证码需为六位数字")
+    return value
 
 
 def resource(panel, path, state, kind, fields, state_path):
@@ -167,9 +175,12 @@ def install(panel, state, state_path, refresh=False, agent_version=None):
 
 def prepare(panel, state, args):
     server = resource(panel, "/api/servers", state, "server", {}, args.state)
-    node = resource(panel, "/api/nodes", state, "node", {
-        "server_id": server["id"], "public_host": state["public_host"], "sni": state["sni"]
-    }, args.state)
+    fields = {"server_id": server["id"], "public_host": state["public_host"], "sni": state["sni"]}
+    if state.get("requested_port") is not None:
+        fields["port"] = state["requested_port"]
+    node = resource(panel, "/api/nodes", state, "node", fields, args.state)
+    ensure("port" not in state or node["port"] == state["port"],
+           "验收节点的端口已变化；保留原 state 并检查面板")
     user = resource(panel, "/api/users", state, "user", {}, args.state)
     existing = panel.request(f"/api/users/{user['id']}/accesses")
     ensure(all(item["node_id"] == node["id"] for item in existing),
@@ -324,11 +335,13 @@ def verify(panel, state, args):
 def parser():
     result = argparse.ArgumentParser(description="真实 Reality 验收驱动；设备和流量由操作者控制")
     result.add_argument("--state", type=Path, required=True, help="仓库外私有目录中的 state.json")
+    result.add_argument("--totp", action="store_true", help="启用 TOTP 的面板：隐藏输入本次登录验证码")
     stages = result.add_subparsers(dest="stage", required=True)
-    setup = stages.add_parser("prepare", help="创建专用资源并保存安装脚本，可中断恢复")
+    setup = stages.add_parser("prepare", help="创建专用资源并保存安装描述，可中断恢复")
     setup.add_argument("--origin", required=True)
     setup.add_argument("--public-host", required=True)
     setup.add_argument("--sni", required=True)
+    setup.add_argument("--port", type=int, help="显式指定节点监听端口；省略时由面板分配")
     installation = stages.add_parser("install", help="取得私有安装描述，不在本机执行")
     installation.add_argument("--agent-version", help="选择已导入且协议兼容的 Agent 版本")
     installation.add_argument("--refresh", action="store_true", help="签发新令牌，用于过期重试或升级")
@@ -353,6 +366,9 @@ def parser():
 
 def main():
     args = parser().parse_args()
+    if args.stage == "prepare" and args.port is not None:
+        ensure(1 <= args.port <= 65535 and args.port != 18085,
+               "节点端口需为 1–65535，且不能占用统计接口 18085")
     os.umask(0o077)
     args.state = args.state.absolute()
     repository = Path(__file__).resolve().parents[1]
@@ -375,18 +391,19 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         state = json.loads(args.state.read_text()) if args.state.exists() else None
         if args.stage == "prepare":
-            requested = {"origin": origin(args.origin), "public_host": args.public_host, "sni": args.sni}
+            requested = {"origin": origin(args.origin), "public_host": args.public_host, "sni": args.sni,
+                         "requested_port": args.port}
             if state is None:
                 state = {"schema": 1, "prefix": "sinan-e2e-" + uuid.uuid4().hex,
                          "checkpoints": {}, **requested}
                 save(args.state, state)
-            ensure(all(state[key] == value for key, value in requested.items()),
+            ensure(all(state.get(key) == value for key, value in requested.items()),
                    "此 state 对应不同环境；请使用新的私有目录")
         ensure(state is not None and state["schema"] == 1, "请先用 prepare 创建本次私有 state")
         if args.stage != "prepare":
             ensure(all(key in state for key in ("server_id", "node_id", "user_id")),
                    "prepare 尚未完成；请使用相同参数重试")
-        panel = Panel(state["origin"], password())
+        panel = Panel(state["origin"], password(), totp_code(args.totp))
         try:
             if args.stage == "install":
                 install(panel, state, args.state, args.refresh, args.agent_version)

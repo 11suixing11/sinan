@@ -221,6 +221,12 @@ impl Privileged for SystemOps {
         })
     }
 
+    fn remove_file<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, ()> {
+        Box::pin(async move { remove_managed(path, false) })
+    }
+    fn remove_managed_directory<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, ()> {
+        Box::pin(async move { remove_managed(path, true) })
+    }
     fn install_archive<'a>(
         &'a self,
         archive: &'a Path,
@@ -321,7 +327,12 @@ impl SystemServiceManager {
         Self { privileged }
     }
 
-    async fn call(&self, action: &str, unit: &str, quiet: bool) -> Result<CommandOutput> {
+    async fn call(
+        &self,
+        action: &str,
+        unit: &str,
+        properties: Option<&str>,
+    ) -> Result<CommandOutput> {
         ensure!(
             !unit.is_empty()
                 && !unit.starts_with('-')
@@ -332,8 +343,8 @@ impl SystemServiceManager {
             "invalid service unit"
         );
         let mut args = vec![action.to_owned()];
-        if quiet {
-            args.push("--quiet".into());
+        if let Some(properties) = properties {
+            args.push(format!("--property={properties}"));
         }
         args.extend(["--".into(), unit.to_owned()]);
         timeout(
@@ -345,7 +356,7 @@ impl SystemServiceManager {
     }
 
     async fn change(&self, action: &str, unit: &str) -> Result<()> {
-        let output = self.call(action, unit, false).await?;
+        let output = self.call(action, unit, None).await?;
         ensure!(
             output.success,
             "service operation failed: {}",
@@ -366,7 +377,16 @@ impl ServiceManager for SystemServiceManager {
         Box::pin(self.change("stop", unit))
     }
     fn is_active<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, bool> {
-        Box::pin(async move { Ok(self.call("is-active", unit, true).await?.success) })
+        Box::pin(async move {
+            let output = self
+                .call(
+                    "show",
+                    unit,
+                    Some("LoadState,ActiveState,MainPID,ControlPID"),
+                )
+                .await?;
+            parse_runtime_active(&output)
+        })
     }
     fn start_job<'a>(&'a self, job: &'a ServiceJob) -> BoxFuture<'a, ()> {
         self.start_diagnostic_job(job)
@@ -374,4 +394,81 @@ impl ServiceManager for SystemServiceManager {
     fn job_status<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, JobStatus> {
         self.diagnostic_job_status(unit)
     }
+}
+
+fn parse_runtime_active(output: &CommandOutput) -> Result<bool> {
+    ensure!(
+        output.success,
+        "runtime service status query failed: {}",
+        output.stderr
+    );
+    let properties: std::collections::BTreeMap<_, _> = output
+        .stdout
+        .lines()
+        .filter_map(|line| line.split_once('='))
+        .collect();
+    let pid = |name| -> Result<u32> {
+        properties
+            .get(name)
+            .with_context(|| format!("service status is missing {name}"))?
+            .parse()
+            .with_context(|| format!("service status has invalid {name}"))
+    };
+    let load = properties.get("LoadState").copied();
+    // A never-installed runtime is safe only when systemd explicitly reports
+    // the missing unit and confirms that no main or control process exists.
+    if load == Some("not-found") {
+        ensure!(
+            properties.get("ActiveState") == Some(&"inactive")
+                && pid("MainPID")? == 0
+                && pid("ControlPID")? == 0,
+            "missing runtime service still has unknown or active processes"
+        );
+        return Ok(false);
+    }
+    ensure!(
+        matches!(load, Some("loaded" | "masked")),
+        "runtime service load state is unknown"
+    );
+    let running = pid("MainPID")? != 0 || pid("ControlPID")? != 0;
+    match properties.get("ActiveState").copied() {
+        Some("active" | "activating" | "deactivating" | "reloading") => Ok(true),
+        Some("inactive" | "failed") => Ok(running),
+        _ => anyhow::bail!("runtime service active state is unknown"),
+    }
+}
+
+fn remove_managed(path: &Path, directory: bool) -> Result<()> {
+    ensure!(
+        path.is_absolute(),
+        "managed removal requires an absolute path"
+    );
+    let parent = parent_directory(path)?;
+    for ancestor in parent.ancestors() {
+        let metadata = fs::symlink_metadata(ancestor)?;
+        ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "managed removal refuses symbolic link ancestors"
+        );
+    }
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    ensure!(
+        !metadata.file_type().is_symlink(),
+        "managed removal refuses symbolic links"
+    );
+    if directory {
+        ensure!(metadata.is_dir(), "managed removal requires a directory");
+        fs::remove_dir_all(path)?;
+    } else {
+        ensure!(
+            metadata.is_file(),
+            "credential removal requires a regular file"
+        );
+        fs::remove_file(path)?;
+    }
+    sync_directory(parent)
 }

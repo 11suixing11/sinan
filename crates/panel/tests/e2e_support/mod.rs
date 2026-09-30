@@ -52,9 +52,12 @@ impl Harness {
         state.release_keys = Some(Arc::new(release_support::trusted_keys()));
         let app = router(state.clone());
         let http = tokio::spawn(async move {
-            axum::serve(listener, app)
-                .await
-                .expect("end-to-end HTTP server");
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .expect("end-to-end HTTP server");
         });
         let publisher_state = state.clone();
         let publisher = tokio::spawn(async move {

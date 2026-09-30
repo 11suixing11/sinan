@@ -14,6 +14,7 @@ pub mod ip_quality;
 pub mod nodes;
 pub mod publisher;
 pub mod releases;
+pub mod retirement;
 pub mod servers;
 pub mod subscriptions;
 pub mod usage;
@@ -27,7 +28,7 @@ use config::Config;
 use sinan_protocol::Envelope;
 use sqlx::PgPool;
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::{RwLock, Semaphore, mpsc};
+use tokio::sync::{Mutex, RwLock, Semaphore, mpsc};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -45,6 +46,7 @@ pub struct AppState {
     pub release_keys: Option<Arc<sinan_protocol::release::TrustedKeys>>,
     pub config: Arc<Config>,
     pub connections: Arc<RwLock<HashMap<i64, AgentConnection>>>,
+    pub device_lifecycle: Arc<Mutex<()>>,
 }
 
 impl AppState {
@@ -61,6 +63,7 @@ impl AppState {
                 .map(Arc::new),
             config: Arc::new(config),
             connections: Arc::default(),
+            device_lifecycle: Arc::default(),
         })
     }
 }
@@ -71,6 +74,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/login", post(auth::login))
         .route("/api/logout", post(auth::logout))
         .route("/api/me", get(auth::me))
+        .route("/api/security/totp", get(auth::totp_status))
+        .route("/api/security/totp/setup", post(auth::totp_setup))
+        .route("/api/security/totp/confirm", post(auth::totp_confirm))
+        .route("/api/security/totp/disable", post(auth::totp_disable))
         .route("/api/servers", get(servers::list).post(servers::create))
         .route(
             "/api/servers/{id}",
@@ -103,6 +110,10 @@ pub fn router(state: AppState) -> Router {
             get(users::get).patch(users::update).delete(users::remove),
         )
         .route(
+            "/api/users/{id}/subscription/reset",
+            post(users::reset_subscription),
+        )
+        .route(
             "/api/users/{id}/accesses",
             get(accesses::list).post(accesses::grant),
         )
@@ -114,6 +125,10 @@ pub fn router(state: AppState) -> Router {
         .route("/sub/{token}", get(subscriptions::get))
         .route("/api/agent/v1/enroll", post(servers::enroll))
         .route("/api/agent/v1/ws", get(agent_api::websocket))
+        .route(
+            "/api/agent/v1/retirement/receipt",
+            post(retirement::receipt),
+        )
         .route("/api/agent/v1/manifest", get(agent_api::manifest))
         .route("/api/agent/v1/diagnostics", get(diagnostics::pending))
         .route("/api/agent/v1/diagnostics/{id}", post(diagnostics::update))
