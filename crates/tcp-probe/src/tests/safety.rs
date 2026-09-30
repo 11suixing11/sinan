@@ -124,6 +124,9 @@ async fn snapshot_limit_digest_and_existing_output_are_enforced_before_probing()
     .unwrap();
     directory.input(&bytes);
     let mut options = directory.options(&bytes, IpVersion::V4);
+    options.targets_file = "../outside.json".into();
+    assert!(Journal::open(&options).await.is_err());
+    options.targets_file = "targets.json".into();
     options.target_digest = "0".repeat(64);
     assert!(Journal::open(&options).await.is_err());
     options.target_digest = format!("{:x}", Sha256::digest(&bytes));

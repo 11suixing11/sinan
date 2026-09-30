@@ -58,7 +58,11 @@ impl Directory {
     pub fn assert_reports(&self, report: &Report) {
         let body: serde_json::Value =
             serde_json::from_slice(&fs::read(self.path.join("result.json")).unwrap()).unwrap();
-        assert_eq!(body, serde_json::to_value(report).unwrap());
+        let encoded = serde_json::to_vec_pretty(report).unwrap();
+        assert_eq!(
+            body,
+            serde_json::from_slice::<serde_json::Value>(&encoded).unwrap()
+        );
         assert_eq!(body["upload_enabled"], false);
         assert_eq!(body["ranking_enabled"], false);
         assert_eq!(body["speedtest_enabled"], false);

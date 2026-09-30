@@ -166,6 +166,47 @@ fn fast_limits() -> Limits {
 }
 
 #[tokio::test]
+async fn verified_snapshot_is_frozen_and_public_options_cannot_replace_its_digest() {
+    let directory = Directory::new();
+    let (options, mut journal) = directory
+        .prepare(vec![target(1, "127.0.0.1", 12345)], IpVersion::V4)
+        .await;
+    std::fs::write(
+        directory.path.join("targets.json"),
+        serde_json::to_vec(&Snapshot {
+            schema: 1,
+            targets: vec![target(2, "127.0.0.2", 54321)],
+        })
+        .unwrap(),
+    )
+    .unwrap();
+    let network = FakeNetwork::new(Dns::Error, false);
+    let report = run_with(&options, &mut journal, network.clone(), fast_limits())
+        .await
+        .unwrap();
+    assert_eq!(report.target_digest, options.target_digest);
+    assert_eq!(
+        report.targets[0].target.id,
+        target(1, "127.0.0.1", 12345).id
+    );
+    assert!(
+        network
+            .connections
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|address| *address == "127.0.0.1:12345".parse::<SocketAddr>().unwrap())
+    );
+    let mut changed = options;
+    changed.target_digest = "0".repeat(64);
+    assert!(
+        run_with(&changed, &mut journal, network, fast_limits())
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
 async fn dns_runs_once_and_one_matching_socket_is_used_with_bounded_parallelism() {
     let addresses = vec![
         "[::1]:12345".parse().unwrap(),

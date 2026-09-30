@@ -1,7 +1,12 @@
 #![forbid(unsafe_code)]
 
+use anyhow::{Context, ensure};
 use sinan_tcp_probe::{Command, Journal, VERSION, parse, run};
-use std::{io::Write, time::Duration};
+use std::time::Duration;
+use tokio::{
+    io::AsyncWriteExt,
+    time::{Instant, timeout_at},
+};
 
 fn main() {
     let command = match parse(std::env::args().skip(1)) {
@@ -24,24 +29,35 @@ fn main() {
                 .max_blocking_threads(4)
                 .build()
                 .expect("create probe runtime");
+            let deadline = Instant::now() + Duration::from_secs(60);
             let result = runtime.block_on(async {
-                let mut journal = Journal::open(&options).await?;
-                run(&options, &mut journal).await
+                timeout_at(deadline, async {
+                    let mut journal = Journal::open(&options).await?;
+                    let report = run(&options, &mut journal).await?;
+                    let mut bytes = serde_json::to_vec(&report)?;
+                    ensure!(
+                        bytes.len() <= sinan_tcp_probe::OUTPUT_LIMIT,
+                        "report exceeds output limit"
+                    );
+                    bytes.push(b'\n');
+                    let mut stdout = tokio::io::stdout();
+                    timeout_at(
+                        deadline.min(Instant::now() + Duration::from_secs(2)),
+                        stdout.write_all(&bytes),
+                    )
+                    .await
+                    .context("stdout publication timed out")??;
+                    Ok::<_, anyhow::Error>(report.complete)
+                })
+                .await
+                .context("total execution deadline exceeded")
+                .and_then(|result| result)
             });
             // A timed-out system resolver must not delay process exit indefinitely.
             runtime.shutdown_timeout(Duration::from_millis(100));
             match result {
-                Ok(report) => {
-                    let bytes = serde_json::to_vec(&report).expect("serialize bounded report");
-                    if bytes.len() > sinan_tcp_probe::OUTPUT_LIMIT
-                        || std::io::stdout()
-                            .write_all(&bytes)
-                            .and_then(|_| std::io::stdout().write_all(b"\n"))
-                            .is_err()
-                    {
-                        std::process::exit(1);
-                    }
-                    if !report.complete {
+                Ok(complete) => {
+                    if !complete {
                         std::process::exit(1);
                     }
                 }
