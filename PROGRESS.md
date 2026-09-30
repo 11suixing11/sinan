@@ -1,5 +1,11 @@
 # 执行进度
 
+## 2026-10-01：诊断锁服务测试夹具同步
+
+- 对应 [Issue #43](https://github.com/theLucius7/sinan/issues/43)。main `13f2975` 的 [CI 36766239541](https://github.com/theLucius7/sinan/actions/runs/36766239541) 中两项服务集成测试失败：旧特权替身没有返回锁目录元数据，或完全拒绝新增目录操作。仅更新 `services.rs` 夹具，生产代码和锁权限校验不变。
+- 夹具显式允许固定目录、root/0700 和精确 stat 参数，其他文件操作继续拒绝；补齐 systemd 的 flock 完整参数、OpenRC 私有 umask 及调用顺序断言。6 项服务测试、workspace fmt、全 targets Clippy 和完整 Rust/PostgreSQL 回归通过：261 项成功、8 项真实 systemd/运行时专项按条件忽略；分层检查通过。新提交的真实 Linux CI 待完成。
+- 此前 ABI 修复 [PR #39](https://github.com/theLucius7/sinan/pull/39) 的 [五项 CI](https://github.com/theLucius7/sinan/actions/runs/36763913065) 全部通过：Reality 443 的首次 3,146,275 字节在 Agent 重启/HUP 后不变，第二批后精确为 6,292,550，重装不重复计量；4 项签名拒绝和 12 项在线退役断言通过。该证据属于 PR 提交 `d660db5`，不替代新增诊断改动后的 main 验证。
+
 ## 2026-10-01：修复静态 Agent 的宿主运行时选择
 
 - 对应 [Issue #37](https://github.com/theLucius7/sinan/issues/37)。`41000c8` 的 [CI 36757545068](https://github.com/theLucius7/sinan/actions/runs/36757545068) 中 check、Compose、双架构 musl 均通过，真实 systemd 队列/资源测试及实际 Rust OpenRC 诊断也通过；Reality 安装成功后等待配置应用超时，未进入流量验收。之后 main `e2d898c` 仍在相同步骤失败，不能沿用旧提交的绿色结论。
