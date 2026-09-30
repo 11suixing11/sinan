@@ -429,7 +429,7 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 基于资源预算 PR #30：启动要求有效可用内存不少于任务上限加 256 MiB、工作目录至少 2 GiB 可用空间、一分钟负载不超过可用 CPU 数的 1.5 倍，且同机没有其他活动诊断。宿主和 cgroup 全祖先限制一起计算有效内存；读取失败明确拒绝，不以未知当充足。
 - 通过 Privileged/ServiceManager 检查资源和真实服务状态，固定 Linux flock 封住同时启动竞态，保留主线 systemd/OpenRC/非 Linux 服务能力。运行中每 5 秒检查 128 MiB 保留阈值；保护停止原因持久化，停止失败/未确认保留处理中，确认后才收已有报告并回传 Failed。面板离线、Agent 重启和 SQLite 写失败均不取消保护动作或重复执行任务。
 - 独立验收见 [诊断预检验收](docs/acceptance/diagnostic-preflight.md)。行为测试覆盖小内存/cgroup 限制、磁盘不足、负载/资源读取错误、同机冲突、停止失败、存储写失败及断连/重启后的报告恢复；新增真实 systemd 双单元独占夹具，和已有资源专项串行执行。
-- 最终源已整合主线 21e6a01，受限 Debian 12 构建容器（1.5 GiB 内存、2 CPU、禁止 swap）中的 fmt、Clippy --all-targets -D warnings、完整 cargo test --locked 通过：243 项通过、0 项失败、7 项忽略（4 项真实 systemd，3 项既有外部运行时专项）。独立 PostgreSQL/HTTP/WebSocket/面板完整 e2e 已运行，构建容器无 OOM。面板 HTTP 挂起仍在下一保护节拍停止的行为测试已通过。真实 systemd 二进制已交付专用测试节点验收，完整 NodeQuality 压测仍以该节点实际结果为准。
+- 最终源已整合主线 21e6a01，受限 Debian 12 构建容器（1.5 GiB 内存、2 CPU、禁止 swap）中的 fmt、Clippy --all-targets -D warnings、完整 cargo test --locked 通过：243 项通过、0 项失败、7 项忽略（4 项真实 systemd，3 项既有外部运行时专项）。独立 PostgreSQL/HTTP/WebSocket/面板完整 e2e 已运行，构建容器无 OOM。面板 HTTP 挂起仍在下一保护节拍停止的行为测试已通过。专用 Debian 12 小内存节点使用最终 Linux core 二进制（SHA256 283e657b26de1717bbe09dedf7032035d6a3e648dc0256b8ed4f3293c2ca50c8）串行通过 4 项真实 systemd 专项，0 失败，耗时 2.79 秒；覆盖预算 OOM/TasksMax、queued-start、重建超时和预检独占。NodeQuality 基线出现全局 OOM 杀 Geekbench，Agent/常驻运行时未重启；SSH 采集隧道断连造成 319.014 秒指标空窗，不能据此宣称完整心跳验收通过，详见独立验收文档。
 
 
 - 本次合并整合 main `e2d898c`，保留核心/代理业务门禁、IP 查询逐条错误分类、诊断制品签名与启动前复验、退役同步和流量账本保留语义。修复状态查询失败/挂起会跳过内存保护的问题：独立每 5 秒重读内存，已有保护停止原因直接重试停止；停止确认失败时保留 ACTIVE，不提前发终态。
