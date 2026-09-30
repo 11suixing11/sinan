@@ -23,10 +23,13 @@ use std::{
 
 mod cache;
 mod errors;
+mod fields;
 #[cfg(test)]
 mod structured_error_tests;
 pub use errors::QueryErrorKind;
 use errors::{QualityDnsResolver, QueryError};
+pub use fields::QualityFieldKind;
+use fields::parse_fields;
 
 const PROVIDER_ORIGIN: &str = "https://ipinfo.check.place";
 const CACHE_SECS: i64 = 86400;
@@ -46,6 +49,8 @@ const DATABASES: [(&str, &str); 7] = [
 pub struct QualityField {
     pub label: String,
     pub value: Value,
+    #[serde(default)]
+    pub kind: Option<QualityFieldKind>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -431,103 +436,10 @@ async fn query_database(
     if fields.is_empty() {
         return Err(QueryError::new(
             QueryErrorKind::SchemaMismatch,
-            "质量查询响应缺少已知字段，此数据库信息未知",
+            "质量查询响应没有可信的有效字段或未确认成功，此数据库信息未知",
         ));
     }
     Ok(fields)
-}
-
-fn parse_fields(database: &str, value: &Value) -> Vec<QualityField> {
-    let mappings: &[(&str, &str)] = match database {
-        "maxmind" => &[
-            ("/ASN/AutonomousSystemNumber", "ASN"),
-            ("/ASN/AutonomousSystemOrganization", "网络组织"),
-            ("/Country/Name", "国家或地区"),
-            ("/Country/IsoCode", "国家代码"),
-            ("/City/Name", "城市"),
-            ("/City/Latitude", "纬度"),
-            ("/City/Longitude", "经度"),
-            ("/City/Location/TimeZone", "时区"),
-        ],
-        "ipapi" => &[
-            ("/asn/type", "ASN 类型"),
-            ("/company/type", "组织类型"),
-            ("/company/abuser_score", "滥用评分（上游原值）"),
-            ("/location/country_code", "国家代码"),
-            ("/is_proxy", "代理"),
-            ("/is_tor", "Tor"),
-            ("/is_vpn", "VPN"),
-            ("/is_datacenter", "数据中心"),
-            ("/is_abuser", "滥用"),
-            ("/is_crawler", "爬虫"),
-        ],
-        "scamalytics" => &[
-            ("/scamalytics/scamalytics_score", "风险评分（上游原值）"),
-            ("/scamalytics/scamalytics_proxy/is_vpn", "VPN"),
-            ("/scamalytics/scamalytics_proxy/is_datacenter", "数据中心"),
-            ("/scamalytics/is_blacklisted_external", "外部黑名单"),
-            ("/external_datasources/firehol/is_proxy", "FireHOL 代理"),
-            ("/external_datasources/x4bnet/is_tor", "X4B Tor"),
-            (
-                "/external_datasources/maxmind_geolite2/ip_country_code",
-                "国家代码",
-            ),
-        ],
-        "abuseipdb" => &[
-            ("/data/usageType", "用途类型"),
-            ("/data/abuseConfidenceScore", "滥用置信度（上游原值）"),
-        ],
-        "ip2location" => &[
-            ("/fraud_score", "欺诈评分（上游原值）"),
-            ("/country_code", "国家代码"),
-            ("/usage_type", "用途类型"),
-            ("/as_info/as_usage_type", "ASN 用途"),
-            ("/is_proxy", "代理"),
-            ("/proxy/is_public_proxy", "公共代理"),
-            ("/proxy/is_web_proxy", "网页代理"),
-            ("/proxy/is_tor", "Tor"),
-            ("/proxy/is_vpn", "VPN"),
-            ("/proxy/is_data_center", "数据中心"),
-            ("/proxy/is_spammer", "垃圾邮件"),
-            ("/proxy/is_web_crawler", "爬虫"),
-            ("/proxy/is_scanner", "扫描器"),
-            ("/proxy/is_botnet", "僵尸网络"),
-        ],
-        "ipdata" => &[
-            ("/country_code", "国家代码"),
-            ("/threat/is_proxy", "代理"),
-            ("/threat/is_tor", "Tor"),
-            ("/threat/is_datacenter", "数据中心"),
-            ("/threat/is_threat", "威胁"),
-            ("/threat/is_known_abuser", "已知滥用"),
-            ("/threat/is_known_attacker", "已知攻击者"),
-        ],
-        "ipqualityscore" => &[
-            ("/fraud_score", "欺诈评分（上游原值）"),
-            ("/country_code", "国家代码"),
-            ("/proxy", "代理"),
-            ("/tor", "Tor"),
-            ("/vpn", "VPN"),
-            ("/recent_abuse", "近期滥用"),
-            ("/bot_status", "机器人"),
-        ],
-        _ => &[],
-    };
-    mappings
-        .iter()
-        .filter_map(|(path, label)| {
-            let value = value.pointer(path)?;
-            let value = match value {
-                Value::String(value) => Value::String(value.chars().take(512).collect()),
-                Value::Number(_) | Value::Bool(_) => value.clone(),
-                _ => return None,
-            };
-            Some(QualityField {
-                label: (*label).into(),
-                value,
-            })
-        })
-        .collect()
 }
 
 #[cfg(test)]
