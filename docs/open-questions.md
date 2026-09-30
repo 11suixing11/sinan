@@ -97,3 +97,10 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 - 根据运行标记自动选择 init，systemd 优先；OpenRC 服务名由现有标识移除 `.service` 得到，保留 `@main`。不增加设备配置字段，旧 TOML 可继续使用。
 - 安装支持 shadow 工具或 BusyBox 系统账号工具；Agent 与运行时分别由 supervise-daemon 监督，日志写入 `/var/log/sinan/`。安装与升级只重启 Agent，HUP 发送给被监督的运行时进程。
 - 不因 OpenRC 扩大运行时 libc 构建范围：Alpine 需要另有匹配的 musl 运行时制品。真实 OpenRC 进程夹具、代理专项验证与公网实机验收分开记录。
+
+## 后续调整：参考 NodeFlare 的 Agent 与部署设计
+
+- 用户说明 FreeBSD arm64 编译错误已由上游修复，本次继续完成指定本地 NodeFlare 项目的设计阅读，不再修改该编译故障相关 CI。
+- 采用源码对照文档记录结论，见 [NodeFlare Agent 与部署设计参考](nodeflare-agent-deployment.md)。参考本地提交 `42eff9e`，区分源码行为、测试定义与实际执行结果。
+- 最优先可借鉴的是 Agent 安装事务及切换后的启动验证；现有运行时对账回滚不覆盖 Agent 安装文件。后续实现需保留同设备身份、当前账本、一次性注册与独立运行时，不能把文件恢复描述成注册 token 或数据库状态回滚。
+- NodeFlare 的有界监控队列允许丢样本，不能用于 Sinan 的未确认流量；长期 Bearer token、GitHub 下载回退、正式自更新和远程执行也不替代既定 ADR。本次只记录参考与改进顺序，不扩大非 Linux 部署范围或改变 Ubuntu 24.04 glibc 基线。
