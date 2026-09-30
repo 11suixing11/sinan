@@ -40,11 +40,23 @@ pub async fn create(
         return Err(ApiError::BadRequest("命令、超时或领取期限无效".into()));
     }
     let mut tx = state.pool.begin().await?;
-    sqlx::query("SELECT id FROM servers WHERE id=$1 AND deleted_at IS NULL FOR UPDATE")
-        .bind(server)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(ApiError::NotFound)?;
+    let row = sqlx::query(
+        "SELECT capabilities FROM servers WHERE id=$1 AND deleted_at IS NULL FOR UPDATE",
+    )
+    .bind(server)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    let capabilities: Value = row.get("capabilities");
+    if !capabilities.as_array().is_some_and(|values| {
+        values
+            .iter()
+            .any(|value| value.as_str() == Some("command:execute"))
+    }) {
+        return Err(ApiError::Conflict(
+            "节点尚未在本机启用远程命令，请修改 Agent 本地配置后重启".into(),
+        ));
+    }
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM remote_commands WHERE server_id=$1 AND result IS NULL AND (spec->>'expires_at')::BIGINT>$2").bind(server).bind(now).fetch_one(&mut *tx).await?;
     if count >= 64 {
         return Err(ApiError::Conflict("待执行命令已达到 64 条上限".into()));

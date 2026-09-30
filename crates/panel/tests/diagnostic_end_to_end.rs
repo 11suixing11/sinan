@@ -13,7 +13,7 @@ use reqwest::Method;
 use serde_json::json;
 use sinan_adapter_nodequality::{NodeQualityAdapter, VERSION};
 use sinan_adapter_sdk::{BoxFuture, JobStatus, ServiceJob, ServiceManager};
-use sinan_agent_core::{identity, system::SystemOps, transport};
+use sinan_agent_core::{State, identity, system::SystemOps, transport};
 use sqlx::PgPool;
 use std::{
     collections::BTreeMap,
@@ -174,12 +174,22 @@ async fn node_report_survives_agent_restart_and_is_started_only_once(pool: PgPoo
     .await?;
     agent.abort();
     let _ = agent.await;
+    assert!(
+        State::open(&config.state_db)?
+            .get_json::<serde_json::Value>("diagnostics:active")?
+            .is_some_and(|checkpoint| !checkpoint.is_null()),
+        "diagnostic-only restart must recover an existing managed checkpoint"
+    );
     services.finish()?;
     let restarted = start();
     eventually(
         "completed report returned after agent restart",
         20,
         || async {
+            anyhow::ensure!(
+                !restarted.is_finished(),
+                "diagnostic-only Agent exited while recovering its report"
+            );
             let row: (String, Option<serde_json::Value>) =
                 sqlx::query_as("SELECT status,report FROM diagnostic_jobs WHERE id=$1")
                     .bind(uuid::Uuid::parse_str(&report_id)?)

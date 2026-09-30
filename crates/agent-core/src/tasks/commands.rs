@@ -6,11 +6,17 @@ use std::{path::Path, sync::Arc, time::Duration};
 use tokio::sync::watch;
 
 pub(super) async fn run(
+    allow_remote_commands: bool,
     state: SharedState,
     ops: Arc<dyn Privileged>,
     clients: watch::Receiver<Option<Arc<PanelClient>>>,
     retirement: Arc<crate::retirement::Retirement>,
 ) -> Result<()> {
+    // This value comes only from local Agent configuration, never panel settings.
+    // Do not even fetch queued commands when the operator has not opted in.
+    if !allow_remote_commands {
+        return Ok(());
+    }
     {
         let _guard = retirement.gate.read().await;
         if !retirement.requested() {
@@ -154,4 +160,72 @@ pub(super) async fn execute(
     }
     result.finished_at = now_timestamp() + clock_offset;
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        Config, State, fake::FakeServiceManager, retirement::Retirement, system::SystemOps,
+    };
+    use std::sync::Mutex;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn disabled_commands_do_not_contact_panel_or_touch_pending_execution() -> Result<()> {
+        let directory =
+            std::env::temp_dir().join(format!("sinan-command-opt-in-{}", Uuid::new_v4()));
+        std::fs::create_dir(&directory)?;
+        let root = std::fs::canonicalize(&directory)?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let config = Config {
+            panel_url: format!("http://{}", listener.local_addr()?),
+            state_db: root.join("state.db"),
+            runtime_root: root.join("runtime"),
+            install_root: root.join("install"),
+            ..Config::default()
+        };
+        let state = Arc::new(Mutex::new(State::open(&config.state_db)?));
+        let command = RemoteCommand {
+            id: Uuid::new_v4(),
+            command: "echo should-not-execute".into(),
+            timeout_secs: 1,
+            expires_at: now_timestamp() + 60,
+        };
+        state.lock().unwrap().begin_command(&command)?;
+        let ops = Arc::new(SystemOps);
+        let retirement = Arc::new(Retirement::new(
+            config.clone(),
+            state.clone(),
+            Vec::new(),
+            ops.clone(),
+            Arc::new(FakeServiceManager::default()),
+        )?);
+        let (_sender, receiver) = watch::channel(Some(Arc::new(PanelClient::new(
+            &config.panel_url,
+            "TEST_ONLY_session",
+        )?)));
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            run(
+                config.allow_remote_commands,
+                state.clone(),
+                ops,
+                receiver,
+                retirement,
+            ),
+        )
+        .await??;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), listener.accept())
+                .await
+                .is_err()
+        );
+        // Even recovery of earlier work is untouched while the local permission is off.
+        assert!(state.lock().unwrap().command_results()?.is_empty());
+        assert!(!state.lock().unwrap().begin_command(&command)?);
+        drop(state);
+        std::fs::remove_dir_all(&root)?;
+        Ok(())
+    }
 }

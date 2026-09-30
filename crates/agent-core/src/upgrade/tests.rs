@@ -79,8 +79,25 @@ impl Fixture {
         std::fs::write(
             &source,
             r##"#![forbid(unsafe_code)]
-fn main() { assert_eq!(std::env::args().nth(1).as_deref(), Some("--version")); println!("sinan-agent 99.0.0"); }
-"##.replace("assert_eq!", &format!("std::fs::write({:?}, b\"executed\").unwrap(); assert_eq!", root.join("executed"))),
+fn main() {
+    MARK_EXECUTED
+    let arguments: Vec<_> = std::env::args().skip(1).collect();
+    if arguments == ["--version"] {
+        println!("sinan-agent 99.0.0");
+    } else if arguments.len() == 3 && arguments[0] == "--config" && arguments[2] == "verify-cache" {
+        if std::fs::read(&arguments[1]).unwrap() != b"accept cache" { std::process::exit(17); }
+    } else {
+        std::process::exit(2);
+    }
+}
+"##
+            .replace(
+                "MARK_EXECUTED",
+                &format!(
+                    "std::fs::write({:?}, b\"executed\").unwrap();",
+                    root.join("executed")
+                ),
+            ),
         )?;
         let binary = root.join("fixture");
         let output = tokio::process::Command::new("rustc")
@@ -330,5 +347,35 @@ async fn rejects_unsigned_or_corrupt_updates_before_download_or_execution() -> R
             "untrusted bytes must never execute"
         );
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn candidate_cache_preflight_uses_the_actual_configuration_and_rejects_failure() -> Result<()>
+{
+    let fixture = Fixture::new().await?;
+    let config = fixture.config().await?;
+    let client = PanelClient::new(&fixture.origin, "update-fixture-session")?
+        .with_trusted_keys(trusted_keys());
+    check(&config, &SystemOps, &client).await?;
+    let candidate = config.agent_root.join("99.0.0").join(executable_name());
+    let path = fixture.root.join("custom Agent configuration.toml");
+    std::fs::write(&path, b"accept cache")?;
+    verify_cache_before_upgrade(&candidate, &path, &SystemOps).await?;
+    std::fs::write(&path, b"cache no longer trusted by candidate")?;
+    let before = std::fs::read(config.agent_root.join("update-state.json"))?;
+    let error = verify_cache_before_upgrade(&candidate, &path, &SystemOps)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("cache signature preflight"));
+    assert_eq!(
+        std::fs::read(config.agent_root.join("update-state.json"))?,
+        before,
+        "cache rejection must happen before an upgrade trial is recorded"
+    );
+    assert_eq!(
+        std::fs::read(&path)?,
+        b"cache no longer trusted by candidate"
+    );
     Ok(())
 }

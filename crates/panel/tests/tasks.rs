@@ -25,6 +25,21 @@ async fn commands_are_authenticated_device_scoped_and_terminal_results_immutable
     let body = json!({"command":"printf fixture","timeout_secs":5,"ttl_secs":60});
     assert_eq!(
         panel
+            .admin(Method::POST, &url, &cookie, Some(body.clone()))
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let queued: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM remote_commands WHERE server_id=$1")
+        .bind(server)
+        .fetch_one(&panel.state.pool)
+        .await?;
+    assert_eq!(queued, 0);
+    // This fake device now advertises an explicit node-side opt-in.
+    sqlx::query("UPDATE servers SET capabilities=capabilities || '[\"command:execute\"]'::jsonb WHERE id=$1")
+        .bind(server).execute(&panel.state.pool).await?;
+    assert_eq!(
+        panel
             .client
             .post(format!("{}{url}", panel.base))
             .json(&body)

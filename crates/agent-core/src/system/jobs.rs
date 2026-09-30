@@ -79,7 +79,7 @@ impl SystemServiceManager {
                 self.backend == ServiceBackend::Systemd,
                 "diagnostic jobs require Linux"
             );
-            let args = vec!["show".into(), "--property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,ExecMainStartTimestampMonotonic".into(), "--".into(), unit.into()];
+            let args = vec!["show".into(), "--property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,ExecMainStartTimestampMonotonic,Job".into(), "--".into(), unit.into()];
             let output = self
                 .privileged
                 .execute(Path::new("systemctl"), &args)
@@ -116,6 +116,17 @@ fn parse_job_status(output: &CommandOutput) -> Result<JobStatus> {
     match properties.get("ActiveState").copied() {
         Some("activating" | "deactivating" | "reloading") => Ok(JobStatus::Running),
         Some("active") if properties.get("SubState") != Some(&"exited") => Ok(JobStatus::Running),
+        // --no-block can leave a start job queued while the unit is inactive.
+        // Any outstanding job must settle before interpreting the last result.
+        Some("active" | "inactive" | "failed")
+            if properties.get("Job").is_some_and(|value| {
+                value
+                    .parse::<std::num::NonZeroU32>()
+                    .is_ok_and(|id| id.to_string().as_str() == *value)
+            }) =>
+        {
+            Ok(JobStatus::Running)
+        }
         Some("active" | "inactive")
             if properties.get("Result") == Some(&"success")
                 && properties.get("ExecMainStatus") == Some(&"0")
