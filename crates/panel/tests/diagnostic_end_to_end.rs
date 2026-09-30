@@ -118,6 +118,16 @@ impl ServiceManager for IndependentServices {
     }
 }
 
+// IndependentServices simulates the Linux job backend even on a macOS test host.
+async fn mark_simulated_linux(harness: &Harness, id: i64) -> Result<()> {
+    sqlx::query("UPDATE servers SET static_info=static_info || $2 WHERE id=$1")
+        .bind(id)
+        .bind(json!({"os":"linux"}))
+        .execute(&harness.state.pool)
+        .await?;
+    Ok(())
+}
+
 fn write_artifact(harness: &Harness) -> Result<()> {
     let binary = format!("#!/bin/bash\nprintf 'nodequality {VERSION}\\n'\n");
     let mut archive = tar::Builder::new(GzEncoder::new(Vec::new(), Compression::default()));
@@ -192,11 +202,12 @@ async fn node_report_survives_agent_restart_and_is_started_only_once(pool: PgPoo
         },
     )
     .await?;
+    mark_simulated_linux(&harness, id).await?;
     let report = harness
         .api(
             Method::POST,
             &format!("/api/servers/{id}/node-quality/reports"),
-            json!({"ip_version":"both","network_mode":"low","upload_report":true}),
+            json!({"ip_version":"both","network_mode":"low","upload_report":true,"confirm_full":true,"acknowledge_traffic_warning":true}),
         )
         .await?;
     let report_id = report["id"].as_str().context("report job id")?.to_owned();

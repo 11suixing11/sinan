@@ -36,6 +36,19 @@ impl DiagnosticWorker {
                 <= MAX_CHAPTER_BYTES,
             "diagnostic chapters exceed the job budget"
         );
+        self.queue_sections(updates)
+    }
+
+    pub(super) fn queue_sections(&self, updates: Vec<DiagnosticSectionUpdate>) -> Result<()> {
+        let Some(id) = updates.first().map(|update| update.id) else {
+            return Ok(());
+        };
+        ensure!(
+            updates
+                .iter()
+                .all(|update| update.id == id && update.valid()),
+            "invalid diagnostic chapters"
+        );
         let mut state = self
             .state
             .lock()

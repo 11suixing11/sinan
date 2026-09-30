@@ -232,13 +232,13 @@
 
 | 方法与路径 | 请求与用途 |
 |---|---|
-| `GET /api/servers/{id}/node-quality/reports` | 返回 `{plugin_ready,plugin_reason,reports}`，NodeQualityView 不包含 IP 查询字段 |
-| `POST /api/servers/{id}/node-quality/reports` | `{ip_version:"both",network_mode:"low"}`；创建一次性报告，返回 201 和任务记录 |
+| `GET /api/servers/{id}/node-quality/reports` | 返回 `{plugin_ready,plugin_reason,reports,cancel_supported,proxy_activity}`，NodeQualityView 不包含 IP 查询字段 |
+| `POST /api/servers/{id}/node-quality/reports` | 日常：`{mode:"daily",ip_version:"both"}`；完整：`{mode:"full",confirm_full:true,acknowledge_traffic_warning:true,ip_version:"both",network_mode:"low"}`；创建一次性报告，返回 201 和任务记录 |
 
-`plugin_ready` 需要设备在线、声明 `diagnostic:nodequality` 和 `artifact:minisign-v1` 能力、支持的架构、有效对应签名制品；未就绪时 `plugin_reason` 提供原因。仅声明旧运行时能力的 Agent 不能领取诊断任务。报告读取不访问 IP 缓存，IP 缓存损坏或查询失败不会阻止读取已保存报告。
+`plugin_ready` 需要设备在线、明确 Linux、支持的架构、声明 `diagnostic:nodequality`、`diagnostic:nodequality-modes`、`diagnostic:report-sections` 与 `artifact:minisign-v1` 能力，以及有效对应 r4 签名制品；未就绪时 `plugin_reason` 提供原因。仅声明旧运行时能力的 Agent 不能领取诊断任务。报告读取不访问 IP 缓存，IP 缓存损坏或查询失败不会阻止读取已保存报告。
 
-过渡兼容保留 `GET /api/servers/{id}/node-quality` 的原 `{ip_addresses,quality,plugin_ready,plugin_reason,reports}` 组合响应，由 LegacyNodeQualityView 汇合两个视图；`POST /api/servers/{id}/node-quality/refresh` 继续作为相同 IP 刷新的别名。现有客户端的路由、状态码、刷新间隔、报告创建和历史不变。新前端只使用独立接口，服务器概况不加载这两个视图，子导航分别访问 `#/servers/{id}/ip-info` 和 `#/servers/{id}/node-quality`。
+过渡兼容保留 `GET /api/servers/{id}/node-quality` 的原 `{ip_addresses,quality,plugin_ready,plugin_reason,reports}` 组合响应，由 LegacyNodeQualityView 汇合两个视图；`POST /api/servers/{id}/node-quality/refresh` 继续作为相同 IP 刷新的别名。兼容读取路由、刷新间隔和历史保留；新建完整报告仍必须明确管理员确认。新前端只使用独立接口，服务器概况不加载这两个视图，子导航分别访问 `#/servers/{id}/ip-info` 和 `#/servers/{id}/node-quality`。
 
-任务记录为 `{id,status,job,report,error,created_at,updated_at,expires_at}`。status 为 `queued`、`running`、`succeeded`、`failed`；job 的协议结构见 [设备协议](protocol.md)。选项仅允许 `ip_version=both|ipv4|ipv6`、`network_mode=low|normal`，默认 both/low。每台设备同时最多一个活跃任务；并发点击由事务锁与数据库唯一约束去重，返回 409。整体执行时限为 30 分钟，面板另留五分钟传输窗口。
+任务记录包含 `{id,status,job,report,error,created_at,updated_at,expires_at,agent_completed,cancel_requested_at,cancel_error,expected_sections,report_completeness,sections}`。status 为 `queued`、`running`、`cancel_requested`、`cancelled`、`succeeded`、`failed`；job 的协议结构见 [设备协议](protocol.md)。入口 `mode=daily|full` 默认为 full，旧空请求因缺少明确完整确认而返回 400；`confirm_full` 和 `acknowledge_traffic_warning` 必须是真正 JSON bool。完整需要 confirm_full=true，流量 active/unknown 时还需要 acknowledge_traffic_warning=true，否则返回 409。`proxy_activity={state,reason,checked_at,last_positive_at}` 的 state 为 active、unknown 或 not_enabled，近一分钟正向代理计量为 active；配置存在但无新正向计量时为 unknown，不以网卡流量推断无连接。确认和该次流量证据作为 job 的额外审计字段保存。IP 版本允许 `both|ipv4|ipv6`；full 网络模式允许 `low|normal`，默认 both/low。daily 必须 low、关闭 upload_report，目标来自该服务器最多4个已启用TCP拨测，不能通过该接口传任意目标。每台设备同时最多一个活跃任务；等待确认取消也保持同机互斥；并发点击由事务锁与数据库唯一约束去重，返回 409。full 执行时限为30分钟，daily为90秒，面板均另留五分钟传输窗口。日常入口同时调用独立IP刷新接口，查询失败仍按逐源历史缓存显示；Agent只执行有界TCP检查，DNS2秒/每连接1秒/每地址族4次。资源profile日常64MiB/32tasks、完整512MiB/128，保留现有预检和运行保护。启动资源、负载与实际ServiceJob预算随检查点保存为environment独立章；日常预期2章，完整6章。
 
 report 为 `{text,report_url?}`，文本以纯文本呈现，协议接受上限 512 KiB；NodeQuality 适配器输出最多 256 KiB，超过时标注截断，原始 ZIP 保留在节点本地。可选链接限定 NodeQuality 官方 HTTPS origin。在线上传失败仍可保存本地报告。报告会执行节点上的资源和带宽测试，上游可能生成公开链接；只有管理员明确点击才创建任务。设备结果持久化后才确认，重复最终回报幂等；晚到的 running 不覆盖最终结果。
