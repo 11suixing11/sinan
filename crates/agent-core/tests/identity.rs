@@ -224,7 +224,7 @@ fn minimal_configuration_has_defaults_and_rejects_ambiguous_panel_origins() -> R
     assert_eq!(config.identity_dir, PathBuf::from(identity_dir));
     for invalid in [
         "file:///tmp/panel",
-        "https://user:secret@panel.example.test",
+        "https://account:secret@panel.example.test",
         "https://panel.example.test/path",
         "https://panel.example.test?token=x",
         "https://panel.example.test#fragment",

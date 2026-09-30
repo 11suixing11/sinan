@@ -86,7 +86,7 @@ impl Config {
     }
 
     fn use_macos_system_paths(&mut self) {
-        // These are fixed macOS system aliases, not arbitrary user symlinks.
+        // These are fixed macOS system aliases, not arbitrary symlinks.
         // Also migrate previously serialized defaults without moving any data.
         // Keep installation roots verbatim: persisted artifact paths and absolute
         // Agent version links use their original lexical identities.
@@ -297,7 +297,7 @@ mod tests {
             "http://[2001:db8::1]",
             "http://[::]",
             "ftp://localhost",
-            "https://user:password@panel.example.test",
+            "https://account:password@panel.example.test",
             "https://panel.example.test/path",
             "https://panel.example.test?token=test",
             "https://panel.example.test#fragment",
