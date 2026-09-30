@@ -129,7 +129,8 @@ impl TestPanel {
     }
 
     pub async fn create_node(&self, cookie: &str, server_id: i64, name: &str) -> Result<Value> {
-        let response = self.admin(Method::POST, "/api/nodes", cookie, Some(json!({"name":name,"server_id":server_id,"public_host":"proxy.example.com","sni":"www.example.com"}))).await?;
+        self.enable_plugin(cookie, server_id).await?;
+        let response = self.admin(Method::POST, "/api/plugins/sing-box/nodes", cookie, Some(json!({"name":name,"server_id":server_id,"public_host":"proxy.example.com","sni":"www.example.com"}))).await?;
         anyhow::ensure!(
             response.status() == StatusCode::CREATED,
             "node creation failed: {}",
@@ -138,11 +139,23 @@ impl TestPanel {
         Ok(response.json().await?)
     }
 
+    pub async fn enable_plugin(&self, cookie: &str, server_id: i64) -> Result<()> {
+        self.admin(
+            Method::POST,
+            &format!("/api/plugins/sing-box/servers/{server_id}/enable"),
+            cookie,
+            Some(json!({})),
+        )
+        .await?
+        .error_for_status()?;
+        Ok(())
+    }
+
     pub async fn create_user(&self, cookie: &str, name: &str) -> Result<Value> {
         let response = self
             .admin(
                 Method::POST,
-                "/api/users",
+                "/api/plugins/sing-box/users",
                 cookie,
                 Some(json!({"name":name})),
             )
@@ -159,7 +172,7 @@ impl TestPanel {
         Ok(self
             .admin(
                 Method::POST,
-                &format!("/api/users/{user_id}/accesses"),
+                &format!("/api/plugins/sing-box/users/{user_id}/accesses"),
                 cookie,
                 Some(json!({"node_id":node_id})),
             )

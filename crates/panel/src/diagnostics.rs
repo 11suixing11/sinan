@@ -69,12 +69,18 @@ pub async fn pending(
     let jobs = values
         .into_iter()
         .filter(|job| {
-            job["plugin"]
-                .as_str()
-                .and_then(crate::diagnostic_plugins::find)
+            crate::diagnostic_plugins::for_job(job)
                 .is_none_or(|plugin| plugin.can_dispatch(job, &capabilities))
         })
-        .map(serde_json::from_value)
+        .map(|mut job| {
+            if let Some(object) = job.as_object_mut()
+                && object.get("plugin").is_none_or(Value::is_null)
+            {
+                // Normalize only the wire response; keep historical metadata intact.
+                object.insert("plugin".into(), Value::String("nodequality".into()));
+            }
+            serde_json::from_value(job)
+        })
         .collect::<Result<_, _>>()
         .map_err(anyhow::Error::from)?;
     Ok(Json(jobs))

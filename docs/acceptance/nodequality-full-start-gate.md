@@ -30,3 +30,9 @@ node tests/nodequality-chain-gate.mjs
 本机 fmt、分层门禁、Bun 五项/711 断言、TypeScript/Vite 与提交 dist 的真实 Chromium 场景通过，页面错误 0，完整请求 0。冻结源码的远端 Rust/PostgreSQL、全 targets Clippy 和最终 r5 回归结果在发布前补记，不用旧分支证据替代最终 HEAD。
 
 已领取任务的旧 Agent 必须升级或取得取消确认；面板过滤不撤回门禁前返回的 HTTP。新 Agent 拒绝 Preparing 再执行，已有 Started 则继续收集。日常检查仍要求 256MiB 启动预留与 2GiB 磁盘，未降低低内存预检；447MiB 专用节点不能用本项绕过完整验机保护。原上游完整运行的网络零上传、宿主零改动、rootfs 全部授权与持续代理流量压力尚未验，不计为本项完成。
+
+## 合并审查补充
+
+正常整合插件业务主线 `2c3c1e5`，保留插件设置、代理用户入口及独立 IP 查询与报告路由，重新生成 dist。发现旧 JSON 缺少 `plugin` 字段时排队清理与分发绕过已登记门禁，现与历史报告规则一致归属 NodeQuality：排队完整任务失败但不伪造设备完成；已运行任务仅发给支持门禁的 Agent。只在分发响应补默认插件名，不改写数据库里的旧版本、参数或字段。专项回归同时覆盖缺少 `plugin` 与 `mode` 的旧任务、迟到报告和日常新建；Rust/PostgreSQL 验收等待集中构建槽，未用静态检查代替执行证据。
+
+当前本机 Python 包装器 34 项、daily helper 7 项、Bun 5 项/711 断言、TypeScript/Vite、fmt、core 门禁、actionlint 与真实 Chromium 门禁场景通过，完整 POST 为 0、页面错误为 0。固定源码副本的六个 SHA256 与执行链审计表完全一致；未执行上游 benchmark、调用正式 API、读取真实 API key、修改宿主 swap 或发布制品。

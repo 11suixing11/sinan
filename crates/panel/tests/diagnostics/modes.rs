@@ -57,6 +57,7 @@ async fn modes_require_admin_confirmation_gate_capability_and_bound_daily_target
         .json()
         .await?;
     assert_eq!(view["plugin_ready"], false);
+    assert_eq!(view["proxy_activity"]["state"], "not_enabled");
     assert!(view["plugin_reason"].as_str().unwrap().contains("Linux"));
     capable(&panel, server).await?;
     for index in 0..8 {
@@ -88,6 +89,14 @@ async fn modes_require_admin_confirmation_gate_capability_and_bound_daily_target
         .error_for_status()?
         .json()
         .await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM deployments WHERE server_id=$1")
+            .bind(server)
+            .fetch_one(&panel.state.pool)
+            .await?,
+        0,
+        "reading diagnostic activity must not create proxy deployment evidence"
+    );
     assert_eq!(daily["agent_completed"], false);
     assert!(daily["cancel_requested_at"].is_null());
     assert!(daily["cancel_error"].is_null());

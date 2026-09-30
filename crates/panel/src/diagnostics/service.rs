@@ -306,10 +306,8 @@ pub(super) async fn reject_queued(
         .bind(server_id).fetch_all(&mut *connection).await?;
     for row in rows {
         let job: Value = row.get("job");
-        if let Some(reason) = job["plugin"]
-            .as_str()
-            .and_then(diagnostic_plugins::find)
-            .and_then(|plugin| plugin.start_denial(&job))
+        if let Some(reason) =
+            diagnostic_plugins::for_job(&job).and_then(|plugin| plugin.start_denial(&job))
         {
             // A panel queue may lag a durable device start. Keep completion false so
             // an existing checkpoint can still return its late report or cancel.

@@ -15,7 +15,7 @@ export type Metrics = {
 }
 export type Server = { id: number; name: string; device_public_key: string | null; static_info: StaticInfo; last_seen: number | null; last_heartbeat_at: number | null; metrics_sampled_at: number | null; metrics_stale: boolean; latest_metrics: Metrics; manifest_rev: number; online: boolean; capabilities?: string[] }
 export type Node = { id: number; name: string; server_id: number; protocol: string; port: number; public_host: string; sni: string; public_key: string; short_id: string }
-export type User = { id: number; name: string; subscription_token: string; subscription_url: string }
+export type ProxyUser = { id: number; name: string; subscription_token: string; subscription_url: string }
 export type Access = { user_id: number; node_id: number; uuid: string; stat_name: string }
 export type Enrollment = { token: string; expires_at: number; install_command: string | null; warning?: string; installation?: { version: string; tag: string } }
 export type Deployment = { status: { module: string; target_rev: number; applied_rev: number; last_result_rev: number; healthy: boolean; last_error: string | null; updated_at: number } | null; history: { module: string; rev: number; bundle_sha256: string; created_at: number }[] }
@@ -30,3 +30,4 @@ export type DiagnosticRecord = { id: string; status: 'queued' | 'running' | 'can
 export type QualityProvider = { provider: string; label: string; kind: 'aggregator' | 'credential_api' | 'node_self'; execution: 'panel' | 'node'; enabled: boolean; reason: string | null; databases: { database: string; label: string }[] }
 export type ServerIpInfo = { ip_addresses: string[]; quality: IpQuality[]; providers?: QualityProvider[] }
 export type NodeQuality = { cancel_supported: boolean; plugin_ready: boolean; plugin_reason: string | null; full_ready: boolean; full_reason: string | null; reports: DiagnosticRecord[]; proxy_activity?: { state: 'active' | 'unknown' | 'not_enabled'; reason: string; checked_at: number; last_positive_at: number | null } }
+export type PluginServer = { id: number; name: string; enabled: boolean; online: boolean; agent_supported: boolean; read_only: boolean; source: 'administrator' | 'agent_capability' | 'legacy_nodes' | 'legacy_deployments' | null }

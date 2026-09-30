@@ -95,6 +95,11 @@ async fn queued_full_is_failed_without_finalizing_a_device_or_blocking_daily(
     ] {
         ids.push(saved_full(&panel, server, version, "queued").await?);
     }
+    // Pre-registration payloads omitted plugin and mode; both default to full NodeQuality.
+    sqlx::query("UPDATE diagnostic_jobs SET job=job-'plugin' WHERE id=$1")
+        .bind(ids[0])
+        .execute(&panel.state.pool)
+        .await?;
     let queue: Value = panel
         .client
         .get(format!("{}/api/agent/v1/diagnostics", panel.base))
@@ -160,6 +165,10 @@ async fn running_full_is_not_redispatched_to_an_agent_without_the_start_gate(
     capable(&panel, server).await?;
     fixture(&panel).await?;
     let id = saved_full(&panel, server, diagnostics::PLUGIN_VERSION, "running").await?;
+    sqlx::query("UPDATE diagnostic_jobs SET job=job-'plugin' WHERE id=$1")
+        .bind(id)
+        .execute(&panel.state.pool)
+        .await?;
     let endpoint = format!("{}/api/agent/v1/diagnostics", panel.base);
     let queue: Value = panel
         .client
@@ -189,5 +198,13 @@ async fn running_full_is_not_redispatched_to_an_agent_without_the_start_gate(
         .await?;
     assert_eq!(queue.as_array().unwrap().len(), 1);
     assert_eq!(queue[0]["id"], id.to_string());
+    assert_eq!(queue[0]["plugin"], "nodequality");
+    assert_eq!(queue[0]["version"], diagnostics::PLUGIN_VERSION);
+    let saved: Value = sqlx::query_scalar("SELECT job FROM diagnostic_jobs WHERE id=$1")
+        .bind(id)
+        .fetch_one(&panel.state.pool)
+        .await?;
+    assert!(saved.get("plugin").is_none());
+    assert!(saved["options"].get("mode").is_none());
     Ok(())
 }
