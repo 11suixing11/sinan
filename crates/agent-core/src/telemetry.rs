@@ -54,7 +54,7 @@ impl Collector {
             disk_total: disk_totals(&self.disks).map(|(total, _)| total),
             virtualization: virtualization(),
             hostname: System::host_name(),
-            agent_version: Some(env!("CARGO_PKG_VERSION").into()),
+            agent_version: None,
             ip_addresses: normalized_addresses(
                 self.networks
                     .values()

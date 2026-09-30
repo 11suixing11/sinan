@@ -68,7 +68,7 @@ async fn connection(mut socket: WebSocket, state: AppState) -> anyhow::Result<()
     .flatten();
     let public_key = public_key.ok_or_else(|| anyhow::anyhow!("unknown device"))?;
     let bytes: [u8; 32] = URL_SAFE_NO_PAD
-        .decode(public_key)?
+        .decode(&public_key)?
         .try_into()
         .map_err(|_| anyhow::anyhow!("invalid public key"))?;
     let signature = Signature::from_slice(&URL_SAFE_NO_PAD.decode(response.signature)?)?;
@@ -76,43 +76,50 @@ async fn connection(mut socket: WebSocket, state: AppState) -> anyhow::Result<()
     let server_id = response.server_id;
     let session_token = auth::random_token();
     let expires_at = now_timestamp() + 3600;
-    sqlx::query("INSERT INTO sessions(token_hash,server_id,expires_at) VALUES($1,$2,$3)")
-        .bind(auth::hash_token(&session_token))
-        .bind(server_id)
-        .bind(expires_at)
-        .execute(&state.pool)
-        .await?;
-    send(
-        &mut socket,
-        Envelope::new(
-            "hello.ack",
-            HelloAck {
-                server_time: now_timestamp(),
-                session_token,
-                session_expires_at: expires_at,
-            },
-        )?,
-    )
-    .await?;
     let (sender, mut receiver) = mpsc::channel::<Envelope>(32);
     let connection_id = Uuid::new_v4();
-    state.connections.write().await.insert(
-        server_id,
-        AgentConnection {
-            id: connection_id,
-            sender,
-        },
-    );
-    sqlx::query("UPDATE servers SET last_seen=$2 WHERE id=$1")
+    {
+        let _lifecycle = state.device_lifecycle.lock().await;
+        let mut tx = state.pool.begin().await?;
+        let current: Option<String> = sqlx::query_scalar(
+            "SELECT device_public_key FROM servers WHERE id=$1 AND deleted_at IS NULL FOR UPDATE",
+        )
         .bind(server_id)
-        .bind(now_timestamp())
-        .execute(&state.pool)
-        .await?;
-    let (mut sink, mut stream) = socket.split();
-    let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
-    let mut last_received = Instant::now();
-    let mut introduced = false;
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+        anyhow::ensure!(
+            current.as_deref() == Some(&public_key),
+            "device was deleted or rebound during authentication"
+        );
+        sqlx::query("INSERT INTO sessions(token_hash,server_id,expires_at) VALUES($1,$2,$3)")
+            .bind(auth::hash_token(&session_token))
+            .bind(server_id)
+            .bind(expires_at)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE servers SET last_seen=$2 WHERE id=$1")
+            .bind(server_id)
+            .bind(now_timestamp())
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        state.connections.write().await.insert(
+            server_id,
+            AgentConnection {
+                id: connection_id,
+                sender,
+            },
+        );
+    }
     let result: anyhow::Result<()> = async {
+        send(&mut socket, Envelope::new("hello.ack", HelloAck {
+            server_time: now_timestamp(), session_token, session_expires_at: expires_at,
+        })?).await?;
+        let (mut sink, mut stream) = socket.split();
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
+        let mut last_received = Instant::now();
+        let mut introduced = false;
         loop {
             tokio::select! {
                 frame = stream.next() => {
@@ -126,7 +133,7 @@ async fn connection(mut socket: WebSocket, state: AppState) -> anyhow::Result<()
                             let message = envelope.decode()?;
                             if !introduced {
                                 let Message::Hello(hello) = &message else { anyhow::bail!("expected hello"); };
-                                anyhow::ensure!(hello.protocol_version == 1, "unsupported protocol version");
+                                anyhow::ensure!((sinan_protocol::PROTOCOL_MIN..=sinan_protocol::PROTOCOL_MAX).contains(&hello.protocol_version), "unsupported protocol version");
                                 introduced = true;
                             }
                             process_message(&state, server_id, message).await?;
@@ -150,6 +157,7 @@ async fn connection(mut socket: WebSocket, state: AppState) -> anyhow::Result<()
         }
         Ok(())
     }.await;
+    let _lifecycle = state.device_lifecycle.lock().await;
     let mut connections = state.connections.write().await;
     if connections
         .get(&server_id)
@@ -277,6 +285,9 @@ pub async fn process_message(
         }
         Message::ApplyResult(result) => record_apply_result(state, server_id, result).await?,
         Message::UsageBatch(batch) => crate::usage::ingest(state, server_id, batch).await?,
+        Message::RetirementResult(result) => {
+            crate::retirement::record_result(state, server_id, result).await?
+        }
         Message::Unknown { message_type, .. } => {
             tracing::debug!(%message_type,"ignoring unknown device message")
         }
@@ -312,6 +323,7 @@ pub async fn manifest(
     headers: HeaderMap,
 ) -> ApiResult<Json<Manifest>> {
     let server_id = auth::require_agent(&state, &headers).await?;
+    artifacts::require_signed_agent(&state, server_id).await?;
     let row = sqlx::query("SELECT manifest_rev,static_info FROM servers WHERE id=$1")
         .bind(server_id)
         .fetch_one(&state.pool)

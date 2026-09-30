@@ -17,7 +17,7 @@ use sqlx::{FromRow, Row};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
-pub const PLUGIN_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545";
+pub const PLUGIN_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2";
 pub const REPORT_LIMIT: usize = 512 * 1024;
 const TIMEOUT_SECS: u64 = 1800;
 
@@ -49,6 +49,8 @@ pub struct ReportRequest {
     pub ip_version: String,
     #[serde(default = "default_network_mode")]
     pub network_mode: String,
+    #[serde(default)]
+    pub upload_report: bool,
 }
 
 fn default_ip_version() -> String {
@@ -76,6 +78,15 @@ fn ready(row: &sqlx::postgres::PgRow) -> ApiResult<&'static str> {
         ));
     }
     let capabilities: Value = row.get("capabilities");
+    if !capabilities.as_array().is_some_and(|values| {
+        values.iter().any(|value| {
+            value.as_str() == Some(sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY)
+        })
+    }) {
+        return Err(ApiError::Conflict(
+            "此 Agent 尚不支持制品验签，请先升级 Agent".into(),
+        ));
+    }
     if !capabilities.as_array().is_some_and(|values| {
         values
             .iter()
@@ -180,6 +191,7 @@ pub async fn create(
         options: BTreeMap::from([
             ("ip_version".into(), request.ip_version),
             ("network_mode".into(), request.network_mode),
+            ("upload_report".into(), request.upload_report.to_string()),
         ]),
     };
     let record = sqlx::query_as("INSERT INTO diagnostic_jobs(id,server_id,job,created_at,updated_at,expires_at) VALUES($1,$2,$3,$4,$4,$5) RETURNING id,status,job,report,error,created_at,updated_at,expires_at")
@@ -194,6 +206,7 @@ pub async fn pending(
     headers: HeaderMap,
 ) -> ApiResult<Json<Vec<DiagnosticJob>>> {
     let server_id = auth::require_agent(&state, &headers).await?;
+    artifacts::require_signed_agent(&state, server_id).await?;
     expire(&state).await?;
     let values: Vec<Value> = sqlx::query_scalar("SELECT job FROM diagnostic_jobs WHERE server_id=$1 AND status IN ('queued','running') ORDER BY created_at,id")
         .bind(server_id).fetch_all(&state.pool).await?;
@@ -316,7 +329,23 @@ pub async fn update(
 
 #[cfg(test)]
 mod tests {
-    use super::safe_report_url;
+    use super::{ReportRequest, safe_report_url};
+    use serde_json::json;
+
+    #[test]
+    fn report_upload_requires_an_explicit_boolean_opt_in() {
+        for request in [json!({}), json!({"upload_report":false})] {
+            let request: ReportRequest = serde_json::from_value(request).unwrap();
+            assert!(!request.upload_report);
+        }
+        let request: ReportRequest = serde_json::from_value(json!({"upload_report":true})).unwrap();
+        assert!(request.upload_report);
+        for value in [json!("true"), json!(1), json!(null)] {
+            assert!(
+                serde_json::from_value::<ReportRequest>(json!({"upload_report":value})).is_err()
+            );
+        }
+    }
     #[test]
     fn report_links_are_restricted_to_the_official_https_origin() {
         assert!(safe_report_url("https://nodequality.com/r/example"));

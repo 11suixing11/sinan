@@ -6,7 +6,7 @@ permissions:
   contents: read
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16
@@ -22,6 +22,12 @@ jobs:
       DATABASE_URL: postgres://sinan:sinan-test@127.0.0.1:5432/sinan_test
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: Compile only the deliberately public CI test trust root
+        run: python3 scripts/ci-test-trust.py --github-env "$GITHUB_ENV"
+      - name: Install the independent Release signature verifier
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends minisign
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -41,6 +47,12 @@ jobs:
         run: python3 tools/test-build-scripts.py
       - name: Verify deployment environment initialization
         run: python3 tools/test-init-env.py
+      - name: Verify real acceptance driver and runtime cache contracts
+        run: |
+          python3 scripts/test-e2e-driver.py
+          python3 scripts/test-e2e-runtime.py
+          python3 scripts/test-ci-signed-release.py
+          python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Verify NodeQuality wrapper and artifact contracts
         run: sudo python3 tools/test-nodequality.py
       - run: cargo fmt --check
@@ -57,6 +69,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: Compile only the deliberately public CI test trust root
+        run: python3 scripts/ci-test-trust.py --github-env "$GITHUB_ENV"
       - name: Build and verify the complete Docker deployment
         run: bash scripts/ci-compose-smoke.sh
 
@@ -76,6 +90,8 @@ jobs:
             target: aarch64-unknown-linux-musl
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: Compile only the deliberately public CI test trust root
+        run: python3 scripts/ci-test-trust.py --github-env "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -90,128 +106,71 @@ jobs:
         run: bash tools/build-agent.sh '${{ matrix.arch }}' '${{ runner.temp }}/sinan-artifacts'
       - uses: actions/upload-artifact@v7.0.1
         with:
-          name: sinan-agent-linux-musl-${{ matrix.arch }}
+          name: sinan-TEST_ONLY-agent-linux-musl-${{ matrix.arch }}
           path: ${{ runner.temp }}/sinan-artifacts/
           if-no-files-found: error
           retention-days: 7
 
-  agent-native:
-    name: Agent ${{ matrix.platform }} (${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: linux-gnu
-            arch: amd64
-            runner: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-            rustflags: -Ctarget-feature=-crt-static
-          - platform: linux-gnu
-            arch: arm64
-            runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            rustflags: -Ctarget-feature=-crt-static
-          - platform: macos
-            arch: arm64
-            runner: macos-latest
-            target: aarch64-apple-darwin
-            rustflags: ''
-          - platform: windows
-            arch: amd64
-            runner: windows-2025-vs2026
-            target: x86_64-pc-windows-msvc
-            rustflags: -Ctarget-feature=+crt-static
-          - platform: windows
-            arch: arm64
-            runner: windows-11-vs2026-arm
-            target: aarch64-pc-windows-msvc
-            rustflags: -Ctarget-feature=+crt-static
-    env:
-      RUSTFLAGS: ${{ matrix.rustflags }}
+  real-e2e:
+    name: Reality installation and accounting
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    needs: agent-musl
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-python@v7.0.0
+      - name: Compile only the deliberately public CI test trust root
+        run: python3 scripts/ci-test-trust.py --github-env "$GITHUB_ENV"
+      - uses: actions/download-artifact@v8.0.1
         with:
-          python-version: '3.x'
-      - uses: dtolnay/rust-toolchain@master
+          name: sinan-TEST_ONLY-agent-linux-musl-amd64
+          path: ${{ runner.temp }}/sinan-agent
+      - name: Install the independent operator signature verifier
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends minisign
+      - uses: actions/setup-go@v7.0.0
         with:
-          toolchain: stable-${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2.9.2
+          go-version: 1.26.8
+          cache: false
+      - name: Restore the pinned upstream runtime
+        id: runtime-cache
+        uses: actions/cache/restore@v6.1.0
         with:
-          key: ${{ matrix.target }}
-      - name: Build, verify, and package the native Agent
-        run: python tools/build-agent.py '${{ matrix.target }}' .ci-artifacts
-      - uses: actions/upload-artifact@v7.0.1
+          path: ${{ runner.temp }}/sinan-runtime-artifacts
+          key: sinan-runtime-linux-amd64-1.14.2-${{ hashFiles('tools/build-singbox.sh', 'tools/singbox-builder.Dockerfile') }}
+      - name: Build the unchanged upstream runtime on a cache miss
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p '${{ runner.temp }}/sinan-runtime-artifacts'
+          docker build --platform linux/amd64 -f tools/singbox-builder.Dockerfile -t sinan-ci-runtime-builder .
+          docker run --rm --platform linux/amd64 \
+            --mount 'type=bind,src=${{ runner.temp }}/sinan-runtime-artifacts,dst=/artifacts' \
+            sinan-ci-runtime-builder amd64 /artifacts
+          sudo chown -R "$(id -u):$(id -g)" '${{ runner.temp }}/sinan-runtime-artifacts'
+          docker image rm sinan-ci-runtime-builder
+      - name: Verify the restored or newly built runtime
+        run: |
+          python3 scripts/verify-e2e-runtime.py \
+            '${{ runner.temp }}/sinan-runtime-artifacts' \
+            '${{ runner.temp }}/sinan-runtime-check'
+      - name: Cache the verified runtime
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
         with:
-          name: sinan-agent-${{ matrix.platform }}-${{ matrix.arch }}
-          path: .ci-artifacts/agent/
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 7
-
-  agent-freebsd:
-    name: Agent FreeBSD 13+ (${{ matrix.arch }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 180
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: amd64
-            vm_arch: x86_64
-            target: x86_64-unknown-freebsd
-          - arch: arm64
-            vm_arch: aarch64
-            target: aarch64-unknown-freebsd
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - name: Build and verify on the FreeBSD 13 baseline
-        uses: vmactions/freebsd-vm@v1.5.8
+          path: ${{ runner.temp }}/sinan-runtime-artifacts
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
+      - name: Run real installation, Reality traffic, and restart accounting
+        run: |
+          bash scripts/ci-real-e2e.sh \
+            --agent-root '${{ runner.temp }}/sinan-agent' \
+            --runtime-root '${{ runner.temp }}/sinan-runtime-artifacts' \
+            --summary '${{ runner.temp }}/sinan-real-e2e-summary.json'
+      - name: Publish only the allowlisted acceptance summary
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
         with:
-          release: '13.5'
-          arch: ${{ matrix.vm_arch }}
-          mem: 8192
-          prepare: |
-            set -eu
-            pkg install -y ca_root_nss curl python3 protobuf
-            curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o /tmp/sinan-rustup.sh
-            sh /tmp/sinan-rustup.sh -y --profile minimal --default-toolchain stable
-          run: |
-            set -eu
-            export PATH="$HOME/.cargo/bin:$PATH"
-            export PROTOC=/usr/local/bin/protoc
-            export CARGO_TARGET_DIR=/tmp/sinan-agent-target
-            python3 tools/build-agent.py '${{ matrix.target }}' .ci-artifacts
-      - name: Check the same binary on FreeBSD 14
-        uses: vmactions/freebsd-vm@v1.5.8
-        with:
-          release: '14'
-          arch: ${{ matrix.vm_arch }}
-          run: |
-            set -eu
-            binary=$(find .ci-artifacts/agent -name sinan-agent -type f)
-            test -n "$binary"
-            chmod 755 "$binary"
-            "$binary" --version
-            "$binary" --help
-      - name: Check the same binary on FreeBSD 15
-        uses: vmactions/freebsd-vm@v1.5.8
-        with:
-          release: '15'
-          arch: ${{ matrix.vm_arch }}
-          run: |
-            set -eu
-            binary=$(find .ci-artifacts/agent -name sinan-agent -type f)
-            test -n "$binary"
-            chmod 755 "$binary"
-            "$binary" --version
-            "$binary" --help
-      - uses: actions/upload-artifact@v7.0.1
-        with:
-          name: sinan-agent-freebsd-${{ matrix.arch }}
-          path: .ci-artifacts/agent/
-          include-hidden-files: true
-          if-no-files-found: error
+          name: sinan-real-e2e-summary
+          path: ${{ runner.temp }}/sinan-real-e2e-summary.json
+          if-no-files-found: warn
           retention-days: 7

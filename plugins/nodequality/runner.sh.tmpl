@@ -2,17 +2,17 @@
 # Sinan runner for the original pinned NodeQuality script.
 set -euo pipefail
 umask 077
-version=a92fca6c0067df29ddd03fdc2fee6f3000f64545
+version=a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2
 usage() {
   cat <<'USAGE'
-Usage: nodequality --workspace <ABSOLUTE_DIRECTORY> --ip-version both|ipv4|ipv6 --network-mode low|normal
+Usage: nodequality --workspace <ABSOLUTE_DIRECTORY> --ip-version both|ipv4|ipv6 --network-mode low|normal [--upload-report true|false]
        nodequality --version
 
 Requires Linux, root, Bash >= 4, Python 3, curl and systemd private mount isolation.
 Hardware, IP, network and return-route diagnostics run only when this command is
 explicitly started. Local output: result.txt, report.zip, log.txt and an optional
 report-url.txt in the private workspace. NodeQuality performs external downloads
-and tests, and attempts to upload the report to its public report service.
+and tests. Public report upload is disabled unless --upload-report true is set.
 USAGE
 }
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
@@ -21,12 +21,14 @@ if [[ ${1:-} == --help && $# == 1 ]]; then usage; exit 0; fi
 workspace=
 ip_version=both
 network_mode=low
+upload_report=false
 while [[ $# != 0 ]]; do
   [[ $# -ge 2 ]] || die 'each diagnostic option requires a value'
   case "$1" in
     --workspace) [[ -z $workspace ]] || die 'duplicate workspace'; workspace=$2 ;;
     --ip-version) ip_version=$2 ;;
     --network-mode) network_mode=$2 ;;
+    --upload-report) upload_report=$2 ;;
     *) die 'unsupported diagnostic option' ;;
   esac
   shift 2
@@ -37,6 +39,7 @@ done
 [[ $workspace != *[!a-zA-Z0-9/_.-]* ]] || die 'workspace must not contain whitespace or shell glob characters'
 case "$ip_version" in both|ipv4|ipv6) ;; *) die 'invalid IP version' ;; esac
 case "$network_mode" in low|normal) ;; *) die 'invalid network mode' ;; esac
+case "$upload_report" in true|false) ;; *) die 'invalid report upload option' ;; esac
 [[ $(uname -s) == Linux ]] || die 'diagnostics require Linux'
 [[ $EUID == 0 ]] || die 'diagnostics require root'
 [[ ${BASH_VERSINFO[0]} -ge 4 ]] || die 'diagnostics require Bash >= 4'
@@ -67,7 +70,7 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM HUP
 mkdir "$runtime" "$runtime/bin"
-for output in result.txt report.zip report-url.txt log.txt upload.base64; do
+for output in result.txt report.zip report-url.txt log.txt upload.base64 upload-disabled.txt; do
   [[ ! -e $workspace/$output && ! -L $workspace/$output ]] || die 'workspace already contains diagnostic output'
 done
 cat > "$runtime/NodeQuality.sh" <<'SINAN_NODEQUALITY_SOURCE_A92FCA6'
@@ -91,6 +94,7 @@ SINAN_REAL_CURL=$(command -v curl)
 SINAN_REAL_CHROOT=$(command -v chroot)
 export SINAN_REPORT_WORKSPACE=$workspace
 export SINAN_REPORT_HELPER=$runtime/report.py
+export SINAN_UPLOAD_REPORT=$upload_report
 export PATH="$runtime/bin:$PATH"
 ip_arguments=()
 case "$ip_version" in ipv4) ip_arguments=(-4) ;; ipv6) ip_arguments=(-6) ;; esac

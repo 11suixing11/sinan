@@ -55,6 +55,7 @@ def main():
     content = "\n".join([
         "SINAN_DB_PASSWORD=" + secrets.token_hex(32),
         "SINAN_ADMIN_PASSWORD=" + secrets.token_hex(32),
+        "SINAN_RELEASE_PUBLIC_KEYS=[]",
         "SINAN_PUBLIC_URL=" + args.public_url,
         "SINAN_BIND_ADDRESS=127.0.0.1",
         "SINAN_PORT=" + str(args.port),

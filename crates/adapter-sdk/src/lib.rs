@@ -76,6 +76,12 @@ pub trait Privileged: Send + Sync {
     ) -> BoxFuture<'a, ()>;
     fn atomic_symlink<'a>(&'a self, link: &'a Path, target: &'a Path) -> BoxFuture<'a, ()>;
     fn remove_symlink<'a>(&'a self, link: &'a Path) -> BoxFuture<'a, ()>;
+    fn remove_file<'a>(&'a self, _path: &'a Path) -> BoxFuture<'a, ()> {
+        Box::pin(async { anyhow::bail!("credential removal is not supported") })
+    }
+    fn remove_managed_directory<'a>(&'a self, _path: &'a Path) -> BoxFuture<'a, ()> {
+        Box::pin(async { anyhow::bail!("managed directory removal is not supported") })
+    }
     fn install_archive<'a>(
         &'a self,
         archive: &'a Path,

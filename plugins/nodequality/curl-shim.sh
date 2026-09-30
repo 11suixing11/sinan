@@ -9,6 +9,11 @@ if [[ $upload == 0 ]]; then
   exec "$SINAN_REAL_CURL" --connect-timeout 15 --max-time 900 "$@"
 fi
 python3 "$SINAN_REPORT_HELPER" capture "$SINAN_REPORT_WORKSPACE"
+if [[ ${SINAN_UPLOAD_REPORT:-false} != true ]]; then
+  printf '%s\n' 'disabled' > "$SINAN_REPORT_WORKSPACE/upload-disabled.txt"
+  printf '%s\n' 'Public report upload is disabled.'
+  exit 0
+fi
 arguments=()
 while [[ $# != 0 ]]; do
   if [[ $1 == --data-binary && ${2:-} == @- ]]; then

@@ -1,4 +1,5 @@
 use super::*;
+use crate::release_test_support as release_support;
 use crate::{State, fake::FakeServiceManager, system::SystemOps};
 use sinan_adapter_sdk::{BoxFuture, DiagnosticDescriptor, DiagnosticOutput};
 use sinan_protocol::Artifact;
@@ -120,13 +121,14 @@ impl ServiceManager for Services {
 
 fn worker(directory: &Directory, services: Arc<Services>) -> Result<DiagnosticWorker> {
     let config = directory.config();
-    DiagnosticWorker::new(
+    Ok(DiagnosticWorker::new(
         config.clone(),
         Arc::new(Mutex::new(State::open(&config.state_db)?)),
         vec![Arc::new(TestAdapter)],
         Arc::new(SystemOps),
         services,
-    )
+    )?
+    .with_trusted_keys(release_support::trusted_keys()))
 }
 
 fn checkpoint(config: &Config, id: Uuid) -> Checkpoint {
@@ -160,6 +162,7 @@ fn job(id: Uuid) -> DiagnosticJob {
         plugin: "diagnostic-fixture".into(),
         version: "v1".into(),
         artifact: Artifact {
+            proof: None,
             url: "http://127.0.0.1:8080/fixture".into(),
             sha256: "0".repeat(64),
         },

@@ -8,8 +8,10 @@ usage() {
 用法：
   bash scripts/e2e-real.sh guide
   sudo bash scripts/e2e-real.sh snapshot <标签> <证据目录>
+  python3 scripts/e2e-driver.py --help
 
 guide 仅打印完整人工流程；snapshot 只读收集本机状态，不安装、重启或修改服务。
+分阶段的真实面板驱动见 docs/e2e.md；由操作者控制专用设备与独立客户端。
 
 snapshot 可选环境变量（前三项须同时提供）：
   SINAN_PANEL_URL=https://panel.example.com
@@ -32,12 +34,15 @@ guide() {
 不要把 macOS 单测、虚拟服务测试或上游 check 成功当作下面的实机流程已通过。
 
 一、面板、制品与接入
-1. 按 README 启动面板+PostgreSQL；公开地址必须从设备和客户端都可访问。
-   登录后在制品页确认匹配设备架构的 Agent 和运行时均通过 SHA-256 校验。
+1. 按 docs/deploy.md 启动面板+PostgreSQL；公开地址必须从设备和客户端都可访问。
+   独立核对发布公钥；登录后在制品页导入已签 Release，确认匹配设备架构的
+   Agent 和运行时均通过发布签名、元数据与实际内容校验。
 2. 在 Debian 设备安装基础工具：
      apt-get update
-     apt-get install -y ca-certificates curl coreutils passwd iproute2 python3
-3. 在面板添加服务器，把新生成的安装命令复制到设备，以 root 执行。
+     apt-get install -y ca-certificates curl coreutils passwd iproute2 python3 minisign
+3. 按 docs/deploy.md 在设备独立准备可信 sinan-bootstrap 与发布公钥。
+   在面板添加服务器并选择已导入的兼容 Agent 版本，以 root 执行生成的命令。
+   使用验收驱动时，按 docs/e2e.md 传入私有 enrollment.json 中的接入信息。
    令牌只使用一次；不得把另一个设备的身份复制过来。
 4. 30 秒内确认服务器在线，记录设备架构、Agent 版本、CPU/内存和更新时间。
    在设备运行：
@@ -97,7 +102,8 @@ guide() {
     不要为了测试向公网用户使用中的节点发布故意损坏的配置。
 
 五、升级、身份和结论
-14. 验证升级时在原服务器签发新的接入令牌，并重新执行安装命令。
+14. 验证升级时先导入目标已签版本，在原服务器签发新的接入令牌并重新安装。
+    旧未签缓存按 docs/release.md 完成迁移验证，不能跳过签名预检。
     保留 /etc/sinan/identity 和 /var/lib/sinan/core/state.db；注册服务器 ID 不变，
     已消费的旧令牌不能再用。完成后再次核对版本、部署健康、流量与待确认数。
 15. 整理 before、after-agent、after-runtime、after-new-traffic 中的：
@@ -185,8 +191,13 @@ if all(values):
         headers = {} if body is None else {'Content-Type': 'application/json'}
         with client.open(urllib.request.Request(origin + path, data=body, headers=headers), timeout=20) as response:
             return json.load(response)
-    request('/api/login', {'password': password})
-    del password
+    code = os.environ.pop('SINAN_E2E_TOTP_CODE', None)
+    if code is None and os.environ.get('SINAN_E2E_TOTP') == '1':
+        code = getpass.getpass('当前 TOTP 验证码（不保存，请用未使用的新码）：')
+    if code is not None and (len(code) != 6 or not code.isascii() or not code.isdecimal()):
+        raise SystemExit('TOTP 验证码需为六位数字')
+    request('/api/login', {'password': password, 'totp_code': code})
+    del password, code
     try:
         usage = request('/api/usage?' + urllib.parse.urlencode({'user_id': user, 'node_id': node}))
         node_data = request('/api/nodes/' + node)

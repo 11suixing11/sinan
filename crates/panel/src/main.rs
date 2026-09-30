@@ -20,11 +20,14 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(listen).await?;
     tracing::info!(address = %listener.local_addr()?, "panel started");
     let publisher = tokio::spawn(sinan_panel::publisher::run(state.clone()));
-    let result = axum::serve(listener, router(state))
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await;
+    let result = axum::serve(
+        listener,
+        router(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await;
     publisher.abort();
     result?;
     Ok(())

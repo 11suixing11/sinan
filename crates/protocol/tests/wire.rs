@@ -96,13 +96,24 @@ fn known_messages() -> Vec<Message> {
         }),
         Message::ManifestChanged(ManifestChanged { rev: 12 }),
         Message::UsageAck(UsageAck { epoch, seq: 1 }),
+        Message::RetirementRequest(RetirementRequest { request_id: epoch }),
+        Message::RetirementResult(RetirementResult {
+            request_id: epoch,
+            success: true,
+            error: None,
+            receipt: Some(RetirementReceipt {
+                server_id: 3,
+                request_id: epoch,
+                signature: "test-only-receipt".into(),
+            }),
+        }),
     ]
 }
 
 #[test]
 fn all_websocket_payloads_roundtrip_through_envelopes() {
     let messages = known_messages();
-    assert_eq!(messages.len(), 11);
+    assert_eq!(messages.len(), 13);
     for message in messages {
         let envelope = message.clone().into_envelope().unwrap();
         assert_eq!(envelope.message_type, message.message_type());
@@ -119,6 +130,7 @@ fn all_websocket_payloads_roundtrip_through_envelopes() {
 #[test]
 fn all_http_payloads_roundtrip() {
     let artifact = Artifact {
+        proof: None,
         url: "https://panel.example.invalid/api/agent/v1/artifacts/runtime/1.14.2/amd64".into(),
         sha256: "a".repeat(64),
     };
@@ -307,12 +319,16 @@ fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
         plugin: "nodequality".into(),
         version: "upstream-commit".into(),
         artifact: Artifact {
+            proof: None,
             url: "https://panel.example.invalid/api/agent/v1/artifacts/nodequality/upstream-commit/amd64".into(),
             sha256: "a".repeat(64),
         },
         timeout_secs: 1800,
         expires_at: Some(1_790_003_600),
-        options: BTreeMap::from([("ip_version".into(), "both".into())]),
+        options: BTreeMap::from([
+            ("ip_version".into(), "both".into()),
+            ("upload_report".into(), "false".into()),
+        ]),
     };
     roundtrip(job.clone());
     let mut wire = serde_json::to_value(&job).unwrap();

@@ -2,13 +2,15 @@
 
 #[allow(dead_code)]
 mod e2e_support;
+mod release_fixture;
+#[path = "../../protocol/tests/support/release.rs"]
+mod release_support;
 
 use anyhow::{Context, Result};
 use e2e_support::{Harness, eventually};
 use flate2::{Compression, write::GzEncoder};
 use reqwest::Method;
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use sinan_adapter_nodequality::{NodeQualityAdapter, VERSION};
 use sinan_adapter_sdk::{BoxFuture, JobStatus, ServiceJob, ServiceManager};
 use sinan_agent_core::{identity, system::SystemOps, transport};
@@ -93,20 +95,14 @@ fn write_artifact(harness: &Harness) -> Result<()> {
     header.set_cksum();
     archive.append_data(&mut header, "nodequality", binary.as_bytes())?;
     let bytes = archive.into_inner()?.finish()?;
-    let digest = format!("{:x}", Sha256::digest(&bytes));
-    let directory = harness
-        .state
-        .config
-        .data_dir
-        .join("artifacts/nodequality")
-        .join(VERSION);
-    fs::create_dir_all(&directory)?;
-    for arch in ["amd64", "arm64"] {
-        fs::write(directory.join(arch), &bytes)?;
-    }
-    fs::write(
-        directory.join("SHA256SUMS"),
-        format!("{digest}  amd64\n{digest}  arm64\n"),
+    release_fixture::write(
+        &harness.state.config.data_dir,
+        "nodequality",
+        VERSION,
+        "nodequality",
+        &bytes,
+        binary.as_bytes(),
+        "tar.gz",
     )?;
     Ok(())
 }
@@ -141,6 +137,7 @@ async fn node_report_survives_agent_restart_and_is_started_only_once(pool: PgPoo
             vec![Arc::new(NodeQualityAdapter::new())],
             Arc::new(SystemOps),
             services.clone(),
+            "diagnostic-test-agent",
         ))
     };
     let agent = start();
@@ -167,7 +164,7 @@ async fn node_report_survives_agent_restart_and_is_started_only_once(pool: PgPoo
         .api(
             Method::POST,
             &format!("/api/servers/{id}/node-quality/reports"),
-            json!({"ip_version":"both","network_mode":"low"}),
+            json!({"ip_version":"both","network_mode":"low","upload_report":true}),
         )
         .await?;
     let report_id = report["id"].as_str().context("report job id")?.to_owned();

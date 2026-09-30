@@ -41,12 +41,37 @@ enum Command {
     Run,
     /// Query the running agent through its protected local socket.
     Status,
+    /// Verify a cached executable using only the compiled release trust roots.
+    VerifyInstalled {
+        #[arg(long)]
+        binary: PathBuf,
+        #[arg(long)]
+        name: String,
+        #[arg(long, value_parser = ["raw", "tar.gz"])]
+        format: String,
+    },
+    /// Verify the next release using only the compiled release trust roots.
+    VerifyRelease {
+        #[arg(long)]
+        proof_dir: PathBuf,
+    },
+    /// Check every installed or pending executable before replacing the Agent.
+    VerifyCache,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    run_cli(cli).await
+    let result = run_cli(cli).await;
+    #[cfg(target_os = "linux")]
+    if result.as_ref().is_err_and(|error| {
+        error
+            .downcast_ref::<sinan_agent_core::retirement::Retired>()
+            .is_some()
+    }) {
+        std::process::exit(sinan_agent_core::retirement::RETIRED_EXIT_CODE);
+    }
+    result
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -90,14 +115,40 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                 vec![Arc::new(NodeQualityAdapter::new())];
             let services: Arc<dyn ServiceManager> =
                 Arc::new(SystemServiceManager::new(privileged.clone()));
-            transport::run_with_diagnostics(config, adapters, diagnostics, privileged, services)
-                .await
+            transport::run_with_diagnostics(
+                config,
+                adapters,
+                diagnostics,
+                privileged,
+                services,
+                env!("CARGO_PKG_VERSION"),
+            )
+            .await
         }
         Command::Status => {
             let config = Config::load(&path)?;
             let status = transport::status(&config.status_socket).await?;
             println!("{}", serde_json::to_string_pretty(&status)?);
             Ok(())
+        }
+        Command::VerifyInstalled {
+            binary,
+            name,
+            format,
+        } => {
+            sinan_agent_core::artifacts::verify_installed_binary(
+                &absolute_path(&binary)?,
+                &name,
+                &format,
+            )
+            .await
+        }
+        Command::VerifyRelease { proof_dir } => {
+            sinan_agent_core::artifacts::verify_release_directory(&absolute_path(&proof_dir)?).await
+        }
+        Command::VerifyCache => {
+            let config = Config::load(&path)?;
+            sinan_agent_core::artifacts::verify_cache(&config).await
         }
     }
 }

@@ -4,8 +4,11 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+ExecStartPre=/opt/sinan/core/current/sinan-agent verify-installed --binary /opt/sinan/core/current/sinan-agent --name agent --format raw
 ExecStart=/opt/sinan/core/current/sinan-agent run
 Restart=always
+RestartPreventExitStatus=78
+SuccessExitStatus=78
 RestartSec=5
 UMask=0027
 

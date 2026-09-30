@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
 mod business_support;
+#[path = "../../protocol/tests/support/release.rs"]
+mod release_support;
 
 use anyhow::Result;
 use business_support::{TestPanel, id, receive_envelope, send_envelope};

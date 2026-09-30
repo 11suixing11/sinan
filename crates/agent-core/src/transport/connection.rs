@@ -40,7 +40,7 @@ pub(super) async fn run(
         Envelope::new(
             "hello",
             Hello {
-                agent_version: env!("CARGO_PKG_VERSION").into(),
+                agent_version: runtime.agent_version.into(),
                 protocol_version: PROTOCOL_VERSION,
                 capabilities: runtime.capabilities.as_ref().clone(),
                 applied: runtime.applied()?,
@@ -72,6 +72,7 @@ pub(super) async fn run(
     let mut resend = interval(15);
     let mut stale = interval(10);
     let mut static_refresh = interval(300);
+    let mut retirement_poll = interval(5);
     let mut last_received = Instant::now();
     let mut resend_queue = std::collections::VecDeque::new();
     loop {
@@ -85,6 +86,16 @@ pub(super) async fn run(
                         let envelope: Envelope = serde_json::from_str(&text)?;
                         anyhow::ensure!(envelope.v == PROTOCOL_VERSION, "incompatible panel protocol version");
                         match envelope.decode()? {
+                            Message::RetirementRequest(request) => {
+                                let retirement = runtime.retirement.as_ref().context("retirement worker missing")?;
+                                let request_id = request.request_id;
+                                if let Err(error) = retirement.request(identity, request) {
+                                    send(&mut socket, Envelope::new("retirement.result", sinan_protocol::RetirementResult {
+                                        request_id, success: false, error: Some(error.to_string()), receipt: None,
+                                    })?).await?;
+                                }
+                                retirement_poll.reset_immediately();
+                            }
                             Message::ManifestChanged(_) => { let _ = trigger.try_send(()); }
                             Message::UsageAck(ack) => {
                                 runtime.state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?
@@ -99,6 +110,40 @@ pub(super) async fn run(
                     Frame::Close(_) => return Ok(()),
                     _ => anyhow::bail!("panel sent an unsupported frame"),
                 }
+            }
+            _ = retirement_poll.tick(), if runtime.retirement.as_ref().is_some_and(|worker| worker.requested()) => {
+                let retirement = runtime.retirement.as_ref().context("retirement worker missing")?;
+                let request_id = retirement.request_id()?.context("retirement request missing")?;
+                if let Err(error) = retirement.prepare().await {
+                    send(&mut socket, Envelope::new("retirement.result", sinan_protocol::RetirementResult {
+                        request_id, success: false, error: Some(format!("{error:#}")), receipt: None,
+                    })?).await?;
+                    continue;
+                }
+                let pending = runtime.state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?.pending_usage()?;
+                if !pending.is_empty() {
+                    if resend_queue.is_empty() { resend_queue.extend(pending.into_iter().take(64)); }
+                    continue;
+                }
+                let receipt = match retirement.complete(identity).await {
+                    Ok(receipt) => receipt,
+                    Err(error) => {
+                        send(&mut socket, Envelope::new("retirement.result", sinan_protocol::RetirementResult {
+                            request_id, success: false, error: Some(format!("{error:#}")), receipt: None,
+                        })?).await?;
+                        // Completion may have removed the key before an I/O failure. Restart
+                        // through durable cleanup recovery rather than authenticating again.
+                        return Err(error);
+                    }
+                };
+                client_tx.send_replace(None);
+                runtime.connected.store(false, Ordering::Relaxed);
+                let _ = send(&mut socket, Envelope::new("retirement.result", sinan_protocol::RetirementResult {
+                    request_id, success: true, error: None, receipt: Some(receipt),
+                })?).await;
+                let _ = timeout(Duration::from_secs(2), socket.close(None)).await;
+                retirement.deliver_receipt().await?;
+                return Err(crate::retirement::Retired.into());
             }
             message = outgoing.recv() => {
                 send(&mut socket, message.context("runtime result channel closed")?).await?;

@@ -125,6 +125,8 @@ mod tests {
             capabilities: Arc::new(vec![]),
             connected: Arc::new(AtomicBool::new(true)),
             public_ips: Arc::new(vec![]),
+            agent_version: "fixture-agent",
+            retirement: None,
         };
         let bound = bind(&socket).await?;
         assert_eq!(

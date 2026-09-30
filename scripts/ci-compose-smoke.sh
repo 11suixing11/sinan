@@ -3,6 +3,8 @@
 set -euo pipefail
 repository=$(cd "$(dirname "$0")/.." && pwd)
 cd "$repository"
+SINAN_RELEASE_PUBLIC_KEYS=$(python3 scripts/ci-test-trust.py)
+export SINAN_RELEASE_PUBLIC_KEYS
 export COMPOSE_PROJECT_NAME="sinan-ci-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$"
 export SINAN_BIND_ADDRESS=127.0.0.1
 export SINAN_PORT=${SINAN_PORT:-18080}
@@ -75,6 +77,13 @@ if phase == 'create':
         assert response.status == 201
         server = json.load(response)
         Path(state_file).write_text(json.dumps({'server_id': server['id']}))
+    with request('/api/servers/' + str(server['id']) + '/enrollment', {}) as response:
+        enrollment = json.load(response)
+        assert enrollment['installation'] is None
+        assert enrollment['install_command'] is None
+        assert enrollment['warning']
+    with request('/api/artifacts') as response:
+        assert json.load(response) == []
 else:
     server_id = json.loads(Path(state_file).read_text())['server_id']
     with request('/api/servers/' + str(server_id)) as response:

@@ -7,14 +7,16 @@ COPY web/ ./
 RUN bun run build
 
 FROM rust:1-bookworm AS builder
-ARG CARGO_BUILD_JOBS=2
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ ./crates/
 COPY deploy/ ./deploy/
 COPY plugins/ ./plugins/
 COPY --from=web /src/web/dist ./web/dist
-RUN cargo build --locked --release -p sinan-panel
+ARG CARGO_BUILD_JOBS=2
+ARG SINAN_RELEASE_PUBLIC_KEYS
+ENV SINAN_RELEASE_PUBLIC_KEYS=$SINAN_RELEASE_PUBLIC_KEYS
+RUN CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS" cargo build --locked --release -p sinan-panel
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \

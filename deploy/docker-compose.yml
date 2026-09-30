@@ -20,6 +20,8 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+      args:
+        SINAN_RELEASE_PUBLIC_KEYS: ${SINAN_RELEASE_PUBLIC_KEYS:-}
     image: sinan-panel:local
     restart: unless-stopped
     depends_on:

@@ -115,6 +115,23 @@ pub async fn update(
     Ok(Json(user.view(&state.config.public_url)))
 }
 
+pub async fn reset_subscription(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> ApiResult<Json<UserView>> {
+    require_admin(&state, &headers).await?;
+    let user = sqlx::query_as::<_, UserRow>(
+        "UPDATE users SET subscription_token=$2 WHERE id=$1 AND deleted_at IS NULL RETURNING id,name,subscription_token",
+    )
+    .bind(id)
+    .bind(random_token())
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    Ok(Json(user.view(&state.config.public_url)))
+}
+
 pub async fn remove(
     State(state): State<AppState>,
     headers: HeaderMap,
