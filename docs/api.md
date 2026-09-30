@@ -195,12 +195,16 @@
 
 | 方法与路径 | 请求与用途 |
 |---|---|
-| `GET /api/servers/{id}/ip-quality` | 返回 `{ip_addresses,quality}`；只读取当前 IP 缓存，不依赖 NodeQuality 能力、在线或制品准备 |
+| `GET /api/servers/{id}/ip-quality` | 返回 `{ip_addresses,quality,providers}`；只读取当前 IP 缓存，不依赖 NodeQuality 能力、在线或制品准备 |
 | `POST /api/servers/{id}/ip-quality/refresh` | 无请求体；查询并保存质量结果，返回质量数组 |
 
 两个接口均要求管理员会话和未删除的服务器。读取不会发起外部查询或创建诊断任务。
 
-每个质量对象是 `{ip,checked_at,expires_at,status,databases,provider,last_attempt_at,last_success_at,fresh_until,last_error}`，status 为最近查询批次的 `succeeded`、`partial`、`failed`。每个数据库是 `{database,label,status,fields:[{label,value,kind}],error,provider,target_ip,attempted_at,elapsed_ms,error_kind,http_status,last_attempt_at,last_success_at,fresh_until,last_error,historical}`；数字零和布尔 false 保持原值，缺失字段省略。`provider` 为真实查询入口 `check-place`，七个 `database` 是同一入口的响应形状（MaxMind 地理/ASN、IPAPI、Scamalytics、AbuseIPDB、IP2Location、IPData、IPQualityScore）。接口参数依据上游 IPQuality 源码，不假造 NodeQuality 的按 IP 查询接口。每种响应分别展示，不推导统一评分。
+每个质量对象是 `{ip,checked_at,expires_at,status,databases,provider,last_attempt_at,last_success_at,fresh_until,last_error}`，status 为最近查询批次的 `succeeded`、`partial`、`failed`。每个数据库是 `{database,label,status,fields:[{label,value,kind}],error,provider,target_ip,attempted_at,elapsed_ms,error_kind,http_status,last_attempt_at,last_success_at,fresh_until,last_error,historical,available,unavailable_reason}`；数字零和布尔 false 保持原值，缺失字段省略。`provider` 标识真实入口：`check-place` 是旧聚合入口，七个 `database` 是该入口的响应形状（MaxMind 地理/ASN、IPAPI、Scamalytics、AbuseIPDB、IP2Location、IPData、IPQualityScore）。接口参数依据上游 IPQuality 源码，不假造 NodeQuality 的按 IP 查询接口。每种响应分别展示，不推导统一评分。正式来源 `abuseipdb-api` 仅有 `abuseipdb-v2` 响应视图，固定只读 CHECK、30 天窗口，展示文档定义的用途、国家代码、ISP、Tor 与 0–100 原始滥用置信度；必须确认目标 IP/版本/公网状态一致。正式响应中的该 score 仅接受 JSON 整数 0–100，缺失/空值/错误类型不推导为零分或 false。
+
+`providers` 是入口描述列表，字段为 `{provider,label,kind,execution,enabled,reason,databases:[{database,label}]}`。kind 为 aggregator/credential_api/node_self，execution 为 panel/node；enabled 仅表示可执行或已配置，不证明凭据授权/额度或最新查询成功。缺失/无效 `SINAN_ABUSEIPDB_API_KEY` 不发正式接口请求，原因不含凭据，`ipquality-node` 目前明确未启用。没有请求就没有新缓存行或尝试时间。所有入口共用四并发/40 秒批次/单请求 3 秒连接与 6 秒总超时/64 KiB 上限，403/429 不重试或更改 UA。流媒体解锁保持未知，面板查询不冒充节点出口自查。
+
+`available` 表示缓存所属入口目前是否已启用，`unavailable_reason` 提供中文原因。已关闭或未注册入口的成功快照保留并标记 historical，不影响原尝试/成功时间、字段或当前错误；没有发生失败请求时不编造错误类别。旧接口仍可读取省略新增字段的旧 payload。
 
 `target_ip` 是查询目标；`attempted_at` 为本条尝试开始的 Unix 秒，`elapsed_ms` 为包含解析、连接和响应读取的耗时毫秒。成功时 `error_kind` 和 `http_status` 为空；失败类别为 `dns`、`connect`、`tls`、`timeout`、`http_403`、`http_429`、`http_other`、`non_json`、`schema_mismatch`、`body_error`、`response_limit`、`request_error`。本地拒绝非公网 IP 为 `not_public`，入口地址无效为 `invalid_origin`，批次总超时前未开始的请求为 `not_attempted`，后者不编造尝试时间或耗时。HTTP 失败另保存 `http_status`；旧记录没有逐条时间、耗时或分类时这些字段为空，保留原错误和数据。
 
