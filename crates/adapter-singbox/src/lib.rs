@@ -190,6 +190,10 @@ impl UsageSource for SingboxAdapter {
         &'a self,
         runtime: &'a Prepared,
     ) -> BoxFuture<'a, Vec<sinan_adapter_sdk::Counter>> {
-        Box::pin(async move { stats::counters(stats::query(&runtime.spec.stats_listen).await?) })
+        Box::pin(async move {
+            let users = stats::configured_users(&runtime.spec)?;
+            let response = stats::query(&runtime.spec.stats_listen).await?;
+            stats::counters(response, users)
+        })
     }
 }

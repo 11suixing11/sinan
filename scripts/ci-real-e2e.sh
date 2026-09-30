@@ -65,6 +65,13 @@ if Path(state_path).is_file():
         for label, checkpoint in state.get("checkpoints", {}).items()
         if label in ("ready", "first", "before", "after-agent", "after-runtime", "resumed", "before-reinstall", "after-reinstall")
     }
+ledger = Path(state_path).with_name("ledger-summary.json")
+if ledger.is_file():
+    summary["ledger"] = {
+        label: {key: counters[key] for key in ("uplink", "downlink", "total")}
+        for label, counters in json.loads(ledger.read_text()).items()
+        if label in ("before", "after-agent", "after-runtime", "before-reinstall", "after-reinstall")
+    }
 Path(output).parent.mkdir(parents=True, exist_ok=True)
 Path(output).write_text(json.dumps(summary, indent=2) + "\n")
 if os.environ.get('GITHUB_STEP_SUMMARY'):
@@ -217,6 +224,47 @@ else:
 PY
 }
 
+# Read only this run's configured user/node baseline, never identity material.
+assert_ledger() {
+  sudo python3 - "$scratch/state.json" "$1" "${2:-}" > "$scratch/ledger-next.json" <<'PY_LEDGER'
+import json
+from pathlib import Path
+import sqlite3
+import sys
+
+state_path, label, previous = sys.argv[1:]
+state = json.loads(Path(state_path).read_text())
+name = f"u{state['user_id']}_n{state['node_id']}"
+with sqlite3.connect('file:/var/lib/sinan/core/state.db?mode=ro', uri=True, timeout=5) as connection:
+    connection.execute('BEGIN')
+    rows = connection.execute('SELECT uplink,downlink FROM usage_baselines WHERE module=? AND stat_name=?', ('singbox', name)).fetchall()
+    pending = connection.execute('SELECT COUNT(*) FROM usage_outbox WHERE acknowledged=0').fetchone()[0]
+if len(rows) != 1 or pending != 0:
+    raise SystemExit('Sampled ledger baseline missing or still awaiting acknowledgement')
+current = tuple(int(value) for value in rows[0])
+path = Path(state_path).with_name('ledger-summary.json')
+proof = json.loads(path.read_text()) if path.is_file() else {}
+checkpoint = state['checkpoints'][label]['usage']
+actual = tuple(int(checkpoint[key]) for key in ('uplink', 'downlink'))
+if previous == 'zero':
+    if current != (0, 0):
+        raise SystemExit('Runtime reload did not establish sampled zero counters')
+elif previous:
+    baseline = proof[previous]
+    previous_usage = state['checkpoints'][previous]['usage']
+    delta = tuple(actual[index] - int(previous_usage[key]) for index, key in enumerate(('uplink', 'downlink')))
+    expected = tuple(current[index] - int(baseline[key]) for index, key in enumerate(('uplink', 'downlink')))
+    if delta != expected or any(value < 0 for value in expected):
+        raise SystemExit('Panel increment differs from sampled runtime ledger increment')
+elif actual != current:
+    raise SystemExit('Panel totals differ from sampled runtime ledger totals')
+proof[label] = {key: str(value) for key, value in zip(('uplink', 'downlink', 'total'), (*current, sum(current)))}
+print(json.dumps(proof))
+PY_LEDGER
+  mv "$scratch/ledger-next.json" "$scratch/ledger-summary.json"
+  printf 'Panel and sampled runtime ledger counters agree: %s\n' "$1"
+}
+
 start_client() {
   "$runtime" run -c "$scratch/client.json" > "$scratch/client.log" 2>&1 &
   client_pid=$!
@@ -224,7 +272,10 @@ start_client() {
     kill -0 "$client_pid" 2>/dev/null || die 'Reality client exited'
     if python3 - <<'PY'
 import socket
-with socket.create_connection(('127.0.0.1', 2080), timeout=1): pass
+try:
+    with socket.create_connection(('127.0.0.1', 2080), timeout=1): pass
+except OSError:
+    raise SystemExit(1)
 PY
     then return; fi
     sleep 1
@@ -255,21 +306,25 @@ traffic_batch
 stop_client
 phase=stable-before
 "${driver[@]}" verify --label before --interval 35 --timeout 240
+assert_ledger before
 phase=agent-restart
 sudo systemctl restart sinan-agent.service
 wait_agent
 "${driver[@]}" verify --label after-agent --unchanged-from before --interval 35 --timeout 240
+assert_ledger after-agent
 [[ $(sudo systemctl show sinan-singbox@main.service -p MainPID --value) == "$runtime_pid" ]] || die 'Agent restart changed independent runtime PID'
 phase=runtime-reload
 sudo systemctl reload sinan-singbox@main.service
 wait_agent
 "${driver[@]}" verify --label after-runtime --unchanged-from before --interval 35 --timeout 240
+assert_ledger after-runtime zero
 phase=resumed-traffic
 start_client
 traffic_batch
 "${driver[@]}" traffic --label resumed --after after-runtime --min-uplink 1048576 --min-downlink 2097152
 stop_client
 "${driver[@]}" verify --label before-reinstall --interval 35 --timeout 240
+assert_ledger before-reinstall after-runtime
 phase=reinstall
 sudo find /etc/sinan/identity -maxdepth 1 -type f -exec sha256sum {} + | sort > "$scratch/identity-before.txt"
 "${driver[@]}" install --refresh
@@ -277,6 +332,7 @@ sudo sh "$scratch/install.sh" > "$scratch/reinstall.log" 2>&1
 wait_agent
 "${driver[@]}" ready --agent-version "$agent_version" --timeout 600
 "${driver[@]}" verify --label after-reinstall --unchanged-from before-reinstall --interval 35 --timeout 240
+assert_ledger after-reinstall after-runtime
 sudo find /etc/sinan/identity -maxdepth 1 -type f -exec sha256sum {} + | sort > "$scratch/identity-after.txt"
 cmp "$scratch/identity-before.txt" "$scratch/identity-after.txt" || die 'reinstallation changed device identity files'
 [[ $(sudo systemctl show sinan-singbox@main.service -p MainPID --value) == "$runtime_pid" ]] || die 'same-version reinstallation changed runtime PID'
