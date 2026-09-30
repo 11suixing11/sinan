@@ -166,3 +166,11 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 对照用户指定的本地 NodeFlare Actions，新增手动或 `v*` 标签触发的多平台制品工作流。保留日常 Linux musl CI；GNU/Linux 继续使用 Ubuntu 24.04 动态库，macOS 仅 ARM64，Windows 与 FreeBSD 提供双架构。FreeBSD 使用同一固定 cross 提交和 FreeBSD 13 sysroot 镜像，在 Linux 安装目标标准库，并在 13.5/14/15 VM 验证同一二进制；只在最新 15 VM 安装 Python 并校验打包，避免 ARM64 rustup 安装器和旧版本包仓库依赖。编译目录放在工作区外，避免将中间产物反复复制进 VM。
 - 构建脚本增加已有二进制验证模式，仍校验架构、版本、CLI、动态库与部署限制，成功后才创建不可覆盖制品和 SHA256SUMS。五组构建脚本检查通过，包含所有目标在没有 Rust/PATH 的情况下拒绝非法二进制；本机 Agent `0.2.0` 的实际 GNU/Linux 二进制验证、打包与 SHA-256 校验通过。
 - fmt、全 targets Clippy、完整 `cargo test --locked` 通过，122 项成功、4 项实机专项按原原因忽略；临时 PostgreSQL 的连接用户确认后完成全部集成测试。actionlint、shell/Python/Cross.toml 语法与 diff 检查通过。临时数据库已停止；后续以推送后的 OpenRC 双架构 CI 和手动多平台工作流确认远端执行结果，非 Linux 服务部署仍不在范围内。
+
+## 主分支调整：统一日常多平台构建
+
+- 按用户进一步澄清，将九个 Agent 目标统一移回 `ci.yml`，每次 push/PR 或手动执行均构建。删除临时的独立多平台工作流，OpenRC 不另设构建目标或 CI 任务。
+- Linux 使用同一个 libc × 架构矩阵：musl 静态 amd64/arm64 用于 Alpine 等设备，Ubuntu 24.04 glibc 动态 amd64/arm64 用于兼容的 systemd 设备。OpenRC 安装、缓存、重载、权限与恢复检查并入 musl 任务；原 systemd 专项保留在主检查任务。两种 init 仍在运行时识别，二进制 libc 与服务管理分别处理。
+- macOS ARM64、Windows 双架构和 FreeBSD 双架构纳入日常矩阵；FreeBSD 保留 Linux cross 编译、固定 sysroot 及 13.5/14/15 的同二进制验证。制品名称继续区分系统、libc 和架构。
+- 本地 actionlint、五组构建脚本检查、fmt、全 targets Clippy、完整 `cargo test --locked` 均通过，122 项成功、4 项实机专项按原原因忽略；临时 PostgreSQL 已停止。未修改 Agent、安装接口、协议或前端代码。
+- 上一提交 `b16fffd` 的 [CI 36699121265](https://github.com/imengying/sinan/actions/runs/36699121265) 所有任务均成功，包括真实 systemd、Compose、musl 与 OpenRC 双架构。新的九目标构建仍须以本次提交的完整 CI 结果为准，不将前一提交结果视为已验证新增目标。

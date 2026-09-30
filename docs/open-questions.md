@@ -122,3 +122,8 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 
 - OpenRC CI 的 amd64 默认运行级别启动超时已在干净 Alpine 环境复现：初始依赖树生成与两次安装都发生在同一秒，OpenRC 只比较整秒文件时间戳，缓存没有新服务；`rc-service` 能单独启动，但 `openrc default` 不会列出它们。安装后运行 `rc-update --update` 强制更新依赖树；回归夹具让初始缓存时间晚于新服务，避免依赖机器速度，并检查缓存包含两个服务。
 - 用户要求将近期修改与修复放到 `main`，后续不新建分支。参考本地 NodeFlare 的标签构建与 Linux cross / FreeBSD VM 验证方式，为收敛后的 CI 补充手动或标签触发的多平台制品工作流，保持 Ubuntu 24 glibc、macOS ARM64、Windows 与 FreeBSD 双架构；FreeBSD 在 Linux 安装目标标准库，不依赖 VM 内的 ARM64 rustup 安装器。详见 ADR 0015 后续决策。
+
+## 多平台构建：统一工作流与 Linux 链接方式
+
+- 用户澄清多平台应在日常 CI 中构建，OpenRC 无须单独拆出；将九个目标统一回 `ci.yml` 的 push/PR/手动入口，删除临时多平台工作流。OpenRC 真实服务检查移入两个 Linux musl 任务，GNU/Linux 则在 Ubuntu 24.04 双架构任务验证动态 glibc 链接。
+- init 与 libc 分开处理：Alpine/OpenRC 使用 musl 静态 Agent，Ubuntu 24.04/systemd 可使用 glibc 动态 Agent；服务管理继续自动识别，已有安装接口和制品导入方式保留，不将 GNU/libc 强行用于 Alpine。FreeBSD cross 与 VM 验证方案、macOS 仅 ARM64、Windows 双架构均保留。

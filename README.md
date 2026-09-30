@@ -102,7 +102,7 @@ arm64 主机将目标改为 `aarch64-unknown-linux-musl`，脚本参数改为 `a
 
 ### CI 可下载的 Agent 编译产物
 
-每次 push 或 PR 的 CI 构建 Linux musl 双架构，并检查 systemd 与 OpenRC。其余平台由 [Agent platform artifacts](.github/workflows/agent-platforms.yml) 工作流构建：在 Actions 页面手动选择 `Run workflow`，或推送 `v*` 标签。成功执行后，可在对应 Actions 运行页面的 Artifacts 下载，保留七天；当前执行结果以 Actions 为准。
+每次 push 或 PR 都由同一个 [CI 工作流](.github/workflows/ci.yml) 构建下方九个 Agent 目标，也可在 Actions 页面手动运行。Linux 按 libc 与架构提供四个目标；OpenRC 安装与服务检查作为 musl 构建步骤，systemd 检查保留在主检查任务。成功执行后，可在对应 Actions 运行页面的 Artifacts 下载，保留七天；当前执行结果以 Actions 为准。
 
 | 系统与链接方式 | 架构 | Artifact 名称 | 构建环境 |
 | --- | --- | --- | --- |
@@ -113,6 +113,8 @@ arm64 主机将目标改为 `aarch64-unknown-linux-musl`，脚本参数改为 `a
 | Windows MSVC | amd64、arm64 | `sinan-agent-windows-<arch>` | Visual Studio 2026 对应架构 runner，静态 CRT |
 
 新增目标使用最新 Rust stable，通过 Python 标准库脚本构建并检查 ELF、Mach-O 或 PE 架构和实际 `--version`、`--help` 启动。glibc 另外检查动态解释器、`libc.so.6` 和共享库解析。FreeBSD 的兼容基线是 13.5，未验证更早 13 小版本或未来主版本。
+
+Alpine/OpenRC 使用 musl 静态 Agent；Ubuntu 24.04/systemd 可使用 glibc 动态 Agent。OpenRC 与 systemd 是服务管理方式，不是额外的编译目标；选择二进制仍需匹配设备的 libc 和架构。musl 静态版也可用于 systemd 设备，glibc 动态版需与宿主共享库兼容。
 
 musl 压缩包保持上方 `agent/<version>/<arch>` 的原部署结构。其余下载内容使用 `<version>/<Rust target>/sinan-agent`（Windows 为 `sinan-agent.exe`），各 target 目录附 `SHA256SUMS`。Actions ZIP 不保留 Unix 执行权限，直接运行下载文件前执行 `chmod +x sinan-agent`。
 
