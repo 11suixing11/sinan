@@ -13,7 +13,7 @@
 
 ## 报告与章节边界
 
-result.json 和每份章节最多64 KiB，仅接收普通私有文件；拒绝 symlink/hardlink、超限、无效UTF-8、非JSON。校验冻结目标/digest、IP/参数、engine/version/source pin、无上传/排名/测速、UTC起止与逐次时间、实际地址与端口、完成状态以及基于样本重算的计数/成功率/建连耗时。未尝试的成功率为null，没有成功的延迟为null；真实0%或成功样本0毫秒保留，不能把失败补成0延迟。
+result.json 和每份章节最多64 KiB，仅接收普通私有文件；拒绝 symlink/hardlink、超限、无效UTF-8、非JSON。校验冻结目标/digest、IP/参数、engine/version/source pin、无上传/排名/测速、UTC起止与逐次时间、实际地址与端口、完成状态以及基于样本重算的计数/成功率/建连耗时。固定报告schema的nullable字段必须显式出现，允许值为null；缺失error不能被默认为成功。未尝试的成功率为null，没有成功的延迟为null；真实0%或成功样本0毫秒保留，不能把失败补成0延迟。
 
 固定读取 scope、summary 和至多八个目标章节，共至多10章，不枚举任意文件。各章节检查名称、revision、采集时间、内容与独立完整度；坏/缺/超限/链接章节跳过，其他部分仍可读。总章节采集预算五秒，截止时返回已经取得的章节。report_url始终None。环境章由core单独采集，不挤入工具十章预算；新适配器实例可以继续读取取消/重启前已保存的部分结果，不写生命周期状态或清理历史文件。
 
@@ -40,4 +40,4 @@ cargo test --locked
 
 这些测试使用记录型 Privileged、合成身份/报告和真实私有文件系统，明确不是真实签名归档安装或 native TCP 网络/服务测试。原生引擎真实回环/实际进程取消由 PR #68 验证；签名制品/许可证库存由 PR #69 验证；同机NodeQuality互斥、确认取消、压力与Panel/Agent完整接入由后续独立PR验证。
 
-本机只fmt、locked offline metadata/core门禁和差异检查，没有从头编译。源码 `881cce5c48d0a65f4ab6eeb83d04e52a2d6b8ae2` 的 [GitHub check](https://github.com/theLucius7/sinan/actions/runs/36789086624/job/110137429669) 已通过：13项适配器测试、全 targets Clippy（warnings视为错误）、完整 Rust/PostgreSQL 353通过/0失败/9既有条件忽略，随后专门执行的六项真实systemd回归全部通过。Compose、Agent双架构musl与TCP制品双架构检查也已通过；Reality与最终制品依赖更新的HEAD另核对。真实systemd回归验证现有core框架，不能当作此尚未登记适配器的完整服务验收。
+本机只fmt、locked offline metadata/core门禁和差异检查，没有从头编译。源码 `9b560e7fcdb2b92085eae87f9d4cd029386751bb` 的 [GitHub check](https://github.com/theLucius7/sinan/actions/runs/36790254785/job/110141221984) 已通过：13项适配器测试、全 targets Clippy（warnings视为错误）、完整 Rust/PostgreSQL 353通过/0失败/9既有条件忽略，随后专门执行的六项真实systemd回归全部通过。Compose、Agent双架构musl与TCP制品双架构检查也已通过；第14项缺失nullable字段专项、Reality与最终制品依赖更新的HEAD另核对。真实systemd回归验证现有core框架，不能当作此尚未登记适配器的完整服务验收。

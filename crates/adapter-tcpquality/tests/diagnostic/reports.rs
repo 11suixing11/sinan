@@ -275,3 +275,70 @@ async fn completed_family_failure_stays_unknown_but_cancelled_targets_cannot_cla
         );
     }
 }
+
+#[tokio::test]
+async fn missing_nullable_fields_never_imply_success_and_explicit_null_remains_unknown() {
+    let fixture = Fixture::new(1);
+    let spec = fixture.spec();
+    fixture.workspace();
+    for original in [
+        report(&spec, &fixture.scope),
+        completed(&spec, &fixture.scope, true),
+        completed(&spec, &fixture.scope, false),
+    ] {
+        fixture.write("result.json", original.to_string().as_bytes());
+        assert!(
+            TcpQualityAdapter::new()
+                .collect(&spec)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        let mut paths = vec![
+            ("/engine", "source_commit"),
+            ("", "finished_at_ms"),
+            ("/targets/0", "address"),
+            ("/targets/0", "error"),
+            ("/targets/0/summary", "connection_success_percent"),
+            ("/targets/0/summary", "latency_min_ms"),
+            ("/targets/0/summary", "latency_mean_ms"),
+            ("/targets/0/summary", "latency_max_ms"),
+        ];
+        if !original["targets"][0]["samples"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+        {
+            paths.extend([
+                ("/targets/0/samples/0", "error"),
+                ("/targets/0/samples/0", "latency_ms"),
+            ]);
+        }
+        for (path, key) in paths {
+            let mut missing = original.clone();
+            missing
+                .pointer_mut(path)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .remove(key);
+            fixture.write("result.json", missing.to_string().as_bytes());
+            assert!(
+                TcpQualityAdapter::new().collect(&spec).await.is_err(),
+                "{path}/{key}"
+            );
+            fixture.write(
+                "sections/tcp_summary.json",
+                &chapter("tcp_summary", &missing, false),
+            );
+            assert!(
+                TcpQualityAdapter::new()
+                    .collect_sections(&spec)
+                    .await
+                    .unwrap()
+                    .is_empty(),
+                "{path}/{key}"
+            );
+        }
+    }
+}
