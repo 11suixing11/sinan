@@ -89,6 +89,8 @@ struct Services {
     fail_stop: AtomicBool,
     fail_status: AtomicBool,
     remain_active: AtomicBool,
+    cleanup_confirmed: AtomicBool,
+    stopped_units: Mutex<Vec<String>>,
 }
 impl Services {
     fn new(status: JobStatus) -> Self {
@@ -102,10 +104,25 @@ impl Services {
             fail_stop: AtomicBool::new(false),
             fail_status: AtomicBool::new(false),
             remain_active: AtomicBool::new(false),
+            cleanup_confirmed: AtomicBool::new(true),
+            stopped_units: Mutex::new(Vec::new()),
         }
     }
 }
 impl ServiceManager for Services {
+    fn supports_confirmed_cancellation(&self) -> bool {
+        true
+    }
+    fn diagnostic_cleanup_confirmed<'a>(
+        &'a self,
+        _unit: &'a str,
+        _directory: &'a Path,
+    ) -> BoxFuture<'a, bool> {
+        Box::pin(async {
+            Ok(self.cleanup_confirmed.load(Ordering::Relaxed)
+                && !self.remain_active.load(Ordering::Relaxed))
+        })
+    }
     fn running_diagnostic_units(&self) -> BoxFuture<'_, Vec<String>> {
         Box::pin(async {
             self.conflicts
@@ -121,9 +138,10 @@ impl ServiceManager for Services {
     fn restart<'a>(&'a self, _unit: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
-    fn stop<'a>(&'a self, _unit: &'a str) -> BoxFuture<'a, ()> {
+    fn stop<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async move {
             self.stops.fetch_add(1, Ordering::Relaxed);
+            self.stopped_units.lock().unwrap().push(unit.into());
             ensure!(
                 !self.fail_stop.load(Ordering::Relaxed),
                 "fixture stop failure"
@@ -446,5 +464,7 @@ mod deadline;
 #[path = "tests/safety.rs"]
 mod safety;
 
+#[path = "tests/cancellation.rs"]
+mod cancellation;
 #[path = "tests/report_sections.rs"]
 mod report_sections;

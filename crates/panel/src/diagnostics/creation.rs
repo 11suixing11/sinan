@@ -30,7 +30,7 @@ pub async fn create(
     let now = now_timestamp();
     sqlx::query("UPDATE diagnostic_jobs SET status='failed',error='任务超时或设备未及时回报',updated_at=$2 WHERE server_id=$1 AND status IN ('queued','running') AND expires_at<=$2")
         .bind(id).bind(now).execute(&mut *tx).await?;
-    let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM diagnostic_jobs WHERE server_id=$1 AND status IN ('queued','running'))")
+    let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM diagnostic_jobs WHERE server_id=$1 AND status IN ('queued','running','cancel_requested'))")
         .bind(id).fetch_one(&mut *tx).await?;
     if active {
         return Err(ApiError::Conflict(
@@ -85,7 +85,7 @@ pub async fn create(
     let mut saved_job = serde_json::to_value(&job).map_err(anyhow::Error::from)?;
     saved_job["proxy_activity"] = serde_json::to_value(activity).map_err(anyhow::Error::from)?;
     saved_job["confirmation"] = confirmation;
-    let record = sqlx::query_as("INSERT INTO diagnostic_jobs(id,server_id,job,created_at,updated_at,expires_at,expected_sections) VALUES($1,$2,$3,$4,$4,$5,$6) RETURNING id,status,job,report,error,created_at,updated_at,expires_at,expected_sections,report_completeness,'[]'::jsonb AS sections")
+    let record = sqlx::query_as("INSERT INTO diagnostic_jobs(id,server_id,job,created_at,updated_at,expires_at,expected_sections) VALUES($1,$2,$3,$4,$4,$5,$6) RETURNING id,status,job,report,error,created_at,updated_at,expires_at,agent_completed,cancel_requested_at,cancel_error,expected_sections,report_completeness,'[]'::jsonb AS sections")
         .bind(job.id).bind(id).bind(saved_job)
         .bind(now).bind(now + timeout_secs as i64 + 300).bind(expected).fetch_one(&mut *tx).await?;
     tx.commit().await?;

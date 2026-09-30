@@ -21,13 +21,15 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
 #[derive(Default)]
 struct IndependentServices {
     starts: AtomicUsize,
+    stops: AtomicUsize,
+    block_stop: AtomicBool,
     jobs: Mutex<BTreeMap<String, (PathBuf, JobStatus)>>,
 }
 
@@ -67,8 +69,26 @@ impl ServiceManager for IndependentServices {
     fn restart<'a>(&'a self, _: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
-    fn stop<'a>(&'a self, _: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(async { Ok(()) })
+    fn supports_confirmed_cancellation(&self) -> bool {
+        true
+    }
+    fn diagnostic_cleanup_confirmed<'a>(
+        &'a self,
+        unit: &'a str,
+        _: &'a std::path::Path,
+    ) -> BoxFuture<'a, bool> {
+        Box::pin(async move { Ok(!self.jobs.lock().unwrap().contains_key(unit)) })
+    }
+    fn stop<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            self.stops.fetch_add(1, Ordering::SeqCst);
+            anyhow::ensure!(
+                !self.block_stop.load(Ordering::SeqCst),
+                "fixture stop not confirmed"
+            );
+            self.jobs.lock().unwrap().remove(unit);
+            Ok(())
+        })
     }
     fn is_active<'a>(&'a self, _: &'a str) -> BoxFuture<'a, bool> {
         Box::pin(async { Ok(false) })
@@ -229,3 +249,6 @@ async fn node_report_survives_agent_restart_and_is_started_only_once(pool: PgPoo
     let _ = restarted.await;
     Ok(())
 }
+
+#[path = "diagnostic_end_to_end/cancellation.rs"]
+mod cancellation;

@@ -25,6 +25,7 @@ const OUTBOX: &str = "diagnostics:outbox";
 const MAX_REPORT: usize = 512 * 1024;
 
 mod environment;
+pub mod cancellation;
 mod monitoring;
 mod observation;
 mod safety;
@@ -55,6 +56,8 @@ pub struct DiagnosticWorker {
     privileged: Arc<dyn Privileged>,
     services: Arc<dyn ServiceManager>,
     keys: std::result::Result<TrustedKeys, ReleaseError>,
+    cancellations: Option<Arc<cancellation::CancellationControl>>,
+    retirement: Option<Arc<crate::retirement::Retirement>>,
 }
 
 impl DiagnosticWorker {
@@ -84,13 +87,26 @@ impl DiagnosticWorker {
             privileged,
             services,
             keys: TrustedKeys::compiled(),
+            cancellations: None,
+            retirement: None,
         })
+    }
+
+    pub fn with_cancellations(mut self, control: Arc<cancellation::CancellationControl>) -> Self {
+        self.cancellations = Some(control);
+        self
     }
 
     /// Supplies roots already trusted by an embedding caller, including test fixtures.
     pub fn with_trusted_keys(mut self, keys: TrustedKeys) -> Self {
         self.keys = Ok(keys);
         self
+    }
+
+    fn retiring(&self) -> bool {
+        self.retirement
+            .as_ref()
+            .is_some_and(|retirement| retirement.requested())
     }
 
     fn read<T: serde::de::DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
@@ -188,6 +204,7 @@ impl DiagnosticWorker {
     async fn prepare(&self, job: DiagnosticJob, client: &PanelClient) -> Result<()> {
         let id = job.id;
         let result: Result<()> = async {
+            ensure!(!self.cancellation_requested(id)?, "diagnostic cancellation was requested");
             ensure!(!expired(&job), "diagnostic task has expired");
             let adapter = self.adapters.get(&job.plugin).context("diagnostic plugin is not registered")?;
             let descriptor = adapter.describe();
@@ -227,6 +244,7 @@ impl DiagnosticWorker {
                 environment: Some(environment::ExecutionEnvironment::capture(&service, &resources, started_at)),
                 spec, service: service.clone(), started_at, plugin: job.plugin, start_error: None, expires_at: job.expires_at, protection_stop_reason: None,
             };
+            ensure!(!self.cancellation_requested(id)?, "diagnostic cancellation was requested before service start");
             self.save(&checkpoint)?;
             self.capture_environment(&checkpoint)?;
             if let Err(error) = self.bounded(self.services.start_job(&service)).await {
@@ -238,13 +256,16 @@ impl DiagnosticWorker {
             }
             Ok(())
         }.await;
-        if let Err(error) = result {
+        if let Err(error) = result
+            && !self.cancellation_requested(id)?
+        {
             self.finish(failure(id, format!("诊断准备失败：{error:#}"), None))?;
         }
         Ok(())
     }
 
     pub async fn tick(&self, client: Option<&PanelClient>) -> Result<()> {
+        self.process_cancellations().await?;
         if let Some(checkpoint @ Checkpoint::Started { .. }) = self.active()? {
             self.observe(&checkpoint).await?;
         }

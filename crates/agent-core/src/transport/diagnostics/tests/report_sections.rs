@@ -194,3 +194,52 @@ async fn chapter_http_failure_does_not_hide_terminal_status_and_acknowledgment_i
     server.abort();
     Ok(())
 }
+
+#[tokio::test]
+async fn confirmed_cancellation_captures_final_chapters_and_keeps_them_after_restart() -> Result<()>
+{
+    use crate::transport::diagnostics::cancellation::CancellationControl;
+    let directory = Directory::new();
+    let services = Arc::new(Services::new(JobStatus::Running));
+    let id = Uuid::new_v4();
+    let worker = chapter_worker(&directory, services.clone())?;
+    let control = Arc::new(CancellationControl::new(
+        worker.state.clone(),
+        7,
+        vec!["diagnostic-fixture".into()],
+    ));
+    let worker = worker.with_cancellations(control.clone());
+    let checkpoint = checkpoint(&worker.config, id);
+    let Checkpoint::Started { spec, .. } = &checkpoint else {
+        unreachable!()
+    };
+    std::fs::create_dir_all(&spec.job_dir)?;
+    std::fs::write(
+        spec.job_dir.join("fixture-sections.json"),
+        serde_json::to_vec(&serde_json::json!([
+            {"name":"header_info","text":"final cancelled chapter","complete":true,"revision":2,"collected_at":1700000000}
+        ]))?,
+    )?;
+    worker.save(&checkpoint)?;
+    control.request(sinan_protocol::DiagnosticCancelRequest {
+        server_id: 7,
+        job: job(id),
+    })?;
+    worker.tick(None).await?;
+    assert!(worker.active()?.is_none());
+    let results: Vec<sinan_protocol::DiagnosticCancelResult> =
+        worker.read("diagnostics:cancellation-results")?.unwrap();
+    assert!(results[0].confirmed);
+    drop(worker);
+    drop(control);
+    let recovered = chapter_worker(&directory, services.clone())?;
+    let chapters: Vec<sinan_protocol::DiagnosticSectionUpdate> =
+        recovered.read(sections::SECTIONS_OUTBOX)?.unwrap();
+    assert_eq!(chapters.len(), 1);
+    assert_eq!(chapters[0].text, "final cancelled chapter");
+    assert_eq!(chapters[0].revision, 2);
+    recovered.accept(vec![job(id)])?;
+    assert!(recovered.active()?.is_none());
+    assert_eq!(services.starts.load(Ordering::Relaxed), 0);
+    Ok(())
+}

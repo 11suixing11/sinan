@@ -15,10 +15,13 @@ impl DiagnosticWorker {
         else {
             anyhow::bail!("only a started diagnostic can be observed");
         };
+        let id = Uuid::parse_str(&spec.id)?;
+        if self.cancellation_requested(id)? {
+            return Ok(());
+        }
         let (status, stop_reason) = self
             .status_with_memory_protection(&service.unit, protection_stop_reason.as_deref())
             .await?;
-        let id = Uuid::parse_str(&spec.id)?;
         let now = unix_time();
         if let Err(error) = self.capture_environment(checkpoint) {
             tracing::warn!(%id, %error, "execution environment capture failed; resource protection continues");
@@ -133,6 +136,9 @@ impl DiagnosticWorker {
                 ),
             }
         };
+        if self.cancellation_requested(id)? {
+            return Ok(());
+        }
         self.finish(update)?;
         if let Err(error) = self.bounded(self.services.stop(&service.unit)).await {
             tracing::warn!(%id, %error, "diagnostic service cleanup failed");
