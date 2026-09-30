@@ -108,3 +108,10 @@ Agent 收到请求后持久阻止新的受管操作，停止运行时与诊断�
 诊断章节回报与执行状态独立。`POST /api/agent/v1/diagnostics/{id}/sections` 发送 `{id,name,text,complete,revision,collected_at}`，章节名须已登记在任务的 `expected_sections` 中，UTF-8 文本不超过 64 KiB、单任务不超过 512 KiB。`revision` 是此任务此章节的递增版本，采集时间使用秒；相同版本同内容可重复提交，同版本不同内容拒绝，迟到版本或已完成章节的未完成版本不会覆盖已保存内容。HTTP 204 只确认所提交版本持久化，Agent 用 SQLite 保存未确认章节和已确认版本，断连或重启后继续上传，不重新执行测试。
 
 任务历史在原 `report` 文本之外返回 `expected_sections`、`sections` 和 `report_completeness=empty|partial|complete|legacy`。执行 `status` 不用于推导完整度；失败、取消或截止后仍可接收已执行任务的迟到章节，独立显示已完成部分。旧文本保持原样，完整度标记为 `legacy`（未知），不补造章节结果。已删除设备不能上传章节。NodeQuality r3 包装器在每个阶段运行时保存私有目录内原子章节快照；同一固定上游的下一阶段日志或最终压缩包证明上一章节完成，缺失或无效 JSON 只能产生未完成预览。
+
+
+## 共用诊断任务服务
+
+管理员用 `GET /api/servers/{id}/diagnostics` 查看登记插件就绪状态及最近任务，`POST /api/servers/{id}/diagnostics/{plugin}` 提交插件参数。只允许已登记插件，所有创建入口共享服务器锁；旧 NodeQuality 路由保留。Agent 结果、章节、待取消及确认接口维持原设备范围认证。
+
+`DiagnosticJob` 增量字段 `resource_budget` 为对象，包含 `memory_max`（字节）、`tasks_max`、`cpu_weight`、`io_weight`、`oom_score_adjust`。新任务需 `diagnostic:job-service`；旧字段缺失代表适配器原预算。Agent 在预检前验证并应用，只可收紧适配器准备的限制。任务 JSON 与历史表不迁移，旧设备回报的历史任务及章节仍可接收。

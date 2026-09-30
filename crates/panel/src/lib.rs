@@ -9,6 +9,7 @@ pub mod business;
 pub mod commands;
 pub mod config;
 pub mod deployments;
+pub mod diagnostic_plugins;
 pub mod diagnostics;
 pub mod error;
 pub mod frontend;
@@ -114,6 +115,14 @@ pub fn router(state: AppState) -> Router {
             axum::routing::patch(probes::update).delete(probes::remove),
         )
         .route("/api/servers/{id}/probe-results", get(probes::history))
+        .route(
+            "/api/servers/{id}/diagnostics",
+            get(diagnostics::service::get),
+        )
+        .route(
+            "/api/servers/{id}/diagnostics/{plugin}",
+            post(diagnostics::service::create),
+        )
         .route("/api/servers/{id}/ip-quality", get(ip_quality::get))
         .route(
             "/api/servers/{id}/ip-quality/refresh",
