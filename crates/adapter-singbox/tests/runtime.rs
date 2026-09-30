@@ -3,7 +3,7 @@
 mod support;
 
 use anyhow::{Context, Result};
-use sinan_adapter_sdk::{Adapter, Plan, UsageSource};
+use sinan_adapter_sdk::{Adapter, Counter, Plan, Prepared, UsageSource};
 use sinan_adapter_singbox::SingboxAdapter;
 use std::{path::PathBuf, process::Stdio, time::Duration};
 use support::{TempDir, TestOps, TestServices};
@@ -109,8 +109,13 @@ async fn real_check_stats_cumulative_reads_and_reload_generation() -> Result<()>
         "reloaded runtime is unhealthy"
     );
     anyhow::ensure!(
-        adapter.read_counters(&prepared).await?.is_empty(),
-        "reload preserved the old generation's counters"
+        adapter.read_counters(&prepared).await?
+            == vec![Counter {
+                stat_name: "u1_n3".into(),
+                uplink: 0,
+                downlink: 0,
+            }],
+        "reload must expose configured zero counters before same-volume traffic"
     );
     transfer(inbound_port).await?;
     anyhow::ensure!(
@@ -119,5 +124,25 @@ async fn real_check_stats_cumulative_reads_and_reload_generation() -> Result<()>
     );
     child.kill().await?;
     child.wait().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn failed_statistics_rpc_is_not_reported_as_zero_usage() -> Result<()> {
+    let directory = TempDir::new();
+    let reservation = TcpListener::bind("127.0.0.1:0").await?;
+    let spec = directory.spec(reservation.local_addr()?.port(), serde_json::json!([]));
+    let prepared = Prepared {
+        spec,
+        listen_ports: vec![],
+    };
+    drop(reservation);
+    anyhow::ensure!(
+        SingboxAdapter::new()
+            .read_counters(&prepared)
+            .await
+            .is_err(),
+        "failed statistics RPC was converted into zero counters"
+    );
     Ok(())
 }

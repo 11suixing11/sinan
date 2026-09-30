@@ -13,7 +13,8 @@ COPY crates/ ./crates/
 COPY deploy/ ./deploy/
 COPY plugins/ ./plugins/
 COPY --from=web /src/web/dist ./web/dist
-RUN cargo build --locked --release -p sinan-panel
+ARG CARGO_BUILD_JOBS=2
+RUN CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS" cargo build --locked --release -p sinan-panel
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \

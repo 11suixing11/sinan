@@ -1,13 +1,47 @@
 # 执行进度
 
-## 交付加固第 0 阶段：实现与本地检查完成，等待 main CI
+## 交付加固第 0 阶段：已完成，main CI 全绿
 
 - 自动 CI 精简为 Rust/前端检查、Compose 持久化 smoke、Linux musl amd64/arm64；runner 固定 Ubuntu 24.04。原 FreeBSD 工具链候选修复及原未提交差异保存在仓库外，未纳入本次提交。为避开两个活跃聊天共享目录的写入，本任务改用独立 worktree；既有部署与凭据保持私有。
-- release profile 开启 `strip=true`、`lto=true`、`codegen-units=1`；musl jobs 对同源码、同工具链的旧 profile 和新 profile 分别构建，精确字节数、缩减比例随 artifact 与 Actions summary 保存。体积结果待对应 CI 实际构建，不以历史二进制冒充同源对照。
+- release profile 开启 `strip=true`、`lto=true`、`codegen-units=1`；musl jobs 对同源码、同工具链的旧 profile 和新 profile 分别构建，精确字节数、缩减比例随 artifact 与 Actions summary 保存。同源 CI 实测：amd64 从 21,326,304 降到 9,483,600 字节（缩减 55.53%）；arm64 从 20,547,008 降到 8,156,432 字节（缩减 60.30%）。
 - NodeQuality 新任务默认 `upload_report=false`，创建任务时显式选择公开上传。Agent 与包装器严格传递此选项；本地完整报告仍保留。固定上游源码未改，包装制品升为 `-r2`，旧 Agent 拒绝新任务。已经排队或运行的旧任务沿用旧策略，应先结束再升级。
 - 本地验证：`cargo fmt --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked` 全部通过，116 项通过、4 项按既有原因默认忽略；使用真实 PostgreSQL 16.15，包含 HTTP/WebSocket、诊断和账本恢复测试。Bun 冻结锁文件安装及生产构建通过，依赖未增加。构建脚本 4 项通过；NodeQuality Python 20 项中 15 项通过，5 项 Linux/root 夹具留给本阶段 CI。r2 双架构包装实际构建通过，嵌入上游字节保持一致。actionlint、YAML/矩阵与 diff 检查通过。
-- 已核对前一个 main 的全部 jobs：仅 FreeBSD arm64 工具链安装失败；这些历史通过状态不能认证本次变更。本阶段推送后逐项检查 main，再补充实际 CI 与体积证据。
-- 下一步：等待 main 全绿，完成干净 Linux/systemd Agent 的 Reality、重启计量和 0.1.0→0.2.0 升级验收；现有部署聊天已完成，不清空现有面板数据库。
+- 已核对前一个 main 的全部 jobs：仅 FreeBSD arm64 工具链安装失败；这些历史通过状态不能认证本次变更。本阶段 [7a8fb70 的 main CI](https://github.com/theLucius7/sinan/actions/runs/36684582275) 已全部成功：check、Compose smoke、musl 双架构；Linux/root 的 NodeQuality 全部夹具及真实 systemd 专项也在该提交通过。两架构 artifact 已实际下载核对体积记录。
+- 下一步：完成干净 Linux/systemd Agent 的 Reality、重启计量和 0.1.0→0.2.0 升级验收；现有部署聊天已完成，不清空现有面板数据库。
+
+## 交付加固第 1 阶段：已完成真实链路与升级验收
+
+2026-09-30 在既有云主机上创建独立 Debian 12 / systemd 252 容器、独立 Docker 网络与私有证据目录。面板/PostgreSQL 沿用既有部署；仅创建专用验收服务器、节点、用户。Mac 独立客户端通过公网 Reality 完成 HTTPS 访问与受控双向流量。未修改宿主 Agent、原服务器记录或宿主反代。
+
+- 初次 Agent 0.1.0 应用修订 1，运行时 1.14.2，包含 with_v2ray_api；统计仅在回环地址监听。
+- 首轮上传 1,049,440 字节、下载 2,102,444 字节。停止客户端后，Agent 重启与运行时重载均保持累计值不变、待确认批次 0，运行时 PID 203 不变。
+- 使用正式新令牌与完整安装脚本执行 0.1.0 → 0.2.0。升级 UTC 08:24:19.681271 开始、08:24:20.404582 结束；身份各文件摘要、服务器 ID、配置摘要、修订目录、运行时 PID 均保持不变。SQLite 文件保留，schema_version 6 保留，序列从 6 增至 7。独立客户端一次 2 MiB 下载于升级开始后 0.123 秒发起、结束后约 2.830 秒完整成功，提供跨升级窗口的实际请求证据。
+- 恢复流量后的实际累计上传 21,573,061 字节、下载 44,832,934 字节，总计 66,405,995 字节。停止客户端后，连续三样本、间隔 35 秒确认累计值稳定且待确认批次 0。
+- 专用节点修改 SNI 后修订 2 健康应用，恢复后修订 3 健康应用，目标修订均等于已应用修订；累计流量保持上述数值，身份与账本连续，原服务器部署状态不变。
+
+私有证据包括 before、after-agent、after-runtime、resumed、after-upgrade、upgrade-before/after/execution、managed-republish、final-identity-ledger。运行时 PID 最终仍为 203。
+
+边界与 workaround：这是干净 Debian 12 容器的真实公网链路验收，不是重装整台云主机；面板沿用原 PostgreSQL。原产物版本不可变，因此升级使用面板已有的历史 0.2.0 制品，优化构建的体积验证另由第 0 阶段 CI 提供。设备访问公开面板经过外部网关返回拒绝响应，验收容器仅覆盖自身域名解析指向 Docker 网关，TLS/SNI 校验仍启用；私有 API 驱动只对面板主机名使用回环解析。节点默认端口与容器公网映射不同，客户端仅在私有验收配置中覆盖公网端口。历史 0.1.0 安装脚本由原正式脚本私有副本修改版本及校验值，原文保留；相关问题见 issue #3。证据、身份、令牌与环境地址不提交仓库。
+
+- 公网连续载荷测试有两次 15 秒请求超时，首次发生在升级前；90 秒预算的升级后双向载荷校验通过，不宣称连续所有请求无错误。[版本选择 #3](https://github.com/theLucius7/sinan/issues/3)、[CDN 与 origin 诊断 #4](https://github.com/theLucius7/sinan/issues/4)、[手动端口 #5](https://github.com/theLucius7/sinan/issues/5)、[公网超时 #6](https://github.com/theLucius7/sinan/issues/6) 已建立。
+- 新增可恢复的专用资源 API 驱动、私有证据保存与精确流量/健康/身份/outbox 断言，以及受控双向 HTTP fixture。7 项驱动契约测试通过；全 workspace fmt、所有 targets Clippy（warnings 为错误）、cargo test 通过，116 项通过、4 项按既有原因默认忽略，数据库测试使用真实 PostgreSQL 16.15。
+- 下一步：将实际安装、systemd、Reality 流量和账本复核固化为每个 PR 的 CI；签名阶段按用户指定 minisign、多编译时公钥及本地离线签名执行。
+
+## 交付加固第 2 阶段：已实现，本地验证通过，PR 真实 CI 待验
+
+- 新增 Ubuntu 24.04 `real-e2e`，在每个 PR 与 main push 执行。复用同次 CI 的优化 musl amd64 Agent；固定上游运行时 1.14.2，以版本和构建脚本摘要缓存，并在每次恢复后核对 SHA-256、归档边界、ELF 架构、Go 1.26.8、固定 revision 与完整默认标签加统计标签。第 0 阶段已有同源体积对照，常规 CI 不再重复构建旧 profile。
+- 专用 Compose 面板与 PostgreSQL 提供制品；真实安装脚本在干净 runner 宿主安装，由 systemd 启动 Agent 和独立运行时。本地 Reality 客户端向受控回环 HTTP fixture 下载 2 MiB、上传 1 MiB，核对内容和精确计量增量。暂停后连续三样本、间隔 35 秒确认计量稳定与 outbox 空，再验证 Agent 重启、运行时 HUP、恢复流量和同版本重新安装的计量、身份与运行时 PID 连续性。
+- 脚本先拒绝已有 Sinan 安装，仅清理本次创建的服务、Compose 项目、私有临时目录与测试映射。公开 artifact 和 Actions summary 仅包含白名单中的版本、阶段与十进制用量，不上传身份、令牌、订阅、配置或原始日志。
+- README 精简并拆出 `docs/deploy.md`、`docs/dev.md`；部署文档保留真机发现的版本耦合、CDN 拒绝、端口映射和公网超时问题。Docker 面板默认两个 Rust 编译任务，降低 LTO 构建的内存压力。
+- 本地验证：Shell/Python 语法（含全部嵌入块）、Markdown 相对链接、actionlint、diff 检查通过；7 项驱动与 3 项运行时缓存契约测试通过。缓存修改在执行前拒绝，正确摘要不能放行归档路径/符号链接，缺失上游默认标签被拒绝。已用真机现有 Linux 制品执行完整缓存校验通过；本机临时 Reality 与 TLS 伪装夹具的双向流量通过。
+- `cargo fmt --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked` 全部通过；116 项通过、4 项按既有原因默认忽略，数据库测试使用真实 PostgreSQL 16.15。日志保存在仓库外 `/tmp/stage2-checks.log`。
+- 验收边界：新 job 尚待此提交的真实 GitHub PR 执行，不以 YAML 或本地契约测试宣称每个 PR 已通过。回环 CI 不覆盖外部 CDN、云 DNS、防火墙或公网超时，也不替代第 1 阶段的 0.1.0→0.2.0 跨版本升级证据。此阶段制品尚无签名，第 3 阶段加入独立测试公钥与正式离线签名信任链。
+- 下一步：创建 PR 跟进真实端到端 job，通过后记录对应 Actions；继续发布与信任链阶段。
+
+- 首次真实 PR [Actions 36693149491](https://github.com/theLucius7/sinan/actions/runs/36693149491) 中，基础检查、Compose、双架构 musl 与运行时冷构建/完整校验/缓存均成功；真实安装、首轮 2 MiB/1 MiB 载荷及 Agent 重启、HUP 后连续 70 秒稳定均通过，但恢复同量载荷后未达到应有入账增量。此时第 2 阶段尚未验收通过。
+- 新问题 [HUP 后同量新流量漏计 #9](https://github.com/theLucius7/sinan/issues/9)：上游新代按用户惰性创建统计，空响应没有归零旧基准。适配器仅从已应用配置的统计用户白名单补齐零计数，RPC 错误仍失败；未修改 core、协议或上游源码。CI 增加只读 SQLite 基准与面板初轮总值、HUP 后零值和恢复流量的精确对照，公开摘要仍仅含白名单阶段及十进制用量。
+- 修复在独立、基于阶段 2 提交的 worktree 验证，保留并避开同时进行的签名阶段工作：fmt、全 targets Clippy、默认测试通过，119 项通过、4 项默认忽略；显式真实运行时 HUP/同量再流量专项通过。账本对照临时契约验证错误总值、丢失第二批、非零重载基准、待确认批次均拒绝，且只读数据库内容未变。修复后 PR CI 待重跑。
+
 
 ## G1：已完成
 

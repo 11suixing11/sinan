@@ -1,0 +1,384 @@
+#!/usr/bin/env python3
+"""Drive real acceptance through the panel; the operator controls devices and traffic."""
+
+import argparse
+import contextlib
+import fcntl
+import getpass
+import http.cookiejar
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+
+
+class AcceptanceError(Exception):
+    pass
+
+
+def ensure(condition, message):
+    if not condition:
+        raise AcceptanceError(message)
+
+
+def private_write(path, content):
+    ensure(not path.is_symlink(), "私有输出不能是符号链接")
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=".e2e-")
+    try:
+        with os.fdopen(descriptor, "w") as output:
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def save(path, state):
+    private_write(path, json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+
+
+def origin(value):
+    parsed = urllib.parse.urlsplit(value)
+    ensure(
+        parsed.scheme in ("http", "https") and parsed.hostname
+        and not parsed.username and not parsed.password and not parsed.query
+        and not parsed.fragment and parsed.path in ("", "/"),
+        "面板地址必须是 HTTP(S) origin",
+    )
+    return value.rstrip("/")
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, message, headers, new_url):
+        raise AcceptanceError("验收接口出现重定向；请直接使用最终面板 origin")
+
+
+class Panel:
+    def __init__(self, base, password):
+        self.base = base
+        self.client = urllib.request.build_opener(
+            NoRedirect(), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
+        )
+        self.request("/api/login", {"password": password})
+
+    def request(self, path, data=None, raw=False):
+        body = None if data is None else json.dumps(data).encode()
+        headers = {} if body is None else {"Content-Type": "application/json"}
+        request = urllib.request.Request(self.base + path, data=body, headers=headers)
+        try:
+            with self.client.open(request, timeout=20) as response:
+                content = response.read(2 * 1024 * 1024 + 1)
+        except urllib.error.HTTPError as error:
+            # Do not expose enrollment or subscription tokens from request URLs.
+            raise AcceptanceError(f"面板请求失败，HTTP {error.code}") from None
+        except urllib.error.URLError:
+            raise AcceptanceError("无法连接面板，请检查 origin、TLS 与网络") from None
+        ensure(len(content) <= 2 * 1024 * 1024, "面板响应超过验收脚本上限")
+        return content.decode() if raw else json.loads(content)
+
+    def close(self):
+        with contextlib.suppress(Exception):
+            self.request("/api/logout", {})
+
+
+def password():
+    filename = os.environ.get("SINAN_E2E_ADMIN_PASSWORD_FILE")
+    if filename:
+        path = Path(filename)
+        metadata = path.lstat()
+        ensure(path.is_file() and not path.is_symlink(), "密码文件必须是普通文件")
+        ensure(metadata.st_mode & 0o077 == 0, "密码文件需仅当前用户可读写")
+        return path.read_text().rstrip("\r\n")
+    value = os.environ.get("SINAN_E2E_ADMIN_PASSWORD")
+    return value if value is not None else getpass.getpass("管理员密码（不保存）：")
+
+
+def resource(panel, path, state, kind, fields, state_path):
+    name = state["prefix"] + "-" + kind
+    identifier = state.get(kind + "_id")
+    if identifier is None:
+        # The unique name is persisted before POST, so a lost response is recoverable.
+        matches = [item for item in panel.request(path) if item["name"] == name]
+        ensure(len(matches) <= 1, "专用验收名称出现重复；保留现状并人工检查")
+        item = matches[0] if matches else panel.request(path, {"name": name, **fields})
+        state[kind + "_id"] = item["id"]
+        save(state_path, state)
+    else:
+        item = panel.request(path + "/" + str(identifier))
+    ensure(item["name"] == name, "验收对象已改名；拒绝操作其他对象")
+    for key, expected in fields.items():
+        ensure(item[key] == expected, "验收对象配置与私有 state 不一致")
+    return item
+
+
+def install(panel, state, state_path, refresh=False):
+    output = state_path.parent / "install.sh"
+    if output.is_file() and not refresh:
+        return
+    server = panel.request(f"/api/servers/{state['server_id']}")
+    ensure(server["name"] == state["prefix"] + "-server", "服务器不再属于本次验收")
+    enrollment = panel.request(f"/api/servers/{state['server_id']}/enrollment", {})
+    query = urllib.parse.urlencode({"token": enrollment["token"]})
+    script = panel.request("/install.sh?" + query, raw=True)
+    version = re.search(r"^VERSION='([^']+)'$", script, re.MULTILINE)
+    ensure(version is not None, "安装脚本未包含可识别的 Agent 版本")
+    private_write(output, script)
+    state["installation"] = {
+        "version": version[1], "expires_at": enrollment["expires_at"]
+    }
+    save(state_path, state)
+    print("私有 install.sh 已保存；由操作者在专用 Linux/systemd 设备执行")
+
+
+def prepare(panel, state, args):
+    server = resource(panel, "/api/servers", state, "server", {}, args.state)
+    node = resource(panel, "/api/nodes", state, "node", {
+        "server_id": server["id"], "public_host": state["public_host"], "sni": state["sni"]
+    }, args.state)
+    user = resource(panel, "/api/users", state, "user", {}, args.state)
+    existing = panel.request(f"/api/users/{user['id']}/accesses")
+    ensure(all(item["node_id"] == node["id"] for item in existing),
+           "专用验收用户出现其他授权；拒绝修改")
+    access = panel.request(f"/api/users/{user['id']}/accesses", {"node_id": node["id"]})
+    state["port"] = node["port"]
+    state["stat_name"] = access["stat_name"]
+    save(args.state, state)
+    install(panel, state, args.state)
+    print(f"专用对象就绪：server={server['id']} node={node['id']} user={user['id']} port={node['port']}")
+
+
+def usage_totals(view):
+    values = []
+    for field in ("uplink", "downlink", "total"):
+        value = view[field]
+        ensure(isinstance(value, str) and re.fullmatch(r"0|[1-9][0-9]*", value),
+               "面板用量必须是精确非负十进制字符串")
+        values.append(int(value))
+    ensure(values[0] + values[1] == values[2], "面板上下行与总量不一致")
+    return tuple(values)
+
+
+def snapshot(panel, state, command=None):
+    server = panel.request(f"/api/servers/{state['server_id']}")
+    ensure(server["name"] == state["prefix"] + "-server", "服务器不再属于本次验收")
+    deployment = panel.request(f"/api/servers/{state['server_id']}/deployments")["status"]
+    query = urllib.parse.urlencode({"user_id": state["user_id"], "node_id": state["node_id"]})
+    usage = panel.request("/api/usage?" + query)
+    usage_totals(usage)
+    result = {
+        "observed_at": int(time.time()), "usage": usage, "deployment": deployment,
+        "server": {"id": server["id"], "online": server["online"],
+                   "device_public_key": server["device_public_key"],
+                   "agent_version": server["static_info"].get("agent_version"),
+                   "runtime_version": server["static_info"].get("runtime_version")},
+    }
+    if command:
+        try:
+            process = subprocess.run(shlex.split(command), check=True, capture_output=True,
+                                     text=True, timeout=20)
+        except (subprocess.SubprocessError, OSError):
+            raise AcceptanceError("只读 Agent status 命令失败；请在设备检查服务") from None
+        ensure(len(process.stdout) <= 65536, "Agent status 响应过大")
+        result["agent"] = json.loads(process.stdout)
+    return result
+
+
+def healthy(view):
+    status = view["deployment"]
+    return (view["server"]["online"] and status is not None and status["target_rev"] > 0
+            and status["target_rev"] == status["applied_rev"] and status["healthy"]
+            and not status["last_error"])
+
+
+def checkpoint(state, name):
+    ensure(name in state["checkpoints"], "找不到指定基线；请先完成相应阶段")
+    return state["checkpoints"][name]
+
+
+def record(state, args, view):
+    state["checkpoints"][args.label] = view
+    save(args.state, state)
+    save(args.state.parent / (args.label + ".json"), view)
+    up, down, _ = usage_totals(view["usage"])
+    print(f"阶段 {args.label} 通过：上传={up} 下载={down} 字节")
+
+
+def ready(panel, state, args):
+    deadline = time.monotonic() + args.timeout
+    while True:
+        view = snapshot(panel, state)
+        if healthy(view) and (not args.agent_version
+                             or view["server"]["agent_version"] == args.agent_version):
+            break
+        ensure(time.monotonic() < deadline, "超时：设备未在线、配置未健康应用或版本不符")
+        time.sleep(min(2, args.timeout))
+    user = panel.request(f"/api/users/{state['user_id']}")
+    token = urllib.parse.quote(user["subscription_token"], safe="")
+    client = panel.request(f"/sub/{token}?format=singbox")
+    proxies = [item for item in client["outbounds"] if item["type"] == "vless"]
+    ensure(len(proxies) == 1 and proxies[0]["tag"] == f"node-{state['node_id']}",
+           "订阅必须仅包含本次专用节点")
+    mixed = [item for item in client["inbounds"] if item["type"] == "mixed"]
+    ensure(len(mixed) == 1, "订阅缺少唯一的本地混合入口")
+    mixed[0]["listen"] = "127.0.0.1"
+    mixed[0]["listen_port"] = 2080
+    if args.client_port:
+        proxies[0]["server_port"] = args.client_port
+    save(args.state.parent / "client.json", client)
+    state["client_port"] = args.client_port or state["port"]
+    args.label = "ready"
+    if "ready" not in state["checkpoints"]:
+        record(state, args, view)
+    else:
+        save(args.state, state)
+        print("设备与订阅就绪；已保留初次 ready 基线")
+
+
+def traffic(panel, state, args):
+    baseline = checkpoint(state, args.after)
+    before = usage_totals(baseline["usage"])
+    deadline = time.monotonic() + args.timeout
+    while True:
+        view = snapshot(panel, state)
+        current = usage_totals(view["usage"])
+        ensure(all(new >= old for new, old in zip(current, before)), "确认用量发生倒退")
+        if (healthy(view) and current[0] - before[0] >= args.min_uplink
+                and current[1] - before[1] >= args.min_downlink):
+            record(state, args, view)
+            return
+        ensure(time.monotonic() < deadline, "超时：未观察到要求的双向代理用量增量")
+        time.sleep(min(5, args.timeout))
+
+
+def verify(panel, state, args):
+    ensure(args.interval >= 30, "稳定采样间隔不能小于 Agent 的 30 秒采样周期")
+    command = args.status_command or os.environ.get("SINAN_E2E_STATUS_COMMAND")
+    ensure(command, "verify 需要显式提供只读 Agent status 命令以核对 outbox")
+    baseline = checkpoint(state, args.unchanged_from) if args.unchanged_from else None
+    expected = usage_totals(baseline["usage"]) if baseline else None
+    samples, previous = [], None
+    deadline = time.monotonic() + args.timeout
+    while True:
+        view = snapshot(panel, state, command)
+        totals = usage_totals(view["usage"])
+        if expected is not None:
+            ensure(totals == expected, "暂停期间确认用量变化：可能仍有流量、重复入账或历史丢失")
+            ensure(view["server"]["device_public_key"] == baseline["server"]["device_public_key"],
+                   "设备身份发生变化")
+        agent = view["agent"]
+        status = view["deployment"]
+        drained = (healthy(view) and agent.get("connected") is True
+                   and agent.get("pending_batches") == 0
+                   and agent.get("applied", {}).get("singbox") == status["applied_rev"]
+                   and agent.get("healthy", {}).get("singbox") is True)
+        if drained and (previous is None or totals == previous):
+            samples.append(view)
+        else:
+            samples = [view] if drained else []
+        previous = totals
+        if len(samples) >= 3:
+            view["stable_samples"] = samples[:-1]
+            view["sample_interval_secs"] = args.interval
+            record(state, args, view)
+            return
+        ensure(time.monotonic() + args.interval <= deadline,
+               "超时：连续两采样间隔内用量未稳定或 outbox 未清空")
+        time.sleep(args.interval)
+
+
+def parser():
+    result = argparse.ArgumentParser(description="真实 Reality 验收驱动；设备和流量由操作者控制")
+    result.add_argument("--state", type=Path, required=True, help="仓库外私有目录中的 state.json")
+    stages = result.add_subparsers(dest="stage", required=True)
+    setup = stages.add_parser("prepare", help="创建专用资源并保存安装脚本，可中断恢复")
+    setup.add_argument("--origin", required=True)
+    setup.add_argument("--public-host", required=True)
+    setup.add_argument("--sni", required=True)
+    installation = stages.add_parser("install", help="取得安装脚本，不在本机执行")
+    installation.add_argument("--refresh", action="store_true", help="签发新令牌，用于过期重试或升级")
+    active = stages.add_parser("ready", help="等待健康应用，保存独立客户端 JSON")
+    active.add_argument("--agent-version", help="同时检查面板上报的 Agent 版本")
+    active.add_argument("--client-port", type=int, help="本次容器端口映射的客户端目标端口")
+    active.add_argument("--timeout", type=int, default=600)
+    growth = stages.add_parser("traffic", help="等待本用户节点的上下行均增长")
+    growth.add_argument("--label", required=True)
+    growth.add_argument("--after", default="ready", help="用量基线标签")
+    growth.add_argument("--min-uplink", type=int, default=1)
+    growth.add_argument("--min-downlink", type=int, default=1)
+    growth.add_argument("--timeout", type=int, default=180)
+    stable = stages.add_parser("verify", help="暂停流量后检查稳定、outbox 与历史用量")
+    stable.add_argument("--label", required=True)
+    stable.add_argument("--unchanged-from", help="必须保持原封不动的稳定基线标签")
+    stable.add_argument("--status-command", help="只读命令，按 shlex 分词执行；不经过本机 shell")
+    stable.add_argument("--interval", type=int, default=35)
+    stable.add_argument("--timeout", type=int, default=240)
+    return result
+
+
+def main():
+    args = parser().parse_args()
+    os.umask(0o077)
+    args.state = args.state.absolute()
+    repository = Path(__file__).resolve().parents[1]
+    ensure(not args.state.resolve().is_relative_to(repository), "真实验收 state 必须保存在仓库外")
+    args.state.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+    ensure(not args.state.is_symlink() and not args.state.parent.is_symlink(), "state 路径不能是符号链接")
+    ensure(args.state.parent.stat().st_mode & 0o077 == 0, "state 目录需仅当前用户可访问")
+    if args.state.exists():
+        ensure(args.state.stat().st_mode & 0o077 == 0, "state 文件需仅当前用户可读写")
+    if hasattr(args, "label"):
+        ensure(re.fullmatch(r"[A-Za-z0-9_-]{1,64}", args.label), "阶段标签只能含字母、数字、下划线和连字符")
+    if hasattr(args, "timeout"):
+        ensure(args.timeout > 0, "超时必须为正数")
+    if hasattr(args, "min_uplink"):
+        ensure(args.min_uplink > 0 and args.min_downlink > 0, "上下行验收增量必须为正数")
+    if getattr(args, "client_port", None) is not None:
+        ensure(1 <= args.client_port <= 65535, "客户端目标端口需为 1–65535")
+    lock_descriptor = os.open(str(args.state) + ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(lock_descriptor, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        state = json.loads(args.state.read_text()) if args.state.exists() else None
+        if args.stage == "prepare":
+            requested = {"origin": origin(args.origin), "public_host": args.public_host, "sni": args.sni}
+            if state is None:
+                state = {"schema": 1, "prefix": "sinan-e2e-" + uuid.uuid4().hex,
+                         "checkpoints": {}, **requested}
+                save(args.state, state)
+            ensure(all(state[key] == value for key, value in requested.items()),
+                   "此 state 对应不同环境；请使用新的私有目录")
+        ensure(state is not None and state["schema"] == 1, "请先用 prepare 创建本次私有 state")
+        if args.stage != "prepare":
+            ensure(all(key in state for key in ("server_id", "node_id", "user_id")),
+                   "prepare 尚未完成；请使用相同参数重试")
+        panel = Panel(state["origin"], password())
+        try:
+            if args.stage == "install":
+                install(panel, state, args.state, args.refresh)
+            else:
+                globals()[args.stage](panel, state, args)
+        finally:
+            panel.close()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (AcceptanceError, KeyError, ValueError, OSError) as error:
+        # JSON parse and subprocess errors can contain private paths or response text.
+        message = str(error) if isinstance(error, AcceptanceError) else "验收状态或本地文件异常，请检查私有证据"
+        print("验收失败：" + message, file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("验收已中断；使用相同私有 state 可恢复", file=sys.stderr)
+        sys.exit(130)
