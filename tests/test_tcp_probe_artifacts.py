@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Real signed native TCP provenance and fixed-source build contract tests."""
-import copy
 import importlib.util
 import json
-import os
 from pathlib import Path
 import shutil
 import struct
@@ -32,7 +30,7 @@ def repository(root):
     root.mkdir()
     for name in ["Cargo.toml", "Cargo.lock", "LICENSE", "crates/tcp-probe/Cargo.toml",
                  "crates/tcp-probe/src/lib.rs", "crates/tcp-probe/src/main.rs",
-                 "tools/build-tcp-probe.py", "tools/tcp_probe_artifact.py"]:
+                 "tools/build-tcp-probe.py", "tools/tcp_probe_artifact.py", "tools/artifact_manifest.py"]:
         target = root / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / name, target)

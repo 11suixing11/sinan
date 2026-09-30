@@ -75,7 +75,7 @@ def source_files(data, commit):
             files[member.name] = archive.extractfile(member).read()
     required = {"Cargo.toml", "Cargo.lock", "LICENSE", "crates/tcp-probe/Cargo.toml",
                 "crates/tcp-probe/src/lib.rs", "crates/tcp-probe/src/main.rs",
-                "tools/build-tcp-probe.py", "tools/tcp_probe_artifact.py"}
+                "tools/build-tcp-probe.py", "tools/tcp_probe_artifact.py", "tools/artifact_manifest.py"}
     ensure(required <= files.keys(), "source archive is missing the tool or its build recipe")
     return files
 

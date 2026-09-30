@@ -1,0 +1,60 @@
+name: Native TCP signed artifact contract
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    name: Native TCP artifact (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          key: native-tcp-${{ matrix.target }}
+      - name: Install native musl and independent public signature verifier
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools build-essential minisign python3
+      - name: Reject an unknown compile-time source pin
+        run: |
+          if SINAN_NATIVE_TCP_SOURCE_COMMIT=unknown cargo check --locked --package sinan-tcp-probe > "$RUNNER_TEMP/tcp-invalid-pin.log" 2>&1; then
+            echo 'invalid source pin unexpectedly compiled'
+            exit 1
+          fi
+          grep -q 'source commit must have 40 hexadecimal digits' "$RUNNER_TEMP/tcp-invalid-pin.log"
+      - name: Build only the explicit Git snapshot using its own locked recipe
+        run: |
+          python3 tools/build-tcp-probe.py '${{ matrix.arch }}' "$RUNNER_TEMP/tcp-artifacts" --source-commit "$(git rev-parse HEAD)"
+      - name: Verify real CLI, static ELF, provenance and TEST_ONLY signed Release
+        env:
+          SINAN_TCP_ARCH: ${{ matrix.arch }}
+          SINAN_TCP_ARTIFACT_ROOT: ${{ runner.temp }}/tcp-artifacts
+        run: |
+          export SINAN_TCP_SOURCE_COMMIT="$(git rev-parse HEAD)"
+          python3 -m unittest discover -s tests -p test_tcp_probe_artifacts.py
+          python3 -m unittest discover -s tests -p test_tcp_probe_native_bundle.py
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: TEST_ONLY-native-tcp-${{ matrix.arch }}
+          path: ${{ runner.temp }}/tcp-artifacts/
+          if-no-files-found: error

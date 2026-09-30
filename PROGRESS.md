@@ -640,3 +640,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 最多八目标/16 KiB 快照与摘要核对，IPv4/6、count4/8、concurrency1/2；DNS2秒/单连接1秒/间隔250ms，总60秒含排队并预留2秒发布。只连一个同族 SocketAddr、关闭连接且零应用 payload，必须 --no-rank-upload，宿主/测速/未知选项拒绝。
 - 有界 JSON 与原子独立章节保留部分结果，明示连接成功率/建连耗时，不冒称包丢失/测速、没有排名，未知不补0。编译期源码 SHA 未提供则 null；固定源码/锁和签名打包及框架注册均为后续独立 PR。
 - 本机仅 fmt/locked offline metadata/core 门禁/差异检查；Debian12 1.5GiB/2CPU 隔离槽全源码 touch 后，5896f6d 的真实 IPv4/6/CLI/取消及有界 DNS/并发/截止/输入安全 13 项、fmt、全 targets Clippy（warnings 为错误）、完整 Rust/PostgreSQL 331 项通过/0失败/9既有条件忽略，exit0/OOM=false。ef1c7c9 再补 stdout write/flush 共用2秒截止，13 项与fmt/Clippy再次通过；全量重复运行按协调主动停止，不将331证据移给新SHA。独立 Draft PR #68、milestone1，固定/签名与服务注册仍为后续，最终CI另核对；不宣称服务或真实网络压力验收完成。见 [原生 TCP 验收](docs/acceptance/native-tcp-probe.md)。
+
+## 2026-10-01：原生 TCP 固定源码与签名制品（独立 PR）
+
+- 依赖原生引擎 #68，新增固定 Git 对象归档构建与归档内配方执行，Cargo.lock --locked、native musl ELF/CLI/来源验证，外部不可变版本包含完整 SHA。
+- 包内二进制 + build-info、许可证、完整源码归档、锁文件使用现有 release/minisign 精确签名契约；release 显式选入第四模块，旧三模块默认不变。
+- SDK 默认空辅助文件声明由 core 同时用于签名前检查与下载，含四文件实际安装/缓存篡改/启动前再校验回归；不登记 TCP 插件或修改 UI。
+- 初版 Python 10 项通过；新基线脚本、Rust 与真实 musl 和双架构 CI 尚待完成，正式 release 未发布。独立验收见 docs/acceptance/native-tcp-artifacts.md，决策见 ADR 0032。
