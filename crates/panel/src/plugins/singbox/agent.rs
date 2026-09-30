@@ -60,7 +60,7 @@ pub async fn manifest_module(
         }
         let mut artifact = None;
         for target in targets {
-            match artifacts::descriptor(&state, "sing-box", "1.14.2", &target).await {
+            match artifacts::descriptor(state, "sing-box", "1.14.2", &target).await {
                 Ok(found) => {
                     artifact = Some(found);
                     break;

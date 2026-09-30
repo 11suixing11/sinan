@@ -1,7 +1,4 @@
-use crate::{
-    AgentConnection, AppState, artifacts, auth,
-    error::{ApiError, ApiResult},
-};
+use crate::{AgentConnection, AppState, artifacts, auth, error::ApiResult};
 use axum::{
     Json,
     extract::{
