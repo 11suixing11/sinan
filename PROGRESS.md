@@ -526,3 +526,7 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - Issue #25：独立 IP GET/refresh 与仅包含准备状态/历史的 NodeQuality reports GET，NodeQualityView 去除 IP 查询字段。旧组合 GET 与旧刷新保留兼容汇合层；缓存 schema、旧报告/ID/参数和 r2 制品不改。
 - 服务器概况/IP信息/NodeQuality验机独立导航与 hash 页面；ServerIpInfo 展示一个入口下的数据库响应，NodeQuality 只保留验机和报告。IP 查询错误或缓存损坏不阻止新报告页读取历史，浏览切换不创建任务或刷新来源。
 - fmt/core gate/差异、Bun 1.4.2 冻结安装/TypeScript/Vite 与最终 dist 桌面/手机导航、历史、IP失败隔离夹具通过。真实 HTTP/PostgreSQL、Clippy 和完整 workspace 待隔离槽或 CI；独立步骤见 [视图拆分验收](docs/acceptance/server-ip-view.md)，没有宣称实机完整诊断通过。
+
+- 视图拆分 `177bfc9` 的 CI `36769525534`：check（Rust/PostgreSQL、全 targets Clippy、systemd、dist）、Compose 与两项 musl 通过，旧基线 Reality 失败。保留新未知字段提交和最新 main 后仍由最终提交 CI 复验。
+
+- 合并审查保留已合并 #44 的旧 payload 字段类型校验，并传入数据库语义上下文。独立 PostgreSQL 的 5 项 diagnostics HTTP/API 专项全部通过（0 失败/忽略），包括新旧视图授权、IP 缓存损坏隔离与删除服务器过滤；panel 全 targets Clippy 通过。Bun 4 项/637 断言与 TypeScript/Vite 通过，重建拆分视图 dist；完整 workspace 与后续章节/遥测整合另行验证。

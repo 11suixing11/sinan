@@ -36,5 +36,7 @@ bun run build
 ## 本次结果与边界
 
 - fmt、core 分层门禁、差异检查、Bun 1.4.2 冻结安装/TypeScript/Vite、最终 dist 的上述真实桌面/手机浏览器夹具通过。
-- Rust 独立 HTTP/PostgreSQL、Clippy 与完整 workspace 验证待隔离编译槽或本提交 CI，未记为通过。
+- 提交 `177bfc9` 的 CI `36769525534`：check 中 Rust/PostgreSQL、全 targets Clippy、systemd 与 dist 通过，Compose 和两项 musl 通过；旧基线 Reality 失败，不称全矩阵通过。整合最新 main 和未知字段修复后，由最终提交 CI 分别复验。
 - 不执行完整 NodeQuality、Agent 重启/面板断连、诊断取消或持续代理流量压力；相关生命周期/资源场景由对应独立 PR 验收。
+
+- 合并审查：独立 PostgreSQL 5 项 diagnostics HTTP/API 测试全部通过、0 失败/忽略；panel 全 targets Clippy 通过。保留 #44 前端旧 payload 类型校验后 Bun 4 项/637 断言及 TypeScript/Vite 通过，未重复浏览器场景或完整 workspace，后续整合另行记录。
