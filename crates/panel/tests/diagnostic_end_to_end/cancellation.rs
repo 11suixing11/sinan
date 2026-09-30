@@ -56,7 +56,7 @@ async fn cancellation_crosses_real_agent_websocket_http_and_recovers_after_resta
         .api(
             Method::POST,
             &format!("/api/servers/{id}/node-quality/reports"),
-            json!({"confirm_full":true,"acknowledge_traffic_warning":true}),
+            json!({"mode":"daily"}),
         )
         .await?;
     let job = uuid::Uuid::parse_str(report["id"].as_str().context("job id")?)?;
@@ -117,6 +117,22 @@ async fn cancellation_crosses_real_agent_websocket_http_and_recovers_after_resta
     assert_eq!(saved[0].job.id, job);
     agent.abort();
     let _ = agent.await;
+    let mut state = State::open(&config.state_db)?;
+    let mut saved: serde_json::Value = state
+        .get_json("diagnostics:active")?
+        .context("saved start")?;
+    saved["Started"]["spec"]["version"] = json!("a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3");
+    saved["Started"]["spec"]["options"] = json!({});
+    state.set_json("diagnostics:active", &saved)?;
+    let mut requests: Vec<sinan_protocol::DiagnosticCancelRequest> = state
+        .get_json("diagnostics:cancellations")?
+        .context("saved cancellation")?;
+    requests[0].job.version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3".into();
+    requests[0].job.options.clear();
+    state.set_json("diagnostics:cancellations", &requests)?;
+    drop(state);
+    sqlx::query("UPDATE diagnostic_jobs SET job=jsonb_set(jsonb_set(job,'{options}','{}'),'{version}','\"a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3\"') WHERE id=$1")
+        .bind(job).execute(&harness.state.pool).await?;
     services.block_stop.store(false, Ordering::SeqCst);
     let restarted = start();
     eventually(

@@ -11,6 +11,8 @@ use tokio::{io::AsyncReadExt, time::timeout};
 pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5";
 const MODES_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4";
 pub const MODES_CAPABILITY: &str = "diagnostic:nodequality-modes";
+pub const FULL_START_GATE_CAPABILITY: &str = "diagnostic:nodequality-full-start-gate";
+pub const FULL_START_DENIAL: &str = "完整验机已暂停：离线受控工具链尚未就绪，旧工具链仍会下载在线代码、上传内层报告或修改宿主 swap。日常检查和已有报告回收、取消仍可使用。";
 const LEGACY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2";
 const CHAPTER_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3";
 mod modes;
@@ -166,7 +168,7 @@ fn valid_report_url(value: &str) -> bool {
 
 impl DiagnosticAdapter for NodeQualityAdapter {
     fn capabilities(&self) -> Vec<String> {
-        vec![MODES_CAPABILITY.into()]
+        vec![MODES_CAPABILITY.into(), FULL_START_GATE_CAPABILITY.into()]
     }
     fn describe(&self) -> DiagnosticDescriptor {
         DiagnosticDescriptor {
@@ -183,6 +185,9 @@ impl DiagnosticAdapter for NodeQualityAdapter {
         Box::pin(async move {
             let (workspace, ip_version, network_mode, upload_report) = validate(spec)?;
             let mode = modes::validate(spec)?;
+            if mode.name == "full" {
+                bail!(FULL_START_DENIAL);
+            }
             timeout(
                 IO_TIMEOUT,
                 privileged.create_dir(&spec.job_dir, 0o700, None),

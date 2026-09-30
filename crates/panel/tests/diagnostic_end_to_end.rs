@@ -207,7 +207,7 @@ async fn node_report_survives_agent_restart_and_is_started_only_once(pool: PgPoo
         .api(
             Method::POST,
             &format!("/api/servers/{id}/node-quality/reports"),
-            json!({"ip_version":"both","network_mode":"low","upload_report":true,"confirm_full":true,"acknowledge_traffic_warning":true}),
+            json!({"mode":"daily","ip_version":"both"}),
         )
         .await?;
     let report_id = report["id"].as_str().context("report job id")?.to_owned();
@@ -223,6 +223,16 @@ async fn node_report_survives_agent_restart_and_is_started_only_once(pool: PgPoo
             .is_some_and(|checkpoint| !checkpoint.is_null()),
         "diagnostic-only restart must recover an existing managed checkpoint"
     );
+    let mut state = State::open(&config.state_db)?;
+    let mut saved: serde_json::Value = state
+        .get_json("diagnostics:active")?
+        .context("saved start")?;
+    saved["Started"]["spec"]["version"] = json!("a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2");
+    saved["Started"]["spec"]["options"] = json!({});
+    state.set_json("diagnostics:active", &saved)?;
+    drop(state);
+    sqlx::query("UPDATE diagnostic_jobs SET status='running',job=jsonb_set(jsonb_set(job,'{options}','{}'),'{version}','\"a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2\"') WHERE id=$1")
+        .bind(uuid::Uuid::parse_str(&report_id)?).execute(&harness.state.pool).await?;
     services.finish()?;
     let restarted = start();
     eventually(
@@ -263,3 +273,6 @@ async fn node_report_survives_agent_restart_and_is_started_only_once(pool: PgPoo
 
 #[path = "diagnostic_end_to_end/cancellation.rs"]
 mod cancellation;
+
+#[path = "diagnostic_end_to_end/chain_gate.rs"]
+mod chain_gate;
