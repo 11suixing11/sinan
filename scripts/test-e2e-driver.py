@@ -70,22 +70,24 @@ class EnrollmentPanel:
 
 class PreparationPanel:
     def __init__(self, lose_node_response=False):
-        self.resources = {path: [] for path in ("/api/servers", "/api/nodes", "/api/users")}
+        self.resources = {path: [] for path in ("/api/servers", "/api/plugins/sing-box/nodes", "/api/plugins/sing-box/users")}
         self.node_posts = []
         self.lose_node_response = lose_node_response
 
     def request(self, path, data=None):
+        if path.endswith("/enable"):
+            return {"enabled": True}
         if path.endswith("/accesses"):
             return {"stat_name": "u43_n42"} if data is not None else []
         if path in self.resources:
             if data is None:
                 return self.resources[path]
             item = {"id": 41 + list(self.resources).index(path), **data}
-            if path == "/api/nodes":
+            if path == "/api/plugins/sing-box/nodes":
                 self.node_posts.append(dict(data))
                 item.setdefault("port", 20000)
             self.resources[path].append(item)
-            if path == "/api/nodes" and self.lose_node_response:
+            if path == "/api/plugins/sing-box/nodes" and self.lose_node_response:
                 self.lose_node_response = False
                 raise DRIVER.AcceptanceError("node creation response lost after commit")
             return item
@@ -261,7 +263,7 @@ class AcceptanceContracts(unittest.TestCase):
             DRIVER.prepare(panel, self.state, self.args)
             self.assertNotIn("port", panel.node_posts[0])
             self.assertEqual(self.state["port"], 20000)
-            panel.resources["/api/nodes"][0]["port"] = 20001
+            panel.resources["/api/plugins/sing-box/nodes"][0]["port"] = 20001
             with self.assertRaisesRegex(DRIVER.AcceptanceError, "端口已变化"):
                 DRIVER.prepare(panel, self.state, self.args)
         self.assertEqual(self.state["port"], 20000)

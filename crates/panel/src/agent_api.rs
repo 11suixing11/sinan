@@ -1,7 +1,4 @@
-use crate::{
-    AgentConnection, AppState, artifacts, auth,
-    error::{ApiError, ApiResult},
-};
+use crate::{AgentConnection, AppState, artifacts, auth, error::ApiResult};
 use axum::{
     Json,
     extract::{
@@ -16,10 +13,10 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use futures_util::{SinkExt, StreamExt};
 use sinan_protocol::{
     AppliedRevisions, ApplyResult, ApplyStatus, AuthChallenge, Envelope, HelloAck, Manifest,
-    ManifestChanged, Message, ModuleManifest, now_timestamp,
+    ManifestChanged, Message, now_timestamp,
 };
 use sqlx::Row;
-use std::{collections::BTreeMap, time::Duration};
+use std::time::Duration;
 use tokio::{
     sync::mpsc,
     time::{Instant, timeout},
@@ -297,7 +294,7 @@ pub async fn process_message(
             crate::diagnostics::cancellation::record_result(state, server_id, result).await?;
         }
         Message::ApplyResult(result) => record_apply_result(state, server_id, result).await?,
-        Message::UsageBatch(batch) => crate::usage::ingest(state, server_id, batch).await?,
+        Message::UsageBatch(batch) => crate::plugins::ingest_usage(state, server_id, batch).await?,
         Message::RetirementResult(result) => {
             crate::retirement::record_result(state, server_id, result).await?
         }
@@ -342,82 +339,8 @@ pub async fn manifest(
         .fetch_one(&state.pool)
         .await?;
     let rev: i64 = row.get("manifest_rev");
-    let mut modules = BTreeMap::new();
-    let deployment=sqlx::query("SELECT rev,bundle_sha256 FROM deployments WHERE server_id=$1 AND module='singbox' ORDER BY rev DESC LIMIT 1").bind(server_id).fetch_optional(&state.pool).await?;
-    if let Some(deployment) = deployment {
-        let info: serde_json::Value = row.get("static_info");
-        let arch = match info["arch"].as_str() {
-            Some("aarch64" | "arm64") => "arm64",
-            Some("x86_64" | "amd64") => "amd64",
-            _ => return Err(ApiError::BadRequest("设备架构未知".into())),
-        };
-        let runtime_libc = match info.get("runtime_libc") {
-            Some(serde_json::Value::String(libc))
-                if info["os"] == "linux" && matches!(libc.as_str(), "gnu" | "glibc" | "musl") =>
-            {
-                Some(libc.as_str())
-            }
-            Some(_) => {
-                return Err(ApiError::BadRequest(
-                    "设备运行时 libc 未知或未受支持".into(),
-                ));
-            }
-            None => info["libc"].as_str(),
-        };
-        let target = info["os"]
-            .as_str()
-            .and_then(|os| sinan_protocol::platform::artifact_target(os, runtime_libc, arch));
-        if info["os"].is_string() && target.is_none() {
-            return Err(ApiError::BadRequest("设备平台或 libc 未受支持".into()));
-        }
-        let mut targets = Vec::new();
-        if let Some(target) = target {
-            let gnu_host = info["os"] == "linux" && matches!(runtime_libc, Some("gnu" | "glibc"));
-            let compiled_target = info["os"].as_str().and_then(|os| {
-                sinan_protocol::platform::artifact_target(os, info["libc"].as_str(), arch)
-            });
-            let preserve_legacy =
-                info["os"] == "linux" && compiled_target.as_ref().is_some_and(|old| old != &target);
-            if preserve_legacy {
-                // Preserve caches from either Linux ABI compatibility direction.
-                targets.push(compiled_target.expect("checked compiled target"));
-                targets.push(arch.into());
-            }
-            targets.push(target);
-            if gnu_host && !preserve_legacy {
-                targets.push(arch.into());
-            }
-        } else {
-            targets.push(arch.into());
-        }
-        let mut artifact = None;
-        for target in targets {
-            match artifacts::descriptor(&state, "sing-box", "1.14.2", &target).await {
-                Ok(found) => {
-                    artifact = Some(found);
-                    break;
-                }
-                Err(ApiError::NotFound) => continue,
-                Err(error) => return Err(error),
-            }
-        }
-        let artifact = artifact.ok_or(ApiError::NotFound)?;
-        let config_rev: i64 = deployment.get("rev");
-        modules.insert(
-            "singbox".into(),
-            ModuleManifest {
-                kernel_version: "1.14.2".into(),
-                artifact,
-                config_rev: config_rev as u64,
-                bundle_url: format!(
-                    "{}/api/agent/v1/bundles/{config_rev}",
-                    state.config.public_url
-                ),
-                bundle_sha256: deployment.get("bundle_sha256"),
-                stats_listen: "127.0.0.1:18085".into(),
-            },
-        );
-    }
+    let info: serde_json::Value = row.get("static_info");
+    let modules = crate::plugins::manifest_modules(&state, server_id, &info).await?;
     Ok(Json(Manifest {
         rev: rev as u64,
         modules,
@@ -430,19 +353,13 @@ pub async fn bundle(
     Path(rev): Path<i64>,
 ) -> ApiResult<Response> {
     let server_id = auth::require_agent(&state, &headers).await?;
-    let bundle: Option<String> = sqlx::query_scalar(
-        "SELECT bundle FROM deployments WHERE server_id=$1 AND module='singbox' AND rev=$2",
-    )
-    .bind(server_id)
-    .bind(rev)
-    .fetch_optional(&state.pool)
-    .await?;
+    let bundle = crate::plugins::bundle(&state, server_id, rev).await?;
     Ok((
         [
             (header::CONTENT_TYPE, "application/json"),
             (header::CACHE_CONTROL, "no-store"),
         ],
-        bundle.ok_or(ApiError::NotFound)?,
+        bundle,
     )
         .into_response())
 }

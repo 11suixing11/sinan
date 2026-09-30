@@ -77,15 +77,27 @@
 
 `POST /api/agent/v1/retirement/receipt` 是无需 Cookie/Bearer 的设备恢复端点，请求 `{server_id,request_id,signature}`。它仅接受与持久退役请求、原注册公钥匹配的 Ed25519 签名，不能用任意请求触发删除；有效重复回执返回 204，错请求或签名返回 401，不存在的服务器返回 404。清凭据后的 Agent 可据本地保存的回执恢复提交，避免响应丢失后必须重新注册。签名格式与恢复边界见 [ADR 0019](adr/0019-server-retirement.md)。
 
+## sing-box 插件启用
+
+代理管理接口与前端在同一版本切换为 `/api/plugins/sing-box/...`，旧根管理路径不保留别名，返回 404。已有 `/sub/{token}` 订阅地址永久保留，旧表、业务编号、令牌、密钥、授权和用量账本不重写，详见 [ADR 0030](adr/0030-singbox-plugin-business.md)。
+
+| 方法与路径 | 请求或用途 |
+|---|---|
+| `GET /api/plugins/sing-box/servers` | 未删除服务器的插件启用元数据列表 |
+| `GET /api/plugins/sing-box/servers/{id}` | 单台服务器的插件启用元数据 |
+| `POST /api/plugins/sing-box/servers/{id}/enable` | 空 JSON `{}`；管理员明确启用，重复请求幂等 |
+
+元数据为 `{id,name,enabled,online,agent_supported,read_only,source}`。source 为 `administrator`、当前 `agent_capability`、兼容 `legacy_nodes` / `legacy_deployments` 或 null。设备声明与既有配置来源显示为只读；没有当前能力、管理员选择或历史代理配置的服务器保持关闭，保存过但已消失的设备声明不会单独启用。创建节点和读取部署需先启用，否则返回 409；启用不表示设备已经声明支持。关闭服务器的详情不请求代理节点或部署，后台不生成代理配置；已有网卡遥测继续显示。
+
 ## 节点
 
 | 方法与路径 | 请求或用途 |
 |---|---|
-| `GET /api/nodes` | 有效服务器下的节点列表 |
-| `POST /api/nodes` | `{"name":"节点名称","server_id":1,"public_host":"node.example.com","sni":"www.example.com","port":443}`；`port` 可省略 |
-| `GET /api/nodes/{id}` | 节点详情 |
-| `PATCH /api/nodes/{id}` | 可选 `name`、`public_host`、`sni`、`port`，至少一个字段；省略 `port` 保留现值 |
-| `DELETE /api/nodes/{id}` | 删除节点及现有授权，并安排重新发布 |
+| `GET /api/plugins/sing-box/nodes` | 有效服务器下的节点列表 |
+| `POST /api/plugins/sing-box/nodes` | `{"name":"节点名称","server_id":1,"public_host":"node.example.com","sni":"www.example.com","port":443}`；`port` 可省略 |
+| `GET /api/plugins/sing-box/nodes/{id}` | 节点详情 |
+| `PATCH /api/plugins/sing-box/nodes/{id}` | 可选 `name`、`public_host`、`sni`、`port`，至少一个字段；省略 `port` 保留现值 |
+| `DELETE /api/plugins/sing-box/nodes/{id}` | 删除节点及现有授权，并安排重新发布 |
 
 节点对象：
 
@@ -115,15 +127,15 @@
 
 | 方法与路径 | 请求或用途 |
 |---|---|
-| `GET /api/users` | 用户列表 |
-| `POST /api/users` | `{"name":"用户名称"}` |
-| `GET /api/users/{id}` | 用户详情 |
-| `PATCH /api/users/{id}` | `{"name":"新名称"}` |
-| `DELETE /api/users/{id}` | 删除用户和全部现有授权；历史用量保留 |
-| `POST /api/users/{id}/subscription/reset` | 无请求体，原子替换订阅令牌，返回 200 和更新后的完整用户对象 |
-| `GET /api/users/{id}/accesses` | 用户的有效节点授权列表 |
-| `POST /api/users/{id}/accesses` | `{"node_id":1}`，授权成功返回 200 |
-| `DELETE /api/users/{user_id}/accesses/{node_id}` | 撤销授权，重复撤销仍返回 204 |
+| `GET /api/plugins/sing-box/users` | 用户列表 |
+| `POST /api/plugins/sing-box/users` | `{"name":"用户名称"}` |
+| `GET /api/plugins/sing-box/users/{id}` | 用户详情 |
+| `PATCH /api/plugins/sing-box/users/{id}` | `{"name":"新名称"}` |
+| `DELETE /api/plugins/sing-box/users/{id}` | 删除用户和全部现有授权；历史用量保留 |
+| `POST /api/plugins/sing-box/users/{id}/subscription/reset` | 无请求体，原子替换订阅令牌，返回 200 和更新后的完整用户对象 |
+| `GET /api/plugins/sing-box/users/{id}/accesses` | 用户的有效节点授权列表 |
+| `POST /api/plugins/sing-box/users/{id}/accesses` | `{"node_id":1}`，授权成功返回 200 |
+| `DELETE /api/plugins/sing-box/users/{user_id}/accesses/{node_id}` | 撤销授权，重复撤销仍返回 204 |
 
 用户对象为 `{"id":1,"name":"示例用户","subscription_token":"…","subscription_url":"https://panel.example.com/sub/…"}`。订阅令牌可直接获得该用户的代理凭据，界面应把订阅地址作为敏感内容按需展示或复制。
 
@@ -137,7 +149,7 @@
 
 原生配置及包序列化结果确定；包 SHA-256 与最新发布版本相同则不增加版本号。节点名称、公开地址等仅影响客户端的元数据，在这一情况下更新原版本的订阅快照。配置内容变化时增加服务器版本、保存完整包和模型快照，再通知 Agent 拉取。只有事务提交后才发送通知；通知丢失由设备心跳和重新对账恢复。
 
-`GET /api/servers/{id}/deployments` 返回：
+`GET /api/plugins/sing-box/servers/{id}/deployments` 返回：
 
 ```json
 {
@@ -173,7 +185,7 @@
 
 ## 流量与制品
 
-`GET /api/usage` 返回所有已确认流量，也可传入正整数 `user_id` 和/或 `node_id` 筛选：
+`GET /api/plugins/sing-box/usage` 返回所有已确认流量，也可传入正整数 `user_id` 和/或 `node_id` 筛选：
 
 ```json
 {
