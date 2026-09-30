@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import release
 import tcp_probe_artifact as tcp
 import test_release
+import publish
 
 spec = importlib.util.spec_from_file_location("tcp_builder", ROOT / "tools/build-tcp-probe.py")
 builder = importlib.util.module_from_spec(spec)
@@ -219,6 +220,15 @@ class SignedTcpTests(unittest.TestCase):
             self.assertEqual(entry["binary_name"], tcp.BINARY)
             self.assertEqual(set(entry["auxiliary_files"]), tcp.FILES - {tcp.BINARY})
         self.assertEqual(len(metadata["artifacts"]), 8)
+        publish.require_components(metadata)
+
+    def test_opt_in_publication_requires_both_tcp_architectures_and_all_old_modules(self):
+        metadata = self.fixture.verify()
+        for name, arch in [("tcpquality", "arm64"), ("agent", "amd64"), ("nodequality", "arm64")]:
+            partial = dict(metadata, artifacts=[entry for entry in metadata["artifacts"]
+                                               if (entry["name"], entry["arch"]) != (name, arch)])
+            with self.subTest(name=name, arch=arch), self.assertRaises(ValueError):
+                publish.require_components(partial)
 
     def test_modified_binary_and_every_auxiliary_file_fail_the_existing_signature(self):
         bundle = self.fixture.bundle
