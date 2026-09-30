@@ -32,6 +32,7 @@ DATABASE_URL 使用独立测试 PostgreSQL。字段契约测试覆盖七种响�
 ## 本次结果与边界
 
 - fmt、core 分层门禁、差异检查、Bun 1.4.2 冻结安装与 TypeScript/Vite、最终 dist 的桌面/手机上述夹具通过。
-- 首轮 CI 在 Clippy 编译测试时发现路径夹具的反向迭代器要求不满足，作者已改用 rsplit，整合时保留该修复；该轮 Rust 测试尚未执行，不记为通过。字段契约、实际 HTTP/数据库场景、Clippy 与完整回归仍待隔离编译槽或修复后的 CI；不会用格式/浏览器验收代替。
+- 首轮 CI 在 Clippy 编译测试时发现路径夹具的反向迭代器要求不满足，作者已改用 rsplit，整合时保留该修复；该轮 Rust 测试尚未执行，不记为通过。
 - 整合 main `07e8f58` 的源码后，Bun 1.4.2 冻结安装、上述 4 项字段回归（637 项断言）和 TypeScript/Vite 构建通过，重建最终 dist（`index-DMQZe95f.js`）。两项前端兼容补修后的桌面/手机浏览器场景尚未重跑；Rust/平台验收仍单独记录。
+- 最终正常整合作者 `56f8211` 与 main `b8e5689` 后，在独立 PostgreSQL 下通过 20 项 IP 质量 library 测试（字段契约、真实回环 HTTP、缓存历史及旧快照过滤）和 4 项 diagnostics API 测试，0 失败/忽略。panel 全 targets Clippy、workspace fmt、core 门禁和差异检查通过；Bun 4 项/637 断言及 TypeScript/Vite 再次通过，最终 dist 与重建结果一致。未重复最终完整 workspace 或平台/真实节点验收，不将主线 #41 的历史完整回归等同本提交已验证。
 - 不修改查询入口、UA、重试、诊断工具链或数据库 schema；来源许可和正式凭证/节点自查适配由对应独立项处理。未执行完整 NodeQuality、Agent 重启/面板断连、诊断取消或持续代理流量压力场景。
