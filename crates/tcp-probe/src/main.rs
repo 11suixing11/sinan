@@ -43,7 +43,10 @@ fn main() {
                     let mut stdout = tokio::io::stdout();
                     timeout_at(
                         deadline.min(Instant::now() + Duration::from_secs(2)),
-                        stdout.write_all(&bytes),
+                        async {
+                            stdout.write_all(&bytes).await?;
+                            stdout.flush().await
+                        },
                     )
                     .await
                     .context("stdout publication timed out")??;
