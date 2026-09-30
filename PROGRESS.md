@@ -1,5 +1,12 @@
 # 执行进度
 
+## 2026-10-01：会话签发时间跨秒修复
+
+- 对应 [Issue #47](https://github.com/theLucius7/sinan/issues/47)。[PR #45 的 CI](https://github.com/theLucius7/sinan/actions/runs/36767325898) 中服务夹具已通过，认证测试暴露两次取时跨秒：存储的会话过期时间与稍后 ACK 的服务器时间相差 3599 秒。会话签发和 ACK 现在使用同一时间快照，过期时间仍由数据库保存并供 HTTP/WebSocket 强制校验。
+- 在独立 PostgreSQL 测试库中先锁住会话表，确认认证 INSERT 实际等待，再跨秒并释放；旧生产代码稳定触发 3599 与 3600 不等，修复后 6 项 foundation 测试全部通过。保留严格的一小时断言，并核对数据库与 ACK 的过期时间一致。协议文档明确此时间是签发快照，客户端校时仍受握手延迟影响。
+- workspace fmt、全 targets Clippy 与分层检查通过。完整测试首轮因本机临时磁盘不足失败，空间恢复后的完整 Rust/PostgreSQL 重跑通过：261 项成功、8 项真实 systemd/运行时专项按条件忽略；新提交的 Linux CI 尚待验证。
+- main `13f2975` 的真实 Reality 安装/计量 job 已通过：443 流量首次为 3,146,275 字节，Agent 重启与运行时 HUP 后不变；第二批精确为 6,292,550 字节，重装不重复计量。4 项签名拒绝、在线退役和再次启动拒绝均通过；其主检查因旧服务夹具失败，不能把该结果视作 main 全绿。
+
 ## 2026-10-01：诊断锁服务测试夹具同步
 
 - 对应 [Issue #43](https://github.com/theLucius7/sinan/issues/43)。main `13f2975` 的 [CI 36766239541](https://github.com/theLucius7/sinan/actions/runs/36766239541) 中两项服务集成测试失败：旧特权替身没有返回锁目录元数据，或完全拒绝新增目录操作。仅更新 `services.rs` 夹具，生产代码和锁权限校验不变。

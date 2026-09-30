@@ -75,7 +75,8 @@ async fn connection(mut socket: WebSocket, state: AppState) -> anyhow::Result<()
     VerifyingKey::from_bytes(&bytes)?.verify_strict(nonce.as_bytes(), &signature)?;
     let server_id = response.server_id;
     let session_token = auth::random_token();
-    let expires_at = now_timestamp() + 3600;
+    let server_time = now_timestamp();
+    let expires_at = server_time + 3600;
     let (sender, mut receiver) = mpsc::channel::<Envelope>(32);
     let connection_id = Uuid::new_v4();
     {
@@ -114,7 +115,7 @@ async fn connection(mut socket: WebSocket, state: AppState) -> anyhow::Result<()
     }
     let result: anyhow::Result<()> = async {
         send(&mut socket, Envelope::new("hello.ack", HelloAck {
-            server_time: now_timestamp(), session_token, session_expires_at: expires_at,
+            server_time, session_token, session_expires_at: expires_at,
         })?).await?;
         let (mut sink, mut stream) = socket.split();
         let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
