@@ -321,6 +321,19 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 主 check 在 Rust 测试失败，公开接口未返回具体用例；本地连续五轮完整回归通过。将同一个错误摘要包装器用于 Rust/PostgreSQL 测试，下一次失败保留用例和堆栈，不通过重试隐藏失败。Windows ARM64 的真实运行时构建通过，但 Agent 行为检查失败、服务检查尚在运行，继续等待具体诊断。
 - 任务权限修复后 fmt、Clippy、完整 Rust/PostgreSQL 测试再次通过（142 项成功、4 项原有专项忽略）；actionlint、Python 语法和 diff 检查通过。继续跟进原生 Windows 与主检查结果，尚未将全部平台标为完成。
 
+## 原生 CI 跟进：Windows 登录权与权限操作开销
+
+- 5931b34 的主检查已通过，包括 Rust/PostgreSQL 和真实 systemd 专项；Linux、Compose、macOS 和 FreeBSD 双架构共 13 项成功。Windows AMD64 的任务 DACL 已正确含执行权，事件进一步确认运行时缺少批处理登录权（`0x80070569`）。
+- 安装读取现有用户权利，只在 `SeBatchLogonRight` 中追加专用运行账户 SID。新账户在设置随机密码前保持禁用；保留普通 Users 身份与任务控制边界。原生夹具比较首次/重复安装前后的全部用户权利，检查其他授权未变。
+- a67aeae 的 Windows ARM64 升级已激活，但写入确认状态超过夹具等待；安装也在重复权限操作时超过 180 秒。权限处理改用内置 .NET ACL 接口，合并新建目录及制品文件的权限更新；新文件先保护再写内容。状态文件不存在时直接返回，服务启停改用任务计划程序 COM 接口并等待旧任务停止。新增实际身份 ACL 拒绝测试与基础命令耗时诊断，效果仍须以原生结果为准。
+- 本轮 fmt、Clippy、完整 Rust/PostgreSQL 回归通过（142 项成功、4 项原有专项忽略）；actionlint、Python 语法、core 分层边界和 diff 检查通过。下一步验证 Windows 双架构完整服务及升级流程。
+
+## 原生 CI 跟进：Windows ARM64 Agent 全流程通过
+
+- [1bc6f86 的 CI](https://github.com/imengying/sinan/actions/runs/36745302341) 中 Windows 双架构 Agent 全流程通过，包含实际私有身份 ACL 拒绝、遥测补报、命令、双拨测、成功升级及失败恢复。ARM64 该步骤约 91 秒，此前十分钟后仍在升级状态保存时超时；权限路径优化已得到原生验证。
+- 两个 Windows 架构均完成服务安装，但原始文本的用户权利比较失败，原错误未记录具体差异，因此尚不能断言存在额外授权变化。按微软格式规范，将账户名和 SID 统一后再比较全部权限，并增加差异详情；重复安装同时识别以名称导出的已有授权。权限保持检查未删除。
+- 本地混合名称/SID 样本验证通过，仍能拒绝额外权限变化；fmt、Clippy、完整 Rust/PostgreSQL 回归通过（142 项成功、4 项原有专项忽略），Python 语法和 diff 检查通过。Windows 真实运行时尚待通过权限断言后的完整服务验证。
+
 ## 后续调整：VPS 部署、HTTPS 与本机 Agent（2026-09-30）
 
 - 在 Debian 13 amd64 VPS 实际部署 PostgreSQL 16 和非 root 面板容器，面板仅监听宿主回环地址；复用现有 Caddy 配置追加独立站点，公网 CDN 与源站 HTTPS 均验证成功，设备通过公网域名完成注册和 WebSocket 连接。

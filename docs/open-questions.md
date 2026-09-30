@@ -142,6 +142,10 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 - FreeBSD 的 sysinfo 0.33 磁盘枚举调用 `getmntinfo`，其[官方实现](https://github.com/freebsd/freebsd-src/blob/releng/15.0/lib/libc/gen/getmntinfo.c)会修改并重新分配进程全局缓冲区。连接上报和采样可能并发构造 Collector，因此以进程级互斥锁保护完整磁盘枚举及 libgeom 快照；不新增 unsafe 或修改上游依赖。CI 增加重复启动采样和可用时的原生崩溃回溯。
 - Windows 新建运行时账户明确加入普通 Users 组，使用固定 SID 和本地账户对象，避免本地化名称与域同名账户歧义，依据 [Add-LocalGroupMember 文档](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.localaccounts/add-localgroupmember?view=powershell-5.1)。运行时保持非管理员；原生 CI 校验账户分组及真实任务执行。Windows ARM64 实测启动权限检查可能超过 60 秒，更新试运行给出 120 秒有界健康检查，其余平台仍为 60 秒。
 - Windows runner 的任务继承 DACL 给 SYSTEM/Administrators 的掩码为 `0x1f019f`，不含文件执行位，因此 Agent 可以读写任务但无法启动运行时。注册后按 [SetSecurityDescriptor](https://learn.microsoft.com/en-us/windows/win32/taskschd/registeredtask-setsecuritydescriptor) 明确将本项目任务的控制权限限定为 SYSTEM 和 Administrators，禁止继承及自动添加运行账户控制 ACE；任务仍以原普通账户执行，不改变运行时文件权限。
+- Windows ARM64 的测试日志显示升级已激活但状态保存超过夹具等待，安装也在大量权限操作期间超时。权限读写改用内置 .NET Framework 的 [File.SetAccessControl](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.setaccesscontrol?view=netframework-4.8.1) 及目录对应接口，合并同次目录创建和制品文件权限，避免反复自动加载 PowerShell 文件系统/安全模块；新文件在写入内容前设置 ACL。服务启停使用同一任务计划程序的 COM 接口，避免每次导入 CIM 模块；重启先等待旧任务停止。仍保留 ACL 拒绝检查与普通账户隔离，不添加依赖或常驻 helper。
+- Windows 任务 DACL 修复后的事件确认错误 `0x80070569`：普通运行账户缺少批处理登录权。安装通过系统 [secedit](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/secedit-configure) 读取并保留现有 `SeBatchLogonRight`，只追加该专用账户 SID；不更改拒绝策略及其他用户权利。新账户先禁用，设置随机密码后再启用。CI 比较安装前后及重复安装后的全部用户权利，验证只发生预期追加。
+- Windows 用户权利模板允许以账户名或带星号的 SID 表示同一主体（[MS-GPSB 2.2.6](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpsb/3413b381-a445-4d17-b77e-5bbfadda253b)）。重复安装识别这两种表示；原生测试统一转换为 SID 后比较，保留全量权限差异断言与失败详情，避免仅按原始文本误报。
+
 
 ## 交付加固：签名缓存的跨平台验证边界
 
