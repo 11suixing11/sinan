@@ -27,3 +27,7 @@
 Sinan 根 AGPL 许可证不能替代第三方通知。构建器以 --locked metadata 加上只针对原生工具的 normal/build cargo tree 选择实际依赖；每个 registry package 的原始 .crate 必须匹配 Cargo.lock checksum，安装源文件也须逐字匹配该归档。收集所有 LICENSE/NOTICE/COPYRIGHT/COPYING 原文，保留 SPDX 声明、版本和 source/checksum，Unicode 组合许可另要求 Unicode 原文。缺原始 crate 或许可文本拒绝打包，不从在线 main 补齐。
 
 Rust 的 COPYRIGHT-library.html 与 license 原文库存，以及本机 musl 包版权文件随第五个辅助文件保留，记录实际工具链版本；这同时覆盖静态标准库及原生库。THIRD_PARTY_NOTICES.txt 使用可读 JSON 文本，manifest 与 build-info 分别覆盖其大小/哈希；验证器检查依赖身份/checksum与锁文件、原文集合及本机目标。
+
+## Debian 12 本机构建兼容
+
+实际 Bookworm 验收发现 musl-gcc wrapper 与静态 PIE 启动不兼容，构建后 --version 即 SIGSEGV，构建器拒绝产物。相同最小 Rust hello 在 wrapper 下 -11，使用 native cc + -Clink-self-contained=yes 返回0；选择 Rust 自带 musl/CRT，保留静态 PIE，而非混用系统启动对象。依据 [Rust issue 95926](https://github.com/rust-lang/rust/issues/95926) 和 [rustc 官方 self-contained 文档](https://doc.rust-lang.org/rustc/codegen-options/index.html#link-self-contained)；独立 Debian12 CI 与 Ubuntu amd64/arm64 CI 各执行真实启动与签名校验。未改 Agent 既有构建脚本，该模块配方需独立评估。
