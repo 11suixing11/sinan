@@ -375,7 +375,7 @@ class BuildTests(unittest.TestCase):
 
     def test_repeated_build_refuses_to_modify_the_existing_artifact_and_checksum(self):
         with tempfile.TemporaryDirectory() as directory:
-            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3"
+            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4"
             root = pathlib.Path(directory) / "nodequality" / version
             root.mkdir(parents=True)
             artifact = root / "amd64"
@@ -432,7 +432,7 @@ class BuildTests(unittest.TestCase):
             subprocess.run(["bash", "-n", str(script)], check=True)
         result = subprocess.run(["bash", str(PLUGIN / "runner.sh.tmpl"), "--version"],
                                 capture_output=True, text=True, check=True)
-        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3")
+        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4")
 
     def test_existing_architecture_checksums_are_not_replaced(self):
         script = (PLUGIN.parents[1] / "tools/build-nodequality.sh").read_text()
@@ -521,6 +521,7 @@ mkdir -p "$workspace/.nodequalityfixture/BenchOs/dev" "$workspace/.nodequalityfi
             ("NODEQUALITY_SOURCE", fixture),
             ("NODEQUALITY_LICENSE", "Synthetic test fixture; no upstream tests run.\n"),
             ("REPORT_HELPER", (PLUGIN / "report.py").read_text()),
+            ("DAILY_HELPER", (PLUGIN / "daily.py").read_text()),
             ("CURL_SHIM", (PLUGIN / "curl-shim.sh").read_text()),
             ("CHROOT_SHIM", (PLUGIN / "chroot-shim.sh").read_text()),
         ):
@@ -568,6 +569,18 @@ mkdir -p "$workspace/.nodequalityfixture/BenchOs/dev" "$workspace/.nodequalityfi
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((self.workspace / "result.txt").exists())
         self.assertIn(b"a complete local NodeQuality report was not produced", result.stderr)
+
+    def test_daily_branch_never_runs_upstream_or_creates_mounts(self):
+        targets = self.workspace / "daily-targets.json"
+        targets.write_text("[]")
+        result = subprocess.run(self.runner("sleep") + ["--mode", "daily", "--targets-file", str(targets)],
+                                env=self.environment, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.workspace / "section-net_quality.json").exists())
+        self.assertFalse((self.workspace / "fixture-ready").exists())
+        self.assertFalse((self.workspace / "report.zip").exists())
+        self.assertFalse((self.workspace / ".runner.lock").exists())
+        self.assertFalse((self.root / "cleanup.txt").exists())
 
     def test_signal_cleans_only_the_private_workspace(self):
         process = subprocess.Popen(self.runner("sleep"), env=self.environment,

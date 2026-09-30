@@ -205,7 +205,7 @@ public_ips = ["192.0.2.10", "2001:db8::10"]
 
 点击“刷新 IP 质量”时，由面板访问 NodeQuality 使用的 [IPQuality](https://github.com/xykt/IPQuality) 数据库接口，查询位置、ASN、用途、风险及代理等信息。各数据库独立展示，包含更新时间、原始字段和错误；第三方数据可能缺失或互相矛盾，不合成为一个无依据的总分。私网和回环地址不向外部接口查询。本次开发环境对该接口的实际请求返回 403，因此记录了服务错误；成功字段解析和失败处理通过受控 HTTP 夹具验证，不能据此宣称线上数据库服务当前可用。
 
-完整报告使用已导入签名 Release 中的 NodeQuality 外插，按前述流程导入即可；单独编译或拷贝未签名目录不能代替验签导入。外插固定 [NodeQuality 上游提交](https://github.com/LloydAsp/NodeQuality/tree/a92fca6c0067df29ddd03fdc2fee6f3000f64545)，保留原样源码和许可证，版本为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3`。旧制品不能覆盖；默认关闭公开上传需要面板、支持该选项的 Agent 与 `-r2` 外插共同支持，旧的已排队或运行任务继续使用创建时的选项。
+完整报告使用已导入签名 Release 中的 NodeQuality 外插，按前述流程导入即可；单独编译或拷贝未签名目录不能代替验签导入。外插固定 [NodeQuality 上游提交](https://github.com/LloydAsp/NodeQuality/tree/a92fca6c0067df29ddd03fdc2fee6f3000f64545)，保留原样源码和许可证，版本为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4`。旧制品不能覆盖；默认关闭公开上传需要面板、支持该选项的 Agent 与 `-r2` 外插共同支持，旧的已排队或运行任务继续使用创建时的选项。
 
 上游固定下载 amd64 版 NextTrace；包装器在 ARM64 节点仅将这条下载命令映射到官方 arm64 资产。外插工作路径不能包含空白或 shell 通配符，使用默认目录即可。
 

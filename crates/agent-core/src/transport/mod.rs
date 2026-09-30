@@ -184,6 +184,11 @@ pub async fn run_with_diagnostics(
     capabilities.extend(
         diagnostics
             .iter()
+            .flat_map(|adapter| adapter.capabilities()),
+    );
+    capabilities.extend(
+        diagnostics
+            .iter()
             .map(|adapter| format!("diagnostic:{}", adapter.describe().plugin_name)),
     );
     let mut collection_control = crate::telemetry::worker::initial_control(&config, &state)?;

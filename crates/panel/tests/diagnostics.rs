@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
 mod business_support;
+#[path = "diagnostics/modes.rs"]
+mod modes;
 mod release_fixture;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
@@ -16,6 +18,12 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 
 async fn capable(panel: &TestPanel, server_id: i64) -> Result<()> {
+    sqlx::query(
+        "UPDATE servers SET static_info=static_info || '{\"os\":\"linux\"}'::jsonb WHERE id=$1",
+    )
+    .bind(server_id)
+    .execute(&panel.state.pool)
+    .await?;
     agent_api::process_message(
         &panel.state,
         server_id,
@@ -24,6 +32,7 @@ async fn capable(panel: &TestPanel, server_id: i64) -> Result<()> {
             protocol_version: PROTOCOL_VERSION,
             capabilities: vec![
                 "diagnostic:nodequality".into(),
+                "diagnostic:nodequality-modes".into(),
                 sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY.into(),
                 sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY.into(),
             ],
@@ -74,8 +83,18 @@ async fn diagnostic_queue_is_durable_deduplicated_and_device_scoped(pool: PgPool
     fixture(&panel).await?;
     let path = format!("/api/servers/{server_id}/node-quality/reports");
     let (first, second) = tokio::join!(
-        panel.admin(Method::POST, &path, &cookie, Some(json!({}))),
-        panel.admin(Method::POST, &path, &cookie, Some(json!({})))
+        panel.admin(
+            Method::POST,
+            &path,
+            &cookie,
+            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true}))
+        ),
+        panel.admin(
+            Method::POST,
+            &path,
+            &cookie,
+            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true}))
+        )
     );
     let first = first?;
     let second = second?;
@@ -92,7 +111,7 @@ async fn diagnostic_queue_is_durable_deduplicated_and_device_scoped(pool: PgPool
     assert_eq!(record["status"], "queued");
     assert_eq!(
         record["job"]["options"],
-        json!({"ip_version":"both","network_mode":"low","upload_report":"false"})
+        json!({"mode":"full","environment_section":"true","ip_version":"both","network_mode":"low","upload_report":"false"})
     );
     assert!(record["job"]["expires_at"].as_i64().is_some());
     let queue: Value = panel
@@ -197,7 +216,12 @@ async fn expiry_preserves_late_durable_reports_and_deleted_servers_cancel_work(
     fixture(&panel).await?;
     let path = format!("/api/servers/{server_id}/node-quality/reports");
     let record: Value = panel
-        .admin(Method::POST, &path, &cookie, Some(json!({})))
+        .admin(
+            Method::POST,
+            &path,
+            &cookie,
+            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
+        )
         .await?
         .error_for_status()?
         .json()
@@ -252,7 +276,7 @@ async fn expiry_preserves_late_durable_reports_and_deleted_servers_cancel_work(
             Method::POST,
             &path,
             &cookie,
-            Some(json!({"ip_version":"ipv6","network_mode":"normal","upload_report":true})),
+            Some(json!({"ip_version":"ipv6","network_mode":"normal","upload_report":true,"confirm_full":true,"acknowledge_traffic_warning":true})),
         )
         .await?
         .error_for_status()?
@@ -332,7 +356,7 @@ async fn report_readiness_and_quality_refresh_require_auth_and_preserve_unknown(
                 Method::POST,
                 &format!("{base}/reports"),
                 &cookie,
-                Some(json!({}))
+                Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true}))
             )
             .await?
             .status(),
@@ -398,7 +422,7 @@ async fn report_readiness_and_quality_refresh_require_auth_and_preserve_unknown(
             Method::POST,
             &format!("{base}/reports"),
             &cookie,
-            Some(json!({})),
+            Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
         )
         .await?
         .error_for_status()?
@@ -559,7 +583,17 @@ async fn ip_and_nodequality_views_are_independent_and_legacy_routes_preserve_sha
         .iter()
         .chain(node.as_object().unwrap())
     {
-        assert_eq!(&legacy[key], value);
+        if key == "proxy_activity" {
+            for field in ["state", "reason", "last_positive_at"] {
+                assert_eq!(legacy[key][field], value[field]);
+            }
+            assert!(
+                legacy[key]["checked_at"].as_i64().unwrap()
+                    >= value["checked_at"].as_i64().unwrap()
+            );
+        } else {
+            assert_eq!(&legacy[key], value);
+        }
     }
     assert_eq!(
         panel
