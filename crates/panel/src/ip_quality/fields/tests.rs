@@ -3,7 +3,7 @@ use serde_json::json;
 
 fn response(path: &str, value: Value) -> Value {
     let mut root = value;
-    for key in path.split('/').skip(1).rev() {
+    for key in path.rsplit('/').filter(|key| !key.is_empty()) {
         let mut object = serde_json::Map::new();
         object.insert(key.into(), root);
         root = Value::Object(object);
