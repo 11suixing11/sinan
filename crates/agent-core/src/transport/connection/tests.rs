@@ -405,6 +405,7 @@ async fn cancellation_request_is_persisted_without_waiting_for_cleanup_or_delayi
     let request = DiagnosticCancelRequest {
         server_id: 1,
         job: DiagnosticJob {
+            resource_budget: None,
             id: Uuid::from_u128(19),
             plugin: "diagnostic-fixture".into(),
             version: "fixed-version".into(),
