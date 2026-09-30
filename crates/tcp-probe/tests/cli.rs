@@ -217,3 +217,21 @@ fn external_process_stop_preserves_readable_partial_reports_and_stops_connection
     assert_eq!(section["complete"], false);
     assert!(serde_json::from_str::<Value>(section["text"].as_str().unwrap()).is_ok());
 }
+
+#[test]
+fn build_information_is_available_without_a_workspace_or_network_probe() {
+    let output = finish(
+        Command::new(env!("CARGO_BIN_EXE_sinan-tcp-probe"))
+            .arg("--build-info")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    assert!(output.status.success());
+    let info: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        info,
+        json!({"version":"0.3.0","source_repo":"theLucius7/sinan","source_commit":option_env!("SINAN_NATIVE_TCP_SOURCE_COMMIT")})
+    );
+}

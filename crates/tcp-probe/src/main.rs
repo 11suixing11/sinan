@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 use anyhow::{Context, ensure};
-use sinan_tcp_probe::{Command, Journal, VERSION, parse, run};
+use sinan_tcp_probe::{Command, Journal, SOURCE_COMMIT, VERSION, parse, run};
 use std::time::Duration;
 use tokio::{
     io::AsyncWriteExt,
@@ -23,6 +23,10 @@ fn main() {
             );
         }
         Command::Version => println!("sinan-tcp-probe {VERSION}"),
+        Command::BuildInfo => println!(
+            "{}",
+            serde_json::json!({"version":VERSION,"source_repo":"theLucius7/sinan","source_commit":SOURCE_COMMIT})
+        ),
         Command::Run(options) => {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()

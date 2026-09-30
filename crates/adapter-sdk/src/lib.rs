@@ -334,6 +334,9 @@ pub struct DiagnosticSection {
 }
 
 pub trait DiagnosticAdapter: Send + Sync {
+    fn auxiliary_files(&self) -> Vec<String> {
+        Vec::new()
+    }
     fn describe(&self) -> DiagnosticDescriptor;
     fn capabilities(&self) -> Vec<String> {
         Vec::new()

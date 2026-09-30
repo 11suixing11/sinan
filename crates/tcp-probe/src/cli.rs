@@ -5,6 +5,7 @@ use std::{collections::BTreeSet, path::PathBuf};
 pub enum Command {
     Help,
     Version,
+    BuildInfo,
     Run(Options),
 }
 
@@ -54,6 +55,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command> {
     match args.as_slice() {
         [flag] if flag == "--help" || flag == "-h" => return Ok(Command::Help),
         [flag] if flag == "--version" => return Ok(Command::Version),
+        [flag] if flag == "--build-info" => return Ok(Command::BuildInfo),
         _ => (),
     }
     let mut workspace = None;
