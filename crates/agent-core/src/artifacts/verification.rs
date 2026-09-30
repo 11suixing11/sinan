@@ -114,7 +114,7 @@ pub(super) fn signed_artifact(
     keys: &TrustedKeys,
 ) -> Result<VerifiedArtifact> {
     let release = signed_release(proof, keys)?;
-    let verified = release.native_artifact(&descriptor.plugin_name, version)?;
+    let verified = crate::runtime_platform::artifact(&release, &descriptor.plugin_name, version)?;
     ensure!(
         verified.metadata().binary_name == descriptor.binary_name
             && verified.metadata().format == "tar.gz"
@@ -199,7 +199,7 @@ pub(super) async fn verify_binary_with_keys(
         .context("invalid binary path")?;
     let proof = read_proof(&resolved).await?;
     let release = signed_release(&proof, keys)?;
-    let verified = release.native_artifact(expected_name, version)?;
+    let verified = crate::runtime_platform::artifact(&release, expected_name, version)?;
     ensure!(
         verified.metadata().binary_name == name && verified.metadata().format == expected_format,
         "installed artifact role, format, or executable name differs from requested identity"

@@ -12,10 +12,38 @@ fn quote(value: &str) -> String {
 }
 
 impl SystemServiceManager {
+    pub(super) async fn openrc_running_units(&self) -> Result<Vec<String>> {
+        let entries = match fs::read_dir(&self.job_root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
+        };
+        let mut units = Vec::new();
+        for (count, entry) in entries.enumerate() {
+            ensure!(count < 1024, "诊断历史过多，请先归档旧任务后重试");
+            let entry = entry?;
+            let unit = entry
+                .file_name()
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("invalid diagnostic service name"))?;
+            if !unit.starts_with("sinan-diagnostic-") {
+                continue;
+            }
+            ensure!(
+                super::jobs::valid_job_unit(&unit) && entry.file_type()?.is_dir(),
+                "invalid diagnostic job directory"
+            );
+            if self.openrc_job_status(&unit).await? == JobStatus::Running {
+                units.push(unit);
+            }
+        }
+        Ok(units)
+    }
     pub(super) async fn start_openrc_job(&self, job: &ServiceJob) -> Result<()> {
         let directory = self.job_root.join(&job.unit);
         let spec = directory.join("job.json");
         ensure!(!spec.try_exists()?, "diagnostic job already submitted");
+        super::jobs::prepare_diagnostic_lock(self.privileged.as_ref()).await?;
         tracing::warn!(
             unit = %job.unit,
             memory_max = job.memory_max.get(),
@@ -39,7 +67,7 @@ impl SystemServiceManager {
             quote(spec.to_str().context("job path is not UTF-8")?)
         );
         let script = format!(
-            "#!/sbin/openrc-run\nname={}\ncommand={}\ncommand_args={}\ncommand_background=true\npidfile={}\nstart_stop_daemon_args=\"--make-pidfile\"\n",
+            "#!/sbin/openrc-run\nname={}\ncommand={}\ncommand_args={}\ncommand_background=true\numask=0077\npidfile={}\nstart_stop_daemon_args=\"--make-pidfile\"\n",
             quote(service),
             quote(
                 executable
@@ -134,6 +162,7 @@ pub async fn run_job(spec: &Path) -> Result<()> {
             && (1..=3600).contains(&job.timeout_secs),
         "invalid diagnostic job"
     );
+    super::jobs::prepare_diagnostic_lock(&ops).await?;
     // The exclusive journal entry makes repeated manual invocation fail closed.
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
@@ -146,6 +175,11 @@ pub async fn run_job(spec: &Path) -> Result<()> {
     started.sync_all()?;
     std::env::set_current_dir(&job.working_directory)?;
     let mut args = vec![
+        "--exclusive".into(),
+        "--nonblock".into(),
+        "--conflict-exit-code=75".into(),
+        super::jobs::DIAGNOSTIC_LOCK_PATH.into(),
+        "unshare".into(),
         "--mount".into(),
         "--propagation".into(),
         "private".into(),
@@ -154,7 +188,7 @@ pub async fn run_job(spec: &Path) -> Result<()> {
     ];
     args.extend(job.args);
     let output = ops
-        .execute_bounded(Path::new("unshare"), &args, job.timeout_secs, 64 * 1024)
+        .execute_bounded(Path::new("flock"), &args, job.timeout_secs, 64 * 1024)
         .await;
     let status = match output {
         Ok(output) if output.output.success && !output.timed_out => JobStatus::Succeeded,

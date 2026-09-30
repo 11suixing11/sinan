@@ -214,6 +214,9 @@ impl SystemServiceManager {
 }
 
 impl ServiceManager for SystemServiceManager {
+    fn running_diagnostic_units(&self) -> BoxFuture<'_, Vec<String>> {
+        self.diagnostic_running_units()
+    }
     fn reload<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(self.change("reload", unit))
     }

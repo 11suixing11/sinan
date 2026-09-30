@@ -27,7 +27,7 @@ impl DiagnosticAdapter for DelayedAdapter {
     }
 }
 
-fn cached_job(directory: &Directory, id: Uuid) -> Result<DiagnosticJob> {
+pub(super) fn cached_job(directory: &Directory, id: Uuid) -> Result<DiagnosticJob> {
     let mut job = job(id);
     job.artifact.url = format!(
         "http://127.0.0.1:1/api/agent/v1/artifacts/diagnostic-fixture/v1/{}",
@@ -67,7 +67,7 @@ fn delayed_worker(
             delay,
             prepared_limits,
         })],
-        Arc::new(SystemOps),
+        Arc::new(FakeResourceOps::new(Arc::new(SystemOps))),
         services,
     )?
     .with_trusted_keys(release_support::trusted_keys()))
@@ -262,7 +262,7 @@ async fn binary_changed_during_preparation_is_rechecked_before_systemd_start() -
         config.clone(),
         Arc::new(Mutex::new(State::open(&config.state_db)?)),
         vec![Arc::new(TamperingAdapter)],
-        Arc::new(SystemOps),
+        Arc::new(FakeResourceOps::new(Arc::new(SystemOps))),
         services.clone(),
     )?
     .with_trusted_keys(release_support::trusted_keys());
