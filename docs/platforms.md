@@ -16,7 +16,9 @@ init、Agent 编译 ABI 与宿主运行时 ABI 分别判断。静态 musl Agent 
 
 新 Agent 仅读取宿主 `/bin/sh` ELF 的解释器信息识别运行时 ABI，不能可靠识别时兼容沿用 Agent 编译 ABI；这一回退不代表已经识别宿主。面板仍拒绝显式 `unknown`、空值或畸形的 `runtime_libc`，不会把这些值当作字段缺失；旧设备未提供该字段时沿用原 `libc` 选择行为。
 
-GNU 宿主上的 musl Agent 按 `linux-musl-{arch}`、旧 `{arch}`、`linux-gnu-{arch}` 的顺序选择运行时，保留旧版本对已签缓存的选择，避免新增宿主识别后切换到同一证明中的其他摘要；GNU Agent 按 GNU 完整标识再旧目录选择。只有候选不存在才继续查找，签名或内容损坏直接失败。真正 musl 宿主上的运行时只选择 `linux-musl-{arch}`，面板不能回退到 GNU。旧签名发布中的架构目录对 Agent 表示静态 musl、对 sing-box 表示 GNU，不能跨组件混用这一兼容规则；core 对其他旧插件保留通用签名兼容，不能据此让面板向 musl 主机提供 GNU sing-box。
+GNU Agent 已通过兼容层运行在 musl 宿主时，仍优先复用其旧 GNU 完整标识及架构兼容键，再尝试新的 musl 运行时；面板和离线缓存验签使用同一顺序，避免已签 GNU 缓存突然换选摘要。此处保留既有缓存兼容，不作为 gcompat 实机验收结论。musl Agent 在 musl 宿主仍只获取显式 musl 运行时。
+
+GNU 宿主上的 musl Agent 按 `linux-musl-{arch}`、旧 `{arch}`、`linux-gnu-{arch}` 的顺序选择运行时，保留旧版本对已签缓存的选择，避免新增宿主识别后切换到同一证明中的其他摘要；GNU 宿主上的 GNU Agent 按 GNU 完整标识再旧目录选择。只有候选不存在才继续查找，签名或内容损坏直接失败。musl Agent 在 musl 宿主上的运行时只选择 `linux-musl-{arch}`，面板不能回退到 GNU。旧签名发布中的架构目录对 Agent 表示静态 musl、对 sing-box 表示 GNU，不能跨组件混用这一兼容规则；core 对其他旧插件保留通用签名兼容，不能据此让面板向这种设备提供 GNU sing-box。
 
 日常 CI 的 Agent 使用公开 TEST_ONLY 信任根，制品名称带 TEST_ONLY，禁止用于正式节点或发布；正式发布工作流当前生成 Linux 双架构六个组件制品；原生平台的生产签名 bundle、独立来源核验与发布验证须另行完成。Linux bootstrap 的静态安装器不代表原生平台已经具有相同的自动首装入口。
 
