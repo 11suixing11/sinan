@@ -5,6 +5,7 @@ import hashlib
 import http.server
 import os
 from pathlib import Path
+import pwd
 import signal
 import json
 import runpy
@@ -158,6 +159,37 @@ def provision_test_roots(directory=TRUST_DIRECTORY):
     return target
 
 
+def check_runtime_access(runtime):
+    account = pwd.getpwnam("sinan-singbox")
+    for path, mode, group in [
+        ("/opt/sinan", 0o755, 0),
+        ("/opt/sinan/core", 0o755, 0),
+        ("/opt/sinan/plugins", 0o755, 0),
+        ("/opt/sinan/plugins/sing-box", 0o755, 0),
+        ("/var/lib/sinan", 0o755, 0),
+        ("/var/lib/sinan/plugins", 0o2750, account.pw_gid),
+        ("/etc/sinan", 0o700, 0),
+        ("/etc/sinan/identity", 0o700, 0),
+        ("/var/lib/sinan/core", 0o700, 0),
+    ]:
+        properties = Path(path).lstat()
+        observed = properties.st_mode & 0o7777
+        print(f"Managed path: {path} mode={observed:04o} uid={properties.st_uid} gid={properties.st_gid}", flush=True)
+        assert not Path(path).is_symlink()
+        assert (observed, properties.st_uid, properties.st_gid) == (mode, 0, group)
+    unprivileged = ("setpriv", f"--reuid={account.pw_uid}", f"--regid={account.pw_gid}", "--clear-groups", "--")
+    assert run(*unprivileged, str(runtime), "version").startswith("sing-box version 1.14.2")
+    run(*unprivileged, "/usr/bin/python3", "-c", """
+import os
+assert os.geteuid() != 0
+assert os.access('/var/lib/sinan/plugins/sing-box@main/current/config.json', os.R_OK)
+assert os.access('/var/lib/sinan/plugins/sing-box@main/data', os.W_OK | os.X_OK)
+assert not os.access('/etc/sinan/identity', os.X_OK)
+assert not os.access('/var/lib/sinan/core', os.X_OK)
+""")
+    print("Runtime account can execute the artifact and access its state; identity and ledger remain private", flush=True)
+
+
 def install_script(origin):
     # Exercise the static signed installer after an independently trusted bootstrap.
     subprocess.run(["python3", str(ROOT / "tools/release.py"), "render-installer",
@@ -251,6 +283,7 @@ def main():
         configuration = current / "config.json"
         configuration.write_text("{}\n")
         configuration.chmod(0o644)
+        check_runtime_access(runtime)
         service(RUNTIME_SERVICE, "restart")
         runtime_pid = wait_for(lambda: pid(RUNTIME_STATE), "runtime startup")
         status = Path(f"/proc/{runtime_pid}/status").read_text().splitlines()
