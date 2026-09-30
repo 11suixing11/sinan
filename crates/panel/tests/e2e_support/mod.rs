@@ -103,6 +103,10 @@ impl Harness {
     pub fn agent_config(&self) -> AgentConfig {
         let root = self.directory.join("agent");
         AgentConfig {
+            settings: sinan_protocol::AgentSettings {
+                discover_public_ips: false,
+                ..Default::default()
+            },
             panel_url: self.base.clone(),
             identity_dir: root.join("identity"),
             state_db: root.join("state.db"),

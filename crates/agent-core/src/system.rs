@@ -1,3 +1,6 @@
+mod execution;
+mod openrc_jobs;
+pub use openrc_jobs::run_job;
 mod jobs;
 
 pub use sinan_adapter_sdk::{Privileged, ServiceManager};
@@ -94,6 +97,15 @@ impl SystemOps {
 }
 
 impl Privileged for SystemOps {
+    fn execute_bounded<'a>(
+        &'a self,
+        program: &'a Path,
+        args: &'a [String],
+        seconds: u32,
+        maximum: usize,
+    ) -> BoxFuture<'a, sinan_adapter_sdk::Execution> {
+        Box::pin(execution::execute(program, args, seconds, maximum))
+    }
     fn execute<'a>(
         &'a self,
         program: &'a Path,

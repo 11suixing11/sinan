@@ -1,5 +1,6 @@
 mod connection;
 pub mod diagnostics;
+mod public_ips;
 mod status;
 mod worker;
 
@@ -45,6 +46,18 @@ impl Runtime {
             .state
             .lock()
             .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+        if let Some(records) = state.get_json::<Vec<(String, i64)>>("discovered_ips")? {
+            let discovered = records
+                .into_iter()
+                .filter(|(_, expires)| *expires > sinan_protocol::now_timestamp())
+                .filter_map(|(address, _)| address.parse::<std::net::IpAddr>().ok());
+            info.ip_addresses = crate::telemetry::normalized_addresses(
+                info.ip_addresses
+                    .iter()
+                    .filter_map(|address| address.parse().ok())
+                    .chain(discovered),
+            );
+        }
         for module in self.modules.iter() {
             if let Some(prepared) = state.get_json::<Prepared>(&format!("applied:{module}"))? {
                 info.runtime_version = Some(prepared.spec.kernel_version);
@@ -108,6 +121,18 @@ pub async fn run_with_diagnostics(
     }
     let mut capabilities = modules.clone();
     capabilities.extend(
+        [
+            "telemetry:batch",
+            "agent:settings",
+            "ip:discovery",
+            "command:execute",
+            "probe:tcp",
+            "probe:icmp",
+        ]
+        .into_iter()
+        .map(str::to_owned),
+    );
+    capabilities.extend(
         diagnostics
             .iter()
             .map(|adapter| format!("diagnostic:{}", adapter.describe().plugin_name)),
@@ -123,7 +148,23 @@ pub async fn run_with_diagnostics(
     let (trigger_tx, trigger_rx) = mpsc::channel(1);
     let (outgoing_tx, mut outgoing_rx) = mpsc::channel(64);
     let mut tasks = JoinSet::new();
+    tasks.spawn(crate::tasks::run(
+        state.clone(),
+        privileged.clone(),
+        client_rx.clone(),
+    ));
+    tasks.spawn(public_ips::run(
+        config.clone(),
+        runtime.clone(),
+        outgoing_tx.clone(),
+    ));
     tasks.spawn(status::serve(listener, runtime.clone()));
+    tasks.spawn(crate::telemetry::worker::run(
+        config.clone(),
+        state.clone(),
+        privileged.clone(),
+        client_rx.clone(),
+    ));
     tasks.spawn(
         diagnostics::DiagnosticWorker::new(
             config.clone(),
@@ -210,6 +251,7 @@ mod tests {
             Directory(PathBuf::from("/tmp").join(format!("sn-instance-{}", Uuid::new_v4())));
         let panel = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let config = Config {
+            settings: sinan_protocol::AgentSettings::default(),
             panel_url: format!("http://{}", panel.local_addr()?),
             identity_dir: directory.0.join("identity"),
             state_db: directory.0.join("state.db"),

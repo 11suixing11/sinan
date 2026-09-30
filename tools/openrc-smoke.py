@@ -266,6 +266,9 @@ def main():
         wait_for(lambda: (number := pid(RUNTIME_STATE)) != runtime_pid and number,
                  "runtime starting from its last configuration")
 
+        if os.environ.get("SINAN_TEST_AGENT"):
+            print(run("python3", "tools/openrc-job-smoke.py", os.environ["SINAN_TEST_AGENT"]), flush=True)
+
         systemctl = Path("/usr/local/bin/systemctl")
         systemctl.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> /tmp/systemctl-calls\n')
         systemctl.chmod(0o755)

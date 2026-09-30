@@ -44,6 +44,9 @@ impl State {
         )?;
         Migrations::new(vec![M::up(include_str!("state/migrations/0001.sql"))])
             .to_latest(&mut connection)?;
+        // Auxiliary tables remain additive so an older Agent can reopen the ledger after rollback.
+        connection.execute_batch(include_str!("state/migrations/0002.sql"))?;
+        connection.execute_batch(include_str!("state/migrations/0003.sql"))?;
         Ok(Self { connection })
     }
 

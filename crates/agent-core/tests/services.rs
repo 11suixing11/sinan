@@ -16,6 +16,8 @@ struct RecordingOps {
     calls: Mutex<Vec<(PathBuf, Vec<String>)>>,
     output: Mutex<CommandOutput>,
     unavailable: Mutex<bool>,
+    files: Mutex<Vec<(PathBuf, Vec<u8>)>>,
+    allow_files: bool,
 }
 
 impl RecordingOps {
@@ -53,16 +55,26 @@ impl Privileged for RecordingOps {
         _mode: u32,
         _group: Option<&'a str>,
     ) -> BoxFuture<'a, ()> {
-        Box::pin(async { bail!("unexpected filesystem operation") })
+        Box::pin(async {
+            anyhow::ensure!(self.allow_files, "unexpected filesystem operation");
+            Ok(())
+        })
     }
     fn write_file<'a>(
         &'a self,
-        _path: &'a Path,
-        _bytes: &'a [u8],
+        path: &'a Path,
+        bytes: &'a [u8],
         _mode: u32,
         _group: Option<&'a str>,
     ) -> BoxFuture<'a, ()> {
-        Box::pin(async { bail!("unexpected filesystem operation") })
+        Box::pin(async move {
+            anyhow::ensure!(self.allow_files, "unexpected filesystem operation");
+            self.files
+                .lock()
+                .unwrap()
+                .push((path.to_owned(), bytes.to_vec()));
+            Ok(())
+        })
     }
     fn atomic_symlink<'a>(&'a self, _link: &'a Path, _target: &'a Path) -> BoxFuture<'a, ()> {
         Box::pin(async { bail!("unexpected filesystem operation") })
@@ -160,8 +172,15 @@ async fn rejects_untrusted_service_names_before_any_privileged_command() {
 }
 
 #[tokio::test]
-async fn openrc_rejects_diagnostic_jobs_without_invoking_systemd() {
-    let ops = RecordingOps::successful();
+async fn openrc_starts_independent_diagnostic_jobs_without_invoking_systemd() -> Result<()> {
+    let ops = Arc::new(RecordingOps {
+        allow_files: true,
+        output: Mutex::new(CommandOutput {
+            success: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
     let services = SystemServiceManager::new(ops.clone(), ServiceBackend::OpenRc);
     let job = ServiceJob {
         unit: format!("sinan-diagnostic-{}.service", uuid::Uuid::new_v4()),
@@ -170,11 +189,19 @@ async fn openrc_rejects_diagnostic_jobs_without_invoking_systemd() {
         working_directory: "/tmp".into(),
         timeout_secs: 10,
     };
-    let error = services.start_job(&job).await.unwrap_err();
-    assert!(error.to_string().contains("OpenRC"));
-    let error = services.job_status(&job.unit).await.unwrap_err();
-    assert!(error.to_string().contains("OpenRC"));
-    assert!(ops.calls.lock().unwrap().is_empty());
+    services.start_job(&job).await?;
+    let calls = ops.calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, Path::new("rc-service"));
+    let files = ops.files.lock().unwrap();
+    assert_eq!(files.len(), 2);
+    let saved: ServiceJob = serde_json::from_slice(&files[0].1)?;
+    assert_eq!(saved, job);
+    let script = String::from_utf8(files[1].1.clone())?;
+    assert!(script.contains("command_background=true"));
+    assert!(script.contains("run-job --spec"));
+    assert!(!script.contains("respawn"));
+    Ok(())
 }
 
 #[tokio::test]

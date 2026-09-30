@@ -90,6 +90,7 @@ fn snapshot(runtime: &Runtime) -> Result<Value> {
     Ok(json!({
         "connected": runtime.connected.load(Ordering::Relaxed),
         "applied": applied, "healthy": healthy, "pending_batches": state.pending_usage_count()?,
+        "pending_telemetry": state.pending_telemetry_count()?,
     }))
 }
 

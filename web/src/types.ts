@@ -4,7 +4,11 @@ export type StaticInfo = {
   agent_version?: string; runtime_version?: string;
   ip_addresses?: string[];
 }
+export type AgentSettings = { sample_interval_secs: number; upload_interval_secs: number; auto_update: boolean; discover_public_ips: boolean }
 export type Metrics = {
+  swap_used?: number; swap_total?: number; processes?: number;
+  disks?: { name: string; mount_point: string; total_bytes?: number | null; used_bytes?: number | null; read_bytes_per_sec?: number | null; write_bytes_per_sec?: number | null; read_iops?: number | null; write_iops?: number | null; await_ms?: number | null; utilization_percent?: number | null }[];
+  gpus?: { model: string; usage_percent?: number | null; memory_used?: number | null; memory_total?: number | null }[];
   cpu_percent?: number; memory_used?: number; load_1?: number; load_5?: number; load_15?: number;
   disk_used?: number; tcp_connections?: number; udp_connections?: number; uptime_secs?: number;
   network_interfaces?: Record<string, { received_bytes?: number; transmitted_bytes?: number; receive_bytes_per_sec?: number; transmit_bytes_per_sec?: number }>;

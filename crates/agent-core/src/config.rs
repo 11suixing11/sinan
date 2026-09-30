@@ -13,6 +13,7 @@ pub struct Config {
     pub status_socket: PathBuf,
     pub operation_timeout_secs: u64,
     pub public_ips: Vec<String>,
+    pub settings: sinan_protocol::AgentSettings,
 }
 
 impl Default for Config {
@@ -26,6 +27,7 @@ impl Default for Config {
             status_socket: "/run/sinan/agent.sock".into(),
             operation_timeout_secs: 30,
             public_ips: Vec::new(),
+            settings: sinan_protocol::AgentSettings::default(),
         }
     }
 }
@@ -42,6 +44,11 @@ impl Config {
 
     pub fn validate(&self) -> anyhow::Result<()> {
         validate_panel_url(&self.panel_url)?;
+        if !self.settings.valid() {
+            bail!(
+                "telemetry intervals must be within 1..=60 seconds and upload cannot precede sampling"
+            );
+        }
         for path in [
             &self.identity_dir,
             &self.state_db,

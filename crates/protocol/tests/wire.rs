@@ -57,6 +57,11 @@ fn known_messages() -> Vec<Message> {
             extra: BTreeMap::new(),
         }),
         Message::TelemetryMetrics(Metrics {
+            swap_used: None,
+            swap_total: None,
+            processes: None,
+            disks: Vec::new(),
+            gpus: Vec::new(),
             cpu_percent: Some(12.5),
             memory_used: Some(1_000_000_000),
             load_1: Some(0.5),

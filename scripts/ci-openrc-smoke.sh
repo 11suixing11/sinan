@@ -11,4 +11,4 @@ cleanup() {
 }
 trap cleanup EXIT
 docker build --tag "$image" --file "$repository/tools/openrc-test.Dockerfile" "$repository/tools"
-docker run --rm --init --network none --volume "$repository:/src:ro" "$image"
+docker run --rm --init --network none --cap-add SYS_ADMIN --security-opt apparmor=unconfined --env "SINAN_TEST_AGENT=${SINAN_TEST_AGENT:-}" --volume "$repository:/src:ro" "$image"

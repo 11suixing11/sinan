@@ -1,7 +1,10 @@
 use super::{COMMAND_TIMEOUT, Privileged, ServiceManager};
 use anyhow::{Context, Result, ensure};
 use sinan_adapter_sdk::{BoxFuture, CommandOutput, JobStatus, ServiceJob};
-use std::{path::Path, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tokio::time::timeout;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +39,7 @@ impl ServiceBackend {
 pub struct SystemServiceManager {
     pub(super) privileged: Arc<dyn Privileged>,
     pub(super) backend: ServiceBackend,
+    pub(super) job_root: PathBuf,
 }
 
 impl SystemServiceManager {
@@ -43,7 +47,13 @@ impl SystemServiceManager {
         Self {
             privileged,
             backend,
+            job_root: "/var/lib/sinan/core/service-jobs".into(),
         }
+    }
+
+    pub fn with_job_root(mut self, directory: PathBuf) -> Self {
+        self.job_root = directory;
+        self
     }
 
     async fn call(&self, action: &str, unit: &str, quiet: bool) -> Result<CommandOutput> {

@@ -58,9 +58,40 @@ pub struct CommandOutput {
     pub stderr: String,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Execution {
+    pub output: CommandOutput,
+    pub timed_out: bool,
+    pub truncated: bool,
+}
+
 pub trait Privileged: Send + Sync {
     fn execute<'a>(&'a self, program: &'a Path, args: &'a [String])
     -> BoxFuture<'a, CommandOutput>;
+    fn execute_bounded<'a>(
+        &'a self,
+        program: &'a Path,
+        args: &'a [String],
+        _timeout_secs: u32,
+        maximum: usize,
+    ) -> BoxFuture<'a, Execution> {
+        Box::pin(async move {
+            let mut output = self.execute(program, args).await?;
+            let truncated = output.stdout.len() > maximum || output.stderr.len() > maximum;
+            for value in [&mut output.stdout, &mut output.stderr] {
+                let mut limit = value.len().min(maximum);
+                while !value.is_char_boundary(limit) {
+                    limit -= 1;
+                }
+                value.truncate(limit);
+            }
+            Ok(Execution {
+                output,
+                timed_out: false,
+                truncated,
+            })
+        })
+    }
     fn create_dir<'a>(
         &'a self,
         path: &'a Path,
@@ -122,7 +153,8 @@ pub struct ServiceJob {
     pub timeout_secs: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum JobStatus {
     Missing,
     Running,

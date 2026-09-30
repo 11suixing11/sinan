@@ -33,6 +33,7 @@ impl Fixture {
         let directory = std::env::temp_dir().join(format!("sinan-reconcile-{}", Uuid::new_v4()));
         fs::create_dir_all(&directory).unwrap();
         let config = Config {
+            settings: sinan_protocol::AgentSettings::default(),
             panel_url: "http://127.0.0.1:8080".into(),
             identity_dir: directory.join("identity"),
             state_db: directory.join("state.db"),

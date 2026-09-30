@@ -41,6 +41,18 @@ enum Command {
     Run,
     /// Query the running agent through its protected local socket.
     Status,
+    #[command(hide = true)]
+    RunJob {
+        #[arg(long)]
+        spec: PathBuf,
+    },
+    #[command(hide = true)]
+    ServiceJob {
+        #[arg(long)]
+        spec: PathBuf,
+        #[arg(long)]
+        status: bool,
+    },
 }
 
 #[tokio::main]
@@ -87,12 +99,17 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             let config = Config::load(&path)?;
             let backend = ServiceBackend::detect()?;
             let adapters: Vec<Arc<dyn Adapter>> = vec![Arc::new(SingboxAdapter::new())];
-            let diagnostics: Vec<Arc<dyn DiagnosticAdapter>> = match backend {
-                ServiceBackend::Systemd => vec![Arc::new(NodeQualityAdapter::new())],
-                ServiceBackend::OpenRc => Vec::new(),
-            };
-            let services: Arc<dyn ServiceManager> =
-                Arc::new(SystemServiceManager::new(privileged.clone(), backend));
+            let diagnostics: Vec<Arc<dyn DiagnosticAdapter>> =
+                vec![Arc::new(NodeQualityAdapter::new())];
+            let services: Arc<dyn ServiceManager> = Arc::new(
+                SystemServiceManager::new(privileged.clone(), backend).with_job_root(
+                    config
+                        .state_db
+                        .parent()
+                        .context("state has no parent")?
+                        .join("service-jobs"),
+                ),
+            );
             transport::run_with_diagnostics(config, adapters, diagnostics, privileged, services)
                 .await
         }
@@ -101,6 +118,20 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             let status = transport::status(&config.status_socket).await?;
             println!("{}", serde_json::to_string_pretty(&status)?);
             Ok(())
+        }
+        Command::RunJob { spec } => sinan_agent_core::system::run_job(&absolute_path(&spec)?).await,
+        Command::ServiceJob { spec, status } => {
+            let job: sinan_adapter_sdk::ServiceJob = serde_json::from_slice(&std::fs::read(spec)?)?;
+            let services = SystemServiceManager::new(privileged, ServiceBackend::detect()?);
+            if status {
+                println!(
+                    "{}",
+                    serde_json::to_string(&services.job_status(&job.unit).await?)?
+                );
+                Ok(())
+            } else {
+                services.start_job(&job).await
+            }
         }
     }
 }

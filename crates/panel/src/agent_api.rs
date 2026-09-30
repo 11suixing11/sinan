@@ -263,9 +263,10 @@ pub async fn process_message(
         Message::TelemetryMetrics(metrics) => {
             let value = serde_json::to_value(metrics)?;
             let mut tx = state.pool.begin().await?;
-            sqlx::query("UPDATE servers SET latest_metrics=$2 WHERE id=$1")
+            sqlx::query("UPDATE servers SET latest_metrics=$2,metrics_sampled_at=$3 WHERE id=$1")
                 .bind(server_id)
                 .bind(&value)
+                .bind(sinan_protocol::telemetry::now_millis())
                 .execute(&mut *tx)
                 .await?;
             sqlx::query("INSERT INTO metrics_minutely(server_id,bucket,metrics) VALUES($1,$2,$3) ON CONFLICT(server_id,bucket) DO UPDATE SET metrics=EXCLUDED.metrics").bind(server_id).bind(now_timestamp()/60*60).bind(value).execute(&mut *tx).await?;

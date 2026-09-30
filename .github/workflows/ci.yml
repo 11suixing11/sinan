@@ -102,9 +102,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends musl-tools build-essential binutils python3 coreutils
-      - name: Verify the installer and independent OpenRC services
-        if: matrix.libc == 'musl'
-        run: bash scripts/ci-openrc-smoke.sh
       - name: Build the same-source Agent with the previous release profile
         if: matrix.libc == 'musl'
         env:
@@ -116,6 +113,11 @@ jobs:
       - name: Build and verify the static Agent on its native architecture
         if: matrix.libc == 'musl'
         run: bash tools/build-agent.sh '${{ matrix.arch }}' '${{ runner.temp }}/sinan-artifacts'
+      - name: Verify the installer, independent OpenRC services, and diagnostic jobs
+        if: matrix.libc == 'musl'
+        env:
+          SINAN_TEST_AGENT: /src/target/${{ matrix.target }}/release/sinan-agent
+        run: bash scripts/ci-openrc-smoke.sh
       - name: Build and verify the dynamic glibc Agent
         if: matrix.libc == 'gnu'
         run: python3 tools/build-agent.py '${{ matrix.target }}' '${{ runner.temp }}/sinan-artifacts'

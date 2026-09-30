@@ -8,6 +8,7 @@ pub mod reconcile;
 pub mod state;
 #[cfg(unix)]
 pub mod system;
+pub mod tasks;
 pub mod telemetry;
 #[cfg(unix)]
 pub mod transport;

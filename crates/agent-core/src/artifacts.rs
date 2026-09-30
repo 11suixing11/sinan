@@ -76,6 +76,48 @@ pub fn validate_bundle_files(bundle: &Bundle) -> Result<()> {
 }
 
 impl PanelClient {
+    pub(crate) async fn get_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
+        let url = self.panel.join(path)?;
+        Ok(serde_json::from_slice(
+            &self.download(url.as_str(), 1024 * 1024).await?,
+        )?)
+    }
+
+    pub(crate) async fn post_json<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        value: &impl Serialize,
+    ) -> Result<T> {
+        let response = self
+            .client
+            .post(self.panel.join(path)?)
+            .bearer_auth(&self.session_token)
+            .json(value)
+            .send()
+            .await?;
+        ensure!(
+            response.status().is_success(),
+            "Agent request returned HTTP {}",
+            response.status()
+        );
+        Ok(serde_json::from_slice(
+            &Self::response_bytes(response, 16 * 1024).await?,
+        )?)
+    }
+
+    async fn response_bytes(response: reqwest::Response, maximum: usize) -> Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            ensure!(
+                chunk.len() <= maximum.saturating_sub(bytes.len()),
+                "Agent response exceeds size limit"
+            );
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(bytes)
+    }
     pub fn new(panel_url: &str, session_token: &str) -> Result<Self> {
         ensure!(
             !session_token.is_empty()
@@ -149,6 +191,52 @@ impl PanelClient {
             serde_json::from_slice(&self.download(url.as_str(), 1024 * 1024).await?)?;
         ensure!(jobs.len() <= 64, "too many pending diagnostic jobs");
         Ok(jobs)
+    }
+
+    pub async fn agent_settings(&self) -> Result<sinan_protocol::AgentSettings> {
+        let url = self.panel.join("/api/agent/v1/settings")?;
+        let settings: sinan_protocol::AgentSettings =
+            serde_json::from_slice(&self.download(url.as_str(), 16 * 1024).await?)?;
+        ensure!(settings.valid(), "panel provided invalid Agent settings");
+        Ok(settings)
+    }
+
+    pub async fn telemetry(
+        &self,
+        batch: &sinan_protocol::TelemetryBatch,
+    ) -> Result<sinan_protocol::TelemetryAck> {
+        use std::io::Write;
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&serde_json::to_vec(batch)?)?;
+        let response = self
+            .client
+            .post(self.panel.join("/api/agent/v1/telemetry")?)
+            .bearer_auth(&self.session_token)
+            .header(reqwest::header::CONTENT_ENCODING, "gzip")
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(encoder.finish()?)
+            .send()
+            .await?;
+        ensure!(
+            response.status().is_success(),
+            "telemetry upload returned HTTP {}",
+            response.status()
+        );
+        let body = Self::response_bytes(response, 16 * 1024).await?;
+        ensure!(
+            body.len() <= 16 * 1024,
+            "telemetry acknowledgment exceeds size limit"
+        );
+        let ack: sinan_protocol::TelemetryAck = serde_json::from_slice(&body)?;
+        ensure!(
+            ack.ids.len() <= 64
+                && ack
+                    .ids
+                    .iter()
+                    .all(|id| batch.samples.iter().any(|sample| sample.id == *id)),
+            "panel acknowledged samples outside the submitted batch"
+        );
+        Ok(ack)
     }
 
     pub async fn diagnostic_update(&self, update: &DiagnosticUpdate) -> Result<()> {
