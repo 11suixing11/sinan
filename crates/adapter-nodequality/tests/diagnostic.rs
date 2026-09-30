@@ -300,3 +300,53 @@ async fn collect_does_not_follow_output_symlinks() {
     std::os::unix::fs::symlink(secret, spec.job_dir.join("result.txt")).unwrap();
     assert!(NodeQualityAdapter::new().collect(&spec).await.is_err());
 }
+
+#[tokio::test]
+async fn chapters_remain_readable_when_the_final_report_is_missing_or_another_chapter_is_bad() {
+    let scratch = Scratch::new();
+    let spec = scratch.spec();
+    std::fs::create_dir(&spec.job_dir).unwrap();
+    let chapter = serde_json::json!({"name":"header_info","text":"saved header","complete":true,"revision":2,"collected_at":1700000000});
+    std::fs::write(
+        spec.job_dir.join("section-header_info.json"),
+        serde_json::to_vec(&chapter).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        spec.job_dir.join("section-hardware_quality.json"),
+        "invalid JSON",
+    )
+    .unwrap();
+    let adapter = NodeQualityAdapter::new();
+    assert!(adapter.collect(&spec).await.unwrap().is_none());
+    let chapters = adapter.collect_sections(&spec).await.unwrap();
+    assert_eq!(chapters.len(), 1);
+    assert_eq!(chapters[0].text, "saved header");
+    assert!(chapters[0].complete);
+    let mut legacy = spec;
+    legacy.version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2".into();
+    std::fs::write(legacy.job_dir.join("result.txt"), "unchanged old report").unwrap();
+    assert_eq!(
+        adapter.collect(&legacy).await.unwrap().unwrap().text,
+        "unchanged old report"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn chapter_collection_never_follows_symlinks_and_rejects_mismatched_names() {
+    let scratch = Scratch::new();
+    let spec = scratch.spec();
+    std::fs::create_dir(&spec.job_dir).unwrap();
+    let secret = scratch.0.join("private-file");
+    std::fs::write(&secret, serde_json::to_vec(&serde_json::json!({"name":"header_info","text":"private","complete":true,"revision":1,"collected_at":1700000000})).unwrap()).unwrap();
+    std::os::unix::fs::symlink(secret, spec.job_dir.join("section-header_info.json")).unwrap();
+    std::fs::write(spec.job_dir.join("section-ip_quality.json"), serde_json::to_vec(&serde_json::json!({"name":"hardware_quality","text":"wrong chapter","complete":true,"revision":1,"collected_at":1700000000})).unwrap()).unwrap();
+    assert!(
+        NodeQualityAdapter::new()
+            .collect_sections(&spec)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}

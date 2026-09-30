@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import DiagnosticSections from './DiagnosticSections'
 import { api } from '../api'
 import { Badge, ErrorNotice, Icon, Loading } from '../components'
 import { time } from '../format'
@@ -57,6 +58,7 @@ function ReportResult({ record }: { record: DiagnosticRecord }) {
     {record.status === 'queued' && <p className="helper">任务已保存，等待在线 Agent 领取。通常会在数秒内开始。</p>}
     {record.status === 'running' && <p className="helper">正在服务器本机测试处理器、磁盘、IP 质量与网络。完整测试需要数分钟，页面会自动更新。任务截止 {time(record.expires_at)}。</p>}
     {record.error && <div className="notice notice-error break-all">{record.error}</div>}
+    <DiagnosticSections record={record} />
     {record.report && <><div className="quality-report-actions">{reportUrl ? <a className="button button-secondary" href={reportUrl} target="_blank" rel="noopener noreferrer">打开公开报告 <Icon name="arrow" size={14} /></a> : <span className="helper">未生成在线链接，本地报告如下。</span>}<button className="button button-secondary" disabled={copy.busy} onClick={() => void copy.run(() => navigator.clipboard.writeText(record.report!.text), () => {})}>复制报告文本</button></div><ErrorNotice message={copy.error} /><details className="quality-report-text"><summary>查看报告文本</summary><pre>{record.report.text}</pre></details></>}
   </article>
 }
