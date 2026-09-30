@@ -674,13 +674,17 @@ async fn auxiliary_artifacts_require_signed_file_hashes_and_reject_tampering() -
 }
 
 #[tokio::test]
-async fn signed_four_file_provenance_is_installed_and_cache_tampering_is_rejected() -> Result<()> {
+async fn signed_five_file_provenance_is_installed_and_cache_tampering_is_rejected() -> Result<()> {
     let temporary = Temporary::new()?;
-    let auxiliary: [(&str, &[u8]); 4] = [
+    let auxiliary: [(&str, &[u8]); 5] = [
         ("build-info.json", b"TEST_ONLY build provenance"),
         ("LICENSE", b"TEST_ONLY license"),
         ("source.tar.gz", b"TEST_ONLY fixed source archive"),
         ("Cargo.lock", b"TEST_ONLY locked dependencies"),
+        (
+            "THIRD_PARTY_NOTICES.txt",
+            b"TEST_ONLY third-party originals",
+        ),
     ];
     let mut members = vec![("runtime", tar::EntryType::Regular, b"binary".as_slice())];
     members.extend(
