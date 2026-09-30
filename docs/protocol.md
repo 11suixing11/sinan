@@ -2,7 +2,7 @@
 
 ## 传输与兼容
 
-生产环境必须通过 HTTPS/WSS 暴露面板；本地测试可使用回环 HTTP。Agent 原生传输只访问已配置面板的同源地址，拒绝外站制品、重定向及路径穿越。按需执行的 NodeQuality 外插需要访问上游测试服务，见 ADR 0016。WebSocket 入口为 `GET /api/agent/v1/ws`。全部业务消息为 UTF-8 JSON 文本；单条消息应小于 1 MiB。
+生产环境必须通过 HTTPS/WSS 暴露面板；本地测试可使用回环 HTTP。Agent 原生传输只访问已配置面板的同源地址，拒绝外站制品、重定向及路径穿越。NodeQuality 既有完整任务的上游执行链见 ADR 0016；新完整任务已按 ADR0031 暂停，日常探测只访问已配置目标。WebSocket 入口为 `GET /api/agent/v1/ws`。全部业务消息为 UTF-8 JSON 文本；单条消息应小于 1 MiB。
 
 Agent 与面板的产品版本独立；面板当前声明支持协议范围 `1..=1`，按协议版本和能力判断兼容，不要求产品版本相等。hello 和静态遥测报告 Agent 二进制自己的版本。
 
@@ -88,7 +88,11 @@ Linux 宿主 ABI 与 Agent 编译 ABI 不同时，运行时先保留旧的编译
 
 `GET /api/agent/v1/diagnostics/cancellations` 返回当前设备的待取消请求（最多 64 条），`POST /api/agent/v1/diagnostics/{id}/cancel-confirmation` 持久保存取消结果并返回 204。HTTP pending 与 Agent SQLite outbox 恢复断连和重启。确认前界面显示“等待设备确认取消”；负确认、过期或末尾自然报告不结束该状态，已有报告保留。重复请求和确认幂等，已自然完成任务拒绝新取消。缺少能力的旧 Agent / 服务后端明确不支持。具体清理证据与并发边界见 [ADR 0026](adr/0026-confirmed-diagnostic-cancellation.md)。
 
-NodeQuality 的 plugin 标识为 `nodequality`，version 为固定上游提交加包装器版本（当前为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5`），制品同源、校验后安装。新任务 options 允许 `mode=daily|full`、`ip_version=both|ipv4|ipv6`、`network_mode=low|normal`、`upload_report=true|false`、固定 `environment_section=true`，日常另带来自该服务器已启用 TCP 拨测的白名单 `daily_targets`（最多4个、8KiB）。日常只接受 low/false，不执行硬件或上游脚本。`upload_report` 在管理员创建任务的 HTTP 请求中为布尔值，缺省 `false`；在公共任务中为固定字符串，缺少时新 Agent 按关闭处理。旧 Agent 拒绝新版本和未知选项，不通过忽略隐私选项继续运行旧包。升级必须先准备 r5 包；新面板只向已识别 Linux、声明 `diagnostic:report-sections` 和 `diagnostic:nodequality-modes` 的 Agent 创建 r5 任务。新 Agent 仍能处理已签名 r2/r3/r4 排队任务及恢复旧 checkpoint，旧报告内容保留。任务不携带任意命令、程序地址或自由 shell 参数。
+NodeQuality 的 plugin 标识为 `nodequality`，version 为固定上游提交加包装器版本（当前为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5`），制品同源、校验后安装。新任务 options 允许 `mode=daily|full`、`ip_version=both|ipv4|ipv6`、`network_mode=low|normal`、`upload_report=true|false`、固定 `environment_section=true`，日常另带来自该服务器已启用 TCP 拨测的白名单 `daily_targets`（最多4个、8KiB）。日常只接受 low/false，不执行硬件或上游脚本。`upload_report` 在管理员创建任务的 HTTP 请求中为布尔值，缺省 `false`；在公共任务中为固定字符串，缺少时新 Agent 按关闭处理。旧 Agent 拒绝新版本和未知选项，不通过忽略隐私选项继续运行旧包。升级必须先准备 r5 包；新面板只向已识别 Linux、声明 `diagnostic:report-sections` 和 `diagnostic:nodequality-modes` 的 Agent 创建 r5 任务。新 Agent 保留 r2/r3/r4/r5 已有 Started checkpoint 的收集与取消，旧报告内容保留。任务不携带任意命令、程序地址或自由 shell 参数。
+
+
+临时安全门禁不修改上述任务序列化格式：新完整任务在两种创建入口都返回 409。NodeQuality 视图另返回 `full_ready=false` 与 `full_reason`；`plugin_ready` 只表示日常插件就绪。旧排队完整任务保存失败原因且保留 `agent_completed=false`，可接收迟到章节/报告及取消；旧运行任务仅向声明 `diagnostic:nodequality-full-start-gate` 的 Agent 重发，升级后的适配器拒绝 Preparing 完整任务的新执行，已有 Started 不重跑。门禁前已领取任务的旧 Agent 须升级或确认取消，面板不能撤回已返回的 HTTP。历史 `upload_report=false` 只关闭顶层公开上传，不能证明内层没有外发；见 [ADR0031](adr/0031-nodequality-full-start-gate.md)。
+
 
 任务 ID 同时用于设备持久 checkpoint、独立服务及面板去重。先记录启动意图再创建 systemd 服务；Agent 重启检查已有服务并继续观察，不自动重复运行。启动边界状态不明或服务消失时回报失败，管理员可另发新任务。结果确认前保存并重传；终态不能被晚到的 running 覆盖。每台设备最多一个活跃任务。代理配置版本与用户流量周期不会因诊断任务变化。
 

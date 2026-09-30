@@ -144,9 +144,7 @@ async fn modes_require_admin_confirmation_gate_capability_and_bound_daily_target
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn full_requires_an_explicit_unknown_traffic_acknowledgement_and_saves_the_audit(
-    pool: PgPool,
-) -> Result<()> {
+async fn full_stays_disabled_after_admin_acknowledges_unknown_traffic(pool: PgPool) -> Result<()> {
     let panel = TestPanel::start(pool).await?;
     let cookie = panel.admin_cookie().await?;
     let (server, _socket, _ack) = panel.authenticated_device(&cookie, "流量未知夹具").await?;
@@ -166,36 +164,34 @@ async fn full_requires_an_explicit_unknown_traffic_acknowledgement_and_saves_the
             .status(),
         StatusCode::CONFLICT
     );
-    let full: Value = panel
+    let response = panel
         .admin(
             Method::POST,
             &path,
             &cookie,
             Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
         )
+        .await?;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert!(response.text().await?.contains("离线受控工具链"));
+    let view: Value = panel
+        .admin(
+            Method::GET,
+            &format!("/api/servers/{server}/node-quality"),
+            &cookie,
+            None,
+        )
         .await?
-        .error_for_status()?
         .json()
         .await?;
-    assert_eq!(full["job"]["proxy_activity"]["state"], "unknown");
+    assert_eq!(view["proxy_activity"]["state"], "unknown");
+    assert_eq!(view["full_ready"], false);
     assert_eq!(
-        full["job"]["confirmation"]["acknowledged_traffic_warning"],
-        true
-    );
-    assert_eq!(full["job"]["confirmation"]["confirmed_full"], true);
-    assert_eq!(full["job"]["timeout_secs"], 1800);
-    assert_eq!(full["expected_sections"].as_array().unwrap().len(), 6);
-    assert!(
-        full["expected_sections"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("environment"))
-    );
-    assert!(
-        !full["job"]["options"]
-            .as_object()
-            .unwrap()
-            .contains_key("daily_targets")
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM diagnostic_jobs WHERE server_id=$1")
+            .bind(server)
+            .fetch_one(&panel.state.pool)
+            .await?,
+        0
     );
     Ok(())
 }
@@ -250,18 +246,16 @@ async fn recent_proxy_traffic_remains_a_warning_even_when_metrics_show_idle(
             .status(),
         StatusCode::CONFLICT
     );
-    let full: Value = panel
+    let response = panel
         .admin(
             Method::POST,
             &path,
             &cookie,
             Some(json!({"confirm_full":true,"acknowledge_traffic_warning":true})),
         )
-        .await?
-        .error_for_status()?
-        .json()
         .await?;
-    assert_eq!(full["job"]["proxy_activity"]["state"], "active");
-    assert_eq!(full["job"]["proxy_activity"]["last_positive_at"], now);
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert!(response.text().await?.contains("离线受控工具链"));
+    assert_eq!(view["proxy_activity"]["last_positive_at"], now);
     Ok(())
 }

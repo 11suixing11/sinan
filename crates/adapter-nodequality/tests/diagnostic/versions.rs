@@ -7,7 +7,7 @@ const R3: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3";
 const R4: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4";
 
 #[tokio::test]
-async fn saved_full_jobs_keep_each_signed_version_and_legacy_arguments() {
+async fn saved_full_jobs_are_not_prepared_but_keep_each_report_version() {
     for version in [R2, R3, R4, VERSION] {
         let scratch = Scratch::new();
         let mut spec = scratch.spec();
@@ -17,18 +17,12 @@ async fn saved_full_jobs_keep_each_signed_version_and_legacy_arguments() {
             ..Default::default()
         };
         let adapter = NodeQualityAdapter::new();
-        let job = adapter.prepare(&spec, &privileged).await.unwrap();
-        assert_eq!(
-            job.args.windows(2).any(|args| args == ["--mode", "full"]),
-            matches!(version, R4 | VERSION)
-        );
-        assert_eq!(job.memory_max.get(), 512 * 1024 * 1024);
-        assert_eq!(job.tasks_max.get(), 128);
+        let error = adapter.prepare(&spec, &privileged).await.unwrap_err();
+        assert!(error.to_string().contains("离线受控工具链"));
         assert_eq!(spec.version, version);
-        assert_eq!(
-            privileged.calls.lock().unwrap().as_slice(),
-            &[vec![String::from("--version")]]
-        );
+        assert!(privileged.calls.lock().unwrap().is_empty());
+        assert!(!spec.job_dir.exists());
+        std::fs::create_dir(&spec.job_dir).unwrap();
         std::fs::write(spec.job_dir.join("result.txt"), "unchanged saved report").unwrap();
         assert_eq!(
             adapter.collect(&spec).await.unwrap().unwrap().text,

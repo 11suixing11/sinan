@@ -22,6 +22,12 @@ pub trait DiagnosticPlugin: Send + Sync {
     fn required_os(&self) -> Option<&'static str> {
         Some("linux")
     }
+    fn start_denial(&self, _job: &Value) -> Option<&'static str> {
+        None
+    }
+    fn can_dispatch(&self, _job: &Value, _capabilities: &Value) -> bool {
+        true
+    }
     fn plan<'a>(
         &'a self,
         request: Value,
@@ -124,6 +130,7 @@ pub async fn history(
     server_id: i64,
     plugin: Option<&str>,
 ) -> ApiResult<Vec<ReportRecord>> {
+    reject_queued(&mut *state.pool.acquire().await?, server_id).await?;
     let query = HISTORY_QUERY.replace(
         "WHERE j.server_id=$1",
         "WHERE j.server_id=$1 AND ($2::text IS NULL OR j.job->>'plugin'=$2 OR ($2='nodequality' AND j.job->>'plugin' IS NULL))",
@@ -244,6 +251,7 @@ pub(crate) async fn create_job(
     let row = sqlx::query("SELECT static_info,last_seen,capabilities FROM servers WHERE id=$1 AND deleted_at IS NULL FOR UPDATE")
         .bind(id).fetch_optional(&mut *tx).await?.ok_or(ApiError::NotFound)?;
     let arch = ready(&row, plugin)?;
+    reject_queued(&mut tx, id).await?;
     let now = now_timestamp();
     sqlx::query("UPDATE diagnostic_jobs SET status='failed',error='任务超时或设备未及时回报',updated_at=$2 WHERE server_id=$1 AND status IN ('queued','running') AND expires_at<=$2")
         .bind(id).bind(now).execute(&mut *tx).await?;
@@ -288,6 +296,29 @@ pub(crate) async fn create_job(
         .await?;
     tx.commit().await?;
     Ok(record)
+}
+
+pub(super) async fn reject_queued(
+    connection: &mut sqlx::PgConnection,
+    server_id: i64,
+) -> ApiResult<()> {
+    let rows = sqlx::query("SELECT id,job FROM diagnostic_jobs WHERE server_id=$1 AND status='queued' ORDER BY created_at,id FOR UPDATE")
+        .bind(server_id).fetch_all(&mut *connection).await?;
+    for row in rows {
+        let job: Value = row.get("job");
+        if let Some(reason) = job["plugin"]
+            .as_str()
+            .and_then(diagnostic_plugins::find)
+            .and_then(|plugin| plugin.start_denial(&job))
+        {
+            // A panel queue may lag a durable device start. Keep completion false so
+            // an existing checkpoint can still return its late report or cancel.
+            sqlx::query("UPDATE diagnostic_jobs SET status='failed',error=$3,updated_at=$4 WHERE id=$1 AND server_id=$2 AND status='queued'")
+                .bind(row.get::<Uuid,_>("id")).bind(server_id).bind(reason).bind(now_timestamp())
+                .execute(&mut *connection).await?;
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn validate_plugin_report(job: &Value, report: &DiagnosticReport) -> ApiResult<()> {
