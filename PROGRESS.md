@@ -626,13 +626,6 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 最终合并审查正常保留旧作者 `ec7c663`、最新作者 `a374c12` 与 main `c47fc69`（含 #51 确认取消、#54 真实 IP 来源和 #59 许可文档）。修复 DNS 列表前八项同属一个 IP 家族时 `both` 静默漏测另一家族：先按家族选择，仍至多两个地址、每家族四次连接；新增两种顺序回归。portable 端到端夹具明确使用模拟 Linux 服务身份，不放宽生产 Linux 门禁。最终集中 Rust/PostgreSQL 专项 89 项通过、0 失败/忽略（适配器12、Agent诊断37、IP/provider25、diagnostics API10、章节3、真实Agent WS/HTTP/restart2），workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁及六项行为回归、差异检查通过。Bun 1.4.2 五项字段测试/711 断言与 TypeScript/Vite 重建通过，最终 dist 为 `index-CtZ2u8uf.js`；实际 Chromium 桌面与390px手机模式各7场景、确认取消与来源展示通过，页面错误0。Python discovery 83通过/5跳过、daily helper7通过、r4包装器23通过/6项Linux/root条件跳过。所有测试移除真实 `SINAN_ABUSEIPDB_API_KEY`，仅回环与合成凭据；本轮未重复完整 workspace，也未在本机执行真实 Linux/root/systemd、上游完整验机负载或正式 API 账户/配额验收。最终提交 CI 单独核对，R5正常退出契约修复继续独立合并。
 
-
-## 2026-10-01：共用诊断任务服务（Issue #27）
-
-将 NodeQuality 的参数、工具版本和报告规则移到登记插件，创建/能力/签名制品/预算/互斥/结果/历史改为共用服务，保留原 API 和原任务历史。协议新增可空预算，Agent 只收紧既有适配器上限；新任务要求能力握手。新增路由竞争、跨插件互斥、历史/部分报告与预算权限夹具。
-
-代码 bfae951 在限额 Debian 12 容器通过 fmt、全 targets Clippy（warnings 为错误）、完整 locked Rust/PostgreSQL 318 项/0 失败/9 既有条件忽略；容器退出 0、OOM=false。Linux wrapper 29、daily helper 6、core 分层行为 6 项通过。修复并重新验证历史 job={} 正文上传与缺插件字段的 NodeQuality 历史兼容。当前提交的独立 CI、真实 systemd 与双架构构建另行核对；专用节点连接恢复与完整验机总验仍待补。详见独立 [共用诊断服务验收](docs/acceptance/shared-diagnostic-service.md)。
-
 ## 2026-10-01：固定 NodeQuality 正常退出契约修复
 
 - main `af43ccf` 的 Linux check 发现三项包装器回归失败。完整章节与执行成功仍分开，但此前直接保留上游非零返回漏掉真实固定入口的正常清理 `exit 1`：固定源码 SHA-256 `4e1b25894cadf908ef61fb0d9ce874a75524c6dafc2ea26f0477107288e0c018` 第 455 行，由 `main → post_cleanup` 正常到达。
@@ -643,3 +636,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 最终正常合入正式模式主线 `2ea4bb9`（含许可文档），保留 DNS 双家族修复。r5 同时内嵌 daily helper 与 full 分支观察器；r4 已签模式任务继续使用自身版本、参数及目标预算恢复，r2/r3 保留旧参数且拒绝 mode 参数，不能用 r5 二进制替代 r4 身份。新任务实际创建为 r5。macOS 和正式主线后的断网 Linux root：包装器 34 项与 daily helper 7 项，共 41 项全部通过、0 跳过；无真实硬件压测或公开上传。独占短槽下适配器 16 项（新增版本接收/恢复 4 项）及 PostgreSQL 模式创建 1 项，共 17 项通过、0 失败/忽略；适配器全 targets Clippy（warnings 为错误）、fmt、core 门禁、actionlint 与差异检查通过，已释放构建槽，不重复完整 workspace。
 - 本地双架构 r5 打包成功且 runner 原字节相同，归档 SHA-256 均为 `385a8c42e5a54542544b6459e1246958d0abe8bd860c3e44dd8e1996efbdbcb1`；包内原入口与 AGPL 许可证 SHA-256 和固定值完全一致，daily/observer 都已内嵌、无未替换 marker。当前构建说明与固定旧 r2 草稿候选分开，未签名、发布或修改任何旧 Release；最终整合全 workspace 与实机压力继续独立核对。
+
+
+## 2026-10-01：共用诊断任务服务（Issue #27）
+
+将 NodeQuality 的参数、工具版本和报告规则移到登记插件，创建/能力/签名制品/预算/互斥/结果/历史改为共用服务，保留原 API 和原任务历史。协议新增可空预算，Agent 只收紧既有适配器上限；新任务要求能力握手。新增路由竞争、跨插件互斥、历史/部分报告与预算权限夹具。
+
+代码 bfae951 在限额 Debian 12 容器通过 fmt、全 targets Clippy（warnings 为错误）、完整 locked Rust/PostgreSQL 318 项/0 失败/9 既有条件忽略；容器退出 0、OOM=false。Linux wrapper 29、daily helper 6、core 分层行为 6 项通过。修复并重新验证历史 job={} 正文上传与缺插件字段的 NodeQuality 历史兼容。当前提交的独立 CI、真实 systemd 与双架构构建另行核对；专用节点连接恢复与完整验机总验仍待补。详见独立 [共用诊断服务验收](docs/acceptance/shared-diagnostic-service.md)。
