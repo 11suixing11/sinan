@@ -2,13 +2,21 @@
 
 use anyhow::{Context, Result, bail};
 use sinan_adapter_sdk::{
-    BoxFuture, DiagnosticAdapter, DiagnosticDescriptor, DiagnosticOutput, DiagnosticSpec,
-    Privileged, ServiceJob,
+    BoxFuture, DiagnosticAdapter, DiagnosticDescriptor, DiagnosticOutput, DiagnosticSection,
+    DiagnosticSpec, Privileged, ServiceJob,
 };
 use std::{path::Path, time::Duration};
 use tokio::{io::AsyncReadExt, time::timeout};
 
-pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2";
+pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3";
+const LEGACY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2";
+pub const SECTION_NAMES: [&str; 5] = [
+    "header_info",
+    "hardware_quality",
+    "ip_quality",
+    "net_quality",
+    "backroute_trace",
+];
 pub const MAX_REPORT_BYTES: u64 = 256 * 1024;
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -40,7 +48,7 @@ fn path_argument(path: &Path) -> Result<String> {
 }
 
 fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String, String)> {
-    if spec.version != VERSION {
+    if !matches!(spec.version.as_str(), VERSION | LEGACY_VERSION) {
         bail!("unsupported diagnostic version");
     }
     let id = spec.id.as_bytes();
@@ -167,7 +175,7 @@ impl DiagnosticAdapter for NodeQualityAdapter {
             )
             .await
             .context("diagnostic version verification timed out")??;
-            if !output.success || output.stdout.trim() != format!("nodequality {VERSION}") {
+            if !output.success || output.stdout.trim() != format!("nodequality {}", spec.version) {
                 bail!("diagnostic artifact version verification failed");
             }
             Ok(ServiceJob {
@@ -196,7 +204,11 @@ impl DiagnosticAdapter for NodeQualityAdapter {
 
     fn collect<'a>(&'a self, spec: &'a DiagnosticSpec) -> BoxFuture<'a, Option<DiagnosticOutput>> {
         Box::pin(async move {
-            validate(spec)?;
+            let mut compatible = spec.clone();
+            if compatible.version == LEGACY_VERSION {
+                compatible.version = VERSION.into();
+            }
+            validate(&compatible)?;
             timeout(IO_TIMEOUT, async {
                 let result =
                     read_bounded(&spec.job_dir.join("result.txt"), MAX_REPORT_BYTES).await?;
@@ -217,6 +229,44 @@ impl DiagnosticAdapter for NodeQualityAdapter {
             })
             .await
             .context("read diagnostic output timed out")?
+        })
+    }
+    fn collect_sections<'a>(
+        &'a self,
+        spec: &'a DiagnosticSpec,
+    ) -> BoxFuture<'a, Vec<DiagnosticSection>> {
+        Box::pin(async move {
+            let mut compatible = spec.clone();
+            if compatible.version == LEGACY_VERSION {
+                compatible.version = VERSION.into();
+            }
+            validate(&compatible)?;
+            timeout(IO_TIMEOUT, async {
+                let mut sections = Vec::new();
+                for name in SECTION_NAMES {
+                    let path = spec.job_dir.join(format!("section-{name}.json"));
+                    // One malformed chapter must not hide the other saved chapters.
+                    let saved = match read_bounded(&path, 512 * 1024).await {
+                        Ok(Some(value)) => value,
+                        Ok(None) | Err(_) => continue,
+                    };
+                    let Ok(section) = serde_json::from_str::<DiagnosticSection>(&saved) else {
+                        continue;
+                    };
+                    if section.name == name
+                        && !section.text.trim().is_empty()
+                        && section.text.len() <= 64 * 1024
+                        && section.revision > 0
+                        && section.revision <= i64::MAX as u64
+                        && section.collected_at > 0
+                    {
+                        sections.push(section);
+                    }
+                }
+                Ok(sections)
+            })
+            .await
+            .context("read diagnostic chapters timed out")?
         })
     }
 }

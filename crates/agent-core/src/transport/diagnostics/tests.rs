@@ -442,3 +442,6 @@ mod deadline;
 
 #[path = "tests/safety.rs"]
 mod safety;
+
+#[path = "tests/report_sections.rs"]
+mod report_sections;

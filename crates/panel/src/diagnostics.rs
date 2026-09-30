@@ -11,15 +11,25 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sinan_protocol::{
-    DiagnosticJob, DiagnosticReport, DiagnosticStatus, DiagnosticUpdate, now_timestamp,
+    DiagnosticJob, DiagnosticReport, DiagnosticSectionUpdate, DiagnosticStatus, DiagnosticUpdate,
+    now_timestamp,
 };
 use sqlx::{FromRow, Row};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
-pub const PLUGIN_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2";
+pub const PLUGIN_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3";
 pub const REPORT_LIMIT: usize = 512 * 1024;
 const TIMEOUT_SECS: u64 = 1800;
+const EXPECTED_SECTIONS: [&str; 5] = [
+    "header_info",
+    "hardware_quality",
+    "ip_quality",
+    "net_quality",
+    "backroute_trace",
+];
+mod sections;
+const HISTORY_QUERY: &str = "SELECT j.id,j.status,j.job,j.report,j.error,j.created_at,j.updated_at,j.expires_at,j.expected_sections,j.report_completeness,COALESCE((SELECT jsonb_agg(jsonb_build_object('name',s.name,'text',s.text,'complete',s.complete,'revision',s.revision,'collected_at',s.collected_at) ORDER BY array_position(j.expected_sections,s.name),s.name) FROM diagnostic_report_sections s WHERE s.job_id=j.id),'[]'::jsonb) AS sections FROM diagnostic_jobs j WHERE j.server_id=$1 ORDER BY j.created_at DESC,j.id DESC LIMIT 10";
 
 #[derive(Serialize, FromRow)]
 pub struct ReportRecord {
@@ -31,6 +41,9 @@ pub struct ReportRecord {
     pub created_at: i64,
     pub updated_at: i64,
     pub expires_at: i64,
+    pub expected_sections: Vec<String>,
+    pub report_completeness: String,
+    pub sections: Value,
 }
 
 #[derive(Serialize)]
@@ -96,6 +109,15 @@ fn ready(row: &sqlx::postgres::PgRow) -> ApiResult<&'static str> {
             "此 Agent 尚不支持 NodeQuality 插件，请升级 Agent".into(),
         ));
     }
+    if !capabilities.as_array().is_some_and(|values| {
+        values
+            .iter()
+            .any(|value| value.as_str() == Some(sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY))
+    }) {
+        return Err(ApiError::Conflict(
+            "此 Agent 尚不支持独立报告章节，请先升级 Agent".into(),
+        ));
+    }
     architecture(&row.get::<Value, _>("static_info"))
 }
 
@@ -106,8 +128,10 @@ pub async fn expire(state: &AppState) -> Result<(), sqlx::Error> {
 }
 
 async fn history(state: &AppState, server_id: i64) -> ApiResult<Vec<ReportRecord>> {
-    Ok(sqlx::query_as("SELECT id,status,job,report,error,created_at,updated_at,expires_at FROM diagnostic_jobs WHERE server_id=$1 ORDER BY created_at DESC,id DESC LIMIT 10")
-        .bind(server_id).fetch_all(&state.pool).await?)
+    Ok(sqlx::query_as(HISTORY_QUERY)
+        .bind(server_id)
+        .fetch_all(&state.pool)
+        .await?)
 }
 
 pub async fn get(
@@ -194,9 +218,9 @@ pub async fn create(
             ("upload_report".into(), request.upload_report.to_string()),
         ]),
     };
-    let record = sqlx::query_as("INSERT INTO diagnostic_jobs(id,server_id,job,created_at,updated_at,expires_at) VALUES($1,$2,$3,$4,$4,$5) RETURNING id,status,job,report,error,created_at,updated_at,expires_at")
+    let record = sqlx::query_as("INSERT INTO diagnostic_jobs(id,server_id,job,created_at,updated_at,expires_at,expected_sections) VALUES($1,$2,$3,$4,$4,$5,$6) RETURNING id,status,job,report,error,created_at,updated_at,expires_at,expected_sections,report_completeness,'[]'::jsonb AS sections")
         .bind(job.id).bind(id).bind(serde_json::to_value(job).map_err(anyhow::Error::from)?)
-        .bind(now).bind(now + TIMEOUT_SECS as i64 + 300).fetch_one(&mut *tx).await?;
+        .bind(now).bind(now + TIMEOUT_SECS as i64 + 300).bind(EXPECTED_SECTIONS.to_vec()).fetch_one(&mut *tx).await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, Json(record)))
 }
@@ -317,15 +341,21 @@ pub async fn update(
     )
     .bind(id)
     .bind(status)
-    .bind(report)
+    .bind(&report)
     .bind(error)
     .bind(now)
     .bind(completed)
     .execute(&mut *tx)
     .await?;
+    if report.is_some() {
+        sqlx::query("UPDATE diagnostic_jobs SET report_completeness='legacy' WHERE id=$1 AND cardinality(expected_sections)=0")
+            .bind(id).execute(&mut *tx).await?;
+    }
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+pub use sections::upload_section;
 
 #[cfg(test)]
 mod tests {

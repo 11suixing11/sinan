@@ -8,12 +8,14 @@ import os
 import pathlib
 import re
 import sys
+import time
 import zipfile
 
 
 MAX_CAPTURE = 12 * 1024 * 1024
 MAX_UNPACKED = 32 * 1024 * 1024
 MAX_TEXT = 256 * 1024
+MAX_SECTION = 64 * 1024
 SECTIONS = (
     ("header_info", "报告信息"),
     ("hardware_quality", "硬件质量"),
@@ -51,6 +53,11 @@ def capture(root):
     if len(data) > MAX_CAPTURE:
         raise ValueError("report upload exceeds its size limit")
     write_atomic(root / "upload.base64", data)
+    try:
+        _, files = archive_files(root)
+        publish_sections(root, files, archive=True)
+    except (OSError, ValueError, zipfile.BadZipFile, RuntimeError):
+        pass
 
 
 def stream_log(path):
@@ -96,7 +103,7 @@ def validate_json(data):
         raise ValueError("upstream report JSON is empty")
 
 
-def render(root):
+def archive_files(root):
     capture_path = root / "upload.base64"
     with capture_path.open("rb") as source:
         encoded = source.read(MAX_CAPTURE + 1)
@@ -116,7 +123,98 @@ def render(root):
             if record.file_size > 8 * 1024 * 1024 or total > MAX_UNPACKED:
                 raise ValueError("report archive exceeds its uncompressed size limit")
             files[record.filename] = archive.read(record)
+    return archive_bytes, files
+
+
+def bounded_text(data):
+    text = clean_text(data.decode("utf-8", errors="replace")).strip()
+    encoded = text.encode("utf-8")
+    if len(encoded) <= MAX_SECTION:
+        return text
+    suffix = "\n章节文本已截断；如已生成压缩包，完整原始结果保存在本地 report.zip。".encode("utf-8")
+    return encoded[:MAX_SECTION-len(suffix)].decode("utf-8", errors="ignore") + suffix.decode("utf-8")
+
+
+def save_section(root, name, text, complete):
+    if not text:
+        return
+    path = root / ("section-" + name + ".json")
+    previous = {}
+    if path.exists():
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 512 * 1024:
+            raise ValueError("chapter output is not a bounded ordinary file")
+        previous = json.loads(path.read_text())
+    if previous.get("complete") and not complete:
+        return
+    if previous.get("text") == text and previous.get("complete") == complete:
+        return
+    chapter = {"name": name, "text": text, "complete": complete,
+               "revision": previous.get("revision", 0) + 1, "collected_at": int(time.time())}
+    write_atomic(path, json.dumps(chapter, ensure_ascii=False).encode("utf-8"))
+
+
+def publish_sections(root, files, archive=False):
+    for index, (name, _) in enumerate(SECTIONS):
+        text = bounded_text(files.get(name + ".log", b""))
+        if not text:
+            continue
+        valid = name == "header_info"
+        if not valid:
+            try:
+                validate_json(files.get(name + ".json", b""))
+                valid = True
+            except (ValueError, UnicodeError):
+                pass
+        # The pinned entry runs stages sequentially. A following log proves that
+        # the preceding pipeline finished; archive capture proves the last stage.
+        following = any(other + ".log" in files for other, _ in SECTIONS[index + 1:])
+        save_section(root, name, text, valid and (archive or following))
+
+
+def snapshot(root):
+    capture_path = root / "upload.base64"
+    if capture_path.is_file() and not capture_path.is_symlink():
+        try:
+            _, files = archive_files(root)
+            publish_sections(root, files, archive=True)
+            return
+        except (OSError, ValueError, zipfile.BadZipFile, RuntimeError):
+            pass
+    directories = list(root.glob(".nodequality*/BenchOs/result"))[:8]
+    for directory in directories:
+        if directory.is_symlink() or not directory.is_dir():
+            continue
+        if any(parent.is_symlink() for parent in (directory.parent, directory.parent.parent)):
+            continue
+        if not directory.resolve().is_relative_to(root.resolve()):
+            continue
+        files = {}
+        for name, _ in SECTIONS:
+            for extension, limit in (("log", 8 * 1024 * 1024), ("json", 2 * 1024 * 1024)):
+                path = directory / (name + "." + extension)
+                if path.is_symlink() or not path.is_file() or path.stat().st_size > limit:
+                    continue
+                with path.open("rb") as source:
+                    files[path.name] = source.read(MAX_SECTION if extension == "log" else limit + 1)
+        publish_sections(root, files)
+
+
+def watch_sections(root):
+    while True:
+        try:
+            snapshot(root)
+        except (OSError, ValueError, zipfile.BadZipFile, RuntimeError):
+            # Incomplete writes or unavailable stages are retried, without erasing
+            # the last atomic chapter snapshot or producing unbounded logs.
+            pass
+        time.sleep(1)
+
+
+def render(root):
+    capture_path = root / "upload.base64"
+    archive_bytes, files = archive_files(root)
     write_atomic(root / "report.zip", archive_bytes)
+    publish_sections(root, files, archive=True)
     for name, _ in SECTIONS:
         log = files.get(name + ".log", b"")
         if not clean_text(log.decode("utf-8", errors="replace")).strip():
@@ -161,6 +259,10 @@ def main():
         stream_log(root)
     elif mode == "render":
         render(root)
+    elif mode == "snapshot":
+        snapshot(root)
+    elif mode == "watch-sections":
+        watch_sections(root)
     elif mode == "response":
         capture_response(root)
     else:

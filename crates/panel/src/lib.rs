@@ -161,6 +161,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/agent/v1/probe-results", post(probes::ingest))
         .route("/api/agent/v1/diagnostics", get(diagnostics::pending))
         .route("/api/agent/v1/diagnostics/{id}", post(diagnostics::update))
+        .route(
+            "/api/agent/v1/diagnostics/{id}/sections",
+            post(diagnostics::upload_section),
+        )
         .route("/api/agent/v1/bundles/{rev}", get(agent_api::bundle))
         .route(
             "/api/agent/v1/artifacts/{name}/{version}/{arch}",
