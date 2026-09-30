@@ -252,3 +252,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - Windows AMD64 已通过 Agent 全流程与真实运行时构建，服务启动报 AccessDenied。运行时账户补充普通 Users 组成员身份，保证公共可执行文件 ACL 可读；保留非管理员权限，并增加分组断言和任务事件诊断。随机任务密码保证覆盖复杂度字符类型。
 - Windows ARM64 已完成重启补报，监督进程首次启动超过夹具原 60 秒等待；增加平台启动等待及 120 秒有界更新健康检查。原生 Go 构建也补充三次有限重试，应对本轮模块代理 HTTP/2 INTERNAL_ERROR。
 - 本地 fmt、Clippy、完整 Rust/PostgreSQL 测试通过（142 项成功、4 项原有专项忽略），真实 Agent 全流程通过；五组构建脚本检查、actionlint、Python 语法和 diff 检查通过。下一步继续核实 FreeBSD AMD64 和 Windows 双架构完整 CI。
+
+## 原生 CI 跟进：FreeBSD 双架构通过与 Windows 任务 DACL
+
+- [a67aeae 的 CI](https://github.com/imengying/sinan/actions/runs/36739867701) 中 FreeBSD 双架构均通过新增的五次重复启动/采样和完整常驻服务检查，macOS 及九个 Linux/Compose 构建任务通过。磁盘枚举互斥后本轮未出现段错误。
+- Windows AMD64 已通过 Agent 全流程和真实运行时构建；新增诊断显示任务继承 DACL 的 SYSTEM/Administrators 掩码不含执行位，加入普通 Users 组不能解决此问题。注册后明确设置本项目任务的管理权限，保留运行时普通账户，仍待原生执行确认。
+- 主 check 在 Rust 测试失败，公开接口未返回具体用例；本地连续五轮完整回归通过。将同一个错误摘要包装器用于 Rust/PostgreSQL 测试，下一次失败保留用例和堆栈，不通过重试隐藏失败。Windows ARM64 的真实运行时构建通过，但 Agent 行为检查失败、服务检查尚在运行，继续等待具体诊断。
+- 任务权限修复后 fmt、Clippy、完整 Rust/PostgreSQL 测试再次通过（142 项成功、4 项原有专项忽略）；actionlint、Python 语法和 diff 检查通过。继续跟进原生 Windows 与主检查结果，尚未将全部平台标为完成。

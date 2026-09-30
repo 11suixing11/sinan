@@ -46,10 +46,11 @@ async fn task(
         )
     };
     let script = format!(
-        "$action=New-ScheduledTaskAction -Execute {} -Argument {} -WorkingDirectory {}; $trigger=New-ScheduledTaskTrigger -AtStartup; $settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries; {principal}",
+        "$action=New-ScheduledTaskAction -Execute {} -Argument {} -WorkingDirectory {}; $trigger=New-ScheduledTaskTrigger -AtStartup; $settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries; {principal}; $scheduler=New-Object -ComObject Schedule.Service; $scheduler.Connect(); $registered=$scheduler.GetFolder('\\').GetTask({}); $registered.SetSecurityDescriptor('D:P(A;;GA;;;SY)(A;;GA;;;BA)',0x10)",
         quote(&program.to_string_lossy()),
         quote(args),
-        quote(&directory.to_string_lossy())
+        quote(&directory.to_string_lossy()),
+        quote(name)
     );
     powershell(ops, &script).await
 }

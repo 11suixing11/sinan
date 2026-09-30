@@ -28,6 +28,7 @@ def wait_for(check, description, seconds=120 if os.name == 'nt' else 60):
     while time.monotonic() < deadline:
         result = check()
         if result:
+            print('Passed: ' + description, flush=True)
             return result
         time.sleep(0.5)
     raise AssertionError('Timed out waiting for ' + description)

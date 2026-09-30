@@ -44,7 +44,8 @@ jobs:
         run: sudo python3 tools/test-nodequality.py
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
+      - name: Run Rust and PostgreSQL tests
+        run: python3 tools/ci-run.py cargo test --locked
       - name: Verify independent diagnostic services with real systemd
         run: |
           cargo test -p sinan-agent-core --lib --no-run --message-format=json > /tmp/sinan-core-tests.jsonl
