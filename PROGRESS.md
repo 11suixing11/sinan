@@ -725,3 +725,5 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 服务器导航新增 TCP 连接诊断，四项小预设及配置目标地区，按本次冻结范围显示工具版本/时间/参数、连接成功统计和独立章节；未知不补零，取消确认前保留屏障，部分报告可看，不做跨参数排名。主线管理员与 sing-box 插件导航继续保留，NodeQuality 完整门禁不由本 PR 改动。
 
 012ca9f 的 Bun/TypeScript/Vite 与 Chromium1280/390px夹具验收通过，零页面错误、正确创建/地区请求和取消禁用均已核实；最终主线整合后重新构建与浏览器复验另补。验收范围与真实节点待办见 docs/acceptance/tcpquality-report-view.md。
+
+- 在面板 fe4ae60 与公开制品主线 9a41fe5 上重整源代码，NodeQuality门禁及管理员/插件导航保留；9dbff20 的 Bun frozen install、5项/711断言、TypeScript/Vite和最终dist Chromium1280/390px复验均通过，零页面错误、每宽度一条白名单创建/地区PATCH，未知/真实0/部分/旧报告过滤/取消屏障成立。实际dist index-D5k-FUiH.js，独立PR最终CI另跟。

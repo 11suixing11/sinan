@@ -6,4 +6,4 @@
 
 检查版本、开始/结束时间、IP 版本、计数/并发和冻结目标范围；明示 TCP 连接成功率并非包丢失/重传/吞吐，不做跨参数排名。目标只取已配置 TCP 拨测并由管理员标注地区，不内置第三方目标。
 
-012ca9f 已完成 Bun frozen install / TypeScript / Vite 和两宽度浏览器验收。最终主线整合重新构建及重验结果另补。浏览器使用夹具 API，不宣称真实 Agent、真实 TCP、签名发布、专用节点完整验机或持续代理流量验收完成。
+012ca9f 已完成 Bun frozen install / TypeScript / Vite 和两宽度浏览器验收。在公开主线 9a41fe5 加最终面板登记 fe4ae60 上正常整合为 9dbff20；保留 NodeQuality 完整门禁和插件业务导航，Bun frozen install / 5项711断言 / TypeScript / Vite 全部通过，新 dist 为 index-D5k-FUiH.js。对该实际 dist 的 Chromium1280/390px复验再次通过：页面错误0，每宽度创建请求1与地区PATCH1，零值/未知/部分章节/旧报告过滤/取消屏障全部成立。首次浏览器尝试因 SSH 预览隧道结束连接拒绝，重建隧道后通过；该失败不归因于网页。浏览器使用夹具 API，不宣称真实 Agent、真实 TCP、签名发布、专用节点完整验机或持续代理流量验收完成。
