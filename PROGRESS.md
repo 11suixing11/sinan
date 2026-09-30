@@ -459,3 +459,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 对齐 main `45df3b1` 后，11 项 IP 查询、3 项诊断 PostgreSQL、6 项 foundation 专项测试全部通过；冻结锁文件安装、TypeScript/Vite 构建和桌面/手机实际 dist 夹具通过。初次完整 Rust/PostgreSQL 测试受到测试磁盘耗尽影响，foundation 临时建库失败，补跑成功后仍不记为完整通过；全 workspace 与平台验证交最新提交 CI。独立步骤与边界见 [IP 查询错误分类验收](docs/acceptance/ip-provider-errors.md)。
 - 最终整合 main `21e6a01`，保留诊断资源预算、有限流量补报、监控模式、任务页面与退役保护。使用独立 PostgreSQL 再跑上述 20 项专项测试，全部通过且无忽略；panel 全 targets Clippy（warnings 为错误）、workspace fmt 与差异空白检查通过。Bun 1.4.2 冻结锁文件安装及 TypeScript/Vite 构建通过，并重建合并后的 dist；此结果不代表最终提交的完整 workspace 或平台 CI 已通过。
 - 此项不修改缓存结构或覆盖语义；失败后保留历史成功结果由下一独立 PR 完成。新增 rustls 类型直接依赖的理由及替代方案记录于 [ADR 0024](docs/adr/0024-ip-provider-error-classification.md)。
+
+
+## 2026-10-01：专用 Debian 12 测试节点就绪（独立 PR）
+
+- 按明确授权停用选定节点原 xboard-node 业务并禁用自启动，保留配置和身份；447 MiB 内存、约 12 GiB 可用磁盘、已有 2 GiB swap。其余生产代理节点未运行完整硬件测试。
+- 建立私有测试面板与独立 PostgreSQL、正常注册的测试 Agent/代理用户/授权，回环绑定和 SSH 隧道连接。公开 TEST_ONLY 签名安装验证保留，实际 GNU 调试构建不作为正式 musl Release 发布。
+- Agent 与独立 sing-box 单元健康在线，实读 -500/1000 优先级和初始零重启；凭据、原始日志和环境配置保存在本机私有目录，未进入 Git。独立验收见 docs/acceptance/dedicated-debian12-node.md。默认512MiB完整诊断预算不适合该机，预检应拒绝；完整资源症状与故障场景另项记录。
