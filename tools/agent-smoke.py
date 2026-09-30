@@ -13,6 +13,7 @@ import socket
 import sqlite3
 import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -33,6 +34,11 @@ def wait_for(check, description, seconds=60):
 
 class Panel(ThreadingHTTPServer):
     daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        # Stopping an Agent deliberately closes its pooled HTTP connections.
+        if not isinstance(sys.exception(), (ConnectionResetError, BrokenPipeError)):
+            super().handle_error(request, client_address)
 
     def __init__(self, port=0):
         super().__init__(('127.0.0.1', port), Handler)
@@ -176,7 +182,7 @@ class Handler(BaseHTTPRequestHandler):
 def invoke(binary, config, *args, **kwargs):
     result = subprocess.run([str(binary), '--config', str(config), *args],
                             capture_output=True, text=True, encoding='utf-8',
-                            timeout=180 if 'install-service' in args else 60, **kwargs)
+                            timeout=180 if {'enroll', 'install-service'}.intersection(args) else 60, **kwargs)
     if result.returncode:
         raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
     return result.stdout

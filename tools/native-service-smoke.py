@@ -86,7 +86,7 @@ def main():
     binary = args.binary.resolve()
     archive = args.runtime_archive.read_bytes()
     root = (Path(os.environ['ProgramData']) if SYSTEM == 'Windows' else Path('/opt')) / ('sinan-test-' + uuid.uuid4().hex[:8])
-    root.mkdir(mode=0o755)
+    root.mkdir(mode=0o755, parents=True)
     os.environ['NO_PROXY'] = os.environ['no_proxy'] = '127.0.0.1,localhost'
     panel = Panel()
     config = helpers['configure'](root, panel.origin)

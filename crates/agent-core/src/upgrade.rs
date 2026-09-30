@@ -1,4 +1,6 @@
 mod supervisor;
+#[cfg(all(test, target_os = "linux"))]
+mod tests;
 use crate::{
     Config, SharedState,
     artifacts::PanelClient,

@@ -129,7 +129,7 @@ python3 tools/build-agent.py x86_64-unknown-linux-gnu "$PWD/artifacts"
 python3 tools/build-agent.py aarch64-apple-darwin "$PWD/artifacts"
 ```
 
-FreeBSD CI 在 Linux 安装目标标准库，使用 `Cross.toml` 中固定摘要的交叉编译镜像，不在 ARM64 FreeBSD VM 内安装 rustup；13.5/14 VM 只执行二进制，15 VM 使用 Python 验证并打包，均在验证成功后上传。FreeBSD 本机原生构建仍需安装 Rust、protobuf 并设置 `PROTOC=/usr/local/bin/protoc`；Windows 使用 `python` 和对应 MSVC Rust toolchain。原生构建要求工具链与目标一致。新增下载包不能直接替代面板的原制品目录：Linux glibc 部署时，将对应二进制复制到 `agent/<version>/<arch>` 并重新生成 `SHA256SUMS`，确保同一版本、同一架构的已有制品不被覆盖。
+FreeBSD CI 在 Linux 安装目标标准库，使用 `Cross.toml` 中固定摘要的交叉编译镜像，不在 ARM64 FreeBSD VM 内安装 rustup；13.5/14 VM 只执行二进制，15 VM 使用 Python 验证并打包，均在验证成功后上传。FreeBSD 本机原生构建仍需安装 Rust、protobuf 并设置 `PROTOC=/usr/local/bin/protoc`；Windows 使用 `python` 和对应 MSVC Rust toolchain。原生构建要求工具链与目标一致。导入时保留 `<version>/<platform-target>` 名称并合并 `SHA256SUMS`；旧 `amd64`/`arm64` 名称只保留静态 musl 兼容包，不用 glibc 产物覆盖。
 
 ### 构建运行时
 

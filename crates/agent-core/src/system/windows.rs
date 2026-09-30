@@ -49,7 +49,7 @@ impl SystemOps {
             ps_quote(&path.to_string_lossy())
         );
         let output = self
-            .execute(
+            .execute_bounded(
                 Path::new("powershell.exe"),
                 &[
                     "-NoProfile".into(),
@@ -57,12 +57,20 @@ impl SystemOps {
                     "-Command".into(),
                     script,
                 ],
+                90,
+                1024 * 1024,
             )
-            .await?;
+            .await
+            .with_context(|| format!("protect Windows path {}", path.display()))?;
         ensure!(
-            output.success,
+            !output.timed_out,
+            "protecting Windows path {} exceeded 90 seconds",
+            path.display()
+        );
+        ensure!(
+            output.output.success,
             "cannot protect Windows state directory: {}",
-            output.stderr
+            output.output.stderr
         );
         Ok(())
     }

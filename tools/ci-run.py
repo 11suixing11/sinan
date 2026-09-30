@@ -17,8 +17,12 @@ def main():
             recent.append(line)
         code = child.wait()
     if code and os.environ.get('GITHUB_ACTIONS') == 'true':
-        message = ''.join(recent)[-24000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-        print('::error::' + message, flush=True)
+        # GitHub truncates individual check annotations at 4096 characters.
+        message = ''.join(recent)[-24000:]
+        chunks = [message[i:i + 3000] for i in range(0, len(message), 3000)]
+        for index, chunk in enumerate(chunks, 1):
+            escaped = chunk.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+            print(f'::error title=Failure output {index}/{len(chunks)}::{escaped}', flush=True)
     raise SystemExit(code)
 
 
