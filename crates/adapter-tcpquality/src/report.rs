@@ -161,6 +161,12 @@ impl TargetResult {
                 {
                     return false;
                 }
+                if self.error.as_deref() == Some("ip_family_unavailable")
+                    && (literal.is_some_and(|ip| ip.is_ipv4() == (input.ip_version == "4"))
+                        || (literal.is_none() && self.dns_attempts != 1))
+                {
+                    return false;
+                }
             } else if self.error.as_deref() != Some("utc_unavailable") {
                 return false;
             }

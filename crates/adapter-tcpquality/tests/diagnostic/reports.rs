@@ -244,6 +244,23 @@ async fn completed_family_failure_stays_unknown_but_cancelled_targets_cannot_cla
         body["targets"][0]["summary"]["connection_success_percent"],
         Value::Null
     );
+    // A known literal of the requested family cannot fail family selection.
+    let matching = Fixture::new(1);
+    let matching_spec = matching.spec();
+    matching.workspace();
+    let mut false_family = report(&matching_spec, &matching.scope);
+    false_family["complete"] = json!(true);
+    false_family["finished_at_ms"] = false_family["started_at_ms"].clone();
+    false_family["targets"][0]["complete"] = json!(true);
+    false_family["targets"][0]["status"] = json!("failed");
+    false_family["targets"][0]["error"] = json!("ip_family_unavailable");
+    matching.write("result.json", false_family.to_string().as_bytes());
+    assert!(
+        TcpQualityAdapter::new()
+            .collect(&matching_spec)
+            .await
+            .is_err()
+    );
     for error in [
         "total_timeout",
         "worker_failed",
