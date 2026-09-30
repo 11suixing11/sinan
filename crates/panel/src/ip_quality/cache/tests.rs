@@ -47,6 +47,19 @@ impl Source {
                             4 if query.get("db").is_none_or(|database| database != "ipapi") => {
                                 (StatusCode::FORBIDDEN, "fixture partial").into_response()
                             }
+                            5 => Json(json!({"success":false,"fraud_score":0,"proxy":false}))
+                                .into_response(),
+                            6 => Json(Value::Null).into_response(),
+                            7 => Json(json!({})).into_response(),
+                            8 => Json(json!({
+                                "ASN":{"AutonomousSystemNumber":false},
+                                "company":{"abuser_score":true},
+                                "scamalytics":{"scamalytics_score":false},
+                                "data":{"abuseConfidenceScore":false},
+                                "fraud_score":" ","proxy":0,"is_proxy":"false",
+                                "threat":{"is_proxy":null}
+                            }))
+                            .into_response(),
                             mode => Json(json!({
                                 "ASN":{"AutonomousSystemNumber":64500},
                                 "company":{"abuser_score":if mode==4 {7} else {0}},
@@ -321,5 +334,75 @@ async fn a_deleted_server_cannot_replace_its_durable_cache(pool: PgPool) -> Resu
         Err(ApiError::NotFound)
     ));
     assert_eq!(read(&pool, id, &ips).await?[0].status, "succeeded");
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn uncertain_payloads_never_replace_valid_zero_false_or_become_current_success(
+    pool: PgPool,
+) -> Result<()> {
+    let id = server(&pool).await?;
+    let source = Source::start().await?;
+    let ips = ["192.0.2.1".into()];
+    let at = now_timestamp() - 120;
+    persist(&pool, id, &source.query(&ips, at).await).await?;
+    let initial = read(&pool, id, &ips).await?.remove(0);
+    for (index, mode) in [5, 6, 7, 8, 1, 2, 3].into_iter().enumerate() {
+        source.mode.store(mode, Ordering::SeqCst);
+        let queried = source.query(&ips, at + index as i64 + 20).await;
+        assert_eq!(queried[0].status, "failed");
+        assert!(
+            queried[0]
+                .databases
+                .iter()
+                .all(|database| database.fields.is_empty())
+        );
+        persist(&pool, id, &queried).await?;
+        let reopened = PgPool::connect_with((*pool.connect_options()).clone()).await?;
+        let history = read(&reopened, id, &ips).await?.remove(0);
+        reopened.close().await;
+        assert_eq!(history.last_success_at, initial.last_success_at);
+        assert_eq!(history.fresh_until, initial.fresh_until);
+        assert!(
+            history
+                .databases
+                .iter()
+                .all(|database| database.status == "failed" && database.historical)
+        );
+        assert_eq!(history.databases[6].fields[0].value, json!(0));
+        assert_eq!(history.databases[6].fields[1].value, json!(false));
+    }
+    let fresh_ips = ["192.0.2.2".into()];
+    for (index, mode) in [5, 6, 7, 8].into_iter().enumerate() {
+        source.mode.store(mode, Ordering::SeqCst);
+        persist(
+            &pool,
+            id,
+            &source.query(&fresh_ips, at + 100 + index as i64).await,
+        )
+        .await?;
+        let unknown = read(&pool, id, &fresh_ips).await?.remove(0);
+        assert_eq!(unknown.last_success_at, None);
+        assert!(
+            unknown
+                .databases
+                .iter()
+                .all(|database| database.fields.is_empty()
+                    && !database.historical
+                    && database.last_success_at.is_none())
+        );
+    }
+    // Old parser snapshots are kept on disk but invalid field types are not presented as facts.
+    let invalid = json!({"database":"ipqualityscore","label":"old","status":"succeeded","fields":[
+        {"label":"欺诈评分（上游原值）","value":false},
+        {"label":"代理","value":0},{"label":"旧空白","value":" "},{"label":"旧null","value":null}
+    ],"error":null});
+    sqlx::query("UPDATE server_ip_quality_datasets SET success_payload=$2 WHERE server_id=$1 AND database='ipqualityscore'")
+        .bind(id).bind(&invalid).execute(&pool).await?;
+    let unknown = read(&pool, id, &ips).await?.remove(0);
+    assert!(unknown.databases[6].fields.is_empty());
+    assert!(!unknown.databases[6].historical);
+    let untouched:Value=sqlx::query_scalar("SELECT success_payload FROM server_ip_quality_datasets WHERE server_id=$1 AND database='ipqualityscore'").bind(id).fetch_one(&pool).await?;
+    assert_eq!(untouched, invalid);
     Ok(())
 }

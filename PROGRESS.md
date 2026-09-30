@@ -505,3 +505,14 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 数据和兼容语义见 [ADR 0025](docs/adr/0025-ip-provider-cache.md)，独立步骤及边界见 [缓存验收](docs/acceptance/ip-provider-cache.md)。本项没有新增查询入口或修改网络重试策略。
 
 - IP 缓存合并整合 main `75cd846`，保留诊断内存保护、固定锁权限、宿主 ABI 缓存兼容、服务夹具和会话单次签发修复。完整 Rust/PostgreSQL workspace 回归 267 项成功、0 失败、8 项既有 Linux/root/systemd 或上游运行时条件忽略；Clippy --all-targets -D warnings、fmt、core 门禁和差异检查通过。Bun 1.4.2 TypeScript/Vite 重建与提交 dist 一致。此完整回归尚不包含后续 IP 未知字段 PR #44，最终 Linux CI 单独核对。
+## 2026-10-01：P0 IP 未知字段显示（独立 PR）
+
+- 专项审查实际复现空字符串/错误类型和 success=false 默认字段被记为成功，归独立 Issue #42，不混入来源适配层 #24。每个已知字段增加语义类型和有效值检查，不能确认的状态/字段保持未知，真实 0/false 和可信原始评分字符串保留。
+- 旧缓存原始快照保留，读取过滤不能确认的已知字段并补可选 kind；页面无效值显示未知，历史/过期/未知状态不能冒充当前成功。旧响应包缺失时不追溯编造成功证据。
+- fmt、core gate、差异、Bun 1.4.2 冻结安装/TypeScript/Vite 与实际 dist 桌面/手机字段、历史和模拟未启用来源验收通过。Rust/Clippy 和独立 HTTP/PostgreSQL 场景等待隔离编译槽或 CI，结果单独更新，未宣称平台/完整诊断通过。独立步骤见 [未知字段验收](docs/acceptance/ip-quality-unknown.md)。
+
+- 未知字段首轮 CI 的 check 在测试辅助路径的反向迭代编译失败，Rust 测试未执行；已修复为 rsplit 并重新触发，未将初轮记为通过。
+
+- 未知字段修复后的 `56f8211` CI `36769441248`：check 中全 targets Clippy、Rust/PostgreSQL、真实 systemd 和提交 dist 检查通过，Compose 和两项 musl 也通过；旧基线的 Reality 任务失败另行处理。现保留已合并缓存和最新 main 后复验最终源，不用前一提交结果替代。
+
+- 最终 Rust 源保留 main `b8e5689` 后，在独立 Debian 12 构建容器（1.5 GiB/2 CPU、无额外 swap）通过 fmt、Clippy --all-targets -D warnings、20 项 IP 与 4 项 diagnostics 专项、完整 workspace 270 项成功 / 0 失败 / 8 项既有 Linux/root/systemd 或外部运行时条件忽略；新增未知字段测试无忽略，容器无 OOM。最终 TypeScript/Vite 与已有 dist 一致，桌面/手机夹具和 core 门禁通过。平台 CI 仍按最终提交单独核对。
