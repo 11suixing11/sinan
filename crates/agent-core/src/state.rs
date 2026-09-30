@@ -47,6 +47,7 @@ impl State {
         // Auxiliary tables remain additive so an older Agent can reopen the ledger after rollback.
         connection.execute_batch(include_str!("state/migrations/0002.sql"))?;
         connection.execute_batch(include_str!("state/migrations/0003.sql"))?;
+        connection.execute_batch(include_str!("state/migrations/0004_bounded_usage.sql"))?;
         Ok(Self { connection })
     }
 
