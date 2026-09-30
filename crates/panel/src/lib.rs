@@ -1,28 +1,26 @@
 #![forbid(unsafe_code)]
 
-pub mod accesses;
 pub mod agent_api;
 pub mod agent_updates;
 pub mod artifacts;
 pub mod auth;
-pub mod business;
 pub mod commands;
 pub mod config;
-pub mod deployments;
 pub mod diagnostics;
 pub mod error;
 pub mod frontend;
 pub mod ip_quality;
-pub mod nodes;
+pub mod maintenance;
+pub mod plugins;
 pub mod probes;
+// Compatibility exports preserve the public Rust embedding API.
+pub use plugins::singbox::proxy_users as users;
+pub use plugins::singbox::{accesses, business, deployments, nodes, subscriptions, usage};
 pub mod publisher;
 pub mod releases;
 pub mod retirement;
 pub mod servers;
-pub mod subscriptions;
 pub mod telemetry;
-pub mod usage;
-pub mod users;
 
 use axum::{
     Router,
@@ -95,7 +93,6 @@ pub fn router(state: AppState) -> Router {
             "/api/servers/{id}/enrollment",
             post(servers::issue_enrollment),
         )
-        .route("/api/servers/{id}/deployments", get(deployments::get))
         .route(
             "/api/servers/{id}/agent-settings",
             get(telemetry::settings).patch(telemetry::update_settings),
@@ -135,30 +132,7 @@ pub fn router(state: AppState) -> Router {
             "/api/servers/{id}/diagnostics/{job}/cancel",
             post(diagnostics::cancellation::request),
         )
-        .route("/api/nodes", get(nodes::list).post(nodes::create))
-        .route(
-            "/api/nodes/{id}",
-            get(nodes::get).patch(nodes::update).delete(nodes::remove),
-        )
-        .route("/api/users", get(users::list).post(users::create))
-        .route(
-            "/api/users/{id}",
-            get(users::get).patch(users::update).delete(users::remove),
-        )
-        .route(
-            "/api/users/{id}/subscription/reset",
-            post(users::reset_subscription),
-        )
-        .route(
-            "/api/users/{id}/accesses",
-            get(accesses::list).post(accesses::grant),
-        )
-        .route(
-            "/api/users/{user_id}/accesses/{node_id}",
-            axum::routing::delete(accesses::revoke),
-        )
-        .route("/api/usage", get(usage::summary))
-        .route("/sub/{token}", get(subscriptions::get))
+        .merge(plugins::router())
         .route("/api/agent/v1/enroll", post(servers::enroll))
         .route("/api/agent/v1/ws", get(agent_api::websocket))
         .route(
