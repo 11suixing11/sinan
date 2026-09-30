@@ -229,11 +229,12 @@ jobs:
       RUSTFLAGS: ${{ matrix.rustflags }}
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: Compile only the deliberately public CI test trust root
-        run: python3 scripts/ci-test-trust.py --github-env "$GITHUB_ENV"
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.x'
+      - name: Compile only the deliberately public CI test trust root
+        shell: bash
+        run: python scripts/ci-test-trust.py --github-env "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable-${{ matrix.target }}
