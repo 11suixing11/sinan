@@ -117,6 +117,11 @@ pub async fn run_with_diagnostics(
     agent_version: &'static str,
 ) -> Result<()> {
     config.validate()?;
+    // Diagnostic-only Agents still own managed jobs and must recover them.
+    // Check a truly module-free mode before reserving or opening local state.
+    if adapters.is_empty() && diagnostics.is_empty() {
+        crate::retirement::ensure_monitor_only_allowed(&config)?;
+    }
     // Reserve the instance before inspecting or recovering another process's intents.
     let listener = status::bind(&config.status_socket).await?;
     let state = Arc::new(Mutex::new(State::open(&config.state_db)?));

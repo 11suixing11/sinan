@@ -58,9 +58,6 @@ impl Retirement {
         privileged: Arc<dyn Privileged>,
         services: Arc<dyn ServiceManager>,
     ) -> Result<Self> {
-        if adapters.is_empty() {
-            ensure_monitor_only_allowed(&config)?;
-        }
         let requested = state
             .lock()
             .map_err(|_| anyhow::anyhow!("state lock poisoned"))?

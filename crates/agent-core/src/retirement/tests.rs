@@ -111,20 +111,38 @@ impl Fixture {
     }
 }
 
-#[test]
-fn monitor_only_cannot_abandon_a_managed_installation() -> Result<()> {
+#[tokio::test]
+async fn monitor_only_cannot_abandon_a_managed_installation() -> Result<()> {
     let fixture = Fixture::new()?;
     assert!(ensure_monitor_only_allowed(&fixture.config).is_err());
-    assert!(
-        Retirement::new(
-            fixture.config.clone(),
-            fixture.state.clone(),
-            Vec::new(),
-            Arc::new(SystemOps),
-            fixture.services.clone(),
-        )
-        .is_err()
-    );
+    let error = crate::transport::run_with_diagnostics(
+        fixture.config.clone(),
+        Vec::new(),
+        Vec::new(),
+        Arc::new(SystemOps),
+        fixture.services.clone(),
+        "fixture-agent",
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("monitor-only"));
+    assert!(!fixture.config.status_socket.exists());
+
+    let mut missing_state = fixture.config.clone();
+    missing_state.state_db = fixture.root.join("absent/state.db");
+    missing_state.status_socket = fixture.root.join("absent/status.sock");
+    let error = crate::transport::run_with_diagnostics(
+        missing_state,
+        Vec::new(),
+        Vec::new(),
+        Arc::new(SystemOps),
+        fixture.services.clone(),
+        "fixture-agent",
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("monitor-only"));
+    assert!(!fixture.root.join("absent").exists());
     assert!(fixture.services.active.load(Ordering::SeqCst));
     assert!(fixture.config.identity_dir.join("device.key").exists());
     assert!(

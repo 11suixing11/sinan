@@ -88,12 +88,12 @@ impl Config {
     fn use_macos_system_paths(&mut self) {
         // These are fixed macOS system aliases, not arbitrary user symlinks.
         // Also migrate previously serialized defaults without moving any data.
+        // Keep installation roots verbatim: persisted artifact paths and absolute
+        // Agent version links use their original lexical identities.
         for path in [
             &mut self.identity_dir,
             &mut self.state_db,
             &mut self.runtime_root,
-            &mut self.install_root,
-            &mut self.agent_root,
             &mut self.status_socket,
         ] {
             for (alias, real) in [("/etc", "/private/etc"), ("/var", "/private/var")] {
@@ -211,6 +211,28 @@ mod tests {
         );
         assert_eq!(config.install_root, Path::new("/opt/custom-artifacts"));
         assert_eq!(config.agent_root, Path::new("/various/custom-agent"));
+    }
+
+    #[test]
+    fn macos_alias_migration_preserves_existing_var_installation_references() {
+        let mut config = Config {
+            install_root: "/var/sinan-plugins".into(),
+            agent_root: "/var/sinan-core".into(),
+            ..Config::default()
+        };
+        let saved_runtime = config.install_root.join("demo/1.0.0/runtime");
+        let existing_agent_link = config.agent_root.join("0.3.0");
+        config.use_macos_system_paths();
+        assert_eq!(config.install_root, Path::new("/var/sinan-plugins"));
+        assert_eq!(config.agent_root, Path::new("/var/sinan-core"));
+        assert_eq!(
+            saved_runtime,
+            config.install_root.join("demo/1.0.0/runtime")
+        );
+        assert_eq!(
+            existing_agent_link.parent(),
+            Some(config.agent_root.as_path())
+        );
     }
 
     #[cfg(target_os = "macos")]
