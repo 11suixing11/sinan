@@ -55,6 +55,11 @@ impl DiagnosticAdapter for TestAdapter {
                 args: vec![],
                 working_directory: spec.job_dir.clone(),
                 timeout_secs: spec.timeout_secs,
+                memory_max: Default::default(),
+                tasks_max: Default::default(),
+                cpu_weight: Default::default(),
+                io_weight: Default::default(),
+                oom_score_adjust: Default::default(),
             })
         })
     }
@@ -148,6 +153,11 @@ fn checkpoint(config: &Config, id: Uuid) -> Checkpoint {
             args: vec![],
             working_directory: directory,
             timeout_secs: 300,
+            memory_max: Default::default(),
+            tasks_max: Default::default(),
+            cpu_weight: Default::default(),
+            io_weight: Default::default(),
+            oom_score_adjust: Default::default(),
         },
         started_at: unix_time(),
         plugin: "diagnostic-fixture".into(),
@@ -170,6 +180,42 @@ fn job(id: Uuid) -> DiagnosticJob {
         expires_at: None,
         options: BTreeMap::new(),
     }
+}
+
+#[tokio::test]
+async fn legacy_running_checkpoint_recovers_without_restarting_or_losing_report() -> Result<()> {
+    let directory = Directory::new();
+    let services = Arc::new(Services::new(JobStatus::Running));
+    let id = Uuid::new_v4();
+    {
+        let first = worker(&directory, services.clone())?;
+        let mut saved = serde_json::to_value(checkpoint(&first.config, id))?;
+        let service = saved["Started"]["service"].as_object_mut().unwrap();
+        for field in [
+            "memory_max",
+            "tasks_max",
+            "cpu_weight",
+            "io_weight",
+            "oom_score_adjust",
+        ] {
+            service.remove(field);
+        }
+        first.state.lock().unwrap().set_json(ACTIVE, &Some(saved))?;
+    }
+    let recovered = worker(&directory, services.clone())?;
+    recovered.tick(None).await?;
+    let Some(Checkpoint::Started { service, .. }) = recovered.active()? else {
+        anyhow::bail!("legacy diagnostic was lost");
+    };
+    assert_eq!(service.memory_max.get(), 512 * 1024 * 1024);
+    *services.status.lock().unwrap() = JobStatus::Succeeded;
+    recovered.tick(None).await?;
+    let pending: Vec<DiagnosticUpdate> = recovered.read(OUTBOX)?.unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].id, id);
+    assert_eq!(pending[0].report.as_ref().unwrap().text, "fixture report");
+    assert_eq!(services.starts.load(Ordering::Relaxed), 0);
+    Ok(())
 }
 
 #[tokio::test]
@@ -277,6 +323,11 @@ async fn existing_service_implementations_default_to_unsupported_jobs() -> Resul
         args: vec![],
         working_directory: Path::new("/tmp").into(),
         timeout_secs: 1,
+        memory_max: Default::default(),
+        tasks_max: Default::default(),
+        cpu_weight: Default::default(),
+        io_weight: Default::default(),
+        oom_score_adjust: Default::default(),
     };
     assert!(
         services

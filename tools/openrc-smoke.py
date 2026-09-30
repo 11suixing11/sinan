@@ -25,6 +25,8 @@ RELOAD_STATE = RUNTIME_STATE.with_suffix(".reloads")
 TOKEN = "openrc-smoke-fixture-token"
 RELEASE = runpy.run_path(str(ROOT / "tools/ci-release-fixture.py"))
 BUNDLE = Path("/tmp/sinan-openrc-TEST_ONLY-release")
+TRUST_DIRECTORY = Path("/etc/sinan-openrc-test-trust")
+TRUST_KEYS = TRUST_DIRECTORY / "public-keys.json"
 
 AGENT = b'''#!/usr/bin/python3
 from pathlib import Path
@@ -47,7 +49,7 @@ if arguments[0] == "verify-installed":
     module_spec = importlib.util.spec_from_file_location("test_release", "/src/tools/release.py")
     release = importlib.util.module_from_spec(module_spec)
     module_spec.loader.exec_module(release)
-    roots = release.load_roots(Path("/src/crates/protocol/tests/fixtures/public-keys.json"))
+    roots = release.load_roots(Path("/etc/sinan-openrc-test-trust/public-keys.json"), require_protected=True)
     release.verify_signature(proof, roots, "minisign")
     data = binary.read_bytes()
     metadata_bytes = (proof / "release.json").read_bytes()
@@ -141,6 +143,18 @@ def service(name, action):
     return run("rc-service", "--", name, action)
 
 
+def provision_trust():
+    # The checkout is a runner-owned bind mount, not an operator trust directory.
+    TRUST_DIRECTORY.mkdir(mode=0o700)
+    TRUST_DIRECTORY.chmod(0o700)
+    TRUST_KEYS.write_bytes((ROOT / "crates/protocol/tests/fixtures/public-keys.json").read_bytes())
+    TRUST_KEYS.chmod(0o600)
+    for path, mode in ((TRUST_DIRECTORY, 0o700), (TRUST_KEYS, 0o600)):
+        properties = path.lstat()
+        assert not path.is_symlink() and properties.st_uid == 0
+        assert properties.st_mode & 0o777 == mode
+
+
 def install_script(origin):
     # Exercise the static signed installer after an independently trusted bootstrap.
     subprocess.run(["python3", str(ROOT / "tools/release.py"), "render-installer",
@@ -155,7 +169,7 @@ def install_script(origin):
     proof["signature"] = RELEASE["sign"](proof["checksums"].encode())
     RELEASE["install"](BUNDLE, proof)
     return ["python3", str(ROOT / "tools/bootstrap.py"), "--tag", "agent-v0.2.0",
-            "--panel", origin, "--trusted-keys", str(ROOT / "crates/protocol/tests/fixtures/public-keys.json"),
+            "--panel", origin, "--trusted-keys", str(TRUST_KEYS),
             "--release-dir", str(BUNDLE)]
 
 
@@ -165,6 +179,7 @@ def main():
     if os.geteuid() != 0 or os.environ.get("SINAN_OPENRC_SMOKE") != "1" or not isolated:
         raise SystemExit("Run this test in its disposable container or isolated root filesystem.")
 
+    provision_trust()
     BUNDLE.mkdir(mode=0o755)
     Path("/run/openrc").mkdir(parents=True, exist_ok=True)
     Path("/var/lib").mkdir(mode=0o755, exist_ok=True)
