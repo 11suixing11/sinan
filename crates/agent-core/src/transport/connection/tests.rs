@@ -103,6 +103,7 @@ async fn backlog_and_legacy_giant_preserve_heartbeat_control_ack_and_restart_rep
         status_socket: directory.0.join("status.sock"),
         operation_timeout_secs: 1,
         public_ips: vec![],
+        allow_remote_commands: false,
         settings: Default::default(),
     };
     let mut state = State::open(&config.state_db)?;

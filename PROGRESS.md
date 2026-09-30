@@ -20,7 +20,10 @@
 - 自动 CI 恢复为 check、Compose、musl amd64/arm64 和真实 Reality 验收；其余平台的完整构建与服务 smoke 保留在手动 `platforms.yml`。OpenRC 仅将公开测试根复制到容器内受保护目录，不改变宿主源码所有权，也不放宽正式安装器检查。
 - 新增的远程命令能力改为本地顶层 `allow_remote_commands` 显式开启，默认关闭；面板设置不能开启它。未启用时不领取或恢复命令，拨测继续运行，面板拒绝创建任务并解释所需的本地操作。显式启用意味着面板可按 Agent 服务账户执行任意命令，超出制品签名的约束范围。
 - 自动升级在停止旧 Agent 前，让已认证候选独立验证既有缓存；失败保持旧进程与身份、配置、账本。macOS/FreeBSD/Windows 运行时服务每次启动先执行 Agent 验签。带受管历史的安装拒绝切换成仅监控模式，避免退役遗漏受管进程；macOS 固定系统别名规范化保持任意符号链接清理限制。
-- 已整合 main `45df3b1` 的常驻服务资源优先级和诊断基线记录。完整 Rust/数据库检查与当前分支 Linux CI 尚在验证；原生服务 proof 篡改重启回归已加入手动平台流程，尚不能宣称各原生平台均通过。
+- 已整合 main `541f52d` 的常驻服务优先级、诊断资源限制、基线记录和有界用量读取。前一整合提交 `64dfee2` 在本机以真实 PostgreSQL 通过 221 项 Rust 测试，5 项平台/真实运行时专项忽略；完整 fmt、全 targets Clippy 通过。新增原生服务 proof 篡改重启回归保留在手动流程，尚不能宣称各原生平台均通过。
+- [PR #33 首轮真实 CI](https://github.com/theLucius7/sinan/actions/runs/36755201070) 的 Compose 与普通 Rust/数据库检查通过；新增 systemd 资源专项暴露异步启动排队误判，双 musl 的 OpenRC 暴露 BusyBox 私有 umask 创建父目录导致的运行时访问拒绝，Reality 因依赖失败尚未执行。已在独立 Debian/systemd 与一次性 Alpine 容器分别复现，不将该轮记为通过。
+- systemd 单次状态查询现包含 Job：有效未完成作业保持运行中，完成仍要求真实启动和正常退出；新增受控 After 阻塞的真实队列回归。安装器复用 main 的显式父目录权限修复，OpenRC 补非 root 执行运行时、读配置/写数据及拒绝访问身份与账本检查。最终合并后的 Rust 与 Linux 验收继续按当前提交核对。
+- 在一次性 Alpine 3.24.2 容器完整通过实际 OpenRC 安装/重装、身份与账本保留、失败恢复、非 root 低端口能力、HUP、SIGKILL 自动恢复、默认 runlevel、快照及安装命令契约；4 项 root 信任根夹具全过。该运行使用公开 TEST_ONLY 进程夹具，未提供真实 Agent 二进制，真实 Rust OpenRC 诊断任务与 Reality 仍以当前提交 CI 为准。
 
 ## 2026-10-01 P0 有界流量 outbox：自动验收完成，专用节点待验收
 
