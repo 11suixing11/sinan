@@ -27,7 +27,7 @@ pub(crate) trait Network: Send + Sync {
 struct NativeNetwork;
 impl Network for NativeNetwork {
     fn resolve<'a>(&'a self, host: &'a str, port: u16) -> NetworkFuture<'a, Vec<SocketAddr>> {
-        Box::pin(async move { Ok(lookup_host((host, port)).await?.take(32).collect()) })
+        Box::pin(async move { Ok(resolved_addresses(lookup_host((host, port)).await?)) })
     }
     fn connect(&self, address: SocketAddr) -> NetworkFuture<'_, ()> {
         Box::pin(async move {
@@ -37,6 +37,27 @@ impl Network for NativeNetwork {
             Ok(())
         })
     }
+}
+
+pub(crate) fn resolved_addresses(
+    resolved: impl IntoIterator<Item = SocketAddr>,
+) -> Vec<SocketAddr> {
+    // Bound retained addresses after family selection so the resolver's ordering
+    // cannot hide the first usable address of the requested family.
+    let mut addresses = Vec::with_capacity(2);
+    for address in resolved {
+        if unicast(address.ip())
+            && !addresses
+                .iter()
+                .any(|first: &SocketAddr| first.is_ipv4() == address.is_ipv4())
+        {
+            addresses.push(address);
+            if addresses.len() == 2 {
+                break;
+            }
+        }
+    }
+    addresses
 }
 
 #[derive(Clone, Copy)]
@@ -186,7 +207,7 @@ async fn probe(
         )
         .await
         {
-            Ok(Ok(addresses)) => addresses.into_iter().take(32).find(|address| {
+            Ok(Ok(addresses)) => addresses.into_iter().find(|address| {
                 options.ip_version.matches(address.ip())
                     && unicast(address.ip())
                     && address.port() == target.target.port

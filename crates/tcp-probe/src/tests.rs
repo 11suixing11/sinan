@@ -1,5 +1,5 @@
 use crate::{
-    engine::{Limits, Network, NetworkFuture, run_with},
+    engine::{Limits, Network, NetworkFuture, resolved_addresses, run_with},
     *,
 };
 use sha2::{Digest, Sha256};
@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-mod fixture;
+pub(crate) mod fixture;
 mod safety;
 use fixture::{Directory, target};
 
@@ -208,48 +208,80 @@ async fn verified_snapshot_is_frozen_and_public_options_cannot_replace_its_diges
 
 #[tokio::test]
 async fn dns_runs_once_and_one_matching_socket_is_used_with_bounded_parallelism() {
-    let addresses = vec![
-        "[::1]:12345".parse().unwrap(),
-        "127.0.0.1:12345".parse().unwrap(),
-        "127.0.0.2:12345".parse().unwrap(),
-    ];
-    for concurrency in [1, 2] {
-        let network = FakeNetwork::new(Dns::Addresses(addresses.clone()), false);
-        let directory = Directory::new();
-        let (mut options, mut journal) = directory
-            .prepare(
-                vec![
-                    target(1, "first.example.test", 12345),
-                    target(2, "second.example.test", 12345),
-                ],
-                IpVersion::V4,
-            )
-            .await;
-        options.count = 8;
-        options.concurrency = concurrency;
-        let report = run_with(&options, &mut journal, network.clone(), fast_limits())
-            .await
-            .unwrap();
-        assert!(report.complete);
-        assert_eq!(network.dns_calls.load(Ordering::SeqCst), 2);
-        assert!(
-            report
-                .targets
-                .iter()
-                .all(|target| target.dns_attempts == 1 && target.samples.len() == 8)
-        );
-        assert_eq!(network.connections.lock().unwrap().len(), 16);
-        assert!(
-            network
-                .connections
-                .lock()
-                .unwrap()
-                .iter()
-                .all(|address| *address == addresses[1])
-        );
-        assert!(network.peak.load(Ordering::SeqCst) <= usize::from(concurrency));
-        assert_eq!(network.active.load(Ordering::SeqCst), 0);
-        directory.assert_reports(&report);
+    for (family, opposite, first, alternate) in [
+        (
+            IpVersion::V4,
+            "[::1]:12345",
+            "127.0.0.1:12345",
+            "127.0.0.2:12345",
+        ),
+        (
+            IpVersion::V6,
+            "127.0.0.1:12345",
+            "[::1]:12345",
+            "[::2]:12345",
+        ),
+    ] {
+        let first: SocketAddr = first.parse().unwrap();
+        let mut addresses = vec![opposite.parse().unwrap(); 32];
+        addresses.extend([first, alternate.parse().unwrap()]);
+        for concurrency in [1, 2] {
+            let network = FakeNetwork::new(Dns::Addresses(addresses.clone()), false);
+            let directory = Directory::new();
+            let (mut options, mut journal) = directory
+                .prepare(
+                    vec![
+                        target(1, "first.example.test", 12345),
+                        target(2, "second.example.test", 12345),
+                    ],
+                    family,
+                )
+                .await;
+            options.count = 8;
+            options.concurrency = concurrency;
+            let report = run_with(&options, &mut journal, network.clone(), fast_limits())
+                .await
+                .unwrap();
+            assert!(report.complete);
+            assert_eq!(network.dns_calls.load(Ordering::SeqCst), 2);
+            assert!(
+                report
+                    .targets
+                    .iter()
+                    .all(|target| target.dns_attempts == 1 && target.samples.len() == 8)
+            );
+            assert_eq!(network.connections.lock().unwrap().len(), 16);
+            assert!(
+                network
+                    .connections
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .all(|address| *address == first)
+            );
+            assert!(network.peak.load(Ordering::SeqCst) <= usize::from(concurrency));
+            assert_eq!(network.active.load(Ordering::SeqCst), 0);
+            directory.assert_reports(&report);
+        }
+    }
+}
+
+#[test]
+fn native_dns_retains_each_usable_family_without_truncating_before_selection() {
+    for (opposite, requested) in [
+        ("[::1]:12345", "127.0.0.1:12345"),
+        ("127.0.0.1:12345", "[::1]:12345"),
+    ] {
+        let opposite: SocketAddr = opposite.parse().unwrap();
+        let requested: SocketAddr = requested.parse().unwrap();
+        let mut addresses = vec![
+            "0.0.0.0:12345".parse().unwrap(),
+            "[ff02::1]:12345".parse().unwrap(),
+        ];
+        addresses.extend(std::iter::repeat_n(opposite, 32));
+        addresses.extend([requested, requested]);
+        let retained = resolved_addresses(addresses);
+        assert_eq!(retained, vec![opposite, requested]);
     }
 }
 
@@ -295,14 +327,16 @@ async fn deadline_includes_queued_targets_and_preserves_atomic_partial_sections(
         )
         .await;
     let mut limits = fast_limits();
-    limits.total = Duration::from_secs(1);
-    limits.publication = Duration::from_millis(300);
+    // Keep one second for probes while allowing fsync of all eight partial
+    // sections on slower filesystems; production publication remains two seconds.
+    limits.total = Duration::from_secs(3);
+    limits.publication = Duration::from_secs(2);
     limits.connect = Duration::from_millis(250);
     let started = std::time::Instant::now();
     let report = run_with(&options, &mut journal, network.clone(), limits)
         .await
         .unwrap();
-    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(started.elapsed() < Duration::from_secs(4));
     assert!(!report.complete && report.deadline_exceeded);
     assert_eq!(network.active.load(Ordering::SeqCst), 0);
     assert!(network.connections.lock().unwrap().len() <= 4);

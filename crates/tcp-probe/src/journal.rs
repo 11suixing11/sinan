@@ -21,6 +21,8 @@ pub struct Journal {
     digest: String,
     snapshot: Snapshot,
     revisions: std::collections::BTreeMap<String, u64>,
+    #[cfg(unix)]
+    owner_uid: u32,
 }
 
 #[derive(Serialize)]
@@ -32,8 +34,7 @@ struct Section<'a> {
     collected_at: u64,
 }
 
-async fn regular_private(path: &Path, directory: bool) -> Result<()> {
-    let metadata = fs::symlink_metadata(path).await?;
+fn private_metadata(metadata: &std::fs::Metadata, directory: bool) -> Result<()> {
     ensure!(
         !metadata.file_type().is_symlink(),
         "symlinks are not permitted"
@@ -62,11 +63,22 @@ async fn regular_private(path: &Path, directory: bool) -> Result<()> {
     Ok(())
 }
 
+async fn regular_private(path: &Path, directory: bool) -> Result<std::fs::Metadata> {
+    let metadata = fs::symlink_metadata(path).await?;
+    private_metadata(&metadata, directory)?;
+    Ok(metadata)
+}
+
 impl Journal {
     pub async fn open(options: &Options) -> Result<Self> {
         ensure!(options.valid(), "invalid probe options");
         timeout(IO_LIMIT, async {
-            regular_private(&options.workspace, true).await?;
+            let _workspace_metadata = regular_private(&options.workspace, true).await?;
+            #[cfg(unix)]
+            let owner_uid = {
+                use std::os::unix::fs::MetadataExt;
+                _workspace_metadata.uid()
+            };
             ensure!(
                 fs::canonicalize(&options.workspace).await? == options.workspace,
                 "workspace ancestors must not be symlinks"
@@ -80,8 +92,18 @@ impl Journal {
             let input = options.workspace.join(&options.targets_file);
             regular_private(&input, false).await?;
             let file = fs::File::open(&input).await?;
+            let input_metadata = file.metadata().await?;
+            private_metadata(&input_metadata, false)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                ensure!(
+                    input_metadata.uid() == owner_uid,
+                    "input ownership mismatch"
+                );
+            }
             ensure!(
-                file.metadata().await?.len() <= INPUT_LIMIT as u64,
+                input_metadata.len() <= INPUT_LIMIT as u64,
                 "target snapshot exceeds 16 KiB"
             );
             let mut bytes = Vec::new();
@@ -114,6 +136,8 @@ impl Journal {
                 digest: options.target_digest.clone(),
                 snapshot,
                 revisions: Default::default(),
+                #[cfg(unix)]
+                owner_uid,
             })
         })
         .await
@@ -194,6 +218,16 @@ impl Journal {
             #[cfg(unix)]
             options.mode(0o600);
             let mut file = options.open(&pending).await?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                // The retained create_new handle belongs to the effective user.
+                // Reject foreign-owned workspaces before writing any report data.
+                ensure!(
+                    file.metadata().await?.uid() == self.owner_uid,
+                    "workspace must belong to the effective user"
+                );
+            }
             file.write_all(bytes).await?;
             file.sync_all().await?;
             drop(file);
@@ -203,5 +237,34 @@ impl Journal {
         timeout_at(deadline.min(Instant::now() + IO_LIMIT), operation)
             .await
             .context("report publication timed out")?
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use crate::{
+        IpVersion, run,
+        tests::fixture::{Directory, target},
+    };
+
+    #[tokio::test]
+    async fn foreign_workspace_owner_is_rejected_before_report_data_is_written() {
+        let directory = Directory::new();
+        let (options, mut journal) = directory
+            .prepare(vec![target(1, "127.0.0.1", 1)], IpVersion::V4)
+            .await;
+        // Model the captured owner of a foreign-UID workspace without chown/root.
+        journal.owner_uid ^= 1;
+        let error = run(&options, &mut journal).await.unwrap_err();
+        assert!(error.to_string().contains("effective user"));
+        assert!(!directory.path.join("result.json").exists());
+        let pending = directory.path.join("sections/.tcp_scope.json.pending");
+        assert_eq!(std::fs::metadata(pending).unwrap().len(), 0);
+        assert_eq!(
+            std::fs::read_dir(directory.path.join("sections"))
+                .unwrap()
+                .count(),
+            1
+        );
     }
 }

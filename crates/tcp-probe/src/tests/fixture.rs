@@ -1,7 +1,7 @@
 use super::*;
 use std::{fs, path::PathBuf};
 
-pub(super) struct Directory {
+pub(crate) struct Directory {
     pub path: PathBuf,
 }
 impl Directory {
@@ -111,7 +111,7 @@ impl Drop for Directory {
         let _ = fs::remove_dir_all(&self.path);
     }
 }
-pub(super) fn target(id: usize, host: &str, port: u16) -> Target {
+pub(crate) fn target(id: usize, host: &str, port: u16) -> Target {
     Target {
         id: format!("00000000-0000-4000-8000-{id:012x}"),
         name: format!("fixture {id}"),

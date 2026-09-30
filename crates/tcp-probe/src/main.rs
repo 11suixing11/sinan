@@ -56,6 +56,20 @@ fn main() {
                 .context("total execution deadline exceeded")
                 .and_then(|result| result)
             });
+            if let Err(error) = &result {
+                let bytes = format!("TCP 诊断失败：{error}\n");
+                runtime.block_on(async {
+                    let mut stderr = tokio::io::stderr();
+                    let _ = timeout_at(
+                        deadline.min(Instant::now() + Duration::from_secs(2)),
+                        async {
+                            stderr.write_all(bytes.as_bytes()).await?;
+                            stderr.flush().await
+                        },
+                    )
+                    .await;
+                });
+            }
             // A timed-out system resolver must not delay process exit indefinitely.
             runtime.shutdown_timeout(Duration::from_millis(100));
             match result {
@@ -64,10 +78,7 @@ fn main() {
                         std::process::exit(1);
                     }
                 }
-                Err(error) => {
-                    eprintln!("TCP 诊断失败：{error}");
-                    std::process::exit(1);
-                }
+                Err(_) => std::process::exit(1),
             }
         }
     }

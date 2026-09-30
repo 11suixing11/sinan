@@ -664,6 +664,8 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 有界 JSON 与原子独立章节保留部分结果，明示连接成功率/建连耗时，不冒称包丢失/测速、没有排名，未知不补0。编译期源码 SHA 未提供则 null；固定源码/锁和签名打包及框架注册均为后续独立 PR。
 - 本机仅 fmt/locked offline metadata/core 门禁/差异检查；Debian12 1.5GiB/2CPU 隔离槽全源码 touch 后，5896f6d 的真实 IPv4/6/CLI/取消及有界 DNS/并发/截止/输入安全 13 项、fmt、全 targets Clippy（warnings 为错误）、完整 Rust/PostgreSQL 331 项通过/0失败/9既有条件忽略，exit0/OOM=false。ef1c7c9 再补 stdout write/flush 共用2秒截止，13 项与fmt/Clippy再次通过；全量重复运行按协调主动停止，不将331证据移给新SHA。独立 Draft PR #68、milestone1，固定/签名与服务注册仍为后续，最终CI另核对；不宣称服务或真实网络压力验收完成。见 [原生 TCP 验收](docs/acceptance/native-tcp-probe.md)。
 
+- 最终正常保留作者 `0a6b849` 与正式主线 `e3a41ed`，解决进度文档冲突且保留共享诊断服务、中性活动桥、业务插件和 r5。DNS 按家族筛选后至多保留两个有效地址，避免前32项为另一家族时漏测；实际打开输入句柄重验权限/链接数/UID，首次报告写入前拒绝异主目录；运行错误 stderr 也受两秒和总截止限制。16项工具测试（13库/3真实CLI）全部通过、0失败/忽略，回环验证零应用数据。旧截断、移除UID检查、同步阻塞stderr负对照均被回归抓住，恢复修复后再次通过。工具及workspace全targets Clippy（warnings为错误）、fmt/core/actionlint/差异检查通过；截止夹具保留一秒探测并提供两秒原子发布，生产仍60秒/两秒。没有新增依赖、拨打第三方节点、公开上传、签名/发布或冒用旧331项全量证据，最终主线CI继续单独核对。
+
 
 ## 2026-10-01：共用诊断任务服务（Issue #27）
 
