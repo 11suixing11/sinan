@@ -19,4 +19,4 @@
 
 ## 当前证据
 
-实现阶段：Python 端到端验收驱动的 21 项回归通过，workspace fmt 通过，TypeScript/Vite 构建通过。完整 Rust/PostgreSQL、最终整合版本及浏览器验收待执行；不以代码移动或旧版本 CI 代替本项完整通过。
+实现阶段：Python 端到端验收驱动的 21 项回归通过，workspace fmt 通过，TypeScript/Vite 构建通过。整合 main `6a583af` 后实际 dist 的桌面（1280）/手机（390）浏览器场景均通过，未启用服务器不发业务请求、显式启用、只读来源、管理员/代理用户导航和横向溢出检查均通过，页面错误为零。完整 Rust/PostgreSQL及最终 CI 验收待执行；不以代码移动或旧版本 CI 代替本项完整通过。
