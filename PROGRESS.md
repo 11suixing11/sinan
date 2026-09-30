@@ -681,8 +681,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 固定入口审计确认在线 main 依赖、内层公开上传和宿主 swap；分别创建 #65/#66，归整改 milestone。固定提交、摘要、许可缺口与无特权命令模拟证据见 [执行链审计](docs/acceptance/nodequality-chain-audit.md)。
 - 插件拒绝新完整任务，共用服务调用登记插件安全 hook；旧排队完整任务保存明确失败原因且不冒充设备已停止。运行任务不重发给无门禁能力的旧 Agent，新 Agent 的适配器在诊断工作目录/工具调用前拒绝完整模式；既有 Started 继续原身份收集/取消。r2–r5 不可变制品不改，日常固定轻量分支与资源预检不降低。
-- 界面分别显示日常可用与完整暂停原因，历史关闭上传仅称顶层设置；真实 Chromium 桌面/390px 手机验证日常、403、历史章节与确认取消、离线/重复禁用，页面错误和完整 POST 均为 0。fmt/core 门禁、Bun 五项/711 断言和 dist 构建通过；最终 r5 集成与远端 Rust/Clippy/PostgreSQL 验证待补。
+- 界面分别显示日常可用与完整暂停原因，历史关闭上传仅称顶层设置；真实 Chromium 桌面/390px 手机验证日常、403、历史章节与确认取消、离线/重复禁用，页面错误和完整 POST 均为 0。fmt/core 门禁、Bun 五项/711 断言和 dist 构建通过；源码20e27ff在限额Debian12容器通过全 targets Clippy、完整locked Rust/PostgreSQL325项/0失败/9既有条件忽略、专项34和r5包装器34/helper7；Agent/Panel构建退出0、OOM=false。二进制及core测试保存binaries/nodequality-gate-head，源码摘要与日志保存evidence/nodequality-gate-head。
 - [ADR0031](docs/adr/0031-nodequality-full-start-gate.md) 与 [独立验收](docs/acceptance/nodequality-full-start-gate.md) 明确旧 Agent 门禁前已领取任务须升级或取消确认。本项仅止血，不关闭 #28/#65/#66，不替换或删减完整能力；完整工具链及用户取舍仍待完成。
+- 发布后正常重基已合并框架/插件业务归位/原生引擎的main2574a84，保留主线视图与PluginServer类型，重新构建dist并复验；最终整合HEAD CI单独核对，不以前一冻结源码的325项代替。
+
 ## 2026-10-01：完整验机门禁合并审查
 
 - 正常整合插件业务主线 2c3c1e5，保留新版插件设置、代理用户与独立 IP/诊断路由；重建 dist，未启用完整验机。

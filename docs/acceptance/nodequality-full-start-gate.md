@@ -27,7 +27,7 @@ node tests/nodequality-chain-gate.mjs
 
 ## 当前证据与边界
 
-本机 fmt、分层门禁、Bun 五项/711 断言、TypeScript/Vite 与提交 dist 的真实 Chromium 场景通过，页面错误 0，完整请求 0。冻结源码的远端 Rust/PostgreSQL、全 targets Clippy 和最终 r5 回归结果在发布前补记，不用旧分支证据替代最终 HEAD。
+本机 fmt、分层门禁、Bun 五项/711 断言、TypeScript/Vite 与提交 dist 的真实 Chromium 场景通过，页面错误 0，完整请求 0。冻结源码20e27ff在专用Debian12容器（1536MiB/2CPU/无swap）通过fmt/core、全targets Clippy、完整locked Rust/PostgreSQL325项/0失败/9既有条件忽略、适配器及PG/真实Agent专项34、r5包装器34与daily helper7；Agent/Panel构建退出0、OOM=false。二进制/源码摘要保存在binaries/nodequality-gate-head，原日志在evidence/nodequality-gate-head。此后正常重基main2574a84保留插件业务与原生引擎，最终整合HEAD由独立CI验证，不以前一冻结源码替代。
 
 已领取任务的旧 Agent 必须升级或取得取消确认；面板过滤不撤回门禁前返回的 HTTP。新 Agent 拒绝 Preparing 再执行，已有 Started 则继续收集。日常检查仍要求 256MiB 启动预留与 2GiB 磁盘，未降低低内存预检；447MiB 专用节点不能用本项绕过完整验机保护。原上游完整运行的网络零上传、宿主零改动、rootfs 全部授权与持续代理流量压力尚未验，不计为本项完成。
 
