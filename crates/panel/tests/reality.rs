@@ -3,8 +3,8 @@
 mod business_support;
 
 use anyhow::{Context, Result};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use business_support::{id, TestPanel};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use business_support::{TestPanel, id};
 use sqlx::{PgPool, Row};
 use std::time::Duration;
 use x25519_dalek::{PublicKey, StaticSecret};

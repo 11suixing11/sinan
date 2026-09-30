@@ -1,7 +1,8 @@
 #![forbid(unsafe_code)]
+#![cfg(unix)]
 
 use anyhow::Result;
-use flate2::{write::GzEncoder, Compression};
+use flate2::{Compression, write::GzEncoder};
 use sha2::{Digest, Sha256};
 use sinan_adapter_sdk::{Descriptor, Privileged};
 use sinan_agent_core::{artifacts::PanelClient, system::SystemOps};
@@ -9,7 +10,7 @@ use sinan_protocol::{Artifact, Bundle};
 use std::{
     collections::BTreeMap,
     io::Write,
-    os::unix::fs::{symlink, PermissionsExt},
+    os::unix::fs::{PermissionsExt, symlink},
     path::PathBuf,
     sync::Arc,
 };
@@ -146,16 +147,20 @@ async fn download_rejects_other_origins_credentials_queries_and_redirects() -> R
         assert!(client.bundle(&url, &checksum(b"private")).await.is_err());
     }
     assert!(panel.requests.lock().await.is_empty());
-    assert!(client
-        .bundle(&format!("{}/redirect", panel.origin), &checksum(b"private"))
-        .await
-        .is_err());
+    assert!(
+        client
+            .bundle(&format!("{}/redirect", panel.origin), &checksum(b"private"))
+            .await
+            .is_err()
+    );
     assert!(destination.requests.lock().await.is_empty());
     let requests = panel.requests.lock().await;
     assert_eq!(requests.len(), 1);
-    assert!(requests[0]
-        .to_ascii_lowercase()
-        .contains("authorization: bearer device-session-test"));
+    assert!(
+        requests[0]
+            .to_ascii_lowercase()
+            .contains("authorization: bearer device-session-test")
+    );
     Ok(())
 }
 
@@ -236,26 +241,34 @@ async fn artifact_cache_checks_contents_and_never_replaces_existing_versions() -
         sha256: "0".repeat(64),
         ..artifact.clone()
     };
-    assert!(client
-        .ensure_artifact(&mismatch, "1.2.3", &descriptor(), &temporary.0, &ops)
-        .await
-        .is_err());
+    assert!(
+        client
+            .ensure_artifact(&mismatch, "1.2.3", &descriptor(), &temporary.0, &ops)
+            .await
+            .is_err()
+    );
     assert_eq!(std::fs::read(&binary)?, b"original-runtime");
     std::fs::write(&binary, b"tampered")?;
-    assert!(client
-        .ensure_artifact(&artifact, "1.2.3", &descriptor(), &temporary.0, &ops)
-        .await
-        .is_err());
-    assert!(client
-        .ensure_artifact(&artifact, "../escape", &descriptor(), &temporary.0, &ops)
-        .await
-        .is_err());
+    assert!(
+        client
+            .ensure_artifact(&artifact, "1.2.3", &descriptor(), &temporary.0, &ops)
+            .await
+            .is_err()
+    );
+    assert!(
+        client
+            .ensure_artifact(&artifact, "../escape", &descriptor(), &temporary.0, &ops)
+            .await
+            .is_err()
+    );
     let mut invalid = descriptor();
     invalid.plugin_name = "../escape".into();
-    assert!(client
-        .ensure_artifact(&artifact, "1.2.3", &invalid, &temporary.0, &ops)
-        .await
-        .is_err());
+    assert!(
+        client
+            .ensure_artifact(&artifact, "1.2.3", &invalid, &temporary.0, &ops)
+            .await
+            .is_err()
+    );
     Ok(())
 }
 
@@ -270,18 +283,22 @@ async fn artifact_checksum_failure_leaves_no_version_and_symlink_paths_are_rejec
         url: format!("{}/archive", panel.origin),
         sha256: "0".repeat(64),
     };
-    assert!(client
-        .ensure_artifact(&artifact, "1.0", &descriptor(), &temporary.0, &SystemOps)
-        .await
-        .is_err());
+    assert!(
+        client
+            .ensure_artifact(&artifact, "1.0", &descriptor(), &temporary.0, &SystemOps)
+            .await
+            .is_err()
+    );
     assert!(!temporary.0.join("runtime/1.0").exists());
     artifact.sha256 = checksum(&packed);
     let outside = Temporary::new()?;
     symlink(&outside.0, temporary.0.join("runtime"))?;
-    assert!(client
-        .ensure_artifact(&artifact, "1.0", &descriptor(), &temporary.0, &SystemOps)
-        .await
-        .is_err());
+    assert!(
+        client
+            .ensure_artifact(&artifact, "1.0", &descriptor(), &temporary.0, &SystemOps)
+            .await
+            .is_err()
+    );
     assert!(std::fs::read_dir(&outside.0)?.next().is_none());
     Ok(())
 }
@@ -318,11 +335,13 @@ async fn archive_rejects_traversal_links_special_entries_extra_files_and_corrupt
         assert!(!destination.exists());
     }
     assert!(!temporary.0.join("escape").exists());
-    assert!(std::fs::read_dir(&temporary.0)?.all(|entry| !entry
-        .unwrap()
-        .file_name()
-        .to_string_lossy()
-        .starts_with(".unpack-")));
+    assert!(std::fs::read_dir(&temporary.0)?.all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".unpack-")
+    }));
     Ok(())
 }
 
@@ -378,14 +397,16 @@ async fn archive_rejects_oversized_headers_and_truncated_gzip_streams() -> Resul
     for (index, bytes) in [oversized, truncated].into_iter().enumerate() {
         let source = temporary.0.join(format!("invalid-{index}.gz"));
         std::fs::write(&source, bytes)?;
-        assert!(SystemOps
-            .install_archive(
-                &source,
-                &temporary.0.join(format!("version-{index}")),
-                "runtime"
-            )
-            .await
-            .is_err());
+        assert!(
+            SystemOps
+                .install_archive(
+                    &source,
+                    &temporary.0.join(format!("version-{index}")),
+                    "runtime"
+                )
+                .await
+                .is_err()
+        );
     }
     Ok(())
 }
@@ -403,12 +424,14 @@ async fn downloads_reject_oversized_content_length_before_reading_body() -> Resu
             .await
             .unwrap();
     });
-    assert!(PanelClient::new(&origin, "test-session")?
-        .manifest()
-        .await
-        .unwrap_err()
-        .to_string()
-        .contains("size limit"));
+    assert!(
+        PanelClient::new(&origin, "test-session")?
+            .manifest()
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("size limit")
+    );
     server.await?;
     Ok(())
 }

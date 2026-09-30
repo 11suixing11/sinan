@@ -1,7 +1,7 @@
-use crate::{config::validate_panel_url, system::safe_component};
-use anyhow::{ensure, Context, Result};
+use crate::config::validate_panel_url;
+use anyhow::{Context, Result, ensure};
 use futures_util::StreamExt;
-use reqwest::{redirect::Policy, Client, Url};
+use reqwest::{Client, Url, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sinan_adapter_sdk::{Descriptor, Privileged};
@@ -16,6 +16,16 @@ use uuid::Uuid;
 const MAX_DOWNLOAD: usize = 512 * 1024 * 1024;
 const MAX_JSON: usize = 32 * 1024 * 1024;
 const MARKER: &str = ".artifact.json";
+
+pub(crate) fn safe_component(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && !matches!(value, "." | "..")
+        && !value.starts_with('-')
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
 
 #[derive(Clone)]
 pub struct PanelClient {

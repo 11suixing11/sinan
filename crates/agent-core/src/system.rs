@@ -1,12 +1,13 @@
 pub use sinan_adapter_sdk::{Privileged, ServiceManager};
 
-use anyhow::{ensure, Context, Result};
+use crate::artifacts::safe_component;
+use anyhow::{Context, Result, ensure};
 use flate2::read::MultiGzDecoder;
 use sinan_adapter_sdk::{BoxFuture, CommandOutput};
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
-    os::unix::fs::{symlink, OpenOptionsExt, PermissionsExt},
+    os::unix::fs::{OpenOptionsExt, PermissionsExt, symlink},
     path::Path,
     sync::Arc,
     time::Duration,
@@ -62,16 +63,6 @@ fn parent_directory(path: &Path) -> Result<&Path> {
         "path must have an explicit parent"
     );
     Ok(parent)
-}
-
-pub(crate) fn safe_component(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 128
-        && !matches!(value, "." | "..")
-        && !value.starts_with('-')
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
 impl SystemOps {

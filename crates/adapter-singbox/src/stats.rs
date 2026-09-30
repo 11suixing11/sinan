@@ -1,10 +1,10 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use sinan_adapter_sdk::Counter;
 use std::{
     collections::{BTreeMap, BTreeSet},
     time::Duration,
 };
-use tonic::{client::Grpc, codec::ProstCodec, transport::Endpoint, Request};
+use tonic::{Request, client::Grpc, codec::ProstCodec, transport::Endpoint};
 
 #[allow(dead_code)]
 mod proto {

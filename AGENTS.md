@@ -14,7 +14,7 @@
 
 ## 实现与验证
 
-- Rust stable、edition 2021；每个 crate 根文件（含二进制根、测试 crate 和构建脚本）使用 `#![forbid(unsafe_code)]`，禁止引入 `unsafe` 代码。
+- Rust stable、edition 2024；每个 crate 根文件（含二进制根、测试 crate 和构建脚本）使用 `#![forbid(unsafe_code)]`，禁止引入 `unsafe` 代码。
 - 代码标识符、代码注释使用英文；`docs/`、README、PROGRESS 使用中文。界面只使用中文。
 - 只使用任务说明列出的依赖；确需新增依赖时先在 `docs/adr/` 说明必要性和替代方案。
 - 不修改 sing-box 上游源码；不得提交真实密钥、令牌、域名、IP 或其他环境凭证。示例使用占位符、保留示例域名以及明确要求的回环或监听地址。

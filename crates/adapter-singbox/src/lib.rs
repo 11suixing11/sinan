@@ -5,7 +5,7 @@ mod sentinel;
 mod stats;
 mod version;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use sinan_adapter_sdk::{
     Adapter, BoxFuture, Descriptor, Plan, Prepared, Privileged, RuntimeSpec, ServiceManager,
     UsageSource,

@@ -1,6 +1,6 @@
 use crate::{
-    error::{ApiError, ApiResult},
     AppState,
+    error::{ApiError, ApiResult},
 };
 use axum::{
     extract::{Path, Query, State},

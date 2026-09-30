@@ -1,4 +1,4 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use std::{net::SocketAddr, path::PathBuf};
 
 #[derive(Clone, Debug)]

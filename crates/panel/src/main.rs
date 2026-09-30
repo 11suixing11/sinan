@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use sinan_panel::{config::Config, router, AppState};
+use sinan_panel::{AppState, config::Config, router};
 use sqlx::postgres::PgPoolOptions;
 
 #[tokio::main]

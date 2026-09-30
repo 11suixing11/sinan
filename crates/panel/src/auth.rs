@@ -1,21 +1,21 @@
 use crate::{
-    error::{ApiError, ApiResult},
     AppState,
+    error::{ApiError, ApiResult},
 };
 use argon2::{
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
 };
 use axum::{
-    extract::State,
-    http::{header, HeaderMap, HeaderValue},
-    response::{IntoResponse, Response},
     Json,
+    extract::State,
+    http::{HeaderMap, HeaderValue, header},
+    response::{IntoResponse, Response},
 };
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use rand::{rngs::OsRng, RngCore};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use rand::{RngCore, rngs::OsRng};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sinan_protocol::now_timestamp;
 use sqlx::PgPool;

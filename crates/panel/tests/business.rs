@@ -3,10 +3,10 @@
 mod business_support;
 
 use anyhow::{Context, Result};
-use base64::{engine::general_purpose::STANDARD, Engine};
-use business_support::{id, receive_envelope, send_envelope, TestPanel};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use business_support::{TestPanel, id, receive_envelope, send_envelope};
 use reqwest::{Method, StatusCode};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sinan_panel::{agent_api, publisher};
 use sinan_protocol::{ApplyResult, ApplyStatus, Envelope, Heartbeat};
 use sqlx::{PgPool, Row};
@@ -280,9 +280,11 @@ async fn publication_debounces_and_deduplicates_native_configurations(pool: PgPo
         .error_for_status()?;
     panel.publish_now().await?;
     assert_eq!(latest_revision(&pool, server).await?, 1);
-    assert!(links(&panel, user["subscription_token"].as_str().unwrap())
-        .await?
-        .contains("updated.example.com"));
+    assert!(
+        links(&panel, user["subscription_token"].as_str().unwrap())
+            .await?
+            .contains("updated.example.com")
+    );
     assert!(
         tokio::time::timeout(Duration::from_millis(100), receive_envelope(&mut socket))
             .await
@@ -336,13 +338,15 @@ async fn subscriptions_use_applied_snapshots_and_current_authorization(pool: PgP
     let other_token = second_user["subscription_token"].as_str().unwrap();
     assert_ne!(token, other_token);
     assert!(links(&panel, token).await?.is_empty());
-    assert!(panel
-        .client
-        .get(format!("{}/sub/{token}?format=singbox", panel.base))
-        .send()
-        .await?
-        .status()
-        .is_client_error());
+    assert!(
+        panel
+            .client
+            .get(format!("{}/sub/{token}?format=singbox", panel.base))
+            .send()
+            .await?
+            .status()
+            .is_client_error()
+    );
     assert_eq!(
         panel
             .client

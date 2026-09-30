@@ -1,0 +1,5 @@
+# This GitHub-hosted label is documented by GitHub but is newer than actionlint's list.
+# https://github.com/actions/runner-images/blob/main/images/windows/Windows11-VS2026-Arm64-Readme.md
+self-hosted-runner:
+  labels:
+    - windows-11-vs2026-arm

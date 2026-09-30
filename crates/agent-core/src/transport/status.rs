@@ -1,6 +1,6 @@
 use super::Runtime;
 use anyhow::{Context, Result};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -110,7 +110,7 @@ pub async fn status(path: &Path) -> Result<Value> {
 mod tests {
     use super::*;
     use crate::State;
-    use std::sync::{atomic::AtomicBool, Arc, Mutex};
+    use std::sync::{Arc, Mutex, atomic::AtomicBool};
     use tokio::task::JoinSet;
 
     #[tokio::test]
@@ -150,7 +150,7 @@ mod tests {
     #[tokio::test]
     async fn existing_status_parent_mode_is_preserved_and_unsafe_locations_rejected() -> Result<()>
     {
-        use std::os::unix::fs::{symlink, PermissionsExt};
+        use std::os::unix::fs::{PermissionsExt, symlink};
         let directory =
             PathBuf::from("/tmp").join(format!("sn-status-mode-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&directory)?;

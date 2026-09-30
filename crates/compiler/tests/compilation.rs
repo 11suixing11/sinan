@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
 
-use base64::{engine::general_purpose::STANDARD, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::Value;
-use sinan_compiler::{compile_client, compile_server, stat_name, subscription_links, Access, Node};
+use sinan_compiler::{Access, Node, compile_client, compile_server, stat_name, subscription_links};
 use std::{fs, path::PathBuf};
 use uuid::Uuid;
 
