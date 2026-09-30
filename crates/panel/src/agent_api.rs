@@ -339,23 +339,53 @@ pub async fn manifest(
             Some("x86_64" | "amd64") => "amd64",
             _ => return Err(ApiError::BadRequest("设备架构未知".into())),
         };
-        let target = info["os"].as_str().and_then(|os| {
-            sinan_protocol::platform::artifact_target(os, info["libc"].as_str(), arch)
-        });
+        let runtime_libc = match info.get("runtime_libc") {
+            Some(serde_json::Value::String(libc))
+                if info["os"] == "linux" && matches!(libc.as_str(), "gnu" | "glibc" | "musl") =>
+            {
+                Some(libc.as_str())
+            }
+            Some(_) => {
+                return Err(ApiError::BadRequest(
+                    "设备运行时 libc 未知或未受支持".into(),
+                ));
+            }
+            None => info["libc"].as_str(),
+        };
+        let target = info["os"]
+            .as_str()
+            .and_then(|os| sinan_protocol::platform::artifact_target(os, runtime_libc, arch));
         if info["os"].is_string() && target.is_none() {
             return Err(ApiError::BadRequest("设备平台或 libc 未受支持".into()));
         }
-        let artifact = if let Some(target) = target {
-            match artifacts::descriptor(&state, "sing-box", "1.14.2", &target).await {
-                Ok(artifact) => artifact,
-                Err(ApiError::NotFound) if info["os"] == "linux" && info["libc"] == "gnu" => {
-                    artifacts::descriptor(&state, "sing-box", "1.14.2", arch).await?
-                }
-                Err(error) => return Err(error),
+        let mut targets = Vec::new();
+        if let Some(target) = target {
+            let gnu_host = info["os"] == "linux" && matches!(runtime_libc, Some("gnu" | "glibc"));
+            let preserve_legacy = gnu_host && info["libc"] == "musl";
+            if preserve_legacy {
+                // Keep the old musl/legacy preference for already signed caches.
+                targets.push(format!("linux-musl-{arch}"));
+                targets.push(arch.into());
+            }
+            targets.push(target);
+            if gnu_host && !preserve_legacy {
+                targets.push(arch.into());
             }
         } else {
-            artifacts::descriptor(&state, "sing-box", "1.14.2", arch).await?
-        };
+            targets.push(arch.into());
+        }
+        let mut artifact = None;
+        for target in targets {
+            match artifacts::descriptor(&state, "sing-box", "1.14.2", &target).await {
+                Ok(found) => {
+                    artifact = Some(found);
+                    break;
+                }
+                Err(ApiError::NotFound) => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        let artifact = artifact.ok_or(ApiError::NotFound)?;
         let config_rev: i64 = deployment.get("rev");
         modules.insert(
             "singbox".into(),

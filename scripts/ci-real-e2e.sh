@@ -53,15 +53,34 @@ marker=$COMPOSE_PROJECT_NAME
 compose=(docker compose --env-file /dev/null -f deploy/docker-compose.yml -f "$scratch/compose.override.yml")
 
 write_summary() {
-  python3 - "$scratch/state.json" "$summary" "$passed" "$phase" "${result:-0}" <<'PY'
+  python3 - "$scratch/state.json" "$summary" "$passed" "$phase" "${result:-0}" "$owned_installation" <<'PY'
+import importlib.util
 import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 
-state_path, output, passed, phase, exit_code = sys.argv[1:]
+state_path, output, passed, phase, exit_code, owned_installation = sys.argv[1:]
+specification = importlib.util.spec_from_file_location("e2e_summary_driver", "scripts/e2e-driver.py")
+driver = importlib.util.module_from_spec(specification)
+specification.loader.exec_module(driver)
 summary = {"passed": passed == "1", "last_phase": phase, "exit_code": int(exit_code), "runtime_version": "1.14.2"}
+readiness = Path(state_path).with_name("ready-timeout.json")
+if readiness.is_file():
+    last = json.loads(readiness.read_text())
+    summary["readiness"] = driver.readiness_status(last["snapshot"], last.get("expected_agent_version"))
+if passed != "1" and owned_installation == "1":
+    summary["systemd"] = {}
+    for unit in ("sinan-agent.service", "sinan-singbox@main.service"):
+        try:
+            query = subprocess.run(["systemctl", "show", unit,
+                                    "--property=ActiveState,SubState,Result,ExecMainStatus"],
+                                   capture_output=True, text=True, timeout=5, check=False)
+            summary["systemd"][unit] = driver.systemd_status(query.stdout, query.returncode == 0)
+        except (OSError, subprocess.SubprocessError):
+            summary["systemd"][unit] = {"query_succeeded": False}
 if Path(state_path).is_file():
     state = json.loads(Path(state_path).read_text())
     summary["agent_version"] = state.get("installation", {}).get("version")
