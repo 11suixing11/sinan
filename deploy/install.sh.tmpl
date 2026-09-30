@@ -94,6 +94,8 @@ OPENRC_RUNTIME
   chmod 0755 /etc/init.d/sinan-agent /etc/init.d/sinan-singbox@main
   rc-update add sinan-singbox@main default
   rc-update add sinan-agent default
+  # OpenRC compares whole-second mtimes and may miss newly written services.
+  rc-update --update
   rc-service sinan-agent restart
 fi
 printf '%s\n' '安装完成，可运行 sinan-agent status 查看状态。'

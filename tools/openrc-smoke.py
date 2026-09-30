@@ -137,6 +137,11 @@ def main():
     net.write_text("#!/sbin/openrc-run\nstart() { return 0; }\nstop() { return 0; }\n")
     net.chmod(0o755)
     service("net", "start")
+    dependencies = Path("/run/openrc/deptree")
+    # Keep the old cache newer than new services to reproduce missed invalidation
+    # deterministically, including on slower CI runners.
+    cache_time = time.time() + 60
+    os.utime(dependencies, (cache_time, cache_time))
 
     class Download(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -159,6 +164,7 @@ def main():
         run("sh", input=script, env=environment)
         agent_pid = wait_for(lambda: pid(AGENT_STATE), "Agent startup after installation")
         for name in ["sinan-agent", RUNTIME_SERVICE]:
+            assert f"_service='{name}'" in dependencies.read_text(), name
             assert Path(f"/etc/runlevels/default/{name}").is_symlink()
         assert not Path("/etc/systemd/system/sinan-agent.service").exists()
 
@@ -241,7 +247,7 @@ def main():
         service(RUNTIME_SERVICE, "stop")
         agent_pid = int(AGENT_STATE.read_text())
         runtime_pid = int(RUNTIME_STATE.read_text())
-        run("openrc", "default")
+        print(run("openrc", "default"), flush=True)
         wait_for(lambda: (number := pid(AGENT_STATE)) != agent_pid and number,
                  "Agent starting from the default runlevel")
         wait_for(lambda: (number := pid(RUNTIME_STATE)) != runtime_pid and number,
@@ -268,6 +274,9 @@ def main():
               "unprivileged capabilities, logs, automatic recovery, default runlevel, "
               "read-only snapshot, and systemd installer command contract: passed")
     except Exception:
+        for command in [("rc-status", "--all"), ("rc-update", "show")]:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+            print(f"{command}:\n{result.stdout}\n{result.stderr}", flush=True)
         for name in ["agent", "runtime"]:
             log = Path(f"/var/log/sinan/{name}.log")
             if log.exists():

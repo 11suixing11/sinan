@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and verify native Agent binaries for GNU/Linux, macOS, FreeBSD, and Windows."""
+"""Build native Agents or verify prebuilt binaries on their target operating system."""
 
 import argparse
 import hashlib
@@ -9,6 +9,7 @@ import re
 import shutil
 import struct
 import subprocess
+import tomllib
 
 
 TARGETS = (
@@ -105,41 +106,52 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("target", choices=TARGETS)
     parser.add_argument("artifact_root", type=pathlib.Path)
+    parser.add_argument(
+        "--binary", type=pathlib.Path,
+        help="verify and package an existing binary without a Rust toolchain",
+    )
     args = parser.parse_args()
-    host = next(
-        line.removeprefix("host: ")
-        for line in capture(["rustc", "-vV"]).splitlines()
-        if line.startswith("host: ")
-    )
-    if host != args.target:
-        parser.error(f"a native {args.target} Rust toolchain is required; host is {host}")
-    metadata = json.loads(
-        capture(
-            [
-                "cargo", "metadata", "--locked", "--no-deps", "--format-version", "1",
-                "--manifest-path", str(REPOSITORY / "Cargo.toml"),
-            ]
+    if args.binary is not None:
+        workspace = tomllib.loads((REPOSITORY / "Cargo.toml").read_text(encoding="utf-8"))
+        version = workspace["workspace"]["package"]["version"]
+    else:
+        host = next(
+            line.removeprefix("host: ")
+            for line in capture(["rustc", "-vV"]).splitlines()
+            if line.startswith("host: ")
         )
-    )
-    version = next(
-        package["version"]
-        for package in metadata["packages"]
-        if package["name"] == "sinan-agent"
-    )
+        if host != args.target:
+            parser.error(f"a native {args.target} Rust toolchain is required; host is {host}")
+        metadata = json.loads(
+            capture(
+                [
+                    "cargo", "metadata", "--locked", "--no-deps", "--format-version", "1",
+                    "--manifest-path", str(REPOSITORY / "Cargo.toml"),
+                ]
+            )
+        )
+        version = next(
+            package["version"]
+            for package in metadata["packages"]
+            if package["name"] == "sinan-agent"
+        )
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?", version):
         parser.error("invalid Agent package version")
     output = args.artifact_root / "agent" / version / args.target
     if output.exists() or output.is_symlink():
         parser.error(f"immutable artifact already exists: {output}")
-    subprocess.run(
-        [
-            "cargo", "build", "--locked", "--release", "--package", "sinan-agent",
-            "--target", args.target, "--manifest-path", str(REPOSITORY / "Cargo.toml"),
-        ],
-        check=True,
-    )
-    name = "sinan-agent.exe" if "windows" in args.target else "sinan-agent"
-    binary = pathlib.Path(metadata["target_directory"]) / args.target / "release" / name
+    if args.binary is not None:
+        binary = args.binary.resolve()
+    else:
+        subprocess.run(
+            [
+                "cargo", "build", "--locked", "--release", "--package", "sinan-agent",
+                "--target", args.target, "--manifest-path", str(REPOSITORY / "Cargo.toml"),
+            ],
+            check=True,
+        )
+        name = "sinan-agent.exe" if "windows" in args.target else "sinan-agent"
+        binary = pathlib.Path(metadata["target_directory"]) / args.target / "release" / name
     verify_binary(binary, args.target, version)
     print(f"Artifact: {package_binary(binary, args.target, version, args.artifact_root)}")
 

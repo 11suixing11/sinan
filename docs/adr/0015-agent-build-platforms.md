@@ -1,6 +1,6 @@
 # ADR 0015：扩展 Agent 编译产物的平台
 
-状态：历史扩展决策已采纳；自动构建范围按下方 2026-09-30 的后续决策收敛。
+状态：历史扩展决策已采纳；日常 CI 保留 Linux musl，其余目标按下方后续决策通过手动或标签工作流构建。
 
 ## 背景
 
@@ -37,3 +37,11 @@ musl 双架构的 CI 先使用同一源码、目标、工具链和构建脚本�
 继承工作区中曾加入 `tools/test-freebsd-rust.py` 的主 CI 步骤，但当前仓库并无该测试文件，因此主 CI 不执行此不存在的步骤。原始 workflow 改动已经在仓库外保留，官方工具链安装器保持原样未提交。此次不新建依赖该未提交文件的手动 workflow；后续恢复可选平台时应将安装器与完整测试一并评审。
 
 最新 main 提交 `fc8467d` 的 [CI 36681900051](https://github.com/theLucius7/sinan/actions/runs/36681900051) 中，检查、Compose smoke 和 musl 双架构均已通过；唯一失败是 FreeBSD arm64 在 rustup 安装阶段收到 404，尚未进入 Cargo。此次调整直接收敛到既定 Linux 部署范围。新的完整 CI 结果仍须以本次提交的实际 Actions 运行为准。
+
+## 后续决策：参考多平台交叉构建
+
+按用户要求对照本地 NodeFlare 的 Actions，保留日常 CI 的 Linux 范围，新增 `Agent platform artifacts` 工作流，手动触发或在 `v*` 标签触发。glibc 继续使用 Ubuntu 24.04 系统动态库，macOS ARM64 和 Windows 双架构继续使用原生 runner，不照搬参考项目的 glibc 2.28 基线或较窄的 Windows 架构范围。
+
+FreeBSD 两个目标改为在 Linux 上安装 Rust stable 和目标标准库，使用参考项目相同的固定 cross 提交与 FreeBSD 13 sysroot 镜像摘要。构建后验证 ELF 架构，再在 FreeBSD 13.5、14、15 VM 执行同一个二进制；13.5/14 验证不依赖 EOL 包仓库，15 安装 Python 后运行共享校验和打包脚本。只有三个版本的验证均成功才上传制品。该流程避开 ARM64 FreeBSD 缺失的 rustup 安装器，也不放宽服务部署仍限 Linux 的边界。
+
+交叉编译只增加 CI 工具，不增加 Rust 运行依赖。构建脚本新增 `--binary` 用于在目标系统验证已有二进制，校验架构、版本、CLI 与非 Linux 部署限制后才创建带 `SHA256SUMS` 的不可覆盖制品目录。实际双架构和跨版本结果须以新工作流执行为准。

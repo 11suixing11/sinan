@@ -157,3 +157,12 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 最终本地验证：fmt、全 targets Clippy（warnings 为错误）、完整 `cargo test --locked` 通过，122 项成功、4 项真实运行时/systemd 专项按既有原因忽略。真实 PostgreSQL 16.15、HTTP/WebSocket、诊断端到端和账本恢复测试完成后，已停止临时数据库。
 - Bun 1.4.2 冻结安装与 TypeScript/Vite 生产构建通过，`web/dist` 与上游逐字节一致。四组构建脚本检查、actionlint、shell/Python 语法、文档链接、core 边界和 diff 检查通过。NodeQuality 包装器 20 项测试在隔离的 Alpine 用户/网络/PID 命名空间全部通过，无 root 夹具跳过。
 - 在相同隔离环境再次运行真实 OpenRC 检查，安装、重复升级、注册失败、独立运行时、HUP、非 root 权限、日志、异常恢复、default 启动、只读快照和 systemd 安装命令契约全部通过。主机没有安装或重启服务；Docker 双架构、真实 systemd、代理运行时和公网 Reality 的完整结果仍以 PR CI 与专用设备验收为准。
+
+## 主分支修复：OpenRC 依赖缓存与可选平台构建
+
+- 用户要求将近期修改与修复放到 `main`，不再新建分支；OpenRC、上游同步及参考文档删除均已在本地主分支保留。
+- 远端 `aab35d0` 的 OpenRC arm64 检查通过，amd64 在 default runlevel 启动超时。使用干净 Alpine 根文件系统，按整秒边界启动测试，复现初始依赖树与服务文件同秒生成时的漏更新：缓存没有两个新服务，直接启动正常但 `openrc default` 没有启动进程。安装脚本增加 `rc-update --update` 强制刷新依赖树。
+- 回归夹具让初始缓存时间晚于新服务，稳定覆盖缓存未自动失效的场景，并检查依赖树包含两个服务；默认运行级别输出和失败时的 rc-status/rc-update 状态会保留在日志。修复后在干净、隔离的用户/网络/PID 命名空间完成安装、重复升级、HUP、权限、异常恢复及 default 启动等全部真实 OpenRC 检查；本机无 Docker，不将本地结果当作双架构容器验收。
+- 对照用户指定的本地 NodeFlare Actions，新增手动或 `v*` 标签触发的多平台制品工作流。保留日常 Linux musl CI；GNU/Linux 继续使用 Ubuntu 24.04 动态库，macOS 仅 ARM64，Windows 与 FreeBSD 提供双架构。FreeBSD 使用同一固定 cross 提交和 FreeBSD 13 sysroot 镜像，在 Linux 安装目标标准库，并在 13.5/14/15 VM 验证同一二进制；只在最新 15 VM 安装 Python 并校验打包，避免 ARM64 rustup 安装器和旧版本包仓库依赖。编译目录放在工作区外，避免将中间产物反复复制进 VM。
+- 构建脚本增加已有二进制验证模式，仍校验架构、版本、CLI、动态库与部署限制，成功后才创建不可覆盖制品和 SHA256SUMS。五组构建脚本检查通过，包含所有目标在没有 Rust/PATH 的情况下拒绝非法二进制；本机 Agent `0.2.0` 的实际 GNU/Linux 二进制验证、打包与 SHA-256 校验通过。
+- fmt、全 targets Clippy、完整 `cargo test --locked` 通过，122 项成功、4 项实机专项按原原因忽略；临时 PostgreSQL 的连接用户确认后完成全部集成测试。actionlint、shell/Python/Cross.toml 语法与 diff 检查通过。临时数据库已停止；后续以推送后的 OpenRC 双架构 CI 和手动多平台工作流确认远端执行结果，非 Linux 服务部署仍不在范围内。

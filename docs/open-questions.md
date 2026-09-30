@@ -117,3 +117,8 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 - 同步 `upstream/main` 的 `7a8fb70`，继承 NodeQuality、Agent `0.2.0`、公开报告上传缺省关闭和 Linux musl 双架构 CI；OpenRC 双架构检查作为本次 PR 的新增任务保留。
 - 上游诊断 ADR 已占用 0016，OpenRC ADR 顺延至 0017，并同步所有引用。临时项目设计参考及其入口、问题和进度记录按用户要求移除。
 - 一次性诊断依赖 systemd 的任务监督与挂载命名空间；OpenRC 入口不注册诊断适配器，服务管理器在执行任何命令前拒绝诊断启动和状态查询。普通代理服务的生命周期仍路由至所选 init；systemd 的诊断启动与恢复继续使用上游实现。
+
+## 主分支修复：OpenRC 缓存与多平台构建
+
+- OpenRC CI 的 amd64 默认运行级别启动超时已在干净 Alpine 环境复现：初始依赖树生成与两次安装都发生在同一秒，OpenRC 只比较整秒文件时间戳，缓存没有新服务；`rc-service` 能单独启动，但 `openrc default` 不会列出它们。安装后运行 `rc-update --update` 强制更新依赖树；回归夹具让初始缓存时间晚于新服务，避免依赖机器速度，并检查缓存包含两个服务。
+- 用户要求将近期修改与修复放到 `main`，后续不新建分支。参考本地 NodeFlare 的标签构建与 Linux cross / FreeBSD VM 验证方式，为收敛后的 CI 补充手动或标签触发的多平台制品工作流，保持 Ubuntu 24 glibc、macOS ARM64、Windows 与 FreeBSD 双架构；FreeBSD 在 Linux 安装目标标准库，不依赖 VM 内的 ARM64 rustup 安装器。详见 ADR 0015 后续决策。

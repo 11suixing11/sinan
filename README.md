@@ -102,14 +102,14 @@ arm64 主机将目标改为 `aarch64-unknown-linux-musl`，脚本参数改为 `a
 
 ### CI 可下载的 Agent 编译产物
 
-每次 push 或 PR 的 CI 包含以下构建。成功执行后，可在对应 Actions 运行页面的 Artifacts 下载，保留七天；当前执行结果以 Actions 为准。
+每次 push 或 PR 的 CI 构建 Linux musl 双架构，并检查 systemd 与 OpenRC。其余平台由 [Agent platform artifacts](.github/workflows/agent-platforms.yml) 工作流构建：在 Actions 页面手动选择 `Run workflow`，或推送 `v*` 标签。成功执行后，可在对应 Actions 运行页面的 Artifacts 下载，保留七天；当前执行结果以 Actions 为准。
 
 | 系统与链接方式 | 架构 | Artifact 名称 | 构建环境 |
 | --- | --- | --- | --- |
 | Linux musl 静态 | amd64、arm64 | `sinan-agent-linux-musl-<arch>` | Ubuntu 24.04 对应架构 |
 | Linux glibc 动态 | amd64、arm64 | `sinan-agent-linux-gnu-<arch>` | Ubuntu 24.04 对应架构及系统动态库 |
 | macOS | arm64 | `sinan-agent-macos-arm64` | GitHub 最新 macOS arm64 runner |
-| FreeBSD | amd64、arm64 | `sinan-agent-freebsd-<arch>` | FreeBSD 13.5，另在最新 14/15 系列检查同一产物启动 |
+| FreeBSD | amd64、arm64 | `sinan-agent-freebsd-<arch>` | Linux cross + FreeBSD 13 sysroot，在 13.5 及最新 14/15 系列检查同一产物启动 |
 | Windows MSVC | amd64、arm64 | `sinan-agent-windows-<arch>` | Visual Studio 2026 对应架构 runner，静态 CRT |
 
 新增目标使用最新 Rust stable，通过 Python 标准库脚本构建并检查 ELF、Mach-O 或 PE 架构和实际 `--version`、`--help` 启动。glibc 另外检查动态解释器、`libc.so.6` 和共享库解析。FreeBSD 的兼容基线是 13.5，未验证更早 13 小版本或未来主版本。
@@ -118,7 +118,7 @@ musl 压缩包保持上方 `agent/<version>/<arch>` 的原部署结构。其余�
 
 非 Linux 平台提供的是**编译产物与 CLI 检查**。设备注册、常驻运行、状态查询及安装脚本仍限 Linux，服务管理支持 systemd 或 OpenRC；非 Linux 平台执行这些命令会明确返回限制。面板 Docker 和运行时构建范围见其他章节。
 
-在对应系统及架构安装 Rust stable、Python 3 和本机 C 工具链后，可以本地构建新增目标：
+在对应系统及架构安装 Rust stable、Python 3.11 以上和本机 C 工具链后，可以本地构建新增目标：
 
 ```bash
 # Native Ubuntu 24.04 amd64, dynamically linked glibc:
@@ -127,7 +127,7 @@ python3 tools/build-agent.py x86_64-unknown-linux-gnu "$PWD/artifacts"
 python3 tools/build-agent.py aarch64-apple-darwin "$PWD/artifacts"
 ```
 
-FreeBSD 需要额外安装 protobuf 并设置 `PROTOC=/usr/local/bin/protoc`；Windows 使用 `python` 和对应 MSVC Rust toolchain。各平台均要求原生工具链与目标一致。新增下载包不能直接替代面板的原制品目录：Linux glibc 部署时，将对应二进制复制到 `agent/<version>/<arch>` 并重新生成 `SHA256SUMS`，确保同一版本、同一架构的已有制品不被覆盖。
+FreeBSD CI 在 Linux 安装目标标准库，使用 `Cross.toml` 中固定摘要的交叉编译镜像，不在 ARM64 FreeBSD VM 内安装 rustup；13.5/14 VM 只执行二进制，15 VM 使用 Python 验证并打包，均在验证成功后上传。FreeBSD 本机原生构建仍需安装 Rust、protobuf 并设置 `PROTOC=/usr/local/bin/protoc`；Windows 使用 `python` 和对应 MSVC Rust toolchain。原生构建要求工具链与目标一致。新增下载包不能直接替代面板的原制品目录：Linux glibc 部署时，将对应二进制复制到 `agent/<version>/<arch>` 并重新生成 `SHA256SUMS`，确保同一版本、同一架构的已有制品不被覆盖。
 
 ### 构建运行时
 

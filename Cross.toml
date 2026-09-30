@@ -1,0 +1,6 @@
+# FreeBSD 13 sysroots shared with the reference project's successful builds.
+[target.x86_64-unknown-freebsd]
+image = "ghcr.io/cross-rs/x86_64-unknown-freebsd@sha256:d1ecbeb055803f5316607acce26c8af2b8609a04e38a06ba7aed84f9df80042e"
+
+[target.aarch64-unknown-freebsd]
+image = "ghcr.io/cross-rs/aarch64-unknown-freebsd@sha256:317107ff710735ba2ab91d71185e32a5781870238aa93d9c2e0399b986668fb1"
