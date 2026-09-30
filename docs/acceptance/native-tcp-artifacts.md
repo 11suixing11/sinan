@@ -70,3 +70,7 @@ python3 tools/release.py assemble --source <制品根目录> --output <新输出
 上述 workspace 全量来自明确的500源码，不替代后续 main 新增功能的验收；本后续 PR 的最新 GitHub 两架构及 Debian12 任务仍须按实际状态核对。没有正式签名/发布，没有执行外部探测或真实 systemd 诊断。所有签名夹具为 TEST_ONLY。
 
 首次后续CI（464f0ff）Ubuntu原生amd64/arm64制品均通过，新增Bookworm任务在构建前Git目录所有权检查返回128。checkout只设置临时HOME的safe.directory，后续容器步骤需对实际GITHUB_WORKSPACE设置精确例外；受限容器复现了dubious ownership，精确设置/workspace后同一固定对象解析通过。工作流只允许本任务检出的目录，不设置全局通配符、不跳过源码对象检查；补修后最新CI另行核对，永久工具源5e未变化。
+
+整合复核保留作者 `b536476`：该源码的[三项原生制品 CI](https://github.com/theLucius7/sinan/actions/runs/36792542789)全部通过，含真实 Bookworm 启动、来源校验和 TEST_ONLY 完整签名。macOS 专项首次暴露旧回环夹具的读取竞态：非阻塞 listener 接受的 stream 未显式切回阻塞，读 EOF 返回 WouldBlock 导致 server 提前结束；夹具现在显式设置 blocking，仍保留一秒读取限制和零应用数据断言。并行库测试另遇一秒初始发布预算超时；未放宽引擎或测试预算，按单线程重验后 **13库+4真实CLI 全部通过/0忽略**。TCP 全targets Clippy、workspace fmt、core门禁、actionlint通过，Python来源12项、模拟发布22项通过，旧Release32项中28通过/4既有root条件跳过。没有在本机重跑 Linux musl 构建或完整 workspace Rust；最终 HEAD 的 GitHub CI 继续单独核对。
+
+已拉取永久 `5e843f0` Git 对象并逐字核对：生产 TCP、构建配方与来源/原文验证器相同；当前 main 的 Cargo.lock 另含 #71 适配器包，不把两份整体锁文件称为相同。永久制品仍从该对象自己的完整归档、配方和 Cargo.lock 构建，测试夹具修复不替换既有固定制品。

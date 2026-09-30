@@ -708,3 +708,6 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 ### P2 原生 TCP 制品 Debian12 启动修复（独立后续）
 
 #69 整合后独立修复 Bookworm 的 musl-gcc 静态 PIE 启动 SIGSEGV：使用 native cc 与 Rust 自带 musl/CRT（link-self-contained=yes），保留静态 PIE，并新增 Debian12 真实构建、执行、五辅助文件签名 CI。help 去除临时接入状态。永久公开工具源 5e843f0fd9532abe9b7b9a052ef77b45abcfa675、外部版本 0.3.0-<该SHA>-r1 已实际原生执行验证。源码500受限容器完整Rust347/0/9、Clippy/fmt、Python来源签名12/旧Release32/模拟发布22通过；最终5e再次TCP17、Clippy/fmt、实际musl/完整TEST_ONLY bundle通过，exit0/OOM=false。未发布正式Release，后续main功能和最新CI状态需单独核对。详见独立验收 native-tcp-artifacts.md。
+# PR #72 整合复核
+
+保留作者 Bookworm 启动及精确 workspace 信任修复；`b536476` 的 Debian12/amd64/arm64 原生制品 CI 全过。本地修正回环 CLI 测试的非阻塞 socket 读取竞态，TCP 17项单线程通过，TCP 全targets Clippy、fmt、Python来源12/发布22、旧Release28通过/4条件跳过及 core/actionlint 通过。永久源与当前 main 的锁文件区别已明确，生产引擎预算和固定制品未改；最终整合 HEAD 的主线 CI 尚须实时核对。
