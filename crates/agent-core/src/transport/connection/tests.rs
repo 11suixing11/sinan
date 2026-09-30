@@ -99,11 +99,11 @@ async fn backlog_and_legacy_giant_preserve_heartbeat_control_ack_and_restart_rep
         identity_dir: directory.0.join("identity"),
         runtime_root: directory.0.join("runtime"),
         install_root: directory.0.join("install"),
-        agent_root: directory.0.join("core"),
+        agent_root: directory.0.join("agent"),
         status_socket: directory.0.join("status.sock"),
         operation_timeout_secs: 1,
         public_ips: vec![],
-        settings: sinan_protocol::AgentSettings::default(),
+        settings: Default::default(),
     };
     let mut state = State::open(&config.state_db)?;
     let transaction = state.connection.transaction()?;

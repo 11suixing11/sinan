@@ -5,7 +5,7 @@
 - 对应 [Issue #18](https://github.com/theLucius7/sinan/issues/18)，仅处理第 1 步「有界读取」并独立提交。`pending_usage()` 在 SQL 层先 LIMIT 64，再按全局序号及累计字节取前缀；单轮 usage 消息预算 1,048,575 字节，包含 envelope 预留。增加部分排序/字节索引，读取超限旧正文时只检查 SQLite 字节元数据。
 - 新样本按 128 KiB 预算切批，所有切批、累计基准和全局序号同一事务落盘。既有 `(epoch, seq)` 与正文保留；超限旧批不假 ACK，明确日志报错，本地 status 显示阻塞数量与对账错误，后续可发送批仍能继续。面板按批次身份幂等入账，不要求连续序号；退役仍等待全部真实 ACK。
 - 每 15 秒发送轮最多调度 1 秒，逐批 yield 并优先处理控制消息与心跳；剩余窗口留待下一轮。一次正在进行的 socket 写入仍保留原有 10 秒超时，1 秒不是连接循环硬截止时间。采集逻辑未改；采集解耦单独推进。
-- 本地 `cargo fmt --all --check`、workspace 全 targets Clippy（warnings 为错误）、`cargo test --locked` 通过：178 项通过、4 项按原有原因忽略。签名集成测试使用仓库公开 TEST_ONLY 根与隔离 PostgreSQL 16；未设置编译公钥的首轮失败在按开发文档补齐环境后通过。新增 7 项账本/SQL 专项和 1 项真实回环 WebSocket 专项，覆盖 4,096 批积压、字节前缀、旧巨批、切批原子性、序号耗尽、模拟磁盘写入失败、schema 1 增量索引与旧 Agent 回滚兼容、20 秒心跳、ACK 控制、断连及数据库重开后准确重传。status 同时验证空队列和巨批阻塞提示。
+- 本地 `cargo fmt --all --check`、workspace 全 targets Clippy（warnings 为错误）、`cargo test --locked` 通过：178 项通过、4 项按原有原因忽略。签名集成测试使用仓库公开 TEST_ONLY 根与隔离 PostgreSQL 16；未设置编译公钥的首轮失败在按开发文档补齐环境后通过。新增 7 项账本/SQL 专项和 1 项真实回环 WebSocket 专项，覆盖 4,096 批积压、字节前缀、旧巨批、切批原子性、序号耗尽、模拟磁盘写入失败、旧账本辅助索引增加与旧 Agent 回滚兼容、20 秒心跳、ACK 控制、断连及数据库重开后准确重传。status 同时验证空队列和巨批阻塞提示。
 - 独立步骤及验收边界见 [有界读取验收](docs/acceptance-bounded-usage.md)。旧超限批的历史账本恢复、小内存/小磁盘 Debian 12 实机、持续代理流量下完整验机仍待后续独立验收，不以回环通过替代。下一步：PR CI、专用节点验证，以及独立的心跳采集解耦 PR。
 - 与当前主分支 `a62968e` 集成时保留辅助表、退役门禁和跨平台共享 status；有界索引改为增量创建，保持 `user_version=1`，新增旧 Agent 迁移重新打开试运行账本的回滚兼容断言。集成后的 core、对账及账本专项共 88 项通过、2 项真实 systemd 专项在 macOS 跳过；core 全 targets Clippy 与 workspace fmt 通过。
 

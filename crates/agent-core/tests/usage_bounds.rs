@@ -1,7 +1,6 @@
 #![forbid(unsafe_code)]
 
 use rusqlite::{Connection, params};
-use rusqlite_migration::{M, Migrations};
 use sinan_adapter_sdk::Counter;
 use sinan_agent_core::{
     state::State,
@@ -340,24 +339,21 @@ fn upgrading_an_existing_ledger_adds_indexes_without_rewriting_batch_identity() 
     let saved = batch(1, "u1_n1".into());
     insert(&connection, &saved);
     let state = database.open();
-    assert_eq!(state.pending_usage().unwrap(), vec![saved]);
+    assert_eq!(state.pending_usage().unwrap(), vec![saved.clone()]);
     let migration: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
     assert_eq!(migration, 1);
-    // The previous Agent's versioned migration must still reopen a trial ledger.
-    Migrations::new(vec![M::up(include_str!(
-        "../src/state/migrations/0001.sql"
-    ))])
-    .to_latest(&mut connection)
-    .unwrap();
-    assert_eq!(
-        database.open().pending_usage().unwrap(),
-        state.pending_usage().unwrap()
-    );
     let plan: String = connection.query_row(
         "EXPLAIN QUERY PLAN SELECT seq FROM usage_outbox INDEXED BY usage_outbox_pending_order_idx WHERE acknowledged=0 AND octet_length(batch)<=1048447 ORDER BY length(seq),seq LIMIT 64",
         [], |row| row.get(3),
     ).unwrap();
     assert!(plan.contains("usage_outbox_pending_order_idx"));
+    // An old Agent's migration registry must still accept the ledger on rollback.
+    rusqlite_migration::Migrations::new(vec![rusqlite_migration::M::up(include_str!(
+        "../src/state/migrations/0001.sql"
+    ))])
+    .to_latest(&mut connection)
+    .unwrap();
+    assert_eq!(database.open().pending_usage().unwrap(), vec![saved]);
 }
