@@ -27,21 +27,19 @@
 - 新增可恢复的专用资源 API 驱动、私有证据保存与精确流量/健康/身份/outbox 断言，以及受控双向 HTTP fixture。7 项驱动契约测试通过；全 workspace fmt、所有 targets Clippy（warnings 为错误）、cargo test 通过，116 项通过、4 项按既有原因默认忽略，数据库测试使用真实 PostgreSQL 16.15。
 - 下一步：将实际安装、systemd、Reality 流量和账本复核固化为每个 PR 的 CI；签名阶段按用户指定 minisign、多编译时公钥及本地离线签名执行。
 
-## 交付加固第 2 阶段：已实现，本地验证通过，PR 真实 CI 待验
+## 交付加固第 2 阶段：已完成，PR 真实 CI 全绿
 
-- 新增 Ubuntu 24.04 `real-e2e`，在每个 PR 与 main push 执行。复用同次 CI 的优化 musl amd64 Agent；固定上游运行时 1.14.2，以版本和构建脚本摘要缓存，并在每次恢复后核对 SHA-256、归档边界、ELF 架构、Go 1.26.8、固定 revision 与完整默认标签加统计标签。第 0 阶段已有同源体积对照，常规 CI 不再重复构建旧 profile。
-- 专用 Compose 面板与 PostgreSQL 提供制品；真实安装脚本在干净 runner 宿主安装，由 systemd 启动 Agent 和独立运行时。本地 Reality 客户端向受控回环 HTTP fixture 下载 2 MiB、上传 1 MiB，核对内容和精确计量增量。暂停后连续三样本、间隔 35 秒确认计量稳定与 outbox 空，再验证 Agent 重启、运行时 HUP、恢复流量和同版本重新安装的计量、身份与运行时 PID 连续性。
-- 脚本先拒绝已有 Sinan 安装，仅清理本次创建的服务、Compose 项目、私有临时目录与测试映射。公开 artifact 和 Actions summary 仅包含白名单中的版本、阶段与十进制用量，不上传身份、令牌、订阅、配置或原始日志。
+- 新增 Ubuntu 24.04 `real-e2e`，在每个 PR 与 main push 执行；复用同次 CI 的优化 musl amd64 Agent。固定上游运行时 1.14.2，以版本和构建脚本摘要缓存，恢复后仍核对 SHA-256、归档边界、ELF 架构、Go 1.26.8、固定 revision 与完整默认标签加统计标签。第 0 阶段已保留同源体积对照，常规 CI 不再重复构建旧 profile。
+- 专用 Compose 面板与 PostgreSQL 提供制品；真实安装脚本在干净 runner 宿主安装，由 systemd 启动 Agent 和独立运行时。本地 Reality 客户端向受控回环 HTTP fixture 下载 2 MiB、上传 1 MiB，核对内容与精确计量。暂停后连续三样本、间隔 35 秒确认计量稳定与 outbox 空，再验证 Agent 重启、运行时 HUP、恢复流量和同版本重新安装的身份、运行时 PID 与计量连续性。
+- 首次 [PR CI 36693149491](https://github.com/theLucius7/sinan/actions/runs/36693149491) 实际完成运行时冷构建与校验，并发现 [HUP 后同量新流量漏计 #9](https://github.com/theLucius7/sinan/issues/9)：上游新代按用户惰性创建统计，成功空响应未归零旧基准；恢复相同载荷后累计计数等于旧基准，因而被算成零增量。第 1 阶段恢复了更大的流量，未覆盖这个边界。
+- 修复只在无状态适配器中，根据已应用配置的统计用户白名单补齐零计数；未知用户不计入，RPC 与格式错误继续失败。未修改 core、协议或上游源码。CI 加入只读 SQLite 基准对照，要求首轮面板总值等于基准、HUP 后基准为零、恢复流量的面板增量等于新周期基准。
+- [43ab0e5e 的 PR CI 36697058255](https://github.com/theLucius7/sinan/actions/runs/36697058255) 全部成功：Rust/前端检查、Compose 持久化 smoke、musl amd64/arm64、真实安装与 Reality 计量 job。该次运行实际命中运行时缓存，重新校验通过后执行验收。
+- 公开摘要已实际下载并核对。首轮上传 **1,048,821** 字节、下载 **2,097,454** 字节；暂停、Agent 重启与 HUP 后面板累计值均不变，HUP 后 SQLite 基准准确归零。恢复相同载荷后累计上传 **2,097,642** 字节、下载 **4,194,908** 字节，总计 **6,292,550** 字节；新增量与只读账本新周期基准精确相等。同版本重新安装后累计值、身份文件摘要与独立运行时 PID 保持不变。
+- 脚本先拒绝已有 Sinan 安装，仅清理本次创建的服务、Compose 项目、私有临时目录与测试映射。公开 artifact 与 Actions summary 仅含白名单中的版本、阶段和十进制用量，不上传身份、令牌、订阅、配置或原始日志。
 - README 精简并拆出 `docs/deploy.md`、`docs/dev.md`；部署文档保留真机发现的版本耦合、CDN 拒绝、端口映射和公网超时问题。Docker 面板默认两个 Rust 编译任务，降低 LTO 构建的内存压力。
-- 本地验证：Shell/Python 语法（含全部嵌入块）、Markdown 相对链接、actionlint、diff 检查通过；7 项驱动与 3 项运行时缓存契约测试通过。缓存修改在执行前拒绝，正确摘要不能放行归档路径/符号链接，缺失上游默认标签被拒绝。已用真机现有 Linux 制品执行完整缓存校验通过；本机临时 Reality 与 TLS 伪装夹具的双向流量通过。
-- `cargo fmt --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked` 全部通过；116 项通过、4 项按既有原因默认忽略，数据库测试使用真实 PostgreSQL 16.15。日志保存在仓库外 `/tmp/stage2-checks.log`。
-- 验收边界：新 job 尚待此提交的真实 GitHub PR 执行，不以 YAML 或本地契约测试宣称每个 PR 已通过。回环 CI 不覆盖外部 CDN、云 DNS、防火墙或公网超时，也不替代第 1 阶段的 0.1.0→0.2.0 跨版本升级证据。此阶段制品尚无签名，第 3 阶段加入独立测试公钥与正式离线签名信任链。
-- 下一步：创建 PR 跟进真实端到端 job，通过后记录对应 Actions；继续发布与信任链阶段。
-
-- 首次真实 PR [Actions 36693149491](https://github.com/theLucius7/sinan/actions/runs/36693149491) 中，基础检查、Compose、双架构 musl 与运行时冷构建/完整校验/缓存均成功；真实安装、首轮 2 MiB/1 MiB 载荷及 Agent 重启、HUP 后连续 70 秒稳定均通过，但恢复同量载荷后未达到应有入账增量。此时第 2 阶段尚未验收通过。
-- 新问题 [HUP 后同量新流量漏计 #9](https://github.com/theLucius7/sinan/issues/9)：上游新代按用户惰性创建统计，空响应没有归零旧基准。适配器仅从已应用配置的统计用户白名单补齐零计数，RPC 错误仍失败；未修改 core、协议或上游源码。CI 增加只读 SQLite 基准与面板初轮总值、HUP 后零值和恢复流量的精确对照，公开摘要仍仅含白名单阶段及十进制用量。
-- 修复在独立、基于阶段 2 提交的 worktree 验证，保留并避开同时进行的签名阶段工作：fmt、全 targets Clippy、默认测试通过，119 项通过、4 项默认忽略；显式真实运行时 HUP/同量再流量专项通过。账本对照临时契约验证错误总值、丢失第二批、非零重载基准、待确认批次均拒绝，且只读数据库内容未变。修复后 PR CI 待重跑。
-
+- 本地验证：fmt、全 targets Clippy（warnings 为错误）、默认 cargo test 通过，119 项通过、4 项按既有原因默认忽略；显式真实运行时 HUP 与同量新流量专项通过。7 项驱动与 3 项缓存契约、Shell/Python 语法（含嵌入块）、文档相对链接、actionlint 与 diff 检查通过。账本对照临时契约拒绝错误总值、丢失第二批、非零重载基准和待确认批次，并确认数据库只读检查不修改原数据。检查日志保存在仓库外。
+- 验收边界：回环 CI 不覆盖外部 CDN、云 DNS、防火墙或公网超时，也不替代第 1 阶段 0.1.0→0.2.0 的跨版本升级证据。[版本选择 #3](https://github.com/theLucius7/sinan/issues/3)、[CDN 设备路径 #4](https://github.com/theLucius7/sinan/issues/4)、[手动端口 #5](https://github.com/theLucius7/sinan/issues/5)、[公网超时 #6](https://github.com/theLucius7/sinan/issues/6) 仍是后续处理范围。此阶段制品尚无签名，不能把 SHA-256 校验视为已建立发布信任链。
+- PR #7 已合入 main，合入提交为 `8a9ad2f`；main 的实际运行另按该提交记录。下一步：继续发布、离线签名与版本解耦阶段。
 
 ## G1：已完成
 
