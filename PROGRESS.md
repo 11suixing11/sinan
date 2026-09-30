@@ -502,4 +502,5 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 完成管理员取消请求持久化、WS 请求 / 清理确认协议、HTTP pending / ACK 恢复、SQLite 持久取消意图与 outbox。请求期间显示“等待设备确认取消”；停止失败、仍有进程或挂载保持待确认重试。旧 Agent 与缺少清理证据的后端明确不支持。
 - 准备/下载期间可以取消且不再启动；已进入持久启动检查点的启动先结束再清理确认。任务绑定设备 / UUID / 模块 / 版本和已保存单元，取消不接受任意服务名。普通末尾报告不会提前结束取消状态，已有报告与任务根目录保留。
 - 协议、PG + WS + HTTP、SQLite 重启、挂起的签名下载、实际 Agent ↔ 面板及真实 systemd 私有挂载夹具已加入独立验收。Bun 实际 dist 和浏览器桌面/移动状态验收通过；基于 main `75cd846` 的最终本项源码在受限 Debian 12 构建容器 fmt、Clippy 全目标、完整工作区测试通过：271 通过 / 0 失败 / 9 项环境忽略，exit 0 / 未 OOM。Linux core 测试二进制已交付，专用节点 6 个 systemd 夹具结果待记录。
+- 代码 `8957f5c` 的 CI `36772176396` 通过 check、compose-smoke、Linux musl 两架构，实际 systemd 串行 6 项通过 / 0 失败 / 0 忽略（2.28 秒）；Reality 安装计量因 Draft 跳过。专用 Debian 12 节点夹具尚未执行，保留待验状态，不以 CI 环境替代。
 - 设计见 [ADR 0026](docs/adr/0026-confirmed-diagnostic-cancellation.md)，独立验收见 [取消验收](docs/acceptance/diagnostic-cancellation.md)。不把本项夹具当作完整 NodeQuality / 持续代理流量验收。

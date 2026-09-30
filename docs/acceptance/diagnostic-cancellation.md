@@ -49,3 +49,5 @@ Playwright 与 Chrome 为现有开发工具，不增加生产依赖。测试直�
 - 受限远端 Debian 12 构建容器：1.5 GiB 内存、禁止额外交换空间、2 CPU、512 PID，独立 PostgreSQL；fmt、Clippy 全目标（warnings 为错误）、完整工作区测试全部通过：271 通过 / 0 失败 / 9 项环境忽略；构建容器 exit 0，未被 OOM 杀死。日志为受控构建目录的 `target/cancellation-{fmt,clippy,test}.log`，基于 main `75cd846` 的本项最终源码。
 - 真实 systemd 夹具必须在专用 Debian 12 / cgroup v2 节点串行运行，命令：`core-tests real_systemd_diagnostic_ --ignored --test-threads=1 --nocapture`。本项新增一个确认式取消夹具，当前主线上游五个资源/预检/锁权限夹具继续运行，前缀总计 6 项。未执行之前不计为通过。
 - 交付 Linux core 测试二进制 SHA256：`38f0d15713e1863723fe5eb8df0152789385a31e6cc36121b563257ff2e5f6f5`。专用节点结果待记录，不用普通构建容器的忽略结果代替实机验收。
+
+- 代码提交 `8957f5c` 的 [CI 36772176396](https://github.com/theLucius7/sinan/actions/runs/36772176396) 已通过 check、compose-smoke、Linux musl amd64 / arm64；其中实际 systemd 串行 6 项全部通过，0 失败 / 0 忽略，2.28 秒。Reality 安装计量任务因 Draft 条件跳过，不记为通过。此 CI 环境证据不替代待执行的专用 Debian 12 小内存节点验收。
