@@ -460,6 +460,19 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 最终整合 main `21e6a01`，保留诊断资源预算、有限流量补报、监控模式、任务页面与退役保护。使用独立 PostgreSQL 再跑上述 20 项专项测试，全部通过且无忽略；panel 全 targets Clippy（warnings 为错误）、workspace fmt 与差异空白检查通过。Bun 1.4.2 冻结锁文件安装及 TypeScript/Vite 构建通过，并重建合并后的 dist；此结果不代表最终提交的完整 workspace 或平台 CI 已通过。
 - 此项不修改缓存结构或覆盖语义；失败后保留历史成功结果由下一独立 PR 完成。新增 rustls 类型直接依赖的理由及替代方案记录于 [ADR 0024](docs/adr/0024-ip-provider-error-classification.md)。
 
+
+## 2026-10-01：专用 Debian 12 测试节点就绪（独立 PR）
+
+- 按明确授权停用选定节点原 xboard-node 业务并禁用自启动，保留配置和身份；447 MiB 内存、约 12 GiB 可用磁盘、已有 2 GiB swap。其余生产代理节点未运行完整硬件测试。
+- 建立私有测试面板与独立 PostgreSQL、正常注册的测试 Agent/代理用户/授权，回环绑定和 SSH 隧道连接。公开 TEST_ONLY 签名安装验证保留，实际 GNU 调试构建不作为正式 musl Release 发布。
+- Agent 与独立 sing-box 单元健康在线，实读 -500/1000 优先级和初始零重启；凭据、原始日志和环境配置保存在本机私有目录，未进入 Git。独立验收见 docs/acceptance/dedicated-debian12-node.md。默认512MiB完整诊断预算不适合该机，预检应拒绝；完整资源症状与故障场景另项记录。
+
+## 2026-10-01：专用小内存节点完整 NodeQuality OOM 基线（独立 PR）
+
+- 在447MiB专用Debian12节点，用主线541f52d的签名测试Agent提交一次硬件启用、IPv4、低网络流量、关闭上传的完整NodeQuality入口，同步采集cgtop/内核OOM/磁盘/设备状态与面板时间。
+- 已复现globalOOM：被杀Geekbench属于诊断单元，anon-rss275192KiB、oom_score_adj500；诊断Result=oom-kill，最终failed且无完整报告。Agent子进程/监督进程和sing-box PID均保留，NRestarts0。SSH恢复后停止诊断，cgroup进程与相关挂载为空。
+- 旧API没有专用心跳/指标时间显示，last_seen是“最后消息”；私有DB只读指标时间的最大采样跳跃319.014秒，测试SSH隧道也中断，因此不把此值等同纯心跳中断或停止采集时长。独立验收见docs/acceptance/nodequality-oom-baseline.md；原始证据不进Git，未宣称P0整体验收通过。
+
 ## 2026-10-01：P0 IP 查询保留成功快照（独立 PR）
 
 - 缓存按 IP 与真实入口分开，每种数据库响应单独保存最新尝试和最后成功快照。失败仅更新状态与错误，不覆盖字段、成功时间或有效期；部分成功只更新对应响应，换 IP 保留旧记录，旧批次不覆盖新批次。旧表名和 payload 保留，0008 迁移明确成功数据，未知字段/时间/分类不补造。
