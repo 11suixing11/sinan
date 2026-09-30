@@ -704,3 +704,9 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 记录型Privileged与真实磁盘夹具覆盖参数先拒绝、身份失败不准备、预算/固定argv、0与未知、篡改、部分/重复、链接/超限和坏章。881cce5的fresh GitHub CI：13专项、全targets Clippy、完整Rust/PostgreSQL353通过/0失败/9既有条件忽略、六项core真实systemd回归，以及Compose/Agent双musl/TCP制品双arch通过；最终制品依赖HEAD另核。不会将合成报告或现有core回归称为已登记TCP的服务/签名安装验收。见 [TCP适配器验收](docs/acceptance/tcpquality-adapter.md)。
 
 - TCP 适配器最终正常整合最新作者 `972647c` 与正式制品主线 `cbe5558`，保留 nullable 字段必须显式出现、同族 literal 不得伪称家族不可用及原报告/章节完整度规则。prepare 比较可信签名缓存 binary UID，历史收集核对可信私有任务目录、输入、章节/报告及实际句柄 UID，删除旧二进制后仍可重复读取已有部分报告；调用方保持任务根目录及祖先可信。冻结源码 `7a70b11` 的 TCP14+owner1+NodeQuality15 共30项全部通过、0失败/忽略，两项移除 UID/错误依赖旧二进制的负对照被实际回归捕获，恢复后再通过；workspace 全 targets Clippy（warnings为错误）、fmt、core分层6项、actionlint与链接/差异检查通过。core/SDK/native/前端与正式主线原字节一致，未重复完整workspace或冒称TCP已登记/实网验收，已释放构建槽。
+
+## 2026-10-01：Reality 间歇传输失败证据（Issue #6）
+
+- 业务源码743955c原CI在HUP后的2MiB下载只收到1,103,168字节，90秒exit28；同源码失败job只重跑一次，attempt2安装/双向流量/Agent重启/HUP/续传/签名拒绝/重装/在线退役全过。后续75cf整合源码另在首次下载90秒0字节失败，不能归因于业务或门禁。追加既有milestone1 Issue #6，保持原因未知，不重复开Issue或推已合并分支。
+- 独立标准库helper记录最多4条固定传输的数字/错误类别，保留curl90秒、退出码与原载荷核对；失败清理前最多7秒直接HTTP/TCP/TLS夹具检查、有限宿主资源和进程布尔状态。沿用常驻单元状态白名单，不读取/上传配置、env、密钥、令牌、证书或完整日志；写入与公开汇总均重新过滤，失败取证不吞失败或重试代理流量。
+- 13专项含真实回环HTTP/TLS、卡死夹具预算及恶意摘要隐私回归通过；验收驱动21、运行时缓存3、签名8、Python仓库101项/6既有条件跳过通过，fmt/core/shell/差异检查通过。独立提交CI与实际Reality另行核对，未将同源旧提交重跑当成本项集成验收。见 [独立验收](docs/acceptance/reality-failure-evidence.md)。
