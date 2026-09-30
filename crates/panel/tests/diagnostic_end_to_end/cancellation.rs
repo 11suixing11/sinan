@@ -51,6 +51,7 @@ async fn cancellation_crosses_real_agent_websocket_http_and_recovers_after_resta
         }))
     })
     .await?;
+    mark_simulated_linux(&harness, id).await?;
     let report = harness
         .api(
             Method::POST,
