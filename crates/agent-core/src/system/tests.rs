@@ -3,6 +3,8 @@ use std::sync::Arc;
 
 #[path = "budgets.rs"]
 mod budgets;
+#[path = "queued.rs"]
+mod queued;
 
 #[test]
 fn runtime_status_requires_explicit_process_free_shutdown() -> Result<()> {
@@ -71,7 +73,7 @@ fn job_status_distinguishes_running_exited_failed_and_missing() -> Result<()> {
             JobStatus::Running,
         ),
         (
-            "LoadState=loaded\nActiveState=active\nSubState=exited\nResult=success\nExecMainStatus=0\nExecMainCode=1\nExecMainStartTimestampMonotonic=123\n",
+            "LoadState=loaded\nActiveState=active\nSubState=exited\nResult=success\nExecMainStatus=0\nExecMainCode=1\nExecMainStartTimestampMonotonic=123\nJob=\n",
             JobStatus::Succeeded,
         ),
     ] {
@@ -96,6 +98,55 @@ fn job_status_distinguishes_running_exited_failed_and_missing() -> Result<()> {
         })
         .is_err()
     );
+    Ok(())
+}
+
+#[test]
+fn job_status_waits_for_a_proven_pending_job_without_accepting_unstarted_success() -> Result<()> {
+    let response = |active, job| CommandOutput {
+        success: true,
+        stdout: format!(
+            "LoadState=loaded\nActiveState={active}\nSubState=dead\nResult=success\nExecMainCode=0\nExecMainStatus=0\nExecMainStartTimestampMonotonic=0\n{job}"
+        ),
+        stderr: String::new(),
+    };
+    for active in ["inactive", "active", "failed"] {
+        let mut queued = response(active, "Job=505\n");
+        assert_eq!(parse_job_status(&queued)?, JobStatus::Running);
+        queued.success = false;
+        assert!(parse_job_status(&queued).is_err());
+    }
+    let mut previously_completed = CommandOutput {
+        success: true,
+        stdout: "LoadState=loaded\nActiveState=active\nSubState=exited\nResult=success\nExecMainCode=1\nExecMainStatus=0\nExecMainStartTimestampMonotonic=123\nJob=505\n".into(),
+        stderr: String::new(),
+    };
+    assert_eq!(parse_job_status(&previously_completed)?, JobStatus::Running);
+    previously_completed.stdout = previously_completed.stdout.replace("Job=505", "Job=");
+    assert_eq!(
+        parse_job_status(&previously_completed)?,
+        JobStatus::Succeeded
+    );
+    for job in [
+        "",       // A missing property must not invent a queued start.
+        "Job=\n", // systemd emits an empty value after the job completes.
+        "Job=0\n",
+        "Job=-1\n",
+        "Job=+505\n",
+        "Job=0505\n",
+        "Job=505/start\n",
+        "Job=505 \n",
+        "Job=4294967296\n",
+    ] {
+        assert!(
+            matches!(
+                parse_job_status(&response("inactive", job))?,
+                JobStatus::Failed { .. }
+            ),
+            "unstarted unit with {job:?} must not be reported as running or succeeded"
+        );
+    }
+    assert!(parse_job_status(&response("unknown", "Job=505\n")).is_err());
     Ok(())
 }
 

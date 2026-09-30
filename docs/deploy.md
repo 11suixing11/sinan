@@ -97,7 +97,7 @@ SQL
 
 正常部署无需在服务器编译运行时或 `docker cp` 制品。进入面板“制品”，输入官方仓库已发布的 `agent-v…` 标签，点击“导入制品”。只有已正式发布、签名通过且所有资产齐全的 Release 可导入；草稿、缺签名、错误版本、归档或摘要不一致均拒绝，现有集合保持不变。完整导入后才能用于设备接入和配置发布。
 
-正式发布工作流当前生成 Linux amd64/arm64 的 Agent、固定版本运行时、NodeQuality r2、固定安装器、`release.json`、`SHA256SUMS` 与 `SHA256SUMS.minisig`。Linux musl 静态 Agent 保留原制品目录。GNU、musl 和原生平台的服务代码与 CI 验证另见 [设备平台与能力](platforms.md)；原生生产部署还需独立验证来源的已签平台 bundle，不能直接使用日常 CI 的 TEST_ONLY 制品。
+正式发布工作流当前生成 Linux amd64/arm64 的 Agent、固定版本运行时、NodeQuality r2、固定安装器、`release.json`、`SHA256SUMS` 与 `SHA256SUMS.minisig`。Linux musl 静态 Agent 保留原制品目录。自动 CI 的 Agent 矩阵仅含 musl amd64/arm64；GNU、macOS、Windows、FreeBSD 与完整运行时矩阵保留在仅手动触发的 `platforms.yml`，详见 [设备平台与能力](platforms.md)。原生生产部署还需独立验证来源的已签平台 bundle，不能直接使用日常 CI 的 TEST_ONLY 制品。
 
 面板核对签名、仓库/tag、架构、版本、归档内容和安装后二进制摘要，完成后一次发布整个目录。相同组件版本不能用不同内容覆盖。Agent 下载后独立以自身内嵌公钥再次验证，运行时服务启动前也复验本地签名缓存。
 
@@ -134,7 +134,7 @@ bootstrap 的公钥文件仅用于独立确认安装起点；它不会写进 Age
    sudo apt-get install -y python3 minisign ca-certificates curl coreutils passwd
    ```
 
-2. 先导入签名 Release 并准备可信 bootstrap。面板添加服务器，选择 Agent 版本并复制生成的安装命令，在目标服务器上以 root 执行。安装依赖 Linux + systemd，不支持 OpenRC、容器内缺失 systemd 的环境或非 Linux 平台。令牌 24 小时有效且只可消费一次。
+2. 先导入签名 Release 并准备可信 bootstrap。面板添加服务器，选择 Agent 版本并复制生成的安装命令，在目标服务器上以 root 执行。以下步骤使用 Debian 12 的 systemd；Linux 安装器也支持运行中的 OpenRC，缺少这两种服务管理器的容器不能直接安装。OpenRC 依赖及 macOS、FreeBSD、Windows 的原生服务入口见 [设备平台与能力](platforms.md)。令牌 24 小时有效且只可消费一次。
 3. 30 秒内检查服务器是否在线，并出现系统信息与最新指标。也可在设备上执行：
 
    ```bash
@@ -170,11 +170,19 @@ bootstrap 的公钥文件仅用于独立确认安装起点；它不会写进 Age
 
 ### 升级设备
 
-MVP 不做自动更新。导入协议兼容的新签名 Release 后，到原服务器详情点击“接入 / 升级”，可指定已导入的 Agent 版本，签发**新的**一次性令牌，再执行可信 bootstrap 命令。面板和 Agent 产品版本无需相同；首次安装使用独立预置验证器，重复安装可以明确指定已信任的旧 Agent 验证下一版。
+Agent 支持自动更新，默认关闭。安装好的监督服务可在服务器详情“Agent 设置”中开启“自动更新 Agent”，从绑定面板选择协议兼容、匹配平台且签名通过的新稳定版本；正常检查间隔约六小时并附加抖动。更新保留身份和账本，代理运行时独立运行；试运行失败或未确认的更新中断会恢复旧 Agent。具体平台与恢复边界见 [设备平台与能力](platforms.md#监控任务与更新)。
+
+手动升级时，导入协议兼容的新签名 Release 后，到原服务器详情点击“接入 / 升级”，可指定已导入的 Agent 版本，签发**新的**一次性令牌，再执行可信 bootstrap 命令。面板和 Agent 产品版本无需相同；首次安装使用独立预置验证器，重复安装可以明确指定已信任的旧 Agent 验证下一版。
 
 安装器先核对签名和实际内容，预检既有运行时、诊断和未完成回滚引用，再注册暂存 Agent、切换当前版本并重启 Agent。身份、配置与状态库继续保留；同一服务器只允许原公钥再次注册，不能复制其他设备的身份目录。旧命令消费后不可复用。
 
 历史未签名缓存不会被自动认可；预检失败保持旧安装，明确报错。需按发布文档提供与实际二进制完全匹配、经过独立验证的签名证明，或安排迁移维护窗口。历史 0.1.0→0.2.0 连续升级验收不等于已经完成旧未签版本到新签名版本的迁移。
+
+### 远程命令的本地授权
+
+远程命令默认关闭。只有节点操作者可在本机 Agent 配置的顶层设置 `allow_remote_commands = true` 并重启 Agent 来开启；例如 Linux 的 `/etc/sinan/agent.toml`。此字段不属于 `[settings]`，面板的 Agent 设置接口不能启用它。保持 `false` 或省略字段时，Agent 不领取远程命令，界面也禁用提交；旧响应缺少能力字段时同样默认禁用。
+
+开启此项等于授权绑定面板以 Agent 服务账号执行任意 shell 命令，Unix 通常为 root，Windows 为 SYSTEM。制品签名只约束已签制品，不能限制这些命令的内容或效果；仅在接受这一信任范围时开启。关闭时在本机恢复 `false` 并重启 Agent。
 
 ### 删除与退役设备
 

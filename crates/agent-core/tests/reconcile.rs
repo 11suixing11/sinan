@@ -45,6 +45,7 @@ impl Fixture {
             status_socket: directory.join("status.sock"),
             operation_timeout_secs: 1,
             public_ips: vec![],
+            allow_remote_commands: false,
         };
         let state = Arc::new(Mutex::new(State::open(&config.state_db).unwrap()));
         let adapter = Arc::new(FakeAdapter::default());

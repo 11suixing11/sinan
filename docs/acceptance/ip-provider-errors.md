@@ -40,7 +40,7 @@ bun run build
 
 - 对齐 main `45df3b1` 后，IP 查询 11 项、诊断 PostgreSQL 3 项、foundation 6 项专项测试全部通过（共 20 项，无忽略）。冻结锁文件安装及 TypeScript/Vite 构建通过；重建实际 dist 的桌面/手机夹具通过，并检查手机截图，主分支新增 Agent 设置、持续拨测和命令界面保留。
 - 初次全 workspace 测试已通过 IP 查询、诊断 PostgreSQL 与端到端组，随后 foundation 的六项测试在创建临时数据库时遇到 `No space left on device`。释放测试空间后，上述六项已补跑成功；不把该次运行计为完整通过，最新提交的全 workspace 与平台验证由 CI 执行。
-- 随后合入 main `a62968e` 的诊断资源预算和 CI 修复，IP 实现与前端产物没有变化；最终基线格式与差异空白检查通过。旧基线上的全 targets Clippy 曾通过；`45df3b1` 上的 panel 全 targets Clippy 在依赖 metadata 创建临时目录时报磁盘不足，尚未完成。最终基线的 Clippy、完整测试与平台验证待本提交 CI 补验，不用历史结果代替。
+- 最终整合 main `21e6a01`，保留诊断资源预算、有限流量补报、监控模式、任务页面及退役保护。使用独立 PostgreSQL 在此基线上重跑 IP 查询 11 项、诊断 3 项、foundation 6 项，20 项全部通过且无忽略；panel 全 targets Clippy（warnings 为错误）、workspace fmt 和差异空白检查通过。Bun 1.4.2 冻结锁文件安装及 TypeScript/Vite 构建通过，合并后的 dist 已同步重建；完整 workspace 和各平台 CI 仍须以最终提交的实际执行为准。
 - Rust 新增直接依赖只引用已锁定 rustls 类型，详见 [ADR 0024](../adr/0024-ip-provider-error-classification.md)。没有调整 UA、重试、重定向、查询并发、时限或响应上限。
 - 此项没有执行完整 NodeQuality、Agent 重启、面板断连、取消、持续代理流量或磁盘压力场景；这些属于相应诊断生命周期/资源保护 PR 的独立验收，不能用查询夹具代替。
 - 真实外部源可用性仍以面板容器网络命名空间的基线为准。此项尚未保留上次成功结果；失败后历史结果继续存在的验收属于后续缓存 PR。

@@ -28,6 +28,9 @@ pub async fn install_services(
     config_path: &Path,
     descriptor: Option<&Descriptor>,
 ) -> Result<()> {
+    if descriptor.is_none() {
+        crate::retirement::ensure_monitor_only_allowed(config)?;
+    }
     let backend = ServiceBackend::detect()?;
     ensure!(
         matches!(
