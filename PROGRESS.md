@@ -497,9 +497,35 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 随后保留贡献者 `98f86d8` 的生产修复：会话到期值与 hello.ack 取同一次签发时间。合并强制 PostgreSQL 会话写锁跨秒回归和认证前后窗口、token/server 数据库一致性检查；该专项 1 项实际通过，panel 全 targets Clippy、workspace fmt 与差异检查通过。Agent 仍提前 60 秒续期，认证 ACK 有 10 秒等待上限，服务端保留绝对到期拒绝。
 
+## 2026-10-01：P0 IP 查询保留成功快照（独立 PR）
+
+- 缓存按 IP 与真实入口分开，每种数据库响应单独保存最新尝试和最后成功快照。失败仅更新状态与错误，不覆盖字段、成功时间或有效期；部分成功只更新对应响应，换 IP 保留旧记录，旧批次不覆盖新批次。旧表名和 payload 保留，0008 迁移明确成功数据，未知字段/时间/分类不补造。
+- 页面同时显示当前失败和历史字段、上次成功时间及过期，历史成功不计为当前成功；原零分和 false 不变。刷新 admission 在服务器行锁事务内检查最近尝试与运行租约，异常退出后租约过期可恢复，重复刷新去重。
+- 对齐最新 main `e2d898c` 并保留新 Agent 控制界面。在隔离 Debian 12 构建容器通过 workspace fmt、全 targets Clippy、16 项 IP 专项（含五项缓存 PostgreSQL 场景）、四项 diagnostics 与完整 workspace 245 项成功 / 0 失败 / 六项已有真实 systemd/上游运行时条件忽略；新增缓存测试无忽略。独立 PostgreSQL 旧 DDL/旧 payload/0008 实际迁移、Bun 1.4.2 冻结安装、TypeScript/Vite 和最终 dist 桌面/手机历史场景、core gate 及六项行为测试、文档链接与差异检查通过。本提交的平台/Compose CI 单独核对，不由该普通构建容器推断实机通过。
+- 数据和兼容语义见 [ADR 0025](docs/adr/0025-ip-provider-cache.md)，独立步骤及边界见 [缓存验收](docs/acceptance/ip-provider-cache.md)。本项没有新增查询入口或修改网络重试策略。
+
+- IP 缓存合并整合 main `75cd846`，保留诊断内存保护、固定锁权限、宿主 ABI 缓存兼容、服务夹具和会话单次签发修复。完整 Rust/PostgreSQL workspace 回归 267 项成功、0 失败、8 项既有 Linux/root/systemd 或上游运行时条件忽略；Clippy --all-targets -D warnings、fmt、core 门禁和差异检查通过。Bun 1.4.2 TypeScript/Vite 重建与提交 dist 一致。此完整回归尚不包含后续 IP 未知字段 PR #44，最终 Linux CI 单独核对。
+
+## 2026-10-01：P0 IP 未知字段显示（独立 PR）
+
+- 专项审查实际复现空字符串/错误类型和 success=false 默认字段被记为成功，归独立 Issue #42，不混入来源适配层 #24。每个已知字段增加语义类型和有效值检查，不能确认的状态/字段保持未知，真实 0/false 和可信原始评分字符串保留。
+- 旧缓存原始快照保留，读取过滤不能确认的已知字段并补可选 kind；页面无效值显示未知，历史/过期/未知状态不能冒充当前成功。旧响应包缺失时不追溯编造成功证据。
+- 未知字段首轮 CI 的 check 在测试辅助路径的反向迭代编译失败，Rust 测试未执行；作者已修复为 rsplit，保留该修复，未将初轮记为通过。
+- fmt、core gate、差异、Bun 1.4.2 冻结安装/TypeScript/Vite 与实际 dist 桌面/手机字段、历史和模拟未启用来源验收通过。Rust/Clippy 和独立 HTTP/PostgreSQL 场景等待隔离编译槽或 CI，结果单独更新，未宣称平台/完整诊断通过。独立步骤见 [未知字段验收](docs/acceptance/ip-quality-unknown.md)。
+- 整合 main `07e8f58` 时补齐旧 payload 缺少 kind 的前端校验，代理=0/评分=false 和空白/占位评级不再冒充事实；保留合法 0/false 与未知自定义标签原标量。Bun 1.4.2 冻结安装、4 项字段回归（637 项断言）、TypeScript/Vite 构建通过，覆盖后端全部 55 个字段的前端兼容规则并重建最终 dist；core gate 与差异检查通过。补修后的桌面/手机浏览器场景尚未重跑，Rust 和平台验证随后单独记录。
+- 最终正常整合作者 `56f8211` 和 main `b8e5689`，保留缓存、会话签发/夹具、服务保护和宿主 ABI 兼容修复。独立 PostgreSQL 下 20 项 IP 质量 library 测试与 4 项 diagnostics API 测试全部通过，0 失败/忽略；panel 全 targets Clippy（warnings 为错误）、workspace fmt、core 门禁与差异检查通过。Bun 4 项/637 断言及 TypeScript/Vite 再次通过，最终 dist 与重建结果一致；未重复完整 workspace 或实机 NodeQuality/平台 CI，补修后的浏览器桌面/手机场景仍未重跑。
+
+- 未知字段修复后的 `56f8211` CI `36769441248`：check 中全 targets Clippy、Rust/PostgreSQL、真实 systemd 和提交 dist 检查通过，Compose 和两项 musl 也通过；旧基线的 Reality 任务失败另行处理。现保留已合并缓存和最新 main 后复验最终源，不用前一提交结果替代。
+
+- 贡献者提供的同期验收记录：最终 Rust 源保留 main `b8e5689` 后，在独立 Debian 12 构建容器（1.5 GiB/2 CPU、无额外 swap）通过 fmt、Clippy --all-targets -D warnings、20 项 IP 与 4 项 diagnostics 专项、完整 workspace 270 项成功 / 0 失败 / 8 项既有 Linux/root/systemd 或外部运行时条件忽略；新增未知字段测试无忽略，容器无 OOM。最终 TypeScript/Vite 与已有 dist 一致，桌面/手机夹具和 core 门禁通过。平台 CI 仍按最终提交单独核对。 此记录属于贡献者原前端源，不替代合并审查补修后的最终 dist；两侧 Rust/依赖源码完全一致，本地专项证据继续有效。
+
+- 发布前正常合入作者新 head `cbe54ae`：与已验证 `14893f5` 的所有 crates、Cargo 清单/锁文件及工具脚本完全相同，仅补验收记录与已有前端差异。保留双向正常祖先和旧 payload 类型补修，Bun 4 项/637 断言及 TypeScript/Vite 复验通过，最终 dist 与既有构建一致；相同 Rust 源码不重复构建。
+
 ## 2026-10-01：发布草稿查找修正（独立 PR）
 
 - [Issue #52](https://github.com/theLucius7/sinan/issues/52)：真实草稿的 tag 查询返回 404，而已认证 List releases 与按 ID 查询可读。发布器改为每页 100 条、最多 10 页查找精确且唯一的 tag，再按 ID 复核 ID、tag、完整 build SHA；缺失、重复、异常、扫描超限或身份变化均拒绝。原有 CI、资产摘要、签名与发布前后身份门禁保留。
 - Fake API 对草稿 tag 查询明确返回 404；新增回归先在旧发布器下失败，再在修复后通过。分页、相似标签、歧义、重复 ID、页数上限及下载期间身份变化均有覆盖。发布专项 22 项全部通过；Python discovery 共 88 项，83 项通过、5 项依既有条件跳过（需要隔离 Linux root）。本次只修改发布工具、测试与文档，未运行 Cargo，也未据此宣称正式 Release 已发布。
 - 候选源码 `75cd846`、`agent-v0.3.0` 标签与原有资产保持冻结；本修复须独立审阅，随后从已审阅的工具分支验证同一草稿，正式签名与公开状态另行记录。
 - 对真实 GitHub 草稿执行只读验证成功：固定 Release ID、完整 build SHA 和九项资产 ID/摘要/大小与已下载并审核的候选完全一致，未执行签名或发布写操作。
+
+- 合并审查：发布器专项 22 项重新通过，core 门禁与差异检查通过。真实 GitHub 草稿只读查找再次确认 ID、冻结 build SHA 及九项资产名称；没有执行签名或发布写入。
