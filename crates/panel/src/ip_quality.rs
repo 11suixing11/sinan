@@ -13,7 +13,20 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sinan_protocol::now_timestamp;
 use sqlx::Row;
-use std::{collections::BTreeSet, future::Future, net::IpAddr, pin::Pin, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    future::Future,
+    net::IpAddr,
+    pin::Pin,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
+
+mod errors;
+#[cfg(test)]
+mod structured_error_tests;
+pub use errors::QueryErrorKind;
+use errors::{QualityDnsResolver, QueryError};
 
 const PROVIDER_ORIGIN: &str = "https://ipinfo.check.place";
 const CACHE_SECS: i64 = 86400;
@@ -42,6 +55,45 @@ pub struct QualityDatabase {
     pub status: String,
     pub fields: Vec<QualityField>,
     pub error: Option<String>,
+    #[serde(default = "provider_name")]
+    pub provider: String,
+    #[serde(default)]
+    pub target_ip: Option<String>,
+    #[serde(default)]
+    pub attempted_at: Option<i64>,
+    #[serde(default)]
+    pub elapsed_ms: Option<u64>,
+    #[serde(default)]
+    pub error_kind: Option<QueryErrorKind>,
+    #[serde(default)]
+    pub http_status: Option<u16>,
+}
+
+fn provider_name() -> String {
+    "check-place".into()
+}
+
+#[derive(Clone, Copy)]
+struct QueryAttempt {
+    at: i64,
+    started: Instant,
+}
+
+impl QueryAttempt {
+    fn start() -> Self {
+        Self {
+            at: now_timestamp(),
+            started: Instant::now(),
+        }
+    }
+
+    fn elapsed_ms(self) -> u64 {
+        self.started
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -161,6 +213,7 @@ pub async fn refresh(
 
 async fn refresh_inner(state: &AppState, id: i64, ips: &[String]) -> ApiResult<Vec<IpQuality>> {
     let client = Client::builder()
+        .dns_resolver(Arc::new(QualityDnsResolver))
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(6))
@@ -199,28 +252,56 @@ async fn query_all(
     ips: &[String],
     allow_documentation_ips: bool,
 ) -> Vec<IpQuality> {
+    query_all_with_limit(
+        client,
+        origin,
+        ips,
+        allow_documentation_ips,
+        Duration::from_secs(40),
+    )
+    .await
+}
+
+async fn query_all_with_limit(
+    client: &Client,
+    origin: &str,
+    ips: &[String],
+    allow_documentation_ips: bool,
+    total_limit: Duration,
+) -> Vec<IpQuality> {
     let now = now_timestamp();
+    let attempts = Arc::new(Mutex::new(BTreeMap::new()));
     let mut requests: Vec<DatabaseRequest> = Vec::new();
     for ip in ips {
         for (database, label) in DATABASES {
             let client = client.clone();
             let origin = origin.to_owned();
             let ip = ip.clone();
+            let attempts = attempts.clone();
             requests.push(Box::pin(async move {
+                let attempt = QueryAttempt::start();
+                attempts
+                    .lock()
+                    .expect("query attempt lock")
+                    .insert((ip.clone(), database.to_owned()), attempt);
                 let result = if ip.parse::<IpAddr>().is_ok_and(|address| {
                     public_ip(address) || (allow_documentation_ips && documentation_ip(address))
                 }) {
                     query_database(&client, &origin, &ip, database).await
                 } else {
-                    Err("此地址不属于公网单播 IP，未向第三方查询".to_owned())
+                    Err(QueryError::new(
+                        QueryErrorKind::NotPublic,
+                        "此地址不属于公网单播 IP，未向第三方查询",
+                    ))
                 };
-                (ip, database_result(database, label, result))
+                let entry = database_result(database, label, &ip, Some(attempt), result);
+                (ip, entry)
             }));
         }
     }
     let mut pending = stream::iter(requests).buffer_unordered(4);
     let mut results = Vec::new();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(40);
+    let deadline = tokio::time::Instant::now() + total_limit;
     while let Ok(Some(result)) = tokio::time::timeout_at(deadline, pending.next()).await {
         results.push(result);
     }
@@ -234,10 +315,28 @@ async fn query_all(
                         .find(|(address, entry)| address == ip && entry.database == database)
                         .map(|(_, entry)| entry.clone())
                         .unwrap_or_else(|| {
+                            let attempt = attempts
+                                .lock()
+                                .expect("query attempt lock")
+                                .get(&(ip.clone(), database.to_owned()))
+                                .copied();
                             database_result(
                                 database,
                                 label,
-                                Err("质量查询超过总时间限制，请稍后重试".into()),
+                                ip,
+                                attempt,
+                                Err(QueryError::new(
+                                    if attempt.is_some() {
+                                        QueryErrorKind::Timeout
+                                    } else {
+                                        QueryErrorKind::NotAttempted
+                                    },
+                                    if attempt.is_some() {
+                                        "质量查询超过总时间限制"
+                                    } else {
+                                        "查询批次超过总时间限制，此数据库尚未开始查询"
+                                    },
+                                )),
                             )
                         })
                 })
@@ -276,11 +375,19 @@ fn documentation_ip(ip: IpAddr) -> bool {
 fn database_result(
     database: &str,
     label: &str,
-    result: Result<Vec<QualityField>, String>,
+    ip: &str,
+    attempt: Option<QueryAttempt>,
+    result: Result<Vec<QualityField>, QueryError>,
 ) -> QualityDatabase {
-    let (status, fields, error) = match result {
-        Ok(fields) => ("succeeded", fields, None),
-        Err(error) => ("failed", Vec::new(), Some(error)),
+    let (status, fields, error, error_kind, http_status) = match result {
+        Ok(fields) => ("succeeded", fields, None, None, None),
+        Err(error) => (
+            "failed",
+            Vec::new(),
+            Some(error.to_string()),
+            Some(error.kind),
+            error.http_status,
+        ),
     };
     QualityDatabase {
         database: database.into(),
@@ -288,6 +395,12 @@ fn database_result(
         status: status.into(),
         fields,
         error,
+        provider: provider_name(),
+        target_ip: Some(ip.into()),
+        attempted_at: attempt.map(|attempt| attempt.at),
+        elapsed_ms: attempt.map(QueryAttempt::elapsed_ms),
+        error_kind,
+        http_status,
     }
 }
 
@@ -296,8 +409,9 @@ async fn query_database(
     origin: &str,
     ip: &str,
     database: &str,
-) -> Result<Vec<QualityField>, String> {
-    let mut url = reqwest::Url::parse(origin).map_err(|_| "质量查询服务地址无效")?;
+) -> Result<Vec<QualityField>, QueryError> {
+    let mut url = reqwest::Url::parse(origin)
+        .map_err(|_| QueryError::new(QueryErrorKind::InvalidOrigin, "质量查询服务地址无效"))?;
     url.set_path(&format!("/{ip}"));
     let request = client.get(url).query(&[("lang", "cn")]);
     let request = if database == "maxmind" {
@@ -305,37 +419,44 @@ async fn query_database(
     } else {
         request.query(&[("db", database)])
     };
-    let mut response = request.send().await.map_err(|error| {
-        if error.is_timeout() {
-            "质量查询超时，请稍后重试"
-        } else {
-            "无法连接质量查询服务"
-        }
-    })?;
+    let mut response = request
+        .send()
+        .await
+        .map_err(|error| QueryError::request(&error, false))?;
     if !response.status().is_success() {
-        return Err(format!(
-            "质量查询服务返回 HTTP {}，此数据库信息未知",
-            response.status().as_u16()
-        ));
+        return Err(QueryError::http(response.status().as_u16()));
     }
     if response
         .content_length()
         .is_some_and(|bytes| bytes > RESPONSE_LIMIT as u64)
     {
-        return Err("质量查询响应超过 64 KiB".into());
+        return Err(QueryError::new(
+            QueryErrorKind::ResponseLimit,
+            "质量查询响应超过 64 KiB",
+        ));
     }
     let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|_| "质量查询响应读取失败")? {
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| QueryError::request(&error, true))?
+    {
         if body.len() + chunk.len() > RESPONSE_LIMIT {
-            return Err("质量查询响应超过 64 KiB".into());
+            return Err(QueryError::new(
+                QueryErrorKind::ResponseLimit,
+                "质量查询响应超过 64 KiB",
+            ));
         }
         body.extend_from_slice(&chunk);
     }
-    let value: Value =
-        serde_json::from_slice(&body).map_err(|_| "质量查询返回的内容不是有效 JSON")?;
+    let value: Value = serde_json::from_slice(&body)
+        .map_err(|_| QueryError::new(QueryErrorKind::NonJson, "质量查询返回的内容不是有效 JSON"))?;
     let fields = parse_fields(database, &value);
     if fields.is_empty() {
-        return Err("质量查询响应缺少已知字段，此数据库信息未知".into());
+        return Err(QueryError::new(
+            QueryErrorKind::SchemaMismatch,
+            "质量查询响应缺少已知字段，此数据库信息未知",
+        ));
     }
     Ok(fields)
 }
@@ -560,18 +681,16 @@ mod tests {
             .build()
             .unwrap();
         let base = format!("http://{address}");
-        assert!(
-            query_database(&client, &base, "192.0.2.1", "maxmind")
-                .await
-                .unwrap_err()
-                .contains("64 KiB")
-        );
-        assert!(
-            query_database(&client, &base, "192.0.2.1", "ipapi")
-                .await
-                .unwrap_err()
-                .contains("超时")
-        );
+        let oversized = query_database(&client, &base, "192.0.2.1", "maxmind")
+            .await
+            .unwrap_err();
+        assert_eq!(oversized.kind, QueryErrorKind::ResponseLimit);
+        assert!(oversized.to_string().contains("64 KiB"));
+        let timed_out = query_database(&client, &base, "192.0.2.1", "ipapi")
+            .await
+            .unwrap_err();
+        assert_eq!(timed_out.kind, QueryErrorKind::Timeout);
+        assert!(timed_out.to_string().contains("超时"));
         task.abort();
     }
 }

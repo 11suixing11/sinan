@@ -366,11 +366,24 @@ async fn report_readiness_and_quality_refresh_require_auth_and_preserve_unknown(
                 .all(|database| {
                     database["fields"] == json!([])
                         && database["error"].as_str().unwrap().contains("公网")
+                        && database["provider"] == "check-place"
+                        && database["target_ip"] == entry["ip"]
+                        && database["error_kind"] == "not_public"
+                        && database["attempted_at"].is_i64()
+                        && database["elapsed_ms"].is_u64()
+                        && database["http_status"].is_null()
                 })
     }));
     let persisted = ip_quality::cached(&panel.state, server_id, &["192.0.2.1".into()]).await?;
     assert_eq!(persisted.len(), 1);
     assert_eq!(persisted[0].status, "failed");
+    assert!(persisted[0].databases.iter().all(|entry| {
+        entry.provider == "check-place"
+            && entry.target_ip.as_deref() == Some("192.0.2.1")
+            && entry.error_kind == Some(ip_quality::QueryErrorKind::NotPublic)
+            && entry.attempted_at.is_some()
+            && entry.elapsed_ms.is_some()
+    }));
     assert_eq!(
         panel
             .admin(Method::POST, &format!("{base}/refresh"), &cookie, None)
