@@ -1,0 +1,174 @@
+use super::*;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+#[derive(Serialize, Deserialize)]
+struct Started {
+    pid: u32,
+}
+
+fn quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+impl SystemServiceManager {
+    pub(super) async fn start_openrc_job(&self, job: &ServiceJob) -> Result<()> {
+        let directory = self.job_root.join(&job.unit);
+        let spec = directory.join("job.json");
+        ensure!(!spec.try_exists()?, "diagnostic job already submitted");
+        self.privileged.create_dir(&directory, 0o700, None).await?;
+        self.privileged
+            .write_file(&spec, &serde_json::to_vec(job)?, 0o600, None)
+            .await?;
+        let service = job
+            .unit
+            .strip_suffix(".service")
+            .context("invalid job unit")?;
+        let executable = std::env::current_exe()?;
+        let args = format!(
+            "run-job --spec {}",
+            quote(spec.to_str().context("job path is not UTF-8")?)
+        );
+        let script = format!(
+            "#!/sbin/openrc-run\nname={}\ncommand={}\ncommand_args={}\ncommand_background=true\npidfile={}\nstart_stop_daemon_args=\"--make-pidfile\"\n",
+            quote(service),
+            quote(
+                executable
+                    .to_str()
+                    .context("executable path is not UTF-8")?
+            ),
+            quote(&args),
+            quote(
+                directory
+                    .join("service.pid")
+                    .to_str()
+                    .context("pid path is not UTF-8")?
+            )
+        );
+        self.privileged
+            .write_file(
+                &PathBuf::from("/etc/init.d").join(service),
+                script.as_bytes(),
+                0o700,
+                None,
+            )
+            .await?;
+        let output = self
+            .privileged
+            .execute(
+                Path::new("rc-service"),
+                &["--".into(), service.into(), "start".into()],
+            )
+            .await?;
+        ensure!(
+            output.success,
+            "OpenRC diagnostic start failed: {}",
+            output.stderr
+        );
+        Ok(())
+    }
+
+    pub(super) async fn openrc_job_status(&self, unit: &str) -> Result<JobStatus> {
+        let directory = self.job_root.join(unit);
+        if !directory.join("job.json").try_exists()? {
+            return Ok(JobStatus::Missing);
+        }
+        if directory.join("result.json").try_exists()? {
+            return Ok(serde_json::from_slice(&read_small(
+                &directory.join("result.json"),
+            )?)?);
+        }
+        if directory.join("started.json").try_exists()? {
+            let started: Started =
+                serde_json::from_slice(&read_small(&directory.join("started.json"))?)?;
+            if let Ok(command) = fs::read(format!("/proc/{}/cmdline", started.pid))
+                && command
+                    .split(|c| *c == 0)
+                    .any(|part| part == directory.join("job.json").as_os_str().as_encoded_bytes())
+            {
+                return Ok(JobStatus::Running);
+            }
+            return Ok(JobStatus::Failed {
+                error: "diagnostic runner stopped without a result".into(),
+            });
+        }
+        if fs::metadata(directory.join("job.json"))?
+            .modified()?
+            .elapsed()
+            .unwrap_or_default()
+            < Duration::from_secs(10)
+        {
+            return Ok(JobStatus::Running);
+        }
+        Ok(JobStatus::Failed {
+            error: "diagnostic runner did not start".into(),
+        })
+    }
+}
+
+fn read_small(path: &Path) -> Result<Vec<u8>> {
+    let metadata = fs::symlink_metadata(path)?;
+    ensure!(
+        metadata.is_file() && metadata.len() <= 64 * 1024,
+        "invalid diagnostic state file"
+    );
+    Ok(fs::read(path)?)
+}
+
+pub async fn run_job(spec: &Path) -> Result<()> {
+    let ops = SystemOps;
+    let directory = spec.parent().context("job has no parent")?;
+    let job: ServiceJob = serde_json::from_slice(&read_small(spec)?)?;
+    ensure!(
+        job.program.is_absolute()
+            && job.working_directory.is_absolute()
+            && (1..=3600).contains(&job.timeout_secs),
+        "invalid diagnostic job"
+    );
+    // The exclusive journal entry makes repeated manual invocation fail closed.
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut started = options.open(directory.join("started.json"))?;
+    started.write_all(&serde_json::to_vec(&Started {
+        pid: std::process::id(),
+    })?)?;
+    started.sync_all()?;
+    std::env::set_current_dir(&job.working_directory)?;
+    let mut args = vec![
+        "--mount".into(),
+        "--propagation".into(),
+        "private".into(),
+        "--".into(),
+        job.program.to_string_lossy().into_owned(),
+    ];
+    args.extend(job.args);
+    let output = ops
+        .execute_bounded(Path::new("unshare"), &args, job.timeout_secs, 64 * 1024)
+        .await;
+    let status = match output {
+        Ok(output) if output.output.success && !output.timed_out => JobStatus::Succeeded,
+        Ok(output) if output.timed_out => JobStatus::Failed {
+            error: "diagnostic service failed: timeout".into(),
+        },
+        Ok(output) => JobStatus::Failed {
+            error: format!(
+                "diagnostic command failed: {}",
+                output.output.stderr.chars().take(1024).collect::<String>()
+            ),
+        },
+        Err(error) => JobStatus::Failed {
+            error: error.to_string(),
+        },
+    };
+    ops.write_file(
+        &directory.join("result.json"),
+        &serde_json::to_vec(&status)?,
+        0o600,
+        None,
+    )
+    .await?;
+    ensure!(status == JobStatus::Succeeded, "diagnostic job failed");
+    Ok(())
+}

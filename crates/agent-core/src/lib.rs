@@ -9,14 +9,17 @@ pub mod config;
 pub mod fake;
 pub mod identity;
 pub mod reconcile;
-#[cfg(unix)]
 pub mod retirement;
 pub mod state;
 #[cfg(unix)]
 pub mod system;
+#[cfg(windows)]
+#[path = "system/windows.rs"]
+pub mod system;
+pub mod tasks;
 pub mod telemetry;
-#[cfg(unix)]
 pub mod transport;
+pub mod upgrade;
 pub mod usage;
 
 pub use config::Config;

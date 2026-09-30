@@ -1,5 +1,10 @@
 # 执行进度
 
+## 正式发布准备：生产公钥已提供，候选尚未签署
+
+- 维护者在本机交互生成带口令的 minisign 密钥，私钥保存在仓库外；项目只取得公开根。`deploy/release-public-keys.json` 的 key ID 为 `44B019C8269669B8`，已通过生产根校验，并与 Actions 的 `SINAN_RELEASE_PUBLIC_KEYS` 变量一致。离线保管与正式签署仍需由维护者完成，不把公钥配置视为已发布。
+- main `be8b792` 合入部署条件检查后，[CI 36746601899](https://github.com/theLucius7/sinan/actions/runs/36746601899) 的构建、检查、Compose 和真实 Reality/计量部分通过，但末尾退役验收误把 systemd 条件跳过的零退出码当作失败。发布候选继续受完整 main CI 门禁约束；修复将同时核对条件结果、服务状态、进程与启动时间，避免把未执行运行时和启动成功混淆。
+
 ## 交付加固第 0 阶段：已完成，main CI 全绿
 
 - 自动 CI 精简为 Rust/前端检查、Compose 持久化 smoke、Linux musl amd64/arm64；runner 固定 Ubuntu 24.04。原 FreeBSD 工具链候选修复及原未提交差异保存在仓库外，未纳入本次提交。为避开两个活跃聊天共享目录的写入，本任务改用独立 worktree；既有部署与凭据保持私有。
@@ -59,9 +64,10 @@
 - 在线删除先持久下发退役请求，Agent 停运行时和诊断、提交持久用量、清身份与运行配置，再通过设备签名回执确认删除。断线和清理失败可恢复，退役后退出 78 且不自动重启；离线软删除明确未确认清理。短期生命周期锁统一连接注册、删除及回执边界，防止重连插入已删除设备会话。
 - 管理员登录与安全设置共用持久 IP/全局限速；TOTP 的设置、确认、登录和关闭使用事务消费验证码，启用/关闭撤销其他会话。被限流拒绝的 IP 不继续消耗全局额度。无密码单独关闭二步验证的接口，部署所有者恢复步骤在部署文档。
 - 订阅链接可原子重置，旧链接立即失效，既有用户授权、配置和账本保持。节点创建与编辑允许手动指定 443 等端口，同服务器冲突拒绝，创建留空仍从 20000–29999 分配。
-- 本地最终 fmt、全 targets Clippy 与 workspace 测试通过：168 项成功、4 项运行时/Linux 专项默认忽略。真实 PostgreSQL/HTTP/WebSocket 覆盖退役回执、失败恢复、重连竞争、登录限速、TOTP 并发消费、端口竞争及订阅旧链接失效。既有删除测试显式断开设备，以分别验证离线撤销和在线退役语义。
+- 本地最终 fmt、全 targets Clippy 与 workspace 测试通过：170 项成功、4 项运行时/Linux 专项默认忽略。真实 PostgreSQL/HTTP/WebSocket 覆盖退役回执、失败恢复、重连竞争、登录限速、TOTP 并发消费、端口竞争及订阅旧链接失效。既有删除测试显式断开设备，以分别验证离线撤销和在线退役语义。
 - Chrome 浏览器实测通过 TOTP 完整设置/登录/关闭、真实剪贴板、443 创建及中文冲突提示、旧订阅 404/新订阅可读，无 JavaScript 异常；使用独立数据库并清理全部临时进程和秘密。订阅夹具未连接 Agent，其结果不代表流量验证。
 - 人工验收脚本支持隐藏输入 TOTP 或一次性环境变量，不把验证码写入 state。17 项驱动、8 项签名 CI、3 项缓存契约与 Shell/Python 语法、actionlint、diff 检查通过。真实 CI 让非 root 运行时实际监听 443，将伪装 TLS 放到独立容器；在签名/Reality/重装流程末尾增加单次在线退役，检查服务停止、凭据清理、账本保持和再次启动拒绝；Linux 结果以本阶段 PR 运行记录为准。
+- [PR #12](https://github.com/theLucius7/sinan/pull/12) 已合入 `4ccd1e7`，该提交的 [main CI 36744518543](https://github.com/theLucius7/sinan/actions/runs/36744518543) 五项全部通过，包含实际 Reality 443 和完整在线退役。该证据认证此提交；后续提交的状态见上方发布准备记录。
 
 ## 交付加固第 5 阶段：设计文档已完成，未实现链路代码
 
@@ -200,6 +206,150 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 本次验证：`cargo fmt --all --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked` 均通过；79 项成功，3 项真实运行时专项按原有原因忽略。数据库、HTTP/WebSocket、账本恢复和端到端测试使用临时 PostgreSQL 16.15 完成，测试后已停止数据库。
 - 默认 vendored protoc 构建与显式 `PROTOC` 的适配器检查均通过；core 禁用词和 diff 检查通过。各平台编译仍使用现有 CI 矩阵，远端结果待对应提交的 GitHub Actions 验证。
 
+## 后续调整：OpenRC 服务支持
+
+- 按用户追加要求增加 Linux OpenRC，更新协作约束、需求、ADR 0017、README 和实机指南。Agent 根据 init 运行标记选择 systemd/OpenRC，继续经过 `ServiceManager` 与 `Privileged`；未增加 Rust 依赖、unsafe 或设备配置字段。
+- 安装脚本自动选择服务模板，支持 shadow 与 BusyBox 系统账号工具。修复 BusyBox 不支持 SHA-256 长参数、项目父目录受 umask 影响而阻止运行时访问的问题。成功注册后才切换 Agent；重复升级保留身份、账本与独立运行时。
+- 新增两个独立 OpenRC 服务，使用 supervise-daemon、五秒自动恢复、default runlevel 与 0640 日志。运行时保持非 root 用户、仅绑定低端口的有效/ambient capability 与 no_new_privs，HUP 发送给被监督的进程。
+- CI 增加 amd64/arm64 OpenRC 检查，使用 Alpine 3.24.2 的临时容器与明确的进程夹具，覆盖安装、重复升级、注册失败、日志、HUP、异常退出恢复、default 启动与只读验收快照。systemd 安装分支另验证命令和模板契约，不宣称真实 systemd 实机验收。
+- 本地验证：fmt、全 targets Clippy、完整 cargo test 通过；83 项成功，3 项真实运行时专项按已有原因忽略。真实 PostgreSQL 16.15 集成测试完成后已停止临时数据库；actionlint、四组构建脚本测试、shell/内嵌 Python 语法、core 边界与 diff 检查通过。
+- 本机无 Docker，使用校验过 SHA-256 的 Alpine 3.24.2 根文件系统，在独立的用户、网络与 PID 命名空间中运行同一 OpenRC 检查。OpenRC 0.63.2、BusyBox 1.37.0 下全部检查通过，确认实际运行时 UID 非 0、CapEff/CapAmb 仅含 CAP_NET_BIND_SERVICE、NoNewPrivs=1，Agent 重启不改变运行时 PID；宿主服务未被安装或重启。
+- 下一步以远端 CI 确认双架构 Docker 检查，在专用 OpenRC 设备按 `scripts/e2e-real.sh guide` 验证真实运行时、Reality 客户端和整机重启恢复。现有运行时构建依赖 glibc，Alpine 仍需匹配的 musl 运行时制品；进程夹具不代替完整实机验收。
+
+## PR 准备：同步上游并整合 OpenRC
+
+- 在 `feat/openrc-support` 分支同步上游 `main` 的 `7a8fb70`；继承 `0.2.0` Agent、NodeQuality、公开报告上传缺省关闭、release profile 与 Linux musl 双架构 CI。临时设计参考及相关入口、问题和进度记录已按用户要求删除。
+- 解决特权操作与 Agent 入口冲突，保留两种 init 的运行时服务管理。systemd 继续注册并监督 NodeQuality 诊断；OpenRC 不注册诊断能力，服务管理器执行前明确拒绝诊断启动和状态查询，遥测、IP 上报、代理配置与流量计量保持可用。新增两项回归测试覆盖 OpenRC 无 systemd 命令调用和 systemd 诊断监督/状态。
+- 保留上游诊断 ADR 0016，OpenRC ADR 顺延至 0017并同步引用；OpenRC 安装夹具同步为 Agent `0.2.0`。README 说明完整诊断需要 systemd；PR 的功能增量为 OpenRC 服务、安装、兼容边界、文档和双架构检查。
+- 最终本地验证：fmt、全 targets Clippy（warnings 为错误）、完整 `cargo test --locked` 通过，122 项成功、4 项真实运行时/systemd 专项按既有原因忽略。真实 PostgreSQL 16.15、HTTP/WebSocket、诊断端到端和账本恢复测试完成后，已停止临时数据库。
+- Bun 1.4.2 冻结安装与 TypeScript/Vite 生产构建通过，`web/dist` 与上游逐字节一致。四组构建脚本检查、actionlint、shell/Python 语法、文档链接、core 边界和 diff 检查通过。NodeQuality 包装器 20 项测试在隔离的 Alpine 用户/网络/PID 命名空间全部通过，无 root 夹具跳过。
+- 在相同隔离环境再次运行真实 OpenRC 检查，安装、重复升级、注册失败、独立运行时、HUP、非 root 权限、日志、异常恢复、default 启动、只读快照和 systemd 安装命令契约全部通过。主机没有安装或重启服务；Docker 双架构、真实 systemd、代理运行时和公网 Reality 的完整结果仍以 PR CI 与专用设备验收为准。
+
+## 主分支修复：OpenRC 依赖缓存与可选平台构建
+
+- 用户要求将近期修改与修复放到 `main`，不再新建分支；OpenRC、上游同步及参考文档删除均已在本地主分支保留。
+- 远端 `aab35d0` 的 OpenRC arm64 检查通过，amd64 在 default runlevel 启动超时。使用干净 Alpine 根文件系统，按整秒边界启动测试，复现初始依赖树与服务文件同秒生成时的漏更新：缓存没有两个新服务，直接启动正常但 `openrc default` 没有启动进程。安装脚本增加 `rc-update --update` 强制刷新依赖树。
+- 回归夹具让初始缓存时间晚于新服务，稳定覆盖缓存未自动失效的场景，并检查依赖树包含两个服务；默认运行级别输出和失败时的 rc-status/rc-update 状态会保留在日志。修复后在干净、隔离的用户/网络/PID 命名空间完成安装、重复升级、HUP、权限、异常恢复及 default 启动等全部真实 OpenRC 检查；本机无 Docker，不将本地结果当作双架构容器验收。
+- 对照用户指定的本地 NodeFlare Actions，新增手动或 `v*` 标签触发的多平台制品工作流。保留日常 Linux musl CI；GNU/Linux 继续使用 Ubuntu 24.04 动态库，macOS 仅 ARM64，Windows 与 FreeBSD 提供双架构。FreeBSD 使用同一固定 cross 提交和 FreeBSD 13 sysroot 镜像，在 Linux 安装目标标准库，并在 13.5/14/15 VM 验证同一二进制；只在最新 15 VM 安装 Python 并校验打包，避免 ARM64 rustup 安装器和旧版本包仓库依赖。编译目录放在工作区外，避免将中间产物反复复制进 VM。
+- 构建脚本增加已有二进制验证模式，仍校验架构、版本、CLI、动态库与部署限制，成功后才创建不可覆盖制品和 SHA256SUMS。五组构建脚本检查通过，包含所有目标在没有 Rust/PATH 的情况下拒绝非法二进制；本机 Agent `0.2.0` 的实际 GNU/Linux 二进制验证、打包与 SHA-256 校验通过。
+- fmt、全 targets Clippy、完整 `cargo test --locked` 通过，122 项成功、4 项实机专项按原原因忽略；临时 PostgreSQL 的连接用户确认后完成全部集成测试。actionlint、shell/Python/Cross.toml 语法与 diff 检查通过。临时数据库已停止；后续以推送后的 OpenRC 双架构 CI 和手动多平台工作流确认远端执行结果，非 Linux 服务部署仍不在范围内。
+
+## 主分支调整：统一日常多平台构建
+
+- 按用户进一步澄清，将九个 Agent 目标统一移回 `ci.yml`，每次 push/PR 或手动执行均构建。删除临时的独立多平台工作流，OpenRC 不另设构建目标或 CI 任务。
+- Linux 使用同一个 libc × 架构矩阵：musl 静态 amd64/arm64 用于 Alpine 等设备，Ubuntu 24.04 glibc 动态 amd64/arm64 用于兼容的 systemd 设备。OpenRC 安装、缓存、重载、权限与恢复检查并入 musl 任务；原 systemd 专项保留在主检查任务。两种 init 仍在运行时识别，二进制 libc 与服务管理分别处理。
+- macOS ARM64、Windows 双架构和 FreeBSD 双架构纳入日常矩阵；FreeBSD 保留 Linux cross 编译、固定 sysroot 及 13.5/14/15 的同二进制验证。制品名称继续区分系统、libc 和架构。
+- 本地 actionlint、五组构建脚本检查、fmt、全 targets Clippy、完整 `cargo test --locked` 均通过，122 项成功、4 项实机专项按原原因忽略；临时 PostgreSQL 已停止。未修改 Agent、安装接口、协议或前端代码。
+- 上一提交 `b16fffd` 的 [CI 36699121265](https://github.com/imengying/sinan/actions/runs/36699121265) 所有任务均成功，包括真实 systemd、Compose、musl 与 OpenRC 双架构。新的九目标构建仍须以本次提交的完整 CI 结果为准，不将前一提交结果视为已验证新增目标。
+
+## Agent 对齐阶段 1：运行时 musl 与安装恢复
+
+- 用户确认全部补齐 Agent 差距，新增 ADR 0018 并更新协作约束。workspace 升至 `0.3.0`，为后续 Agent 新行为保留不可变版本；协议主版本仍为 1。
+- 运行时脚本新增官方 musl 工具链及 `with_musl`，保留完整上游标签和 `with_v2ray_api`；四个 Linux ABI/架构制品按独立名称保存，旧 glibc 制品保留。面板按上报 OS/libc 选择，musl 缺失不会误退回 GNU；兼容旧 Agent。
+- 安装校验版本及既有制品内容，切换后检查本地状态；启动失败恢复旧版本和原 TOML，仅操作 Agent。隔离 Alpine/OpenRC 的安装、失败回退、独立运行时、HUP、权限、缓存与 default runlevel 检查全部通过。
+- fmt、Clippy、完整 Rust 测试通过，124 项成功、4 项实机专项仍按原原因忽略；新增测试覆盖 GNU/musl/FreeBSD 选择、未知 ABI 拒绝和旧路径兼容。五组构建脚本检查、actionlint、shell 和 diff 检查通过。
+- CI 增加四个真实运行时构建、对应 libc/架构运行及本地流量计数和重载检查；本机没有固定 Go/Chromium 工具链，不能将脚本和夹具检查宣称为真实构建通过，结果须以该提交远端 CI 为准。
+- 下一步：扩展遥测、批量上传和持久补报，然后完成任务、多系统常驻运行和 Agent 自动升级。
+- 远端实际验证：[26590ea 的 CI](https://github.com/imengying/sinan/actions/runs/36711000286) 全部 15 个任务成功；GNU/musl 双架构运行时均完成真实构建、对应 libc 运行和流量/重载专项。
+
+## Agent 对齐阶段 2–3：遥测补报与设备任务
+
+- 新增 SWAP、进程数、逐盘 I/O、GPU 与可关闭的公网地址识别。一秒采样与三秒压缩上传独立运行，普通指标持久补报，大小和时间保留有界；面板按样本身份去重、事务确认，迟到样本不倒退当前指标。
+- 增加管理员命令、持续 TCP/ICMP 拨测和服务器详情页入口。命令限制领取期、执行时长和输出，执行前持久记录；重启不重跑状态不明的命令，已完成结果不可修改。拨测结果持久补报，删除目标后确认丢弃迟到结果，保持设备间隔离。
+- OpenRC 注册 NodeQuality 能力，使用独立一次性服务、挂载命名空间、持久终态和超时终止；实际 Agent 已在隔离 Alpine/OpenRC 环境通过成功、失败、超时、重复执行拒绝与挂载隔离检查。安装、回退、代理独立存活及 default runlevel 检查继续通过；双架构实际运行纳入原 musl CI。
+- SQLite 辅助表保持账本版本兼容，旧 Agent 回退后仍能打开账本。未增加库，面板仅将已有 flate2 测试依赖移至运行依赖。
+- 本地完整 Rust 测试 136 项通过、4 项实机专项按原原因忽略；真实 PostgreSQL 覆盖压缩解码上限、重复批次、迟到样本、命令认证与不可变结果、拨测去重和删除目标后的确认。fmt、全 targets Clippy 和 TypeScript/Vite 生产构建通过。
+- 下一步：完成 macOS、FreeBSD、Windows 的注册、常驻服务和安装，以及默认关闭的 Agent 自动更新与启动失败回退。设置项已经提供，更新执行器将在下一阶段接入。
+
+
+## Agent 对齐阶段 4–5：原生服务与更新恢复
+
+- macOS ARM64、FreeBSD 双架构与 Windows 双架构接入完整 Agent 运行。新增 launchd、rc.d/daemon 和 Windows 启动时计划任务；运行时使用独立普通账户/服务，Windows 状态通过 ACL 与带令牌的本地命名管道保护。Agent 安装目录独立配置，代理适配器保持无状态。
+- 安装入口自动选择 OS/libc 对应产物，增加 PowerShell 安装脚本和面板中的系统选择；原生安装检查失败恢复旧 Agent。Linux 安装加入独立监督入口并备份旧服务定义，允许回退到没有 supervise 命令的旧 Agent。
+- 自动更新默认关闭，只选绑定面板内更高、匹配平台的稳定版；校验摘要、格式和实际版本后保存待升级状态。监督进程验证新 PID/版本，失败恢复旧版本，未确认升级中断时恢复上一版本；失败版本有界记录。Agent 退出时取消并清理正在执行的命令，持久结果不重放。
+- 新增固定上游的 macOS/FreeBSD/Windows 运行时构建，Windows 附带对应 DLL；制品缓存校验辅助文件集合及摘要。CI 仍为一个工作流，原生 Agent 加入遥测、命令、拨测和升级回退测试，并增加真实服务、运行时配置及回环流量验证；FreeBSD 13.5/14 验证二进制兼容，15 验证完整服务。
+- 本地真实 Agent 已通过注册、压缩上报、离线重启补报、命令去重、TCP 拨测、升级成功、启动失败回退、失败版本抑制及退出清理。隔离 Alpine/OpenRC 的安装、旧服务回退、default 启动和实际 Agent 一次性诊断全部通过。
+- 本地 fmt、Clippy、完整 Rust/PostgreSQL 测试通过（140 项成功、4 项原有实机专项忽略）；TypeScript/Vite 构建、五组构建脚本测试、actionlint、Python 语法与 core 分层边界检查通过。
+- 下一步：检查本提交远端 CI，修复原生系统执行差异。上一阶段 48728c8 的九平台 Agent、四平台运行时、Compose 和 OpenRC 已成功，主 check 失败；本轮修复了负进程组 kill 的参数歧义，但尚未取得旧任务完整日志，不能宣称已确认其唯一原因。macOS/Windows/FreeBSD 服务尚待本提交原生 CI；公网 Reality、GPU 负载和整机重启不属于已完成验收。
+
+
+## 原生 CI 跟进：补充平台指标与失败摘要
+
+- d454b3b 的 Linux 四目标、Linux 运行时四目标、主检查和 Compose 均通过。macOS 已通过 Agent 实际运行/升级回退和真实运行时构建，在原生服务测试失败；FreeBSD amd64 已通过构建及 13.5/14 二进制验证，15 检查失败。Windows 双架构失败，公开 API 未提供完整日志，尚不能确定错误原因。
+- 为原生 CI 命令增加有长度限制的失败注释，保留标准输出，并输出安装子进程的实际错误，后续可从公开检查注释定位。Windows Python 固定 UTF-8，避免中文注册提示依赖 runner 的代码页。
+- 补充 macOS/FreeBSD/Windows netstat 连接数，修复 Windows 单 GPU JSON 返回对象的识别，Linux 优先读取 PCI GPU 型号；Windows 不将不存在的 load average 报为 0。macOS 对已卸载服务重复 stop 按成功处理。
+- 本地 fmt、Clippy、完整 Rust/PostgreSQL 回归通过，141 项成功、4 项原有专项忽略；actionlint 通过。下一步继续根据原生 CI 的真实错误修复，不将尚未通过的原生服务宣称为验收完成。
+
+## 原生 CI 跟进：模块路径、测试依赖与服务退出
+
+- b6c74e8 的十个 Linux/主检查/Compose 任务通过。失败注释确认 Windows 的路径重定向模块寻找了错误的子模块目录，现显式指定原生部署模块路径；FreeBSD 15 的 Python 缺少独立打包的 SQLite 模块，现安装同版本 Python/SQLite 包。
+- macOS 已通过 Agent 行为和实际运行时构建，原生服务在运行时健康检查失败。预先创建可由运行时账户写入的日志，增加服务状态诊断；受监督 Agent 保留 launchd 服务进程组，避免服务重启遗留子进程。此项仍待下一次原生 CI 验证。
+- 监督进程正常退出时先通知 Agent 清理任务，再等待退出；补充实际进程测试，覆盖摘要错误拒绝、升级试运行中断后恢复旧版和监督服务退出后的状态清理。本地真实 Agent 冒烟通过。
+- 本地 fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过，141 项成功、4 项原有实机专项忽略。继续检查修复后的原生 CI，尚不宣称跨系统常驻部署验收完成。
+
+## 原生 CI 跟进：macOS 验证通过与更新下载测试
+
+- [d0556aa 的 CI](https://github.com/imengying/sinan/actions/runs/36731187269) 中 macOS ARM64 全部通过，包含原生服务注册、运行时真实流量、Agent 重启/重装和停止后代理独立运行；十个 Linux/主检查/Compose 任务通过。
+- Windows 双架构编译已通过，实际 Agent 检查失败：ARM64 在权限设置命令超时，AMD64 的错误被 GitHub 单条 4096 字符限制截断。权限设置使用独立的 90 秒上限并标注路径，CI 失败输出分段保存，同时省略测试主动断开连接引起的无关堆栈。超时调整仍待原生验证。
+- FreeBSD 双架构通过 Agent 行为测试，完整服务夹具因干净系统没有 `/opt` 而提前退出；现创建必要父目录，继续验证服务。
+- 增加实际 HTTP 下载/可执行文件版本验证的更新测试，覆盖摘要、格式、来源、版本、不可变制品、待升级状态权限和失败版本不重复下载。修正 README 的旧 glibc 导入说明，避免覆盖 musl 兼容产物。
+- 本地 fmt、Clippy、完整 Rust/PostgreSQL 回归通过，142 项成功、4 项原有实机专项忽略；actionlint、Python 语法和 diff 检查通过。Windows/FreeBSD 常驻服务仍待下一轮 CI。
+
+## 原生 CI 跟进：FreeBSD 后台描述符与测试时序
+
+- dd338ad 的 macOS 再次通过；Windows AMD64 已通过常规 Agent 行为和成功升级，但后续回退检查超时。升级夹具改用原子文件替换，并等待上一请求被消费后再提交下一请求；监督进程增加试运行、激活、验证拒绝和回退日志，失败时打印持久状态。
+- Windows ARM64 注册成功，远程命令测试失败；该 runner 的 PowerShell 冷启动较慢，测试命令期限由 5 秒改为 60 秒并保留失败结果。产品的每任务期限语义不变，仍按管理员指定时间终止。
+- FreeBSD ARM64 服务安装因 `daemon` 后台监督进程继承输出管道而超时，依据上游源码增加 `-f`，保留 syslog。AMD64 在升级测试超时，尚待新增状态日志确认；不能将两个架构的不同失败合并为同一个原因。
+- Linux GNU ARM64 的运行时任务遇到 Go 模块代理 HTTP/2 INTERNAL_ERROR，增加最多三次构建重试，复用模块缓存且保持固定上游、只读依赖和产物验证。
+- 增加实际 TCP/ICMP 双拨测、原生运行时配置重载与旧监听关闭检查；本地真实 Agent 已通过双拨测、补报、升级及恢复。文档补充 FreeBSD 普通账户低端口授权和 Linux 自定义服务入口要求。
+- 本轮 fmt、Clippy、完整 Rust/PostgreSQL 回归通过（142 项成功、4 项原有实机专项忽略）；五组构建脚本测试、actionlint 和 Python 语法检查通过。下一步验证 FreeBSD 服务与 Windows 剩余流程，不将本地检查替代原生验收。
+
+## 原生 CI 跟进：FreeBSD ARM64 完整服务通过
+
+- [55e4345 的 CI](https://github.com/imengying/sinan/actions/runs/36734970741) 中，十个 Linux/主检查/Compose 任务、macOS ARM64 和 FreeBSD ARM64 通过。原生服务检查现包含真实配置重载和旧监听关闭；FreeBSD ARM64 同时完成 13.5/14 启动兼容和 15 完整服务验证。
+- Windows AMD64 的 Agent 全流程已通过，但测试结束时 Python SQLite 连接仍持有数据库文件，导致 Windows 删除临时目录失败；现显式关闭连接。
+- FreeBSD AMD64 和 Windows ARM64 在重启补报等待超时。测试将重新连接与补报分开确认，增加本地 outbox、面板请求和未确认样本诊断，保留对每个断网样本均须重传的断言，继续核实原因。
+- 原生服务检查与无服务 Agent 检查独立执行，前一项失败仍收集后一项结果，工作流最终保持失败状态。避免单一夹具问题掩盖另一条部署路径。
+- 本地真实 Agent 全流程通过；本轮仅修改测试和工作流，actionlint、Python 语法及 diff 检查通过，Rust 代码沿用上一轮 142 项通过结果。下一步继续收敛剩余原生测试。
+
+## 原生 CI 跟进：FreeBSD 并发磁盘采集与 Windows 账户
+
+- 1c1874b 的 CI 仍有 12 个任务成功，macOS 与 FreeBSD ARM64 再次完成完整原生验证。FreeBSD AMD64 常驻服务检查通过，但无服务 Agent 重启时退出码为 SIGSEGV；未确认样本仍在 SQLite 中，排除把超时直接归因为补报丢失。
+- sysinfo 的 FreeBSD 磁盘枚举使用会重新分配全局缓冲区的 `getmntinfo`，当前静态上报与采样存在并发调用。增加进程级互斥保护，CI 增加五次启动/采样检查，并在可用时记录 LLDB 崩溃回溯；本轮尚待原生结果确认段错误是否消除。
+- Windows AMD64 已通过 Agent 全流程与真实运行时构建，服务启动报 AccessDenied。运行时账户补充普通 Users 组成员身份，保证公共可执行文件 ACL 可读；保留非管理员权限，并增加分组断言和任务事件诊断。随机任务密码保证覆盖复杂度字符类型。
+- Windows ARM64 已完成重启补报，监督进程首次启动超过夹具原 60 秒等待；增加平台启动等待及 120 秒有界更新健康检查。原生 Go 构建也补充三次有限重试，应对本轮模块代理 HTTP/2 INTERNAL_ERROR。
+- 本地 fmt、Clippy、完整 Rust/PostgreSQL 测试通过（142 项成功、4 项原有专项忽略），真实 Agent 全流程通过；五组构建脚本检查、actionlint、Python 语法和 diff 检查通过。下一步继续核实 FreeBSD AMD64 和 Windows 双架构完整 CI。
+
+## 原生 CI 跟进：FreeBSD 双架构通过与 Windows 任务 DACL
+
+- [a67aeae 的 CI](https://github.com/imengying/sinan/actions/runs/36739867701) 中 FreeBSD 双架构均通过新增的五次重复启动/采样和完整常驻服务检查，macOS 及九个 Linux/Compose 构建任务通过。磁盘枚举互斥后本轮未出现段错误。
+- Windows AMD64 已通过 Agent 全流程和真实运行时构建；新增诊断显示任务继承 DACL 的 SYSTEM/Administrators 掩码不含执行位，加入普通 Users 组不能解决此问题。注册后明确设置本项目任务的管理权限，保留运行时普通账户，仍待原生执行确认。
+- 主 check 在 Rust 测试失败，公开接口未返回具体用例；本地连续五轮完整回归通过。将同一个错误摘要包装器用于 Rust/PostgreSQL 测试，下一次失败保留用例和堆栈，不通过重试隐藏失败。Windows ARM64 的真实运行时构建通过，但 Agent 行为检查失败、服务检查尚在运行，继续等待具体诊断。
+- 任务权限修复后 fmt、Clippy、完整 Rust/PostgreSQL 测试再次通过（142 项成功、4 项原有专项忽略）；actionlint、Python 语法和 diff 检查通过。继续跟进原生 Windows 与主检查结果，尚未将全部平台标为完成。
+
+## 原生 CI 跟进：Windows 登录权与权限操作开销
+
+- 5931b34 的主检查已通过，包括 Rust/PostgreSQL 和真实 systemd 专项；Linux、Compose、macOS 和 FreeBSD 双架构共 13 项成功。Windows AMD64 的任务 DACL 已正确含执行权，事件进一步确认运行时缺少批处理登录权（`0x80070569`）。
+- 安装读取现有用户权利，只在 `SeBatchLogonRight` 中追加专用运行账户 SID。新账户在设置随机密码前保持禁用；保留普通 Users 身份与任务控制边界。原生夹具比较首次/重复安装前后的全部用户权利，检查其他授权未变。
+- a67aeae 的 Windows ARM64 升级已激活，但写入确认状态超过夹具等待；安装也在重复权限操作时超过 180 秒。权限处理改用内置 .NET ACL 接口，合并新建目录及制品文件的权限更新；新文件先保护再写内容。状态文件不存在时直接返回，服务启停改用任务计划程序 COM 接口并等待旧任务停止。新增实际身份 ACL 拒绝测试与基础命令耗时诊断，效果仍须以原生结果为准。
+- 本轮 fmt、Clippy、完整 Rust/PostgreSQL 回归通过（142 项成功、4 项原有专项忽略）；actionlint、Python 语法、core 分层边界和 diff 检查通过。下一步验证 Windows 双架构完整服务及升级流程。
+
+## 原生 CI 跟进：Windows ARM64 Agent 全流程通过
+
+- [1bc6f86 的 CI](https://github.com/imengying/sinan/actions/runs/36745302341) 中 Windows 双架构 Agent 全流程通过，包含实际私有身份 ACL 拒绝、遥测补报、命令、双拨测、成功升级及失败恢复。ARM64 该步骤约 91 秒，此前十分钟后仍在升级状态保存时超时；权限路径优化已得到原生验证。
+- 两个 Windows 架构均完成服务安装，但原始文本的用户权利比较失败，原错误未记录具体差异，因此尚不能断言存在额外授权变化。按微软格式规范，将账户名和 SID 统一后再比较全部权限，并增加差异详情；重复安装同时识别以名称导出的已有授权。权限保持检查未删除。
+- 本地混合名称/SID 样本验证通过，仍能拒绝额外权限变化；fmt、Clippy、完整 Rust/PostgreSQL 回归通过（142 项成功、4 项原有专项忽略），Python 语法和 diff 检查通过。Windows 真实运行时尚待通过权限断言后的完整服务验证。
+
+## Agent 能力对齐完成：全部平台 CI 通过
+
+- [d8d951f 的完整 CI](https://github.com/imengying/sinan/actions/runs/36747223630) 已完成，15/15 任务成功，九份 Agent 与九份运行时制品均已上传。Linux musl/glibc 分别覆盖 amd64/arm64，macOS 覆盖 arm64，Windows 与 FreeBSD 覆盖 amd64/arm64；OpenRC 检查仍在同一 CI 的 musl 任务内。
+- Windows 双架构通过首次安装与重复安装的全部用户权利比较：仅新增专用普通运行账户的批处理登录权，其余有效授权保持不变。账户名称和 SID 规范化后比较通过，确认前一轮断言失败源于文本表示差异。真实运行时配置应用、重载及旧监听关闭、代理流量、Agent 服务重启、重装保留身份、停止 Agent 后代理继续工作均通过。
+- macOS 与 FreeBSD 双架构再次通过相同常驻服务验证；FreeBSD 同一二进制在 13.5/14 检查启动兼容、15 检查完整服务，重复启动/磁盘采集未再次出现段错误。Windows、macOS、FreeBSD 和 Linux 均通过 Agent 遥测补报、命令去重、TCP/ICMP 拨测、升级成功及失败恢复检查。
+- 主检查、真实 PostgreSQL、systemd 诊断专项、Compose 持久化、双架构 OpenRC 诊断及独立服务、四种 Linux 运行时实际构建与代理专项均通过。本地代码最后一轮 fmt、Clippy 和完整 Rust/PostgreSQL 测试为 142 项成功、4 项原有实机专项忽略；此前前端 TypeScript/Vite、构建脚本、工作流语法检查已通过。收尾只更新 README 与本文件，使用 `[skip ci]` 文档提交，运行代码及工作流与上述已验收提交一致。
+- 本次确认的差距已补齐：一秒可配置遥测与 SWAP/进程/磁盘 I/O/GPU、压缩上传和持久补报、持续拨测、通用远程命令、OpenRC NodeQuality、跨系统常驻部署、默认关闭的 Agent 自动更新及失败恢复、musl/glibc 和原生系统制品选择。README 已更新实际验证范围并整理部署与监控说明；未恢复已删除的参考分析文档。
+- 验证边界：GPU 实际负载、公网 Reality 客户端、整机断电/重启和早于 FreeBSD 13.5 的系统未作实机验收；NodeQuality 仍是 Linux 外插。Windows 标准库方案仍不承诺目录元数据断电刷盘语义。以上边界不以 CI 进程/回环检查代替。
+- 下一步：按部署目标在专用设备执行上述实机验收；当前授权的能力补齐与跨平台 CI 工作已完成，修改直接提交到 `main`。
+
 ## 后续调整：VPS 部署、HTTPS 与本机 Agent（2026-09-30）
 
 - 在 Debian 13 amd64 VPS 实际部署 PostgreSQL 16 和非 root 面板容器，面板仅监听宿主回环地址；复用现有 Caddy 配置追加独立站点，公网 CDN 与源站 HTTPS 均验证成功，设备通过公网域名完成注册和 WebSocket 连接。
@@ -216,6 +366,22 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 解决 PR #2 与签名发布、账户安全及设备退役改动的冲突，保留精简 README 和分章部署文档。初始化命令同时生成空的构建时发布信任根配置，部署前仍须独立核对公钥。
 - 保留 systemd 的签名缓存启动前复验，并添加未配置运行时的路径条件；Docker 编译并发参数仅保留一处定义。
 - 本机初始化 CLI 3 项、制品构建脚本 4 项测试和差异空白检查通过；Linux Compose、systemd 和完整集成检查交由本次 PR 的远端 CI 验证。
+
+## 2026-10-01：整合 OpenRC 与原生平台 PR
+
+- 保留主分支的发布签名、生产根拒绝测试钥、独立 bootstrap、真实 Reality/accounting CI 与精简 README。Linux 双 libc / 双架构及原生矩阵合并到日常 CI，全部测试 Agent 显式编译公开 TEST_ONLY 根，上传制品名称显式标记 TEST_ONLY；FreeBSD cross 显式传递该编译环境变量。发布门禁继续要求两项 Linux musl 与真实验收任务，并同步新 job 名称。
+- OpenRC 与能力 ADR 顺延为 0021/0022，平台文档与部署文档分开记录正式 Linux 发布和原生测试范围。原生测试 Agent、运行时及 Windows DLL 具有已签 TEST_ONLY proof；更新、服务安装夹具保留验证和回退，最新 Windows 账户权限及身份 ACL 专项检查一并保留。
+- 本机验证：构建脚本 5 项、环境初始化 3 项、验收驱动 17 项、运行时缓存 3 项、签名 CI 8 项、发布门禁 11 项测试通过；两个工作流 actionlint、Python/Bash/静态安装器语法及差异空白检查通过。使用真实 minisign 分别验证 Python cryptography 与 minisign 路径生成的公开测试签名，并核对 Windows ARM64 辅助 DLL 的已签摘要与大小。OpenRC 测试 bundle 的签名、metadata 与安装器摘要也经独立 minisign 校验。
+- 本机未运行 Linux/OpenRC、FreeBSD 或 Windows 真实服务。OpenRC 进程夹具的缓存预检是明确 stub，实际签名缓存由 Rust 与 systemd real-e2e 验证；合并后的平台服务、CI 与公网验收结果须分别以实际执行为准，不能由上述本机结构/签名验证推断。
+- 随后使用合并源码实际构建的 macOS ARM64 Agent 在回环 HTTP/WebSocket 夹具完成注册、压缩遥测 ACK、离线重启补报、命令去重、TCP/ICMP 拨测，以及签名 Agent 的启动替换、坏摘要拒绝、失败启动回退、失败版本抑制、中断升级恢复与子进程清理，全部通过。此检查使用 `--monitor-only` 和独立监督进程，没有注册 macOS 系统服务；不替代各目标 init 的原生服务任务。
+- 将新增命令、拨测、更新、遥测与公网 IP 后台任务纳入退役同步保护，等待已经开始的操作结束后再清理；请求退役后禁止继续领取、执行、暂存更新或重新写入配置。清理命令文本及结果、拨测与遥测 outbox，保留流量账本；监督进程将退役退出码 78 作为终态。新增退役回归验证不再执行命令、发起面板请求或补回已清理数据。
+- 合并贡献者截至 `70dee9a` 的全部提交，保留 Windows SID 规范化与权限差异诊断；其 `d8d951f` 历史 CI 通过记录保留，但不用于认证本次合并后的代码。本次完整 Rust/PostgreSQL 回归通过，随后退役后台任务专项 56 项成功、1 项原有 systemd 专项忽略；Clippy 与格式检查通过。Linux/OpenRC、原生服务、Compose 与真实 Reality 检查以本次远端 CI 结果为准。
+
+## 2026-10-01：P0 常驻服务优先级
+
+- Agent 和 sing-box systemd 单元分别增加 `OOMScoreAdjust=-500`、`CPUWeight=1000`，降低常驻进程的 OOM 候选优先级并提高资源争抢时的 CPU 权重；没有添加 CPU 配额。安装器直接嵌入这两份源单元，渲染后逐字核对一致。
+- 专用 Debian 12/systemd 252.39、1 GiB/2 CPU 验收容器中，从源单元生成独立短命夹具，分别保留 root 和运行时用户/能力设置。systemd 属性、内核 oom_score_adj 和 cgroup cpu.weight 均验证为 -500/1000，CPUQuotaPerSecUSec 为 infinity。已有 Agent 和运行时 PID、运行状态、重启数保持不变，夹具已停止并删除。
+- 单元语法校验使用临时可执行文件路径，未调用真实业务程序；安装器 shell 语法、构建与签名发布 Python 检查、差异空白检查通过。独立步骤和验收边界见 [常驻服务优先级验收](docs/acceptance/resident-service-priority.md)。完整 Rust/Compose 检查由该 PR 的 CI 执行，完整诊断与持续代理流量压力验收仍待其他 P0 改动完成。
 
 ## 2026-10-01：诊断整改基线（独立 PR）
 

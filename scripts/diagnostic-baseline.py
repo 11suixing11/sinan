@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Collect bounded, private diagnostic evidence; never start a workload."""
 import argparse
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -59,8 +60,17 @@ def read_cookie(path):
 
 def read_panel(origin, identifier, cookie):
     parsed = urllib.parse.urlsplit(origin)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+    if any(ord(character) < 32 or ord(character) == 127 for character in origin) or parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password or parsed.path not in ("", "/") or parsed.query or parsed.fragment or (parsed.port is not None and not 0 < parsed.port <= 65535):
         raise ValueError("invalid panel origin")
+    if parsed.scheme == "http":
+        try:
+            address = ipaddress.ip_address(parsed.hostname)
+            address = getattr(address, "ipv4_mapped", None) or address
+            loopback = address.is_loopback
+        except ValueError:
+            loopback = parsed.hostname == "localhost"
+        if not loopback:
+            raise ValueError("HTTP panel origins must be loopback; use HTTPS")
     request = urllib.request.Request(origin.rstrip("/") + f"/api/servers/{identifier}", headers={"Cookie": cookie})
     client = urllib.request.build_opener(NoRedirect())
     with client.open(request, timeout=10) as response:

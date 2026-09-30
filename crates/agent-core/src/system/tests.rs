@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::Arc;
 
 #[test]
 fn runtime_status_requires_explicit_process_free_shutdown() -> Result<()> {
@@ -97,7 +98,7 @@ fn job_status_distinguishes_running_exited_failed_and_missing() -> Result<()> {
 
 #[tokio::test]
 async fn unsafe_unit_and_expansion_arguments_are_rejected_before_execution() -> Result<()> {
-    let services = SystemServiceManager::new(Arc::new(SystemOps));
+    let services = SystemServiceManager::new(Arc::new(SystemOps), ServiceBackend::Systemd);
     let mut job = ServiceJob {
         unit: format!("sinan-diagnostic-{}.service", Uuid::new_v4()),
         program: "/usr/bin/true".into(),
@@ -136,7 +137,7 @@ async fn real_systemd_diagnostic_jobs_survive_manager_recreation_and_enforce_tim
         "this integration test requires Linux/systemd"
     );
     let privileged: Arc<dyn Privileged> = Arc::new(SystemOps);
-    let services = SystemServiceManager::new(privileged.clone());
+    let services = SystemServiceManager::new(privileged.clone(), ServiceBackend::Systemd);
     let directory = std::env::temp_dir().join(format!("sinan-service-test-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&directory)?;
     let mut units = Vec::new();
@@ -161,7 +162,7 @@ async fn real_systemd_diagnostic_jobs_survive_manager_recreation_and_enforce_tim
             units.push(job.unit.clone());
             services.start_job(&job).await?;
             // A fresh manager observes the system-owned service without another start.
-            let recovered = SystemServiceManager::new(privileged.clone());
+            let recovered = SystemServiceManager::new(privileged.clone(), ServiceBackend::Systemd);
             let status = tokio::time::timeout(Duration::from_secs(45), async {
                 loop {
                     let status = recovered.job_status(&job.unit).await?;

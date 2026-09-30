@@ -27,6 +27,13 @@ impl SystemServiceManager {
                     ),
                 "diagnostic arguments cannot contain systemd expansion syntax or control characters"
             );
+            if self.backend == ServiceBackend::OpenRc {
+                return self.start_openrc_job(job).await;
+            }
+            ensure!(
+                self.backend == ServiceBackend::Systemd,
+                "diagnostic jobs require Linux"
+            );
             let mut args = vec![
                 format!("--unit={}", job.unit),
                 "--no-block".into(),
@@ -59,6 +66,13 @@ impl SystemServiceManager {
     pub(super) fn diagnostic_job_status<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, JobStatus> {
         Box::pin(async move {
             ensure!(valid_job_unit(unit), "invalid diagnostic service unit");
+            if self.backend == ServiceBackend::OpenRc {
+                return self.openrc_job_status(unit).await;
+            }
+            ensure!(
+                self.backend == ServiceBackend::Systemd,
+                "diagnostic jobs require Linux"
+            );
             let args = vec!["show".into(), "--property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,ExecMainStartTimestampMonotonic".into(), "--".into(), unit.into()];
             let output = self
                 .privileged

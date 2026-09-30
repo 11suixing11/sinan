@@ -105,6 +105,48 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 - 按用户要求，workspace edition 更新为 2024，全部 crate 继续继承统一设置。虚拟 workspace 显式使用 `resolver = "3"`，遵循 [Rust 2024 的依赖解析规则](https://doc.rust-lang.org/edition-guide/rust-2024/cargo-resolver.html)；现有最低 Rust 1.88 已支持该 edition。
 - Rust 2024 将进程环境变量修改标记为 unsafe，构建脚本改用现有 `tonic_build::Config::protoc_executable` 选择编译器。保留显式 `PROTOC` 与 vendored 回退，不增加依赖、不放宽 unsafe 禁令。
 
+## 后续调整：OpenRC
+
+- 用户明确要求新增 OpenRC，覆盖原 MVP 对 OpenRC 的排除项；仍限 Linux。服务生命周期继续经过 `ServiceManager` 与 `Privileged`，不修改适配器、协议、账本或独立运行时架构，详见 ADR 0021。
+- 根据运行标记自动选择 init，systemd 优先；OpenRC 服务名由现有标识移除 `.service` 得到，保留 `@main`。不增加设备配置字段，旧 TOML 可继续使用。
+- 安装支持 shadow 工具或 BusyBox 系统账号工具；Agent 与运行时分别由 supervise-daemon 监督，日志写入 `/var/log/sinan/`。安装与升级只重启 Agent，HUP 发送给被监督的运行时进程。
+- 不因 OpenRC 扩大运行时 libc 构建范围：Alpine 需要另有匹配的 musl 运行时制品。真实 OpenRC 进程夹具、代理专项验证与公网实机验收分开记录。
+
+## PR 准备：同步上游后的 OpenRC 边界
+
+- 同步 `upstream/main` 的 `7a8fb70`，继承 NodeQuality、Agent `0.2.0`、公开报告上传缺省关闭和 Linux musl 双架构 CI；OpenRC 双架构检查作为本次 PR 的新增任务保留。
+- 上游诊断 ADR 已占用 0016，OpenRC ADR 顺延至 0021，并同步所有引用。临时项目设计参考及其入口、问题和进度记录按用户要求移除。
+- 一次性诊断依赖 systemd 的任务监督与挂载命名空间；OpenRC 入口不注册诊断适配器，服务管理器在执行任何命令前拒绝诊断启动和状态查询。普通代理服务的生命周期仍路由至所选 init；systemd 的诊断启动与恢复继续使用上游实现。
+
+## 主分支修复：OpenRC 缓存与多平台构建
+
+- OpenRC CI 的 amd64 默认运行级别启动超时已在干净 Alpine 环境复现：初始依赖树生成与两次安装都发生在同一秒，OpenRC 只比较整秒文件时间戳，缓存没有新服务；`rc-service` 能单独启动，但 `openrc default` 不会列出它们。安装后运行 `rc-update --update` 强制更新依赖树；回归夹具让初始缓存时间晚于新服务，避免依赖机器速度，并检查缓存包含两个服务。
+- 用户要求将近期修改与修复放到 `main`，后续不新建分支。参考本地 NodeFlare 的标签构建与 Linux cross / FreeBSD VM 验证方式，为收敛后的 CI 补充手动或标签触发的多平台制品工作流，保持 Ubuntu 24 glibc、macOS ARM64、Windows 与 FreeBSD 双架构；FreeBSD 在 Linux 安装目标标准库，不依赖 VM 内的 ARM64 rustup 安装器。详见 ADR 0015 后续决策。
+
+## 多平台构建：统一工作流与 Linux 链接方式
+
+- 用户澄清多平台应在日常 CI 中构建，OpenRC 无须单独拆出；将九个目标统一回 `ci.yml` 的 push/PR/手动入口，删除临时多平台工作流。OpenRC 真实服务检查移入两个 Linux musl 任务，GNU/Linux 则在 Ubuntu 24.04 双架构任务验证动态 glibc 链接。
+- init 与 libc 分开处理：Alpine/OpenRC 使用 musl 静态 Agent，Ubuntu 24.04/systemd 可使用 glibc 动态 Agent；服务管理继续自动识别，已有安装接口和制品导入方式保留，不将 GNU/libc 强行用于 Alpine。FreeBSD cross 与 VM 验证方案、macOS 仅 ARM64、Windows 双架构均保留。
+
+## Agent 能力对齐：用户确认全部补齐
+
+- 用户确认将基础监控细节、离线遥测补报、持续拨测、通用命令、升级恢复和非 Linux 常驻部署全部纳入，覆盖原来的仅编译产物限制与自更新排除项；按 ADR 0022 分阶段实现。
+- sing-box 上游支持 musl。原脚本只调用 glibc 工具链，属于本仓库缺口；新增官方 musl 工具链与标签，不删除默认功能或修改上游源码。
+- 辅助 outbox 和命令表采用幂等建表，不提高账本 `user_version`，避免旧版本回退时拒绝打开数据库。压缩上传复用已有 `flate2` 依赖。
+- 管理员可以拨测内网、回环和公网的单播目标；命令使用设备服务账号执行。命令执行状态在启动进程之前落盘，重启后的未完成命令统一标记中断，不重放无法确认副作用的操作。失联超过一天暂停使用缓存拨测配置。
+- OpenRC 一次性诊断由同一 Agent 二进制的内部任务入口运行，在独立服务中监督；它不是对外开放的特权 helper。挂载命名空间使用系统 `unshare`，保留 Linux 专属 NodeQuality 范围。
+
+- 原生服务采用系统内置 launchd、rc.d/daemon 和 Windows 计划任务，Agent 与运行时分开注册；Windows 不增加需要 unsafe 的服务控制器库。运行时 DLL 通过通用文件白名单描述，core 保持运行时无关。
+- 自动更新只使用面板导入的稳定版，初始关闭；本地 PID/版本检查允许离线启动。Supervisor 与 Agent 同属系统服务，代理进程归另一服务；更新前的持久试运行状态用于恢复中断升级。Windows 文件内容刷盘后原子替换引用，目录元数据断电语义仍是已知验证边界。
+- FreeBSD 保留代理普通账户，因此默认使用非特权节点端口；需要 443 等低端口时由管理员配置宿主端口授权。安装器不自动修改全局 sysctl 或加载端口策略模块，避免覆盖现有主机策略；详见 README 和 FreeBSD `mac_portacl(4)`。
+- FreeBSD 的 sysinfo 0.33 磁盘枚举调用 `getmntinfo`，其[官方实现](https://github.com/freebsd/freebsd-src/blob/releng/15.0/lib/libc/gen/getmntinfo.c)会修改并重新分配进程全局缓冲区。连接上报和采样可能并发构造 Collector，因此以进程级互斥锁保护完整磁盘枚举及 libgeom 快照；不新增 unsafe 或修改上游依赖。CI 增加重复启动采样和可用时的原生崩溃回溯。
+- Windows 新建运行时账户明确加入普通 Users 组，使用固定 SID 和本地账户对象，避免本地化名称与域同名账户歧义，依据 [Add-LocalGroupMember 文档](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.localaccounts/add-localgroupmember?view=powershell-5.1)。运行时保持非管理员；原生 CI 校验账户分组及真实任务执行。Windows ARM64 实测启动权限检查可能超过 60 秒，更新试运行给出 120 秒有界健康检查，其余平台仍为 60 秒。
+- Windows runner 的任务继承 DACL 给 SYSTEM/Administrators 的掩码为 `0x1f019f`，不含文件执行位，因此 Agent 可以读写任务但无法启动运行时。注册后按 [SetSecurityDescriptor](https://learn.microsoft.com/en-us/windows/win32/taskschd/registeredtask-setsecuritydescriptor) 明确将本项目任务的控制权限限定为 SYSTEM 和 Administrators，禁止继承及自动添加运行账户控制 ACE；任务仍以原普通账户执行，不改变运行时文件权限。
+- Windows ARM64 的测试日志显示升级已激活但状态保存超过夹具等待，安装也在大量权限操作期间超时。权限读写改用内置 .NET Framework 的 [File.SetAccessControl](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.setaccesscontrol?view=netframework-4.8.1) 及目录对应接口，合并同次目录创建和制品文件权限，避免反复自动加载 PowerShell 文件系统/安全模块；新文件在写入内容前设置 ACL。服务启停使用同一任务计划程序的 COM 接口，避免每次导入 CIM 模块；重启先等待旧任务停止。仍保留 ACL 拒绝检查与普通账户隔离，不添加依赖或常驻 helper。
+- Windows 任务 DACL 修复后的事件确认错误 `0x80070569`：普通运行账户缺少批处理登录权。安装通过系统 [secedit](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/secedit-configure) 读取并保留现有 `SeBatchLogonRight`，只追加该专用账户 SID；不更改拒绝策略及其他用户权利。新账户先禁用，设置随机密码后再启用。CI 比较安装前后及重复安装后的全部用户权利，验证只发生预期追加。
+- Windows 用户权利模板允许以账户名或带星号的 SID 表示同一主体（[MS-GPSB 2.2.6](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpsb/3413b381-a445-4d17-b77e-5bbfadda253b)）。重复安装识别这两种表示；原生测试统一转换为 SID 后比较，保留全量权限差异断言与失败详情，避免仅按原始文本误报。
+
+
 ## 交付加固：签名缓存的跨平台验证边界
 
 - Linux 发布版本目录使用真实 GNU `/bin/mv --no-clobber --no-target-directory --`，源和目标必须是同父目录下的受控路径；完成后重新核验实际最终目录。

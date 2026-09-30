@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'scripts' / 'diagnostic-baseline.py'
 spec = importlib.util.spec_from_file_location('baseline', SCRIPT)
@@ -52,6 +53,29 @@ class BaselineEvidenceTests(unittest.TestCase):
             path.write_text('session=private\nInjected: yes')
             with self.assertRaises(ValueError):
                 baseline.read_cookie(path)
+
+    def test_remote_http_never_sends_cookie(self):
+        with patch.object(baseline.urllib.request, 'build_opener') as opener:
+            for origin in ('http://panel.example.com', 'http://192.0.2.1',
+                           'http://[2001:db8::1]', 'http://localhost.example.com',
+                           'http://127.0.0.1.example.com', 'http://2130706433'):
+                with self.subTest(origin=origin), self.assertRaises(ValueError):
+                    baseline.read_panel(origin, 123, 'session=private')
+            opener.assert_not_called()
+
+    def test_loopback_http_and_https_still_request_panel_times(self):
+        with patch.object(baseline.urllib.request, 'build_opener') as opener:
+            response = opener.return_value.open.return_value.__enter__.return_value
+            response.read.return_value = b'{"last_seen":123,"latest_metrics":{}}'
+            for origin in ('http://127.0.0.1:8080', 'http://localhost:8080',
+                           'http://[::1]:8080', 'http://[::ffff:127.0.0.1]:8080',
+                           'https://panel.example.com'):
+                with self.subTest(origin=origin):
+                    result = baseline.read_panel(origin, 123, 'session=private')
+                    self.assertEqual(result['last_heartbeat_at'], 123)
+                    request = opener.return_value.open.call_args.args[0]
+                    self.assertEqual(request.full_url, origin + '/api/servers/123')
+                    self.assertEqual(request.get_header('Cookie'), 'session=private')
 
     def test_redirect_never_forwards_cookie(self):
         with self.assertRaises(ValueError):
