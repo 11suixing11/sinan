@@ -162,18 +162,17 @@ impl SystemServiceManager {
                 ("launchctl", args)
             }
             ServiceBackend::WindowsTask => {
-                let script = match action {
-                    "restart" | "reload" => format!(
-                        "$ErrorActionPreference='Stop'; Stop-ScheduledTask -TaskName '{service}'; Start-Sleep -Milliseconds 300; Start-ScheduledTask -TaskName '{service}'"
-                    ),
-                    "stop" => format!(
-                        "$ErrorActionPreference='Stop'; Stop-ScheduledTask -TaskName '{service}'"
-                    ),
-                    "is-active" => format!(
-                        "$ErrorActionPreference='Stop'; if ((Get-ScheduledTask -TaskName '{service}').State -ne 'Running') {{ exit 1 }}"
-                    ),
+                let operation = match action {
+                    "restart" | "reload" => {
+                        "$task.Stop(0); $deadline=[DateTime]::UtcNow.AddSeconds(10); while($task.State -in @(2,4)) { if([DateTime]::UtcNow -ge $deadline) { throw 'Task did not stop' }; [Threading.Thread]::Sleep(100) }; $null=$task.Run($null)"
+                    }
+                    "stop" => "$task.Stop(0)",
+                    "is-active" => "if ($task.State -ne 4) { exit 1 }",
                     _ => anyhow::bail!("unsupported service action"),
                 };
+                let script = format!(
+                    "$ErrorActionPreference='Stop'; $scheduler=[Activator]::CreateInstance([Type]::GetTypeFromProgID('Schedule.Service')); $scheduler.Connect(); $task=$scheduler.GetFolder('\\').GetTask('{service}'); {operation}"
+                );
                 (
                     "powershell.exe",
                     vec![

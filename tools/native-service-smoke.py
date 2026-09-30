@@ -30,6 +30,18 @@ def powershell(script, check=True):
     return command(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', "$ErrorActionPreference='Stop'; " + script], check)
 
 
+def windows_rights(root):
+    path = root / 'user-rights.inf'
+    command(['secedit.exe', '/export', '/cfg', str(path), '/areas', 'USER_RIGHTS', '/quiet'])
+    rights = {}
+    for line in path.read_text(encoding='utf-16').splitlines():
+        name, separator, value = line.partition('=')
+        if separator and name.strip().startswith('Se'):
+            rights[name.strip()] = {member.strip() for member in value.split(',') if member.strip()}
+    path.unlink()
+    return rights
+
+
 def service(name, action):
     if SYSTEM == 'Darwin':
         label = 'system/org.sinan.' + name.replace('@', '.')
@@ -104,11 +116,15 @@ def main():
     try:
         if SYSTEM == 'Windows':
             command(['wevtutil.exe', 'sl', 'Microsoft-Windows-TaskScheduler/Operational', '/e:true'])
+            original_rights = windows_rights(root)
         print(invoke(binary, config, 'enroll', '--panel', panel.origin, '--token', 'smoke-enrollment'))
         # Publish after services are registered so launchd's eager startup cannot race the fixture.
         print(invoke(binary, config, 'install-service'))
         if SYSTEM == 'Windows':
-            powershell("$user=Get-LocalUser -Name 'sinan-singbox'; if (-not (Get-LocalGroupMember -SID 'S-1-5-32-545' | Where-Object { $_.SID -eq $user.SID })) { throw 'Runtime is not an ordinary Users member' }; if (Get-LocalGroupMember -SID 'S-1-5-32-544' | Where-Object { $_.SID -eq $user.SID }) { throw 'Runtime must not be an administrator' }")
+            account = powershell("$user=Get-LocalUser -Name 'sinan-singbox'; if (-not (Get-LocalGroupMember -SID 'S-1-5-32-545' | Where-Object { $_.SID -eq $user.SID })) { throw 'Runtime is not an ordinary Users member' }; if (Get-LocalGroupMember -SID 'S-1-5-32-544' | Where-Object { $_.SID -eq $user.SID }) { throw 'Runtime must not be an administrator' }; $user.SID.Value").stdout.strip()
+            expected_rights = dict(original_rights)
+            expected_rights['SeBatchLogonRight'] = original_rights.get('SeBatchLogonRight', set()) | {'*' + account}
+            assert windows_rights(root) == expected_rights, 'Installer changed unrelated user rights'
         panel.manifest = dict(rev=1, modules={'singbox': module})
         revision = 1
         def applied():
@@ -138,6 +154,8 @@ def main():
         identity = (root / 'identity/device.key').read_bytes()
         print(invoke(binary, config, 'install-service'))
         assert (root / 'identity/device.key').read_bytes() == identity
+        if SYSTEM == 'Windows':
+            assert windows_rights(root) == expected_rights, 'Reinstall changed user rights'
         transfer(proxy_port)
         service('sinan-agent', 'stop')
         wait_for(lambda: status(binary, config) is None, 'Agent service shutdown', 30)

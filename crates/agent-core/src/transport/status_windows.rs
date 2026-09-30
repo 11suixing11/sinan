@@ -91,12 +91,12 @@ pub(super) async fn serve(mut bound: BoundSocket, runtime: Runtime) -> Result<()
 }
 
 pub async fn status(path: &Path) -> Result<Value> {
-    crate::system::check_private(path)?;
     let metadata = std::fs::symlink_metadata(path)?;
     ensure!(
         metadata.is_file() && metadata.len() <= 4096,
         "invalid local status descriptor"
     );
+    crate::system::check_private(path)?;
     let endpoint: Endpoint = serde_json::from_slice(&std::fs::read(path)?)?;
     ensure!(
         endpoint.pipe == pipe_name(path) && endpoint.token.len() == 64,
