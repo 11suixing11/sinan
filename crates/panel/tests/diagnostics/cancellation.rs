@@ -160,6 +160,19 @@ async fn cancellation_waits_for_device_confirmation_and_preserves_late_reports(
         .fetch_one(&panel.state.pool)
         .await?;
     assert_eq!(status, "cancel_requested");
+    let sections_endpoint = format!("{}/api/agent/v1/diagnostics/{id}/sections", panel.base);
+    let chapter = json!({"id":id,"name":"header_info","text":"取消前保存的章节","complete":true,"revision":1,"collected_at":now_timestamp()});
+    assert_eq!(
+        panel
+            .client
+            .post(&sections_endpoint)
+            .bearer_auth(&ack.session_token)
+            .json(&chapter)
+            .send()
+            .await?
+            .status(),
+        StatusCode::NO_CONTENT
+    );
     let confirmation = DiagnosticCancelResult {
         confirmed: true,
         error: None,
@@ -213,6 +226,49 @@ async fn cancellation_waits_for_device_confirmation_and_preserves_late_reports(
         .json()
         .await?;
     assert_eq!(duplicate["status"], "cancelled");
+    assert_eq!(duplicate["sections"][0]["text"], chapter["text"]);
+    assert_eq!(duplicate["report_completeness"], "partial");
+    let late_chapter = json!({"id":id,"name":"hardware_quality","text":"迟到的停止前快照","complete":false,"revision":1,"collected_at":now_timestamp()});
+    for _ in 0..2 {
+        assert_eq!(
+            panel
+                .client
+                .post(&sections_endpoint)
+                .bearer_auth(&ack.session_token)
+                .json(&late_chapter)
+                .send()
+                .await?
+                .status(),
+            StatusCode::NO_CONTENT
+        );
+    }
+    assert_eq!(
+        update(
+            &panel,
+            &ack,
+            &id.to_string(),
+            json!({"id":id,"status":"succeeded","report":{"text":"迟到自然结果不得复活或覆盖"}})
+        )
+        .await?
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    for view_path in [
+        reports.clone(),
+        format!("/api/servers/{server_id}/node-quality"),
+    ] {
+        let view: Value = panel
+            .admin(Method::GET, &view_path, &cookie, None)
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        assert_eq!(view["cancel_supported"], true);
+        assert_eq!(view["reports"][0]["status"], "cancelled");
+        assert_eq!(view["reports"][0]["report"]["text"], "已经产生的报告");
+        assert_eq!(view["reports"][0]["sections"].as_array().unwrap().len(), 2);
+    }
+
     assert_eq!(
         update(
             &panel,
@@ -319,6 +375,59 @@ async fn natural_completion_rejects_cancellation_and_requested_cleanup_blocks_ne
             .await?
             .status(),
         StatusCode::CONFLICT
+    );
+    // A task queued before chapter support retains whole-report semantics while
+    // waiting for cancellation proof and after that proof is acknowledged.
+    let legacy_id = Uuid::parse_str(id)?;
+    sqlx::query("UPDATE diagnostic_jobs SET expected_sections='{}' WHERE id=$1")
+        .bind(legacy_id)
+        .execute(&panel.state.pool)
+        .await?;
+    assert_eq!(
+        update(
+            &panel,
+            &ack,
+            id,
+            json!({"id":id,"status":"succeeded","report":{"text":"旧任务迟到的完整报告"}})
+        )
+        .await?
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    let saved: (String, String) =
+        sqlx::query_as("SELECT status,report_completeness FROM diagnostic_jobs WHERE id=$1")
+            .bind(legacy_id)
+            .fetch_one(&panel.state.pool)
+            .await?;
+    assert_eq!(saved, ("cancel_requested".into(), "legacy".into()));
+    let confirmation =
+        json!({"server_id":server_id,"id":id,"plugin":"nodequality","confirmed":true});
+    assert_eq!(
+        panel
+            .client
+            .post(format!(
+                "{}/api/agent/v1/diagnostics/{id}/cancel-confirmation",
+                panel.base
+            ))
+            .bearer_auth(&ack.session_token)
+            .json(&confirmation)
+            .send()
+            .await?
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    let saved: (String, String, Value) =
+        sqlx::query_as("SELECT status,report_completeness,report FROM diagnostic_jobs WHERE id=$1")
+            .bind(legacy_id)
+            .fetch_one(&panel.state.pool)
+            .await?;
+    assert_eq!(
+        saved,
+        (
+            "cancelled".into(),
+            "legacy".into(),
+            json!({"text":"旧任务迟到的完整报告"})
+        )
     );
     Ok(())
 }

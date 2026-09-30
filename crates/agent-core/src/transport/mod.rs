@@ -179,6 +179,9 @@ pub async fn run_with_diagnostics(
     if config.allow_remote_commands {
         capabilities.push("command:execute".into());
     }
+    if !diagnostics.is_empty() {
+        capabilities.push(sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY.into());
+    }
     capabilities.extend(
         diagnostics
             .iter()

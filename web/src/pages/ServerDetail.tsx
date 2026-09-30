@@ -6,7 +6,7 @@ import { Badge, CopyField, Empty, ErrorNotice, Field, Icon, Loading, Modal, Page
 import { bytes, navigate, percent, time, uptime } from '../format'
 import { useAction, useResource } from '../hooks'
 import type { Deployment, Enrollment, Node, Server } from '../types'
-import NodeQuality from './NodeQuality'
+import ServerNavigation from './ServerNavigation'
 
 export default function ServerDetail({ id }: { id: number }) {
   const server = useResource<Server>(`/api/servers/${id}`)
@@ -30,6 +30,7 @@ export default function ServerDetail({ id }: { id: number }) {
   return <>
     <button className="back-link" onClick={() => navigate('/servers')}><Icon name="back" size={16} />返回服务器</button>
     <PageHeader eyebrow={`服务器 #${entry.id}`} title={entry.name} description="系统概况、运行指标与每一次配置部署。"><Badge tone={entry.online ? 'good' : 'neutral'}>{entry.online ? '在线' : entry.device_public_key ? '离线' : '待接入'}</Badge>{entry.metrics_stale && <Badge tone="warm">指标过期</Badge>}<Refresh onClick={refresh} /><button className="button button-primary" onClick={() => { setInstalling(true); setAgentVersion(''); enroll('') }}><Icon name="plus" size={16} />接入 / 升级</button></PageHeader>
+    <ServerNavigation id={id} active="overview" />
     <ErrorNotice message={server.error || deployment.error || nodes.error} retry={refresh} />
     {!entry.online && <div className="notice">{entry.device_public_key ? '设备当前离线，以下指标是最近一次上报的数据。' : '设备尚未接入。点击“接入 / 升级”获取安装命令。'}</div>}
     {entry.metrics_stale && <div className="notice">指标过期，以下保留的是最后一次采集的历史数据。最后指标时间：{entry.metrics_sampled_at ? time(entry.metrics_sampled_at / 1000) : '未知'}。心跳独立更新，在线状态不代表指标仍在采集。</div>}
@@ -40,7 +41,6 @@ export default function ServerDetail({ id }: { id: number }) {
       {metrics.disks?.length ? <div className="table-wrap"><table><thead><tr><th>磁盘 / 挂载点</th><th>读速率</th><th>写速率</th><th>读 / 写 IOPS</th><th>等待 / 利用率</th></tr></thead><tbody>{metrics.disks.map((disk, index) => <tr key={`${disk.name}-${index}`}><td>{disk.name}<small>{disk.mount_point}</small></td><td>{disk.read_bytes_per_sec == null ? '暂无数据' : `${bytes(disk.read_bytes_per_sec)}/秒`}</td><td>{disk.write_bytes_per_sec == null ? '暂无数据' : `${bytes(disk.write_bytes_per_sec)}/秒`}</td><td>{disk.read_iops?.toFixed(1) ?? '—'} / {disk.write_iops?.toFixed(1) ?? '—'}</td><td>{disk.await_ms?.toFixed(1) ?? '—'} 毫秒 / {disk.utilization_percent?.toFixed(1) ?? '—'}%</td></tr>)}</tbody></table></div> : <div className="inline-empty">设备尚未上报逐磁盘指标。</div>}
       {metrics.gpus?.length ? <div className="table-wrap"><table><thead><tr><th>GPU</th><th>使用率</th><th>显存</th></tr></thead><tbody>{metrics.gpus.map((gpu, index) => <tr key={index}><td>{gpu.model}</td><td>{gpu.usage_percent?.toFixed(1) ?? '暂无数据'}{gpu.usage_percent != null && '%'}</td><td>{bytes(gpu.memory_used ?? undefined)} / {bytes(gpu.memory_total ?? undefined)}</td></tr>)}</tbody></table></div> : <div className="inline-empty">暂无 GPU 数据。</div>}
     </section>
-    <NodeQuality serverId={id} />
     <AgentTasks key={id} serverId={id} commandsEnabled={Array.isArray(entry.capabilities) && entry.capabilities.includes('command:execute')} />
     <section className="panel"><div className="panel-heading"><h2>系统信息</h2><span className="subtle">缺失字段显示暂无数据</span></div><dl className="info-grid">{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value ?? '暂无数据'}</dd></div>)}</dl></section>
     <section className="panel"><div className="panel-heading"><h2>网络接口</h2><span className="subtle">服务器层面的累计计数</span></div>{Object.keys(metrics.network_interfaces ?? {}).length ? <div className="table-wrap"><table><thead><tr><th>接口</th><th>累计接收</th><th>累计发送</th><th>接收速率</th><th>发送速率</th></tr></thead><tbody>{Object.entries(metrics.network_interfaces ?? {}).map(([name, metric]) => <tr key={name}><td className="mono">{name}</td><td>{bytes(metric.received_bytes)}</td><td>{bytes(metric.transmitted_bytes)}</td><td>{metric.receive_bytes_per_sec === undefined ? '暂无数据' : `${bytes(metric.receive_bytes_per_sec)}/秒`}</td><td>{metric.transmit_bytes_per_sec === undefined ? '暂无数据' : `${bytes(metric.transmit_bytes_per_sec)}/秒`}</td></tr>)}</tbody></table></div> : <div className="inline-empty">设备尚未上报网络接口信息。</div>}</section>

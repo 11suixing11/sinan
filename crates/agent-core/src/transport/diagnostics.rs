@@ -1,3 +1,4 @@
+mod sections;
 use crate::{
     Config, SharedState,
     artifacts::{PanelClient, safe_component},
@@ -152,6 +153,8 @@ impl DiagnosticWorker {
     }
 
     async fn flush(&self, client: &PanelClient) -> Result<()> {
+        // A chapter upload failure must not hide an execution failure or completion.
+        let chapters_result = self.flush_sections(client).await;
         let pending: Vec<DiagnosticUpdate> = self.read(OUTBOX)?.unwrap_or_default();
         for update in pending {
             self.bounded(client.diagnostic_update(&update)).await?;
@@ -163,7 +166,7 @@ impl DiagnosticWorker {
             outbox.retain(|saved| saved.id != update.id);
             state.set_json(OUTBOX, &outbox)?;
         }
-        Ok(())
+        chapters_result
     }
 
     fn accept(&self, jobs: Vec<DiagnosticJob>) -> Result<()> {

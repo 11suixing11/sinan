@@ -35,7 +35,7 @@ try {
     else if (path === '/api/servers/1') value = { id: 1, name: '取消验收夹具', online: true, device_public_key: 'test-only-key', static_info: {}, latest_metrics: {}, last_seen: now, manifest_rev: 0, capabilities: [] }
     else if (path === '/api/servers/1/deployments') value = { status: null, history: [] }
     else if (path === '/api/servers/1/agent-settings') value = { sample_interval_secs: 1, upload_interval_secs: 5, discover_public_ips: false, auto_update: false }
-    else if (path === '/api/servers/1/node-quality') value = { ip_addresses: [], quality: [], plugin_ready: true, plugin_reason: null, cancel_supported: supported, reports: [record] }
+    else if (path === '/api/servers/1/node-quality/reports') value = { plugin_ready: true, plugin_reason: null, cancel_supported: supported, reports: [record] }
     else if (path === `/api/servers/1/diagnostics/${id}/cancel`) {
       assert.equal(route.request().method(), 'POST')
       cancelPosts++
@@ -46,7 +46,7 @@ try {
     await route.fulfill({ json: value })
   })
   const origin = `http://127.0.0.1:${server.address().port}`
-  await page.goto(`${origin}/#/servers/1`)
+  await page.goto(`${origin}/#/servers/1/node-quality`)
   await page.getByRole('button', { name: '请求取消测试', exact: true }).click()
   await page.getByText('等待设备确认取消', { exact: true }).waitFor()
   assert.equal(cancelPosts, 1)

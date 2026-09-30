@@ -322,6 +322,17 @@ pub struct DiagnosticOutput {
     pub report_url: Option<String>,
 }
 
+/// A durable, independently readable report chapter. Revisions increase per chapter.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DiagnosticSection {
+    pub name: String,
+    pub text: String,
+    pub complete: bool,
+    pub revision: u64,
+    pub collected_at: i64,
+}
+
 pub trait DiagnosticAdapter: Send + Sync {
     fn describe(&self) -> DiagnosticDescriptor;
     fn prepare<'a>(
@@ -330,6 +341,12 @@ pub trait DiagnosticAdapter: Send + Sync {
         privileged: &'a dyn Privileged,
     ) -> BoxFuture<'a, ServiceJob>;
     fn collect<'a>(&'a self, spec: &'a DiagnosticSpec) -> BoxFuture<'a, Option<DiagnosticOutput>>;
+    fn collect_sections<'a>(
+        &'a self,
+        _spec: &'a DiagnosticSpec,
+    ) -> BoxFuture<'a, Vec<DiagnosticSection>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
 }
 
 pub trait UsageSource: Send + Sync {

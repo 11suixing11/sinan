@@ -88,7 +88,7 @@ Linux 宿主 ABI 与 Agent 编译 ABI 不同时，运行时先保留旧的编译
 
 `GET /api/agent/v1/diagnostics/cancellations` 返回当前设备的待取消请求（最多 64 条），`POST /api/agent/v1/diagnostics/{id}/cancel-confirmation` 持久保存取消结果并返回 204。HTTP pending 与 Agent SQLite outbox 恢复断连和重启。确认前界面显示“等待设备确认取消”；负确认、过期或末尾自然报告不结束该状态，已有报告保留。重复请求和确认幂等，已自然完成任务拒绝新取消。缺少能力的旧 Agent / 服务后端明确不支持。具体清理证据与并发边界见 [ADR 0026](adr/0026-confirmed-diagnostic-cancellation.md)。
 
-NodeQuality 的 plugin 标识为 `nodequality`，version 为固定上游提交加包装器版本（当前为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2`），制品同源、校验后安装。options 仅允许 `ip_version=both|ipv4|ipv6`、`network_mode=low|normal` 和 `upload_report=true|false`。`upload_report` 在管理员创建任务的 HTTP 请求中为布尔值，缺省 `false`；在公共任务中为固定字符串，缺少时新 Agent 按关闭处理。旧 Agent 拒绝新版本和未知选项，不通过忽略隐私选项继续运行旧包。升级必须准备 r2 包；已排队或运行的旧任务不受新缺省值影响，应先结束旧任务再升级。任务不携带任意命令、程序地址或自由 shell 参数。
+NodeQuality 的 plugin 标识为 `nodequality`，version 为固定上游提交加包装器版本（当前为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3`），制品同源、校验后安装。options 仅允许 `ip_version=both|ipv4|ipv6`、`network_mode=low|normal` 和 `upload_report=true|false`。`upload_report` 在管理员创建任务的 HTTP 请求中为布尔值，缺省 `false`；在公共任务中为固定字符串，缺少时新 Agent 按关闭处理。旧 Agent 拒绝新版本和未知选项，不通过忽略隐私选项继续运行旧包。升级必须先准备 r3 包；新面板只向声明 `diagnostic:report-sections` 的 Agent 创建 r3 任务。新 Agent 仍能处理已签名 r2 排队任务及恢复旧 checkpoint，旧报告内容保留。任务不携带任意命令、程序地址或自由 shell 参数。
 
 任务 ID 同时用于设备持久 checkpoint、独立服务及面板去重。先记录启动意图再创建 systemd 服务；Agent 重启检查已有服务并继续观察，不自动重复运行。启动边界状态不明或服务消失时回报失败，管理员可另发新任务。结果确认前保存并重传；终态不能被晚到的 running 覆盖。每台设备最多一个活跃任务。代理配置版本与用户流量周期不会因诊断任务变化。
 
@@ -103,3 +103,8 @@ Agent 收到请求后持久阻止新的受管操作，停止运行时与诊断�
 回执为 `{server_id,request_id,signature}`；签名对象按顺序拼接 UTF-8 `sinan-retirement-v1`、一个零字节、8 字节大端有符号 server ID、16 字节请求 UUID。使用原设备 Ed25519 密钥，签名为 URL-safe base64，无填充。Agent 在删除私钥前持久保存回执，但只在清理完成后发送。面板使用保留的公钥和已存在请求验签。
 
 完成后的 Agent 也可向原绑定面板的 `POST /api/agent/v1/retirement/receipt` 发送该回执。此接口不需要 Bearer session；签名本身只授权对应退役确认，不能恢复设备会话。重复合法回执返回 204，错误回执拒绝。确认响应丢失时仍可恢复；未清理完成就被离线软删除的设备不具备此保证，需人工处理。详细崩溃与离线边界见 [ADR 0019](adr/0019-server-retirement.md)。
+
+
+诊断章节回报与执行状态独立。`POST /api/agent/v1/diagnostics/{id}/sections` 发送 `{id,name,text,complete,revision,collected_at}`，章节名须已登记在任务的 `expected_sections` 中，UTF-8 文本不超过 64 KiB、单任务不超过 512 KiB。`revision` 是此任务此章节的递增版本，采集时间使用秒；相同版本同内容可重复提交，同版本不同内容拒绝，迟到版本或已完成章节的未完成版本不会覆盖已保存内容。HTTP 204 只确认所提交版本持久化，Agent 用 SQLite 保存未确认章节和已确认版本，断连或重启后继续上传，不重新执行测试。
+
+任务历史在原 `report` 文本之外返回 `expected_sections`、`sections` 和 `report_completeness=empty|partial|complete|legacy`。执行 `status` 不用于推导完整度；失败、取消或截止后仍可接收已执行任务的迟到章节，独立显示已完成部分。旧文本保持原样，完整度标记为 `legacy`（未知），不补造章节结果。已删除设备不能上传章节。NodeQuality r3 包装器在每个阶段运行时保存私有目录内原子章节快照；同一固定上游的下一阶段日志或最终压缩包证明上一章节完成，缺失或无效 JSON 只能产生未完成预览。

@@ -100,6 +100,18 @@ impl DiagnosticWorker {
             self.bounded(self.services.job_status(&unit)).await? != JobStatus::Running,
             "诊断仍有排队或活动任务"
         );
+        // The service has stopped, so collect its final chapter snapshots before
+        // removing the active checkpoint. Failures do not erase saved chapters.
+        if let Err(error) = tokio::time::timeout(
+            Duration::from_secs(2),
+            self.capture_sections(&spec, &job.plugin),
+        )
+        .await
+        .context("cancelled diagnostic chapter capture timed out")
+        .and_then(|result| result)
+        {
+            tracing::warn!(%error, "cancelled diagnostic chapters will retain their saved snapshots");
+        }
         let pending: Vec<DiagnosticUpdate> = self.read(OUTBOX)?.unwrap_or_default();
         let existing = pending
             .into_iter()

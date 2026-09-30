@@ -1,6 +1,6 @@
 # 确认式取消独立验收（Issue #19）
 
-本项对应单独 PR，只增加取消链路，不实现报告章节拆分和诊断框架迁移。
+本项对应单独 PR，增加取消链路并保留现有独立报告章节与原文本。
 
 ## 约定与操作
 
@@ -16,7 +16,7 @@
 
 旧 Agent、OpenRC 与非 Linux 后端目前不支持同等清理证据，界面禁用取消并显示“不支持确认式取消，请先升级”；接口返回 409。无法证明旧诊断单元已清理时同样保持待确认，不能声称取消成功。
 
-合并审查补齐能力宣告门禁：必须同时满足 Linux、systemd 和实际 cgroup v2 控制器文件，能力宣告与清理确认共用同一检查。只有 systemd 而缺少 v2 证据的宿主不宣告支持，避免已接受请求永久无法确认。新增缺少控制器文件与其他后端的能力回归；该补修的 Rust 执行结果待最终整合编译槽验证。
+合并审查补齐能力宣告门禁：必须同时满足 Linux、systemd 和实际 cgroup v2 控制器文件，能力宣告与清理确认共用同一检查。只有 systemd 而缺少 v2 证据的宿主不宣告支持，避免已接受请求永久无法确认。新增缺少控制器文件与其他后端的能力回归；该补修的 Rust 执行结果见末尾最终整合记录。
 
 ## 自动验收
 
@@ -53,3 +53,5 @@ Playwright 与 Chrome 为现有开发工具，不增加生产依赖。测试直�
 - 交付 Linux core 测试二进制 SHA256：`38f0d15713e1863723fe5eb8df0152789385a31e6cc36121b563257ff2e5f6f5`。专用节点结果待记录，不用普通构建容器的忽略结果代替实机验收。
 
 - 代码提交 `8957f5c` 的 [CI 36772176396](https://github.com/theLucius7/sinan/actions/runs/36772176396) 已通过 check、compose-smoke、Linux musl amd64 / arm64；其中实际 systemd 串行 6 项全部通过，0 失败 / 0 忽略，2.28 秒。Reality 安装计量任务因 Draft 条件跳过，不记为通过。此 CI 环境证据不替代待执行的专用 Debian 12 小内存节点验收。
+
+- 合并审查最终验证：正常合入 main `af43ccf`（含章节持久化与 IP/报告拆分）并保留作者 `f5d468e` 祖先。修复 Windows 默认不支持路径、Linux/systemd/cgroup v2 能力误报、取消 HTTP/WS 退役门禁；已在途清理结束后不继续新取消任务。取消确认前采集最终章节，取消后迟到章节仍保存但不复活状态，旧整份报告继续标记 legacy；reports GET 和旧组合 GET 同时保留 cancel_supported。PostgreSQL 回归证明已应用 0011 后补入 0010 不丢任务、报告或章节。最终 locked workspace/all-targets 304 项通过、0 失败、9 项条件忽略；workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁和差异检查通过。Bun 1.4.2 冻结依赖下 4 项/637 断言及 TypeScript/Vite 构建通过，最终 JS 为 `index-8GW7pq_B.js`；真实 Chromium 桌面/390px 手机取消专项和原 IP/导航/章节 9 组场景全部通过，页面错误 0。Python discovery 83 项通过/5 跳过。此轮 macOS 本机没有运行新增真实 Linux/root/systemd 取消夹具（9 项条件忽略包含它）或完整 NodeQuality 负载；最终 Linux CI 与专用节点验收另行核对，不以前一作者 CI 替代。

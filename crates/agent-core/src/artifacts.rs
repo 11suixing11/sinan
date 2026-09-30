@@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sinan_adapter_sdk::{Descriptor, Privileged};
 use sinan_protocol::release::{ReleaseError, ReleaseProof, TrustedKeys, VerifiedArtifact};
-use sinan_protocol::{Artifact, Bundle, DiagnosticJob, DiagnosticUpdate, Manifest};
+use sinan_protocol::{
+    Artifact, Bundle, DiagnosticJob, DiagnosticSectionUpdate, DiagnosticUpdate, Manifest,
+};
 use std::{
     path::{Component, Path, PathBuf},
     time::Duration,
@@ -306,6 +308,26 @@ impl PanelClient {
             "panel acknowledged samples outside the submitted batch"
         );
         Ok(ack)
+    }
+
+    pub async fn diagnostic_section(&self, update: &DiagnosticSectionUpdate) -> Result<()> {
+        ensure!(update.valid(), "invalid diagnostic chapter");
+        let response = self
+            .client
+            .post(
+                self.panel
+                    .join(&format!("/api/agent/v1/diagnostics/{}/sections", update.id))?,
+            )
+            .bearer_auth(&self.session_token)
+            .json(update)
+            .send()
+            .await?;
+        ensure!(
+            response.status().is_success(),
+            "diagnostic chapter returned HTTP {}",
+            response.status()
+        );
+        Ok(())
     }
 
     pub async fn diagnostic_update(&self, update: &DiagnosticUpdate) -> Result<()> {

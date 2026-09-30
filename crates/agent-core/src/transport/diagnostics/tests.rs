@@ -463,3 +463,5 @@ mod safety;
 
 #[path = "tests/cancellation.rs"]
 mod cancellation;
+#[path = "tests/report_sections.rs"]
+mod report_sections;

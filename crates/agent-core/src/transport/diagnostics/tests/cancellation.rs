@@ -267,7 +267,7 @@ async fn retirement_during_cancellation_http_cannot_restore_cleared_state() -> R
             worker.config.clone(),
             worker.state.clone(),
             vec![],
-            Arc::new(FakeResourceOps::default()),
+            Arc::new(FakeResourceOps::new(Arc::new(SystemOps))),
             services,
         )?);
         let body = if acknowledging {

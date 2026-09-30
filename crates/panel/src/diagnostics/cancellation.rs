@@ -27,8 +27,11 @@ pub async fn request(
         .bind(id).bind(server_id).fetch_optional(&mut *tx).await?.ok_or(ApiError::NotFound)?;
     let status: String = row.get("status");
     if status == "cancelled" {
-        let record = sqlx::query_as("SELECT id,status,job,report,error,created_at,updated_at,expires_at,agent_completed,cancel_requested_at,cancel_error FROM diagnostic_jobs WHERE id=$1 AND server_id=$2")
-            .bind(id).bind(server_id).fetch_one(&mut *tx).await?;
+        let record = sqlx::query_as(RECORD_QUERY)
+            .bind(id)
+            .bind(server_id)
+            .fetch_one(&mut *tx)
+            .await?;
         tx.commit().await?;
         return Ok((StatusCode::OK, Json(record)));
     }
@@ -46,8 +49,13 @@ pub async fn request(
     if job.id != id {
         return Err(ApiError::Conflict("任务记录编号不一致，拒绝取消".into()));
     }
-    let record = sqlx::query_as("UPDATE diagnostic_jobs SET status='cancel_requested',cancel_requested_at=COALESCE(cancel_requested_at,$3),updated_at=$3 WHERE id=$1 AND server_id=$2 RETURNING id,status,job,report,error,created_at,updated_at,expires_at,agent_completed,cancel_requested_at,cancel_error")
-        .bind(id).bind(server_id).bind(now_timestamp()).fetch_one(&mut *tx).await?;
+    sqlx::query("UPDATE diagnostic_jobs SET status='cancel_requested',cancel_requested_at=COALESCE(cancel_requested_at,$3),updated_at=$3 WHERE id=$1 AND server_id=$2")
+        .bind(id).bind(server_id).bind(now_timestamp()).execute(&mut *tx).await?;
+    let record = sqlx::query_as(RECORD_QUERY)
+        .bind(id)
+        .bind(server_id)
+        .fetch_one(&mut *tx)
+        .await?;
     tx.commit().await?;
     crate::agent_api::notify(
         &state,
@@ -133,7 +141,7 @@ pub async fn record_result(
         .transpose()
         .map_err(anyhow::Error::from)?;
     if result.confirmed {
-        sqlx::query("UPDATE diagnostic_jobs SET status='cancelled',cancel_confirmed_at=$2,cancel_error=NULL,error=NULL,agent_completed=TRUE,report=COALESCE(report,$3),updated_at=$2 WHERE id=$1")
+        sqlx::query("UPDATE diagnostic_jobs SET status='cancelled',cancel_confirmed_at=$2,cancel_error=NULL,error=NULL,agent_completed=TRUE,report=COALESCE(report,$3),report_completeness=CASE WHEN cardinality(expected_sections)=0 AND COALESCE(report,$3) IS NOT NULL THEN 'legacy' ELSE report_completeness END,updated_at=$2 WHERE id=$1")
             .bind(result.id).bind(now_timestamp()).bind(report).execute(&mut *tx).await?;
     } else {
         let error: String = result
@@ -142,7 +150,7 @@ pub async fn record_result(
             .chars()
             .take(4096)
             .collect();
-        sqlx::query("UPDATE diagnostic_jobs SET cancel_error=$2,report=COALESCE($3,report),updated_at=$4 WHERE id=$1")
+        sqlx::query("UPDATE diagnostic_jobs SET cancel_error=$2,report=COALESCE($3,report),report_completeness=CASE WHEN cardinality(expected_sections)=0 AND COALESCE($3,report) IS NOT NULL THEN 'legacy' ELSE report_completeness END,updated_at=$4 WHERE id=$1")
             .bind(result.id).bind(error).bind(report).bind(now_timestamp()).execute(&mut *tx).await?;
     }
     tx.commit().await?;

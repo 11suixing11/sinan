@@ -2426,6 +2426,7 @@ name = "sinan-adapter-nodequality"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "serde_json",
  "sinan-adapter-sdk",
  "tokio",
 ]

@@ -1,7 +1,7 @@
 use crate::{
     AppState, artifacts, auth,
     error::{ApiError, ApiResult},
-    ip_quality::{self, IpQuality},
+    ip_quality::{self, ServerIpInfoView},
 };
 use axum::{
     Json,
@@ -11,15 +11,26 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sinan_protocol::{
-    DiagnosticJob, DiagnosticReport, DiagnosticStatus, DiagnosticUpdate, now_timestamp,
+    DiagnosticJob, DiagnosticReport, DiagnosticSectionUpdate, DiagnosticStatus, DiagnosticUpdate,
+    now_timestamp,
 };
 use sqlx::{FromRow, Row};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
-pub const PLUGIN_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2";
+pub const PLUGIN_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3";
 pub const REPORT_LIMIT: usize = 512 * 1024;
 const TIMEOUT_SECS: u64 = 1800;
+const EXPECTED_SECTIONS: [&str; 5] = [
+    "header_info",
+    "hardware_quality",
+    "ip_quality",
+    "net_quality",
+    "backroute_trace",
+];
+mod sections;
+const HISTORY_QUERY: &str = "SELECT j.id,j.status,j.job,j.report,j.error,j.created_at,j.updated_at,j.expires_at,j.agent_completed,j.cancel_requested_at,j.cancel_error,j.expected_sections,j.report_completeness,COALESCE((SELECT jsonb_agg(jsonb_build_object('name',s.name,'text',s.text,'complete',s.complete,'revision',s.revision,'collected_at',s.collected_at) ORDER BY array_position(j.expected_sections,s.name),s.name) FROM diagnostic_report_sections s WHERE s.job_id=j.id),'[]'::jsonb) AS sections FROM diagnostic_jobs j WHERE j.server_id=$1 ORDER BY j.created_at DESC,j.id DESC LIMIT 10";
+pub(super) const RECORD_QUERY: &str = "SELECT j.id,j.status,j.job,j.report,j.error,j.created_at,j.updated_at,j.expires_at,j.agent_completed,j.cancel_requested_at,j.cancel_error,j.expected_sections,j.report_completeness,COALESCE((SELECT jsonb_agg(jsonb_build_object('name',s.name,'text',s.text,'complete',s.complete,'revision',s.revision,'collected_at',s.collected_at) ORDER BY array_position(j.expected_sections,s.name),s.name) FROM diagnostic_report_sections s WHERE s.job_id=j.id),'[]'::jsonb) AS sections FROM diagnostic_jobs j WHERE j.id=$1 AND j.server_id=$2";
 
 pub mod cancellation;
 
@@ -36,16 +47,25 @@ pub struct ReportRecord {
     pub agent_completed: bool,
     pub cancel_requested_at: Option<i64>,
     pub cancel_error: Option<String>,
+    pub expected_sections: Vec<String>,
+    pub report_completeness: String,
+    pub sections: Value,
 }
 
 #[derive(Serialize)]
 pub struct NodeQualityView {
-    pub ip_addresses: Vec<String>,
-    pub quality: Vec<IpQuality>,
     pub plugin_ready: bool,
     pub plugin_reason: Option<String>,
     pub reports: Vec<ReportRecord>,
     pub cancel_supported: bool,
+}
+
+#[derive(Serialize)]
+pub struct LegacyNodeQualityView {
+    #[serde(flatten)]
+    pub node_quality: NodeQualityView,
+    #[serde(flatten)]
+    pub ip_info: ServerIpInfoView,
 }
 
 #[derive(Deserialize)]
@@ -102,6 +122,15 @@ fn ready(row: &sqlx::postgres::PgRow) -> ApiResult<&'static str> {
             "此 Agent 尚不支持 NodeQuality 插件，请升级 Agent".into(),
         ));
     }
+    if !capabilities.as_array().is_some_and(|values| {
+        values
+            .iter()
+            .any(|value| value.as_str() == Some(sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY))
+    }) {
+        return Err(ApiError::Conflict(
+            "此 Agent 尚不支持独立报告章节，请先升级 Agent".into(),
+        ));
+    }
     architecture(&row.get::<Value, _>("static_info"))
 }
 
@@ -112,8 +141,10 @@ pub async fn expire(state: &AppState) -> Result<(), sqlx::Error> {
 }
 
 async fn history(state: &AppState, server_id: i64) -> ApiResult<Vec<ReportRecord>> {
-    Ok(sqlx::query_as("SELECT id,status,job,report,error,created_at,updated_at,expires_at,agent_completed,cancel_requested_at,cancel_error FROM diagnostic_jobs WHERE server_id=$1 ORDER BY created_at DESC,id DESC LIMIT 10")
-        .bind(server_id).fetch_all(&state.pool).await?)
+    Ok(sqlx::query_as(HISTORY_QUERY)
+        .bind(server_id)
+        .fetch_all(&state.pool)
+        .await?)
 }
 
 pub async fn get(
@@ -122,7 +153,23 @@ pub async fn get(
     Path(id): Path<i64>,
 ) -> ApiResult<Json<NodeQualityView>> {
     auth::require_admin(&state, &headers).await?;
-    expire(&state).await?;
+    Ok(Json(view(&state, id).await?))
+}
+
+pub async fn legacy_get(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> ApiResult<Json<LegacyNodeQualityView>> {
+    auth::require_admin(&state, &headers).await?;
+    Ok(Json(LegacyNodeQualityView {
+        node_quality: view(&state, id).await?,
+        ip_info: ip_quality::view(&state, id).await?,
+    }))
+}
+
+async fn view(state: &AppState, id: i64) -> ApiResult<NodeQualityView> {
+    expire(state).await?;
     let row = sqlx::query(
         "SELECT static_info,last_seen,capabilities FROM servers WHERE id=$1 AND deleted_at IS NULL",
     )
@@ -130,11 +177,10 @@ pub async fn get(
     .fetch_optional(&state.pool)
     .await?
     .ok_or(ApiError::NotFound)?;
-    let ips = ip_quality::reported_ips(&row.get::<Value, _>("static_info"));
     let mut reason = ready(&row).err().map(|error| error.to_string());
     if reason.is_none() {
         let arch = ready(&row)?;
-        if let Err(error) = artifacts::descriptor(&state, "nodequality", PLUGIN_VERSION, arch).await
+        if let Err(error) = artifacts::descriptor(state, "nodequality", PLUGIN_VERSION, arch).await
         {
             reason = Some(match error {
                 ApiError::NotFound => {
@@ -144,14 +190,12 @@ pub async fn get(
             });
         }
     }
-    Ok(Json(NodeQualityView {
-        quality: ip_quality::cached(&state, id, &ips).await?,
-        ip_addresses: ips,
+    Ok(NodeQualityView {
         plugin_ready: reason.is_none(),
         plugin_reason: reason,
-        reports: history(&state, id).await?,
+        reports: history(state, id).await?,
         cancel_supported: cancellation::supported(&row.get::<Value, _>("capabilities")),
-    }))
+    })
 }
 
 pub async fn create(
@@ -201,9 +245,9 @@ pub async fn create(
             ("upload_report".into(), request.upload_report.to_string()),
         ]),
     };
-    let record = sqlx::query_as("INSERT INTO diagnostic_jobs(id,server_id,job,created_at,updated_at,expires_at) VALUES($1,$2,$3,$4,$4,$5) RETURNING id,status,job,report,error,created_at,updated_at,expires_at,agent_completed,cancel_requested_at,cancel_error")
+    let record = sqlx::query_as("INSERT INTO diagnostic_jobs(id,server_id,job,created_at,updated_at,expires_at,expected_sections) VALUES($1,$2,$3,$4,$4,$5,$6) RETURNING id,status,job,report,error,created_at,updated_at,expires_at,agent_completed,cancel_requested_at,cancel_error,expected_sections,report_completeness,'[]'::jsonb AS sections")
         .bind(job.id).bind(id).bind(serde_json::to_value(job).map_err(anyhow::Error::from)?)
-        .bind(now).bind(now + TIMEOUT_SECS as i64 + 300).fetch_one(&mut *tx).await?;
+        .bind(now).bind(now + TIMEOUT_SECS as i64 + 300).bind(EXPECTED_SECTIONS.to_vec()).fetch_one(&mut *tx).await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, Json(record)))
 }
@@ -295,7 +339,7 @@ pub async fn update(
             .map(serde_json::to_value)
             .transpose()
             .map_err(anyhow::Error::from)?;
-        sqlx::query("UPDATE diagnostic_jobs SET report=COALESCE($2,report),agent_completed=agent_completed OR $3,updated_at=$4 WHERE id=$1")
+        sqlx::query("UPDATE diagnostic_jobs SET report=COALESCE($2,report),report_completeness=CASE WHEN cardinality(expected_sections)=0 AND COALESCE($2,report) IS NOT NULL THEN 'legacy' ELSE report_completeness END,agent_completed=agent_completed OR $3,updated_at=$4 WHERE id=$1")
             .bind(id).bind(report).bind(update.status != DiagnosticStatus::Running).bind(now_timestamp())
             .execute(&mut *tx).await?;
         tx.commit().await?;
@@ -338,15 +382,21 @@ pub async fn update(
     )
     .bind(id)
     .bind(status)
-    .bind(report)
+    .bind(&report)
     .bind(error)
     .bind(now)
     .bind(completed)
     .execute(&mut *tx)
     .await?;
+    if report.is_some() {
+        sqlx::query("UPDATE diagnostic_jobs SET report_completeness='legacy' WHERE id=$1 AND cardinality(expected_sections)=0")
+            .bind(id).execute(&mut *tx).await?;
+    }
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+pub use sections::upload_section;
 
 #[cfg(test)]
 mod tests;
