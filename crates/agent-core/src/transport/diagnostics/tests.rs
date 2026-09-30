@@ -85,6 +85,7 @@ struct Services {
     stops: AtomicUsize,
     conflicts: Mutex<Result<Vec<String>, String>>,
     fail_stop: AtomicBool,
+    fail_status: AtomicBool,
     remain_active: AtomicBool,
 }
 impl Services {
@@ -97,6 +98,7 @@ impl Services {
             stops: AtomicUsize::new(0),
             conflicts: Mutex::new(Ok(Vec::new())),
             fail_stop: AtomicBool::new(false),
+            fail_status: AtomicBool::new(false),
             remain_active: AtomicBool::new(false),
         }
     }
@@ -145,6 +147,10 @@ impl ServiceManager for Services {
             if self.hang.load(Ordering::Relaxed) {
                 return std::future::pending().await;
             }
+            ensure!(
+                !self.fail_status.load(Ordering::Relaxed),
+                "fixture status failure"
+            );
             Ok(self.status.lock().unwrap().clone())
         })
     }

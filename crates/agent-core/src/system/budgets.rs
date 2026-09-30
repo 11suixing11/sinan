@@ -38,13 +38,28 @@ impl Privileged for RecordingOps {
             self.0.lock().unwrap().push((program.into(), args.to_vec()));
             Ok(CommandOutput {
                 success: true,
+                stdout: if program == Path::new("stat") {
+                    "41c0 0\n".into()
+                } else {
+                    String::new()
+                },
                 ..Default::default()
             })
         })
     }
 
-    fn create_dir<'a>(&'a self, _: &'a Path, _: u32, _: Option<&'a str>) -> BoxFuture<'a, ()> {
-        panic!("unexpected directory creation")
+    fn create_dir<'a>(
+        &'a self,
+        path: &'a Path,
+        mode: u32,
+        group: Option<&'a str>,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            assert_eq!(path, Path::new("/run/sinan-diagnostic"));
+            assert_eq!(mode, 0o700);
+            assert_eq!(group, Some("root"));
+            Ok(())
+        })
     }
     fn write_file<'a>(
         &'a self,
@@ -108,7 +123,7 @@ async fn service_command_applies_every_budget_before_the_program_separator() -> 
                 "--exclusive",
                 "--nonblock",
                 "--conflict-exit-code=75",
-                "/run/sinan-diagnostic.lock",
+                "/run/sinan-diagnostic/lock",
                 "/usr/bin/true",
                 "--property=MemoryMax=infinity"
             ]
@@ -129,7 +144,7 @@ async fn service_command_applies_every_budget_before_the_program_separator() -> 
             assert_eq!(properties, vec![&format!("{prefix}{expected}")]);
         }
     }
-    assert_eq!(ops.0.lock().unwrap().len(), 2);
+    assert_eq!(ops.0.lock().unwrap().len(), 4);
     Ok(())
 }
 

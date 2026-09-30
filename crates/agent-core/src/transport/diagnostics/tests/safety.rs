@@ -305,3 +305,116 @@ async fn stalled_panel_request_does_not_delay_five_second_memory_protection() ->
     server.abort();
     Ok(())
 }
+
+#[tokio::test]
+async fn low_memory_stops_despite_status_errors_and_retries_until_confirmed() -> Result<()> {
+    let directory = Directory::new();
+    let services = Arc::new(Services::new(JobStatus::Running));
+    services.fail_status.store(true, Ordering::Relaxed);
+    let ops = Arc::new(FakeResourceOps::new(Arc::new(SystemOps)));
+    low_memory(&ops);
+    let first = controlled_worker(&directory, services.clone(), ops.clone())?;
+    first.save(&checkpoint(&first.config, Uuid::new_v4()))?;
+    assert!(first.tick(None).await.is_err());
+    assert_eq!(services.stops.load(Ordering::Relaxed), 1);
+    assert!(matches!(
+        first.active()?,
+        Some(Checkpoint::Started {
+            protection_stop_reason: Some(_),
+            ..
+        })
+    ));
+    assert!(first.read::<Vec<DiagnosticUpdate>>(OUTBOX)?.is_none());
+    drop(first);
+
+    // The persisted stop is retried after restart even when pressure has cleared
+    // and status remains unreadable. No terminal result is invented prematurely.
+    *ops.resources.lock().unwrap() = FakeResourceOps::new(Arc::new(SystemOps))
+        .resources
+        .into_inner()
+        .unwrap();
+    let recovered = controlled_worker(&directory, services.clone(), ops)?;
+    assert!(recovered.tick(None).await.is_err());
+    assert_eq!(services.stops.load(Ordering::Relaxed), 2);
+    assert!(recovered.active()?.is_some());
+    assert!(recovered.read::<Vec<DiagnosticUpdate>>(OUTBOX)?.is_none());
+    services.fail_status.store(false, Ordering::Relaxed);
+    recovered.tick(None).await?;
+    assert!(recovered.active()?.is_none());
+    let pending: Vec<DiagnosticUpdate> = recovered.read(OUTBOX)?.unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].status, DiagnosticStatus::Failed);
+    assert!(pending[0].error.as_ref().unwrap().contains("低内存保护"));
+    assert!(pending[0].report.is_some());
+    assert_eq!(services.starts.load(Ordering::Relaxed), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn low_memory_stops_before_a_hung_status_query_times_out() -> Result<()> {
+    let directory = Directory::new();
+    let services = Arc::new(Services::new(JobStatus::Running));
+    services.hang.store(true, Ordering::Relaxed);
+    let ops = Arc::new(FakeResourceOps::new(Arc::new(SystemOps)));
+    low_memory(&ops);
+    let mut worker = controlled_worker(&directory, services.clone(), ops)?;
+    worker.config.operation_timeout_secs = 3;
+    worker.save(&checkpoint(&worker.config, Uuid::new_v4()))?;
+    // Confirmation still waits for a readable status, but stop must happen well
+    // before that query's timeout. Cancelling observation leaves durable retry state.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), worker.tick(None))
+            .await
+            .is_err()
+    );
+    assert_eq!(services.stops.load(Ordering::Relaxed), 1);
+    assert!(matches!(
+        worker.active()?,
+        Some(Checkpoint::Started {
+            protection_stop_reason: Some(_),
+            ..
+        })
+    ));
+    assert!(worker.read::<Vec<DiagnosticUpdate>>(OUTBOX)?.is_none());
+    services.hang.store(false, Ordering::Relaxed);
+    worker.tick(None).await?;
+    let pending: Vec<DiagnosticUpdate> = worker.read(OUTBOX)?.unwrap();
+    assert_eq!(pending[0].status, DiagnosticStatus::Failed);
+    assert!(pending[0].error.as_ref().unwrap().contains("低内存保护"));
+    assert_eq!(services.starts.load(Ordering::Relaxed), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn memory_pressure_is_resampled_while_a_status_query_is_hung() -> Result<()> {
+    let directory = Directory::new();
+    let services = Arc::new(Services::new(JobStatus::Running));
+    services.hang.store(true, Ordering::Relaxed);
+    let ops = Arc::new(FakeResourceOps::new(Arc::new(SystemOps)));
+    let mut worker = controlled_worker(&directory, services.clone(), ops.clone())?;
+    worker.config.operation_timeout_secs = 15;
+    worker.save(&checkpoint(&worker.config, Uuid::new_v4()))?;
+    let worker = Arc::new(worker);
+    let running = worker.clone();
+    let polling = tokio::spawn(async move { running.tick(None).await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(services.stops.load(Ordering::Relaxed), 0);
+    low_memory(&ops);
+    tokio::time::timeout(Duration::from_secs(7), async {
+        while services.stops.load(Ordering::Relaxed) == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    assert!(matches!(
+        worker.active()?,
+        Some(Checkpoint::Started {
+            protection_stop_reason: Some(_),
+            ..
+        })
+    ));
+    assert!(worker.read::<Vec<DiagnosticUpdate>>(OUTBOX)?.is_none());
+    assert_eq!(services.starts.load(Ordering::Relaxed), 0);
+    polling.abort();
+    Ok(())
+}

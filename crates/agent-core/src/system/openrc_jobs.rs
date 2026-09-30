@@ -43,6 +43,7 @@ impl SystemServiceManager {
         let directory = self.job_root.join(&job.unit);
         let spec = directory.join("job.json");
         ensure!(!spec.try_exists()?, "diagnostic job already submitted");
+        super::jobs::prepare_diagnostic_lock(self.privileged.as_ref()).await?;
         tracing::warn!(
             unit = %job.unit,
             memory_max = job.memory_max.get(),
@@ -66,7 +67,7 @@ impl SystemServiceManager {
             quote(spec.to_str().context("job path is not UTF-8")?)
         );
         let script = format!(
-            "#!/sbin/openrc-run\nname={}\ncommand={}\ncommand_args={}\ncommand_background=true\npidfile={}\nstart_stop_daemon_args=\"--make-pidfile\"\n",
+            "#!/sbin/openrc-run\nname={}\ncommand={}\ncommand_args={}\ncommand_background=true\numask=0077\npidfile={}\nstart_stop_daemon_args=\"--make-pidfile\"\n",
             quote(service),
             quote(
                 executable
@@ -161,6 +162,7 @@ pub async fn run_job(spec: &Path) -> Result<()> {
             && (1..=3600).contains(&job.timeout_secs),
         "invalid diagnostic job"
     );
+    super::jobs::prepare_diagnostic_lock(&ops).await?;
     // The exclusive journal entry makes repeated manual invocation fail closed.
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
@@ -176,7 +178,7 @@ pub async fn run_job(spec: &Path) -> Result<()> {
         "--exclusive".into(),
         "--nonblock".into(),
         "--conflict-exit-code=75".into(),
-        "/run/sinan-diagnostic.lock".into(),
+        super::jobs::DIAGNOSTIC_LOCK_PATH.into(),
         "unshare".into(),
         "--mount".into(),
         "--propagation".into(),

@@ -62,6 +62,46 @@ impl DiagnosticWorker {
         Ok(())
     }
 
+    pub(super) async fn status_with_memory_protection(
+        &self,
+        unit: &str,
+        persisted_reason: Option<&str>,
+    ) -> Result<(Option<JobStatus>, Option<String>)> {
+        if let Some(reason) = persisted_reason {
+            // A pending protection stop must retry even when service queries fail.
+            return Ok((None, Some(reason.into())));
+        }
+        let status = self.bounded(self.services.job_status(unit));
+        tokio::pin!(status);
+        let mut protection = tokio::time::interval(Duration::from_secs(5));
+        protection.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                biased;
+                result = &mut status => {
+                    return match result {
+                        Ok(status) if status != JobStatus::Running => Ok((Some(status), None)),
+                        result => {
+                            let reason = self.memory_stop_reason().await;
+                            if reason.is_some() {
+                                Ok((result.ok(), reason))
+                            } else {
+                                Ok((Some(result?), None))
+                            }
+                        }
+                    };
+                },
+                _ = protection.tick() => {
+                    if let Some(reason) = self.memory_stop_reason().await {
+                        // Keep sampling while status is hung, so new pressure also
+                        // stops unsafe work before the service query times out.
+                        return Ok((None, Some(reason)));
+                    }
+                },
+            }
+        }
+    }
+
     pub(super) async fn memory_stop_reason(&self) -> Option<String> {
         match tokio::time::timeout(PROBE_TIMEOUT, self.privileged.diagnostic_memory()).await {
             Ok(Ok(memory)) if memory.available_bytes() >= RUN_MEMORY_RESERVE => None,

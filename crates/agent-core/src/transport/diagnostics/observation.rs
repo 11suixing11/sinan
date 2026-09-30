@@ -14,38 +14,36 @@ impl DiagnosticWorker {
         else {
             anyhow::bail!("only a started diagnostic can be observed");
         };
-        let status = self
-            .bounded(self.services.job_status(&service.unit))
+        let (status, stop_reason) = self
+            .status_with_memory_protection(&service.unit, protection_stop_reason.as_deref())
             .await?;
         let id = Uuid::parse_str(&spec.id)?;
         let now = unix_time();
         let deadline_reached = expires_at.is_some_and(|deadline| deadline <= now as i64);
-        let mut stop_reason = protection_stop_reason.clone();
-        if status == JobStatus::Running && stop_reason.is_none() {
-            stop_reason = self.memory_stop_reason().await;
-            if let Some(reason) = &stop_reason {
-                let mut stopping = checkpoint.clone();
-                if let Checkpoint::Started {
-                    protection_stop_reason,
-                    ..
-                } = &mut stopping
-                {
-                    *protection_stop_reason = Some(reason.clone());
-                }
-                if let Err(error) = self.save(&stopping) {
-                    // Storage failure must not prevent the memory protection action.
-                    tracing::warn!(%id, %error, "cannot persist protection reason; stopping diagnostic anyway");
-                }
+        if protection_stop_reason.is_none()
+            && let Some(reason) = &stop_reason
+        {
+            let mut stopping = checkpoint.clone();
+            if let Checkpoint::Started {
+                protection_stop_reason,
+                ..
+            } = &mut stopping
+            {
+                *protection_stop_reason = Some(reason.clone());
+            }
+            if let Err(error) = self.save(&stopping) {
+                // Storage failure must not prevent the memory protection action.
+                tracing::warn!(%id, %error, "cannot persist protection reason; stopping diagnostic anyway");
             }
         }
-        if status == JobStatus::Running
+        if status == Some(JobStatus::Running)
             && stop_reason.is_none()
             && !deadline_reached
             && now.saturating_sub(*started_at) <= u64::from(spec.timeout_secs) + 60
         {
             return Ok(());
         }
-        if status == JobStatus::Running || stop_reason.is_some() {
+        if status == Some(JobStatus::Running) || stop_reason.is_some() {
             self.bounded(self.services.stop(&service.unit))
                 .await
                 .context("诊断保护停止未确认，将保留任务并继续重试")?;
@@ -75,7 +73,7 @@ impl DiagnosticWorker {
         let update = if let Some(reason) = stop_reason {
             failure(id, reason, report)
         } else {
-            match status {
+            match status.context("diagnostic status is unavailable")? {
                 JobStatus::Succeeded if report.is_some() => DiagnosticUpdate {
                     id,
                     status: DiagnosticStatus::Succeeded,

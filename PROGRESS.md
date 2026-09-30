@@ -430,3 +430,24 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 通过 Privileged/ServiceManager 检查资源和真实服务状态，固定 Linux flock 封住同时启动竞态，保留主线 systemd/OpenRC/非 Linux 服务能力。运行中每 5 秒检查 128 MiB 保留阈值；保护停止原因持久化，停止失败/未确认保留处理中，确认后才收已有报告并回传 Failed。面板离线、Agent 重启和 SQLite 写失败均不取消保护动作或重复执行任务。
 - 独立验收见 [诊断预检验收](docs/acceptance/diagnostic-preflight.md)。行为测试覆盖小内存/cgroup 限制、磁盘不足、负载/资源读取错误、同机冲突、停止失败、存储写失败及断连/重启后的报告恢复；新增真实 systemd 双单元独占夹具，和已有资源专项串行执行。
 - 最终源已整合主线 21e6a01，受限 Debian 12 构建容器（1.5 GiB 内存、2 CPU、禁止 swap）中的 fmt、Clippy --all-targets -D warnings、完整 cargo test --locked 通过：243 项通过、0 项失败、7 项忽略（4 项真实 systemd，3 项既有外部运行时专项）。独立 PostgreSQL/HTTP/WebSocket/面板完整 e2e 已运行，构建容器无 OOM。面板 HTTP 挂起仍在下一保护节拍停止的行为测试已通过。真实 systemd 二进制已交付专用测试节点验收，完整 NodeQuality 压测仍以该节点实际结果为准。
+
+
+- 本次合并整合 main `e2d898c`，保留核心/代理业务门禁、IP 查询逐条错误分类、诊断制品签名与启动前复验、退役同步和流量账本保留语义。修复状态查询失败/挂起会跳过内存保护的问题：独立每 5 秒重读内存，已有保护停止原因直接重试停止；停止确认失败时保留 ACTIVE，不提前发终态。
+- 两个 Linux 后端改用 root 所有、0700 普通目录中的固定锁 inode，OpenRC job 使用 0077 umask；不替换或删除已持有锁。OpenRC run-job 在首次启动前注册 SIGTERM/SIGINT，收到停止信号时同步取消并清理独立诊断进程组，保留已有报告与持久任务状态；真实 OpenRC 夹具新增子进程清理、锁释放和停止后重放拒绝回归。
+- 本次合并后的 workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁及其 6 项行为测试通过。目标 Rust 回归共 69 项通过：诊断 27、系统 17、PostgreSQL 诊断 4、诊断适配器 8、退役 13；系统测试另有 5 项 Linux/root/systemd 专项按条件忽略。本机为 macOS，未运行真实 OpenRC、systemd 或新增 root 锁验收，后续由最终提交 CI/专用测试机执行；没有把贡献者原始完整测试记录等同于本次合并源的完整验收。
+
+## 2026-10-01：核心与代理业务边界 ADR（独立 PR）
+
+- ADR 0023 固定服务器 core 与 sing-box 业务的所有权，明确管理员与代理用户命名、保留 ID/令牌/旧订阅路径/凭据/授权/流量、暂不改表名，以及网卡总流量与计量 epoch 的语义。用户追加授权的成本、账单网卡配额、周期拨测和插件用户配额覆盖原 MVP 对应排除项，仓库规则同步。
+- CI 分层检查继续禁止具体运行时名称，并新增 user/subscription/quota 及复数、蛇形、驼峰引用检查。原生账户和 SQLite 系统 API 仅有按文件、表达式限定的例外；同一行其他业务引用仍失败。原生本地变量和示例 URL 凭据改为 account，没有路由、模型、协议或持久化改变。
+- 独立验收文档为 docs/acceptance/proxy-business-boundary.md。当前 core 检查、6 项门禁行为测试、workspace 格式和差异空白检查通过；完整 Rust 测试由本 PR CI 验证。macOS 账户路径例外限定于以 `/Users` 开始的字符串，同文件的 `/api/Users` 业务路由仍被拒绝。业务搬迁与旧订阅的实机兼容验收属于后续独立 PR，本项未声称已完成搬迁。
+- 合入 main `21e6a01` 后，保持五项自动 CI 门禁及手动平台验证，新增监督进程回归与终态退役代码通过分层检查。macOS 系统别名注释去除易与代理业务混淆的账户词，运行行为保持不变。
+- 最终合入 main `71b8b56`，保留 IP 查询错误分类的独立验证记录。合并后的 core 门禁、6 项行为测试、Python discovery（72 成功、5 项已有条件忽略）、workspace 全 targets Clippy（warnings 为错误）、fmt、三份 workflow 的 actionlint、文档本地链接及差异检查通过；没有新增 Rust 运行行为，未重复完整 workspace 测试。
+
+## 2026-10-01：P0 IP 查询逐条错误分类（独立 PR）
+
+- 七种数据库响应均如实标记同一 `check-place` 查询入口；每条保存目标 IP、尝试时间、耗时、结构化错误类别及可选 HTTP 状态。DNS 和 TLS 根据 source 类型分类，连接失败不被泛化为 DNS；其余包含超时、403/429、非 JSON、字段不匹配、读取失败及响应超限。
+- 保留旧 payload、旧错误、零分及 false；前端中文显示分类、入口、IP、时间和耗时，未知字段保持未知。批次未开始的请求不补造逐条尝试时间。同步构建 dist 并保留最新主分支的监控/任务页面。
+- 对齐 main `45df3b1` 后，11 项 IP 查询、3 项诊断 PostgreSQL、6 项 foundation 专项测试全部通过；冻结锁文件安装、TypeScript/Vite 构建和桌面/手机实际 dist 夹具通过。初次完整 Rust/PostgreSQL 测试受到测试磁盘耗尽影响，foundation 临时建库失败，补跑成功后仍不记为完整通过；全 workspace 与平台验证交最新提交 CI。独立步骤与边界见 [IP 查询错误分类验收](docs/acceptance/ip-provider-errors.md)。
+- 最终整合 main `21e6a01`，保留诊断资源预算、有限流量补报、监控模式、任务页面与退役保护。使用独立 PostgreSQL 再跑上述 20 项专项测试，全部通过且无忽略；panel 全 targets Clippy（warnings 为错误）、workspace fmt 与差异空白检查通过。Bun 1.4.2 冻结锁文件安装及 TypeScript/Vite 构建通过，并重建合并后的 dist；此结果不代表最终提交的完整 workspace 或平台 CI 已通过。
+- 此项不修改缓存结构或覆盖语义；失败后保留历史成功结果由下一独立 PR 完成。新增 rustls 类型直接依赖的理由及替代方案记录于 [ADR 0024](docs/adr/0024-ip-provider-error-classification.md)。

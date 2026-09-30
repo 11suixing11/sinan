@@ -1,5 +1,44 @@
 use super::*;
 
+pub(super) const DIAGNOSTIC_LOCK_PATH: &str = "/run/sinan-diagnostic/lock";
+const DIAGNOSTIC_LOCK_DIRECTORY: &str = "/run/sinan-diagnostic";
+
+pub(super) async fn prepare_diagnostic_lock(ops: &dyn Privileged) -> Result<()> {
+    let directory = Path::new(DIAGNOSTIC_LOCK_DIRECTORY);
+    // Only root can reach the persistent lock inode, even if flock opens it read-only.
+    // Do not publish or remove the lock file: replacing it would split the exclusion.
+    ops.create_dir(directory, 0o700, Some("root")).await?;
+    let execution = ops
+        .execute_bounded(
+            Path::new("stat"),
+            &[
+                "-c".into(),
+                "%f %u".into(),
+                "--".into(),
+                DIAGNOSTIC_LOCK_DIRECTORY.into(),
+            ],
+            5,
+            1024,
+        )
+        .await?;
+    ensure!(
+        execution.output.success && !execution.timed_out && !execution.truncated,
+        "diagnostic lock directory inspection failed"
+    );
+    let fields: Vec<_> = execution.output.stdout.split_whitespace().collect();
+    ensure!(
+        fields.len() == 2,
+        "invalid diagnostic lock directory metadata"
+    );
+    let mode =
+        u32::from_str_radix(fields[0], 16).context("invalid diagnostic lock directory mode")?;
+    ensure!(
+        mode & 0o170000 == 0o040000 && mode & 0o7777 == 0o700 && fields[1] == "0",
+        "diagnostic lock directory must be an ordinary root-owned 0700 directory"
+    );
+    Ok(())
+}
+
 impl SystemServiceManager {
     pub(super) fn diagnostic_running_units(&self) -> BoxFuture<'_, Vec<String>> {
         Box::pin(async move {
@@ -69,6 +108,7 @@ impl SystemServiceManager {
                 self.backend == ServiceBackend::Systemd,
                 "diagnostic jobs require Linux"
             );
+            prepare_diagnostic_lock(self.privileged.as_ref()).await?;
             let mut args = vec![
                 format!("--unit={}", job.unit),
                 "--no-block".into(),
@@ -93,7 +133,7 @@ impl SystemServiceManager {
                 "--exclusive".into(),
                 "--nonblock".into(),
                 "--conflict-exit-code=75".into(),
-                "/run/sinan-diagnostic.lock".into(),
+                DIAGNOSTIC_LOCK_PATH.into(),
                 program.into(),
             ];
             args.extend(job.args.iter().cloned());
@@ -223,3 +263,7 @@ fn parse_job_status(output: &CommandOutput) -> Result<JobStatus> {
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "locks.rs"]
+mod lock_tests;
