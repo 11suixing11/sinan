@@ -3,14 +3,23 @@ use crate::{
     input::{self, Target, Validated},
 };
 use anyhow::{Context, Result, ensure};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use std::net::{IpAddr, SocketAddr};
+
+fn nullable<'de, T, D>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Engine {
     name: String,
     version: String,
+    #[serde(deserialize_with = "nullable")]
     source_commit: Option<String>,
 }
 #[derive(Deserialize)]
@@ -29,7 +38,9 @@ struct Parameters {
 struct Sample {
     attempted_at_ms: u64,
     elapsed_ms: f64,
+    #[serde(deserialize_with = "nullable")]
     latency_ms: Option<f64>,
+    #[serde(deserialize_with = "nullable")]
     error: Option<String>,
 }
 #[derive(Deserialize)]
@@ -37,20 +48,26 @@ struct Sample {
 struct Summary {
     attempted: usize,
     succeeded: usize,
+    #[serde(deserialize_with = "nullable")]
     connection_success_percent: Option<f64>,
+    #[serde(deserialize_with = "nullable")]
     latency_min_ms: Option<f64>,
+    #[serde(deserialize_with = "nullable")]
     latency_mean_ms: Option<f64>,
+    #[serde(deserialize_with = "nullable")]
     latency_max_ms: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TargetResult {
     target: Target,
+    #[serde(deserialize_with = "nullable")]
     address: Option<String>,
     dns_attempts: u8,
     status: String,
     samples: Vec<Sample>,
     summary: Summary,
+    #[serde(deserialize_with = "nullable")]
     error: Option<String>,
     pub complete: bool,
 }
@@ -62,6 +79,7 @@ pub(crate) struct Report {
     semantics: String,
     engine: Engine,
     started_at_ms: u64,
+    #[serde(deserialize_with = "nullable")]
     finished_at_ms: Option<u64>,
     parameters: Parameters,
     target_digest: String,
