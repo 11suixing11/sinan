@@ -391,3 +391,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - Agent 和 sing-box systemd 单元分别增加 `OOMScoreAdjust=-500`、`CPUWeight=1000`，降低常驻进程的 OOM 候选优先级并提高资源争抢时的 CPU 权重；没有添加 CPU 配额。安装器直接嵌入这两份源单元，渲染后逐字核对一致。
 - 专用 Debian 12/systemd 252.39、1 GiB/2 CPU 验收容器中，从源单元生成独立短命夹具，分别保留 root 和运行时用户/能力设置。systemd 属性、内核 oom_score_adj 和 cgroup cpu.weight 均验证为 -500/1000，CPUQuotaPerSecUSec 为 infinity。已有 Agent 和运行时 PID、运行状态、重启数保持不变，夹具已停止并删除。
 - 单元语法校验使用临时可执行文件路径，未调用真实业务程序；安装器 shell 语法、构建与签名发布 Python 检查、差异空白检查通过。独立步骤和验收边界见 [常驻服务优先级验收](docs/acceptance/resident-service-priority.md)。完整 Rust/Compose 检查由该 PR 的 CI 执行，完整诊断与持续代理流量压力验收仍待其他 P0 改动完成。
+
+## 2026-10-01：诊断整改基线（独立 PR）
+
+- 新建统一 milestone，将已确认代码缺陷与实机尚未复现的症状区分，保留既有未解决 Issue。
+- 实测面板容器网络命名空间的 IP 查询为 HTTP 403；DNS、TCP、TLS 均成功。私有原始日志不进入 Git。
+- 新增只读基线采集脚本与故障矩阵，输出仅写私有目录，面板时间采用白名单；旧指标采集时间明确未知。
+- 专用 Debian 12 容器 1 GiB / 2 CPU 可用于小夹具；完整 NodeQuality 不在共享生产磁盘上运行。独立 Debian 12 节点选取与完整症状复现仍进行中。
