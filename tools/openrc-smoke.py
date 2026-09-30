@@ -216,6 +216,14 @@ def main():
     try:
         run(*script, env=environment)
         agent_pid = wait_for(lambda: pid(AGENT_STATE), "Agent startup after installation")
+        # BusyBox must not leave shared intermediate parents at the private umask.
+        for shared in ("/opt/sinan", "/opt/sinan/plugins", "/var/lib/sinan"):
+            properties = Path(shared).stat()
+            assert properties.st_uid == 0 and properties.st_gid == 0
+            assert properties.st_mode & 0o777 == 0o755, shared
+        assert Path("/var/lib/sinan/core").stat().st_mode & 0o777 == 0o700
+        run("su", "-s", "/bin/sh", "sinan-singbox", "-c",
+            "test -x /opt/sinan && test -x /opt/sinan/plugins && test -x /var/lib/sinan")
         for name in ["sinan-agent", RUNTIME_SERVICE]:
             assert f"_service='{name}'" in dependencies.read_text(), name
             assert Path(f"/etc/runlevels/default/{name}").is_symlink()
