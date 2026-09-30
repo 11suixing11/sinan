@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "budgets.rs"]
+mod budgets;
+
 #[test]
 fn runtime_status_requires_explicit_process_free_shutdown() -> Result<()> {
     let response = |success, load, active, main, control| CommandOutput {
@@ -104,6 +107,11 @@ async fn unsafe_unit_and_expansion_arguments_are_rejected_before_execution() -> 
         args: vec!["$HOME".into()],
         working_directory: "/tmp".into(),
         timeout_secs: 1,
+        memory_max: Default::default(),
+        tasks_max: Default::default(),
+        cpu_weight: Default::default(),
+        io_weight: Default::default(),
+        oom_score_adjust: Default::default(),
     };
     assert!(
         services
@@ -157,6 +165,11 @@ async fn real_systemd_diagnostic_jobs_survive_manager_recreation_and_enforce_tim
                 args,
                 working_directory: directory.clone(),
                 timeout_secs,
+                memory_max: Default::default(),
+                tasks_max: Default::default(),
+                cpu_weight: Default::default(),
+                io_weight: Default::default(),
+                oom_score_adjust: Default::default(),
             };
             units.push(job.unit.clone());
             services.start_job(&job).await?;
@@ -185,7 +198,7 @@ async fn real_systemd_diagnostic_jobs_survive_manager_recreation_and_enforce_tim
                     Path::new("systemctl"),
                     &[
                         "show".into(),
-                        "--property=PrivateMounts,KillMode,TimeoutStartUSec".into(),
+                        "--property=PrivateMounts,KillMode,TimeoutStartUSec,MemoryMax,MemorySwapMax,TasksMax,CPUWeight,IOWeight,OOMScoreAdjust".into(),
                         "--".into(),
                         job.unit.clone(),
                     ],
@@ -194,6 +207,21 @@ async fn real_systemd_diagnostic_jobs_survive_manager_recreation_and_enforce_tim
             ensure!(properties.success, "cannot inspect diagnostic isolation");
             assert!(properties.stdout.contains("PrivateMounts=yes"));
             assert!(properties.stdout.contains("KillMode=control-group"));
+            let resource_properties: std::collections::BTreeMap<_, _> = properties
+                .stdout
+                .lines()
+                .filter_map(|line| line.split_once('='))
+                .collect();
+            for (property, expected) in [
+                ("MemoryMax", job.memory_max.get().to_string()),
+                ("MemorySwapMax", "0".into()),
+                ("TasksMax", job.tasks_max.get().to_string()),
+                ("CPUWeight", job.cpu_weight.get().to_string()),
+                ("IOWeight", job.io_weight.get().to_string()),
+                ("OOMScoreAdjust", job.oom_score_adjust.get().to_string()),
+            ] {
+                assert_eq!(resource_properties.get(property), Some(&expected.as_str()));
+            }
             if timeout_secs == 1 {
                 assert!(properties.stdout.contains("TimeoutStartUSec=1s"));
             }

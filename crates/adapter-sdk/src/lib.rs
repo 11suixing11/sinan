@@ -1,6 +1,9 @@
 #![forbid(unsafe_code)]
 
 use serde::{Deserialize, Serialize};
+
+mod resources;
+pub use resources::{CpuWeight, IoWeight, MemoryMax, OomScoreAdjust, TasksMax};
 use std::{
     collections::BTreeMap,
     future::Future,
@@ -126,6 +129,16 @@ pub struct ServiceJob {
     pub args: Vec<String>,
     pub working_directory: PathBuf,
     pub timeout_secs: u32,
+    #[serde(default)]
+    pub memory_max: MemoryMax,
+    #[serde(default)]
+    pub tasks_max: TasksMax,
+    #[serde(default)]
+    pub cpu_weight: CpuWeight,
+    #[serde(default)]
+    pub io_weight: IoWeight,
+    #[serde(default)]
+    pub oom_score_adjust: OomScoreAdjust,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
