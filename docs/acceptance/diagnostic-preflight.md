@@ -52,3 +52,12 @@ sudo "$diagnostic_test_binary" real_systemd_diagnostic_ --ignored --test-threads
 新专项读取真实内存、CPU 和工作目录资源，再启动一个持锁的有限 shell/sleep 夹具。服务列表必须识别它，第二个服务必须被独占锁拒绝，第二个 payload 的文件标记不得出现；停止第一个服务后确认没有活动进程。原资源预算的内存 OOM、任务数上限、属性读回、管理器重建和超时专项继续通过。
 
 资源策略自动测试使用可注入的明确模拟数据，不根据开发机剩余资源决定通过与否。最终代码整合主线 21e6a01 后，在受限 Debian 12 构建容器（1.5 GiB 内存、2 CPU、禁止 swap）运行 fmt、Clippy 和完整 cargo test --locked：243 项通过，0 项失败，7 项忽略；包含独立 PostgreSQL、HTTP/WebSocket 及面板完整 e2e，构建容器无 OOM。7 项忽略为 4 项真实 systemd 和 3 项既有外部运行时测试；systemd 专项二进制另交专用测试节点执行。真实 systemd 专项和完整 NodeQuality 压测以对应 CI/专用节点实际结果为准，不将夹具通过视为完整验机。管理员取消、报告章节完整度和报告中的负载元数据由各自独立 PR 完成。
+
+
+## 专用节点实机结果（2026-10-01）
+
+授权专用 Debian 12 小内存节点使用上述最终 Linux core 测试二进制，SHA256 为 `283e657b26de1717bbe09dedf7032035d6a3e648dc0256b8ed4f3293c2ca50c8`。串行运行 `real_systemd_diagnostic_ --ignored --test-threads=1`：4 项通过，0 项失败，0 项忽略，耗时 2.79 秒，覆盖 64 MiB 内存 OOM/TasksMax、queued-start、管理器重建/超时及预检独占锁。
+
+同期完整 NodeQuality 基线记录为全局 OOM 杀死 Geekbench（匿名内存约 269 MiB，OOMScoreAdjust=500），诊断单元 Result=oom-kill；诊断预算为 MemoryMax=512 MiB、MemorySwapMax=0、TasksMax=128。Agent 及其 supervisor、常驻运行时进程均保留，服务 NRestarts=0，恢复不需要重启 Agent。该基线没有预检默认内存拒绝策略，小内存节点后续在默认预算下应拒绝完整验机。
+
+采集 SSH 隧道曾断连，指标时间最大空窗 319.014 秒；这一空窗不能作为纯 Agent 心跳中断时长。诊断已停止，宿主 findmnt 未见 BenchOs/NodeQuality 工作目录挂载。完整验机的心跳与遥测连续性仍需在稳定采集链路上单独验收。
