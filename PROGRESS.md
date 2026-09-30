@@ -392,6 +392,8 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 ## 2026-10-01：诊断资源预算（独立 PR，对应 Issue #14）
 
+- 合入最新平台/Agent 基线后的 CI 暴露夹具读取竞态：systemd-run 的非阻塞启动确认可能早于 ExecStart，初始 inactive 不是退出。真实预算夹具改为先确认启动时间戳，再判断执行结果，不修改生产成功判定。本机 core 单元测试 59 项通过、2 项 systemd 专项按平台忽略；Linux 修复后 CI 待确认，旧提交的成功记录不替代最终提交验收。
+
 - ServiceJob 新增五项数字预算及构造/反序列化范围约束，拒绝无界值、零上限、非法权重和负诊断 OOM 保护。NodeQuality 默认限制为 512 MiB/128 个任务、CPUWeight=10、IOWeight=10、OOMScoreAdjust=500；core 显式渲染所有 systemd 属性，固定 MemorySwapMax=0，防止把诊断内存争抢转为 swap 压力。
 - 旧 checkpoint 缺字段时使用默认值，重启后继续观察原单元并保留报告，不重复启动或追溯修改已有单元。已保存的新预算完整往返保留。
 - 独立验收见 [诊断资源预算验收](docs/acceptance/diagnostic-resource-budget.md)。测试覆盖默认和自定义真实命令参数、参数边界、非法持久值及旧 SQLite 恢复；Linux CI 扩展真实属性读回并运行 64 MiB 内存 OOM/8 个任务子进程上限与停止后的 PID 清理夹具。

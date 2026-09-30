@@ -199,6 +199,30 @@ finally:
             services.start_job(&job).await?;
             let status = tokio::time::timeout(Duration::from_secs(40), async {
                 loop {
+                    // --no-block acknowledges the queued start before ExecStart runs.
+                    // Never mistake the transient unit's initial inactive state for exit.
+                    let started = ops
+                        .execute(
+                            Path::new("systemctl"),
+                            &[
+                                "show".into(),
+                                "--property=ExecMainStartTimestampMonotonic".into(),
+                                "--".into(),
+                                job.unit.clone(),
+                            ],
+                        )
+                        .await?;
+                    if !started.success
+                        || !started
+                            .stdout
+                            .trim()
+                            .strip_prefix("ExecMainStartTimestampMonotonic=")
+                            .and_then(|value| value.parse::<u64>().ok())
+                            .is_some_and(|value| value > 0)
+                    {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        continue;
+                    }
                     let status = services.job_status(&job.unit).await?;
                     if status != JobStatus::Running {
                         return Ok::<_, anyhow::Error>(status);
