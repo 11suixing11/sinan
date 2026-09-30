@@ -7,23 +7,23 @@ use axum::{
     extract::{Path, State},
     http::HeaderMap,
 };
-use futures_util::{StreamExt, stream};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sinan_protocol::now_timestamp;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    future::Future,
     net::IpAddr,
-    pin::Pin,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 mod cache;
 mod errors;
 mod fields;
+mod providers;
+mod queries;
+pub use providers::{ProviderDescription, ProviderRegistry};
 #[cfg(test)]
 mod structured_error_tests;
 pub use errors::QueryErrorKind;
@@ -82,6 +82,10 @@ pub struct QualityDatabase {
     pub last_error: Option<QueryFailure>,
     #[serde(default)]
     pub historical: bool,
+    #[serde(default)]
+    pub available: Option<bool>,
+    #[serde(default)]
+    pub unavailable_reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -143,6 +147,7 @@ pub struct IpQuality {
 pub struct ServerIpInfoView {
     pub ip_addresses: Vec<String>,
     pub quality: Vec<IpQuality>,
+    pub providers: Vec<ProviderDescription>,
 }
 
 pub async fn view(state: &AppState, server_id: i64) -> ApiResult<ServerIpInfoView> {
@@ -156,6 +161,7 @@ pub async fn view(state: &AppState, server_id: i64) -> ApiResult<ServerIpInfoVie
     Ok(ServerIpInfoView {
         quality: cached(state, server_id, &ips).await?,
         ip_addresses: ips,
+        providers: state.quality_providers.descriptions(),
     })
 }
 
@@ -167,8 +173,6 @@ pub async fn get(
     auth::require_admin(&state, &headers).await?;
     Ok(Json(view(&state, id).await?))
 }
-
-type DatabaseRequest = Pin<Box<dyn Future<Output = (String, QualityDatabase)> + Send>>;
 
 pub fn reported_ips(info: &Value) -> Vec<String> {
     let mut ips: Vec<_> = info["ip_addresses"]
@@ -209,7 +213,9 @@ pub fn public_ip(ip: IpAddr) -> bool {
 }
 
 pub async fn cached(state: &AppState, server_id: i64, ips: &[String]) -> ApiResult<Vec<IpQuality>> {
-    cache::read(&state.pool, server_id, ips).await
+    let mut quality = cache::read(&state.pool, server_id, ips).await?;
+    state.quality_providers.mark_availability(&mut quality);
+    Ok(quality)
 }
 
 pub async fn refresh(
@@ -235,16 +241,25 @@ async fn refresh_inner(state: &AppState, id: i64, ips: &[String]) -> ApiResult<V
     let client = Client::builder()
         .dns_resolver(Arc::new(QualityDnsResolver))
         .redirect(reqwest::redirect::Policy::none())
+        .retry(reqwest::retry::never())
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(6))
         .build()
         .map_err(anyhow::Error::from)?;
-    let mut quality = query_all(&client, PROVIDER_ORIGIN, ips, false).await;
-    quality.sort_by(|a, b| a.ip.cmp(&b.ip));
+    let mut quality = queries::query_sources(
+        &client,
+        &state.quality_providers,
+        ips,
+        false,
+        Duration::from_secs(40),
+    )
+    .await;
+    quality.sort_by(|a, b| a.ip.cmp(&b.ip).then_with(|| a.provider.cmp(&b.provider)));
     cache::persist(&state.pool, id, &quality).await?;
-    cache::read(&state.pool, id, ips).await
+    cached(state, id, ips).await
 }
 
+#[cfg(test)]
 async fn query_all(
     client: &Client,
     origin: &str,
@@ -261,6 +276,7 @@ async fn query_all(
     .await
 }
 
+#[cfg(test)]
 async fn query_all_with_limit(
     client: &Client,
     origin: &str,
@@ -268,102 +284,14 @@ async fn query_all_with_limit(
     allow_documentation_ips: bool,
     total_limit: Duration,
 ) -> Vec<IpQuality> {
-    let now = now_timestamp();
-    let attempts = Arc::new(Mutex::new(BTreeMap::new()));
-    let mut requests: Vec<DatabaseRequest> = Vec::new();
-    for ip in ips {
-        for (database, label) in DATABASES {
-            let client = client.clone();
-            let origin = origin.to_owned();
-            let ip = ip.clone();
-            let attempts = attempts.clone();
-            requests.push(Box::pin(async move {
-                let attempt = QueryAttempt::start();
-                attempts
-                    .lock()
-                    .expect("query attempt lock")
-                    .insert((ip.clone(), database.to_owned()), attempt);
-                let result = if ip.parse::<IpAddr>().is_ok_and(|address| {
-                    public_ip(address) || (allow_documentation_ips && documentation_ip(address))
-                }) {
-                    query_database(&client, &origin, &ip, database).await
-                } else {
-                    Err(QueryError::new(
-                        QueryErrorKind::NotPublic,
-                        "此地址不属于公网单播 IP，未向第三方查询",
-                    ))
-                };
-                let entry = database_result(database, label, &ip, Some(attempt), result);
-                (ip, entry)
-            }));
-        }
-    }
-    let mut pending = stream::iter(requests).buffer_unordered(4);
-    let mut results = Vec::new();
-    let deadline = tokio::time::Instant::now() + total_limit;
-    while let Ok(Some(result)) = tokio::time::timeout_at(deadline, pending.next()).await {
-        results.push(result);
-    }
-    ips.iter()
-        .map(|ip| {
-            let databases: Vec<_> = DATABASES
-                .iter()
-                .map(|&(database, label)| {
-                    results
-                        .iter()
-                        .find(|(address, entry)| address == ip && entry.database == database)
-                        .map(|(_, entry)| entry.clone())
-                        .unwrap_or_else(|| {
-                            let attempt = attempts
-                                .lock()
-                                .expect("query attempt lock")
-                                .get(&(ip.clone(), database.to_owned()))
-                                .copied();
-                            database_result(
-                                database,
-                                label,
-                                ip,
-                                attempt,
-                                Err(QueryError::new(
-                                    if attempt.is_some() {
-                                        QueryErrorKind::Timeout
-                                    } else {
-                                        QueryErrorKind::NotAttempted
-                                    },
-                                    if attempt.is_some() {
-                                        "质量查询超过总时间限制"
-                                    } else {
-                                        "查询批次超过总时间限制，此数据库尚未开始查询"
-                                    },
-                                )),
-                            )
-                        })
-                })
-                .collect();
-            let succeeded = databases
-                .iter()
-                .filter(|entry| entry.status == "succeeded")
-                .count();
-            let status = match succeeded {
-                0 => "failed",
-                7 => "succeeded",
-                _ => "partial",
-            }
-            .into();
-            IpQuality {
-                ip: ip.clone(),
-                checked_at: now,
-                expires_at: now + CACHE_SECS,
-                status,
-                databases,
-                provider: provider_name(),
-                last_attempt_at: Some(now),
-                last_success_at: None,
-                fresh_until: None,
-                last_error: BTreeMap::new(),
-            }
-        })
-        .collect()
+    queries::query_sources(
+        client,
+        &providers::ProviderRegistry::check_place_fixture(origin),
+        ips,
+        allow_documentation_ips,
+        total_limit,
+    )
+    .await
 }
 
 fn documentation_ip(ip: IpAddr) -> bool {
@@ -411,6 +339,8 @@ fn database_result(
         fresh_until: success_at.map(|at| at.saturating_add(CACHE_SECS)),
         last_error: None,
         historical: false,
+        available: Some(true),
+        unavailable_reason: None,
     }
 }
 
@@ -429,6 +359,18 @@ async fn query_database(
     } else {
         request.query(&[("db", database)])
     };
+    let value = query_json(request).await?;
+    let fields = parse_fields(database, &value);
+    if fields.is_empty() {
+        return Err(QueryError::new(
+            QueryErrorKind::SchemaMismatch,
+            "质量查询响应没有可信的有效字段或未确认成功，此数据库信息未知",
+        ));
+    }
+    Ok(fields)
+}
+
+async fn query_json(request: reqwest::RequestBuilder) -> Result<Value, QueryError> {
     let mut response = request
         .send()
         .await
@@ -461,14 +403,7 @@ async fn query_database(
     }
     let value: Value = serde_json::from_slice(&body)
         .map_err(|_| QueryError::new(QueryErrorKind::NonJson, "质量查询返回的内容不是有效 JSON"))?;
-    let fields = parse_fields(database, &value);
-    if fields.is_empty() {
-        return Err(QueryError::new(
-            QueryErrorKind::SchemaMismatch,
-            "质量查询响应没有可信的有效字段或未确认成功，此数据库信息未知",
-        ));
-    }
-    Ok(fields)
+    Ok(value)
 }
 
 #[cfg(test)]

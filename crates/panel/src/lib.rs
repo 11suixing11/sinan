@@ -46,6 +46,7 @@ pub struct AppState {
     pub pool: PgPool,
     pub login_permits: Arc<Semaphore>,
     pub quality_permits: Arc<Semaphore>,
+    pub quality_providers: Arc<ip_quality::ProviderRegistry>,
     pub release_permits: Arc<Semaphore>,
     pub release_keys: Option<Arc<sinan_protocol::release::TrustedKeys>>,
     pub config: Arc<Config>,
@@ -61,6 +62,7 @@ impl AppState {
             pool,
             login_permits: Arc::new(Semaphore::new(4)),
             quality_permits: Arc::new(Semaphore::new(2)),
+            quality_providers: Arc::new(ip_quality::ProviderRegistry::from_env()),
             release_permits: Arc::new(Semaphore::new(1)),
             release_keys: sinan_protocol::release::TrustedKeys::compiled()
                 .ok()
