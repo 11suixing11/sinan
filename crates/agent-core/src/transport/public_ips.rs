@@ -102,8 +102,9 @@ pub(super) async fn run(
                         .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
                         .remove_json("discovered_ips")?;
                 }
-                let _ =
-                    outgoing.try_send(Envelope::new("telemetry.static", runtime.static_info()?)?);
+                if let Some(info) = runtime.static_info()? {
+                    let _ = outgoing.try_send(Envelope::new("telemetry.static", info)?);
+                }
             }
         }
         tokio::time::sleep(Duration::from_secs(60)).await;

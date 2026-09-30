@@ -1,6 +1,6 @@
 use anyhow::Result;
 use sinan_adapter_sdk::Privileged;
-use sinan_protocol::{DiskMetrics, GpuMetrics};
+use sinan_protocol::{DiskMetrics, GpuMetrics, Metrics};
 use std::{
     collections::BTreeMap,
     path::Path,
@@ -12,6 +12,30 @@ pub(super) struct Hardware {
     pub gpus: Vec<GpuMetrics>,
     pub connections: Option<(u64, u64)>,
     pub io: BTreeMap<String, DiskMetrics>,
+}
+
+impl Hardware {
+    pub(super) fn apply(&self, metrics: &mut Metrics) {
+        metrics.gpus = self.gpus.clone();
+        if let Some((tcp, udp)) = self.connections {
+            metrics.tcp_connections = Some(tcp);
+            metrics.udp_connections = Some(udp);
+        }
+        for disk in &mut metrics.disks {
+            let name = Path::new(&disk.name)
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy();
+            if let Some(io) = self.io.get(name.as_ref()) {
+                disk.read_bytes_per_sec = io.read_bytes_per_sec;
+                disk.write_bytes_per_sec = io.write_bytes_per_sec;
+                disk.read_iops = io.read_iops;
+                disk.write_iops = io.write_iops;
+                disk.await_ms = io.await_ms;
+                disk.utilization_percent = io.utilization_percent;
+            }
+        }
+    }
 }
 
 type IoCounters = BTreeMap<String, [u64; 7]>;

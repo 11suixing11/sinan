@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use sinan_protocol::{EnrollRequest, EnrollResponse, now_timestamp};
 use sqlx::{FromRow, PgPool, Row};
 
-const SERVER_COLUMNS: &str = "id, name, device_public_key, static_info, last_seen, latest_metrics, manifest_rev, capabilities";
+const SERVER_COLUMNS: &str = "id, name, device_public_key, static_info, last_seen, last_heartbeat_at, NULLIF(metrics_sampled_at,0) AS metrics_sampled_at, latest_metrics, agent_settings, manifest_rev, capabilities";
 
 #[derive(Serialize, FromRow)]
 pub struct Server {
@@ -24,11 +24,17 @@ pub struct Server {
     pub device_public_key: Option<String>,
     pub static_info: Value,
     pub last_seen: Option<i64>,
+    pub last_heartbeat_at: Option<i64>,
+    pub metrics_sampled_at: Option<i64>,
+    #[serde(skip)]
+    agent_settings: Value,
     pub latest_metrics: Value,
     pub manifest_rev: i64,
     pub capabilities: Value,
     #[sqlx(default)]
     pub online: bool,
+    #[sqlx(default)]
+    pub metrics_stale: bool,
 }
 
 impl Server {
@@ -37,6 +43,18 @@ impl Server {
         self.online = self
             .last_seen
             .is_some_and(|seen| now.saturating_sub(seen) <= 60);
+        let settings =
+            serde_json::from_value::<sinan_protocol::AgentSettings>(self.agent_settings.clone())
+                .unwrap_or_default();
+        let allowance = settings
+            .sample_interval_secs
+            .saturating_mul(3)
+            .saturating_add(settings.upload_interval_secs.saturating_mul(2))
+            .max(15);
+        self.metrics_stale = self.metrics_sampled_at.is_some_and(|sampled| {
+            sinan_protocol::telemetry::now_millis().saturating_sub(sampled)
+                > (allowance as i64).saturating_mul(1000)
+        });
         self
     }
 }

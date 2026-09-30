@@ -7,6 +7,8 @@ use tokio::{net::TcpListener, task::JoinSet};
 use tokio_tungstenite::accept_async;
 use uuid::Uuid;
 
+mod readiness;
+
 type Peer = WebSocketStream<TcpStream>;
 
 struct Directory(PathBuf);
@@ -66,14 +68,18 @@ async fn accept_peer(listener: &TcpListener) -> Result<Peer> {
     Ok(peer)
 }
 
-fn spawn_connection(tasks: &mut JoinSet<Result<()>>, config: Config, runtime: Runtime) {
+fn spawn_connection(
+    tasks: &mut JoinSet<Result<()>>,
+    config: Config,
+    runtime: Runtime,
+) -> mpsc::Receiver<()> {
+    let (trigger_tx, trigger_rx) = mpsc::channel(4);
     tasks.spawn(async move {
         let identity = Identity {
             server_id: 1,
             signing_key: SigningKey::from_bytes(&[7; 32]),
         };
         let (client_tx, _client_rx) = watch::channel(None);
-        let (trigger_tx, _trigger_rx) = mpsc::channel(1);
         let (_outgoing_tx, mut outgoing_rx) = mpsc::channel(1);
         run(
             &config,
@@ -85,6 +91,7 @@ fn spawn_connection(tasks: &mut JoinSet<Result<()>>, config: Config, runtime: Ru
         )
         .await
     });
+    trigger_rx
 }
 
 #[tokio::test]
@@ -145,6 +152,7 @@ async fn backlog_and_legacy_giant_preserve_heartbeat_control_ack_and_restart_rep
         public_ips: Arc::new(vec![]),
         agent_version: "fixture-agent",
         retirement: None,
+        telemetry: watch::channel(Arc::new(crate::telemetry::cache::Snapshot::default())).1,
     };
     let mut tasks = JoinSet::new();
     spawn_connection(&mut tasks, config.clone(), runtime.clone());
@@ -221,6 +229,120 @@ async fn backlog_and_legacy_giant_preserve_heartbeat_control_ack_and_restart_rep
     })
     .await??;
     assert_eq!(Some(retried), replay);
+    tasks.abort_all();
+    while tasks.join_next().await.is_some() {}
+    Ok(())
+}
+
+#[tokio::test]
+async fn blocked_collection_preserves_real_twenty_second_heartbeat_and_control() -> Result<()> {
+    let directory =
+        Directory(std::env::temp_dir().join(format!("sn-cache-wire-{}", Uuid::new_v4())));
+    let fixture = crate::telemetry::cache::tests::BlockingFixture::new()?;
+    let previous = fixture.wait_until_blocked().await?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let config = Config {
+        panel_url: format!("http://{}", listener.local_addr()?),
+        state_db: directory.0.join("state.db"),
+        identity_dir: directory.0.join("identity"),
+        runtime_root: directory.0.join("runtime"),
+        install_root: directory.0.join("install"),
+        agent_root: directory.0.join("agent"),
+        status_socket: directory.0.join("status.sock"),
+        operation_timeout_secs: 1,
+        public_ips: vec![],
+        allow_remote_commands: false,
+        settings: Default::default(),
+    };
+    let runtime = Runtime {
+        state: Arc::new(Mutex::new(State::open(&config.state_db)?)),
+        modules: Arc::new(vec![]),
+        capabilities: Arc::new(vec![]),
+        connected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        public_ips: Arc::new(vec![]),
+        agent_version: "fixture-agent",
+        retirement: None,
+        telemetry: fixture.sampling.snapshots.clone(),
+    };
+    assert_eq!(
+        runtime
+            .static_info()?
+            .context("fixture snapshot missing")?
+            .hostname
+            .as_deref(),
+        Some("fixture-cached-host")
+    );
+    let mut tasks = JoinSet::new();
+    let mut control = spawn_connection(&mut tasks, config.clone(), runtime.clone());
+    let mut peer = timeout(Duration::from_secs(5), accept_peer(&listener)).await??;
+    assert_eq!(
+        timeout(Duration::from_secs(1), control.recv()).await?,
+        Some(())
+    );
+    let mut first = None;
+    timeout(Duration::from_secs(25), async {
+        loop {
+            if let Message::Heartbeat(heartbeat) = receive_peer(&mut peer).await?.0.decode()? {
+                assert_eq!(heartbeat.uptime_secs, 42);
+                if let Some(first) = first {
+                    assert!((Instant::now() - first) <= Duration::from_secs(23));
+                    break;
+                }
+                first = Some(Instant::now());
+            }
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+    // A control frame is handled promptly after the sampling timeout, and the
+    // cached sample keeps its original UUID and collection timestamp.
+    peer.send(Frame::Ping(vec![1, 2, 3].into())).await?;
+    timeout(Duration::from_secs(1), async {
+        loop {
+            if let Frame::Pong(bytes) = peer.next().await.context("fixture closed")?? {
+                assert_eq!(bytes.as_ref(), &[1, 2, 3]);
+                break Ok::<_, anyhow::Error>(());
+            }
+        }
+    })
+    .await??;
+    send_peer(
+        &mut peer,
+        Envelope::new(
+            "manifest.changed",
+            sinan_protocol::ManifestChanged { rev: 1 },
+        )?,
+    )
+    .await?;
+    assert_eq!(
+        timeout(Duration::from_secs(1), control.recv()).await?,
+        Some(())
+    );
+    assert!(runtime.connected.load(Ordering::Relaxed));
+    assert!(fixture.sampling.snapshots.borrow().timed_out());
+    assert_eq!(
+        fixture.sampling.snapshots.borrow().sample.as_ref(),
+        Some(&previous)
+    );
+    assert_eq!(fixture.starts.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 2);
+    peer.send(Frame::Close(None)).await?;
+    timeout(Duration::from_secs(2), tasks.join_next())
+        .await?
+        .context("connection missing")???;
+    // Reconnect consumes the same cache and does not create a second collector.
+    spawn_connection(&mut tasks, config, runtime);
+    let mut peer = timeout(Duration::from_secs(5), accept_peer(&listener)).await??;
+    timeout(Duration::from_secs(2), async {
+        loop {
+            if let Message::TelemetryStatic(info) = receive_peer(&mut peer).await?.0.decode()? {
+                assert_eq!(info.hostname.as_deref(), Some("fixture-cached-host"));
+                break Ok::<_, anyhow::Error>(());
+            }
+        }
+    })
+    .await??;
+    assert_eq!(fixture.starts.load(Ordering::SeqCst), 1);
     tasks.abort_all();
     while tasks.join_next().await.is_some() {}
     Ok(())
