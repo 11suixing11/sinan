@@ -60,7 +60,7 @@ async fn reset_immediately_revokes_old_links_and_preserves_accesses_usage_and_co
         },
     )
     .await?;
-    let path = format!("/api/users/{user_id}/subscription/reset");
+    let path = format!("/api/plugins/sing-box/users/{user_id}/subscription/reset");
     assert_eq!(
         panel
             .client
@@ -140,7 +140,7 @@ async fn reset_is_atomic_and_deleted_or_missing_users_cannot_reset(pool: PgPool)
     let cookie = panel.admin_cookie().await?;
     let user = panel.create_user(&cookie, "Concurrent").await?;
     let id = id(&user)?;
-    let path = format!("/api/users/{id}/subscription/reset");
+    let path = format!("/api/plugins/sing-box/users/{id}/subscription/reset");
     let (a, b) = tokio::join!(
         panel.admin(Method::POST, &path, &cookie, None),
         panel.admin(Method::POST, &path, &cookie, None)
@@ -169,7 +169,12 @@ async fn reset_is_atomic_and_deleted_or_missing_users_cannot_reset(pool: PgPool)
         );
     }
     panel
-        .admin(Method::DELETE, &format!("/api/users/{id}"), &cookie, None)
+        .admin(
+            Method::DELETE,
+            &format!("/api/plugins/sing-box/users/{id}"),
+            &cookie,
+            None,
+        )
         .await?
         .error_for_status()?;
     assert_eq!(
@@ -183,7 +188,7 @@ async fn reset_is_atomic_and_deleted_or_missing_users_cannot_reset(pool: PgPool)
         panel
             .admin(
                 Method::POST,
-                "/api/users/999999/subscription/reset",
+                "/api/plugins/sing-box/users/999999/subscription/reset",
                 &cookie,
                 None
             )

@@ -574,6 +574,19 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 合并审查最终保留 main `6a583af` 与作者最新 `84938ba` 正常祖先；作者新提交与已验证 `e0d6bda` 的全部 Rust/Cargo/CI/工具脚本及 web 源和 dist 完全相同，仅更新两项文档，不重复相同源码构建。完整 locked workspace/all-targets Rust/PostgreSQL 回归 289 项通过、0 失败、8 项既有 Linux/root/systemd 或外部运行时条件忽略；workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁、actionlint 与差异检查通过。Python discovery 83 项通过/5 跳过，NodeQuality 包装器 23 项通过/5 跳过；Bun 4 项/637 断言与 TypeScript/Vite 通过。最终 dist 实际 Chromium 桌面 1280×900/手机 390×844 共 9 组场景通过、页面错误 0，包含严格未知/有效0和false、IP失败隔离、旧报告与独立章节、指标过期与三类时间、独立导航；本轮未测试取消或实机完整诊断，最终 Linux CI 单独核对。
 
+## 2026-10-01：P1 sing-box 业务归位（独立 PR / Issue #26）
+
+- 面板代理节点、代理用户、授权、订阅、用户流量、发布及设备运行时清单移入 plugins/singbox；管理 API 与前端导航切换插件命名空间。系统管理员和代理用户使用不同名称，core 继续管理网卡总流量，epoch 仍标记计数器重置。
+- 0012 仅新增启用证据表：当前设备能力、管理员明确启用、已有节点或 singbox 部署才启用；未知能力纯监控机关闭。订阅旧路径永久保留，旧表名和业务 ID/令牌/密钥/授权/历史账本不修改。
+- Python 验收驱动 21 项通过、workspace fmt 与 TypeScript/Vite 构建通过。整合 main `6a583af` 后实际 dist 桌面/手机浏览器场景通过，页面错误为零、关闭服务器不发业务请求；独立 PostgreSQL迁移及最终完整 Rust/CI 证据待补；未宣称专用节点或生产迁移通过。设计见 ADR 0030，独立验收见 docs/acceptance/singbox-plugin-business.md。
+
+- 正常保留作者 `b22386f` 与 main `6b63f71`（确认式取消）的双侧祖先，合并取消路由/cancel_supported 和插件 API，重建最终 dist。修复发布扫描与事务之间设备能力消失的竞态：服务器行锁内重新核对插件启用证据，关闭时保留 dirty，不创建会反向启用插件的空部署。补齐 API 文档中的插件路径与有意切换约定，永久 `/sub` 保持。
+- 新增真实 SQLx 0012 故障注入、DDL/回填原子回滚与重试/二次启动幂等回归；旧库服务器、节点、用户、授权、部署、状态、批次、用量、设备会话及接入令牌十张表完整 JSON 快照比对，真实旧批次哈希重放去重并拒绝更改 payload。源码已完成，Rust/PostgreSQL 尚未执行，不把测试定义当成通过。Bun 1.4.2 TypeScript/Vite、实际 dist 桌面/手机插件验收、Python 驱动 21 项、core 门禁与差异检查通过；后续日常/完整诊断的业务证据读取将在插件边界内整合。
+
+- Python 验收驱动 21 项通过、workspace fmt 与 TypeScript/Vite 构建通过。整合 main `6a583af` 后实际 dist 桌面/手机浏览器场景通过，页面错误为零、关闭服务器不发业务请求；独立 Debian 12 限制容器最终代码 `b22386f` 的 fmt / 全 targets Clippy -D warnings / 完整 Rust+PG 291通过、0失败、8既有条件ignore，新三项启用/真实旧数据迁移测试无忽略；exit0/OOM=false、容器已移除。首次抽取 Clippy 两项已修并完整复跑，本次 CI 尚单独核对；未宣称专用节点或生产迁移通过。设计见 ADR 0030，独立验收见 docs/acceptance/singbox-plugin-business.md。
+
+- 业务归位 #55 正常整合 main `229becc`，保留已合并 #51 取消与 #56 独立夹具修复。重建实际 dist 后业务桌面/手机和取消浏览器回归、fmt/core 门禁/差异检查通过；291 项完整 Rust 证据仍限定旧 base，本轮 CI 单独核对。
+
 ## 2026-10-01 两个诊断入口（Issue #21，独立 PR）
 
 - 新 r4 不可变 runner 将日常检查限制为自有标准库 TCP 探测，最多 4 个已配置启用目标、每 IP 族 4 次、DNS 2 秒/连接 1 秒/任务 90 秒，无硬件/rootfs/测速/上游/公开上传。IP 刷新复用逐源缓存，明确不是节点流媒体证据。
@@ -597,11 +610,19 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 正常合入 main `af43ccf`（含章节持久化与 IP/报告拆分）并保留作者 `f5d468e` 祖先。修复 Windows 默认不支持路径、Linux/systemd/cgroup v2 能力误报、取消 HTTP/WS 退役门禁；已在途清理结束后不继续新取消任务。取消确认前采集最终章节，取消后迟到章节仍保存但不复活状态，旧整份报告继续标记 legacy；reports GET 和旧组合 GET 同时保留 cancel_supported。PostgreSQL 回归证明已应用 0011 后补入 0010 不丢任务、报告或章节。最终 locked workspace/all-targets 304 项通过、0 失败、9 项条件忽略；workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁和差异检查通过。Bun 1.4.2 冻结依赖下 4 项/637 断言及 TypeScript/Vite 构建通过，最终 JS 为 `index-8GW7pq_B.js`；真实 Chromium 桌面/390px 手机取消专项和原 IP/导航/章节 9 组场景全部通过，页面错误 0。Python discovery 83 项通过/5 跳过。此轮 macOS 本机没有运行新增真实 Linux/root/systemd 取消夹具（9 项条件忽略包含它）或完整 NodeQuality 负载；最终 Linux CI 与专用节点验收另行核对，不以前一作者 CI 替代。
 
+- 已准备日常/完整诊断的插件证据桥：代理部署与正向计量查询由 sing-box 插件拥有，系统诊断只消费 configured / last_positive_at，不把沉默当作空闲，不更改用量账本或为监控机创建配置；接入调用待日常检查 PR 正常合入后完成。
+
 ## IP 入口适配最终合并审查
 
 - 正常合入 main `6b63f71`（含确认式取消），保留作者 `cfea748` 祖先及双方全部记录；最终代码审查未发现需要改动的生产缺陷。全程移除真实 `SINAN_ABUSEIPDB_API_KEY`，只使用明确公开的合成 key 与回环 HTTP，未读取或调用真实账户。独立 PostgreSQL 下 IP/provider library 25 项、diagnostics API 7 项及章节/迁移 3 项，共 35 项通过、0 失败/忽略；覆盖敏感 Header、固定路径/参数/无 UA/重试/重定向、身份/类型、403/429/超时、禁用零请求、0/false 与双来源历史及新连接池/租约。Panel 全 targets Clippy（warnings 为错误）、workspace fmt、core 门禁及其 6 项行为回归、差异检查通过。Bun 1.4.2 冻结安装、5 项字段测试/711 断言及 TypeScript/Vite 构建通过，重建 JS `index-C1v7YTay.js`；最终 dist 在实际 Chromium 桌面/390px 手机的入口/缺凭据/0false/错误历史/禁用/百分比边界及确认取消组合场景全部通过、页面错误 0。本轮没有重复完整 workspace 或调用正式公网账户，不宣称配额/权限/节点自查或完整 NodeQuality 压力已验。
 
 - 继续正常合入 main `229becc`（PR #56）：与已验证 `c2b01cc` 相比仅修改 `tools/test-nodequality.py`，所有 Rust/Cargo、生产工具、web 源与 dist 完全相同，未重复无交集 Cargo。包装器 Python 28 项中 23 项通过、5 项既有 Linux/root 条件跳过；core 门禁与差异检查再次通过。真实 Linux 正常退出的生产工具补修仍由独立任务验收，本项不将本机跳过计为通过。
+
+- 业务发布并发复核：候选筛选后设备切换纯监控时，事务内重新检查启用来源，防止空配置意外成为永久legacy部署证据。新增旧候选→能力清除→零发布/保留dirty→明确启用后发布的 PostgreSQL 回归；该新项按后续 CI 单独验证。
+
+- 业务归位最终代码 `29c4df4` / main `229becc` 的 CI36780128478 实际通过：fmt、全 targets Clippy、Rust/PostgreSQL307成功/0失败/9既有条件ignore，四项业务PG验收（含发布启用竞态）全部执行；随后六项真实systemd成功/0失败/0忽略，Compose与musl两架构成功。该PR事件Reality按draft跳过，专用节点/生产迁移未冒称通过；此后仅追加文档证据。
+
+- 业务归位最终整合正常保留作者 `9cc507e` 与 main `8254055`（#51/#54/#57/R5），源码基线 `276bdea`。模式活动读取改用 plugins facade，真实 PG 证明纯监控日常检查 `not_enabled` 且零部署；发布保留锁内筛选和独立语句启用重检。首次整套链接因磁盘不足中断，随后按 target 清单串行完成全部八包 all-targets 覆盖并补统一 workspace library/adapter/runtime，去重325通过/0失败/9既有条件忽略，统一 workspace 全 targets Clippy、fmt、core 门禁/六项行为、actionlint及差异检查通过。Bun五项/711断言、TypeScript/Vite与实际 dist `index-Hx7wA0D0.js` 的桌面/手机插件、模式、取消、provider场景通过，页面错误0；浏览器使用明确 API 夹具。Python83通过/5条件跳过、R5包装器34通过、daily helper7通过。所有 provider 测试移除真实密钥并仅用合成凭据/回环；本机未运行真实Linux/root/systemd、正式账户/配额、上游完整负载或生产迁移，最终CI独立核对。详细证据见 [业务搬迁验收](docs/acceptance/singbox-plugin-business.md)。
 
 ## 2026-10-01 两个诊断入口（Issue #21，独立 PR）
 
