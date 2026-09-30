@@ -7,18 +7,18 @@ test('legacy UI field types agree with every registered backend field', () => {
   const source = readFileSync(new URL('../../crates/panel/src/ip_quality/fields.rs', import.meta.url), 'utf8')
   const kindNames: Record<string, NonNullable<QualityField['kind']>> = { Text: 'text', CountryCode: 'country_code', Boolean: 'boolean', Score: 'score', Asn: 'asn', Latitude: 'latitude', Longitude: 'longitude' }
   let checked = 0
-  for (const database of source.matchAll(/"([a-z0-9]+)" => &\[([\s\S]*?)\n        \],/g)) {
+  for (const database of source.matchAll(/"([a-z0-9-]+)" => &\[([\s\S]*?)\n        \],/g)) {
     for (const field of database[2].matchAll(/\(\s*"[^"]+"\s*,\s*"([^"]+)"\s*,\s*QualityFieldKind::(\w+)\s*,?\s*\)/g)) {
       const kind = kindNames[field[2]]
       expect(kind).toBeDefined()
       for (const value of [false, 0, -1, 91, 181, 4294967296, 'fixture', 'ZZ', '0', '0 (Very Low)']) {
         const legacy = { label: field[1], value }
-        expect(qualityValue(legacy, database[1])).toBe(qualityValue({ ...legacy, kind }))
+        expect(qualityValue(legacy, database[1])).toBe(qualityValue({ ...legacy, kind }, database[1]))
       }
       checked += 1
     }
   }
-  expect(checked).toBe(55)
+  expect(checked).toBe(60)
 })
 
 test('legacy known labels cannot turn wrong scalar types into successful facts', () => {
@@ -48,4 +48,18 @@ test('legacy labels retain their registered ranges without inventing custom sema
   expect(qualityValue({ label: '纬度', value: 0 }, 'maxmind')).toBe('0')
   expect(qualityValue({ label: '国家代码', value: 'ZZ' }, 'maxmind')).toBe('ZZ')
   expect(qualityValue({ label: 'constructor', value: 0 }, 'ipqualityscore')).toBe('0')
+})
+
+
+test('official confidence remains a documented integer percent with no boolean or text default', () => {
+  for (const kind of [undefined, 'score'] as const) {
+    for (const value of [null, false, '0', -1, 101, 0.5]) {
+      expect(qualityValue({ label: '滥用置信度（0–100 原值）', value, kind }, 'abuseipdb-v2')).toBeUndefined()
+    }
+    expect(qualityValue({ label: '滥用置信度（0–100 原值）', value: 0, kind }, 'abuseipdb-v2')).toBe('0')
+    expect(qualityValue({ label: '滥用置信度（0–100 原值）', value: 100, kind }, 'abuseipdb-v2')).toBe('100')
+  }
+  expect(qualityValue({ label: 'Tor', value: false }, 'abuseipdb-v2')).toBe('否')
+  expect(qualityValue({ label: 'Tor', value: null }, 'abuseipdb-v2')).toBeUndefined()
+  expect(qualityValue({ label: 'Tor', value: 'false' }, 'abuseipdb-v2')).toBeUndefined()
 })

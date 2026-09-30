@@ -591,8 +591,25 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 业务归位 #55 正常整合 main `229becc`，保留已合并 #51 取消与 #56 独立夹具修复。重建实际 dist 后业务桌面/手机和取消浏览器回归、fmt/core 门禁/差异检查通过；291 项完整 Rust 证据仍限定旧 base，本轮 CI 单独核对。
 
+
+## 2026-10-01：P0 IP 查询入口适配（独立 PR）
+
+- Issue #24：注册真实入口，check-place 是一个旧聚合入口、七种响应视图；新增 AbuseIPDB 官方 v2 CHECK 只读适配，固定 30 天窗口、目标身份与字段契约，Key 仅敏感请求头、无 UA/重试/重定向/verbose/上传。缺私有凭据明确未启用和信息未知，既有成功快照继续保留并标历史。
+- 全入口共用四并发/40 秒批次截止、单请求超时/响应上限和 typed DNS/TLS 错误分类，不为每个入口重复预算。IP/provider/database 缓存与旧接口兼容，无新增依赖/迁移，服务器 IP 页按真实入口说明来源与不可用原因。
+- 固定 AGPL-3.0 IPQuality 只读审查发现随机 UA、在线 main 引用、统计请求、请求重试和高并发/宿主依赖边界，参数不能直接消除；未执行或打包原版，节点自查明确未启用，流媒体解锁未知。受控修改版本由后续独立 PR 验收，不把此正式 API 项标为节点自查完成。
+- 本机 fmt、core 门禁/六项行为测试、差异检查、Bun 1.4.2 冻结安装/TypeScript/Vite、真实桌面/手机浏览器的明确模拟来源/凭据/0false/403429timeout历史/禁用历史/百分比边界通过。真实 HTTP/PostgreSQL、Clippy 和完整 Rust 回归由本 PR 独立 CI 或隔离槽执行，尚未记为通过；官方账户/公网权限与完整诊断压力未验。契约与边界见 [ADR 0027](docs/adr/0027-ip-provider-adapters.md) 与 [入口适配验收](docs/acceptance/ip-provider-adapters.md)。
+
+- 源码接到主线 `6a583af` 与视图拆分，保留报告章节/r3、心跳与严格旧字段兼容；入口适配不修改 NodeQuality 工具链。
+
+- 保留主线旧字段 kind 缺失兼容，正式百分比规则按 abuseipdb-v2 响应区分，旧 payload 不引入新 kind 变体。五项前端字段回归/711 断言覆盖后端 60 个字段及官方整数百分比边界；当前/历史计数明确为数据项，避免把聚合响应数当来源数。
 ## 确认式取消最终合并审查
 
 - 正常合入 main `af43ccf`（含章节持久化与 IP/报告拆分）并保留作者 `f5d468e` 祖先。修复 Windows 默认不支持路径、Linux/systemd/cgroup v2 能力误报、取消 HTTP/WS 退役门禁；已在途清理结束后不继续新取消任务。取消确认前采集最终章节，取消后迟到章节仍保存但不复活状态，旧整份报告继续标记 legacy；reports GET 和旧组合 GET 同时保留 cancel_supported。PostgreSQL 回归证明已应用 0011 后补入 0010 不丢任务、报告或章节。最终 locked workspace/all-targets 304 项通过、0 失败、9 项条件忽略；workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁和差异检查通过。Bun 1.4.2 冻结依赖下 4 项/637 断言及 TypeScript/Vite 构建通过，最终 JS 为 `index-8GW7pq_B.js`；真实 Chromium 桌面/390px 手机取消专项和原 IP/导航/章节 9 组场景全部通过，页面错误 0。Python discovery 83 项通过/5 跳过。此轮 macOS 本机没有运行新增真实 Linux/root/systemd 取消夹具（9 项条件忽略包含它）或完整 NodeQuality 负载；最终 Linux CI 与专用节点验收另行核对，不以前一作者 CI 替代。
 
 - 已准备日常/完整诊断的插件证据桥：代理部署与正向计量查询由 sing-box 插件拥有，系统诊断只消费 configured / last_positive_at，不把沉默当作空闲，不更改用量账本或为监控机创建配置；接入调用待日常检查 PR 正常合入后完成。
+
+## IP 入口适配最终合并审查
+
+- 正常合入 main `6b63f71`（含确认式取消），保留作者 `cfea748` 祖先及双方全部记录；最终代码审查未发现需要改动的生产缺陷。全程移除真实 `SINAN_ABUSEIPDB_API_KEY`，只使用明确公开的合成 key 与回环 HTTP，未读取或调用真实账户。独立 PostgreSQL 下 IP/provider library 25 项、diagnostics API 7 项及章节/迁移 3 项，共 35 项通过、0 失败/忽略；覆盖敏感 Header、固定路径/参数/无 UA/重试/重定向、身份/类型、403/429/超时、禁用零请求、0/false 与双来源历史及新连接池/租约。Panel 全 targets Clippy（warnings 为错误）、workspace fmt、core 门禁及其 6 项行为回归、差异检查通过。Bun 1.4.2 冻结安装、5 项字段测试/711 断言及 TypeScript/Vite 构建通过，重建 JS `index-C1v7YTay.js`；最终 dist 在实际 Chromium 桌面/390px 手机的入口/缺凭据/0false/错误历史/禁用/百分比边界及确认取消组合场景全部通过、页面错误 0。本轮没有重复完整 workspace 或调用正式公网账户，不宣称配额/权限/节点自查或完整 NodeQuality 压力已验。
+
+- 继续正常合入 main `229becc`（PR #56）：与已验证 `c2b01cc` 相比仅修改 `tools/test-nodequality.py`，所有 Rust/Cargo、生产工具、web 源与 dist 完全相同，未重复无交集 Cargo。包装器 Python 28 项中 23 项通过、5 项既有 Linux/root 条件跳过；core 门禁与差异检查再次通过。真实 Linux 正常退出的生产工具补修仍由独立任务验收，本项不将本机跳过计为通过。

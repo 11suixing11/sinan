@@ -51,6 +51,7 @@ impl TestPanel {
         )
         .await?;
         state.release_keys = Some(Arc::new(release_support::trusted_keys()));
+        state.quality_providers = Arc::default();
         let app = router(state.clone());
         let task = tokio::spawn(async move {
             axum::serve(
