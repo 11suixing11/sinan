@@ -212,6 +212,39 @@ class EvidenceContracts(unittest.TestCase):
             self.assertLess(time.monotonic() - started, 2.5)
             thread.join(3)
 
+    def test_dripping_http_headers_and_body_share_the_absolute_two_second_budget(self):
+        for stage in ("headers", "body"):
+            with self.subTest(stage=stage), socket.socket() as listener:
+                listener.bind(("127.0.0.1", 0))
+                listener.listen(1)
+                listener.settimeout(3)
+                def drip():
+                    try:
+                        stream, _ = listener.accept()
+                        with stream:
+                            stream.settimeout(3)
+                            stream.recv(4096)
+                            headers = b"HTTP/1.1 200 OK\r\nContent-Length: 2097152\r\n\r\n"
+                            if stage == "body":
+                                stream.sendall(headers)
+                            payload = headers if stage == "headers" else b"s" * 44
+                            for byte in payload:
+                                stream.sendall(bytes([byte]))
+                                time.sleep(0.075)
+                    except OSError:
+                        # The bounded client closes before the fixture finishes.
+                        pass
+                thread = threading.Thread(target=drip, daemon=True)
+                thread.start()
+                started = time.monotonic()
+                record = EVIDENCE.probe(lambda: EVIDENCE.http_probe(listener.getsockname()[1]))
+                elapsed = time.monotonic() - started
+                thread.join(4)
+                self.assertFalse(thread.is_alive())
+                self.assertLess(elapsed, 2.5)
+                self.assertEqual(record["error_kind"], "timeout")
+                self.assertFalse(record["passed"])
+
     def test_public_ci_summary_revalidates_evidence_without_probes_or_private_dump(self):
         source = (ROOT / "scripts/ci-real-e2e.sh").read_text().split("write_summary() {\n", 1)[1]
         source = source.split("<<'PY'\n", 1)[1].split("\nPY\n}", 1)[0]
@@ -250,6 +283,26 @@ sudo() { :; }
         self.assertEqual(process.returncode, 28)
         self.assertEqual(process.stdout, "probe_failed\nsummary_failed\n")
         self.assertIn("failed during resumed-traffic", process.stderr)
+
+    def test_real_cleanup_failure_keeps_existing_error_and_success_still_rejects_cleanup_failure(self):
+        shell = (ROOT / "scripts/ci-real-e2e.sh").read_text()
+        cleanup = "cleanup() {" + shell.split("cleanup() {", 1)[1].split("trap cleanup EXIT", 1)[0]
+        for original, expected in ((28, 28), (0, 7)):
+            with self.subTest(original=original):
+                script = """set -euo pipefail
+scratch=$E2E_TEST_SCRATCH
+phase=first-traffic owned_installation=1 hosts_entry=0 client_pid= fixture_pid= tls_container= trust_directory=
+python3() { return 0; }
+write_summary() { return 0; }
+sudo() { if [[ $1 == rm && ${!#} == "$scratch" ]]; then printf 'scratch_cleanup_attempt\n'; fi; return 7; }
+getent() { return 1; }
+""" + cleanup + "\ntrap cleanup EXIT\nexit " + str(original) + "\n"
+                process = subprocess.run(["bash"], input=script, capture_output=True, text=True, timeout=3,
+                                         env={"E2E_TEST_SCRATCH": str(self.scratch)})
+                self.assertEqual(process.returncode, expected)
+                if original:
+                    self.assertIn("scratch_cleanup_attempt", process.stdout)
+                    self.assertIn("failed during first-traffic", process.stderr)
 
 
 if __name__ == "__main__":

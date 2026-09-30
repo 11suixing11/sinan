@@ -138,6 +138,8 @@ PY
 cleanup() {
   result=$?
   trap - EXIT
+  # Keep the triggering failure while still attempting every cleanup operation.
+  if [[ $result != 0 ]]; then set +e; fi
   if [[ $result != 0 && ($phase == first-traffic || $phase == resumed-traffic) ]]; then
     # Inspect only this run's fixtures before stopping them. Keep the original failure.
     python3 scripts/e2e-traffic-evidence.py --scratch "$scratch" failure \

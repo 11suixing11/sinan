@@ -5,6 +5,7 @@ import argparse
 import decimal
 import errno
 import http.client
+import io
 import ipaddress
 import json
 import os
@@ -189,9 +190,48 @@ def tcp_probe(port):
         return {}
 
 
+class DeadlineReader(io.RawIOBase):
+    """Recheck a single deadline before every socket read, including header reads."""
+
+    def __init__(self, stream, deadline):
+        super().__init__()
+        self.stream = stream
+        self.deadline = deadline
+        self.source = stream.makefile("rb", buffering=0)
+
+    def readable(self):
+        return True
+
+    def readinto(self, buffer):
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError()
+        self.stream.settimeout(remaining)
+        return self.source.readinto(buffer)
+
+    def close(self):
+        try:
+            self.source.close()
+        finally:
+            super().close()
+
+
+class DeadlineSocket:
+    def __init__(self, stream, deadline):
+        self.stream = stream
+        self.deadline = deadline
+
+    def makefile(self, mode):
+        if mode != "rb":
+            raise ValueError()
+        return io.BufferedReader(DeadlineReader(self.stream, self.deadline))
+
+
 def http_probe(port=18081):
     deadline = time.monotonic() + 2
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+    connection.response_class = lambda stream, **options: http.client.HTTPResponse(
+        DeadlineSocket(stream, deadline), **options)
     try:
         connection.connect()
         stream = connection.sock
