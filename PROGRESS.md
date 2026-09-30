@@ -664,3 +664,6 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 将 NodeQuality 的参数、工具版本和报告规则移到登记插件，创建/能力/签名制品/预算/互斥/结果/历史改为共用服务，保留原 API 和原任务历史。协议新增可空预算，Agent 只收紧既有适配器上限；新任务要求能力握手。新增路由竞争、跨插件互斥、历史/部分报告与预算权限夹具。
 
 代码 bfae951 在限额 Debian 12 容器通过 fmt、全 targets Clippy（warnings 为错误）、完整 locked Rust/PostgreSQL 318 项/0 失败/9 既有条件忽略；容器退出 0、OOM=false。Linux wrapper 29、daily helper 6、core 分层行为 6 项通过。修复并重新验证历史 job={} 正文上传与缺插件字段的 NodeQuality 历史兼容。当前提交的独立 CI、真实 systemd 与双架构构建另行核对；专用节点连接恢复与完整验机总验仍待补。详见独立 [共用诊断服务验收](docs/acceptance/shared-diagnostic-service.md)。
+
+- 最终正常合入作者 `924a8ff` 与正式主线 `2c3c1e5`（含 r5 正常退出契约及 sing-box 插件搬迁）。迁移后的 NodeQuality 保持 r5，活动证据只调用中性 `plugins::runtime_activity_on`，保留纯监控未发布、陈旧能力、缺发布行与代理活动判断。包装器、daily/observer 与前端原字节均与已验证主线一致，本轮不重复无交集包装器或浏览器验收。
+- 补齐真实缺少 plugin/resource_budget 字段的 r2 历史 JSON 与原文精确保存、跨插件 queued/running/已过期 cancel_requested 对两条创建入口的互斥，以及 IO 权重不可放宽和预算未知命令字段拒绝。最终相关 Rust/PostgreSQL 68 项通过、0 失败/忽略（协议 12、Agent 诊断/预算 39、共用服务 2、诊断 API 10、章节 3、真实 Agent WS/HTTP/restart/cancel 2），workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁、actionlint 与差异检查通过。完整 workspace 测试尝试在另外 47 项通过/2 项既有条件忽略后因本机链接器磁盘耗尽中止，不记为完整测试通过；只清理本任务失败链接对象及已通过的测试可执行文件。真实 root/systemd 专项、签名发布、硬件压力与最终提交 CI 继续独立核对，未在生产机器压测或公开上传。
