@@ -718,3 +718,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 登记第二诊断插件并由 Linux Agent 加载无状态适配器，共用任务服务负责互斥、预算、上传、确认取消和历史。仅开放地区、IPv4/6、4/8 次连接和1/2并发，冻结已配置 TCP 目标及摘要，地区标签在插件独立表保存；空 PATCH 拒绝、显式 null 才清除。前端另一个独立 PR。
 
 3963c28 组合源码的 PostgreSQL/API 3项、面板参数/目标2项、适配器15项与原生17项全部通过，workspace全targets Clippy和Linux Agent构建通过，限额容器exit0/OOM=false。后续显式地区键补丁和最终HEAD专项待补；没有以夹具替代真实测试机验收，aws-jp0仍待恢复，完整验机工具链仍被安全门禁暂停。见 docs/acceptance/tcpquality-panel-registration.md。
+
+
+## 2026-10-01：TCP 报告界面（独立 PR）
+
+服务器导航新增 TCP 连接诊断，四项小预设及配置目标地区，按本次冻结范围显示工具版本/时间/参数、连接成功统计和独立章节；未知不补零，取消确认前保留屏障，部分报告可看，不做跨参数排名。主线管理员与 sing-box 插件导航继续保留，NodeQuality 完整门禁不由本 PR 改动。
+
+012ca9f 的 Bun/TypeScript/Vite 与 Chromium1280/390px夹具验收通过，零页面错误、正确创建/地区请求和取消禁用均已核实；最终主线整合后重新构建与浏览器复验另补。验收范围与真实节点待办见 docs/acceptance/tcpquality-report-view.md。
