@@ -27,6 +27,9 @@ reqwest.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 argon2 = "0.5"
+hmac = "0.12"
+sha1 = "0.10"
+data-encoding = "2"
 rust-embed = { version = "8", features = ["debug-embed"] }
 tower-http = { version = "0.6", features = ["trace", "limit", "set-header"] }
 

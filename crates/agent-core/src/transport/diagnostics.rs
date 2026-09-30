@@ -342,6 +342,29 @@ impl DiagnosticWorker {
         Ok(())
     }
 
+    pub(crate) async fn run_guarded(
+        self,
+        mut client: watch::Receiver<Option<Arc<PanelClient>>>,
+        retirement: Arc<crate::retirement::Retirement>,
+    ) -> Result<()> {
+        let mut poll = tokio::time::interval(Duration::from_secs(5));
+        poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                _ = poll.tick() => {},
+                changed = client.changed() => { if changed.is_err() { return Ok(()); } },
+            }
+            let _guard = retirement.gate.read().await;
+            if retirement.requested() {
+                continue;
+            }
+            let active_client = client.borrow().clone();
+            if let Err(error) = self.tick(active_client.as_deref()).await {
+                tracing::warn!(%error, "diagnostic poll failed; durable work will be retried");
+            }
+        }
+    }
+
     pub async fn run(self, mut client: watch::Receiver<Option<Arc<PanelClient>>>) -> Result<()> {
         let mut poll = tokio::time::interval(Duration::from_secs(5));
         poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -398,3 +421,35 @@ fn failure(id: Uuid, error: String, report: Option<DiagnosticReport>) -> Diagnos
 #[cfg(test)]
 #[path = "diagnostics/tests.rs"]
 mod tests;
+
+pub(crate) async fn stop_for_retirement(
+    state: &SharedState,
+    services: &dyn ServiceManager,
+    timeout_secs: u64,
+) -> Result<()> {
+    let active: Option<Checkpoint> = state
+        .lock()
+        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+        .get_json::<Option<Checkpoint>>(ACTIVE)?
+        .flatten();
+    if let Some(Checkpoint::Started { spec, service, .. }) = active {
+        let id = Uuid::parse_str(&spec.id)?;
+        ensure!(
+            service.unit == format!("sinan-diagnostic-{id}.service"),
+            "invalid saved diagnostic service identity"
+        );
+        tokio::time::timeout(Duration::from_secs(timeout_secs), async {
+            if services.job_status(&service.unit).await? == JobStatus::Running {
+                services.stop(&service.unit).await?;
+            }
+            ensure!(
+                services.job_status(&service.unit).await? != JobStatus::Running,
+                "diagnostic service remains active during retirement"
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("diagnostic retirement timed out")??;
+    }
+    Ok(())
+}

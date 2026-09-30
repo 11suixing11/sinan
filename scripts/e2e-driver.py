@@ -65,12 +65,12 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class Panel:
-    def __init__(self, base, password):
+    def __init__(self, base, password, totp_code=None):
         self.base = base
         self.client = urllib.request.build_opener(
             NoRedirect(), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
         )
-        self.request("/api/login", {"password": password})
+        self.request("/api/login", {"password": password, "totp_code": totp_code})
 
     def request(self, path, data=None, raw=False):
         body = None if data is None else json.dumps(data).encode()
@@ -102,6 +102,14 @@ def password():
         return path.read_text().rstrip("\r\n")
     value = os.environ.get("SINAN_E2E_ADMIN_PASSWORD")
     return value if value is not None else getpass.getpass("管理员密码（不保存）：")
+
+
+def totp_code(prompt=False):
+    value = os.environ.pop("SINAN_E2E_TOTP_CODE", None)
+    if value is None and (prompt or os.environ.get("SINAN_E2E_TOTP") == "1"):
+        value = getpass.getpass("当前 TOTP 验证码（不保存，请用未使用的新码）：")
+    ensure(value is None or re.fullmatch(r"[0-9]{6}", value), "TOTP 验证码需为六位数字")
+    return value
 
 
 def resource(panel, path, state, kind, fields, state_path):
@@ -324,6 +332,7 @@ def verify(panel, state, args):
 def parser():
     result = argparse.ArgumentParser(description="真实 Reality 验收驱动；设备和流量由操作者控制")
     result.add_argument("--state", type=Path, required=True, help="仓库外私有目录中的 state.json")
+    result.add_argument("--totp", action="store_true", help="启用 TOTP 的面板：隐藏输入本次登录验证码")
     stages = result.add_subparsers(dest="stage", required=True)
     setup = stages.add_parser("prepare", help="创建专用资源并保存安装脚本，可中断恢复")
     setup.add_argument("--origin", required=True)
@@ -386,7 +395,7 @@ def main():
         if args.stage != "prepare":
             ensure(all(key in state for key in ("server_id", "node_id", "user_id")),
                    "prepare 尚未完成；请使用相同参数重试")
-        panel = Panel(state["origin"], password())
+        panel = Panel(state["origin"], password(), totp_code(args.totp))
         try:
             if args.stage == "install":
                 install(panel, state, args.state, args.refresh, args.agent_version)

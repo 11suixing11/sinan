@@ -62,7 +62,16 @@ enum Command {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    run_cli(cli).await
+    let result = run_cli(cli).await;
+    #[cfg(target_os = "linux")]
+    if result.as_ref().is_err_and(|error| {
+        error
+            .downcast_ref::<sinan_agent_core::retirement::Retired>()
+            .is_some()
+    }) {
+        std::process::exit(sinan_agent_core::retirement::RETIRED_EXIT_CODE);
+    }
+    result
 }
 
 #[cfg(not(target_os = "linux"))]

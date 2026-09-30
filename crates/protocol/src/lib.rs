@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 
 mod diagnostics;
+mod retirement;
 pub use diagnostics::*;
+pub use retirement::*;
 pub mod release;
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -69,6 +71,8 @@ impl Envelope {
             "apply.result" => self.to_payload().map(Message::ApplyResult),
             "usage.batch" => self.to_payload().map(Message::UsageBatch),
             "manifest.changed" => self.to_payload().map(Message::ManifestChanged),
+            "retirement.request" => self.to_payload().map(Message::RetirementRequest),
+            "retirement.result" => self.to_payload().map(Message::RetirementResult),
             "usage.ack" => self.to_payload().map(Message::UsageAck),
             _ => Ok(Message::Unknown {
                 message_type: self.message_type.clone(),
@@ -90,6 +94,8 @@ pub enum Message {
     ApplyResult(ApplyResult),
     UsageBatch(UsageBatch),
     ManifestChanged(ManifestChanged),
+    RetirementRequest(RetirementRequest),
+    RetirementResult(RetirementResult),
     UsageAck(UsageAck),
     Unknown {
         message_type: String,
@@ -110,6 +116,8 @@ impl Message {
             Self::ApplyResult(_) => "apply.result",
             Self::UsageBatch(_) => "usage.batch",
             Self::ManifestChanged(_) => "manifest.changed",
+            Self::RetirementRequest(_) => "retirement.request",
+            Self::RetirementResult(_) => "retirement.result",
             Self::UsageAck(_) => "usage.ack",
             Self::Unknown { message_type, .. } => message_type,
         }
@@ -127,6 +135,8 @@ impl Message {
             Self::ApplyResult(value) => serde_json::to_value(value)?,
             Self::UsageBatch(value) => serde_json::to_value(value)?,
             Self::ManifestChanged(value) => serde_json::to_value(value)?,
+            Self::RetirementRequest(value) => serde_json::to_value(value)?,
+            Self::RetirementResult(value) => serde_json::to_value(value)?,
             Self::UsageAck(value) => serde_json::to_value(value)?,
             Self::Unknown { payload, .. } => payload.clone(),
         };

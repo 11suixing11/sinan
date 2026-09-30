@@ -84,6 +84,19 @@ class AcceptanceContracts(unittest.TestCase):
             DRIVER.verify(None, self.state, self.args)
         return clock
 
+    def test_totp_is_opt_in_and_rejects_malformed_codes_before_login(self):
+        with patch.dict(DRIVER.os.environ, {}, clear=True), patch.object(DRIVER.getpass, "getpass") as prompt:
+            self.assertIsNone(DRIVER.totp_code())
+            prompt.assert_not_called()
+        with patch.dict(DRIVER.os.environ, {"SINAN_E2E_TOTP_CODE": "not-a-code"}, clear=True):
+            with self.assertRaises(DRIVER.AcceptanceError):
+                DRIVER.totp_code()
+        with patch.dict(DRIVER.os.environ, {}, clear=True), patch.object(DRIVER.getpass, "getpass", return_value="012345"):
+            code = DRIVER.totp_code(True)
+            with patch.object(DRIVER.Panel, "request", return_value={}) as request:
+                DRIVER.Panel("https://example.test", "test-password", code)
+                request.assert_called_once_with("/api/login", {"password": "test-password", "totp_code": "012345"})
+
     def installation_state(self):
         self.state.update(server_id=41, origin="http://127.0.0.1:18080")
         return self.state

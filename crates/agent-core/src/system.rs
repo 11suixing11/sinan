@@ -221,6 +221,12 @@ impl Privileged for SystemOps {
         })
     }
 
+    fn remove_file<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, ()> {
+        Box::pin(async move { remove_managed(path, false) })
+    }
+    fn remove_managed_directory<'a>(&'a self, path: &'a Path) -> BoxFuture<'a, ()> {
+        Box::pin(async move { remove_managed(path, true) })
+    }
     fn install_archive<'a>(
         &'a self,
         archive: &'a Path,
@@ -374,4 +380,39 @@ impl ServiceManager for SystemServiceManager {
     fn job_status<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, JobStatus> {
         self.diagnostic_job_status(unit)
     }
+}
+
+fn remove_managed(path: &Path, directory: bool) -> Result<()> {
+    ensure!(
+        path.is_absolute(),
+        "managed removal requires an absolute path"
+    );
+    let parent = parent_directory(path)?;
+    for ancestor in parent.ancestors() {
+        let metadata = fs::symlink_metadata(ancestor)?;
+        ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "managed removal refuses symbolic link ancestors"
+        );
+    }
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    ensure!(
+        !metadata.file_type().is_symlink(),
+        "managed removal refuses symbolic links"
+    );
+    if directory {
+        ensure!(metadata.is_dir(), "managed removal requires a directory");
+        fs::remove_dir_all(path)?;
+    } else {
+        ensure!(
+            metadata.is_file(),
+            "credential removal requires a regular file"
+        );
+        fs::remove_file(path)?;
+    }
+    sync_directory(parent)
 }

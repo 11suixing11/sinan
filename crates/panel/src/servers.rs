@@ -15,8 +15,7 @@ use serde_json::{Value, json};
 use sinan_protocol::{EnrollRequest, EnrollResponse, now_timestamp};
 use sqlx::{FromRow, PgPool, Row};
 
-const SERVER_COLUMNS: &str =
-    "id, name, device_public_key, static_info, last_seen, latest_metrics, manifest_rev";
+const SERVER_COLUMNS: &str = "id, name, device_public_key, static_info, last_seen, latest_metrics, manifest_rev, capabilities";
 
 #[derive(Serialize, FromRow)]
 pub struct Server {
@@ -27,6 +26,7 @@ pub struct Server {
     pub last_seen: Option<i64>,
     pub latest_metrics: Value,
     pub manifest_rev: i64,
+    pub capabilities: Value,
     #[sqlx(default)]
     pub online: bool,
 }
@@ -116,30 +116,7 @@ pub async fn remove(
     Path(id): Path<i64>,
 ) -> ApiResult<StatusCode> {
     require_admin(&state, &headers).await?;
-    let now = now_timestamp();
-    let mut transaction = state.pool.begin().await?;
-    let result =
-        sqlx::query("UPDATE servers SET deleted_at = $2 WHERE id = $1 AND deleted_at IS NULL")
-            .bind(id)
-            .bind(now)
-            .execute(&mut *transaction)
-            .await?;
-    if result.rows_affected() == 0 {
-        return Err(ApiError::NotFound);
-    }
-    sqlx::query("DELETE FROM sessions WHERE server_id = $1")
-        .bind(id)
-        .execute(&mut *transaction)
-        .await?;
-    sqlx::query("DELETE FROM enrollment_tokens WHERE server_id = $1")
-        .bind(id)
-        .execute(&mut *transaction)
-        .await?;
-    sqlx::query("UPDATE diagnostic_jobs SET status='failed',error='服务器已删除，任务已取消',updated_at=$2 WHERE server_id=$1 AND status IN ('queued','running')")
-        .bind(id).bind(now).execute(&mut *transaction).await?;
-    transaction.commit().await?;
-    state.connections.write().await.remove(&id);
-    Ok(StatusCode::NO_CONTENT)
+    crate::retirement::remove(&state, id).await
 }
 
 #[derive(Deserialize, Default)]

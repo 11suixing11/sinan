@@ -57,6 +57,7 @@ write_summary() {
 import json
 import os
 from pathlib import Path
+import re
 import sys
 
 state_path, output, passed, phase, exit_code = sys.argv[1:]
@@ -82,6 +83,17 @@ if ledger.is_file():
         for label, counters in json.loads(ledger.read_text()).items()
         if label in ("before", "after-agent", "after-runtime", "before-reinstall", "after-reinstall")
     }
+retirement = Path(state_path).with_name("retirement.json")
+if retirement.is_file():
+    checks = json.loads(retirement.read_text())
+    allowed = ("passed", "online_delete_confirmed", "server_removed", "receipt_acknowledged",
+               "credentials_removed", "configuration_removed", "ledger_preserved", "outbox_drained",
+               "agent_stopped", "runtime_stopped", "agent_restart_refused", "runtime_restart_refused")
+    summary["retirement"] = {name: checks[name] for name in allowed if type(checks.get(name)) is bool}
+    totals = checks.get("usage", {})
+    if isinstance(totals, dict) and all(isinstance(totals.get(key), str)
+            and re.fullmatch(r"0|[1-9][0-9]*", totals[key]) for key in ("uplink", "downlink", "total")):
+        summary["retirement"]["usage"] = {key: totals[key] for key in ("uplink", "downlink", "total")}
 Path(output).parent.mkdir(parents=True, exist_ok=True)
 Path(output).write_text(json.dumps(summary, indent=2) + "\n")
 if os.environ.get('GITHUB_STEP_SUMMARY'):
@@ -91,6 +103,8 @@ if os.environ.get('GITHUB_STEP_SUMMARY'):
         report.write('| 阶段 | 上传字节 | 下载字节 |\n| --- | ---: | ---: |\n')
         for label, usage in summary.get('usage', {}).items():
             report.write(f"| {label} | {usage['uplink']} | {usage['downlink']} |\n")
+        if summary.get('retirement', {}).get('passed') is True:
+            report.write('\n在线退役、凭证与配置清理、账本保留及禁止重启检查：通过。\n')
 PY
 }
 
@@ -365,6 +379,11 @@ assert_ledger after-reinstall after-runtime
 sudo find /etc/sinan/identity -maxdepth 1 -type f -exec sha256sum {} + | sort > "$scratch/identity-after.txt"
 cmp "$scratch/identity-before.txt" "$scratch/identity-after.txt" || die 'reinstallation changed device identity files'
 [[ $(sudo systemctl show sinan-singbox@main.service -p MainPID --value) == "$runtime_pid" ]] || die 'same-version reinstallation changed runtime PID'
+phase=online-retirement
+sudo --preserve-env=SINAN_E2E_ADMIN_PASSWORD env SINAN_E2E_DISPOSABLE_HOST=1 \
+  python3 scripts/ci-retirement.py --state "$scratch/state.json" --summary "$scratch/retirement.json"
+# The root helper writes a private summary; let the runner read only this redacted file.
+sudo chown -- "$(id -u):$(id -g)" "$scratch/retirement.json"
 phase=complete
 passed=1
-printf '%s\n' 'Signed installation, cache rejection, Reality bidirectional traffic, accounting, restart, reload, and reinstallation passed.'
+printf '%s\n' 'Signed installation, cache rejection, Reality traffic, accounting, restart, reload, reinstallation, and online retirement passed.'
