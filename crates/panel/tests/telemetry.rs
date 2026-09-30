@@ -164,3 +164,135 @@ async fn settings_require_auth_and_telemetry_rejects_oversized_decompression(
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     Ok(())
 }
+
+#[sqlx::test]
+async fn heartbeat_and_sample_times_are_distinct_and_stale_history_remains_visible(
+    pool: PgPool,
+) -> Result<()> {
+    use business_support::send_envelope;
+    use sinan_protocol::{Envelope, Heartbeat, now_timestamp};
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, mut socket, ack) = panel
+        .authenticated_device(&cookie, "cached telemetry")
+        .await?;
+    let endpoint = format!("/api/servers/{server}");
+    let initial: serde_json::Value = panel
+        .admin(Method::GET, &endpoint, &cookie, None)
+        .await?
+        .json()
+        .await?;
+    assert!(initial["last_heartbeat_at"].is_null());
+    assert!(initial["metrics_sampled_at"].is_null());
+    let sampled = now_millis() - 30_000;
+    let batch = TelemetryBatch {
+        samples: vec![TelemetrySample {
+            id: Uuid::new_v4(),
+            sampled_at: sampled,
+            metrics: Metrics {
+                cpu_percent: Some(7.5),
+                ..Default::default()
+            },
+        }],
+    };
+    panel
+        .client
+        .post(format!("{}/api/agent/v1/telemetry", panel.base))
+        .bearer_auth(&ack.session_token)
+        .json(&batch)
+        .send()
+        .await?
+        .error_for_status()?;
+    send_envelope(
+        &mut socket,
+        Envelope::new(
+            "heartbeat",
+            Heartbeat {
+                applied: Default::default(),
+                uptime_secs: 42,
+            },
+        )?,
+    )
+    .await?;
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let value: serde_json::Value = panel
+                .admin(Method::GET, &endpoint, &cookie, None)
+                .await?
+                .json()
+                .await?;
+            if value["last_heartbeat_at"].as_i64().is_some() {
+                assert!(value["last_heartbeat_at"].as_i64().unwrap() >= now_timestamp() - 2);
+                assert_eq!(value["metrics_sampled_at"], sampled);
+                assert_eq!(value["latest_metrics"]["cpu_percent"], 7.5);
+                assert_eq!(value["online"], true);
+                assert_eq!(value["metrics_stale"], true);
+                break Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    // Slow, explicitly configured sampling must not be reported as expired early.
+    panel
+        .admin(
+            Method::PATCH,
+            &format!("{endpoint}/agent-settings"),
+            &cookie,
+            Some(json!({"sample_interval_secs":60,"upload_interval_secs":60})),
+        )
+        .await?
+        .error_for_status()?;
+    let slow: serde_json::Value = panel
+        .admin(Method::GET, &endpoint, &cookie, None)
+        .await?
+        .json()
+        .await?;
+    assert_eq!(slow["metrics_stale"], false);
+    assert_eq!(slow["metrics_sampled_at"], sampled);
+    Ok(())
+}
+
+#[sqlx::test]
+async fn legacy_metrics_keep_values_without_inventing_collection_time(pool: PgPool) -> Result<()> {
+    use business_support::send_envelope;
+    use sinan_protocol::Envelope;
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, mut socket, _) = panel
+        .authenticated_device(&cookie, "legacy telemetry")
+        .await?;
+    send_envelope(
+        &mut socket,
+        Envelope::new(
+            "telemetry.metrics",
+            Metrics {
+                cpu_percent: Some(17.5),
+                ..Default::default()
+            },
+        )?,
+    )
+    .await?;
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let value: serde_json::Value = panel
+                .admin(
+                    Method::GET,
+                    &format!("/api/servers/{server}"),
+                    &cookie,
+                    None,
+                )
+                .await?
+                .json()
+                .await?;
+            if value["latest_metrics"]["cpu_percent"] == 17.5 {
+                assert!(value["metrics_sampled_at"].is_null());
+                assert!(value["last_heartbeat_at"].is_null());
+                break Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    Ok(())
+}

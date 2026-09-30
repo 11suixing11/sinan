@@ -1,101 +1,78 @@
-use super::{Collector, hardware};
+use super::cache::{Control, Snapshot};
 use crate::{Config, SharedState};
 use anyhow::{Result, ensure};
-use sinan_adapter_sdk::Privileged;
-use sinan_protocol::{AgentSettings, TelemetrySample, telemetry::now_millis};
+use sinan_protocol::AgentSettings;
 use std::{
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, Instant},
 };
-use uuid::Uuid;
+use tokio::sync::watch;
 
-pub async fn run(
+pub(crate) fn initial_control(config: &Config, state: &SharedState) -> Result<Control> {
+    let state = state
+        .lock()
+        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+    let settings = state
+        .get_json::<AgentSettings>("agent_settings")?
+        .unwrap_or_else(|| config.settings.clone());
+    ensure!(settings.valid(), "invalid telemetry settings");
+    Ok(Control {
+        interval: Duration::from_secs(settings.sample_interval_secs),
+        offset_ms: state.get_json::<i64>("clock_offset_ms")?.unwrap_or(0),
+        minimum_timestamp: state.latest_telemetry_timestamp()?,
+        enabled: true,
+    })
+}
+
+pub(crate) async fn run(
     config: Config,
     state: SharedState,
-    ops: Arc<dyn Privileged>,
-    mut client: tokio::sync::watch::Receiver<Option<Arc<crate::artifacts::PanelClient>>>,
+    mut snapshots: watch::Receiver<Arc<Snapshot>>,
+    control: watch::Sender<Control>,
+    mut client: watch::Receiver<Option<Arc<crate::artifacts::PanelClient>>>,
     retirement: Arc<crate::retirement::Retirement>,
 ) -> Result<()> {
-    let hardware = Arc::new(Mutex::new(hardware::Hardware::default()));
-    let collect = async {
-        let mut collector = Collector::new();
-        let mut last_timestamp = 0;
-        loop {
-            let interval = {
-                let _guard = retirement.gate.read().await;
-                if retirement.requested() {
-                    config.settings.sample_interval_secs
-                } else {
-                    let settings = state
-                        .lock()
-                        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                        .get_json::<AgentSettings>("agent_settings")?
-                        .unwrap_or_else(|| config.settings.clone());
-                    ensure!(settings.valid(), "invalid telemetry settings");
-                    let mut metrics = collector.metrics();
-                    let supplement = hardware
-                        .lock()
-                        .map_err(|_| anyhow::anyhow!("hardware lock poisoned"))?
-                        .clone();
-                    metrics.gpus = supplement.gpus;
-                    if let Some((tcp, udp)) = supplement.connections {
-                        metrics.tcp_connections = Some(tcp);
-                        metrics.udp_connections = Some(udp);
-                    }
-                    for disk in &mut metrics.disks {
-                        let name = std::path::Path::new(&disk.name)
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy();
-                        if let Some(io) = supplement.io.get(name.as_ref()) {
-                            disk.read_bytes_per_sec = io.read_bytes_per_sec;
-                            disk.write_bytes_per_sec = io.write_bytes_per_sec;
-                            disk.read_iops = io.read_iops;
-                            disk.write_iops = io.write_iops;
-                            disk.await_ms = io.await_ms;
-                            disk.utilization_percent = io.utilization_percent;
-                        }
-                    }
-                    {
-                        let mut state = state
-                            .lock()
-                            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
-                        let offset = state.get_json::<i64>("clock_offset_ms")?.unwrap_or(0);
-                        let timestamp = now_millis().saturating_add(offset).max(last_timestamp + 1);
-                        last_timestamp = timestamp;
-                        let dropped = state.save_telemetry(&TelemetrySample {
-                            id: Uuid::new_v4(),
-                            sampled_at: timestamp,
-                            metrics,
-                        })?;
-                        if dropped > 0 {
-                            tracing::warn!(
-                                dropped,
-                                "oldest telemetry samples removed by offline retention limit"
-                            );
-                        }
-                    }
-                    settings.sample_interval_secs
-                }
-            };
-            tokio::time::sleep(Duration::from_secs(interval)).await;
-        }
-        #[allow(unreachable_code)]
-        Ok::<(), anyhow::Error>(())
-    };
-    let refresh = async {
-        let mut previous = (Instant::now(), Default::default());
+    // Persistence and upload never own or call the collector. Even a kernel call
+    // that never returns leaves both async futures and the connection responsive.
+    let persist = async {
+        let mut saved = None;
+        let mut stale = false;
+        let mut poll = tokio::time::interval(Duration::from_secs(1));
+        poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             {
                 let _guard = retirement.gate.read().await;
-                if !retirement.requested() {
-                    let supplement = hardware::refresh(ops.as_ref(), &mut previous).await?;
-                    *hardware
+                let mut next_control = initial_control(&config, &state)?;
+                next_control.enabled = !retirement.requested();
+                control.send_replace(next_control);
+                let snapshot = snapshots.borrow_and_update().clone();
+                let expired = snapshot.timed_out() || snapshot.error.is_some();
+                if expired && !stale {
+                    tracing::warn!(error = ?snapshot.error, "telemetry collector stalled; last sample retained without refreshing its time");
+                }
+                stale = expired;
+                if let Some(sample) = snapshot
+                    .sample
+                    .as_ref()
+                    .filter(|sample| !retirement.requested() && Some(sample.id) != saved)
+                {
+                    let mut state = state
                         .lock()
-                        .map_err(|_| anyhow::anyhow!("hardware lock poisoned"))? = supplement;
+                        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+                    let dropped = state.save_telemetry(sample)?;
+                    saved = Some(sample.id);
+                    if dropped > 0 {
+                        tracing::warn!(
+                            dropped,
+                            "oldest telemetry samples removed by offline retention limit"
+                        );
+                    }
                 }
             }
-            tokio::time::sleep(Duration::from_secs(5)).await;
+            tokio::select! {
+                _ = poll.tick() => {},
+                changed = snapshots.changed() => { changed?; },
+            }
         }
         #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())
@@ -157,6 +134,6 @@ pub async fn run(
         #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())
     };
-    tokio::try_join!(collect, refresh, upload)?;
+    tokio::try_join!(persist, upload)?;
     Ok(())
 }
