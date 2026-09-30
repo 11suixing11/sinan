@@ -18,6 +18,7 @@ pub(super) fn snapshot(runtime: &Runtime) -> Result<Value> {
                 .unwrap_or(false),
         );
     }
+    let telemetry = runtime.telemetry.borrow();
     let oversized_usage_batches = state.oversized_usage_count()?;
     Ok(json!({
         "agent_version": env!("CARGO_PKG_VERSION"), "pid": std::process::id(),
@@ -25,6 +26,9 @@ pub(super) fn snapshot(runtime: &Runtime) -> Result<Value> {
         "applied": applied, "healthy": healthy,
         "pending_batches": state.pending_usage_count()?,
         "pending_telemetry": state.pending_telemetry_count()?,
+        "metrics_sampled_at": telemetry.sample.as_ref().map(|sample| sample.sampled_at),
+        "telemetry_stale": telemetry.timed_out() || telemetry.error.is_some(),
+        "telemetry_error": telemetry.error,
         "oversized_usage_batches": oversized_usage_batches,
         "usage_outbox_error": (oversized_usage_batches > 0).then_some(
             "Legacy usage batches exceed the wire byte budget; ledger reconciliation is required before acknowledging them."

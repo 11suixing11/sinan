@@ -38,11 +38,20 @@ struct Runtime {
     public_ips: Arc<Vec<String>>,
     agent_version: &'static str,
     retirement: Option<Arc<crate::retirement::Retirement>>,
+    telemetry: watch::Receiver<Arc<crate::telemetry::cache::Snapshot>>,
 }
 
 impl Runtime {
-    fn static_info(&self) -> Result<sinan_protocol::StaticInfo> {
-        let mut info = crate::telemetry::Collector::new().static_info();
+    fn static_info(&self) -> Result<Option<sinan_protocol::StaticInfo>> {
+        let mut info = {
+            let snapshot = self.telemetry.borrow();
+            // Keep enrollment metadata until the collector has identified the host.
+            // Compiled ABI alone cannot identify the installed runtime's ABI.
+            if snapshot.sample.is_none() {
+                return Ok(None);
+            }
+            snapshot.static_info.clone()
+        };
         info.agent_version = Some(self.agent_version.into());
         info.ip_addresses = crate::telemetry::normalized_addresses(
             info.ip_addresses
@@ -72,7 +81,7 @@ impl Runtime {
                 break;
             }
         }
-        Ok(info)
+        Ok(Some(info))
     }
 
     fn applied(&self) -> Result<AppliedRevisions> {
@@ -177,6 +186,10 @@ pub async fn run_with_diagnostics(
             .iter()
             .map(|adapter| format!("diagnostic:{}", adapter.describe().plugin_name)),
     );
+    let mut collection_control = crate::telemetry::worker::initial_control(&config, &state)?;
+    collection_control.enabled = !retirement.requested();
+    let sampling =
+        crate::telemetry::cache::Sampling::start(privileged.clone(), collection_control)?;
     let runtime = Runtime {
         state: state.clone(),
         modules: Arc::new(modules),
@@ -185,6 +198,7 @@ pub async fn run_with_diagnostics(
         public_ips: Arc::new(config.public_ips.clone()),
         agent_version,
         retirement: Some(retirement.clone()),
+        telemetry: sampling.snapshots.clone(),
     };
     let (client_tx, client_rx) = watch::channel::<Option<Arc<PanelClient>>>(None);
     let (trigger_tx, trigger_rx) = mpsc::channel(1);
@@ -214,7 +228,8 @@ pub async fn run_with_diagnostics(
     tasks.spawn(crate::telemetry::worker::run(
         config.clone(),
         state.clone(),
-        privileged.clone(),
+        sampling.snapshots.clone(),
+        sampling.control.clone(),
         client_rx.clone(),
         retirement.clone(),
     ));

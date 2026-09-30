@@ -82,8 +82,9 @@ pub(super) async fn run(
             if applied {
                 let current = runtime.applied()?;
                 if current != reported
+                    && let Some(info) = runtime.static_info()?
                     && outgoing
-                        .try_send(Envelope::new("telemetry.static", runtime.static_info()?)?)
+                        .try_send(Envelope::new("telemetry.static", info)?)
                         .is_ok()
                 {
                     reported = current;

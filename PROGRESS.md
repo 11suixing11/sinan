@@ -521,6 +521,19 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 发布前正常合入作者新 head `cbe54ae`：与已验证 `14893f5` 的所有 crates、Cargo 清单/锁文件及工具脚本完全相同，仅补验收记录与已有前端差异。保留双向正常祖先和旧 payload 类型补修，Bun 4 项/637 断言及 TypeScript/Vite 复验通过，最终 dist 与既有构建一致；相同 Rust 源码不重复构建。
 
+## 2026-10-01 心跳与遥测隔离（Issue #17，独立 PR）
+
+- 单一 OS 线程持有 Collector 和硬件补充采集器，watch 缓存 StaticInfo 与已有 TelemetrySample；连接初次、300 秒刷新以及公网/配置变更不再创建 Collector，心跳 uptime 读取缓存。5 秒采集超时保留旧样本，不生成额外阻塞线程，不持有退役 gate。
+- 采样缓存、SQLite 持久化与 HTTP 上传分开，保留 1 秒/3 秒默认设置、原 outbox 保留上限与 UUID ACK；时间下限随样本原子保存，ACK 后保留，重启与时钟修正不倒退。
+- API 暴露既有 metrics_sampled_at（毫秒），新增仅 heartbeat 更新的可空 last_heartbeat_at（秒）；last_seen 保持最近设备消息语义。界面分别显示三种时间、指标过期和可读历史，未知不补造时间。baseline 读取真实字段，Cookie 和权限保护不变。
+- 本机 fmt/core 边界检查、baseline 7 项和边界 6 项通过；Bun 1.4.2 构建及 dist 同步完成；真实 Chromium 回环 6 项验收通过、错误 0。集中 Debian 12 构建容器（1.5 GiB/2 CPU/无 swap）fmt、全 targets clippy、Rust/PostgreSQL 工作区 246 通过/6 原有环境依赖忽略，专项 core 遥测10/阻塞4/面板4通过，Agent/Panel 构建通过、二进制已保存，OOM=false；本机 Python77通过（5环境skip），未在磁盘不足的本机重建 Cargo。
+- 初始缓存保留编译期 OS/arch/libc；首个真实采集之前不向面板发送默认 StaticInfo，保留注册时的宿主 ABI，hello/heartbeat/control 继续工作。专项覆盖永久阻塞时真实 20 秒心跳/1 秒 Ping、同缓存重连、不增加采集器、HTTP503补报与ACK、退役 gate、重启时间下限、API 过期与慢采样配置。独立验收见 [telemetry-isolation](docs/acceptance/telemetry-isolation.md)。真实受保护完整验机与取消清理由总任务分别验收。
+- 单独提交整合 main b8e5689（含 IP 缓存与会话修复），保留预检和宿主 ABI 修复，新增真实 WebSocket 缓存就绪/双 ABI 测试。本机 fmt/core 边界、Python77（5skip）、Bun/dist、Chromium6项重验通过；最新 HEAD Rust/PostgreSQL 与真实 systemd 交 GitHub CI，上一轮246项与保存二进制只证明 e2d898c 基线版本。
+
+- 合并审查继续正常整合 main `c958ba2`（PR #44），保留双方正常祖先、未知字段过滤和遥测时间类型，重新生成最终 dist。补修独立采集线程退出：异步硬件命令使用 4 秒 / 128 KiB 的受限执行与进程组 guard，退出发取消信号并最多等 1 秒确认清理；同步永久阻塞的 Collector 不 join，不生成替代线程。缓存测试拆为子模块，新增真实 Unix 子树取消、失败/超时后恢复和 CPU 忙循环隔离回归。
+- 本轮本机独立 PostgreSQL / macOS 专项 Rust 共 21 项通过、0 失败/忽略：遥测/core 13、真实 WebSocket 心跳与初始 ABI 就绪/usage 重放 3、阻塞采集期间退役与 HTTP503→ACK 补报 1、panel telemetry 4。全 workspace/all-targets Clippy（warnings 为错误）、fmt、core 门禁、差异与 baseline Python 7 项通过，日志前缀 `/tmp/sinan-pr48-`。Rust 验证对应作者 `03f7d30` 加退出补修；随后合入的 `c958ba2` 只修改 IP 质量 Rust 文件，core/SDK/protocol、遥测相关 panel/test 文件与 Cargo 清单/锁完全相同，不重复无交集构建，也不以此前 246 项记录代替本轮验证。
+- 最新合并源通过 Bun 1.4.2 冻结安装、TypeScript/Vite 重建，4 项字段测试 / 637 断言，最终 dist 的 Chromium 回环遥测 6 场景全部通过、浏览器错误 0。真实 Linux/systemd 和完整受保护节点负载仍按最终发布 HEAD 的 CI/独立验收核对；本轮 Unix 子树取消通过不冒称已完成平台全验收。
+
 ## 2026-10-01：诊断章节独立持久化（独立 PR）
 
 - 独立章节表和完整度字段与执行状态分开；保留原整份文本及 r2 历史/恢复。NodeQuality r3 包装器每阶段原子保存章节，缺一章仍可读其他已存部分。
