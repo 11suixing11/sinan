@@ -266,6 +266,11 @@ async fn migration_preflight_checks_resumable_diagnostic_jobs() {
         args: vec![],
         working_directory: spec.job_dir.clone(),
         timeout_secs: 30,
+        memory_max: Default::default(),
+        tasks_max: Default::default(),
+        cpu_weight: Default::default(),
+        io_weight: Default::default(),
+        oom_score_adjust: Default::default(),
     };
     state
         .set_json(

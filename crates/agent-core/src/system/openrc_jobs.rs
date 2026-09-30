@@ -16,6 +16,15 @@ impl SystemServiceManager {
         let directory = self.job_root.join(&job.unit);
         let spec = directory.join("job.json");
         ensure!(!spec.try_exists()?, "diagnostic job already submitted");
+        tracing::warn!(
+            unit = %job.unit,
+            memory_max = job.memory_max.get(),
+            tasks_max = job.tasks_max.get(),
+            cpu_weight = job.cpu_weight.get(),
+            io_weight = job.io_weight.get(),
+            oom_score_adjust = job.oom_score_adjust.get(),
+            "OpenRC diagnostic jobs do not enforce systemd cgroup resource budgets, including MemorySwapMax"
+        );
         self.privileged.create_dir(&directory, 0o700, None).await?;
         self.privileged
             .write_file(&spec, &serde_json::to_vec(job)?, 0o600, None)

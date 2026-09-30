@@ -4,6 +4,8 @@ import base64
 import hashlib
 import io
 import json
+import os
+import subprocess
 from pathlib import Path
 import platform
 import tarfile
@@ -19,11 +21,14 @@ def digest(data):
 
 def sign(data):
     # No configurable private key: production signing is deliberately impossible.
+    signer = os.environ.get('SINAN_CI_FIXTURE_SIGNER')
+    if signer:
+        result = subprocess.run([signer], input=data, capture_output=True, check=True, timeout=30)
+        return result.stdout.decode('utf-8')
     try:
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     except ImportError:
         import shutil
-        import subprocess
         import tempfile
         verifier = shutil.which('minisign')
         if not verifier:
