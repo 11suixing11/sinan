@@ -158,7 +158,8 @@ except BaseException:
     asset.unlink(missing_ok=True)
     raise
 PY
-install -d -m 0755 /opt/sinan/core
+# BusyBox applies umask to implicit parents; the runtime must traverse shared roots.
+install -d -m 0755 /opt/sinan /opt/sinan/core /var/lib/sinan
 STAGE=$(mktemp -d /opt/sinan/core/.bootstrap.XXXXXX)
 install -d -m 0755 "$STAGE/$VERSION"
 install -m 0755 "$DOWNLOAD/sinan-agent" "$STAGE/$VERSION/sinan-agent"
@@ -209,7 +210,7 @@ if ! getent passwd sinan-singbox >/dev/null; then
   if command -v useradd >/dev/null; then useradd --system --no-create-home --gid sinan-singbox --shell "$NOLOGIN" sinan-singbox
   else adduser -S -D -H -G sinan-singbox -s "$NOLOGIN" sinan-singbox; fi
 fi
-install -d -m 0755 /opt/sinan/plugins/sing-box
+install -d -m 0755 /opt/sinan/plugins /opt/sinan/plugins/sing-box
 install -d -m 0700 /etc/sinan /etc/sinan/identity /var/lib/sinan/core
 install -d -m 2750 -o root -g sinan-singbox /var/lib/sinan/plugins /var/lib/sinan/plugins/sing-box@main /var/lib/sinan/plugins/sing-box@main/revisions
 install -d -m 0750 -o sinan-singbox -g sinan-singbox /var/lib/sinan/plugins/sing-box@main/data

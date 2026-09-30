@@ -4,6 +4,7 @@ import base64
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import platform
 import tarfile
@@ -19,6 +20,10 @@ def digest(data):
 
 def sign(data):
     # No configurable private key: production signing is deliberately impossible.
+    if signer := os.environ.get('SINAN_TEST_SIGNER'):
+        import subprocess
+        return subprocess.run([signer], input=data, capture_output=True, check=True,
+                              timeout=30).stdout.decode('utf-8')
     try:
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     except ImportError:
@@ -96,4 +101,4 @@ def proof(name, version, binary_name, data, format='raw', arch=None):
 
 def install(directory, release):
     for name, field in [('release.json', 'metadata_json'), ('SHA256SUMS', 'checksums'), ('SHA256SUMS.minisig', 'signature')]:
-        (Path(directory) / name).write_text(release[field], encoding='utf-8')
+        (Path(directory) / name).write_bytes(release[field].encode('utf-8'))

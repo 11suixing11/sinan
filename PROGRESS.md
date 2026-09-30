@@ -389,3 +389,12 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 实测面板容器网络命名空间的 IP 查询为 HTTP 403；DNS、TCP、TLS 均成功。私有原始日志不进入 Git。
 - 新增只读基线采集脚本与故障矩阵，输出仅写私有目录，面板时间采用白名单；旧指标采集时间明确未知。
 - 专用 Debian 12 容器 1 GiB / 2 CPU 可用于小夹具；完整 NodeQuality 不在共享生产磁盘上运行。独立 Debian 12 节点选取与完整症状复现仍进行中。
+
+## 2026-10-01：修复签名与多平台 CI 的整合失败
+
+- 在 `main` 快进到上游 `45df3b1` 后修复，保留上游签名、设备退役、服务优先级和诊断基线。上游原 PR 已合并，此后只提交针对新基线的修复差异。
+- Windows 的已签证明改用原始字节保存，避免文本写入自动转换 CRLF；正式清单与安装器渲染也保留 LF。新增模拟 Windows 文本模式的回归，独立 minisign 验证正确签名并拒绝篡改，不放宽校验边界。
+- Windows CI 使用基于 protocol 现有测试支持的 Rust TEST_ONLY 签名 example，避免 cryptography ARM64 wheel 缺失后的 OpenSSL 本机构建；无新增依赖、无正式私钥输入。Linux OpenRC 与 Agent 行为步骤也保留公开失败摘要，便于后续定位。
+- 隔离 Alpine 复现普通运行账户执行代理时的 `Permission denied`，确认签名安装器新建的共享父目录受 umask 影响成为 0750。显式设置父目录可遍历权限后，真实 OpenRC 安装、重装、失败恢复、HUP、非 root 低端口能力、独立运行、default runlevel 和 systemd 安装命令契约均通过。此项运行在用户/挂载/进程/网络命名空间和临时根目录内，未安装宿主服务。
+- 本地 fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过（204 项成功，4 项原有实机专项忽略），实际签名 Agent 的注册、补报、双拨测、命令去重、成功升级及失败恢复全部通过。Python 71 项检查中 66 项通过、5 项需容器 root 的原有专项忽略；构建脚本 5 项、actionlint、Python 语法和 diff 检查通过。
+- 下一步：推送修复后核对完整 CI，特别是 Windows 两架构签名升级/原生服务、musl 两架构 OpenRC 及被前置失败阻断的真实 Reality 验收；本地通过不代替远端结果。
