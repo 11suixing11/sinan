@@ -214,6 +214,18 @@ impl SystemServiceManager {
 }
 
 impl ServiceManager for SystemServiceManager {
+    #[cfg(unix)]
+    fn supports_confirmed_cancellation(&self) -> bool {
+        super::cleanup::supported(self.backend)
+    }
+    #[cfg(unix)]
+    fn diagnostic_cleanup_confirmed<'a>(
+        &'a self,
+        unit: &'a str,
+        directory: &'a std::path::Path,
+    ) -> BoxFuture<'a, bool> {
+        Box::pin(self.confirm_diagnostic_cleanup(unit, directory))
+    }
     fn running_diagnostic_units(&self) -> BoxFuture<'_, Vec<String>> {
         self.diagnostic_running_units()
     }

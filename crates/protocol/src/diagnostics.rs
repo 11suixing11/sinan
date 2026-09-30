@@ -42,6 +42,29 @@ pub struct DiagnosticUpdate {
     pub error: Option<String>,
 }
 
+/// Devices advertise this only when diagnostic cleanup can be confirmed.
+pub const DIAGNOSTIC_CANCEL_CAPABILITY: &str = "diagnostic:confirmed-cancel";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiagnosticCancelRequest {
+    pub server_id: crate::ServerId,
+    pub job: DiagnosticJob,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiagnosticCancelResult {
+    pub server_id: crate::ServerId,
+    pub id: Uuid,
+    pub plugin: String,
+    pub confirmed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<DiagnosticReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 /// Chapters are uploaded independently of execution status and the legacy report.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

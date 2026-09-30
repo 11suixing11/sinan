@@ -437,6 +437,8 @@ async fn report_readiness_and_quality_refresh_require_auth_and_preserve_unknown(
     Ok(())
 }
 
+#[path = "diagnostics/cancellation.rs"]
+mod cancellation;
 #[sqlx::test(migrations = "./migrations")]
 async fn concurrent_quality_refresh_admits_one_request_and_keeps_unknown(
     pool: PgPool,
@@ -543,6 +545,7 @@ async fn ip_and_nodequality_views_are_independent_and_legacy_routes_preserve_sha
         .json()
         .await?;
     assert_eq!(node["plugin_ready"], false);
+    assert_eq!(node["cancel_supported"], false);
     assert!(node.get("quality").is_none() && node.get("ip_addresses").is_none());
     assert_eq!(node["reports"][0]["id"], report_id.to_string());
     assert_eq!(node["reports"][0]["job"], old_job);
