@@ -14,7 +14,11 @@ impl State {
             payload.len() <= 128 * 1024,
             "telemetry sample exceeds size limit"
         );
+        let floor = self.latest_telemetry_timestamp()?.max(sample.sampled_at);
         let tx = self.connection.transaction()?;
+        // Persist the timestamp floor atomically with the sample, and retain it
+        // after an ACK removes the outbox so restart cannot move time backwards.
+        crate::state::write_json(&tx, "telemetry:last_sampled_at", &floor)?;
         tx.execute(
             "INSERT INTO telemetry_outbox(id,sampled_at,payload) VALUES(?1,?2,?3)",
             params![sample.id.to_string(), sample.sampled_at, payload],
@@ -40,6 +44,20 @@ impl State {
         }
         tx.commit()?;
         Ok(removed)
+    }
+
+    pub(crate) fn latest_telemetry_timestamp(&self) -> Result<i64> {
+        // The indexed outbox maximum also covers upgrades from older Agents that
+        // did not yet persist a timestamp floor.
+        let pending: i64 = self.connection.query_row(
+            "SELECT COALESCE(MAX(sampled_at),0) FROM telemetry_outbox",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(pending.max(
+            self.get_json::<i64>("telemetry:last_sampled_at")?
+                .unwrap_or(0),
+        ))
     }
 
     pub fn pending_telemetry(&self) -> Result<Vec<TelemetrySample>> {
@@ -107,7 +125,12 @@ mod tests {
             ids: vec![sample.id],
         })?;
         assert_eq!(state.pending_telemetry_count()?, 0);
+        assert_eq!(state.latest_telemetry_timestamp()?, sample.sampled_at);
         drop(state);
+        assert_eq!(
+            State::open(&path)?.latest_telemetry_timestamp()?,
+            sample.sampled_at
+        );
         std::fs::remove_file(path)?;
         Ok(())
     }
