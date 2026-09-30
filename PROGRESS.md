@@ -712,6 +712,12 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 保留作者 Bookworm 启动及精确 workspace 信任修复；`b536476` 的 Debian12/amd64/arm64 原生制品 CI 全过。本地修正回环 CLI 测试的非阻塞 socket 读取竞态，TCP 17项单线程通过，TCP 全targets Clippy、fmt、Python来源12/发布22、旧Release28通过/4条件跳过及 core/actionlint 通过。永久源与当前 main 的锁文件区别已明确，生产引擎预算和固定制品未改；最终整合 HEAD 的主线 CI 尚须实时核对。
 
+### P1 sing-box 根插件物理目录恢复（独立后续）
+
+合并后 sing-box 面板实现位于 crates/panel/src/plugins/singbox，与用户要求及ADR0023的根 plugins/singbox 不一致。独立后续将13文件 git mv 至 plugins/singbox/panel，以薄的 Rust path 桥保留模块名与接口；逐文件blob SHA一致，无业务/API/数据库/epoch/前端变动。ADR0030与AGENTS明确物理路径。静态fmt/core/差异检查及最新CI分别记录，未重新宣称实机流量完成。详见singbox-plugin-business独立验收。
+
+本轮独立审查逐一确认13个Git blob完全相同，path桥解析全部子模块及publisher嵌套测试，Rust可见性/旧导出保持；Docker COPY plugins与Compose根上下文保留。冻结源码 `7d1bda4` 的19项Rust/PostgreSQL专项全部通过、0失败/忽略（搬迁publisher2、插件业务/迁移4、账本4、业务/旧订阅4、订阅重置2、端口2、真实Agent配置/丢失ACK/重启1），workspace全targets Clippy（warnings为错误）、fmt、core门禁及六项行为、build-script5、runtime-cache3与差异检查通过。独立55432数据库由本任务启动并已停止，未触5432或生产；正常合入正式main `5d908b9` 后业务13文件与桥仍保持已验原字节，新增TCP/构建流程证据由其独立验收负责，最终整合CI继续单独核对。
+
 ## 2026-10-01：Reality 间歇传输失败证据（Issue #6）
 
 - 业务源码743955c原CI在HUP后的2MiB下载只收到1,103,168字节，90秒exit28；同源码失败job只重跑一次，attempt2安装/双向流量/Agent重启/HUP/续传/签名拒绝/重装/在线退役全过。后续75cf整合源码另在首次下载90秒0字节失败，不能归因于业务或门禁。追加既有milestone1 Issue #6，保持原因未知，不重复开Issue或推已合并分支。

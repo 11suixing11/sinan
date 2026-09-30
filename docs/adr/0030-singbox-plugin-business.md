@@ -2,7 +2,7 @@
 
 ## 决策
 
-落实 ADR 0023：面板的代理节点、代理用户、授权、订阅、用户流量、配置发布和设备运行时清单实现移入 `crates/panel/src/plugins/singbox/`。面板根模块保留 Rust 导出作为嵌入兼容桥；后台诊断过期维护由独立 maintenance 服务处理，不由代理发布循环负责。
+落实 ADR 0023：面板的代理节点、代理用户、授权、订阅、用户流量、配置发布和设备运行时清单实现移入 `plugins/singbox/panel/`。面板通过薄的 Rust path 桥嵌入根插件目录，根模块保留 Rust 导出作为兼容桥；后台诊断过期维护由独立 maintenance 服务处理，不由代理发布循环负责。
 
 管理接口统一为 `/api/plugins/sing-box/nodes`、`users`、`usage`、`servers/{id}/deployments` 及其子资源。前后端同一版本切换，旧管理 API 不保留别名。已导入订阅的 `/sub/{token}` 永久保留，路由和解析归插件。表名、主键、订阅令牌、设备公钥、Reality 密钥、授权 UUID、发布快照和流量账本均不重写。
 
