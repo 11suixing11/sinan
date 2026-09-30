@@ -6,6 +6,8 @@ ConditionPathExists=/opt/sinan/plugins/sing-box/current/sing-box
 ConditionPathExists=/var/lib/sinan/plugins/sing-box@%i/current/config.json
 
 [Service]
+OOMScoreAdjust=-500
+CPUWeight=1000
 User=sinan-singbox
 Group=sinan-singbox
 AmbientCapabilities=CAP_NET_BIND_SERVICE
