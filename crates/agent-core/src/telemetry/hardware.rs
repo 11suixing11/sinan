@@ -10,6 +10,7 @@ use std::{
 #[derive(Clone, Default)]
 pub(super) struct Hardware {
     pub gpus: Vec<GpuMetrics>,
+    pub connections: Option<(u64, u64)>,
     pub io: BTreeMap<String, DiskMetrics>,
 }
 
@@ -149,6 +150,32 @@ pub(super) async fn gpus(ops: &dyn Privileged) -> Vec<GpuMetrics> {
     }
     #[cfg(target_os = "linux")]
     {
+        if let Some(text) = command(ops, "lspci", &["-mm"]).await {
+            let models: Vec<_> = text
+                .lines()
+                .filter_map(|line| {
+                    let fields: Vec<_> = line.split('"').collect();
+                    if fields.len() < 6
+                        || !["VGA", "3D", "Display"]
+                            .iter()
+                            .any(|class| fields[1].contains(class))
+                    {
+                        return None;
+                    }
+                    Some(GpuMetrics {
+                        model: format!("{} {}", fields[3], fields[5])
+                            .chars()
+                            .take(256)
+                            .collect(),
+                        ..GpuMetrics::default()
+                    })
+                })
+                .take(32)
+                .collect();
+            if !models.is_empty() {
+                return models;
+            }
+        }
         let mut names = std::collections::BTreeSet::new();
         if let Ok(entries) = std::fs::read_dir("/sys/class/drm") {
             for entry in entries.flatten() {
@@ -199,10 +226,13 @@ pub(super) async fn gpus(ops: &dyn Privileged) -> Vec<GpuMetrics> {
     {
         let text = command(ops, "powershell.exe", &["-NoProfile", "-NonInteractive", "-Command", "@(Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM) | ConvertTo-Json -Compress"]).await.unwrap_or_default();
         let value: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-        value
-            .as_array()
-            .into_iter()
-            .flatten()
+        let values = match value {
+            serde_json::Value::Array(values) => values,
+            value @ serde_json::Value::Object(_) => vec![value],
+            _ => Vec::new(),
+        };
+        values
+            .iter()
             .take(32)
             .filter_map(|item| {
                 Some(GpuMetrics {
@@ -258,8 +288,15 @@ pub(super) async fn refresh(
         now.duration_since(previous.0).as_secs_f64(),
     );
     *previous = (now, current);
+    #[cfg(not(target_os = "linux"))]
+    let connections = command(ops, "netstat", &["-an"])
+        .await
+        .map(|text| connection_counts(&text));
+    #[cfg(target_os = "linux")]
+    let connections = None;
     Ok(Hardware {
         gpus: gpus(ops).await,
+        connections,
         io,
     })
 }
@@ -279,4 +316,29 @@ mod tests {
         assert_eq!(gpu[0].usage_percent, None);
         assert_eq!(gpu[0].memory_used, Some(1024 * 1024 * 1024));
     }
+}
+
+#[cfg(any(not(target_os = "linux"), test))]
+fn connection_counts(text: &str) -> (u64, u64) {
+    text.lines().fold((0, 0), |(tcp, udp), line| {
+        let protocol = line
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        (
+            tcp + u64::from(matches!(protocol.as_str(), "tcp" | "tcp4" | "tcp6")),
+            udp + u64::from(matches!(protocol.as_str(), "udp" | "udp4" | "udp6")),
+        )
+    })
+}
+
+#[test]
+fn netstat_counts_protocol_rows_without_headers_or_unix_sockets() {
+    assert_eq!(
+        connection_counts(
+            "Proto Local Address\nTCP 127.0.0.1:1\ntcp4 0 0 127.0.0.1.2\nUDP *:3\nudp6 *:4\nunix stream 0x1"
+        ),
+        (2, 2)
+    );
 }

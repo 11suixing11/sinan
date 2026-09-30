@@ -204,3 +204,11 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 本地真实 Agent 已通过注册、压缩上报、离线重启补报、命令去重、TCP 拨测、升级成功、启动失败回退、失败版本抑制及退出清理。隔离 Alpine/OpenRC 的安装、旧服务回退、default 启动和实际 Agent 一次性诊断全部通过。
 - 本地 fmt、Clippy、完整 Rust/PostgreSQL 测试通过（140 项成功、4 项原有实机专项忽略）；TypeScript/Vite 构建、五组构建脚本测试、actionlint、Python 语法与 core 分层边界检查通过。
 - 下一步：检查本提交远端 CI，修复原生系统执行差异。上一阶段 48728c8 的九平台 Agent、四平台运行时、Compose 和 OpenRC 已成功，主 check 失败；本轮修复了负进程组 kill 的参数歧义，但尚未取得旧任务完整日志，不能宣称已确认其唯一原因。macOS/Windows/FreeBSD 服务尚待本提交原生 CI；公网 Reality、GPU 负载和整机重启不属于已完成验收。
+
+
+## 原生 CI 跟进：补充平台指标与失败摘要
+
+- d454b3b 的 Linux 四目标、Linux 运行时四目标、主检查和 Compose 均通过。macOS 已通过 Agent 实际运行/升级回退和真实运行时构建，在原生服务测试失败；FreeBSD amd64 已通过构建及 13.5/14 二进制验证，15 检查失败。Windows 双架构失败，公开 API 未提供完整日志，尚不能确定错误原因。
+- 为原生 CI 命令增加有长度限制的失败注释，保留标准输出，并输出安装子进程的实际错误，后续可从公开检查注释定位。Windows Python 固定 UTF-8，避免中文注册提示依赖 runner 的代码页。
+- 补充 macOS/FreeBSD/Windows netstat 连接数，修复 Windows 单 GPU JSON 返回对象的识别，Linux 优先读取 PCI GPU 型号；Windows 不将不存在的 load average 报为 0。macOS 对已卸载服务重复 stop 按成功处理。
+- 本地 fmt、Clippy、完整 Rust/PostgreSQL 回归通过，141 项成功、4 项原有专项忽略；actionlint 通过。下一步继续根据原生 CI 的真实错误修复，不将尚未通过的原生服务宣称为验收完成。

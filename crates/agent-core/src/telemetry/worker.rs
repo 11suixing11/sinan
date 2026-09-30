@@ -32,6 +32,10 @@ pub async fn run(
                 .map_err(|_| anyhow::anyhow!("hardware lock poisoned"))?
                 .clone();
             metrics.gpus = supplement.gpus;
+            if let Some((tcp, udp)) = supplement.connections {
+                metrics.tcp_connections = Some(tcp);
+                metrics.udp_connections = Some(udp);
+            }
             for disk in &mut metrics.disks {
                 let name = std::path::Path::new(&disk.name)
                     .file_name()

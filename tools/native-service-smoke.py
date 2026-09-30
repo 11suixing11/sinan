@@ -131,7 +131,9 @@ def main():
         else:
             powershell("$t=Get-ScheduledTask -TaskName 'sinan-singbox@main'; if ($t.Principal.UserId -notmatch 'sinan-singbox') { throw 'Runtime account mismatch' }; if ($t.Triggers.Count -ne 1) { throw 'Missing startup trigger' }")
         print('Native services: startup registration, privilege separation, runtime artifact/configuration, traffic, Agent restart/reinstall and independent runtime passed')
-    except BaseException:
+    except BaseException as error:
+        if isinstance(error, subprocess.CalledProcessError):
+            print(error.stdout, error.stderr)
         for path in [root / 'core/update-state.json', Path('/var/log/sinan-agent.log'), Path('/var/log/sinan-singbox@main.log')]:
             if path.exists():
                 print(path, path.read_text(errors='replace')[-12000:])

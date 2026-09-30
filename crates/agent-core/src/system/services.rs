@@ -110,12 +110,19 @@ impl SystemServiceManager {
             }
             ServiceBackend::Launchd => {
                 let label = format!("system/org.sinan.{}", service.replace('@', "."));
-                if action == "restart" {
+                if matches!(action, "restart" | "stop") {
                     let loaded = self
                         .privileged
                         .execute(Path::new("launchctl"), &["print".into(), label.clone()])
                         .await?;
-                    if !loaded.success {
+                    if action == "stop" && !loaded.success {
+                        return Ok(CommandOutput {
+                            success: true,
+                            stdout: String::new(),
+                            stderr: String::new(),
+                        });
+                    }
+                    if action == "restart" && !loaded.success {
                         let path = format!(
                             "/Library/LaunchDaemons/org.sinan.{}.plist",
                             service.replace('@', ".")

@@ -174,8 +174,12 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def invoke(binary, config, *args, **kwargs):
-    return subprocess.run([str(binary), '--config', str(config), *args],
-                          check=True, capture_output=True, text=True, encoding='utf-8', timeout=180 if 'install-service' in args else 60, **kwargs).stdout
+    result = subprocess.run([str(binary), '--config', str(config), *args],
+                            capture_output=True, text=True, encoding='utf-8',
+                            timeout=180 if 'install-service' in args else 60, **kwargs)
+    if result.returncode:
+        raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
+    return result.stdout
 
 
 def stop(process):
@@ -303,7 +307,9 @@ def main():
         with sqlite3.connect(root / 'state.db') as db:
             assert db.execute('pragma user_version').fetchone()[0] == 1
         print('Native Agent: enrollment, telemetry/replay, command deduplication, TCP probes, activation, rollback and shutdown passed')
-    except BaseException:
+    except BaseException as error:
+        if isinstance(error, subprocess.CalledProcessError):
+            print(error.stdout, error.stderr)
         if (root / 'agent.log').exists():
             print((root / 'agent.log').read_text(encoding='utf-8', errors='replace')[-24000:])
         raise

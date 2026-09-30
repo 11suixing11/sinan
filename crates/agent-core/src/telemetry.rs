@@ -253,7 +253,11 @@ fn load_average() -> Option<(f64, f64, f64)> {
             fields.next()?.parse().ok()?,
         ))
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        None
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let load = System::load_average();
         (load.one.is_finite() && load.five.is_finite() && load.fifteen.is_finite()).then_some((

@@ -88,6 +88,7 @@ jobs:
             target: aarch64-unknown-linux-gnu
             rustflags: -Ctarget-feature=-crt-static
     env:
+      PYTHONUTF8: '1'
       RUSTFLAGS: ${{ matrix.rustflags }}
     steps:
       - uses: actions/checkout@v7.0.1
@@ -250,6 +251,7 @@ jobs:
             target: aarch64-pc-windows-msvc
             rustflags: -Ctarget-feature=+crt-static
     env:
+      PYTHONUTF8: '1'
       RUSTFLAGS: ${{ matrix.rustflags }}
     steps:
       - uses: actions/checkout@v7.0.1
@@ -267,24 +269,24 @@ jobs:
           go-version: '1.26.8'
           cache: false
       - name: Build, verify, and package the native Agent
-        run: python tools/build-agent.py '${{ matrix.target }}' .ci-artifacts
+        run: python tools/ci-run.py python tools/build-agent.py '${{ matrix.target }}' .ci-artifacts
       - name: Verify native Agent operation and failed-update recovery
         shell: bash
         run: |
           binary=target/${{ matrix.target }}/release/sinan-agent
           if [ '${{ matrix.platform }}' = windows ]; then binary="$binary.exe"; fi
-          python tools/agent-smoke.py "$binary"
+          python tools/ci-run.py python tools/agent-smoke.py "$binary"
       - name: Build the pinned upstream native runtime
-        run: python tools/build-runtime-native.py '${{ matrix.platform }}-${{ matrix.arch }}' .ci-artifacts
+        run: python tools/ci-run.py python tools/build-runtime-native.py '${{ matrix.platform }}-${{ matrix.arch }}' .ci-artifacts
       - name: Verify native service installation and independent runtime
         shell: bash
         run: |
           binary=target/${{ matrix.target }}/release/sinan-agent
           runtime=.ci-artifacts/sing-box/1.14.2/${{ matrix.platform }}-${{ matrix.arch }}
           if [ '${{ matrix.platform }}' = windows ]; then
-            python tools/native-service-smoke.py "$binary.exe" "$runtime"
+            python tools/ci-run.py python tools/native-service-smoke.py "$binary.exe" "$runtime"
           else
-            sudo env CI=true "$(command -v python)" tools/native-service-smoke.py "$binary" "$runtime"
+            sudo env CI=true GITHUB_ACTIONS=true "$(command -v python)" tools/ci-run.py "$(command -v python)" tools/native-service-smoke.py "$binary" "$runtime"
           fi
       - uses: actions/upload-artifact@v7.0.1
         with:
@@ -353,7 +355,7 @@ jobs:
           go-version: '1.26.8'
           cache: false
       - name: Build the pinned upstream FreeBSD runtime
-        run: python3 tools/build-runtime-native.py 'freebsd-${{ matrix.arch }}' .ci-artifacts
+        run: python3 tools/ci-run.py python3 tools/build-runtime-native.py 'freebsd-${{ matrix.arch }}' .ci-artifacts
       - name: Verify the binary on FreeBSD 13.5
         uses: vmactions/freebsd-vm@v1.5.8
         with:
@@ -391,8 +393,8 @@ jobs:
           run: |
             set -eu
             python3 tools/build-agent.py '${{ matrix.target }}' .ci-artifacts --binary .ci-binaries/sinan-agent
-            python3 tools/agent-smoke.py .ci-binaries/sinan-agent
-            env CI=true python3 tools/native-service-smoke.py .ci-binaries/sinan-agent .ci-artifacts/sing-box/1.14.2/freebsd-${{ matrix.arch }}
+            env GITHUB_ACTIONS=true python3 tools/ci-run.py python3 tools/agent-smoke.py .ci-binaries/sinan-agent
+            env CI=true GITHUB_ACTIONS=true python3 tools/ci-run.py python3 tools/native-service-smoke.py .ci-binaries/sinan-agent .ci-artifacts/sing-box/1.14.2/freebsd-${{ matrix.arch }}
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: sinan-runtime-freebsd-${{ matrix.arch }}
