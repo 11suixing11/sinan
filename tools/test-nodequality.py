@@ -509,9 +509,10 @@ read -r hardware; read -r ip_test; read -r network; read -r trace
 printf '%s/%s/%s/%s/%s\\n' "$hardware" "$ip_test" "$network" "$trace" "${ip:-both}" > "$workspace/fixture-options.txt"
 mkdir -p "$workspace/.nodequalityfixture/BenchOs/dev" "$workspace/.nodequalityfixture/BenchOs/sys" "$workspace/.nodequalityfixture/BenchOs/proc"
 '''
-        if mode == "report":
+        if mode in ("report", "nonzero"):
             encoded = base64.b64encode(make_archive()).decode()
-            fixture += "printf '%s' '" + encoded + "' | curl -X POST --data-binary @- https://api.nodequality.com/api/v1/record\nexit 1\n"
+            exit_code = 1 if mode == "nonzero" else 0
+            fixture += "printf '%s' '" + encoded + "' | curl -X POST --data-binary @- https://api.nodequality.com/api/v1/record\nexit " + str(exit_code) + "\n"
         elif mode == "sleep":
             fixture += 'touch "$workspace/fixture-ready"\nsleep 30\nexit 1\n'
         else:
@@ -532,8 +533,8 @@ mkdir -p "$workspace/.nodequalityfixture/BenchOs/dev" "$workspace/.nodequalityfi
                 "--ip-version", "ipv6", "--network-mode", "low"]
 
     def test_upstream_nonzero_exit_still_requires_four_actual_local_reports(self):
-        result = subprocess.run(self.runner(), env=self.environment, capture_output=True, timeout=10)
-        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        result = subprocess.run(self.runner("nonzero"), env=self.environment, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 1, result.stderr.decode())
         self.assertEqual((self.workspace / "upstream-exit.txt").read_text().strip(), "1")
         self.assertEqual((self.workspace / "fixture-options.txt").read_text().strip(), "y/y/l/y/-6")
         text = (self.workspace / "result.txt").read_text()
