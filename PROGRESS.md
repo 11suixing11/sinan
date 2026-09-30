@@ -568,3 +568,9 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 视图最终合并源重建通过 TypeScript/Vite、既有四项字段回归（637 断言）和实际 dist 桌面/手机完整路由隔离夹具；额外验证旧 payload 缺 kind 的已知 ASN=false 不冒充事实。章节组件调用和指标过期提示均保留，Rust/平台仍按最终提交 CI 核对。
 
 - 合并审查最终保留 main `6a583af` 与作者最新 `84938ba` 正常祖先；作者新提交与已验证 `e0d6bda` 的全部 Rust/Cargo/CI/工具脚本及 web 源和 dist 完全相同，仅更新两项文档，不重复相同源码构建。完整 locked workspace/all-targets Rust/PostgreSQL 回归 289 项通过、0 失败、8 项既有 Linux/root/systemd 或外部运行时条件忽略；workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁、actionlint 与差异检查通过。Python discovery 83 项通过/5 跳过，NodeQuality 包装器 23 项通过/5 跳过；Bun 4 项/637 断言与 TypeScript/Vite 通过。最终 dist 实际 Chromium 桌面 1280×900/手机 390×844 共 9 组场景通过、页面错误 0，包含严格未知/有效0和false、IP失败隔离、旧报告与独立章节、指标过期与三类时间、独立导航；本轮未测试取消或实机完整诊断，最终 Linux CI 单独核对。
+
+## 2026-10-01：P1 sing-box 业务归位（独立 PR / Issue #26）
+
+- 面板代理节点、代理用户、授权、订阅、用户流量、发布及设备运行时清单移入 plugins/singbox；管理 API 与前端导航切换插件命名空间。系统管理员和代理用户使用不同名称，core 继续管理网卡总流量，epoch 仍标记计数器重置。
+- 0012 仅新增启用证据表：当前设备能力、管理员明确启用、已有节点或 singbox 部署才启用；未知能力纯监控机关闭。订阅旧路径永久保留，旧表名和业务 ID/令牌/密钥/授权/历史账本不修改。
+- Python 验收驱动 21 项通过、workspace fmt 与 TypeScript/Vite 构建通过。正在独立 PostgreSQL 迁移及浏览器验收，最终完整 Rust/CI 证据待补；未宣称专用节点或生产迁移通过。设计见 ADR 0030，独立验收见 docs/acceptance/singbox-plugin-business.md。

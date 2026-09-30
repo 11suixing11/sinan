@@ -175,17 +175,18 @@ def install(panel, state, state_path, refresh=False, agent_version=None):
 
 def prepare(panel, state, args):
     server = resource(panel, "/api/servers", state, "server", {}, args.state)
+    panel.request(f"/api/plugins/sing-box/servers/{server['id']}/enable", {})
     fields = {"server_id": server["id"], "public_host": state["public_host"], "sni": state["sni"]}
     if state.get("requested_port") is not None:
         fields["port"] = state["requested_port"]
-    node = resource(panel, "/api/nodes", state, "node", fields, args.state)
+    node = resource(panel, "/api/plugins/sing-box/nodes", state, "node", fields, args.state)
     ensure("port" not in state or node["port"] == state["port"],
            "验收节点的端口已变化；保留原 state 并检查面板")
-    user = resource(panel, "/api/users", state, "user", {}, args.state)
-    existing = panel.request(f"/api/users/{user['id']}/accesses")
+    user = resource(panel, "/api/plugins/sing-box/users", state, "user", {}, args.state)
+    existing = panel.request(f"/api/plugins/sing-box/users/{user['id']}/accesses")
     ensure(all(item["node_id"] == node["id"] for item in existing),
            "专用验收用户出现其他授权；拒绝修改")
-    access = panel.request(f"/api/users/{user['id']}/accesses", {"node_id": node["id"]})
+    access = panel.request(f"/api/plugins/sing-box/users/{user['id']}/accesses", {"node_id": node["id"]})
     state["port"] = node["port"]
     state["stat_name"] = access["stat_name"]
     save(args.state, state)
@@ -207,9 +208,9 @@ def usage_totals(view):
 def snapshot(panel, state, command=None):
     server = panel.request(f"/api/servers/{state['server_id']}")
     ensure(server["name"] == state["prefix"] + "-server", "服务器不再属于本次验收")
-    deployment = panel.request(f"/api/servers/{state['server_id']}/deployments")["status"]
+    deployment = panel.request(f"/api/plugins/sing-box/servers/{state['server_id']}/deployments")["status"]
     query = urllib.parse.urlencode({"user_id": state["user_id"], "node_id": state["node_id"]})
-    usage = panel.request("/api/usage?" + query)
+    usage = panel.request("/api/plugins/sing-box/usage?" + query)
     usage_totals(usage)
     result = {
         "observed_at": int(time.time()), "usage": usage, "deployment": deployment,
@@ -325,7 +326,7 @@ def ready(panel, state, args):
             raise AcceptanceError("超时：设备未在线、配置未健康应用或版本不符；状态="
                                   + json.dumps(status, ensure_ascii=False, separators=(",", ":")))
         time.sleep(min(2, args.timeout))
-    user = panel.request(f"/api/users/{state['user_id']}")
+    user = panel.request(f"/api/plugins/sing-box/users/{state['user_id']}")
     token = urllib.parse.quote(user["subscription_token"], safe="")
     client = panel.request(f"/sub/{token}?format=singbox")
     proxies = [item for item in client["outbounds"] if item["type"] == "vless"]
