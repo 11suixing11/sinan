@@ -32,3 +32,5 @@
 - 隔离且断网的 Linux root 夹具精确复现旧版 28 项中的三项失败；修复版本 32 项全部通过、0 跳过。本机 macOS 同样 32 项通过、0 跳过，非 Linux/root 时仅修改夹具副本的入口守卫，生产限制不改。以上不运行真实硬件压测或对外上传；Rust 版本兼容回归留待后续构建槽/最终 CI。
 
 - 接到确认式取消、IP 入口与 PR #56 后，原 exit 0/1 夹具和固定正常 cleanup 场景都保留；补上真实 EXIT trap 的 33 项在 macOS 与断网 Linux root 全部通过、0 跳过。直接返回上游状态及宽泛转换 exit 1 的反对照分别被正常完成与真实失败场景拒绝；源码 SHA 与 cleanup 夹具原字节一致。模式功能的最终组合及 r4 历史兼容另行核验。
+
+- r5 最终正常合入模式主线 `2ea4bb9`，包括 DNS 双家族修复，daily 和 full 入口均保留。macOS/断网 Linux root 的 wrapper 34 + helper 7 共 41 项全部通过、0 跳过；适配器版本/报告恢复 16 项及 PostgreSQL 新任务 r5 身份/模式门禁 1 项通过，适配器全 targets Clippy、fmt、core 门禁与 actionlint 通过。r4 已签任务仍按原版本恢复，r2/r3 继续拒绝新 mode 参数；新包完整保留固定入口及 AGPL 字节，未修改旧 r2 草稿或以此代替实机压力验收。
