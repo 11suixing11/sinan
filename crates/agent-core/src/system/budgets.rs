@@ -5,6 +5,29 @@ use std::{path::PathBuf, sync::Mutex};
 #[derive(Default)]
 struct RecordingOps(Mutex<Vec<(PathBuf, Vec<String>)>>);
 
+#[tokio::test]
+async fn conflict_probe_is_a_read_only_systemctl_query() -> Result<()> {
+    let ops = Arc::new(RecordingOps::default());
+    let services = SystemServiceManager::new(ops.clone(), ServiceBackend::Systemd);
+    assert!(services.running_diagnostic_units().await?.is_empty());
+    let calls = ops.0.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, Path::new("systemctl"));
+    assert_eq!(
+        calls[0].1,
+        [
+            "list-units",
+            "--type=service",
+            "--state=activating,active,deactivating,reloading",
+            "--no-legend",
+            "--plain",
+            "--no-pager",
+            "sinan-diagnostic-*.service"
+        ]
+    );
+    Ok(())
+}
+
 impl Privileged for RecordingOps {
     fn execute<'a>(
         &'a self,
@@ -15,13 +38,28 @@ impl Privileged for RecordingOps {
             self.0.lock().unwrap().push((program.into(), args.to_vec()));
             Ok(CommandOutput {
                 success: true,
+                stdout: if program == Path::new("stat") {
+                    "41c0 0\n".into()
+                } else {
+                    String::new()
+                },
                 ..Default::default()
             })
         })
     }
 
-    fn create_dir<'a>(&'a self, _: &'a Path, _: u32, _: Option<&'a str>) -> BoxFuture<'a, ()> {
-        panic!("unexpected directory creation")
+    fn create_dir<'a>(
+        &'a self,
+        path: &'a Path,
+        mode: u32,
+        group: Option<&'a str>,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            assert_eq!(path, Path::new("/run/sinan-diagnostic"));
+            assert_eq!(mode, 0o700);
+            assert_eq!(group, Some("root"));
+            Ok(())
+        })
     }
     fn write_file<'a>(
         &'a self,
@@ -80,7 +118,15 @@ async fn service_command_applies_every_budget_before_the_program_separator() -> 
         let separator = args.iter().position(|arg| arg == "--").unwrap();
         assert_eq!(
             &args[separator + 1..],
-            ["/usr/bin/true", "--property=MemoryMax=infinity"]
+            [
+                "/usr/bin/flock",
+                "--exclusive",
+                "--nonblock",
+                "--conflict-exit-code=75",
+                "/run/sinan-diagnostic/lock",
+                "/usr/bin/true",
+                "--property=MemoryMax=infinity"
+            ]
         );
         for (property, expected) in [
             ("MemoryMax", job.memory_max.get().to_string()),
@@ -98,7 +144,7 @@ async fn service_command_applies_every_budget_before_the_program_separator() -> 
             assert_eq!(properties, vec![&format!("{prefix}{expected}")]);
         }
     }
-    assert_eq!(ops.0.lock().unwrap().len(), 2);
+    assert_eq!(ops.0.lock().unwrap().len(), 4);
     Ok(())
 }
 
@@ -199,6 +245,30 @@ finally:
             services.start_job(&job).await?;
             let status = tokio::time::timeout(Duration::from_secs(40), async {
                 loop {
+                    // --no-block acknowledges the queued start before ExecStart runs.
+                    // Never mistake the transient unit's initial inactive state for exit.
+                    let started = ops
+                        .execute(
+                            Path::new("systemctl"),
+                            &[
+                                "show".into(),
+                                "--property=ExecMainStartTimestampMonotonic".into(),
+                                "--".into(),
+                                job.unit.clone(),
+                            ],
+                        )
+                        .await?;
+                    if !started.success
+                        || !started
+                            .stdout
+                            .trim()
+                            .strip_prefix("ExecMainStartTimestampMonotonic=")
+                            .and_then(|value| value.parse::<u64>().ok())
+                            .is_some_and(|value| value > 0)
+                    {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        continue;
+                    }
                     let status = services.job_status(&job.unit).await?;
                     if status != JobStatus::Running {
                         return Ok::<_, anyhow::Error>(status);

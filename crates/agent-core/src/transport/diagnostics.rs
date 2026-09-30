@@ -23,6 +23,10 @@ const ACTIVE: &str = "diagnostics:active";
 const OUTBOX: &str = "diagnostics:outbox";
 const MAX_REPORT: usize = 512 * 1024;
 
+mod monitoring;
+mod observation;
+mod safety;
+
 #[derive(Clone, Serialize, Deserialize)]
 enum Checkpoint {
     Preparing(DiagnosticJob),
@@ -35,6 +39,8 @@ enum Checkpoint {
         start_error: Option<String>,
         #[serde(default)]
         expires_at: Option<i64>,
+        #[serde(default)]
+        protection_stop_reason: Option<String>,
     },
 }
 
@@ -201,6 +207,7 @@ impl DiagnosticWorker {
             ensure!(service.unit == format!("sinan-diagnostic-{id}.service")
                 && service.timeout_secs == spec.timeout_secs
                 && service.working_directory == spec.job_dir && service.program == spec.binary_path, "invalid prepared diagnostic service");
+            self.preflight(&service).await?;
             let started_at = unix_time();
             // Preparation can consume part of the remaining budget. Recompute immediately
             // before the durable start checkpoint and give systemd the reduced limit.
@@ -211,7 +218,7 @@ impl DiagnosticWorker {
             // This checkpoint is durable before asking systemd to start anything. Recovery
             // only observes it; an uncertain start must never execute the task again.
             let mut checkpoint = Checkpoint::Started {
-                spec, service: service.clone(), started_at, plugin: job.plugin, start_error: None, expires_at: job.expires_at,
+                spec, service: service.clone(), started_at, plugin: job.plugin, start_error: None, expires_at: job.expires_at, protection_stop_reason: None,
             };
             self.save(&checkpoint)?;
             if let Err(error) = self.bounded(self.services.start_job(&service)).await {
@@ -224,93 +231,7 @@ impl DiagnosticWorker {
             Ok(())
         }.await;
         if let Err(error) = result {
-            self.finish(failure(id, format!("prepare diagnostic: {error}"), None))?;
-        }
-        Ok(())
-    }
-
-    async fn observe(&self, checkpoint: &Checkpoint) -> Result<()> {
-        let Checkpoint::Started {
-            spec,
-            service,
-            started_at,
-            plugin,
-            start_error,
-            expires_at,
-        } = checkpoint
-        else {
-            anyhow::bail!("only a started diagnostic can be observed");
-        };
-        let status = self
-            .bounded(self.services.job_status(&service.unit))
-            .await?;
-        let id = Uuid::parse_str(&spec.id)?;
-        let now = unix_time();
-        let deadline_reached = expires_at.is_some_and(|deadline| deadline <= now as i64);
-        if status == JobStatus::Running
-            && !deadline_reached
-            && now.saturating_sub(*started_at) <= u64::from(spec.timeout_secs) + 60
-        {
-            return Ok(());
-        }
-        if status == JobStatus::Running {
-            self.bounded(self.services.stop(&service.unit)).await?;
-        }
-        let collected = if let Some(adapter) = self.adapters.get(plugin) {
-            self.bounded(adapter.collect(spec)).await
-        } else {
-            Err(anyhow::anyhow!("diagnostic plugin is no longer registered"))
-        };
-        let report = collected
-            .as_ref()
-            .ok()
-            .and_then(|output| output.as_ref())
-            .filter(|output| !output.text.is_empty() && output.text.len() <= MAX_REPORT)
-            .map(|output| DiagnosticReport {
-                text: output.text.clone(),
-                report_url: output.report_url.clone(),
-            });
-        let update = match status {
-            JobStatus::Succeeded if report.is_some() => DiagnosticUpdate {
-                id,
-                status: DiagnosticStatus::Succeeded,
-                report,
-                error: None,
-            },
-            JobStatus::Succeeded => failure(
-                id,
-                collected
-                    .err()
-                    .map(|error| format!("collect diagnostic: {error}"))
-                    .unwrap_or_else(|| "diagnostic completed without a valid report".into()),
-                report,
-            ),
-            JobStatus::Failed { error } => failure(id, error, report),
-            JobStatus::Missing => failure(
-                id,
-                format!(
-                    "diagnostic service is missing after restart or an uncertain start; task was not repeated{}",
-                    start_error
-                        .as_ref()
-                        .map(|error| format!("; start error: {error}"))
-                        .unwrap_or_default()
-                ),
-                report,
-            ),
-            JobStatus::Running => failure(
-                id,
-                if deadline_reached {
-                    "diagnostic reached its absolute deadline"
-                } else {
-                    "diagnostic exceeded its execution deadline"
-                }
-                .into(),
-                report,
-            ),
-        };
-        self.finish(update)?;
-        if let Err(error) = self.bounded(self.services.stop(&service.unit)).await {
-            tracing::warn!(%id, %error, "diagnostic service cleanup failed");
+            self.finish(failure(id, format!("诊断准备失败：{error:#}"), None))?;
         }
         Ok(())
     }
@@ -319,6 +240,10 @@ impl DiagnosticWorker {
         if let Some(checkpoint @ Checkpoint::Started { .. }) = self.active()? {
             self.observe(&checkpoint).await?;
         }
+        self.connected_tick(client).await
+    }
+
+    async fn connected_tick(&self, client: Option<&PanelClient>) -> Result<()> {
         let Some(client) = client else {
             return Ok(());
         };
@@ -341,44 +266,6 @@ impl DiagnosticWorker {
             None => {}
         }
         Ok(())
-    }
-
-    pub(crate) async fn run_guarded(
-        self,
-        mut client: watch::Receiver<Option<Arc<PanelClient>>>,
-        retirement: Arc<crate::retirement::Retirement>,
-    ) -> Result<()> {
-        let mut poll = tokio::time::interval(Duration::from_secs(5));
-        poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            tokio::select! {
-                _ = poll.tick() => {},
-                changed = client.changed() => { if changed.is_err() { return Ok(()); } },
-            }
-            let _guard = retirement.gate.read().await;
-            if retirement.requested() {
-                continue;
-            }
-            let active_client = client.borrow().clone();
-            if let Err(error) = self.tick(active_client.as_deref()).await {
-                tracing::warn!(%error, "diagnostic poll failed; durable work will be retried");
-            }
-        }
-    }
-
-    pub async fn run(self, mut client: watch::Receiver<Option<Arc<PanelClient>>>) -> Result<()> {
-        let mut poll = tokio::time::interval(Duration::from_secs(5));
-        poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            tokio::select! {
-                _ = poll.tick() => {},
-                changed = client.changed() => { if changed.is_err() { return Ok(()); } },
-            }
-            let active_client = client.borrow().clone();
-            if let Err(error) = self.tick(active_client.as_deref()).await {
-                tracing::warn!(%error, "diagnostic poll failed; durable work will be retried");
-            }
-        }
     }
 }
 
