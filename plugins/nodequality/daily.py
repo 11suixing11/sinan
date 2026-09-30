@@ -13,7 +13,15 @@ import time
 def resolve_child(target, port, family, sender):
     try:
         values = socket.getaddrinfo(target, port, family, socket.SOCK_STREAM)
-        sender.send([(item[0], item[4]) for item in values[:8]])
+        chosen = {}
+        for kind, _, _, _, address in values:
+            if kind not in (socket.AF_INET, socket.AF_INET6):
+                continue
+            ip = ipaddress.ip_address(address[0])
+            if not ip.is_unspecified and not ip.is_multicast and not (ip.version == 6 and ip.ipv4_mapped):
+                chosen.setdefault(kind, address)
+        # A long list for one family must not hide the other requested family.
+        sender.send(list(chosen.items()))
     except OSError as error:
         sender.send(str(error)[:512])
     finally:
