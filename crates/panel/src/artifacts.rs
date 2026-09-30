@@ -238,6 +238,14 @@ pub async fn install_script(
         .replace(
             "@@RUNTIME_UNIT@@",
             include_str!("../../../plugins/sing-box/sinan-singbox@.service").trim_end(),
+        )
+        .replace(
+            "@@AGENT_OPENRC@@",
+            include_str!("../../../deploy/sinan-agent.openrc").trim_end(),
+        )
+        .replace(
+            "@@RUNTIME_OPENRC@@",
+            include_str!("../../../plugins/sing-box/sinan-singbox.openrc").trim_end(),
         );
     Ok((
         [

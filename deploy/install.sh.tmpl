@@ -5,10 +5,36 @@ PANEL=@@PANEL@@
 TOKEN=@@TOKEN@@
 VERSION=@@VERSION@@
 [ "$(id -u)" = 0 ] || { echo '请以 root 运行'; exit 1; }
-[ -d /run/systemd/system ] && command -v systemctl >/dev/null || { echo '需要 Linux systemd'; exit 1; }
-for tool in curl sha256sum install getent useradd; do
+[ "$(uname -s)" = Linux ] || { echo '需要 Linux'; exit 1; }
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null; then
+  INIT=systemd
+elif [ -f /run/openrc/softlevel ] && command -v rc-service >/dev/null && command -v rc-update >/dev/null; then
+  INIT=openrc
+  for tool in openrc-run supervise-daemon; do
+    command -v "$tool" >/dev/null || { echo "缺少工具: $tool"; exit 1; }
+  done
+  SUPERVISOR_HELP=$(RC_SVCNAME=sinan-agent supervise-daemon sinan-agent --help 2>&1)
+  case "$SUPERVISOR_HELP" in
+    *--capabilities*) ;;
+    *) echo 'OpenRC supervise-daemon 需要 libcap 支持'; exit 1 ;;
+  esac
+  case "$SUPERVISOR_HELP" in
+    *--no-new-privs*) ;;
+    *) echo 'OpenRC supervise-daemon 需要 no_new_privs 支持'; exit 1 ;;
+  esac
+else
+  echo '需要运行中的 Linux systemd 或 OpenRC'; exit 1
+fi
+for tool in curl sha256sum install getent; do
   command -v "$tool" >/dev/null || { echo "缺少工具: $tool"; exit 1; }
 done
+if ! getent group sinan-singbox >/dev/null; then
+  command -v groupadd >/dev/null || command -v addgroup >/dev/null || { echo '缺少 groupadd / addgroup'; exit 1; }
+fi
+if ! getent passwd sinan-singbox >/dev/null; then
+  command -v useradd >/dev/null || command -v adduser >/dev/null || { echo '缺少 useradd / adduser'; exit 1; }
+  NOLOGIN=$(command -v nologin) || { echo '缺少 nologin'; exit 1; }
+fi
 case "$(uname -m)" in
   x86_64) ARCH=amd64; HASH=@@AMD64_HASH@@ ;;
   aarch64) ARCH=arm64; HASH=@@ARM64_HASH@@ ;;
@@ -18,9 +44,22 @@ esac
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 curl --fail --silent --show-error --connect-timeout 20 --max-time 300 "$PANEL/api/bootstrap/$VERSION/$ARCH?token=$TOKEN" -o "$TMP/sinan-agent"
-printf '%s  %s\n' "$HASH" "$TMP/sinan-agent" | sha256sum --check --status
-getent passwd sinan-singbox >/dev/null || useradd --system --no-create-home --shell /usr/sbin/nologin sinan-singbox
-install -d -m 0755 /opt/sinan/core /opt/sinan/plugins/sing-box
+printf '%s  %s\n' "$HASH" "$TMP/sinan-agent" | sha256sum -c >/dev/null
+if ! getent group sinan-singbox >/dev/null; then
+  if command -v groupadd >/dev/null; then
+    groupadd --system sinan-singbox
+  else
+    addgroup -S sinan-singbox
+  fi
+fi
+if ! getent passwd sinan-singbox >/dev/null; then
+  if command -v useradd >/dev/null; then
+    useradd --system --no-create-home --gid sinan-singbox --shell "$NOLOGIN" sinan-singbox
+  else
+    adduser -S -D -H -G sinan-singbox -s "$NOLOGIN" sinan-singbox
+  fi
+fi
+install -d -m 0755 /opt/sinan /opt/sinan/core /opt/sinan/plugins /opt/sinan/plugins/sing-box /var/lib/sinan
 install -d -m 0700 /etc/sinan /etc/sinan/identity /var/lib/sinan/core
 install -d -m 2750 -o root -g sinan-singbox /var/lib/sinan/plugins /var/lib/sinan/plugins/sing-box@main /var/lib/sinan/plugins/sing-box@main/revisions
 install -d -m 0750 -o sinan-singbox -g sinan-singbox /var/lib/sinan/plugins/sing-box@main/data
@@ -34,7 +73,8 @@ mv -f "/opt/sinan/core/$VERSION/sinan-agent.new" "/opt/sinan/core/$VERSION/sinan
 ln -s "$VERSION" "/opt/sinan/core/current.$$"
 mv -Tf "/opt/sinan/core/current.$$" /opt/sinan/core/current
 ln -sfn /opt/sinan/core/current/sinan-agent /usr/local/bin/sinan-agent
-cat > /etc/systemd/system/sinan-agent.service <<'UNIT_AGENT'
+if [ "$INIT" = systemd ]; then
+  cat > /etc/systemd/system/sinan-agent.service <<'UNIT_AGENT'
 @@AGENT_UNIT@@
 UNIT_AGENT
 cat > /etc/systemd/system/sinan-singbox@.service <<'UNIT_RUNTIME'
@@ -44,4 +84,16 @@ systemctl daemon-reload
 systemctl enable sinan-singbox@main.service
 systemctl enable sinan-agent.service
 systemctl restart sinan-agent.service
+else
+  cat > /etc/init.d/sinan-agent <<'OPENRC_AGENT'
+@@AGENT_OPENRC@@
+OPENRC_AGENT
+  cat > /etc/init.d/sinan-singbox@main <<'OPENRC_RUNTIME'
+@@RUNTIME_OPENRC@@
+OPENRC_RUNTIME
+  chmod 0755 /etc/init.d/sinan-agent /etc/init.d/sinan-singbox@main
+  rc-update add sinan-singbox@main default
+  rc-update add sinan-agent default
+  rc-service sinan-agent restart
+fi
 printf '%s\n' '安装完成，可运行 sinan-agent status 查看状态。'

@@ -25,10 +25,12 @@ TEXT
 
 guide() {
   cat <<'TEXT'
-司南 Debian 12 人工端到端验收
-============================
+司南 Linux systemd / OpenRC 人工端到端验收
+=========================================
 本脚本不是自动验收结果。请记录每一步的时间、版本、结果及失败日志。
-准备一台全新 Debian 12 amd64/arm64 服务器、一台独立客户端和可访问的面板。
+准备一台全新 Linux amd64/arm64 服务器、一台独立客户端和可访问的面板。
+systemd 基线使用 Debian 12；OpenRC 使用已启动 OpenRC 的专用 Linux 设备。
+每项服务命令选择本机对应的 init 分支，不要交叉执行。
 不要把 macOS 单测、虚拟服务测试或上游 check 成功当作下面的实机流程已通过。
 
 一、面板、制品与接入
@@ -37,12 +39,16 @@ guide() {
 2. 在 Debian 设备安装基础工具：
      apt-get update
      apt-get install -y ca-certificates curl coreutils passwd iproute2 python3
+   OpenRC 设备用本机包管理器安装 curl、CA、基础文件/账号工具、bash、iproute2、
+   python3；supervise-daemon 必须支持 capabilities/no_new_privs。
+   Agent 与运行时的架构、libc 必须匹配；现有 glibc 运行时不能直接用于 Alpine musl。
 3. 在面板添加服务器，把新生成的安装命令复制到设备，以 root 执行。
    令牌只使用一次；不得把另一个设备的身份复制过来。
 4. 30 秒内确认服务器在线，记录设备架构、Agent 版本、CPU/内存和更新时间。
    在设备运行：
      sinan-agent status
      systemctl status sinan-agent.service --no-pager
+   OpenRC 对应命令：rc-service sinan-agent status。
    此时尚未发布配置，代理运行时可以尚未启动。
 
 二、节点、用户、客户端与流量
@@ -54,6 +60,7 @@ guide() {
      systemctl is-active sinan-singbox@main.service
      /opt/sinan/plugins/sing-box/current/sing-box version
      ss -lnt 'sport = :18085'
+   OpenRC 的服务状态命令为：rc-service sinan-singbox@main status。
    版本应为 1.14.2，包含 with_v2ray_api；18085 必须只在 127.0.0.1 监听。
 7. 在独立客户端导入此用户的订阅，不要在服务器内使用直连代替代理链路。
    使用 sing-box JSON 时，本地混合入口是 127.0.0.1:2080。示例：
@@ -71,10 +78,14 @@ guide() {
      export SINAN_USER_ID=1
      export SINAN_NODE_ID=1
      bash scripts/e2e-real.sh snapshot before ./evidence
-10. 记录运行时 MainPID，再重启 Agent：
+10. 记录运行时进程，再重启 Agent。systemd：
       systemctl show sinan-singbox@main.service -p MainPID
       systemctl restart sinan-agent.service
     等待 Agent 恢复连接后再次查询运行时 MainPID，应保持不变；代理为独立服务。
+    OpenRC：先收集一次 snapshot，记录 runtime-service.txt 的 ChildPIDs，执行
+      rc-service sinan-agent restart
+    再收集快照，实际运行时 ChildPIDs 应保持不变。/run/*.pid 是 supervisor PID，
+    不能用它代替实际运行时 PID；快照通过 Linux procfs 读取子进程。
     等待两次采样并收集：
       bash scripts/e2e-real.sh snapshot after-agent ./evidence
     检查已确认用量未倒退、未因重启翻倍；无新增流量时稳定总数应不变。
@@ -85,6 +96,10 @@ guide() {
     等待本地统计接口恢复；检查日志中有无重载失败、统计重置/缺失窗口告警：
       journalctl -u sinan-agent.service --since '-5 minutes' --no-pager
       journalctl -u sinan-singbox@main.service --since '-5 minutes' --no-pager
+    OpenRC 对应命令：
+      rc-service sinan-singbox@main reload
+      tail -n 80 /var/log/sinan/agent.log
+      tail -n 80 /var/log/sinan/runtime.log
     再收集：
       bash scripts/e2e-real.sh snapshot after-runtime ./evidence
     外部 HUP 不经过 Agent 的终值采样；若重载时仍有流量，可能存在无法观测的
@@ -107,6 +122,9 @@ guide() {
     - 本地账本的最后 seq、epoch、待确认批次及未完成意图；
     - 本次 SHA256SUMS、客户端测试结果、异常窗口和人工观察。
     只有全部相应步骤实际执行才写“实机验收通过”。未执行项目保持“待验证”。
+16. 在专用验收机整机重启后确认 Agent 与最后一份运行时配置自动恢复，再次验证
+    身份、已确认用量、待确认批次及新流量。OpenRC 检查 default runlevel 已启用
+    sinan-agent 与 sinan-singbox@main；记录版本、libc 与启动日志。
 
 脚本不修改 outbox 来模拟丢失 ACK；批次重放去重与恢复另由自动集成测试覆盖。
 证据可能包含主机名、内部编号和用量，保存在私有目录，不要提交真实环境证据。
@@ -118,7 +136,7 @@ snapshot() {
   local label=$1 output=$2 evidence
   [[ $label =~ ^[A-Za-z0-9_-]+$ ]] || { echo '标签只能包含字母、数字、下划线和连字符' >&2; exit 2; }
   [[ $(uname -s) == Linux && $(id -u) == 0 ]] || { echo '请在已安装 Agent 的 Linux 设备上以 root 收集快照' >&2; exit 1; }
-  for tool in sinan-agent systemctl ss python3; do
+  for tool in sinan-agent ss python3; do
     command -v "$tool" >/dev/null || { printf '缺少工具：%s\n' "$tool" >&2; exit 1; }
   done
   mkdir -p -- "$output"
@@ -127,8 +145,17 @@ snapshot() {
   uname -srmo > "$evidence/system.txt"
   sinan-agent --version > "$evidence/agent-version.txt"
   sinan-agent status > "$evidence/agent-status.json"
-  systemctl show sinan-agent.service -p ActiveState -p SubState -p MainPID -p NRestarts -p ActiveEnterTimestamp > "$evidence/agent-service.txt"
-  systemctl show sinan-singbox@main.service -p ActiveState -p SubState -p MainPID -p NRestarts -p ActiveEnterTimestamp > "$evidence/runtime-service.txt"
+  if [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null; then
+    printf 'systemd\n' > "$evidence/init-system.txt"
+    systemctl show sinan-agent.service -p ActiveState -p SubState -p MainPID -p NRestarts -p ActiveEnterTimestamp > "$evidence/agent-service.txt"
+    systemctl show sinan-singbox@main.service -p ActiveState -p SubState -p MainPID -p NRestarts -p ActiveEnterTimestamp > "$evidence/runtime-service.txt"
+  elif [[ -f /run/openrc/softlevel ]] && command -v rc-service >/dev/null; then
+    printf 'openrc\n' > "$evidence/init-system.txt"
+    openrc_snapshot sinan-agent > "$evidence/agent-service.txt"
+    openrc_snapshot sinan-singbox@main > "$evidence/runtime-service.txt"
+  else
+    echo '需要运行中的 systemd 或 OpenRC' >&2; exit 1
+  fi
   /opt/sinan/plugins/sing-box/current/sing-box version > "$evidence/runtime-version.txt"
   ss -lnt 'sport = :18085' > "$evidence/stats-listener.txt"
   python3 - "$evidence" <<'PY'
@@ -199,6 +226,25 @@ if all(values):
 PY
   printf '只读快照已保存：%s\n' "$evidence"
   printf '%s\n' '请人工比较各阶段数据；快照完成不等于完整实机验收通过。'
+}
+
+openrc_snapshot() {
+  local name=$1 result=0
+  rc-service -- "$name" status || result=$?
+  printf 'StatusExit=%s\n' "$result"
+  python3 - "$name" <<'PY'
+from pathlib import Path
+import sys
+
+name = sys.argv[1]
+try:
+    supervisor = int(Path(f'/run/{name}.pid').read_text())
+    children = Path(f'/proc/{supervisor}/task/{supervisor}/children').read_text().strip()
+except (OSError, ValueError):
+    print('SupervisorPID=unavailable\nChildPIDs=unavailable')
+else:
+    print(f'SupervisorPID={supervisor}\nChildPIDs={children}')
+PY
 }
 
 case ${1:-guide} in

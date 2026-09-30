@@ -41,6 +41,6 @@
 - 前端构建及面板内嵌静态页面验证。
 
 ## G9：部署与交付
-- 幂等安装、systemd、Dockerfile、Compose。
+- 幂等安装、systemd/OpenRC、Dockerfile、Compose。
 - 原样上游构建、Agent musl 构建、Debian 手动验收脚本。
 - README、最终验证与环境边界记录；检查后 push 指定仓库。

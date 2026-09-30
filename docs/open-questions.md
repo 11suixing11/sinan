@@ -90,3 +90,10 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 
 - 按用户要求，workspace edition 更新为 2024，七个 crate 继续继承统一设置。虚拟 workspace 显式使用 `resolver = "3"`，遵循 [Rust 2024 的依赖解析规则](https://doc.rust-lang.org/edition-guide/rust-2024/cargo-resolver.html)；现有最低 Rust 1.88 已支持该 edition。
 - Rust 2024 将进程环境变量修改标记为 unsafe，构建脚本改用现有 `tonic_build::Config::protoc_executable` 选择编译器。保留显式 `PROTOC` 与 vendored 回退，不增加依赖、不放宽 unsafe 禁令。
+
+## 后续调整：OpenRC
+
+- 用户明确要求新增 OpenRC，覆盖原 MVP 对 OpenRC 的排除项；仍限 Linux。服务生命周期继续经过 `ServiceManager` 与 `Privileged`，不修改适配器、协议、账本或独立运行时架构，详见 ADR 0016。
+- 根据运行标记自动选择 init，systemd 优先；OpenRC 服务名由现有标识移除 `.service` 得到，保留 `@main`。不增加设备配置字段，旧 TOML 可继续使用。
+- 安装支持 shadow 工具或 BusyBox 系统账号工具；Agent 与运行时分别由 supervise-daemon 监督，日志写入 `/var/log/sinan/`。安装与升级只重启 Agent，HUP 发送给被监督的运行时进程。
+- 不因 OpenRC 扩大运行时 libc 构建范围：Alpine 需要另有匹配的 musl 运行时制品。真实 OpenRC 进程夹具、代理专项验证与公网实机验收分开记录。

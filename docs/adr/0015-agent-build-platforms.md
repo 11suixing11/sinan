@@ -4,7 +4,7 @@
 
 ## 背景
 
-用户要求在已有 Linux musl 制品之外，增加 Ubuntu 24.04 glibc、macOS arm64、FreeBSD 13 系列及以上、Windows 的 Agent 编译产物，除 macOS 外均提供 amd64 和 arm64。用户已明确本次范围为“增加可下载的 Agent 编译产物”，因此这是对原 Linux 构建范围的明确扩展，服务部署仍遵循现有 Linux/systemd 架构。
+用户要求在已有 Linux musl 制品之外，增加 Ubuntu 24.04 glibc、macOS arm64、FreeBSD 13 系列及以上、Windows 的 Agent 编译产物，除 macOS 外均提供 amd64 和 arm64。用户已明确本次范围为“增加可下载的 Agent 编译产物”，因此这是对原 Linux 构建范围的明确扩展，服务部署仍限 Linux；后续 OpenRC 服务支持见 [ADR 0016](0016-openrc-services.md)。
 
 ## 决策
 

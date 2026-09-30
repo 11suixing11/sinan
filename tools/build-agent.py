@@ -80,7 +80,7 @@ def verify_binary(binary, target, version):
         result = subprocess.run(
             [str(binary), "run"], capture_output=True, text=True, encoding="utf-8", timeout=30
         )
-        if result.returncode == 0 or "要求 Linux 和 systemd" not in result.stderr:
+        if result.returncode == 0 or "Agent 命令要求 Linux" not in result.stderr:
             raise ValueError("non-Linux Agent must report its deployment limitation")
 
 

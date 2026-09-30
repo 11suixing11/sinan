@@ -117,3 +117,13 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 按 2024 格式规则重新格式化，并将 Clippy 要求的三处嵌套条件改为 let chains；审查确认其余 51 个 Rust 文件只有格式变化。
 - 本次验证：`cargo fmt --all --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked` 均通过；79 项成功，3 项真实运行时专项按原有原因忽略。数据库、HTTP/WebSocket、账本恢复和端到端测试使用临时 PostgreSQL 16.15 完成，测试后已停止数据库。
 - 默认 vendored protoc 构建与显式 `PROTOC` 的适配器检查均通过；core 禁用词和 diff 检查通过。各平台编译仍使用现有 CI 矩阵，远端结果待对应提交的 GitHub Actions 验证。
+
+## 后续调整：OpenRC 服务支持
+
+- 按用户追加要求增加 Linux OpenRC，更新协作约束、需求、ADR 0016、README 和实机指南。Agent 根据 init 运行标记选择 systemd/OpenRC，继续经过 `ServiceManager` 与 `Privileged`；未增加 Rust 依赖、unsafe 或设备配置字段。
+- 安装脚本自动选择服务模板，支持 shadow 与 BusyBox 系统账号工具。修复 BusyBox 不支持 SHA-256 长参数、项目父目录受 umask 影响而阻止运行时访问的问题。成功注册后才切换 Agent；重复升级保留身份、账本与独立运行时。
+- 新增两个独立 OpenRC 服务，使用 supervise-daemon、五秒自动恢复、default runlevel 与 0640 日志。运行时保持非 root 用户、仅绑定低端口的有效/ambient capability 与 no_new_privs，HUP 发送给被监督的进程。
+- CI 增加 amd64/arm64 OpenRC 检查，使用 Alpine 3.24.2 的临时容器与明确的进程夹具，覆盖安装、重复升级、注册失败、日志、HUP、异常退出恢复、default 启动与只读验收快照。systemd 安装分支另验证命令和模板契约，不宣称真实 systemd 实机验收。
+- 本地验证：fmt、全 targets Clippy、完整 cargo test 通过；83 项成功，3 项真实运行时专项按已有原因忽略。真实 PostgreSQL 16.15 集成测试完成后已停止临时数据库；actionlint、四组构建脚本测试、shell/内嵌 Python 语法、core 边界与 diff 检查通过。
+- 本机无 Docker，使用校验过 SHA-256 的 Alpine 3.24.2 根文件系统，在独立的用户、网络与 PID 命名空间中运行同一 OpenRC 检查。OpenRC 0.63.2、BusyBox 1.37.0 下全部检查通过，确认实际运行时 UID 非 0、CapEff/CapAmb 仅含 CAP_NET_BIND_SERVICE、NoNewPrivs=1，Agent 重启不改变运行时 PID；宿主服务未被安装或重启。
+- 下一步以远端 CI 确认双架构 Docker 检查，在专用 OpenRC 设备按 `scripts/e2e-real.sh guide` 验证真实运行时、Reality 客户端和整机重启恢复。现有运行时构建依赖 glibc，Alpine 仍需匹配的 musl 运行时制品；进程夹具不代替完整实机验收。

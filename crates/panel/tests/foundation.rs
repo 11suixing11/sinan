@@ -687,6 +687,10 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
     assert!(install.contains(&token));
     assert!(install.contains(&hash));
     assert!(!install.contains("@@"));
+    assert!(install.contains(include_str!("../../../deploy/sinan-agent.openrc").trim_end()));
+    assert!(
+        install.contains(include_str!("../../../plugins/sing-box/sinan-singbox.openrc").trim_end())
+    );
     assert_eq!(
         panel
             .client

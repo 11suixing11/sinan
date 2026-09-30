@@ -1,6 +1,6 @@
 # 司南 Sinan
 
-自托管的服务器与代理节点控制面板。面板保存期望配置；Linux Agent 主动连接面板，负责配置对账、应用恢复、系统遥测和按用户计量。代理运行时作为独立 systemd 服务运行，面板或 Agent 暂时离线时，最后一份可用配置继续工作。
+自托管的服务器与代理节点控制面板。面板保存期望配置；Linux Agent 主动连接面板，负责配置对账、应用恢复、系统遥测和按用户计量。代理运行时作为独立 systemd 或 OpenRC 服务运行，面板或 Agent 暂时离线时，最后一份可用配置继续工作。
 
 MVP 提供中文管理界面、单管理员登录、服务器接入、VLESS + Reality 节点、用户授权、两种订阅格式、部署状态与流量汇总。运行时固定为上游 **sing-box 1.14.2**，保留官方默认构建标签，额外启用 `with_v2ray_api`，不修改上游源码。
 
@@ -98,7 +98,7 @@ rustup target add x86_64-unknown-linux-musl
 bash tools/build-agent.sh amd64 "$PWD/data/artifacts"
 ```
 
-arm64 主机将目标改为 `aarch64-unknown-linux-musl`，脚本参数改为 `arm64`。脚本验证 ELF 架构、无动态解释器/动态库依赖，以及原生 `--version` / `--help` 运行结果，再发布制品。安装脚本的 curl 需要系统 CA 证书及基础安装工具；Agent 的 HTTPS/WebSocket 使用公共 WebPKI 根证书，目前没有自定义 CA 配置项。运行平台需要 systemd。
+arm64 主机将目标改为 `aarch64-unknown-linux-musl`，脚本参数改为 `arm64`。脚本验证 ELF 架构、无动态解释器/动态库依赖，以及原生 `--version` / `--help` 运行结果，再发布制品。安装脚本的 curl 需要系统 CA 证书及基础安装工具；Agent 的 HTTPS/WebSocket 使用公共 WebPKI 根证书，目前没有自定义 CA 配置项。运行平台需要 Linux systemd 或 OpenRC。
 
 ### CI 可下载的 Agent 编译产物
 
@@ -116,7 +116,7 @@ arm64 主机将目标改为 `aarch64-unknown-linux-musl`，脚本参数改为 `a
 
 musl 压缩包保持上方 `agent/<version>/<arch>` 的原部署结构。其余下载内容使用 `<version>/<Rust target>/sinan-agent`（Windows 为 `sinan-agent.exe`），各 target 目录附 `SHA256SUMS`。Actions ZIP 不保留 Unix 执行权限，直接运行下载文件前执行 `chmod +x sinan-agent`。
 
-这些平台提供的是**编译产物与 CLI 检查**。设备注册、常驻运行、状态查询及安装脚本仍要求 Linux/systemd；非 Linux 平台执行这些命令会明确返回限制。面板 Docker 和运行时构建范围见其他章节。
+非 Linux 平台提供的是**编译产物与 CLI 检查**。设备注册、常驻运行、状态查询及安装脚本仍限 Linux，服务管理支持 systemd 或 OpenRC；非 Linux 平台执行这些命令会明确返回限制。面板 Docker 和运行时构建范围见其他章节。
 
 在对应系统及架构安装 Rust stable、Python 3 和本机 C 工具链后，可以本地构建新增目标：
 
@@ -187,7 +187,7 @@ docker compose --project-name sinan --env-file .env -f deploy/docker-compose.yml
    sudo apt-get install -y ca-certificates curl coreutils passwd
    ```
 
-2. 面板添加服务器，复制生成的安装命令，在目标服务器上以 root 执行。安装依赖 Linux + systemd，不支持 OpenRC、容器内缺失 systemd 的环境或非 Linux 平台。令牌 24 小时有效且只可消费一次。
+2. 面板添加服务器，复制生成的安装命令，在目标服务器上以 root 执行。安装依赖运行中的 Linux systemd 或 OpenRC，会自动选择对应服务脚本；普通容器中仅安装 init 工具而没有启动 init 不满足条件。令牌 24 小时有效且只可消费一次。
 3. 30 秒内检查服务器是否在线，并出现系统信息与最新指标。也可在设备上执行：
 
    ```bash
@@ -213,7 +213,27 @@ docker compose --project-name sinan --env-file .env -f deploy/docker-compose.yml
 | `/opt/sinan/plugins/sing-box/current/` | 当前运行时二进制 |
 | `/var/lib/sinan/plugins/sing-box@main/current/` | 当前原生配置 |
 
-代理服务为 `sinan-singbox@main.service`，使用独立非特权用户；统计 API 仅监听 `127.0.0.1:18085`。Agent 以 root 运行，特权操作通过内部 trait 边界执行。
+systemd 代理服务为 `sinan-singbox@main.service`，OpenRC 为 `sinan-singbox@main`，均使用独立非特权用户；统计 API 仅监听 `127.0.0.1:18085`。Agent 以 root 运行，特权操作通过内部 trait 边界执行。
+
+### 接入 OpenRC 设备
+
+使用同一面板安装命令，设备须运行 OpenRC，并安装 CA 证书、curl、SHA-256 与基础文件工具、getent，以及 groupadd/useradd 或 BusyBox addgroup/adduser。OpenRC 的 supervise-daemon 必须支持 `--capabilities` 和 `--no-new-privs`；安装脚本会提前检查，不会将运行时改为 root 运行。
+
+安装生成 `/etc/init.d/sinan-agent` 和 `/etc/init.d/sinan-singbox@main`，并加入 default runlevel。首次发布前运行时尚无配置，安装只启动 Agent；已有配置的运行时可在设备启动时恢复。Agent 与安装升级自动识别 init，设备 TOML 无需增加设置。
+
+```sh
+sudo sinan-agent status
+sudo rc-service sinan-agent status
+sudo rc-service sinan-singbox@main status
+sudo tail -n 80 /var/log/sinan/agent.log
+sudo tail -n 80 /var/log/sinan/runtime.log
+sudo rc-service sinan-agent restart
+sudo rc-service sinan-singbox@main reload
+```
+
+日志权限为 0640，应按设备现有日志轮转规则管理。运行时 reload 通过 supervisor 向实际代理进程发送 HUP，Agent 重启不会停止代理；运行时文件与账本路径和 systemd 相同。停用设备时分别停止这两个服务，取消开机启动使用 `rc-update del <服务名> default`。
+
+Agent musl 二进制可以运行在 Alpine；代理运行时仍需匹配宿主架构和 libc。仓库现有运行时构建使用 glibc，不能直接当作 Alpine musl 制品。OpenRC 支持与实际代理、公网 Reality 和整机重启验收分别记录；CI 的进程夹具检查不代替完整实机验收。
 
 ### 升级设备
 
@@ -287,11 +307,11 @@ cargo test -p sinan-adapter-singbox --test runtime -- --ignored
 cargo test -p sinan-panel --test reality -- --ignored
 ```
 
-CI 另外检查分层禁用词、Linux 构建与 Compose 启动持久化。CI 的通过状态需要以远端实际运行结果为准。
+CI 另外检查分层禁用词、Linux 构建、Compose 启动持久化，以及双架构的真实 OpenRC 进程夹具。OpenRC 检查可运行 `bash scripts/ci-openrc-smoke.sh`，需要 Docker；它在临时容器内测试安装、升级、HUP、权限与异常退出恢复，不安装宿主服务。CI 的通过状态需要以远端实际运行结果为准。
 
 ## 实机验收与已知边界
 
-`scripts/e2e-real.sh guide` 给出完整人工步骤；`snapshot` 在 Debian 设备收集当前状态、服务 PID、统计监听和只读账本摘要，可选保存按用户、节点筛选的面板用量。它不会安装软件、修改业务配置、重启服务或更改账本；可选的面板查询会创建临时管理员会话并在结束时注销。
+`scripts/e2e-real.sh guide` 给出 systemd/OpenRC 的完整人工步骤；`snapshot` 在 Linux 设备自动识别 init，收集当前状态、服务 PID、统计监听和只读账本摘要，可选保存按用户、节点筛选的面板用量。OpenRC 快照区分 supervisor PID 与实际子进程 PID。它不会安装软件、修改业务配置、重启服务或更改账本；可选的面板查询会创建临时管理员会话并在结束时注销。
 
 ```bash
 bash scripts/e2e-real.sh guide

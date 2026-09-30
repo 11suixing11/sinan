@@ -1,5 +1,8 @@
 pub use sinan_adapter_sdk::{Privileged, ServiceManager};
 
+mod services;
+pub use services::{ServiceBackend, SystemServiceManager};
+
 use crate::artifacts::safe_component;
 use anyhow::{Context, Result, ensure};
 use flate2::read::MultiGzDecoder;
@@ -9,7 +12,6 @@ use std::{
     io::{Read, Write},
     os::unix::fs::{OpenOptionsExt, PermissionsExt, symlink},
     path::Path,
-    sync::Arc,
     time::Duration,
 };
 use tokio::{process::Command, time::timeout};
@@ -98,8 +100,10 @@ impl Privileged for SystemOps {
         Box::pin(async move {
             #[cfg(not(target_os = "linux"))]
             ensure!(
-                program.file_name().is_none_or(|name| name != "systemctl"),
-                "systemd operations require Linux"
+                program
+                    .file_name()
+                    .is_none_or(|name| name != "systemctl" && name != "rc-service"),
+                "service management requires Linux"
             );
             let output = timeout(
                 COMMAND_TIMEOUT,
@@ -294,62 +298,4 @@ fn install_archive(archive: &Path, directory: &Path, binary_name: &str) -> Resul
         let _ = fs::remove_dir_all(staging);
     }
     result
-}
-
-pub struct SystemServiceManager {
-    privileged: Arc<dyn Privileged>,
-}
-
-impl SystemServiceManager {
-    pub fn new(privileged: Arc<dyn Privileged>) -> Self {
-        Self { privileged }
-    }
-
-    async fn call(&self, action: &str, unit: &str, quiet: bool) -> Result<CommandOutput> {
-        ensure!(
-            !unit.is_empty()
-                && !unit.starts_with('-')
-                && unit.len() <= 255
-                && unit
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'@')),
-            "invalid service unit"
-        );
-        let mut args = vec![action.to_owned()];
-        if quiet {
-            args.push("--quiet".into());
-        }
-        args.extend(["--".into(), unit.to_owned()]);
-        timeout(
-            COMMAND_TIMEOUT,
-            self.privileged.execute(Path::new("systemctl"), &args),
-        )
-        .await
-        .context("service operation timed out")?
-    }
-
-    async fn change(&self, action: &str, unit: &str) -> Result<()> {
-        let output = self.call(action, unit, false).await?;
-        ensure!(
-            output.success,
-            "service operation failed: {}",
-            output.stderr
-        );
-        Ok(())
-    }
-}
-
-impl ServiceManager for SystemServiceManager {
-    fn reload<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(self.change("reload", unit))
-    }
-    fn restart<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(self.change("restart", unit))
-    }
-    fn stop<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(self.change("stop", unit))
-    }
-    fn is_active<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, bool> {
-        Box::pin(async move { Ok(self.call("is-active", unit, true).await?.success) })
-    }
 }

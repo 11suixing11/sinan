@@ -9,7 +9,7 @@
 - `adapter-*` 的工作区依赖只能是 `adapter-sdk`。适配器只负责无状态翻译，不自行持久化，不连接面板。
 - 只有 `agent` 二进制入口同时依赖 core 和具体适配器，并将适配器注册到 core。
 - `agent-core` 目录内任何文件不得出现 `singbox` 或 `sing-box` 字样；使用模块标识、能力和统一接口。
-- 特权操作必须经过 `Privileged` trait，服务管理经过 `ServiceManager` trait；外部运行时是独立的 systemd 服务。
+- 特权操作必须经过 `Privileged` trait，服务管理经过 `ServiceManager` trait；外部运行时是独立的 systemd 或 OpenRC 服务。
 - core 按 `identity`、`transport`、`reconcile`、`state`、`telemetry`、`usage`、`artifacts`、`system` 拆分，先用单文件，超过约 400 行再按需拆目录。
 
 ## 实现与验证
@@ -26,6 +26,6 @@
 
 ## 禁止扩大 MVP 范围
 
-不得实现链路、转发、链式代理、外部出口、出口池、用户分组、配额强制执行、计费、DDNS、WebSSH、frp、Shadowsocks、SSM API、VLESS + Reality 之外的协议、xray、多个运行时实例、独立特权 helper 进程、防火墙或 nftables、正式自更新、OpenRC、非 Linux 运行平台、Clash 订阅、多管理员、权限体系、多语言界面或面板高可用。特权 helper 仅保留 trait 边界；升级通过重复执行安装脚本完成。制品签名和高频指标模式只有 G1–G9 全部完成后才可考虑。
+不得实现链路、转发、链式代理、外部出口、出口池、用户分组、配额强制执行、计费、DDNS、WebSSH、frp、Shadowsocks、SSM API、VLESS + Reality 之外的协议、xray、多个运行时实例、独立特权 helper 进程、防火墙或 nftables、正式自更新、非 Linux 运行平台、Clash 订阅、多管理员、权限体系、多语言界面或面板高可用。OpenRC 服务支持已按用户要求增加，详见 ADR 0016。特权 helper 仅保留 trait 边界；升级通过重复执行安装脚本完成。制品签名和高频指标模式只有 G1–G9 全部完成后才可考虑。
 
 详细架构约束见 `docs/adr/0001-declarative-snapshots.md` 至 `docs/adr/0011-loopback-local-api.md`。

@@ -60,11 +60,11 @@ MVP 完成的标志是下面这条链路可以完整跑通：
 - 面板：单管理员登录、服务器管理与接入、VLESS+Reality 节点、用户与节点授权、自动编译与发布、部署状态、流量汇总、订阅（分享链接格式 + sing-box JSON 格式）、制品下载、安装脚本。
 - Agent：注册、长连接、遥测、对账与应用、sing-box 适配器、流量账本、本地状态库、`status` 命令。
 - 编译器：模型 → sing-box 1.14 服务端配置，带黄金文件测试。
-- 部署文件：systemd 单元、安装脚本模板、面板的 docker-compose、sing-box 构建脚本。
+- 部署文件：systemd 单元、OpenRC 服务脚本、安装脚本模板、面板的 docker-compose、sing-box 构建脚本。
 
 ### 不做（严禁实现）
 
-链路、转发、链式代理、外部出口、出口池；用户分组；配额强制执行与计费；DDNS；WebSSH；frp；Shadowsocks 与 SSM API；VLESS+Reality 以外的任何协议；xray；多个 sing-box 实例；独立的特权 helper 进程（只定义 trait）；防火墙和 nftables；正式的自更新机制（MVP 靠重新执行安装脚本升级）；OpenRC 与非 Linux 平台；Clash 订阅格式；多管理员与权限；多语言界面（界面只用中文）；面板高可用。
+链路、转发、链式代理、外部出口、出口池；用户分组；配额强制执行与计费；DDNS；WebSSH；frp；Shadowsocks 与 SSM API；VLESS+Reality 以外的任何协议；xray；多个 sing-box 实例；独立的特权 helper 进程（只定义 trait）；防火墙和 nftables；正式的自更新机制（MVP 靠重新执行安装脚本升级）；非 Linux 运行平台；Clash 订阅格式；多管理员与权限；多语言界面（界面只用中文）；面板高可用。OpenRC 已按用户追加要求纳入，详见 ADR 0016；非 Linux 编译产物范围见 ADR 0015。
 
 ### 可选加分项（只有在 G1–G9 全部完成后才做）
 
@@ -77,7 +77,7 @@ MVP 完成的标志是下面这条链路可以完整跑通：
 
 1. **声明式全量快照。** 面板为每台服务器编译完整配置，带单调递增的版本号（rev）。Agent 拉取、校验、应用、回报。心跳携带已应用版本，面板发现不一致就重新通知。Agent 本地保留最后一份可用配置，面板离线时节点照常运行。
 2. **Agent 三层结构。** `agent-core`（原生功能）只依赖 `adapter-sdk` 和 `protocol`；`adapter-*` 只依赖 `adapter-sdk`；只有 `agent` 二进制入口同时依赖全部 crate，负责把适配器注册进 core。`agent-core` 源码中不得出现 `singbox` 或 `sing-box` 字样（CI 用 grep 检查）。适配器是无状态的翻译层：不持久化任何东西，不连接面板。
-3. **sing-box 以独立的 systemd 服务运行**（`sinan-singbox@main.service`），不是 Agent 的子进程。Agent 重启不影响代理服务。
+3. **sing-box 以独立的 systemd 或 OpenRC 服务运行**（分别为 `sinan-singbox@main.service`、`sinan-singbox@main`），不是 Agent 的子进程。Agent 重启不影响代理服务。
 4. **计量只在用户认证的那一端计算一次。** 读取统计时 `reset=false`，累计读取，在本地计算差值并持久化，带序号上报；面板按 (server_id, epoch, seq) 去重后确认。
 5. **统计用户名按"成员 + 节点"生成**：`u{user_id}_n{node_id}`。原因见第 9 节。
 6. **特权操作经过 `Privileged` trait。** MVP 中 Agent 以 root 运行，trait 的实现直接在进程内执行；以后替换成独立 helper 进程时，调用方不用改。
@@ -113,10 +113,11 @@ sinan/
 │   ├── adapter-sdk/           包名 sinan-adapter-sdk
 │   └── adapter-singbox/       包名 sinan-adapter-singbox
 ├── web/                       前端
-├── plugins/sing-box/          sinan-singbox@.service 模板
+├── plugins/sing-box/          systemd 与 OpenRC 运行时服务模板
 ├── deploy/
 │   ├── install.sh.tmpl        安装脚本模板（由面板渲染）
 │   ├── sinan-agent.service
+│   ├── sinan-agent.openrc
 │   └── docker-compose.yml     面板 + PostgreSQL
 ├── tools/build-singbox.sh     从上游源码构建 sing-box
 ├── scripts/e2e-real.sh        真实服务器上的手动端到端验证步骤
@@ -253,7 +254,7 @@ sinan/
 5. 计划：配置哈希相同为 noop；配置变化为 reload；内核版本变化为 restart。
 6. 写入意图记录。如果是 reload 或 restart，先读取一次流量计数作为当前周期的终值。
 7. 原子切换 `current` 符号链接（先建临时链接，再 rename）。
-8. 执行 `systemctl reload` 或 `restart sinan-singbox@main`。
+8. 通过 `ServiceManager` 请求重载或重启，自动选择 systemctl 或 rc-service；OpenRC 重载向实际运行时子进程发送 HUP。
 9. 健康检查：单元状态为 active、端口在监听、统计 API 可访问。
 10. 成功：标记意图完成，记录已应用版本，发送 `apply.result`。失败：切回上一个版本并重载，发送带错误信息的 `apply.result`。
 
@@ -309,7 +310,7 @@ sinan/
 
 ---
 
-## 10. 服务器上的路径与 systemd 单元
+## 10. 服务器上的路径与服务
 
 ```text
 /opt/sinan/core/<版本>/sinan-agent        current → <版本>
@@ -361,7 +362,9 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-**安装脚本**（`deploy/install.sh.tmpl`）：检查 root 和 systemd；识别架构（x86_64 对应 amd64，aarch64 对应 arm64）；创建系统用户 `sinan-singbox`（nologin）；创建目录并设置权限；从面板下载 Agent 二进制并校验 sha256；安装到版本目录，更新 current 链接；写入 `agent.toml` 和两个 systemd 单元；执行 `enroll`；`systemctl enable --now sinan-agent`。脚本必须可以重复执行，重复执行就相当于升级 Agent。
+OpenRC 使用 `deploy/sinan-agent.openrc`、`plugins/sing-box/sinan-singbox.openrc`，安装为 `/etc/init.d/sinan-agent` 和 `/etc/init.d/sinan-singbox@main`。两个服务独立监督，runtime 使用专用用户、ambient capability 与 no_new_privs；日志保存在 `/var/log/sinan/`。运行时配置路径与 systemd 相同。
+
+**安装脚本**（`deploy/install.sh.tmpl`）：检查 root、Linux 和运行中的 systemd/OpenRC；识别架构（x86_64 对应 amd64，aarch64 对应 arm64）；支持 shadow 或 BusyBox 创建系统用户与组 `sinan-singbox`（nologin）；创建目录并设置权限；从面板下载 Agent 二进制并校验 sha256；先执行暂存二进制 `enroll`，成功后安装到版本目录、更新 current 链接和对应服务文件；启用两个服务，重启 Agent。OpenRC 使用 default runlevel，首次发布前不启动尚无配置的运行时。脚本必须可以重复执行，重复执行就相当于升级 Agent，保留已有身份与账本。
 
 Agent 发布构建使用 musl 静态链接：`x86_64-unknown-linux-musl` 和 `aarch64-unknown-linux-musl`。
 

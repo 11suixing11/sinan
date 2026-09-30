@@ -10,7 +10,7 @@ use sinan_adapter_singbox::SingboxAdapter;
 #[cfg(target_os = "linux")]
 use sinan_agent_core::{
     Config, identity,
-    system::{SystemOps, SystemServiceManager},
+    system::{ServiceBackend, SystemOps, SystemServiceManager},
     transport,
 };
 use std::path::PathBuf;
@@ -49,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
 
 #[cfg(not(target_os = "linux"))]
 async fn run_cli(_cli: Cli) -> anyhow::Result<()> {
-    anyhow::bail!("此平台仅提供编译产物和 CLI 检查；Agent 命令要求 Linux 和 systemd")
+    anyhow::bail!("此平台仅提供编译产物和 CLI 检查；Agent 命令要求 Linux，使用 systemd 或 OpenRC")
 }
 
 #[cfg(target_os = "linux")]
@@ -83,9 +83,10 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         }
         Command::Run => {
             let config = Config::load(&path)?;
+            let backend = ServiceBackend::detect()?;
             let adapters: Vec<Arc<dyn Adapter>> = vec![Arc::new(SingboxAdapter::new())];
             let services: Arc<dyn ServiceManager> =
-                Arc::new(SystemServiceManager::new(privileged.clone()));
+                Arc::new(SystemServiceManager::new(privileged.clone(), backend));
             transport::run(config, adapters, privileged, services).await
         }
         Command::Status => {
