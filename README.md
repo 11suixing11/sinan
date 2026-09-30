@@ -336,7 +336,6 @@ Agent 在托管应用前读取终值，再打开新计量周期；外部强制�
 - [架构决策](docs/adr/0001-declarative-snapshots.md)
 - [术语表](docs/glossary.md)
 - [实现中的问题与选择](docs/open-questions.md)
-- [NodeFlare Agent 与部署设计参考](docs/nodeflare-agent-deployment.md)
 - [阶段计划](docs/PLAN.md) / [验收进度](PROGRESS.md)
 
 许可证：AGPL-3.0-only。
