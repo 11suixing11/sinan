@@ -578,11 +578,15 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 合并审查最终保留 main `6a583af` 与作者最新 `84938ba` 正常祖先；作者新提交与已验证 `e0d6bda` 的全部 Rust/Cargo/CI/工具脚本及 web 源和 dist 完全相同，仅更新两项文档，不重复相同源码构建。完整 locked workspace/all-targets Rust/PostgreSQL 回归 289 项通过、0 失败、8 项既有 Linux/root/systemd 或外部运行时条件忽略；workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁、actionlint 与差异检查通过。Python discovery 83 项通过/5 跳过，NodeQuality 包装器 23 项通过/5 跳过；Bun 4 项/637 断言与 TypeScript/Vite 通过。最终 dist 实际 Chromium 桌面 1280×900/手机 390×844 共 9 组场景通过、页面错误 0，包含严格未知/有效0和false、IP失败隔离、旧报告与独立章节、指标过期与三类时间、独立导航；本轮未测试取消或实机完整诊断，最终 Linux CI 单独核对。
 
-## 2026-10-01：固定 NodeQuality 正常退出契约修复
+## 2026-10-01 两个诊断入口（Issue #21，独立 PR）
 
-- main `af43ccf` 的 Linux check 发现三项包装器回归失败。完整章节与执行成功仍分开，但此前直接保留上游非零返回漏掉真实固定入口的正常清理 `exit 1`：固定源码 SHA-256 `4e1b25894cadf908ef61fb0d9ce874a75524c6dafc2ea26f0477107288e0c018` 第 455 行，由 `main → post_cleanup` 正常到达。
-- 新启动观察器保留上游/许可证原字节，仅确认该精确分支；完整本地报告校验成功后才转换此特例。任意早退 1、真实失败 7、信号清理、清理拒绝、缺报告不转换，可选上传 HTTP 403/传输失败单独警告。原退出值、ZIP、五章、关闭公开上传、取消清理和不可变构建检查都保留。
-- 包装器使用独立 r5（r4 留给模式功能）；r2/r3 历史与排队恢复兼容，原 r2 签名资产及冻结候选源码不变。macOS 夹具 32 项全部通过、0 跳过；断网且无 Linux capabilities 的只读测试容器重现旧版 28 项/3 失败，并验证修复版 32 项全部通过、0 跳过。挂载、chroot 和网络全部为合成夹具，不对生产或真实基准执行操作。fmt、core 门禁、Python/Bash 语法及差异检查通过；Rust 编译/Clippy 尚待后续独占槽或最终 CI，模式功能合入后的最终版本将另行复验。
+- 新 r4 不可变 runner 将日常检查限制为自有标准库 TCP 探测，最多 4 个已配置启用目标、每 IP 族 4 次、DNS 2 秒/连接 1 秒/任务 90 秒，无硬件/rootfs/测速/上游/公开上传。IP 刷新复用逐源缓存，明确不是节点流媒体证据。
+- 日常固定 64MiB/32tasks，完整512MiB/128；不降低256MiB启动预留、2GiB磁盘与128MiB运行保护。服务端完整入口必须管理员确认；正向计量活跃与缺少新计量证据的未知都需要警告确认。时间和证据随任务保存，不用网卡总流量冒充代理流量。
+- preflight实际资源/负载/最终预算随Started检查点持久化，environment独立章复用r3补报。日常2章、完整6章；旧r2/r3签名队列/检查点继续恢复收集，不重复运行。新mode独立capability与Linux gate防止旧Agent误ready。
+- 本机fmt/core门禁、Python discovery 88（83通过/5环境skip）、daily helper6、Bun/dist与真实Chromium6（0错误）通过。main 6a583af 上的模式源在集中Debian12容器（1.5GiB/2CPU/无swap）通过完整Rust/PostgreSQL293项/0失败/8既有环境ignored、全targets Clippy、fmt与Agent/Panel build，OOM=false；Linux wrapper29/helper6通过。wrapper首轮三个既有exit1期望0夹具需独立PR#56修复，远端临时对齐后验证，不混入本项实现。二进制保存binaries/modes-head；后续整合HEAD CI另核对。本机磁盘不足未从头Cargo。独立验收见 [diagnostic-modes](docs/acceptance/diagnostic-modes.md)，实际小节点保护/持续代理流量/取消矩阵由总任务整合验证。
+
+- 发布前整合 main af43ccf 的独立 IP/NodeQuality 视图，保留拆分API与导航；日常入口改为独立IP刷新接口。fmt/core门禁、Python discovery83通过/5skip、helper6、Bun4项/637断言与TypeScript/Vite重建、最终dist Chromium6场景/0错误再次通过。整合Rust及取消状态兼容交最终HEAD CI，不用先前293项结果代替。
+
 
 ## 2026-10-01：P0 IP 查询入口适配（独立 PR）
 
@@ -603,5 +607,25 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 正常合入 main `6b63f71`（含确认式取消），保留作者 `cfea748` 祖先及双方全部记录；最终代码审查未发现需要改动的生产缺陷。全程移除真实 `SINAN_ABUSEIPDB_API_KEY`，只使用明确公开的合成 key 与回环 HTTP，未读取或调用真实账户。独立 PostgreSQL 下 IP/provider library 25 项、diagnostics API 7 项及章节/迁移 3 项，共 35 项通过、0 失败/忽略；覆盖敏感 Header、固定路径/参数/无 UA/重试/重定向、身份/类型、403/429/超时、禁用零请求、0/false 与双来源历史及新连接池/租约。Panel 全 targets Clippy（warnings 为错误）、workspace fmt、core 门禁及其 6 项行为回归、差异检查通过。Bun 1.4.2 冻结安装、5 项字段测试/711 断言及 TypeScript/Vite 构建通过，重建 JS `index-C1v7YTay.js`；最终 dist 在实际 Chromium 桌面/390px 手机的入口/缺凭据/0false/错误历史/禁用/百分比边界及确认取消组合场景全部通过、页面错误 0。本轮没有重复完整 workspace 或调用正式公网账户，不宣称配额/权限/节点自查或完整 NodeQuality 压力已验。
 
 - 继续正常合入 main `229becc`（PR #56）：与已验证 `c2b01cc` 相比仅修改 `tools/test-nodequality.py`，所有 Rust/Cargo、生产工具、web 源与 dist 完全相同，未重复无交集 Cargo。包装器 Python 28 项中 23 项通过、5 项既有 Linux/root 条件跳过；core 门禁与差异检查再次通过。真实 Linux 正常退出的生产工具补修仍由独立任务验收，本项不将本机跳过计为通过。
+
+## 2026-10-01 两个诊断入口（Issue #21，独立 PR）
+
+- 新 r4 不可变 runner 将日常检查限制为自有标准库 TCP 探测，最多 4 个已配置启用目标、每 IP 族 4 次、DNS 2 秒/连接 1 秒/任务 90 秒，无硬件/rootfs/测速/上游/公开上传。IP 刷新复用逐源缓存，明确不是节点流媒体证据。
+- 日常固定 64MiB/32tasks，完整512MiB/128；不降低256MiB启动预留、2GiB磁盘与128MiB运行保护。服务端完整入口必须管理员确认；正向计量活跃与缺少新计量证据的未知都需要警告确认。时间和证据随任务保存，不用网卡总流量冒充代理流量。
+- preflight实际资源/负载/最终预算随Started检查点持久化，environment独立章复用r3补报。日常2章、完整6章；旧r2/r3签名队列/检查点继续恢复收集，不重复运行。新mode独立capability与Linux gate防止旧Agent误ready。
+- 本机fmt/core门禁、Python discovery 88（83通过/5环境skip）、daily helper6、Bun/dist与真实Chromium6（0错误）通过。main 6a583af 上的模式源在集中Debian12容器（1.5GiB/2CPU/无swap）通过完整Rust/PostgreSQL293项/0失败/8既有环境ignored、全targets Clippy、fmt与Agent/Panel build，OOM=false；Linux wrapper29/helper6通过。wrapper首轮三个既有exit1期望0夹具需独立PR#56修复，远端临时对齐后验证，不混入本项实现。二进制保存binaries/modes-head；后续整合HEAD CI另核对。本机磁盘不足未从头Cargo。独立验收见 [diagnostic-modes](docs/acceptance/diagnostic-modes.md)，实际小节点保护/持续代理流量/取消矩阵由总任务整合验证。
+
+- 发布前整合 main af43ccf 的独立 IP/NodeQuality 视图，保留拆分API与导航；日常入口改为独立IP刷新接口。fmt/core门禁、Python discovery83通过/5skip、helper6、Bun4项/637断言与TypeScript/Vite重建、最终dist Chromium6场景/0错误再次通过。整合Rust及取消状态兼容交最终HEAD CI，不用先前293项结果代替。
+
+- 继续整合 main229becc，保留已合并#51确认取消与#56正常/非零退出夹具；新创建任务返回完整取消字段，cancel_requested同时阻止两种入口。最终dist重建与Chromium7场景（含等待取消和资源章）通过、错误0；fmt/core门禁、Python83通过/5skip与Bun4/637断言复验通过。最终Rust/平台CI另核对。
+
+- main7848268合入独立查询来源适配层后再次整合，保留providers字段与独立IP查询接口；fmt/core门禁、Bun5项/711断言、TypeScript/Vite与dist重建通过。main229becc上的7c784e6已由CI36779254979验证workspace309通过/0失败/9忽略，随后真实systemd6项通过，Compose与AMD/ARM musl/OpenRC也通过；这些记录不替代新来源整合提交的CI。
+
+## 2026-10-01：固定 NodeQuality 正常退出契约修复
+
+- main `af43ccf` 的 Linux check 发现三项包装器回归失败。完整章节与执行成功仍分开，但此前直接保留上游非零返回漏掉真实固定入口的正常清理 `exit 1`：固定源码 SHA-256 `4e1b25894cadf908ef61fb0d9ce874a75524c6dafc2ea26f0477107288e0c018` 第 455 行，由 `main → post_cleanup` 正常到达。
+- 新启动观察器保留上游/许可证原字节，仅确认该精确分支；完整本地报告校验成功后才转换此特例。任意早退 1、真实失败 7、信号清理、清理拒绝、缺报告不转换，可选上传 HTTP 403/传输失败单独警告。原退出值、ZIP、五章、关闭公开上传、取消清理和不可变构建检查都保留。
+- 包装器使用独立 r5（r4 留给模式功能）；r2/r3 历史与排队恢复兼容，原 r2 签名资产及冻结候选源码不变。macOS 夹具 32 项全部通过、0 跳过；断网且无 Linux capabilities 的只读测试容器重现旧版 28 项/3 失败，并验证修复版 32 项全部通过、0 跳过。挂载、chroot 和网络全部为合成夹具，不对生产或真实基准执行操作。fmt、core 门禁、Python/Bash 语法及差异检查通过；Rust 编译/Clippy 尚待后续独占槽或最终 CI，模式功能合入后的最终版本将另行复验。
+
 
 - 正常合入确认式取消、IP 入口及 PR #56 的原始 exit 0/1 夹具；保留纯 exit 0 成功、纯 exit 1 失败及所有原 ZIP/五章/选项/清理断言，固定正常 cleanup 的 exit 1 另作独立场景。夹具补上真实 main 的 EXIT→sig_cleanup 二次清理，macOS 和断网 Linux root 都 33 项全部通过、0 跳过。相同 33 项的反对照中移除正常分支转换触发四项失败；把所有 exit 1 转成功会被早退、信号清理、清理拒绝及原始非零夹具拒绝。已核对 cleanup 夹具与固定 SHA 源码第 440–456 行原字节一致。发布 Python 32 项中 28 通过、4 项现有条件跳过；没有占用 Cargo，模式主线及 r4→r5 历史兼容仍待最终合入。

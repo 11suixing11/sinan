@@ -380,6 +380,7 @@ class BuildTests(unittest.TestCase):
                 for marker, source in (("@NODEQUALITY_SOURCE@", upstream), ("@NODEQUALITY_LICENSE@", "fixture"),
                                        ("@REPORT_HELPER@", (PLUGIN / "report.py").read_text()),
                                        ("@EXIT_OBSERVER@", (PLUGIN / "exit-observer.sh").read_text()),
+                                       ("@DAILY_HELPER@", (PLUGIN / "daily.py").read_text()),
                                        ("@CURL_SHIM@", (PLUGIN / "curl-shim.sh").read_text()),
                                        ("@CHROOT_SHIM@", (PLUGIN / "chroot-shim.sh").read_text())):
                     runner = runner.replace(marker, source)
@@ -577,6 +578,7 @@ work_dir=$workspace/.nodequalityfixture
             ("NODEQUALITY_LICENSE", "Synthetic test fixture; no upstream tests run.\n"),
             ("REPORT_HELPER", (PLUGIN / "report.py").read_text()),
             ("EXIT_OBSERVER", (PLUGIN / "exit-observer.sh").read_text()),
+            ("DAILY_HELPER", (PLUGIN / "daily.py").read_text()),
             ("CURL_SHIM", (PLUGIN / "curl-shim.sh").read_text()),
             ("CHROOT_SHIM", (PLUGIN / "chroot-shim.sh").read_text()),
         ):
@@ -680,6 +682,18 @@ work_dir=$workspace/.nodequalityfixture
                 self.assertIn(b"a complete local NodeQuality report was not produced", result.stderr)
                 for path in self.workspace.iterdir():
                     path.unlink()
+
+    def test_daily_branch_never_runs_upstream_or_creates_mounts(self):
+        targets = self.workspace / "daily-targets.json"
+        targets.write_text("[]")
+        result = subprocess.run(self.runner("sleep") + ["--mode", "daily", "--targets-file", str(targets)],
+                                env=self.environment, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.workspace / "section-net_quality.json").exists())
+        self.assertFalse((self.workspace / "fixture-ready").exists())
+        self.assertFalse((self.workspace / "report.zip").exists())
+        self.assertFalse((self.workspace / ".runner.lock").exists())
+        self.assertFalse((self.root / "cleanup.txt").exists())
 
     def test_signal_cleans_only_the_private_workspace(self):
         process = subprocess.Popen(self.runner("sleep"), env=self.environment,

@@ -55,7 +55,7 @@ async fn cancellation_crosses_real_agent_websocket_http_and_recovers_after_resta
         .api(
             Method::POST,
             &format!("/api/servers/{id}/node-quality/reports"),
-            json!({}),
+            json!({"confirm_full":true,"acknowledge_traffic_warning":true}),
         )
         .await?;
     let job = uuid::Uuid::parse_str(report["id"].as_str().context("job id")?)?;

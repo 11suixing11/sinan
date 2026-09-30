@@ -103,6 +103,7 @@ for marker, path in (
     ("NODEQUALITY_LICENSE", scratch / "LICENSE"),
     ("REPORT_HELPER", plugin / "report.py"),
     ("EXIT_OBSERVER", plugin / "exit-observer.sh"),
+    ("DAILY_HELPER", plugin / "daily.py"),
     ("CURL_SHIM", plugin / "curl-shim.sh"),
     ("CHROOT_SHIM", plugin / "chroot-shim.sh"),
 ):

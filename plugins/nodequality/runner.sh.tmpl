@@ -5,10 +5,13 @@ umask 077
 version=a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5
 usage() {
   cat <<'USAGE'
-Usage: nodequality --workspace <ABSOLUTE_DIRECTORY> --ip-version both|ipv4|ipv6 --network-mode low|normal [--upload-report true|false]
+Usage: nodequality --workspace <ABSOLUTE_DIRECTORY> --mode daily|full --ip-version both|ipv4|ipv6 --network-mode low|normal [--upload-report true|false]
+       Daily mode requires --targets-file <WORKSPACE/daily-targets.json>.
        nodequality --version
 
 Requires Linux, root, Bash >= 4, Python 3, curl and systemd private mount isolation.
+Daily mode requires only Python 3 and performs bounded TCP checks; no rootfs,
+hardware benchmark, bandwidth test, upstream script or public upload runs.
 Hardware, IP, network and return-route diagnostics run only when this command is
 explicitly started. Local output: result.txt, report.zip, log.txt and an optional
 report-url.txt and atomic section-*.json chapters in the private workspace. NodeQuality performs external downloads
@@ -19,6 +22,8 @@ die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 if [[ ${1:-} == --version && $# == 1 ]]; then printf 'nodequality %s\n' "$version"; exit 0; fi
 if [[ ${1:-} == --help && $# == 1 ]]; then usage; exit 0; fi
 workspace=
+mode=full
+targets_file=
 ip_version=both
 network_mode=low
 upload_report=false
@@ -26,6 +31,8 @@ while [[ $# != 0 ]]; do
   [[ $# -ge 2 ]] || die 'each diagnostic option requires a value'
   case "$1" in
     --workspace) [[ -z $workspace ]] || die 'duplicate workspace'; workspace=$2 ;;
+    --mode) mode=$2 ;;
+    --targets-file) targets_file=$2 ;;
     --ip-version) ip_version=$2 ;;
     --network-mode) network_mode=$2 ;;
     --upload-report) upload_report=$2 ;;
@@ -40,10 +47,15 @@ done
 case "$ip_version" in both|ipv4|ipv6) ;; *) die 'invalid IP version' ;; esac
 case "$network_mode" in low|normal) ;; *) die 'invalid network mode' ;; esac
 case "$upload_report" in true|false) ;; *) die 'invalid report upload option' ;; esac
+case "$mode" in daily|full) ;; *) die 'invalid diagnostic mode' ;; esac
+if [[ $mode == daily ]]; then
+  [[ $network_mode == low && $upload_report == false ]] || die 'daily checks cannot run speed tests or upload reports'
+  [[ $targets_file == "$workspace/daily-targets.json" ]] || die 'daily targets must be in the private workspace'
+fi
 [[ $(uname -s) == Linux ]] || die 'diagnostics require Linux'
 [[ $EUID == 0 ]] || die 'diagnostics require root'
 [[ ${BASH_VERSINFO[0]} -ge 4 ]] || die 'diagnostics require Bash >= 4'
-for tool in python3 curl tar base64 mount umount mountpoint chroot; do
+for tool in python3; do
   command -v "$tool" >/dev/null || die "missing runtime prerequisite: $tool"
 done
 [[ -d $workspace && ! -L $workspace ]] || die 'workspace must already exist and must not be a symlink'
@@ -80,6 +92,16 @@ trap 'exit 143' TERM HUP
 mkdir "$runtime" "$runtime/bin"
 for output in result.txt report.zip report-url.txt log.txt upload.base64 upload-disabled.txt; do
   [[ ! -e $workspace/$output && ! -L $workspace/$output ]] || die 'workspace already contains diagnostic output'
+done
+if [[ $mode == daily ]]; then
+  cat > "$runtime/daily.py" <<'SINAN_DAILY_HELPER'
+@DAILY_HELPER@
+SINAN_DAILY_HELPER
+  python3 "$runtime/daily.py" "$workspace" "$targets_file" "$ip_version"
+  exit 0
+fi
+for tool in curl tar base64 mount umount mountpoint chroot; do
+  command -v "$tool" >/dev/null || die "missing runtime prerequisite: $tool"
 done
 cat > "$runtime/NodeQuality.sh" <<'SINAN_NODEQUALITY_SOURCE_A92FCA6'
 @NODEQUALITY_SOURCE@
