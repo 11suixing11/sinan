@@ -620,3 +620,9 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 继续整合 main229becc，保留已合并#51确认取消与#56正常/非零退出夹具；新创建任务返回完整取消字段，cancel_requested同时阻止两种入口。最终dist重建与Chromium7场景（含等待取消和资源章）通过、错误0；fmt/core门禁、Python83通过/5skip与Bun4/637断言复验通过。最终Rust/平台CI另核对。
 
 - main7848268合入独立查询来源适配层后再次整合，保留providers字段与独立IP查询接口；fmt/core门禁、Bun5项/711断言、TypeScript/Vite与dist重建通过。main229becc上的7c784e6已由CI36779254979验证workspace309通过/0失败/9忽略，随后真实systemd6项通过，Compose与AMD/ARM musl/OpenRC也通过；这些记录不替代新来源整合提交的CI。
+
+## 2026-10-01：TcpQuality 许可与原生路径（Issue #58）
+
+固定检查 ibsgss/TcpQuality c2295ae 的完整树与 README，未发现明确分发许可。已创建作者授权询问 ibsgss/TcpQuality#27，当前无回复。按用户提供的备选方案采用独立 Rust TCP 建连诊断，不分发、执行或复制上游脚本/rootfs/helper，详见 ADR0029。
+
+本次仅许可审计和决策；原生引擎、固定/签名制品、参数、无上传与宿主修改、共用框架登记及报告均各自验收。没有实际执行上游工具或访问生产节点。
