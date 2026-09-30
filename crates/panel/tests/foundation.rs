@@ -594,12 +594,54 @@ async fn websocket_challenges_are_connection_bound_and_sessions_expire(pool: PgP
     expect_rejected(&mut unknown).await?;
 
     let auth_started_at = now_timestamp();
+    // Hold only this isolated test database's session inserts. Observe the
+    // blocked INSERT before crossing a second, so scheduler timing cannot hide
+    // separate clock reads for the stored expiry and the hello.ack timestamp.
+    let mut blocker = pool.begin().await?;
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await?;
+    sqlx::query("SET LOCAL lock_timeout = '5s'")
+        .execute(&mut *blocker)
+        .await?;
+    sqlx::query("LOCK TABLE sessions IN SHARE MODE")
+        .execute(&mut *blocker)
+        .await?;
     send_envelope(&mut first, Envelope::new("auth.response", response)?).await?;
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='relation'
+                 AND database=(SELECT oid FROM pg_database WHERE datname=current_database())
+                 AND relation='sessions'::regclass AND mode='RowExclusiveLock' AND NOT granted
+                 AND $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(blocker_pid)
+            .fetch_one(&pool)
+            .await?;
+            if waiting {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("authentication INSERT did not wait on the test session lock")??;
+    let blocked_second = sinan_protocol::now_timestamp();
+    timeout(Duration::from_secs(3), async {
+        while sinan_protocol::now_timestamp() <= blocked_second {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("Unix clock did not advance while authentication was blocked")?;
+    blocker.commit().await?;
     let ack = receive_envelope(&mut first).await?;
     let ack_received_at = now_timestamp();
     assert_eq!(ack.message_type, "hello.ack");
     let ack: HelloAck = ack.to_payload()?;
-    // Session issuance and the acknowledgement can legitimately cross a second.
+    assert_eq!(ack.session_expires_at - ack.server_time, 3600);
+    // Storage and acknowledgement share one issuance snapshot even across a second.
     let issued_at = ack.session_expires_at - 3600;
     assert!((auth_started_at..=ack_received_at).contains(&issued_at));
     assert!((issued_at..=ack_received_at).contains(&ack.server_time));
