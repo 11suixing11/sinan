@@ -1,5 +1,20 @@
 # 执行进度
 
+## 2026-10-01：会话签发时间跨秒修复
+
+- 对应 [Issue #47](https://github.com/theLucius7/sinan/issues/47)。[PR #45 的 CI](https://github.com/theLucius7/sinan/actions/runs/36767325898) 中服务夹具已通过，认证测试暴露两次取时跨秒：存储的会话过期时间与稍后 ACK 的服务器时间相差 3599 秒。会话签发和 ACK 现在使用同一时间快照，过期时间仍由数据库保存并供 HTTP/WebSocket 强制校验。
+- 在独立 PostgreSQL 测试库中先锁住会话表，确认认证 INSERT 实际等待，再跨秒并释放；旧生产代码稳定触发 3599 与 3600 不等，修复后 6 项 foundation 测试全部通过。保留严格的一小时断言，并核对数据库与 ACK 的过期时间一致。协议文档明确此时间是签发快照，客户端校时仍受握手延迟影响。
+- workspace fmt、全 targets Clippy 与分层检查通过。完整测试首轮因本机临时磁盘不足失败，空间恢复后的完整 Rust/PostgreSQL 重跑通过：261 项成功、8 项真实 systemd/运行时专项按条件忽略；新提交的 Linux CI 尚待验证。
+- main `13f2975` 的真实 Reality 安装/计量 job 已通过：443 流量首次为 3,146,275 字节，Agent 重启与运行时 HUP 后不变；第二批精确为 6,292,550 字节，重装不重复计量。4 项签名拒绝、在线退役和再次启动拒绝均通过；其主检查因旧服务夹具失败，不能把该结果视作 main 全绿。
+
+## 2026-10-01：诊断锁服务测试夹具同步
+
+- 对应 [Issue #43](https://github.com/theLucius7/sinan/issues/43)。main `13f2975` 的 [CI 36766239541](https://github.com/theLucius7/sinan/actions/runs/36766239541) 中两项服务集成测试失败：旧特权替身没有返回锁目录元数据，或完全拒绝新增目录操作。仅更新 `services.rs` 夹具，生产代码和锁权限校验不变。
+- 夹具显式允许固定目录、root/0700 和精确 stat 参数，其他文件操作继续拒绝；补齐 systemd 的 flock 完整参数、OpenRC 私有 umask 及调用顺序断言。6 项服务测试、workspace fmt、全 targets Clippy 和完整 Rust/PostgreSQL 回归通过：261 项成功、8 项真实 systemd/运行时专项按条件忽略；分层检查通过。新提交的真实 Linux CI 待完成。
+- 此前 ABI 修复 [PR #39](https://github.com/theLucius7/sinan/pull/39) 的 [五项 CI](https://github.com/theLucius7/sinan/actions/runs/36763913065) 全部通过：Reality 443 的首次 3,146,275 字节在 Agent 重启/HUP 后不变，第二批后精确为 6,292,550，重装不重复计量；4 项签名拒绝和 12 项在线退役断言通过。该证据属于 PR 提交 `d660db5`，不替代新增诊断改动后的 main 验证。
+
+- 本轮保留作者 `7317311` 的夹具修复并整合 main `07e8f58`（含旧运行时缓存 ABI 兼容），生产锁目录和服务逻辑未改动。合并源的 6 项 `services` 集成测试全部通过，专用 target Clippy（warnings 为错误）、workspace fmt、core 门禁及差异检查通过；该结果覆盖两份原失败夹具与已有命令/服务状态拒绝回归。没有重复运行完整 workspace 或实际 init 服务专项，前述贡献者完整回归属于其原提交，最终合并源的 Linux/systemd/OpenRC 与 Reality 验证由最终 CI 执行。
+
 ## 2026-10-01：修复静态 Agent 的宿主运行时选择
 
 - 对应 [Issue #37](https://github.com/theLucius7/sinan/issues/37)。`41000c8` 的 [CI 36757545068](https://github.com/theLucius7/sinan/actions/runs/36757545068) 中 check、Compose、双架构 musl 均通过，真实 systemd 队列/资源测试及实际 Rust OpenRC 诊断也通过；Reality 安装成功后等待配置应用超时，未进入流量验收。之后 main `e2d898c` 仍在相同步骤失败，不能沿用旧提交的绿色结论。
@@ -474,3 +489,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 在447MiB专用Debian12节点，用主线541f52d的签名测试Agent提交一次硬件启用、IPv4、低网络流量、关闭上传的完整NodeQuality入口，同步采集cgtop/内核OOM/磁盘/设备状态与面板时间。
 - 已复现globalOOM：被杀Geekbench属于诊断单元，anon-rss275192KiB、oom_score_adj500；诊断Result=oom-kill，最终failed且无完整报告。Agent子进程/监督进程和sing-box PID均保留，NRestarts0。SSH恢复后停止诊断，cgroup进程与相关挂载为空。
 - 旧API没有专用心跳/指标时间显示，last_seen是“最后消息”；私有DB只读指标时间的最大采样跳跃319.014秒，测试SSH隧道也中断，因此不把此值等同纯心跳中断或停止采集时长。独立验收见docs/acceptance/nodequality-oom-baseline.md；原始证据不进Git，未宣称P0整体验收通过。
+
+## 2026-10-01：CI 会话时间夹具修正
+
+- main 合并后的服务测试夹具已适配 root/0700 锁目录，6 项服务回归及目标 Clippy 通过。后续 CI 暴露会话到期断言的跨秒假设：认证发放时间与确认消息时间可相差一秒；改为认证前后窗口核对，并要求确认消息的绝对到期值与该服务器数据库会话记录一致，保留过期 401 检查。
+- 独立 PostgreSQL 会话专项 1 项通过、0 失败、0 忽略，目标 Clippy、fmt、core 门禁和差异检查通过。main `13f2975` 的真实 Reality CI `36766239541` 已通过完整安装、计量、签名拒绝、重装和在线退役；本次最新整合提交的完整回归与 Linux 专项分别继续验证。
+
+- 随后保留贡献者 `98f86d8` 的生产修复：会话到期值与 hello.ack 取同一次签发时间。合并强制 PostgreSQL 会话写锁跨秒回归和认证前后窗口、token/server 数据库一致性检查；该专项 1 项实际通过，panel 全 targets Clippy、workspace fmt 与差异检查通过。Agent 仍提前 60 秒续期，认证 ACK 有 10 秒等待上限，服务端保留绝对到期拒绝。
