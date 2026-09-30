@@ -15,6 +15,9 @@ import zipfile
 import os
 import signal
 import time
+import stat
+import threading
+from unittest import mock
 
 
 sys.dont_write_bytecode = True
@@ -139,6 +142,83 @@ class ReportTests(unittest.TestCase):
 
 
 class ChapterTests(unittest.TestCase):
+    def test_concurrent_atomic_writes_publish_whole_private_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            path = root / "section-header_info.json"
+            barrier = threading.Barrier(2)
+            fsync = report.os.fsync
+            errors = []
+
+            def synchronized_fsync(descriptor):
+                if stat.S_ISREG(os.fstat(descriptor).st_mode):
+                    barrier.wait(timeout=3)
+                fsync(descriptor)
+
+            def publish(data):
+                try:
+                    report.write_atomic(path, data)
+                except Exception as error:
+                    errors.append(error)
+
+            with mock.patch.object(report.os, "fsync", side_effect=synchronized_fsync):
+                writers = [threading.Thread(target=publish, args=(data,)) for data in (b"first", b"second")]
+                for writer in writers:
+                    writer.start()
+                for writer in writers:
+                    writer.join(timeout=5)
+                    self.assertFalse(writer.is_alive())
+            self.assertEqual(errors, [])
+            self.assertIn(path.read_bytes(), (b"first", b"second"))
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            self.assertEqual(list(root.glob(".section-header_info.json.*")), [])
+
+    def test_concurrent_stale_preview_cannot_replace_a_completed_chapter(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            report.save_section(root, "header_info", "initial preview", False)
+            stale_read = threading.Event()
+            release_stale = threading.Event()
+            final_done = threading.Event()
+            loads = report.json.loads
+            errors = []
+
+            def controlled_read(value, *args, **kwargs):
+                previous = loads(value, *args, **kwargs)
+                if threading.current_thread().name == "stale-preview":
+                    stale_read.set()
+                    if not release_stale.wait(timeout=3):
+                        raise RuntimeError("preview writer was not released")
+                return previous
+
+            def publish(text, complete):
+                try:
+                    report.save_section(root, "header_info", text, complete)
+                except Exception as error:
+                    errors.append(error)
+                finally:
+                    if complete:
+                        final_done.set()
+
+            with mock.patch.object(report.json, "loads", side_effect=controlled_read):
+                preview = threading.Thread(target=publish, name="stale-preview", args=("later preview", False))
+                final = threading.Thread(target=publish, args=("completed original text", True))
+                preview.start()
+                self.assertTrue(stale_read.wait(timeout=3))
+                final.start()
+                # Without serialization the final write finishes before the stale
+                # preview resumes, which deterministically regresses completion.
+                final_done.wait(timeout=0.1)
+                release_stale.set()
+                for writer in (preview, final):
+                    writer.join(timeout=5)
+                    self.assertFalse(writer.is_alive())
+            self.assertEqual(errors, [])
+            saved = json.loads((root / "section-header_info.json").read_text())
+            self.assertTrue(saved["complete"])
+            self.assertEqual(saved["text"], "completed original text")
+            self.assertGreater(saved["revision"], 1)
+
     def test_missing_chapter_preserves_the_other_four(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -217,6 +297,7 @@ class ChapterTests(unittest.TestCase):
             for path in root.glob("section-*.json"):
                 chapter = json.loads(path.read_text())
                 self.assertLessEqual(len(chapter["text"].encode()), report.MAX_SECTION)
+                self.assertIn("章节文本已截断", chapter["text"])
                 self.assertTrue(chapter["complete"])
 
 
@@ -253,6 +334,45 @@ sys.stdout.write("https://nodequality.com/r/fixture\\nSINAN_RESPONSE_STATUS:200"
 
 
 class BuildTests(unittest.TestCase):
+    def test_failed_upstream_preserves_complete_outputs_without_reporting_success(self):
+        for exit_code in (0, 7):
+            with self.subTest(exit_code=exit_code), tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                workspace = root / "workspace"
+                workspace.mkdir(mode=0o700)
+                binaries = root / "bin"
+                binaries.mkdir()
+                for name in ("uname", "curl", "tar", "base64", "mount", "umount", "mountpoint", "chroot"):
+                    tool = binaries / name
+                    tool.write_text("#!/bin/sh\nprintf 'Linux\\n'\n" if name == "uname" else "#!/bin/sh\nexit 0\n")
+                    tool.chmod(0o700)
+                archive = make_archive()
+                upstream = ('python3 "$SINAN_REPORT_HELPER" capture "$SINAN_REPORT_WORKSPACE" <<\'ARCHIVE\'\n'
+                            + base64.b64encode(archive).decode() + '\nARCHIVE\nexit ' + str(exit_code) + '\n')
+                runner = (PLUGIN / "runner.sh.tmpl").read_text()
+                # The fixture executes no hardware, mounts or network operations;
+                # exercise the exact wrapper on macOS without requiring real root.
+                for requirement in ("[[ $EUID == 0 ]] || die 'diagnostics require root'",
+                                    "[[ ${BASH_VERSINFO[0]} -ge 4 ]] || die 'diagnostics require Bash >= 4'"):
+                    self.assertEqual(runner.count(requirement), 1)
+                    runner = runner.replace(requirement, ":")
+                for marker, source in (("@NODEQUALITY_SOURCE@", upstream), ("@NODEQUALITY_LICENSE@", "fixture"),
+                                       ("@REPORT_HELPER@", (PLUGIN / "report.py").read_text()),
+                                       ("@CURL_SHIM@", (PLUGIN / "curl-shim.sh").read_text()),
+                                       ("@CHROOT_SHIM@", (PLUGIN / "chroot-shim.sh").read_text())):
+                    runner = runner.replace(marker, source)
+                executable = root / "nodequality"
+                executable.write_text(runner)
+                result = subprocess.run(["bash", str(executable), "--workspace", str(workspace), "--ip-version", "ipv4"],
+                                        env=dict(os.environ, PATH=str(binaries) + ":" + os.environ["PATH"]),
+                                        capture_output=True, text=True, timeout=15)
+                self.assertEqual((workspace / "upstream-exit.txt").read_text().strip(), str(exit_code),
+                                 (result.stdout, result.stderr, (workspace / "log.txt").read_text()))
+                self.assertEqual((workspace / "report.zip").read_bytes(), archive)
+                self.assertIn("Actual hardware_quality report", (workspace / "result.txt").read_text())
+                self.assertEqual(len(list(workspace.glob("section-*.json"))), 5)
+                self.assertEqual(result.returncode, exit_code)
+
     def test_repeated_build_refuses_to_modify_the_existing_artifact_and_checksum(self):
         with tempfile.TemporaryDirectory() as directory:
             version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3"

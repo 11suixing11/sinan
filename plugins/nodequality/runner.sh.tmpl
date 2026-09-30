@@ -123,3 +123,5 @@ if ! python3 "$runtime/report.py" render "$workspace" 2> "$workspace/collector-e
 fi
 printf 'Local NodeQuality report: %s/result.txt\n' "$workspace"
 [[ ! -f $workspace/report-url.txt ]] || cat "$workspace/report-url.txt"
+# Keep useful reports while preserving a failed upstream execution result.
+exit "$upstream_status"

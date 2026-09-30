@@ -12,7 +12,6 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sinan_protocol::now_timestamp;
-use sqlx::Row;
 use std::{
     collections::{BTreeMap, BTreeSet},
     future::Future,
@@ -22,6 +21,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod cache;
 mod errors;
 #[cfg(test)]
 mod structured_error_tests;
@@ -67,6 +67,25 @@ pub struct QualityDatabase {
     pub error_kind: Option<QueryErrorKind>,
     #[serde(default)]
     pub http_status: Option<u16>,
+    #[serde(default)]
+    pub last_attempt_at: Option<i64>,
+    #[serde(default)]
+    pub last_success_at: Option<i64>,
+    #[serde(default)]
+    pub fresh_until: Option<i64>,
+    #[serde(default)]
+    pub last_error: Option<QueryFailure>,
+    #[serde(default)]
+    pub historical: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct QueryFailure {
+    pub kind: Option<QueryErrorKind>,
+    pub message: String,
+    pub http_status: Option<u16>,
+    pub attempted_at: Option<i64>,
+    pub elapsed_ms: Option<u64>,
 }
 
 fn provider_name() -> String {
@@ -103,6 +122,16 @@ pub struct IpQuality {
     pub expires_at: i64,
     pub status: String,
     pub databases: Vec<QualityDatabase>,
+    #[serde(default = "provider_name")]
+    pub provider: String,
+    #[serde(default)]
+    pub last_attempt_at: Option<i64>,
+    #[serde(default)]
+    pub last_success_at: Option<i64>,
+    #[serde(default)]
+    pub fresh_until: Option<i64>,
+    #[serde(default)]
+    pub last_error: BTreeMap<String, QueryFailure>,
 }
 
 type DatabaseRequest = Pin<Box<dyn Future<Output = (String, QualityDatabase)> + Send>>;
@@ -146,21 +175,7 @@ pub fn public_ip(ip: IpAddr) -> bool {
 }
 
 pub async fn cached(state: &AppState, server_id: i64, ips: &[String]) -> ApiResult<Vec<IpQuality>> {
-    let values: Vec<Value> = sqlx::query_scalar(
-        "SELECT payload FROM server_ip_quality WHERE server_id=$1 AND ip=ANY($2) ORDER BY ip",
-    )
-    .bind(server_id)
-    .bind(ips)
-    .fetch_all(&state.pool)
-    .await?;
-    values
-        .into_iter()
-        .map(|value| {
-            serde_json::from_value(value)
-                .map_err(anyhow::Error::from)
-                .map_err(ApiError::from)
-        })
-        .collect()
+    cache::read(&state.pool, server_id, ips).await
 }
 
 pub async fn refresh(
@@ -174,37 +189,8 @@ pub async fn refresh(
         .clone()
         .try_acquire_owned()
         .map_err(|_| ApiError::Busy)?;
-    let row = sqlx::query("SELECT static_info FROM servers WHERE id=$1 AND deleted_at IS NULL")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or(ApiError::NotFound)?;
-    let ips = reported_ips(&row.get::<Value, _>("static_info"));
-    if ips.is_empty() {
-        return Err(ApiError::Conflict(
-            "Agent 尚未上报 IP 地址，请先升级或等待设备上报".into(),
-        ));
-    }
     let now = now_timestamp();
-    let recent: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM server_ip_quality WHERE server_id=$1 AND checked_at>$2-60)",
-    )
-    .bind(id)
-    .bind(now)
-    .fetch_one(&state.pool)
-    .await?;
-    if recent {
-        return Err(ApiError::Conflict(
-            "刚刚查询过 IP 质量，请至少等待一分钟再刷新".into(),
-        ));
-    }
-    let locked = sqlx::query("UPDATE servers SET quality_refresh_started=$2 WHERE id=$1 AND deleted_at IS NULL AND (quality_refresh_started IS NULL OR quality_refresh_started<$2-60)")
-        .bind(id).bind(now).execute(&state.pool).await?;
-    if locked.rows_affected() == 0 {
-        return Err(ApiError::Conflict(
-            "IP 质量查询正在进行，请稍后刷新查看结果".into(),
-        ));
-    }
+    let ips = cache::begin_refresh(&state.pool, id, now).await?;
     let result = refresh_inner(&state, id, &ips).await;
     sqlx::query("UPDATE servers SET quality_refresh_started=NULL WHERE id=$1 AND quality_refresh_started=$2")
         .bind(id).bind(now).execute(&state.pool).await?;
@@ -221,29 +207,8 @@ async fn refresh_inner(state: &AppState, id: i64, ips: &[String]) -> ApiResult<V
         .map_err(anyhow::Error::from)?;
     let mut quality = query_all(&client, PROVIDER_ORIGIN, ips, false).await;
     quality.sort_by(|a, b| a.ip.cmp(&b.ip));
-    let mut tx = state.pool.begin().await?;
-    // A deleted server may finish an in-flight query; do not retain new data for it.
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM servers WHERE id=$1 AND deleted_at IS NULL)",
-    )
-    .bind(id)
-    .fetch_one(&mut *tx)
-    .await?;
-    if !exists {
-        return Err(ApiError::NotFound);
-    }
-    for entry in &quality {
-        sqlx::query("INSERT INTO server_ip_quality(server_id,ip,payload,checked_at) VALUES($1,$2,$3,$4) ON CONFLICT(server_id,ip) DO UPDATE SET payload=EXCLUDED.payload,checked_at=EXCLUDED.checked_at")
-            .bind(id).bind(&entry.ip).bind(serde_json::to_value(entry).map_err(anyhow::Error::from)?)
-            .bind(entry.checked_at).execute(&mut *tx).await?;
-    }
-    sqlx::query("DELETE FROM server_ip_quality WHERE server_id=$1 AND NOT(ip=ANY($2))")
-        .bind(id)
-        .bind(ips)
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await?;
-    Ok(quality)
+    cache::persist(&state.pool, id, &quality).await?;
+    cache::read(&state.pool, id, ips).await
 }
 
 async fn query_all(
@@ -357,6 +322,11 @@ async fn query_all_with_limit(
                 expires_at: now + CACHE_SECS,
                 status,
                 databases,
+                provider: provider_name(),
+                last_attempt_at: Some(now),
+                last_success_at: None,
+                fresh_until: None,
+                last_error: BTreeMap::new(),
             }
         })
         .collect()
@@ -389,6 +359,7 @@ fn database_result(
             error.http_status,
         ),
     };
+    let success_at = (status == "succeeded").then(now_timestamp);
     QualityDatabase {
         database: database.into(),
         label: label.into(),
@@ -401,6 +372,11 @@ fn database_result(
         elapsed_ms: attempt.map(QueryAttempt::elapsed_ms),
         error_kind,
         http_status,
+        last_attempt_at: attempt.map(|attempt| attempt.at),
+        last_success_at: success_at,
+        fresh_until: success_at.map(|at| at.saturating_add(CACHE_SECS)),
+        last_error: None,
+        historical: false,
     }
 }
 

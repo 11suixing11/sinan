@@ -294,8 +294,9 @@ async fn stalled_panel_request_does_not_delay_five_second_memory_protection() ->
         while services.stops.load(Ordering::Relaxed) == 0 || worker.active()?.is_some() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
+        Ok::<(), anyhow::Error>(())
     })
-    .await?;
+    .await??;
     assert!(worker.active()?.is_none());
     let pending: Vec<DiagnosticUpdate> = worker.read(OUTBOX)?.unwrap();
     assert_eq!(pending[0].status, DiagnosticStatus::Failed);

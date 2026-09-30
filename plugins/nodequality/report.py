@@ -2,12 +2,15 @@
 """Capture and render bounded upstream reports without extracting ZIP paths."""
 
 import base64
+import fcntl
 import io
 import json
 import os
 import pathlib
 import re
 import sys
+import stat
+import tempfile
 import time
 import zipfile
 
@@ -32,13 +35,22 @@ ALLOWED = {
 
 
 def write_atomic(path, data):
-    temporary = path.with_name(path.name + ".tmp")
-    with temporary.open("wb") as target:
-        target.write(data)
-        target.flush()
-        os.fsync(target.fileno())
-    temporary.chmod(0o600)
-    temporary.replace(path)
+    descriptor, temporary = tempfile.mkstemp(prefix="." + path.name + ".", dir=path.parent)
+    temporary = pathlib.Path(temporary)
+    try:
+        with os.fdopen(descriptor, "wb") as target:
+            target.write(data)
+            target.flush()
+            os.fchmod(target.fileno(), 0o600)
+            os.fsync(target.fileno())
+        temporary.replace(path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def clean_text(text):
@@ -128,12 +140,26 @@ def archive_files(root):
 
 def bounded_text(data):
     text = clean_text(data.decode("utf-8", errors="replace")).strip()
-    return text.encode("utf-8")[:MAX_SECTION].decode("utf-8", errors="ignore")
+    encoded = text.encode("utf-8")
+    if len(encoded) <= MAX_SECTION:
+        return text
+    suffix = "\n章节文本已截断；如已生成压缩包，完整原始结果保存在本地 report.zip。".encode("utf-8")
+    return encoded[:MAX_SECTION-len(suffix)].decode("utf-8", errors="ignore") + suffix.decode("utf-8")
 
 
 def save_section(root, name, text, complete):
     if not text:
         return
+    # Capture, the live watcher and cleanup share this stable private lock inode.
+    descriptor = os.open(root / ".sections.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "r+") as lock:
+        if not stat.S_ISREG(os.fstat(lock.fileno()).st_mode):
+            raise ValueError("chapter publication lock is not an ordinary file")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        save_section_locked(root, name, text, complete)
+
+
+def save_section_locked(root, name, text, complete):
     path = root / ("section-" + name + ".json")
     previous = {}
     if path.exists():

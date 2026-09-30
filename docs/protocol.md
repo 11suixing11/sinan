@@ -20,7 +20,7 @@ Agent 与面板的产品版本独立；面板当前声明支持协议范围 `1..
 
 1. 面板生成随机、连接专用、一次性的 nonce，发送 `auth.challenge`，内容 `{nonce,server_time}`。nonce 是无填充 Base64 URL-safe 文本。
 2. Agent 用 Ed25519 签名 **nonce 字符串的 UTF-8 字节**，发送 `auth.response`：`{server_id,signature}`，signature 同样使用无填充 Base64 URL-safe。
-3. 面板验证设备公钥和当前挑战，通过后发送 `hello.ack`：`{server_time,session_token,session_expires_at}`。HTTP Bearer token 有效 3600 秒，重新连接重新签发，绑定服务器身份。认证前不可获取清单或发送计量。
+3. 面板验证设备公钥和当前挑战，通过后发送 `hello.ack`：`{server_time,session_token,session_expires_at}`。`server_time` 是本次会话签发时的时间快照，过期时间由同一次取时加 3600 秒得到，并与数据库存储值一致。HTTP Bearer token 重新连接重新签发，绑定服务器身份。认证前不可获取清单或发送计量。
 4. Agent 发送 `hello`：`{agent_version,protocol_version,capabilities:[],applied:{"module":rev}}`，再发送静态遥测。
 
 一次挑战不能用于另一条连接。认证阶段有超时；超过 60 秒未收到任何消息判定离线。Agent 每 20 秒心跳，断线指数退避（上限 60 秒，另加 0–30% 抖动）重新认证。在会话过期前主动重连，避免 HTTP 凭证过期导致对账持续失败。
