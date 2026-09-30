@@ -236,3 +236,11 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - Linux GNU ARM64 的运行时任务遇到 Go 模块代理 HTTP/2 INTERNAL_ERROR，增加最多三次构建重试，复用模块缓存且保持固定上游、只读依赖和产物验证。
 - 增加实际 TCP/ICMP 双拨测、原生运行时配置重载与旧监听关闭检查；本地真实 Agent 已通过双拨测、补报、升级及恢复。文档补充 FreeBSD 普通账户低端口授权和 Linux 自定义服务入口要求。
 - 本轮 fmt、Clippy、完整 Rust/PostgreSQL 回归通过（142 项成功、4 项原有实机专项忽略）；五组构建脚本测试、actionlint 和 Python 语法检查通过。下一步验证 FreeBSD 服务与 Windows 剩余流程，不将本地检查替代原生验收。
+
+## 原生 CI 跟进：FreeBSD ARM64 完整服务通过
+
+- [55e4345 的 CI](https://github.com/imengying/sinan/actions/runs/36734970741) 中，十个 Linux/主检查/Compose 任务、macOS ARM64 和 FreeBSD ARM64 通过。原生服务检查现包含真实配置重载和旧监听关闭；FreeBSD ARM64 同时完成 13.5/14 启动兼容和 15 完整服务验证。
+- Windows AMD64 的 Agent 全流程已通过，但测试结束时 Python SQLite 连接仍持有数据库文件，导致 Windows 删除临时目录失败；现显式关闭连接。
+- FreeBSD AMD64 和 Windows ARM64 在重启补报等待超时。测试将重新连接与补报分开确认，增加本地 outbox、面板请求和未确认样本诊断，保留对每个断网样本均须重传的断言，继续核实原因。
+- 原生服务检查与无服务 Agent 检查独立执行，前一项失败仍收集后一项结果，工作流最终保持失败状态。避免单一夹具问题掩盖另一条部署路径。
+- 本地真实 Agent 全流程通过；本轮仅修改测试和工作流，actionlint、Python 语法及 diff 检查通过，Rust 代码沿用上一轮 142 项通过结果。下一步继续收敛剩余原生测试。

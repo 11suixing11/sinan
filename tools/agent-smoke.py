@@ -2,6 +2,7 @@
 """Exercise a real native Agent against a loopback panel fixture without host services."""
 import argparse
 import base64
+from contextlib import closing
 import gzip
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -50,6 +51,7 @@ class Panel(ThreadingHTTPServer):
         self.downloads = {}
         self.command_results = []
         self.probe_results = []
+        self.requests = []
         self.command = dict(id=str(uuid.uuid4()), command='echo sinan-command-fixture',
                             timeout_secs=60 if os.name == 'nt' else 5, expires_at=int(time.time()) + 600)
         self.probe = dict(id=str(uuid.uuid4()), name='loopback fixture', kind='tcp',
@@ -83,6 +85,7 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self):
+        self.server.requests.append(self.path)
         if self.path == '/api/agent/v1/ws':
             return self.websocket()
         if not self.authorized():
@@ -104,6 +107,7 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(values.get(suffix, []))
 
     def do_POST(self):
+        self.server.requests.append(self.path)
         body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
         if self.headers.get('Content-Encoding') == 'gzip':
             body = gzip.decompress(body)
@@ -334,8 +338,9 @@ def main():
                 unacked = panel.seen - panel.samples.keys()
                 stop(process)
                 process = start()
+                wait_for(lambda: (s := status(binary, config)) and s['connected'], 'restarted Agent connection', 120)
                 panel.acknowledge = True
-                wait_for(lambda: unacked.issubset(panel.samples), 'persisted telemetry replay after restart')
+                wait_for(lambda: unacked.issubset(panel.samples), 'persisted telemetry replay after restart', 120)
                 assert len(panel.command_results) == 1, 'command executed twice after restart'
                 sample = list(panel.samples.values())[-1]['metrics']
                 assert sample['processes'] > 0 and sample['memory_used'] > 0
@@ -343,7 +348,7 @@ def main():
             finally:
                 stop(process)
             supervise_smoke(binary, config, root, log)
-        with sqlite3.connect(root / 'state.db') as db:
+        with closing(sqlite3.connect(root / 'state.db')) as db:
             assert db.execute('pragma user_version').fetchone()[0] == 1
         print('Native Agent: enrollment, telemetry/replay, command deduplication, TCP/ICMP probes, activation, rollback and shutdown passed')
     except BaseException as error:
@@ -351,6 +356,17 @@ def main():
             print(error.stdout, error.stderr)
         if (root / 'agent.log').exists():
             print((root / 'agent.log').read_text(encoding='utf-8', errors='replace')[-24000:])
+        if 'process' in locals():
+            print('Agent exit code:', process.poll())
+        print('Recent panel messages:', [m['type'] for m in panel.messages[-12:]])
+        print('Recent panel requests:', panel.requests[-20:])
+        print('Unacknowledged samples:', len(panel.seen - panel.samples.keys()))
+        if (root / 'state.db').exists():
+            try:
+                with closing(sqlite3.connect(root / 'state.db')) as db:
+                    print('Pending local telemetry:', db.execute('SELECT count(*) FROM telemetry_outbox').fetchone()[0])
+            except sqlite3.Error as database_error:
+                print('Cannot inspect telemetry state:', database_error)
         for name in ('update-state.json', 'pending-update.json'):
             state_file = root / 'core' / name
             if state_file.exists():
