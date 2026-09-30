@@ -121,6 +121,9 @@ pub async fn record_result(
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(ApiError::NotFound)?;
+    if let Some(report) = &result.report {
+        super::service::validate_plugin_report(&row.get::<Value, _>("job"), report)?;
+    }
     let job: DiagnosticJob = serde_json::from_value(row.get("job")).map_err(anyhow::Error::from)?;
     if job.id != result.id || job.plugin != result.plugin {
         return Err(ApiError::BadRequest(

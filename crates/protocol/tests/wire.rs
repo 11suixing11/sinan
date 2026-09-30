@@ -332,6 +332,7 @@ fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
             sha256: "a".repeat(64),
         },
         timeout_secs: 1800,
+        resource_budget:None,
         expires_at: Some(1_790_003_600),
         options: BTreeMap::from([
             ("ip_version".into(), "both".into()),
@@ -339,6 +340,21 @@ fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
         ]),
     };
     roundtrip(job.clone());
+    assert!(
+        serde_json::to_value(&job)
+            .unwrap()
+            .get("resource_budget")
+            .is_none()
+    );
+    let mut budgeted = job.clone();
+    budgeted.resource_budget = Some(sinan_protocol::DiagnosticResourceBudget {
+        memory_max: 64 * 1024 * 1024,
+        tasks_max: 32,
+        cpu_weight: 10,
+        io_weight: 10,
+        oom_score_adjust: 500,
+    });
+    roundtrip(budgeted);
     let mut wire = serde_json::to_value(&job).unwrap();
     wire["future_option"] = json!(true);
     assert_eq!(serde_json::from_value::<DiagnosticJob>(wire).unwrap(), job);
@@ -399,6 +415,7 @@ fn runtime_libc_preserves_absence_and_rejects_explicit_non_string_values() {
 #[test]
 fn cancellation_messages_bind_known_tasks_and_require_explicit_confirmation() {
     let job = DiagnosticJob {
+        resource_budget: None,
         id: Uuid::from_u128(19),
         plugin: "nodequality".into(),
         version: "fixed-version".into(),

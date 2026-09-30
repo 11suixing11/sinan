@@ -1,38 +1,29 @@
 use crate::{
     AppState, artifacts, auth,
     error::{ApiError, ApiResult},
-    ip_quality::{self, ServerIpInfoView},
 };
 use axum::{
     Json,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 use sinan_protocol::{
     DiagnosticJob, DiagnosticReport, DiagnosticSectionUpdate, DiagnosticStatus, DiagnosticUpdate,
     now_timestamp,
 };
 use sqlx::{FromRow, Row};
-use std::collections::BTreeMap;
 use uuid::Uuid;
 
-pub const PLUGIN_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4";
 pub const REPORT_LIMIT: usize = 512 * 1024;
-const TIMEOUT_SECS: u64 = 1800;
-const EXPECTED_SECTIONS: [&str; 5] = [
-    "header_info",
-    "hardware_quality",
-    "ip_quality",
-    "net_quality",
-    "backroute_trace",
-];
-mod creation;
-mod modes;
-pub use creation::create;
+pub mod service;
+pub use crate::diagnostic_plugins::nodequality::{
+    LegacyNodeQualityView, NodeQualityView, PLUGIN_VERSION, ReportRequest, create, get, legacy_get,
+    safe_report_url,
+};
 mod sections;
-const HISTORY_QUERY: &str = "SELECT j.id,j.status,j.job,j.report,j.error,j.created_at,j.updated_at,j.expires_at,j.agent_completed,j.cancel_requested_at,j.cancel_error,j.expected_sections,j.report_completeness,COALESCE((SELECT jsonb_agg(jsonb_build_object('name',s.name,'text',s.text,'complete',s.complete,'revision',s.revision,'collected_at',s.collected_at) ORDER BY array_position(j.expected_sections,s.name),s.name) FROM diagnostic_report_sections s WHERE s.job_id=j.id),'[]'::jsonb) AS sections FROM diagnostic_jobs j WHERE j.server_id=$1 ORDER BY j.created_at DESC,j.id DESC LIMIT 10";
+pub(super) const HISTORY_QUERY: &str = "SELECT j.id,j.status,j.job,j.report,j.error,j.created_at,j.updated_at,j.expires_at,j.agent_completed,j.cancel_requested_at,j.cancel_error,j.expected_sections,j.report_completeness,COALESCE((SELECT jsonb_agg(jsonb_build_object('name',s.name,'text',s.text,'complete',s.complete,'revision',s.revision,'collected_at',s.collected_at) ORDER BY array_position(j.expected_sections,s.name),s.name) FROM diagnostic_report_sections s WHERE s.job_id=j.id),'[]'::jsonb) AS sections FROM diagnostic_jobs j WHERE j.server_id=$1 ORDER BY j.created_at DESC,j.id DESC LIMIT 10";
 pub(super) const RECORD_QUERY: &str = "SELECT j.id,j.status,j.job,j.report,j.error,j.created_at,j.updated_at,j.expires_at,j.agent_completed,j.cancel_requested_at,j.cancel_error,j.expected_sections,j.report_completeness,COALESCE((SELECT jsonb_agg(jsonb_build_object('name',s.name,'text',s.text,'complete',s.complete,'revision',s.revision,'collected_at',s.collected_at) ORDER BY array_position(j.expected_sections,s.name),s.name) FROM diagnostic_report_sections s WHERE s.job_id=j.id),'[]'::jsonb) AS sections FROM diagnostic_jobs j WHERE j.id=$1 AND j.server_id=$2";
 
 pub mod cancellation;
@@ -55,177 +46,10 @@ pub struct ReportRecord {
     pub sections: Value,
 }
 
-#[derive(Serialize)]
-pub struct NodeQualityView {
-    pub plugin_ready: bool,
-    pub plugin_reason: Option<String>,
-    pub reports: Vec<ReportRecord>,
-    pub cancel_supported: bool,
-    pub proxy_activity: modes::ProxyActivity,
-}
-
-#[derive(Serialize)]
-pub struct LegacyNodeQualityView {
-    #[serde(flatten)]
-    pub node_quality: NodeQualityView,
-    #[serde(flatten)]
-    pub ip_info: ServerIpInfoView,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ReportRequest {
-    #[serde(default = "default_mode")]
-    pub mode: String,
-    #[serde(default)]
-    pub confirm_full: bool,
-    #[serde(default)]
-    pub acknowledge_traffic_warning: bool,
-    #[serde(default = "default_ip_version")]
-    pub ip_version: String,
-    #[serde(default = "default_network_mode")]
-    pub network_mode: String,
-    #[serde(default)]
-    pub upload_report: bool,
-}
-
-fn default_mode() -> String {
-    "full".into()
-}
-
-fn default_ip_version() -> String {
-    "both".into()
-}
-fn default_network_mode() -> String {
-    "low".into()
-}
-
-fn architecture(info: &Value) -> ApiResult<&'static str> {
-    match info["arch"].as_str() {
-        Some("aarch64" | "arm64") => Ok("arm64"),
-        Some("x86_64" | "amd64") => Ok("amd64"),
-        _ => Err(ApiError::Conflict("设备架构未知，无法运行诊断插件".into())),
-    }
-}
-
-fn ready(row: &sqlx::postgres::PgRow) -> ApiResult<&'static str> {
-    let info: Value = row.get("static_info");
-    if info["os"].as_str() != Some("linux") {
-        return Err(ApiError::Conflict(
-            "当前诊断插件仅支持已识别的 Linux 设备".into(),
-        ));
-    }
-    let online = row
-        .get::<Option<i64>, _>("last_seen")
-        .is_some_and(|seen| now_timestamp().saturating_sub(seen) <= 60);
-    if !online {
-        return Err(ApiError::Conflict(
-            "Agent 当前离线，请在设备上线后运行报告".into(),
-        ));
-    }
-    let capabilities: Value = row.get("capabilities");
-    if !capabilities.as_array().is_some_and(|values| {
-        values
-            .iter()
-            .any(|value| value.as_str() == Some("diagnostic:nodequality-modes"))
-    }) {
-        return Err(ApiError::Conflict(
-            "此 Agent 尚不支持日常检查与完整验机入口，请先升级 Agent".into(),
-        ));
-    }
-    if !capabilities.as_array().is_some_and(|values| {
-        values.iter().any(|value| {
-            value.as_str() == Some(sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY)
-        })
-    }) {
-        return Err(ApiError::Conflict(
-            "此 Agent 尚不支持制品验签，请先升级 Agent".into(),
-        ));
-    }
-    if !capabilities.as_array().is_some_and(|values| {
-        values
-            .iter()
-            .any(|value| value.as_str() == Some("diagnostic:nodequality"))
-    }) {
-        return Err(ApiError::Conflict(
-            "此 Agent 尚不支持 NodeQuality 插件，请升级 Agent".into(),
-        ));
-    }
-    if !capabilities.as_array().is_some_and(|values| {
-        values
-            .iter()
-            .any(|value| value.as_str() == Some(sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY))
-    }) {
-        return Err(ApiError::Conflict(
-            "此 Agent 尚不支持独立报告章节，请先升级 Agent".into(),
-        ));
-    }
-    architecture(&row.get::<Value, _>("static_info"))
-}
-
 pub async fn expire(state: &AppState) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE diagnostic_jobs SET status='failed',error='任务超时或设备未及时回报，请检查设备后重新运行',updated_at=$1 WHERE status IN ('queued','running') AND expires_at<=$1")
         .bind(now_timestamp()).execute(&state.pool).await?;
     Ok(())
-}
-
-async fn history(state: &AppState, server_id: i64) -> ApiResult<Vec<ReportRecord>> {
-    Ok(sqlx::query_as(HISTORY_QUERY)
-        .bind(server_id)
-        .fetch_all(&state.pool)
-        .await?)
-}
-
-pub async fn get(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<i64>,
-) -> ApiResult<Json<NodeQualityView>> {
-    auth::require_admin(&state, &headers).await?;
-    Ok(Json(view(&state, id).await?))
-}
-
-pub async fn legacy_get(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<i64>,
-) -> ApiResult<Json<LegacyNodeQualityView>> {
-    auth::require_admin(&state, &headers).await?;
-    Ok(Json(LegacyNodeQualityView {
-        node_quality: view(&state, id).await?,
-        ip_info: ip_quality::view(&state, id).await?,
-    }))
-}
-
-async fn view(state: &AppState, id: i64) -> ApiResult<NodeQualityView> {
-    expire(state).await?;
-    let row = sqlx::query(
-        "SELECT static_info,last_seen,capabilities FROM servers WHERE id=$1 AND deleted_at IS NULL",
-    )
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or(ApiError::NotFound)?;
-    let mut reason = ready(&row).err().map(|error| error.to_string());
-    if reason.is_none() {
-        let arch = ready(&row)?;
-        if let Err(error) = artifacts::descriptor(state, "nodequality", PLUGIN_VERSION, arch).await
-        {
-            reason = Some(match error {
-                ApiError::NotFound => {
-                    "NodeQuality 插件制品尚未上传，请先准备对应架构的制品及 SHA256SUMS".into()
-                }
-                other => format!("NodeQuality 插件制品不可用：{other}"),
-            });
-        }
-    }
-    Ok(NodeQualityView {
-        plugin_ready: reason.is_none(),
-        plugin_reason: reason,
-        reports: history(state, id).await?,
-        cancel_supported: cancellation::supported(&row.get::<Value, _>("capabilities")),
-        proxy_activity: modes::activity(&state.pool, id).await?,
-    })
 }
 
 pub async fn pending(
@@ -249,32 +73,7 @@ fn validate_report(report: &DiagnosticReport) -> ApiResult<()> {
     if report.text.trim().is_empty() || report.text.len() > REPORT_LIMIT {
         return Err(ApiError::BadRequest("报告文本为空或超过 512 KiB".into()));
     }
-    if report
-        .report_url
-        .as_ref()
-        .is_some_and(|url| !safe_report_url(url))
-    {
-        return Err(ApiError::BadRequest(
-            "报告链接必须是 NodeQuality 官方 HTTPS 地址".into(),
-        ));
-    }
     Ok(())
-}
-
-pub fn safe_report_url(value: &str) -> bool {
-    let Ok(url) = reqwest::Url::parse(value) else {
-        return false;
-    };
-    value.len() <= 2048
-        && url.scheme() == "https"
-        && matches!(
-            url.host_str(),
-            Some("nodequality.com" | "www.nodequality.com")
-        )
-        && url.username().is_empty()
-        && url.password().is_none()
-        && url.port().is_none()
-        && url.fragment().is_none()
 }
 
 pub async fn update(
@@ -300,13 +99,16 @@ pub async fn update(
     }
     let mut tx = state.pool.begin().await?;
     let row = sqlx::query(
-        "SELECT status,expires_at,agent_completed FROM diagnostic_jobs WHERE id=$1 AND server_id=$2 FOR UPDATE",
+        "SELECT status,expires_at,agent_completed,job FROM diagnostic_jobs WHERE id=$1 AND server_id=$2 FOR UPDATE",
     )
     .bind(id)
     .bind(server_id)
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(ApiError::NotFound)?;
+    if let Some(report) = &update.report {
+        service::validate_plugin_report(&row.get::<Value, _>("job"), report)?;
+    }
     let status: String = row.get("status");
     if status == "cancel_requested" {
         // A late natural result cannot confirm that cancellation has cleaned up.
@@ -373,6 +175,3 @@ pub async fn update(
 }
 
 pub use sections::upload_section;
-
-#[cfg(test)]
-mod tests;
