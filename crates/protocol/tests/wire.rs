@@ -354,6 +354,9 @@ fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
         io_weight: 10,
         oom_score_adjust: 500,
     });
+    let mut unsafe_budget = serde_json::to_value(&budgeted).unwrap();
+    unsafe_budget["resource_budget"]["command"] = json!("arbitrary-command");
+    assert!(serde_json::from_value::<DiagnosticJob>(unsafe_budget).is_err());
     roundtrip(budgeted);
     let mut wire = serde_json::to_value(&job).unwrap();
     wire["future_option"] = json!(true);

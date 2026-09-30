@@ -77,6 +77,8 @@ async fn shared_service_keeps_legacy_history_and_serializes_both_creation_routes
     old_job["id"] = json!(old_id);
     old_job["version"] = json!("a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2");
     old_job.as_object_mut().unwrap().remove("resource_budget");
+    old_job.as_object_mut().unwrap().remove("plugin");
+    let historical_job = old_job.clone();
     sqlx::query("INSERT INTO diagnostic_jobs(id,server_id,status,job,report,created_at,updated_at,expires_at,agent_completed,report_completeness) VALUES($1,$2,'succeeded',$3,$4,$5,$5,$5+300,TRUE,'legacy')")
         .bind(old_id).bind(server).bind(old_job.clone()).bind(json!({"text":"迁移前的完整历史原文"})).bind(sinan_protocol::now_timestamp()-1).execute(&panel.state.pool).await?;
     let other_id = Uuid::new_v4();
@@ -118,7 +120,17 @@ async fn shared_service_keeps_legacy_history_and_serializes_both_creation_routes
         .json()
         .await?;
     assert_eq!(legacy_view["reports"].as_array().unwrap().len(), 2);
-    assert!(legacy_view.to_string().contains("迁移前的完整历史原文"));
+    let historical = legacy_view["reports"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|record| record["id"] == old_id.to_string())
+        .unwrap();
+    assert_eq!(historical["job"], historical_job);
+    assert!(historical["job"].get("plugin").is_none());
+    assert!(historical["job"].get("resource_budget").is_none());
+    assert_eq!(historical["report"]["text"], "迁移前的完整历史原文");
+    assert_eq!(historical["report_completeness"], "legacy");
     Ok(())
 }
 
@@ -184,13 +196,31 @@ async fn registered_plugins_use_one_server_mutex_and_require_budget_aware_agents
     let existing = Uuid::new_v4();
     let now = sinan_protocol::now_timestamp();
     sqlx::query("INSERT INTO diagnostic_jobs(id,server_id,job,created_at,updated_at,expires_at) VALUES($1,$2,$3,$4,$4,$4+300)").bind(existing).bind(server).bind(json!({"plugin":"different-diagnostic-plugin"})).bind(now).execute(&panel.state.pool).await?;
-    assert_eq!(
-        panel
-            .admin(Method::POST, &path, &cookie, Some(json!({"mode":"daily"})))
-            .await?
-            .status(),
-        StatusCode::CONFLICT
-    );
+    for status in ["queued", "running", "cancel_requested"] {
+        let expiry = if status == "cancel_requested" {
+            now - 1
+        } else {
+            now + 300
+        };
+        sqlx::query("UPDATE diagnostic_jobs SET status=$2,expires_at=$3 WHERE id=$1")
+            .bind(existing)
+            .bind(status)
+            .bind(expiry)
+            .execute(&panel.state.pool)
+            .await?;
+        for route in [
+            &path,
+            &format!("/api/servers/{server}/node-quality/reports"),
+        ] {
+            assert_eq!(
+                panel
+                    .admin(Method::POST, route, &cookie, Some(json!({"mode":"daily"})))
+                    .await?
+                    .status(),
+                StatusCode::CONFLICT
+            );
+        }
+    }
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM diagnostic_jobs WHERE server_id=$1")
         .bind(server)
         .fetch_one(&panel.state.pool)

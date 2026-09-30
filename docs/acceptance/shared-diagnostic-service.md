@@ -13,3 +13,7 @@
 回归曾发现历史 `job={}` 上传正文被错误当作未登记插件；已修复并重新运行上述完整验证。缺少插件字段的历史任务归入原 NodeQuality 历史，正文继续接收，链接仍受 NodeQuality 的允许来源约束；不修改历史 JSON。
 
 当前提交的 GitHub CI、真实 root/systemd 6 项与双架构构建另行核对，不把构建容器内忽略项算作通过。专用 Debian 节点 SSH 当前不可达，完整验机及持续流量下心跳/取消实机总验收待恢复后补齐。
+
+最终合并审查正常保留作者 `924a8ff` 和主线 `2c3c1e5`。NodeQuality 仍为 r5；迁移后的活动判断通过中性运行时证据接口读取，不查询代理业务表。历史夹具实际删除 plugin 和 resource_budget，验证原始 JSON、r2 原文与 legacy 完整度精确保留；queued、running 和过期但未确认的 cancel_requested 记录均阻止通用及旧入口创建，不因超时冒充取消确认。Agent 预算回归覆盖所有五种限制的不可放宽，以及拒绝时服务配置完整不变；协议拒绝未知预算命令字段。
+
+最终相关 Rust/PostgreSQL 专项 68 项通过、0 失败/忽略：协议 12、Agent 诊断/预算 39、共用服务 2、诊断 API 10、章节 3、真实 Agent WS/HTTP/重启/取消 2。workspace 全 targets Clippy、fmt、core 门禁、actionlint 与差异检查通过。完整 workspace 测试尝试还通过另外 47 项、忽略 2 项既有条件测试，但 accounting 链接遇到磁盘耗尽而中止，不能视为完整 workspace 通过。包装器、daily/observer 和前端与已验证主线原字节相同，复用其既有证据；本轮未运行真实 root/systemd、完整硬件压力或生产节点验机，最终提交的 CI 单独核对。
