@@ -4,6 +4,7 @@
 import argparse
 import base64
 import hashlib
+import gzip
 import io
 import json
 from pathlib import Path
@@ -78,24 +79,44 @@ def binary_bytes(data, archive_format, binary_name, auxiliary_files=None):
         return data
     ensure(archive_format == "tar.gz", "unsupported format")
     expected = {binary_name} | set(auxiliary)
-    seen, binary = set(), None
-    with tarfile.open(fileobj=io.BytesIO(data), mode="r|gz") as archive:
-        for member in archive:
+    seen, binary, consumed = set(), None, 0
+    with gzip.GzipFile(fileobj=io.BytesIO(data), mode="rb") as compressed:
+        def read(size):
+            nonlocal consumed
+            content = compressed.read(min(size, MAX_BINARY - consumed + 1))
+            consumed += len(content)
+            ensure(consumed <= MAX_BINARY, "archive exceeds unpacked size limit")
+            return content
+
+        while True:
+            header = read(tarfile.BLOCKSIZE)
+            ensure(len(header) in (0, tarfile.BLOCKSIZE), "truncated archive header")
+            if not header or not any(header):
+                break
+            try:
+                member = tarfile.TarInfo.frombuf(header, encoding="utf-8", errors="strict")
+            except tarfile.HeaderError as error:
+                raise ValueError("invalid archive header") from error
             ensure(member.name in expected and member.name not in seen
                    and member.type in (tarfile.REGTYPE, tarfile.AREGTYPE), "unsafe archive member")
             seen.add(member.name)
             ensure(0 < member.size <= MAX_BINARY, "invalid archive member size")
             if member.name != binary_name:
                 ensure(member.size == auxiliary[member.name]["size"], "auxiliary file size mismatch")
-            file = archive.extractfile(member)
-            ensure(file is not None, "archive file unavailable")
-            content = file.read(member.size + 1)
+            content = read(member.size)
             ensure(len(content) == member.size, "archive file length mismatch")
             if member.name == binary_name:
                 binary = content
             else:
                 ensure(digest(content) == auxiliary[member.name]["sha256"], "auxiliary file digest mismatch")
+            padding = (-member.size) % tarfile.BLOCKSIZE
+            ensure(len(read(padding)) == padding, "truncated archive padding")
         ensure(seen == expected, "archive does not contain the exact signed file set")
+        while True:
+            tail = read(8192)
+            if not tail:
+                break
+            ensure(not any(tail), "archive contains trailing data")
     return binary
 
 

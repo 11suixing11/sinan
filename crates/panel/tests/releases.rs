@@ -469,3 +469,19 @@ fn native_runtime_archives_require_the_exact_signed_auxiliary_files() -> Result<
     }
     Ok(())
 }
+
+#[test]
+fn concatenated_gzip_cannot_hide_nonzero_archive_tail() -> Result<()> {
+    use std::io::Write;
+    let binary = b"runtime fixture";
+    let mut bytes = release_fixture::archive("sing-box", binary)?;
+    let mut tail = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    tail.write_all(b"unlisted trailing payload")?;
+    bytes.extend(tail.finish()?);
+    let entry = signing::entry("sing-box", "1.14.2", "sing-box", "tar.gz", &bytes, binary);
+    let proof = signing::signed_release(vec![(entry, bytes.clone())]);
+    let release = sinan_protocol::release::verify_release(&proof, &signing::trusted_keys())?;
+    let artifact = release.artifact("sing-box", "1.14.2", native_arch()?)?;
+    assert!(releases::verify_payload(&artifact, &bytes).is_err());
+    Ok(())
+}

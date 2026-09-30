@@ -26,6 +26,7 @@ use uuid::Uuid;
 
 const MAX_ARTIFACT: usize = 512 * 1024 * 1024;
 const MAX_INSTALLER: usize = 256 * 1024;
+const MAX_UNPACKED: u64 = 256 * 1024 * 1024;
 type Identity = (String, String, String);
 
 struct StoredRelease {
@@ -142,25 +143,25 @@ pub fn verify_payload(artifact: &VerifiedArtifact, bytes: &[u8]) -> Result<()> {
         artifact.verify_binary(bytes)?;
         return Ok(());
     }
-    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(bytes));
+    let decoder = flate2::read::MultiGzDecoder::new(bytes).take(MAX_UNPACKED + 1);
+    let mut archive = tar::Archive::new(decoder);
     let expected: BTreeSet<_> = std::iter::once(entry.binary_name.as_str())
         .chain(entry.auxiliary_files.keys().map(String::as_str))
         .collect();
     let mut seen = BTreeSet::new();
-    for item in archive.entries()? {
+    for item in archive.entries()?.raw(true) {
         let mut item = item?;
-        let path = item.path()?.into_owned();
-        let name = path.to_str().context("archive file name is not UTF-8")?;
+        let name = std::str::from_utf8(item.path_bytes().as_ref())?.to_owned();
         ensure!(
             item.header().entry_type().is_file()
-                && expected.contains(name)
-                && seen.insert(name.to_owned()),
+                && expected.contains(name.as_str())
+                && seen.insert(name.clone()),
             "archive has an unexpected or duplicate file"
         );
         let size = if name == entry.binary_name {
             entry.binary_size
         } else {
-            entry.auxiliary_files[name].size
+            entry.auxiliary_files[&name].size
         };
         ensure!(item.header().size()? == size, "archive file size differs");
         let mut content = Vec::new();
@@ -171,7 +172,7 @@ pub fn verify_payload(artifact: &VerifiedArtifact, bytes: &[u8]) -> Result<()> {
             ensure!(
                 content.len() as u64 == size
                     && format!("{:x}", Sha256::digest(&content))
-                        == entry.auxiliary_files[name].sha256,
+                        == entry.auxiliary_files[&name].sha256,
                 "auxiliary file digest or size differs"
             );
         }
@@ -180,6 +181,19 @@ pub fn verify_payload(artifact: &VerifiedArtifact, bytes: &[u8]) -> Result<()> {
         seen.iter().map(String::as_str).collect::<BTreeSet<_>>() == expected,
         "archive is missing a signed file"
     );
+    let mut decoder = archive.into_inner();
+    let mut tail = [0u8; 8192];
+    loop {
+        let count = decoder.read(&mut tail)?;
+        if count == 0 {
+            break;
+        }
+        ensure!(
+            tail[..count].iter().all(|value| *value == 0),
+            "archive contains trailing data"
+        );
+    }
+    ensure!(decoder.limit() > 0, "archive exceeds unpacked size limit");
     Ok(())
 }
 

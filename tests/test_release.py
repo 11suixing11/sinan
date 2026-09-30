@@ -173,6 +173,32 @@ class ReleaseTests(unittest.TestCase):
             release.binary_bytes(gzip.compress(output.getvalue()), "tar.gz", "sing-box.exe",
                                  {"wintun.dll": {"sha256": release.digest(b"x"), "size": 1}})
 
+    def test_concatenated_gzip_cannot_hide_nonzero_tail(self):
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode="w") as archive:
+            member = tarfile.TarInfo("sing-box")
+            member.size = 1
+            archive.addfile(member, io.BytesIO(b"x"))
+        payload = gzip.compress(output.getvalue()) + gzip.compress(b"unlisted trailing payload")
+        with self.assertRaisesRegex(ValueError, "trailing data"):
+            release.binary_bytes(payload, "tar.gz", "sing-box")
+
+    def test_raw_extension_headers_and_total_unpacked_overflow_are_rejected(self):
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode="w", pax_headers={"comment": "unlisted metadata"}) as archive:
+            member = tarfile.TarInfo("sing-box")
+            member.size = 1
+            archive.addfile(member, io.BytesIO(b"x"))
+        with self.assertRaisesRegex(ValueError, "unsafe archive member"):
+            release.binary_bytes(gzip.compress(output.getvalue()), "tar.gz", "sing-box")
+        self.signed_native_runtime()
+        entry = next(item for item in json.loads((self.bundle / "release.json").read_text())["artifacts"]
+                     if item["arch"] == "windows-amd64")
+        with patch.object(release, "MAX_BINARY", 4096):
+            with self.assertRaisesRegex(ValueError, "unpacked size limit"):
+                release.binary_bytes((self.bundle / entry["asset_name"]).read_bytes(), "tar.gz",
+                                     entry["binary_name"], entry["auxiliary_files"])
+
     def test_legacy_archive_still_rejects_additional_unsigned_file(self):
         output = io.BytesIO()
         with tarfile.open(fileobj=output, mode="w") as archive:

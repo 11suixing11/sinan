@@ -368,3 +368,5 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 本机验证：构建脚本 5 项、环境初始化 3 项、验收驱动 17 项、运行时缓存 3 项、签名 CI 8 项、发布门禁 11 项测试通过；两个工作流 actionlint、Python/Bash/静态安装器语法及差异空白检查通过。使用真实 minisign 分别验证 Python cryptography 与 minisign 路径生成的公开测试签名，并核对 Windows ARM64 辅助 DLL 的已签摘要与大小。OpenRC 测试 bundle 的签名、metadata 与安装器摘要也经独立 minisign 校验。
 - 本机未运行 Linux/OpenRC、FreeBSD 或 Windows 真实服务。OpenRC 进程夹具的缓存预检是明确 stub，实际签名缓存由 Rust 与 systemd real-e2e 验证；合并后的平台服务、CI 与公网验收结果须分别以实际执行为准，不能由上述本机结构/签名验证推断。
 - 随后使用合并源码实际构建的 macOS ARM64 Agent 在回环 HTTP/WebSocket 夹具完成注册、压缩遥测 ACK、离线重启补报、命令去重、TCP/ICMP 拨测，以及签名 Agent 的启动替换、坏摘要拒绝、失败启动回退、失败版本抑制、中断升级恢复与子进程清理，全部通过。此检查使用 `--monitor-only` 和独立监督进程，没有注册 macOS 系统服务；不替代各目标 init 的原生服务任务。
+- 将新增命令、拨测、更新、遥测与公网 IP 后台任务纳入退役同步保护，等待已经开始的操作结束后再清理；请求退役后禁止继续领取、执行、暂存更新或重新写入配置。清理命令文本及结果、拨测与遥测 outbox，保留流量账本；监督进程将退役退出码 78 作为终态。新增退役回归验证不再执行命令、发起面板请求或补回已清理数据。
+- 合并贡献者截至 `70dee9a` 的全部提交，保留 Windows SID 规范化与权限差异诊断；其 `d8d951f` 历史 CI 通过记录保留，但不用于认证本次合并后的代码。本次完整 Rust/PostgreSQL 回归通过，随后退役后台任务专项 56 项成功、1 项原有 systemd 专项忽略；Clippy 与格式检查通过。Linux/OpenRC、原生服务、Compose 与真实 Reality 检查以本次远端 CI 结果为准。
