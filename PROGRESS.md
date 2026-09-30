@@ -4,7 +4,9 @@
 
 - 对应 [Issue #37](https://github.com/theLucius7/sinan/issues/37)。`41000c8` 的 [CI 36757545068](https://github.com/theLucius7/sinan/actions/runs/36757545068) 中 check、Compose、双架构 musl 均通过，真实 systemd 队列/资源测试及实际 Rust OpenRC 诊断也通过；Reality 安装成功后等待配置应用超时，未进入流量验收。之后 main `e2d898c` 仍在相同步骤失败，不能沿用旧提交的绿色结论。
 - 使用真实 PostgreSQL/HTTP 回归复现：musl Agent 在 GNU 宿主只获得旧格式 GNU 运行时发布时，清单错误返回 404。新增 `runtime_libc` 区分宿主与 Agent 编译 ABI，仅读取有界 ELF 解释器信息；未知宿主保守沿用编译 ABI，旧设备缺字段兼容。Agent 自身更新仍按编译 ABI。
-- GNU 宿主上的 musl Agent 保留原 musl、legacy 架构键优先级，然后才尝试 GNU 完整标识；面板与 Agent 验签使用一致顺序，避免旧缓存同一 proof 中有多个 ABI 时换选摘要。真正 musl 宿主不由面板获得 GNU 运行时；已存在但校验失败的候选不降级。
+- GNU 宿主上的 musl Agent 保留原 musl、legacy 架构键优先级，然后才尝试 GNU 完整标识；面板与 Agent 验签使用一致顺序，避免旧缓存同一 proof 中有多个 ABI 时换选摘要。musl Agent 在 musl 宿主不由面板获得 GNU 运行时；已存在但校验失败的候选不降级。
+- 合并审查补充反向兼容：GNU Agent 已经通过兼容层运行在 musl 宿主时，旧 GNU 完整标识及 legacy 缓存仍排在新 musl 标识之前。纯 musl Agent/宿主路径继续拒绝 GNU；新增 signed-selection 和面板双 ABI/缺失首选内容回归，不把结构夹具作为 gcompat 实机支持证据。
+- 反向兼容补丁基于 main `13f2975` 验证：ABI 3 项、签名缓存 7 项、协议 18 项、真实 PostgreSQL 平台清单/Agent 更新 4 项全部通过，共 32 项且无忽略。验收驱动 21 项、CI helper 9 项及签名 CI 8 项 Python 检查通过；workspace 全 targets Clippy（warnings 为错误）、fmt、core 分层、shell 语法及差异空白检查通过。未运行本补丁的完整 workspace 测试、gcompat 实机或 Linux Reality 验收，其结果继续由对应提交的 CI/专用节点确认。
 - 超时只在私有文件保存最终原始状态，权限为 0600；公开失败诊断只输出有界配置修订号、就绪布尔值及固定 systemd 单元状态。新增包含令牌、主机名、IP 与自由文本的回归，验证这些内容不会进入公开摘要。
 - 在 main `e2d898c` 上整合后，完整 workspace fmt、全 targets Clippy（warnings 为错误）及 Rust/PostgreSQL 测试通过：245 项成功、6 项真实 systemd/运行时专项按条件忽略；原始 404 回归修复后通过。Python discovery 72 项通过、5 项既有条件忽略，验收驱动 21 项、缓存 3 项和签名 CI 8 项通过，分层与 shell 语法检查通过。修复后的真实 Linux 安装/Reality/计量仍须本次提交 CI 验证。
 

@@ -49,7 +49,7 @@ Linux 静态信息区分两种 ABI：`libc` 保留 Agent 自身的编译 ABI，`
 
 `runtime_libc` 为 Linux 可选新增字段，识别成功取 `gnu` 或 `musl`；新 Agent 无法可靠识别宿主时兼容沿用自身编译 ABI。面板接受 `glibc` 作为 `gnu` 别名，非 Linux 设备不发送此字段。旧设备缺少字段时保留原 `libc` 选择路径；显式 null 或非字符串在消息解析时拒绝，显式 `unknown`、空字符串或未支持值的运行时清单返回 400，不将这些值当作字段缺失。
 
-GNU 宿主上的 musl Agent 按 `linux-musl-{arch}`、旧 `{arch}`、`linux-gnu-{arch}` 依次选择运行时，保留旧版本在同一签名证明中选择 musl 或 legacy 的优先级；GNU Agent 则从 GNU 完整标识开始，再兼容旧目录。只有制品不存在时才尝试下一候选，校验失败不能降级。真正 musl 宿主不使用 GNU 完整标识或 GNU 兼容目录。Agent 自身升级继续只用编译 ABI，不随 `runtime_libc` 改变。
+Linux 宿主 ABI 与 Agent 编译 ABI 不同时，运行时先保留旧的编译 ABI 完整标识、旧 `{arch}` 选择顺序，再尝试宿主 ABI。GNU 宿主上的 musl Agent 因此依次选择 `linux-musl-{arch}`、旧 `{arch}`、`linux-gnu-{arch}`；已通过兼容层运行在 musl 宿主的 GNU Agent 依次选择 `linux-gnu-{arch}`、旧 `{arch}`、`linux-musl-{arch}`，保证此前签名缓存仍按原摘要复验。两种 ABI 相同时，GNU 路径兼容旧目录，musl Agent 在 musl 宿主不使用 GNU 完整标识或 GNU 兼容目录。只有制品不存在时才尝试下一候选，校验失败不能降级。Agent 自身升级继续只用编译 ABI，不随 `runtime_libc` 改变。
 
 ## HTTP 期望状态
 
