@@ -235,3 +235,37 @@ fn build_information_is_available_without_a_workspace_or_network_probe() {
         json!({"version":"0.3.0","source_repo":"theLucius7/sinan","source_commit":option_env!("SINAN_NATIVE_TCP_SOURCE_COMMIT")})
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn blocked_error_output_does_not_prevent_bounded_process_exit() {
+    use std::os::{fd::OwnedFd, unix::net::UnixStream};
+    let fixture = Fixture::new();
+    let (_reader, mut writer) = UnixStream::pair().unwrap();
+    writer.set_nonblocking(true).unwrap();
+    let buffer = [0; 4096];
+    for bytes in [buffer.as_slice(), &buffer[..1]] {
+        loop {
+            match writer.write(bytes) {
+                Ok(_) => (),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("fill stderr fixture: {error}"),
+            }
+        }
+    }
+    writer.set_nonblocking(false).unwrap();
+    let started = Instant::now();
+    let mut command = fixture.command();
+    // Valid arguments with a missing input reach the bounded run error path.
+    fs::remove_file(fixture.directory.join("targets.json")).unwrap();
+    let output = finish(
+        command
+            .stderr(Stdio::from(OwnedFd::from(writer)))
+            .spawn()
+            .unwrap(),
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_eq!(fixture.accepted.load(Ordering::SeqCst), 0);
+    assert!(fixture.read().is_none());
+}

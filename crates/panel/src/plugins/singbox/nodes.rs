@@ -1,8 +1,8 @@
 use crate::{
     AppState,
     auth::require_admin,
-    business::{self, NODE_COLUMNS, NodeRow, NodeView},
     error::{ApiError, ApiResult},
+    plugins::singbox::business::{self, NODE_COLUMNS, NodeRow, NodeView},
 };
 use axum::{
     Json,
@@ -89,6 +89,7 @@ pub async fn create(
     business::validate_node(&node)?;
     let mut transaction = state.pool.begin().await?;
     business::lock_server(&mut transaction, request.server_id).await?;
+    super::settings::require_enabled(&mut transaction, request.server_id).await?;
     if let Some(port) = requested_port {
         ensure_port_available(&mut transaction, node.server_id, port, None).await?;
     } else {

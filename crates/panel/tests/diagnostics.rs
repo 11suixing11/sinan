@@ -34,6 +34,7 @@ async fn capable(panel: &TestPanel, server_id: i64) -> Result<()> {
                 "diagnostic:nodequality".into(),
                 "diagnostic:nodequality-modes".into(),
                 sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY.into(),
+                sinan_protocol::DIAGNOSTIC_SERVICE_CAPABILITY.into(),
                 sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY.into(),
             ],
             applied: BTreeMap::new(),

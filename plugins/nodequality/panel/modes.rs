@@ -19,20 +19,14 @@ pub async fn activity_on(
     server: i64,
 ) -> ApiResult<ProxyActivity> {
     let now = now_timestamp();
-    let enabled: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM deployments WHERE server_id=$1 AND module='singbox')",
-    )
-    .bind(server)
-    .fetch_one(&mut *connection)
-    .await?;
-    let latest: Option<i64> = sqlx::query_scalar("SELECT MAX(period_end) FROM usage_records WHERE server_id=$1 AND (uplink>0 OR downlink>0) AND period_end<=$2")
-        .bind(server).bind(now+60).fetch_one(&mut *connection).await?;
+    let evidence = crate::plugins::runtime_activity_on(connection, server, now).await?;
+    let latest = evidence.last_positive_at;
     let (state, reason) = if latest.is_some_and(|sampled| sampled >= now - 60) {
         (
             "active",
             "最近一分钟记录到代理流量，完整验机会争抢资源并可能影响连接。",
         )
-    } else if enabled {
+    } else if evidence.configured {
         // The current ledger stores positive deltas, so silence never proves idle.
         (
             "unknown",

@@ -1,3 +1,4 @@
+mod budget;
 mod sections;
 use crate::{
     Config, SharedState,
@@ -187,6 +188,10 @@ impl DiagnosticWorker {
             if !self.adapters.contains_key(&job.plugin)
                 || !safe_component(&job.version)
                 || !(1..=3600).contains(&job.timeout_secs)
+                || job
+                    .resource_budget
+                    .as_ref()
+                    .is_some_and(|budget| !budget.valid())
                 || expired(&job)
             {
                 self.finish(failure(
@@ -232,6 +237,7 @@ impl DiagnosticWorker {
             ensure!(service.unit == format!("sinan-diagnostic-{id}.service")
                 && service.timeout_secs == spec.timeout_secs
                 && service.working_directory == spec.job_dir && service.program == spec.binary_path, "invalid prepared diagnostic service");
+            if let Some(budget)=&job.resource_budget { budget::apply(budget,&mut service)?; }
             let resources = self.preflight(&service).await?;
             let started_at = unix_time();
             // Preparation can consume part of the remaining budget. Recompute immediately

@@ -13,9 +13,34 @@ pub struct DiagnosticJob {
     pub timeout_secs: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_budget: Option<DiagnosticResourceBudget>,
     #[serde(default)]
     pub options: BTreeMap<String, String>,
 }
+
+/// A service-owned ceiling; an Agent may only tighten its adapter's local budget.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiagnosticResourceBudget {
+    pub memory_max: u64,
+    pub tasks_max: u32,
+    pub cpu_weight: u16,
+    pub io_weight: u16,
+    pub oom_score_adjust: i16,
+}
+
+impl DiagnosticResourceBudget {
+    pub fn valid(&self) -> bool {
+        (16 * 1024 * 1024..=1024 * 1024 * 1024).contains(&self.memory_max)
+            && (16..=256).contains(&self.tasks_max)
+            && (1..=100).contains(&self.cpu_weight)
+            && (1..=100).contains(&self.io_weight)
+            && (500..=1000).contains(&self.oom_score_adjust)
+    }
+}
+
+pub const DIAGNOSTIC_SERVICE_CAPABILITY: &str = "diagnostic:job-service";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
