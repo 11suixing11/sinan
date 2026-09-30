@@ -48,3 +48,7 @@ Bun 1.4.2 冻结依赖、五项字段测试/711 断言及 TypeScript/Vite 构建
 业务代码由 crates/panel/src/plugins/singbox/ 恢复至根 plugins/singbox/panel/，落实用户要求与 ADR0023。面板 plugins/mod.rs 只通过明确的 path 属性嵌入同一模块；13个文件使用 git mv，逐一对比迁移前后 Git blob SHA，所有业务与测试字节完全相同。原 API、旧 /sub/{token} 路径、设备凭据、用户ID/令牌、授权、账本及 epoch 语义未修改；本项不新增数据库迁移、不改前端或套餐功能。
 
 现有 Dockerfile 已 COPY plugins/，无需改变镜像构建上下文。验证分为：直接 rustfmt/core 门禁与 Git差异检查；最新 PR 的 Rust编译、Clippy和既有插件/订阅/账本测试由独立CI核对。物理路径变更不冒用业务首次实机流量证据，新的CI尚未完成前仅记为待验。
+
+本轮冻结源码 `7d1bda4` 在 macOS 独立回环 PostgreSQL 完成19项专项、0失败/忽略：搬迁 publisher2、插件启用/旧数据迁移4、账本4、业务/旧订阅4、订阅重置2、端口2、真实 Agent 的配置发布/流量/丢失ACK/重启1。workspace 全 targets Clippy（warnings为错误）、fmt、core 门禁/六项行为、build-script5、runtime-cache3与差异检查通过。逐一 Git blob 对比及物理模块树确认13文件完全相同、pub(super)与公开 Rust 导出保持；独立数据库仅在127.0.0.1:55432启动并已停止。
+
+正常合入正式main `5d908b9` 保留本项桥与13项已验业务原字节；后续差异仅来自独立TCP/制品构建流程及验收文档，本项不将其他冻结源码证据转记为最终HEAD完整workspace或真实Docker/systemd验收。最终主线CI继续独立核对。

@@ -19,7 +19,7 @@ fn main() {
     match command {
         Command::Help => {
             println!(
-                "原生 TCP 连接诊断（无排名、上传或测速）\n用法：sinan-tcp-probe --workspace <绝对私有目录> --targets <目录内快照文件名> --target-digest <SHA256> --ip-version <4|6> --count <4|8> --concurrency <1|2> --no-rank-upload\n默认 count=4、concurrency=1；最多8目标，总60秒含排队，预留2秒保存。只建立并关闭TCP连接，不发送应用数据。地区/运营商为配置标签；结果不是包丢失率。--version 查看版本。\n本工具尚未接入面板/Agent，不接受宿主改动、raw socket、测速或任意选项。"
+                "原生 TCP 连接诊断（无排名、上传或测速）\n用法：sinan-tcp-probe --workspace <绝对私有目录> --targets <目录内快照文件名> --target-digest <SHA256> --ip-version <4|6> --count <4|8> --concurrency <1|2> --no-rank-upload\n默认 count=4、concurrency=1；最多8目标，总60秒含排队，预留2秒保存。只建立并关闭TCP连接，不发送应用数据。地区/运营商为配置标签；结果不是包丢失率。--version 查看版本。\n不接受宿主改动、raw socket、测速或任意选项。"
             );
         }
         Command::Version => println!("sinan-tcp-probe {VERSION}"),

@@ -60,3 +60,33 @@ jobs:
           name: TEST_ONLY-native-tcp-${{ matrix.arch }}
           path: ${{ runner.temp }}/tcp-artifacts/
           if-no-files-found: error
+
+  bookworm:
+    name: Native TCP Debian 12 startup and signed provenance
+    runs-on: ubuntu-24.04
+    container: rust:1.98.1-bookworm
+    timeout-minutes: 30
+    env:
+      TCP_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Install native musl and independent verifier
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends python3 minisign musl-tools build-essential
+          rustup target add x86_64-unknown-linux-musl
+      - name: Build and execute the pinned native tool in Debian 12
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git rev-parse --verify "$TCP_SOURCE_COMMIT^{commit}"
+          python3 tools/build-tcp-probe.py amd64 "$RUNNER_TEMP/tcp-artifacts" --source-commit "$TCP_SOURCE_COMMIT"
+      - name: Verify all source, license and TEST_ONLY signature contracts
+        env:
+          SINAN_TCP_ARCH: amd64
+        run: |
+          export SINAN_TCP_SOURCE_COMMIT="$TCP_SOURCE_COMMIT"
+          export SINAN_TCP_ARTIFACT_ROOT="$RUNNER_TEMP/tcp-artifacts"
+          python3 -m unittest discover -s tests -p test_tcp_probe_artifacts.py
+          python3 -m unittest discover -s tests -p test_tcp_probe_native_bundle.py

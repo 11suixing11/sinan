@@ -50,9 +50,9 @@ def build(repository, arch, commit):
     env = dict(os.environ)
     ensure(not env.get("CARGO_ENCODED_RUSTFLAGS"), "unset CARGO_ENCODED_RUSTFLAGS")
     env["SINAN_NATIVE_TCP_SOURCE_COMMIT"] = commit
-    env["RUSTFLAGS"] = env.get("RUSTFLAGS", "") + " -Ctarget-feature=+crt-static"
+    env["RUSTFLAGS"] = env.get("RUSTFLAGS", "") + " -Ctarget-feature=+crt-static -Clink-self-contained=yes"
     key = target.replace("-", "_")
-    env[f"CARGO_TARGET_{key.upper()}_LINKER"] = "musl-gcc"
+    env[f"CARGO_TARGET_{key.upper()}_LINKER"] = "cc"
     env[f"CC_{key}"] = "musl-gcc"
     metadata = json.loads(capture(["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1",
                                   "--manifest-path", str(repository / "Cargo.toml")], env=env))
@@ -98,7 +98,7 @@ def main():
                "build snapshot differs from pinned source")
     machine = "x86_64" if args.arch == "amd64" else "aarch64"
     ensure(platform.system() == "Linux" and platform.machine() == machine, "use the requested native Linux architecture")
-    for command in ("cargo", "rustc", "musl-gcc"):
+    for command in ("cargo", "rustc", "cc", "musl-gcc"):
         ensure(shutil.which(command), f"missing build tool: {command}")
     output = args.artifact_root.resolve() / "tcpquality" / version
     ensure(not output.is_symlink() and not (output / args.arch).exists(), "immutable TCP artifact already exists")
