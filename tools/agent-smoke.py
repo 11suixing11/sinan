@@ -240,6 +240,18 @@ def write_json(path, value):
     temporary.replace(path)
 
 
+def read_shared_json(path):
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            return json.loads(path.read_text(encoding='utf-8'))
+        except PermissionError:
+            # Windows may briefly reject opening a file being atomically replaced.
+            if sys.platform != 'win32' or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.05)
+
+
 def windows_permissions(binary, config, root, origin):
     if os.name != 'nt':
         return {}
@@ -307,9 +319,9 @@ def supervise_smoke(binary, config, root, log):
                        proof=RELEASE['proof']('agent', version, binary.name, binary.read_bytes()))
         write_json(core / 'pending-update.json', pending)
         def state():
-            return json.loads((core / 'update-state.json').read_text())
+            return read_shared_json(core / 'update-state.json')
         def consumed():
-            return json.loads((core / 'pending-update.json').read_text()) is None
+            return read_shared_json(core / 'pending-update.json') is None
         wait_for(lambda: state()['current'] == version and state()['trial'] is None and consumed(), 'successful Agent activation', 180 if os.name == 'nt' else 90)
         upgraded = wait_for(lambda: status(binary, config), 'upgraded status')
         assert upgraded['pid'] != first['pid']

@@ -462,3 +462,9 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - `9cd112a` 的四种 Linux Agent、OpenRC、四种运行时和 Compose 已通过，包含 Ubuntu 上的实际宿主 libc 断言；本地实际签名 Agent 的注册、补报、命令、双拨测、升级和回退也通过。Reality 与原生服务继续执行。
 - 主检查公开摘要确认新预算专项在子进程测试首次状态查询得到 `result=success, code=0, status=0` 后提前失败；这是异步启动尚未执行的状态。读取 systemd `Job` 属性，非零待执行 Job 视为运行中，包括排队重启时仍残留上一次终态的情况；没有待执行 Job 的未启动单元仍不能被当作成功。
 - 新增排队启动/重启、空值/零值及非法 Job 标识回归，保留 OOM、TasksMax、PID 清理断言。fmt、Clippy、完整 Rust/PostgreSQL 检查通过（222 项成功、5 项原有实机专项忽略）；真实 systemd 验证交由新一轮 CI。
+
+### Reality 全流程与 systemd 预算通过，收敛 Windows 夹具竞态
+
+- [9cd112a 的 Reality 验收](https://github.com/imengying/sinan/actions/runs/36764089656) 已通过，覆盖签名安装、特权端口实际代理流量、重启与重载计量、重复安装、缓存篡改拒绝及在线退役。Windows ARM64、macOS 和 FreeBSD 双架构也通过；Windows AMD64 的常驻服务成功，但无服务升级夹具在读取被替换的 `pending-update.json` 时遇到短暂 `PermissionError`。
+- [e8d4e23 的主检查](https://github.com/imengying/sinan/actions/runs/36765073067) 已通过，包含真实 systemd 两项专项。Job 队列识别后，OOM、TasksMax、超时和停止后 PID 清理断言全部通过；其余平台仍在执行。
+- Windows 夹具读取更新状态时，对短暂共享冲突进行最多两秒的重读；持续拒绝仍抛出原异常，非 Windows 权限错误及无效 JSON 不重试。新增三项回归验证这些边界；隔离 Alpine 的全部 74 项 Python 检查通过，实际签名 Agent 的完整行为和升级回退流程再次通过。此项仅修改测试，不改变产品权限或文件写入行为。
