@@ -240,6 +240,12 @@ def supervise_smoke(binary, config, root, log):
         wait_for(lambda: state()['current'] == version and state()['trial'] is None, 'successful Agent activation', 90)
         upgraded = wait_for(lambda: status(binary, config), 'upgraded status')
         assert upgraded['pid'] != first['pid']
+        # A corrupt candidate must be rejected before stopping the running Agent.
+        (core / '99.0.1').mkdir()
+        shutil.copy2(binary, core / '99.0.1' / binary.name)
+        (core / 'pending-update.json').write_text(json.dumps(dict(version='99.0.1', sha256='0' * 64)))
+        wait_for(lambda: '99.0.1' in state()['failed_versions'], 'corrupt candidate rejection')
+        assert status(binary, config)['pid'] == upgraded['pid']
         failed = core / '99.0.0'
         failed.mkdir()
         fixture = failed / binary.name
@@ -263,6 +269,22 @@ def supervise_smoke(binary, config, root, log):
     finally:
         stop(process)
     wait_for(lambda: status(binary, config) is None, 'supervisor child cleanup')
+    # Recreate an interrupted, unconfirmed update and ensure startup restores the previous release.
+    state_file = core / 'update-state.json'
+    interrupted = json.loads(state_file.read_text())
+    interrupted.update(current='99.0.0', previous=version, trial=pending)
+    state_file.write_text(json.dumps(interrupted))
+    (core / 'current').unlink()
+    reference(core / 'current', core / '99.0.0')
+    process = subprocess.Popen([str(binary), '--config', str(config), 'supervise', '--monitor-only'], stdout=log, stderr=log)
+    try:
+        wait_for(lambda: status(binary, config), 'interrupted update recovery')
+        restored = json.loads(state_file.read_text())
+        assert restored['current'] == version and restored['trial'] is None
+        assert '99.0.0' in restored['failed_versions']
+    finally:
+        stop(process)
+    wait_for(lambda: status(binary, config) is None, 'recovered supervisor shutdown')
 
 
 def main():

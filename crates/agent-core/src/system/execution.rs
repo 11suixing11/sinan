@@ -4,6 +4,16 @@ use sinan_adapter_sdk::ManagedProcess;
 use std::process::Stdio;
 use tokio::{io::AsyncReadExt, time::timeout};
 
+#[cfg(unix)]
+fn managed_signal_target(id: u32) -> String {
+    // launchd owns the service process group; its children must stay inside that group.
+    if cfg!(target_os = "macos") {
+        id.to_string()
+    } else {
+        format!("-{id}")
+    }
+}
+
 struct ManagedChild {
     child: tokio::process::Child,
     id: u32,
@@ -14,7 +24,7 @@ impl Drop for ManagedChild {
             #[cfg(unix)]
             {
                 let _ = std::process::Command::new("kill")
-                    .args(["-KILL", "--", &format!("-{}", self.id)])
+                    .args(["-KILL", "--", &managed_signal_target(self.id)])
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
                     .status();
@@ -42,7 +52,7 @@ impl ManagedProcess for ManagedChild {
             #[cfg(unix)]
             {
                 let _ = Command::new("kill")
-                    .args(["-TERM", "--", &format!("-{}", self.id)])
+                    .args(["-TERM", "--", &managed_signal_target(self.id)])
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
                     .status()
@@ -64,7 +74,7 @@ impl ManagedProcess for ManagedChild {
                 #[cfg(unix)]
                 {
                     let _ = Command::new("kill")
-                        .args(["-KILL", "--", &format!("-{}", self.id)])
+                        .args(["-KILL", "--", &managed_signal_target(self.id)])
                         .stdout(Stdio::null())
                         .stderr(Stdio::null())
                         .status()
@@ -80,7 +90,7 @@ impl ManagedProcess for ManagedChild {
 pub(super) fn spawn(program: &Path, args: &[String]) -> Result<Box<dyn ManagedProcess>> {
     let mut command = Command::new(program);
     command.args(args).stdin(Stdio::null()).kill_on_drop(true);
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     command.process_group(0);
     let child = command.spawn()?;
     let id = child.id().context("managed process has no identifier")?;

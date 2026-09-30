@@ -22,6 +22,8 @@
 - Windows 运行时含原生 DLL，使用适配器描述的文件白名单及逐文件摘要，不在 core 引入任何运行时名称或特例。
 - Windows 账户参数遵循 [New-LocalUser](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.localaccounts/new-localuser?view=powershell-5.1) 的独立参数集，后台任务采用 [密码登录任务](https://learn.microsoft.com/en-us/windows/win32/taskschd/security-contexts-for-running-tasks)，凭据由系统任务计划程序保存。
 
+- macOS 的受管 Agent 子进程留在 launchd 服务进程组，遵循 [Apple launchd 的进程组清理规则](https://github.com/apple-oss-distributions/launchd/blob/main/man/launchd.plist.5)，更新时只向该 Agent PID 发送信号。正常服务退出先等待 Agent 收尾；运行时日志在启动前按专用账户权限创建。
+
 ## 实现阶段与验证
 
 1. Linux musl/glibc 运行时制品与自动选择、安装失败恢复。

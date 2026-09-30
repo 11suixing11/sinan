@@ -141,6 +141,30 @@ async fn service(
     if backend == ServiceBackend::Launchd {
         let label = format!("org.sinan.{}", service.replace('@', "."));
         let path = PathBuf::from("/Library/LaunchDaemons").join(format!("{label}.plist"));
+        let log = PathBuf::from(format!("/var/log/{service}.log"));
+        let mode = if account.is_some() { 0o660 } else { 0o600 };
+        if log.try_exists()? {
+            ensure!(
+                std::fs::symlink_metadata(&log)?.is_file(),
+                "service log must be an ordinary file"
+            );
+            if let Some(group) = account {
+                command(
+                    ops,
+                    "chown",
+                    &[format!(":{group}"), log.to_string_lossy().into_owned()],
+                )
+                .await?;
+            }
+            command(
+                ops,
+                "chmod",
+                &[format!("{mode:o}"), log.to_string_lossy().into_owned()],
+            )
+            .await?;
+        } else {
+            ops.write_file(&log, b"", mode, account).await?;
+        }
         let arguments = args
             .iter()
             .map(|value| format!("<string>{}</string>", xml(value)))

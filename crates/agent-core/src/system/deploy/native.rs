@@ -1,4 +1,6 @@
+#[path = "native/unix.rs"]
 mod unix;
+#[path = "native/windows.rs"]
 mod windows;
 use super::*;
 

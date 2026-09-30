@@ -63,28 +63,6 @@ pub async fn supervise(
     monitor_only: bool,
     ops: Arc<dyn Privileged>,
 ) -> Result<()> {
-    #[cfg(unix)]
-    let shutdown = async {
-        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-        let mut interrupt =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
-        tokio::select! {_=term.recv()=>{},_=interrupt.recv()=>{}}
-        Ok::<_, anyhow::Error>(())
-    };
-    #[cfg(windows)]
-    let shutdown = async {
-        tokio::signal::ctrl_c().await?;
-        Ok::<_, anyhow::Error>(())
-    };
-    tokio::select! { result=supervise_inner(config,path,monitor_only,ops)=>result, result=shutdown=>result }
-}
-
-async fn supervise_inner(
-    config: Config,
-    path: std::path::PathBuf,
-    monitor_only: bool,
-    ops: Arc<dyn Privileged>,
-) -> Result<()> {
     let root = core_root(&config)?;
     ops.create_dir(
         config.state_db.parent().context("state has no parent")?,
@@ -131,12 +109,30 @@ async fn supervise_inner(
     }
     save(&root, &state, ops.as_ref()).await?;
     let mut child = spawn(&root, &state.current, &path, monitor_only, ops.as_ref()).await?;
+    let shutdown = async {
+        #[cfg(unix)]
+        {
+            let mut term =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            tokio::select! { _=term.recv()=>{}, result=tokio::signal::ctrl_c()=>{result?;} }
+        }
+        #[cfg(windows)]
+        tokio::signal::ctrl_c().await?;
+        Ok::<_, anyhow::Error>(())
+    };
+    tokio::pin!(shutdown);
     let mut crashes = 0u32;
     loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(1)) => {},
+            result = &mut shutdown => { result?; child.terminate().await?; return Ok(()); }
+        }
         if child.try_wait()?.is_some() {
             crashes = crashes.saturating_add(1);
-            tokio::time::sleep(Duration::from_secs((1u64 << crashes.min(5)).min(30))).await;
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs((1u64 << crashes.min(5)).min(30))) => {},
+                result = &mut shutdown => { result?; return Ok(()); }
+            }
             child = spawn(&root, &state.current, &path, monitor_only, ops.as_ref()).await?;
         }
         let pending: Option<PendingUpgrade> = if root.join("pending-update.json").try_exists()? {
@@ -173,16 +169,23 @@ async fn supervise_inner(
         state.trial = Some(pending.clone());
         save(&root, &state, ops.as_ref()).await?;
         child.terminate().await?;
-        let attempt = async {
-            let mut candidate =
-                spawn(&root, &pending.version, &path, monitor_only, ops.as_ref()).await?;
-            if let Err(error) = ready(candidate.as_mut(), &config, &pending.version).await {
-                let _ = candidate.terminate().await;
-                return Err(error);
+        let attempt = match spawn(&root, &pending.version, &path, monitor_only, ops.as_ref()).await
+        {
+            Ok(mut candidate) => {
+                let result = tokio::select! {
+                    result = ready(candidate.as_mut(), &config, &pending.version) => result,
+                    result = &mut shutdown => { result?; candidate.terminate().await?; return Ok(()); }
+                };
+                match result {
+                    Ok(()) => Ok(candidate),
+                    Err(error) => {
+                        let _ = candidate.terminate().await;
+                        Err(error)
+                    }
+                }
             }
-            Ok::<_, anyhow::Error>(candidate)
-        }
-        .await;
+            Err(error) => Err(error),
+        };
         match attempt {
             Ok(candidate) => {
                 child = candidate;

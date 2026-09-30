@@ -212,3 +212,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 为原生 CI 命令增加有长度限制的失败注释，保留标准输出，并输出安装子进程的实际错误，后续可从公开检查注释定位。Windows Python 固定 UTF-8，避免中文注册提示依赖 runner 的代码页。
 - 补充 macOS/FreeBSD/Windows netstat 连接数，修复 Windows 单 GPU JSON 返回对象的识别，Linux 优先读取 PCI GPU 型号；Windows 不将不存在的 load average 报为 0。macOS 对已卸载服务重复 stop 按成功处理。
 - 本地 fmt、Clippy、完整 Rust/PostgreSQL 回归通过，141 项成功、4 项原有专项忽略；actionlint 通过。下一步继续根据原生 CI 的真实错误修复，不将尚未通过的原生服务宣称为验收完成。
+
+## 原生 CI 跟进：模块路径、测试依赖与服务退出
+
+- b6c74e8 的十个 Linux/主检查/Compose 任务通过。失败注释确认 Windows 的路径重定向模块寻找了错误的子模块目录，现显式指定原生部署模块路径；FreeBSD 15 的 Python 缺少独立打包的 SQLite 模块，现安装同版本 Python/SQLite 包。
+- macOS 已通过 Agent 行为和实际运行时构建，原生服务在运行时健康检查失败。预先创建可由运行时账户写入的日志，增加服务状态诊断；受监督 Agent 保留 launchd 服务进程组，避免服务重启遗留子进程。此项仍待下一次原生 CI 验证。
+- 监督进程正常退出时先通知 Agent 清理任务，再等待退出；补充实际进程测试，覆盖摘要错误拒绝、升级试运行中断后恢复旧版和监督服务退出后的状态清理。本地真实 Agent 冒烟通过。
+- 本地 fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过，141 项成功、4 项原有实机专项忽略。继续检查修复后的原生 CI，尚不宣称跨系统常驻部署验收完成。

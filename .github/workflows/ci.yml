@@ -389,12 +389,12 @@ jobs:
           release: '15'
           arch: ${{ matrix.vm_arch }}
           copyback: true
-          prepare: pkg install -y python3
+          prepare: pkg install -y python311 py311-sqlite3
           run: |
             set -eu
-            python3 tools/build-agent.py '${{ matrix.target }}' .ci-artifacts --binary .ci-binaries/sinan-agent
-            env GITHUB_ACTIONS=true python3 tools/ci-run.py python3 tools/agent-smoke.py .ci-binaries/sinan-agent
-            env CI=true GITHUB_ACTIONS=true python3 tools/ci-run.py python3 tools/native-service-smoke.py .ci-binaries/sinan-agent .ci-artifacts/sing-box/1.14.2/freebsd-${{ matrix.arch }}
+            python3.11 tools/build-agent.py '${{ matrix.target }}' .ci-artifacts --binary .ci-binaries/sinan-agent
+            env GITHUB_ACTIONS=true python3.11 tools/ci-run.py python3.11 tools/agent-smoke.py .ci-binaries/sinan-agent
+            env CI=true GITHUB_ACTIONS=true python3.11 tools/ci-run.py python3.11 tools/native-service-smoke.py .ci-binaries/sinan-agent .ci-artifacts/sing-box/1.14.2/freebsd-${{ matrix.arch }}
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: sinan-runtime-freebsd-${{ matrix.arch }}

@@ -137,7 +137,17 @@ def main():
         for path in [root / 'core/update-state.json', Path('/var/log/sinan-agent.log'), Path('/var/log/sinan-singbox@main.log')]:
             if path.exists():
                 print(path, path.read_text(errors='replace')[-12000:])
-        print('Agent messages:', json.dumps(panel.messages[-20:]))
+        print('Apply results:', json.dumps([m for m in panel.messages if m['type'] == 'apply.result']))
+        if SYSTEM == 'Darwin':
+            print(command(['launchctl', 'print', 'system/org.sinan.sinan-singbox.main'], False).stdout)
+            print(command(['id', 'sinan-singbox'], False).stdout)
+            print(command(['ls', '-lde', str(root), str(root / 'runtime'), str(root / 'runtime/sing-box@main/data'), str(root / 'core/runtime-launcher.sh')], False).stdout)
+        if SYSTEM == 'FreeBSD':
+            print(command(['service', 'sinan_agent', 'onestatus'], False).stdout)
+            print(command(['service', 'sinan_singbox_main', 'onestatus'], False).stdout)
+            messages = Path('/var/log/messages')
+            if messages.exists():
+                print(messages.read_text(errors='replace')[-6000:])
         if SYSTEM == 'Windows':
             print(powershell("Get-ScheduledTaskInfo -TaskName 'sinan-agent'; Get-ScheduledTaskInfo -TaskName 'sinan-singbox@main'", False).stdout)
         raise

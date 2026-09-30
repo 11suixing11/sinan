@@ -98,15 +98,26 @@ impl SystemServiceManager {
                 )
             }
             ServiceBackend::FreeBsd => {
+                let name = service.replace(['@', '-', '.'], "_");
+                if action == "stop" {
+                    let active = self
+                        .privileged
+                        .execute(Path::new("service"), &[name.clone(), "onestatus".into()])
+                        .await?;
+                    if !active.success {
+                        return Ok(CommandOutput {
+                            success: true,
+                            stdout: String::new(),
+                            stderr: String::new(),
+                        });
+                    }
+                }
                 let action = if action == "is-active" {
                     "onestatus"
                 } else {
                     action
                 };
-                (
-                    "service",
-                    vec![service.replace(['@', '-', '.'], "_"), action.into()],
-                )
+                ("service", vec![name, action.into()])
             }
             ServiceBackend::Launchd => {
                 let label = format!("system/org.sinan.{}", service.replace('@', "."));

@@ -1,3 +1,4 @@
+#[path = "deploy/native.rs"]
 mod native;
 use crate::{
     Config,
