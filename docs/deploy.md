@@ -98,7 +98,7 @@ SQL
 
 正常部署无需在服务器编译运行时或 `docker cp` 制品。进入面板“制品”，输入官方仓库已发布的 `agent-v…` 标签，点击“导入制品”。只有已正式发布、签名通过且所有资产齐全的 Release 可导入；草稿、缺签名、错误版本、归档或摘要不一致均拒绝，现有集合保持不变。完整导入后才能用于设备接入和配置发布。
 
-正式发布工作流当前生成 Linux amd64/arm64 的 Agent、固定版本运行时、NodeQuality r2、固定安装器、`release.json`、`SHA256SUMS` 与 `SHA256SUMS.minisig`。Linux musl 静态 Agent 保留原制品目录。自动 CI 的 Agent 矩阵仅含 musl amd64/arm64；GNU、macOS、Windows、FreeBSD 与完整运行时矩阵保留在仅手动触发的 `platforms.yml`，详见 [设备平台与能力](platforms.md)。原生生产部署还需独立验证来源的已签平台 bundle，不能直接使用日常 CI 的 TEST_ONLY 制品。
+发布工作流从选定源码构建 Linux amd64/arm64 的 Agent、固定版本运行时、当前 NodeQuality 包装器、固定安装器、`release.json`、`SHA256SUMS` 与 `SHA256SUMS.minisig`；当前源码默认包装器为 r5，已冻结的旧草稿候选仍为 r2，只有独立验证并正式发布的新 Release 才能导入。Linux musl 静态 Agent 保留原制品目录。自动 CI 的 Agent 矩阵仅含 musl amd64/arm64；GNU、macOS、Windows、FreeBSD 与完整运行时矩阵保留在仅手动触发的 `platforms.yml`，详见 [设备平台与能力](platforms.md)。原生生产部署还需独立验证来源的已签平台 bundle，不能直接使用日常 CI 的 TEST_ONLY 制品。
 
 面板核对签名、仓库/tag、架构、版本、归档内容和安装后二进制摘要，完成后一次发布整个目录。相同组件版本不能用不同内容覆盖。Agent 下载后独立以自身内嵌公钥再次验证，运行时服务启动前也复验本地签名缓存。
 
