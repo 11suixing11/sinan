@@ -2,15 +2,15 @@ use super::*;
 use crate::{
     fake::{FakeAdapter, FakeServiceManager},
     state::IntentRecord,
-    system::SystemOps,
+    system::{SystemOps, SystemServiceManager},
 };
 use ed25519_dalek::{Signature, Verifier};
-use sinan_adapter_sdk::{Counter, RuntimeSpec};
+use sinan_adapter_sdk::{BoxFuture, CommandOutput, Counter, RuntimeSpec};
 use std::{
     collections::BTreeMap,
     fs,
     os::unix::fs::{PermissionsExt, symlink},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Mutex,
 };
 use uuid::Uuid;
@@ -430,5 +430,135 @@ async fn runtime_root_alias_cannot_remove_an_outside_current_link() -> Result<()
             .exists()
     );
     assert!(fixture.config.identity_dir.join("device.key").exists());
+    Ok(())
+}
+
+struct ControlledSystemctl {
+    query_fails: AtomicBool,
+    running: AtomicBool,
+}
+
+impl Privileged for ControlledSystemctl {
+    fn execute<'a>(
+        &'a self,
+        program: &'a Path,
+        args: &'a [String],
+    ) -> BoxFuture<'a, CommandOutput> {
+        Box::pin(async move {
+            ensure!(program == Path::new("systemctl"), "unexpected program");
+            match args.first().map(String::as_str) {
+                Some("show") if self.query_fails.load(Ordering::SeqCst) => Ok(CommandOutput {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: "Failed to connect to bus: Permission denied".into(),
+                }),
+                Some("show") => {
+                    let (state, pid) = if self.running.load(Ordering::SeqCst) {
+                        ("active", 123)
+                    } else {
+                        ("inactive", 0)
+                    };
+                    Ok(CommandOutput {
+                        success: true,
+                        stdout: format!(
+                            "LoadState=loaded\nActiveState={state}\nMainPID={pid}\nControlPID=0\n"
+                        ),
+                        stderr: String::new(),
+                    })
+                }
+                Some("stop") => {
+                    self.running.store(false, Ordering::SeqCst);
+                    Ok(CommandOutput {
+                        success: true,
+                        ..Default::default()
+                    })
+                }
+                // Reproduces the previous is-active behavior on a bus failure.
+                Some("is-active") => Ok(CommandOutput {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: "Failed to connect to bus: Permission denied".into(),
+                }),
+                _ => anyhow::bail!("unexpected systemctl action"),
+            }
+        })
+    }
+    fn create_dir<'a>(&'a self, _: &'a Path, _: u32, _: Option<&'a str>) -> BoxFuture<'a, ()> {
+        Box::pin(async { anyhow::bail!("unexpected create_dir") })
+    }
+    fn write_file<'a>(
+        &'a self,
+        _: &'a Path,
+        _: &'a [u8],
+        _: u32,
+        _: Option<&'a str>,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async { anyhow::bail!("unexpected write_file") })
+    }
+    fn atomic_symlink<'a>(&'a self, _: &'a Path, _: &'a Path) -> BoxFuture<'a, ()> {
+        Box::pin(async { anyhow::bail!("unexpected atomic_symlink") })
+    }
+    fn remove_symlink<'a>(&'a self, _: &'a Path) -> BoxFuture<'a, ()> {
+        Box::pin(async { anyhow::bail!("unexpected remove_symlink") })
+    }
+    fn install_archive<'a>(&'a self, _: &'a Path, _: &'a Path, _: &'a str) -> BoxFuture<'a, ()> {
+        Box::pin(async { anyhow::bail!("unexpected install_archive") })
+    }
+}
+
+#[tokio::test]
+async fn systemd_query_failure_cannot_clear_credentials_or_confirm_retirement() -> Result<()> {
+    let fixture = Fixture::new()?;
+    fixture.request()?;
+    let systemctl = Arc::new(ControlledSystemctl {
+        query_fails: AtomicBool::new(true),
+        running: AtomicBool::new(true),
+    });
+    let retirement = Retirement::new(
+        fixture.config.clone(),
+        fixture.state.clone(),
+        vec![Arc::new(FakeAdapter::default())],
+        Arc::new(SystemOps),
+        Arc::new(SystemServiceManager::new(systemctl.clone())),
+    )?;
+    assert!(retirement.prepare().await.is_err());
+    assert!(systemctl.running.load(Ordering::SeqCst));
+    assert_eq!(retirement.read()?.unwrap().phase, Phase::Requested);
+    assert!(retirement.complete(&fixture.identity).await.is_err());
+    assert!(retirement.deliver_receipt().await.is_err());
+    assert!(fixture.config.identity_dir.join("device.key").exists());
+    assert!(
+        fixture
+            .config
+            .runtime_root
+            .join("demo@main/current")
+            .exists()
+    );
+
+    systemctl.query_fails.store(false, Ordering::SeqCst);
+    retirement.prepare().await?;
+    assert!(!systemctl.running.load(Ordering::SeqCst));
+    assert_eq!(retirement.read()?.unwrap().phase, Phase::Stopped);
+
+    // A status failure during the final check must also preserve credentials,
+    // even though the public receipt has already been saved for crash recovery.
+    systemctl.running.store(true, Ordering::SeqCst);
+    systemctl.query_fails.store(true, Ordering::SeqCst);
+    assert!(retirement.complete(&fixture.identity).await.is_err());
+    assert_eq!(retirement.read()?.unwrap().phase, Phase::Clearing);
+    assert!(retirement.deliver_receipt().await.is_err());
+    assert!(retirement.recover_completion().await.is_err());
+    assert!(systemctl.running.load(Ordering::SeqCst));
+    for name in ["device.key", "server_id", "panel_origin"] {
+        assert!(fixture.config.identity_dir.join(name).exists());
+    }
+    assert!(
+        fixture
+            .config
+            .runtime_root
+            .join("demo@main/revisions/1/config.json")
+            .exists()
+    );
+    assert!(ensure_enrollment_allowed(&fixture.config).is_err());
     Ok(())
 }

@@ -1,6 +1,64 @@
 use super::*;
 
 #[test]
+fn runtime_status_requires_explicit_process_free_shutdown() -> Result<()> {
+    let response = |success, load, active, main, control| CommandOutput {
+        success,
+        stdout: format!(
+            "LoadState={load}\nActiveState={active}\nMainPID={main}\nControlPID={control}\n"
+        ),
+        stderr: String::new(),
+    };
+    for active in ["active", "activating", "deactivating", "reloading"] {
+        assert!(parse_runtime_active(&response(
+            true, "loaded", active, 0, 0
+        ))?);
+    }
+    for active in ["inactive", "failed"] {
+        assert!(!parse_runtime_active(&response(
+            true, "loaded", active, 0, 0
+        ))?);
+        assert!(parse_runtime_active(&response(
+            true, "loaded", active, 123, 0
+        ))?);
+        assert!(parse_runtime_active(&response(
+            true, "loaded", active, 0, 456
+        ))?);
+    }
+    assert!(!parse_runtime_active(&response(
+        true,
+        "not-found",
+        "inactive",
+        0,
+        0
+    ))?);
+    assert!(!parse_runtime_active(&response(
+        true, "masked", "inactive", 0, 0
+    ))?);
+    for output in [
+        CommandOutput {
+            success: false,
+            stdout: String::new(),
+            stderr: "Failed to connect to bus: Permission denied".into(),
+        },
+        response(false, "loaded", "inactive", 0, 0),
+        response(false, "not-found", "inactive", 0, 0),
+        response(true, "error", "inactive", 0, 0),
+        response(true, "loaded", "unknown", 0, 0),
+        response(true, "not-found", "activating", 0, 0),
+        response(true, "not-found", "inactive", 123, 0),
+        CommandOutput {
+            success: true,
+            stdout: "LoadState=loaded\nActiveState=inactive\n".into(),
+            stderr: String::new(),
+        },
+    ] {
+        assert!(parse_runtime_active(&output).is_err());
+    }
+    Ok(())
+}
+
+#[test]
 fn job_status_distinguishes_running_exited_failed_and_missing() -> Result<()> {
     for (properties, expected) in [
         ("LoadState=not-found\n", JobStatus::Missing),

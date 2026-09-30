@@ -327,7 +327,12 @@ impl SystemServiceManager {
         Self { privileged }
     }
 
-    async fn call(&self, action: &str, unit: &str, quiet: bool) -> Result<CommandOutput> {
+    async fn call(
+        &self,
+        action: &str,
+        unit: &str,
+        properties: Option<&str>,
+    ) -> Result<CommandOutput> {
         ensure!(
             !unit.is_empty()
                 && !unit.starts_with('-')
@@ -338,8 +343,8 @@ impl SystemServiceManager {
             "invalid service unit"
         );
         let mut args = vec![action.to_owned()];
-        if quiet {
-            args.push("--quiet".into());
+        if let Some(properties) = properties {
+            args.push(format!("--property={properties}"));
         }
         args.extend(["--".into(), unit.to_owned()]);
         timeout(
@@ -351,7 +356,7 @@ impl SystemServiceManager {
     }
 
     async fn change(&self, action: &str, unit: &str) -> Result<()> {
-        let output = self.call(action, unit, false).await?;
+        let output = self.call(action, unit, None).await?;
         ensure!(
             output.success,
             "service operation failed: {}",
@@ -372,13 +377,64 @@ impl ServiceManager for SystemServiceManager {
         Box::pin(self.change("stop", unit))
     }
     fn is_active<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, bool> {
-        Box::pin(async move { Ok(self.call("is-active", unit, true).await?.success) })
+        Box::pin(async move {
+            let output = self
+                .call(
+                    "show",
+                    unit,
+                    Some("LoadState,ActiveState,MainPID,ControlPID"),
+                )
+                .await?;
+            parse_runtime_active(&output)
+        })
     }
     fn start_job<'a>(&'a self, job: &'a ServiceJob) -> BoxFuture<'a, ()> {
         self.start_diagnostic_job(job)
     }
     fn job_status<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, JobStatus> {
         self.diagnostic_job_status(unit)
+    }
+}
+
+fn parse_runtime_active(output: &CommandOutput) -> Result<bool> {
+    ensure!(
+        output.success,
+        "runtime service status query failed: {}",
+        output.stderr
+    );
+    let properties: std::collections::BTreeMap<_, _> = output
+        .stdout
+        .lines()
+        .filter_map(|line| line.split_once('='))
+        .collect();
+    let pid = |name| -> Result<u32> {
+        properties
+            .get(name)
+            .with_context(|| format!("service status is missing {name}"))?
+            .parse()
+            .with_context(|| format!("service status has invalid {name}"))
+    };
+    let load = properties.get("LoadState").copied();
+    // A never-installed runtime is safe only when systemd explicitly reports
+    // the missing unit and confirms that no main or control process exists.
+    if load == Some("not-found") {
+        ensure!(
+            properties.get("ActiveState") == Some(&"inactive")
+                && pid("MainPID")? == 0
+                && pid("ControlPID")? == 0,
+            "missing runtime service still has unknown or active processes"
+        );
+        return Ok(false);
+    }
+    ensure!(
+        matches!(load, Some("loaded" | "masked")),
+        "runtime service load state is unknown"
+    );
+    let running = pid("MainPID")? != 0 || pid("ControlPID")? != 0;
+    match properties.get("ActiveState").copied() {
+        Some("active" | "activating" | "deactivating" | "reloading") => Ok(true),
+        Some("inactive" | "failed") => Ok(running),
+        _ => anyhow::bail!("runtime service active state is unknown"),
     }
 }
 
