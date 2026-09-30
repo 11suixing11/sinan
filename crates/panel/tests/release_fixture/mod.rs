@@ -47,3 +47,17 @@ pub fn archive(binary_name: &str, binary: &[u8]) -> Result<Vec<u8>> {
     archive.append_data(&mut header, binary_name, binary)?;
     Ok(archive.into_inner()?.finish()?)
 }
+
+pub fn write_entries(root: &Path, artifacts: Vec<(ReleaseArtifact, Vec<u8>)>) -> Result<PathBuf> {
+    let proof = signing::signed_release(artifacts.clone());
+    let release = root.join("artifacts/releases/agent-v0.3.0");
+    std::fs::create_dir_all(&release)?;
+    signing::install_proof(&release, &proof);
+    std::fs::write(release.join("install.sh"), b"#!/bin/sh\nexit 0\n")?;
+    for (entry, bytes) in artifacts {
+        let directory = release.join(&entry.name).join(&entry.version);
+        std::fs::create_dir_all(&directory)?;
+        std::fs::write(directory.join(&entry.arch), bytes)?;
+    }
+    Ok(release)
+}

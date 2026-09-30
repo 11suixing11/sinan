@@ -1,10 +1,8 @@
-use super::Runtime;
+use super::{Runtime, status_snapshot::snapshot};
 use anyhow::{Context, Result};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::{
-    collections::BTreeMap,
     path::{Path, PathBuf},
-    sync::atomic::Ordering,
     time::Duration,
 };
 use tokio::{
@@ -72,27 +70,6 @@ pub(super) async fn serve(bound: BoundSocket, runtime: Runtime) -> Result<()> {
     }
 }
 
-fn snapshot(runtime: &Runtime) -> Result<Value> {
-    let applied = runtime.applied()?;
-    let state = runtime
-        .state
-        .lock()
-        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
-    let mut healthy = BTreeMap::new();
-    for module in runtime.modules.iter() {
-        healthy.insert(
-            module.clone(),
-            state
-                .get_json::<bool>(&format!("health:{module}"))?
-                .unwrap_or(false),
-        );
-    }
-    Ok(json!({
-        "connected": runtime.connected.load(Ordering::Relaxed),
-        "applied": applied, "healthy": healthy, "pending_batches": state.pending_usage_count()?,
-    }))
-}
-
 pub async fn status(path: &Path) -> Result<Value> {
     timeout(Duration::from_secs(5), async {
         let socket = UnixStream::connect(path)
@@ -110,6 +87,7 @@ pub async fn status(path: &Path) -> Result<Value> {
 mod tests {
     use super::*;
     use crate::State;
+    use serde_json::json;
     use std::sync::{Arc, Mutex, atomic::AtomicBool};
     use tokio::task::JoinSet;
 

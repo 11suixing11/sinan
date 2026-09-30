@@ -180,12 +180,13 @@ impl DiagnosticWorker {
             let adapter = self.adapters.get(&job.plugin).context("diagnostic plugin is not registered")?;
             let descriptor = adapter.describe();
             let signed_descriptor = Descriptor {
+                auxiliary_files: vec![],
                 module: "diagnostics".into(), plugin_name: descriptor.plugin_name.clone(),
                 binary_name: descriptor.binary_name.clone(), service_unit: String::new(), service_group: String::new(),
             };
             let binary = tokio::time::timeout(Duration::from_secs(300), client.ensure_artifact(&job.artifact, &job.version, &Descriptor {
                 module: "diagnostics".into(), plugin_name: descriptor.plugin_name,
-                binary_name: descriptor.binary_name, service_unit: String::new(), service_group: String::new(),
+                binary_name: descriptor.binary_name, auxiliary_files: Vec::new(), service_unit: String::new(), service_group: String::new(),
             }, &self.config.install_root, self.privileged.as_ref())).await.context("diagnostic artifact installation timed out")??;
             ensure!(!expired(&job), "diagnostic task expired during artifact installation");
             let keys = self.keys.as_ref().map_err(|error| anyhow::anyhow!(error.to_string()))?;

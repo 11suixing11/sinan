@@ -123,3 +123,14 @@ pub async fn install_script(
     crate::servers::validate_enrollment(&state.pool, &query.token).await?;
     Err(ApiError::Conflict("安装入口已迁移至独立验证的 sinan-bootstrap，请查看部署文档；不得执行面板提供的未签名安装脚本".into()))
 }
+
+pub async fn install_powershell(
+    State(state): State<AppState>,
+    Query(query): Query<TokenQuery>,
+) -> ApiResult<Response> {
+    crate::servers::validate_enrollment(&state.pool, &query.token).await?;
+    Err(ApiError::Conflict(
+        "原生平台安装需要独立验证的签名安装器，请查看部署文档；不得执行面板提供的未签名安装脚本"
+            .into(),
+    ))
+}

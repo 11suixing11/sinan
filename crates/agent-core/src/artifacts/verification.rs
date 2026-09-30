@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 use sinan_adapter_sdk::Descriptor;
 use sinan_protocol::release::{
     MAX_CHECKSUMS_BYTES, MAX_METADATA_BYTES, MAX_SIGNATURE_BYTES, ReleaseProof, TrustedKeys,
-    VerifiedArtifact, VerifiedRelease, native_arch, verify_release,
+    VerifiedArtifact, VerifiedRelease, verify_release,
 };
 use std::path::Path;
 use tokio::io::AsyncReadExt;
@@ -85,6 +85,15 @@ pub(super) async fn verify_file(binary: &Path, verified: &VerifiedArtifact) -> R
             && format!("{:x}", hash.finalize()) == verified.metadata().binary_sha256,
         "installed artifact binary differs from signed release"
     );
+    let directory = binary.parent().context("binary has no parent")?;
+    for (name, expected) in &verified.metadata().auxiliary_files {
+        let bytes = ordinary_bytes(&directory.join(name), expected.size as usize).await?;
+        ensure!(
+            bytes.len() as u64 == expected.size
+                && format!("{:x}", Sha256::digest(&bytes)) == expected.sha256,
+            "auxiliary artifact differs from signed release"
+        );
+    }
     Ok(())
 }
 
@@ -105,10 +114,21 @@ pub(super) fn signed_artifact(
     keys: &TrustedKeys,
 ) -> Result<VerifiedArtifact> {
     let release = signed_release(proof, keys)?;
-    let verified = release.artifact(&descriptor.plugin_name, version, native_arch()?)?;
+    let verified = release.native_artifact(&descriptor.plugin_name, version)?;
     ensure!(
         verified.metadata().binary_name == descriptor.binary_name
-            && verified.metadata().format == "tar.gz",
+            && verified.metadata().format == "tar.gz"
+            && verified
+                .metadata()
+                .auxiliary_files
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>()
+                == descriptor
+                    .auxiliary_files
+                    .iter()
+                    .cloned()
+                    .collect::<std::collections::BTreeSet<_>>(),
         "signed artifact format or executable name differs from adapter"
     );
     Ok(verified)
@@ -179,7 +199,7 @@ pub(super) async fn verify_binary_with_keys(
         .context("invalid binary path")?;
     let proof = read_proof(&resolved).await?;
     let release = signed_release(&proof, keys)?;
-    let verified = release.artifact(expected_name, version, native_arch()?)?;
+    let verified = release.native_artifact(expected_name, version)?;
     ensure!(
         verified.metadata().binary_name == name && verified.metadata().format == expected_format,
         "installed artifact role, format, or executable name differs from requested identity"
