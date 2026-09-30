@@ -27,3 +27,6 @@
 - 合并作者 `93356dd` 与 main `c958ba2` 后，本机专项 64 项通过、0 失败/忽略：protocol/SDK/适配器 29 项，Agent 诊断 29 项，独立 PostgreSQL 章节及 diagnostics API 6 项。全 workspace/all-targets Clippy、fmt、core 门禁与文档链接通过；Bun 4 项/637 断言及 TypeScript/Vite 重建保留未知字段严格校验。完整硬件压测和最终提交的 Linux/root 包装器夹具不由这些本机结果替代。
 
 - 最终继续合入遥测隔离 `47c066b` 和草稿发布器 `7a6f104`：Agent 章节重启/HTTP ACK 2 项与 PostgreSQL 章节 2 项重新通过，workspace 全 targets Clippy、fmt、core 门禁通过，Bun 4 项/637 断言与合并源 dist 重建通过。发布器 Python 22 项通过；它没有改变 Rust 源，保留此前专项证据而不重复完整工作区。
+
+- 后续 Linux CI 揭示固定原入口正常清理也会返回 1：源码摘要 `4e1b25894cadf908ef61fb0d9ce874a75524c6dafc2ea26f0477107288e0c018` 的 `main → post_cleanup` 末尾（第 455 行）为该分支。r5 包装器保持源码原字节，仅通过 Bash 启动观察器确认这条分支，且必须校验完整本地报告，才能把该特例记作成功；原退出值仍保存。任意早退 1、真实 7、信号清理、清理拒绝、缺报告均保持失败，可选上传 403/传输错误仅作为警告且 ZIP/五章保留。r2/r3 历史与排队恢复仍兼容，r4 留给独立模式功能，制品内容不得覆盖旧版本。
+- 隔离且断网的 Linux root 夹具精确复现旧版 28 项中的三项失败；修复版本 32 项全部通过、0 跳过。本机 macOS 同样 32 项通过、0 跳过，非 Linux/root 时仅修改夹具副本的入口守卫，生产限制不改。以上不运行真实硬件压测或对外上传；Rust 版本兼容回归留待后续构建槽/最终 CI。

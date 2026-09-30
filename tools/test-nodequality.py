@@ -26,6 +26,27 @@ module_spec = importlib.util.spec_from_file_location("nodequality_report", PLUGI
 report = importlib.util.module_from_spec(module_spec)
 module_spec.loader.exec_module(report)
 
+# Verbatim post_cleanup from entrypoint a92fca6c, source SHA-256 4e1b2589...e0c018.
+# Fixtures pad it to its real line 440; the normal terminal exit is line 455.
+PINNED_POST_CLEANUP = '''function post_cleanup(){
+    chroot_run umount -R /dev &> /dev/null
+    clear_mount
+
+    post_check_mount
+
+    rm -rf $work_dir/BenchOs
+
+    if [[ "$work_dir" == *"nodequality"* ]]; then
+        rm -rf "${work_dir}"/
+    else
+        echo "$(L err01)"
+        exit 1
+    fi
+
+    exit 1
+}
+'''
+
 
 def make_archive(extra=None, missing=None, large=False):
     target = io.BytesIO()
@@ -335,7 +356,7 @@ sys.stdout.write("https://nodequality.com/r/fixture\\nSINAN_RESPONSE_STATUS:200"
 
 class BuildTests(unittest.TestCase):
     def test_failed_upstream_preserves_complete_outputs_without_reporting_success(self):
-        for exit_code in (0, 7):
+        for exit_code in (0, 1, 7):
             with self.subTest(exit_code=exit_code), tempfile.TemporaryDirectory() as directory:
                 root = pathlib.Path(directory)
                 workspace = root / "workspace"
@@ -358,6 +379,7 @@ class BuildTests(unittest.TestCase):
                     runner = runner.replace(requirement, ":")
                 for marker, source in (("@NODEQUALITY_SOURCE@", upstream), ("@NODEQUALITY_LICENSE@", "fixture"),
                                        ("@REPORT_HELPER@", (PLUGIN / "report.py").read_text()),
+                                       ("@EXIT_OBSERVER@", (PLUGIN / "exit-observer.sh").read_text()),
                                        ("@CURL_SHIM@", (PLUGIN / "curl-shim.sh").read_text()),
                                        ("@CHROOT_SHIM@", (PLUGIN / "chroot-shim.sh").read_text())):
                     runner = runner.replace(marker, source)
@@ -375,7 +397,7 @@ class BuildTests(unittest.TestCase):
 
     def test_repeated_build_refuses_to_modify_the_existing_artifact_and_checksum(self):
         with tempfile.TemporaryDirectory() as directory:
-            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3"
+            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5"
             root = pathlib.Path(directory) / "nodequality" / version
             root.mkdir(parents=True)
             artifact = root / "amd64"
@@ -428,11 +450,11 @@ class BuildTests(unittest.TestCase):
                 self.assertIn("invalid report upload option", result.stderr)
 
     def test_shell_syntax_and_nonexecuting_help(self):
-        for script in (PLUGIN / "runner.sh.tmpl", PLUGIN / "curl-shim.sh", PLUGIN / "chroot-shim.sh", PLUGIN.parents[1] / "tools/build-nodequality.sh"):
+        for script in (PLUGIN / "runner.sh.tmpl", PLUGIN / "exit-observer.sh", PLUGIN / "curl-shim.sh", PLUGIN / "chroot-shim.sh", PLUGIN.parents[1] / "tools/build-nodequality.sh"):
             subprocess.run(["bash", "-n", str(script)], check=True)
         result = subprocess.run(["bash", str(PLUGIN / "runner.sh.tmpl"), "--version"],
                                 capture_output=True, text=True, check=True)
-        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3")
+        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5")
 
     def test_existing_architecture_checksums_are_not_replaced(self):
         script = (PLUGIN.parents[1] / "tools/build-nodequality.sh").read_text()
@@ -464,8 +486,6 @@ class BuildTests(unittest.TestCase):
                     self.assertEqual(result.returncode == 0, state in ("empty", "valid"), result.stderr)
 
 
-@unittest.skipUnless(sys.platform.startswith("linux") and os.geteuid() == 0,
-                     "runner fixtures need Linux/root; they use fake mount, curl and upstream tests")
 class RunnerFixtureTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="sinan-nodequality-runner-fixture-")
@@ -474,6 +494,9 @@ class RunnerFixtureTests(unittest.TestCase):
         self.workspace.mkdir()
         self.binary = self.root / "bin"
         self.binary.mkdir()
+        self.emulated_guards = not (sys.platform.startswith("linux") and os.geteuid() == 0)
+        if not sys.platform.startswith("linux"):
+            self.stub("uname", "#!/bin/sh\nprintf 'Linux\\n'\n")
         for name in ("mount", "chroot"):
             self.stub(name, "#!/bin/sh\nexit 0\n")
         self.stub("mountpoint", "#!/bin/sh\nexit 1\n")
@@ -482,6 +505,7 @@ class RunnerFixtureTests(unittest.TestCase):
 import os, pathlib, sys
 (pathlib.Path(os.environ["NQ_FIXTURE_ROOT"]) / "curl-called.txt").write_text("called")
 sys.stdout.write(os.environ["NQ_FIXTURE_RESPONSE"] + "\\nSINAN_RESPONSE_STATUS:" + os.environ["NQ_FIXTURE_STATUS"])
+raise SystemExit(int(os.environ.get("NQ_FIXTURE_CURL_EXIT", "0")))
 ''')
         self.environment = dict(os.environ)
         self.environment.update({
@@ -501,26 +525,53 @@ sys.stdout.write(os.environ["NQ_FIXTURE_RESPONSE"] + "\\nSINAN_RESPONSE_STATUS:"
 
     def runner(self, mode="report"):
         fixture = '''#!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
+chroot_run(){ :; }
+clear_mount(){ :; }
+post_check_mount(){ :; }
+sig_cleanup(){ post_cleanup; }
+main(){
 while [[ $# != 0 ]]; do
   case "$1" in -d) workspace=$2; shift 2 ;; -4|-6) ip=$1; shift ;; *) exit 5 ;; esac
 done
 read -r hardware; read -r ip_test; read -r network; read -r trace
 printf '%s/%s/%s/%s/%s\\n' "$hardware" "$ip_test" "$network" "$trace" "${ip:-both}" > "$workspace/fixture-options.txt"
 mkdir -p "$workspace/.nodequalityfixture/BenchOs/dev" "$workspace/.nodequalityfixture/BenchOs/sys" "$workspace/.nodequalityfixture/BenchOs/proc"
+work_dir=$workspace/.nodequalityfixture
 '''
-        if mode == "report":
-            encoded = base64.b64encode(make_archive()).decode()
-            fixture += "printf '%s' '" + encoded + "' | curl -X POST --data-binary @- https://api.nodequality.com/api/v1/record\nexit 1\n"
+        if mode in ("report", "failed", "early-one", "signal-cleanup", "cleanup-refused"):
+            self.fixture_archive = make_archive()
+            encoded = base64.b64encode(self.fixture_archive).decode()
+            fixture += "printf '%s' '" + encoded + "' | curl -X POST --data-binary @- https://api.nodequality.com/api/v1/record\n"
+            fixture += {
+                "report": "post_cleanup\n",
+                "failed": "exit 7\n",
+                "early-one": "exit 1\n",
+                "signal-cleanup": "sig_cleanup\n",
+                "cleanup-refused": "post_check_mount(){ exit 1; }\npost_cleanup\n",
+            }[mode]
         elif mode == "sleep":
             fixture += 'touch "$workspace/fixture-ready"\nsleep 30\nexit 1\n'
+        elif mode == "missing-reports":
+            fixture += "post_cleanup\n"
         else:
             fixture += "printf 'no actual reports were produced\\n'\nexit 0\n"
+        fixture += "}\n"
+        fixture += "\n" * (439 - len(fixture.splitlines())) + PINNED_POST_CLEANUP + "main \"$@\"\n"
+        self.assertEqual(fixture.splitlines()[454], "    exit 1")
         content = (PLUGIN / "runner.sh.tmpl").read_text()
+        # Mounts, chroot and networking are always fake. Outside Linux/root only
+        # the fixture copy bypasses entry guards; native CI keeps them unchanged.
+        if self.emulated_guards:
+            for guard in ("[[ $EUID == 0 ]] || die 'diagnostics require root'",
+                          "[[ ${BASH_VERSINFO[0]} -ge 4 ]] || die 'diagnostics require Bash >= 4'"):
+                self.assertEqual(content.count(guard), 1)
+                content = content.replace(guard, ":")
         for marker, payload in (
             ("NODEQUALITY_SOURCE", fixture),
             ("NODEQUALITY_LICENSE", "Synthetic test fixture; no upstream tests run.\n"),
             ("REPORT_HELPER", (PLUGIN / "report.py").read_text()),
+            ("EXIT_OBSERVER", (PLUGIN / "exit-observer.sh").read_text()),
             ("CURL_SHIM", (PLUGIN / "curl-shim.sh").read_text()),
             ("CHROOT_SHIM", (PLUGIN / "chroot-shim.sh").read_text()),
         ):
@@ -531,7 +582,7 @@ mkdir -p "$workspace/.nodequalityfixture/BenchOs/dev" "$workspace/.nodequalityfi
         return ["bash", str(path), "--workspace", str(self.workspace),
                 "--ip-version", "ipv6", "--network-mode", "low"]
 
-    def test_upstream_nonzero_exit_still_requires_four_actual_local_reports(self):
+    def test_pinned_cleanup_exit_one_still_requires_four_actual_local_reports(self):
         result = subprocess.run(self.runner(), env=self.environment, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertEqual((self.workspace / "upstream-exit.txt").read_text().strip(), "1")
@@ -555,7 +606,8 @@ mkdir -p "$workspace/.nodequalityfixture/BenchOs/dev" "$workspace/.nodequalityfi
         self.assertTrue((self.root / "curl-called.txt").exists())
 
     def test_upload_403_preserves_a_complete_local_report(self):
-        self.environment.update(NQ_FIXTURE_STATUS="403", NQ_FIXTURE_RESPONSE="Access denied")
+        self.environment.update(NQ_FIXTURE_STATUS="403", NQ_FIXTURE_RESPONSE="Access denied",
+                                NQ_FIXTURE_CURL_EXIT="22")
         result = subprocess.run(self.runner() + ["--upload-report", "true"], env=self.environment,
                                 capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr.decode())
@@ -563,11 +615,53 @@ mkdir -p "$workspace/.nodequalityfixture/BenchOs/dev" "$workspace/.nodequalityfi
         self.assertFalse((self.workspace / "report-url.txt").exists())
         self.assertTrue((self.workspace / "report.zip").is_file())
 
-    def test_zero_exit_without_a_zip_is_failed(self):
-        result = subprocess.run(self.runner("empty"), env=self.environment, capture_output=True, timeout=10)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse((self.workspace / "result.txt").exists())
-        self.assertIn(b"a complete local NodeQuality report was not produced", result.stderr)
+    def test_upload_transport_failure_is_separate_from_upstream_execution_failure(self):
+        self.environment.update(NQ_FIXTURE_STATUS="000", NQ_FIXTURE_RESPONSE="Fixture connection failed",
+                                NQ_FIXTURE_CURL_EXIT="7")
+        result = subprocess.run(self.runner() + ["--upload-report", "true"], env=self.environment,
+                                capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual((self.workspace / "upstream-exit.txt").read_text().strip(), "1")
+        self.assertIn("HTTP 状态：000", (self.workspace / "result.txt").read_text())
+        self.assertFalse((self.workspace / "report-url.txt").exists())
+        self.assertEqual((self.workspace / "report.zip").read_bytes(), self.fixture_archive)
+        self.assertEqual(len(list(self.workspace.glob("section-*.json"))), 5)
+
+    def test_unproven_exit_one_and_genuine_exit_seven_never_report_success(self):
+        for mode, status in (("early-one", 1), ("failed", 7)):
+            with self.subTest(mode=mode):
+                result = subprocess.run(self.runner(mode), env=self.environment, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, status, result.stderr.decode())
+                self.assertEqual((self.workspace / "upstream-exit.txt").read_text().strip(), str(status))
+                self.assertTrue((self.workspace / "result.txt").is_file())
+                self.assertEqual((self.workspace / "report.zip").read_bytes(), self.fixture_archive)
+                self.assertEqual(len(list(self.workspace.glob("section-*.json"))), 5)
+                for path in self.workspace.iterdir():
+                    path.unlink()
+
+    def test_signal_cleanup_cannot_prove_normal_completion(self):
+        result = subprocess.run(self.runner("signal-cleanup"), env=self.environment,
+                                capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 1, result.stderr.decode())
+        self.assertTrue((self.workspace / "result.txt").is_file())
+        self.assertEqual((self.workspace / "report.zip").read_bytes(), self.fixture_archive)
+
+    def test_cleanup_refusal_cannot_prove_normal_completion(self):
+        result = subprocess.run(self.runner("cleanup-refused"), env=self.environment,
+                                capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 1, result.stderr.decode())
+        self.assertTrue((self.workspace / "result.txt").is_file())
+        self.assertEqual((self.workspace / "report.zip").read_bytes(), self.fixture_archive)
+
+    def test_zero_exit_or_normal_cleanup_without_a_zip_is_failed(self):
+        for mode in ("empty", "missing-reports"):
+            with self.subTest(mode=mode):
+                result = subprocess.run(self.runner(mode), env=self.environment, capture_output=True, timeout=10)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.workspace / "result.txt").exists())
+                self.assertIn(b"a complete local NodeQuality report was not produced", result.stderr)
+                for path in self.workspace.iterdir():
+                    path.unlink()
 
     def test_signal_cleans_only_the_private_workspace(self):
         process = subprocess.Popen(self.runner("sleep"), env=self.environment,

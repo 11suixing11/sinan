@@ -323,13 +323,18 @@ async fn chapters_remain_readable_when_the_final_report_is_missing_or_another_ch
     assert_eq!(chapters.len(), 1);
     assert_eq!(chapters[0].text, "saved header");
     assert!(chapters[0].complete);
-    let mut legacy = spec;
-    legacy.version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2".into();
-    std::fs::write(legacy.job_dir.join("result.txt"), "unchanged old report").unwrap();
-    assert_eq!(
-        adapter.collect(&legacy).await.unwrap().unwrap().text,
-        "unchanged old report"
-    );
+    for revision in ["r2", "r3"] {
+        let mut legacy = spec.clone();
+        legacy.version = format!("a92fca6c0067df29ddd03fdc2fee6f3000f64545-{revision}");
+        std::fs::write(legacy.job_dir.join("result.txt"), "unchanged old report").unwrap();
+        assert_eq!(
+            adapter.collect(&legacy).await.unwrap().unwrap().text,
+            "unchanged old report"
+        );
+        let chapters = adapter.collect_sections(&legacy).await.unwrap();
+        assert_eq!(chapters.len(), 1);
+        assert_eq!(chapters[0].text, "saved header");
+    }
 }
 
 #[cfg(unix)]

@@ -8,8 +8,11 @@ use sinan_adapter_sdk::{
 use std::{path::Path, time::Duration};
 use tokio::{io::AsyncReadExt, time::timeout};
 
-pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3";
-const LEGACY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2";
+pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5";
+const LEGACY_VERSIONS: [&str; 2] = [
+    "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2",
+    "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3",
+];
 pub const SECTION_NAMES: [&str; 5] = [
     "header_info",
     "hardware_quality",
@@ -48,7 +51,7 @@ fn path_argument(path: &Path) -> Result<String> {
 }
 
 fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String, String)> {
-    if !matches!(spec.version.as_str(), VERSION | LEGACY_VERSION) {
+    if spec.version != VERSION && !LEGACY_VERSIONS.contains(&spec.version.as_str()) {
         bail!("unsupported diagnostic version");
     }
     let id = spec.id.as_bytes();
@@ -205,7 +208,7 @@ impl DiagnosticAdapter for NodeQualityAdapter {
     fn collect<'a>(&'a self, spec: &'a DiagnosticSpec) -> BoxFuture<'a, Option<DiagnosticOutput>> {
         Box::pin(async move {
             let mut compatible = spec.clone();
-            if compatible.version == LEGACY_VERSION {
+            if LEGACY_VERSIONS.contains(&compatible.version.as_str()) {
                 compatible.version = VERSION.into();
             }
             validate(&compatible)?;
@@ -237,7 +240,7 @@ impl DiagnosticAdapter for NodeQualityAdapter {
     ) -> BoxFuture<'a, Vec<DiagnosticSection>> {
         Box::pin(async move {
             let mut compatible = spec.clone();
-            if compatible.version == LEGACY_VERSION {
+            if LEGACY_VERSIONS.contains(&compatible.version.as_str()) {
                 compatible.version = VERSION.into();
             }
             validate(&compatible)?;
