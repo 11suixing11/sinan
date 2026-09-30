@@ -105,14 +105,14 @@ class EvidenceContracts(unittest.TestCase):
                  "failure": {"fixture_http": {"passed": False, "error_kind": {}, "http_status": SECRET},
                              "fixture_tls": {"error_kind": "tls", "certificate": SECRET},
                              "host": {"cpu_count": 2, "load1_milli": True, "mem_available_kib": SECRET,
-                                      "environment": SECRET}, "client_running": SECRET,
-                             "http_fixture_running": True, "config": SECRET}, "identity": SECRET}
+                                      "environment": SECRET}, "client_present": SECRET,
+                             "http_fixture_present": True, "config": SECRET}, "identity": SECRET}
         self.path.write_text(json.dumps(value))
         summary = EVIDENCE.load(self.path)
         self.assertEqual(len(summary["transfers"]), 1)
         self.assertIsNone(summary["failure"]["fixture_http"]["http_status"])
         self.assertEqual(summary["failure"]["fixture_tls"], {"error_kind": "tls"})
-        self.assertNotIn("client_running", summary["failure"])
+        self.assertNotIn("client_present", summary["failure"])
         self.assertNotIn(SECRET, json.dumps(summary))
         self.path.write_text("x" * 16385)
         self.assertEqual(EVIDENCE.load(self.path), {})
@@ -136,7 +136,7 @@ class EvidenceContracts(unittest.TestCase):
                          {"a": {"IPAddress": "198.51.100.1"}}, {"a": {"IPAddress": "::1"}}):
             (self.scratch / "tls-network.json").write_text(json.dumps(networks))
             with patch.object(EVIDENCE, "tcp_probe", return_value={}) as tcp, \
-                 patch.object(EVIDENCE, "http_probe", return_value={"http_status": 200}), \
+                 patch.object(EVIDENCE, "bounded_http_probe", return_value={"http_status": 200}), \
                  patch.object(EVIDENCE, "tls_probe") as tls:
                 EVIDENCE.failure(self.scratch, 0, 0)
                 self.assertEqual([call.args[0] for call in tcp.call_args_list], [18081, 2080, 443])
@@ -146,11 +146,11 @@ class EvidenceContracts(unittest.TestCase):
         self.assertEqual(EVIDENCE.fixture_address(self.scratch), "10.0.0.2")
 
     def test_real_http_fixture_is_direct_bounded_and_counts_without_recording_payload(self):
-        server = FIXTURE.ThreadingHTTPServer(("127.0.0.1", 0), FIXTURE.Handler)
+        server = FIXTURE.ThreadingHTTPServer(("127.0.0.1", 18081), FIXTURE.Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            record = EVIDENCE.probe(lambda: EVIDENCE.http_probe(server.server_port))
+            record = EVIDENCE.probe(lambda: EVIDENCE.bounded_http_probe(self.scratch))
             self.assertTrue(record["passed"])
             self.assertEqual(record["http_status"], 200)
             self.assertEqual(record["download_bytes"], 2097152)
@@ -212,6 +212,50 @@ class EvidenceContracts(unittest.TestCase):
             self.assertLess(time.monotonic() - started, 2.5)
             thread.join(3)
 
+    def test_slow_drip_headers_and_body_are_killed_and_reaped_at_hard_deadline(self):
+        for body in (False, True):
+            with self.subTest(body=body), socket.socket() as listener:
+                listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                listener.bind(("127.0.0.1", 18081))
+                listener.listen(1)
+                listener.settimeout(3)
+                done = threading.Event()
+                def drip():
+                    stream, _ = listener.accept()
+                    with stream:
+                        stream.settimeout(1)
+                        stream.recv(4096)
+                        if body:
+                            stream.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2097152\r\n\r\n")
+                        try:
+                            for _ in range(20):
+                                stream.sendall(b"s" if body else b"H")
+                                if done.wait(0.2):
+                                    break
+                        except OSError:
+                            pass
+                thread = threading.Thread(target=drip, daemon=True)
+                thread.start()
+                started = time.monotonic()
+                children = []
+                original_popen = subprocess.Popen
+                def launch(*arguments, **options):
+                    child = original_popen(*arguments, **options)
+                    children.append(child)
+                    return child
+                with patch.object(EVIDENCE.subprocess, "Popen", side_effect=launch):
+                    record = EVIDENCE.probe(lambda: EVIDENCE.bounded_http_probe(self.scratch))
+                done.set()
+                thread.join(2)
+                self.assertFalse(thread.is_alive())
+                self.assertFalse(record["passed"])
+                self.assertEqual(record["error_kind"], "timeout")
+                self.assertLess(time.monotonic() - started, 2.5)
+                self.assertEqual(len(children), 1)
+                self.assertEqual(children[0].returncode, -9)
+                with self.assertRaises(ProcessLookupError):
+                    EVIDENCE.os.kill(children[0].pid, 0)
+
     def test_dripping_http_headers_and_body_share_the_absolute_two_second_budget(self):
         for stage in ("headers", "body"):
             with self.subTest(stage=stage), socket.socket() as listener:
@@ -244,6 +288,7 @@ class EvidenceContracts(unittest.TestCase):
                 self.assertLess(elapsed, 2.5)
                 self.assertEqual(record["error_kind"], "timeout")
                 self.assertFalse(record["passed"])
+
 
     def test_public_ci_summary_revalidates_evidence_without_probes_or_private_dump(self):
         source = (ROOT / "scripts/ci-real-e2e.sh").read_text().split("write_summary() {\n", 1)[1]
@@ -283,6 +328,7 @@ sudo() { :; }
         self.assertEqual(process.returncode, 28)
         self.assertEqual(process.stdout, "probe_failed\nsummary_failed\n")
         self.assertIn("failed during resumed-traffic", process.stderr)
+
 
     def test_real_cleanup_failure_keeps_existing_error_and_success_still_rejects_cleanup_failure(self):
         shell = (ROOT / "scripts/ci-real-e2e.sh").read_text()

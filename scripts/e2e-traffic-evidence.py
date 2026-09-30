@@ -68,7 +68,7 @@ def safe_summary(value):
             key: safe_record(failure[key]) for key in
             ("http_tcp", "client_tcp", "runtime_tcp", "fixture_http", "fixture_tls") if key in failure
         }
-        for key in ("client_running", "http_fixture_running"):
+        for key in ("client_present", "http_fixture_present"):
             if type(failure.get(key)) is bool:
                 result["failure"][key] = failure[key]
         resources = failure.get("host")
@@ -256,6 +256,25 @@ def http_probe(port=18081):
         connection.close()
 
 
+def bounded_http_probe(scratch):
+    # HTTPResponse may perform repeated recv calls despite a socket timeout.
+    # A single owned worker gives slow-drip headers and bodies a hard deadline.
+    command = [sys.executable, str(Path(__file__).resolve()), "--scratch", str(scratch), "probe-http"]
+    try:
+        process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                 text=True, timeout=2, check=False)
+        if process.returncode == 0 and len(process.stdout) <= 512:
+            result = safe_record(json.loads(process.stdout))
+            if type(result.get("passed")) is bool:
+                return result
+    except subprocess.TimeoutExpired:
+        # subprocess.run kills and reaps its own worker before raising.
+        return {"passed": False, "error_kind": "timeout"}
+    except (OSError, ValueError, RecursionError):
+        pass
+    return {"passed": False, "error_kind": "other"}
+
+
 def tls_probe(address, certificate, port=443):
     deadline = time.monotonic() + 2
     context = ssl.create_default_context(cafile=str(certificate))
@@ -282,7 +301,7 @@ def fixture_address(scratch):
     return str(address)
 
 
-def running(pid):
+def present(pid):
     if pid <= 0:
         return None
     try:
@@ -313,11 +332,11 @@ def host_resources():
 
 def failure(scratch, client_pid, fixture_pid):
     evidence = load(scratch / EVIDENCE_NAME)
-    result = {"client_running": running(client_pid), "http_fixture_running": running(fixture_pid),
+    result = {"client_present": present(client_pid), "http_fixture_present": present(fixture_pid),
               "host": host_resources()}
     for name, port in (("http_tcp", 18081), ("client_tcp", 2080), ("runtime_tcp", 443)):
         result[name] = probe(lambda: tcp_probe(port))
-    result["fixture_http"] = probe(http_probe)
+    result["fixture_http"] = probe(lambda: bounded_http_probe(scratch))
     try:
         address = fixture_address(scratch)
     except (OSError, ValueError, KeyError, TypeError, RecursionError):
@@ -338,9 +357,13 @@ def main():
     failure_command = commands.add_parser("failure")
     failure_command.add_argument("--client-pid", type=int, default=0)
     failure_command.add_argument("--fixture-pid", type=int, default=0)
+    commands.add_parser("probe-http")
     arguments = parser.parse_args()
     if arguments.command == "transfer":
         return transfer(arguments.scratch, arguments.phase, arguments.direction)
+    if arguments.command == "probe-http":
+        print(json.dumps(probe(http_probe)))
+        return 0
     failure(arguments.scratch, arguments.client_pid, arguments.fixture_pid)
     return 0
 
