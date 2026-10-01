@@ -1344,3 +1344,9 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 受验整合源码 `3dea5d9`：Bun 33 项 / 894 断言、TypeScript/Vite 92 模块通过；19 份已提交 dist 与第一次及重复构建逐字相同。12 套仓库 Chromium 回归全通过，覆盖监控、目录、服务器运营、看板与展示、接入、资产、IP、完整验机门禁、TCP、确认取消和代理业务。独立桌面/手机负例检查旧修订 409、目标不可编辑、列表失败禁写、无效间隔零写入、只手动测试通知、429 不自动重试、401 清除秘密与匿名零管理请求，以及隐藏/公开撤权后的历史清理；通知令牌未进入浏览器存储。320 像素监控及 390 像素目录截图完成目视检查。
 - 234 份受保护输入与 `9752b461` 逐字相同，包含 Agent/core/协议、NodeQuality、发布及部署工具、签名接入、GitHub-only 下载与升级能力协商；未放宽完整验机或退役保护。254 个本地文档链接、core boundary 和 diff 检查通过。所有浏览器 API 都是私有回环替身，不代表真实拨测、通知送达、生产安装或实机验收。
 - 本分工仅完成源码审查和前端验证，未运行 Cargo/PostgreSQL；数据库事务、迁移、通知队列与最终完整 Rust 回归由整合任务另行验证。原独立夹具的定位器/可选 thread_id mock 修正及一次不存在的静态清单路径失败均保留，不计通过。耐久证据 `pr127-review-20261001/integrated` 保存准确源码与原日志；CI 仍暂停，未签署、发布或部署。
+
+## 2026-10-01 PR #127 全量整合验证
+
+- 正常保留 fork 作者 `b98fa5f` 和已合 #126/#128/#129，冻结 `addcdbe` 运行输入：本地完整 Rust/PostgreSQL workspace/all-targets 473 通过、0 失败、15 既有实机条件忽略；macOS umask077 原子链接、workspace all-targets Clippy/fmt/core 通过。自己的 PostgreSQL 127.0.0.1:55432 已停止。
+- 已受验监控产品与私有前端输入逐字保持 `3dea5d9`：Bun 33/894、TS/Vite、19 dist 重复复现、12 套仓库与两套独立 Chromium 负例通过；仍未真实 Telegram/多平台/Agent 联合负载，未将本地当作 GitHub CI 或实机签收。
+- fork 现有四个工作流 active，逐一固定原 YAML核对仅 push/pull_request/manual 与 agent-v* tag，无 pull_request_target 等额外自动事件；普通 push 最后提交带 [skip ci]，不改变 fork 状态。主仓库四源码工作流继续 disabled_manually，不重跑、恢复或把跳过记为通过。
