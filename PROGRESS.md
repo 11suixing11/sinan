@@ -994,18 +994,6 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 该证据只证明有限联合负载：monitor-only 不注册诊断/代理适配器，六夹具不能代替管理员取消协议、Agent 诊断 checkpoint/outbox、真实 Panel/PG/UI、生产 Reality 或完整 NodeQuality。全文保留冻结输入、运行时正式验签边界、双 boot 区别、实际统计与缺口，见 [独立验收文档](docs/acceptance/p0-joint-load.md)。P0 总验仍未签收。
 - 合并前补修流量 worker 启动异常漏记和停止期间最后一次失败漏判：异常保存明确失败行，停止前必须存活，等待线程后重新核对最终流量及重放记录。本聊天本地行为回归 16 通过；原作者 14 项与私有脚本/结果/receipt 保留原归属，未在 guest 重演，不以新判据追认旧联合验收。正式签名/发布/部署及 CI 均未执行。
 
-## 2026-10-01：NodeQuality 首层五脚本固定来源（关联 #28 独立项）
-
-- r6 构建器从四仓完整提交获取入口、五首层脚本和四份完整 LICENSE，逐文件验证 SHA256/大小后原字节嵌入一个签名 runner；来源/版权信息和许可证不被删改。宿主 curl shim 在原入口真实通路按五个精确 URL 供给本地来源，未知请求拒绝且不能回退在线 main。helper 可独立输出固定清单、打包/校验/供给，不执行源码；有界普通文件读取拒绝 FIFO/符号链接。
-- 原硬件/IP/网络/回程参数、章节和历史 r2–r5 收集保留，r4–r6 日常入口保持；面板和 Agent 所有 full 门禁不变，不添加 `-p` 或减少原硬件能力。rootfs、二级工具/数据/二进制许可与所有上传路径仍未完整收敛，#28/#65 保持开放，不据此签收完整 NodeQuality。
-- macOS 新来源专项 12、旧 wrapper 34、日常 helper 7 通过；发布契约 32 项运行（28 通过/4 既有条件跳过）。真实私有 shim/runner PATH、单字节篡改/缺源、意外 URL、FIFO、两架构不可变/重建、完整 TEST_ONLY 签名覆盖及篡改拒绝有行为证明；恢复旧 shim 的三个用例出现 16 个预期失败断言/0 异常，证明接线路径不是未使用代码。没有执行上游脚本、rootfs、benchmark 或公网探测。
-- 冻结源码的 adapter 诊断 15、panel chain_gate HTTP/PostgreSQL 3、日常接口追加 1 项通过，0 失败/忽略；workspace fmt、adapter 全 targets Clippy（warnings 为错误）、core 分层和差异检查通过，自有 PG55439 已停止。完整 workspace/全部 panel/其它平台未重跑；独立步骤与来源摘要见 [验收文档](docs/acceptance/nodequality-pinned-first-level-sources.md)。
-- 专用 Debian 12 ARM64 guest 原单次运行 wrapper34全部通过、来源12运行（11通过/1缺minisign条件跳过）；18输入摘要前后不变，实际测试3.929184秒。清理核验以真实journal monotonic起点取证，OOM/夹具进程/挂载为空、unit inactive/not-found/cgroup不存在、SSH406重启0、同boot、swap0。只证明纯夹具的Linux/root包装/回收；本次限额只有systemd-run配置参数，运行期readback未持久化，不夸大为实机预算或完整验机/代理联合总验。
-- 保留已验61a源码快照aca2f62后，重定位到be6bf81形成受验71a778b；本项5Rust/18guest输入SHA逐个不变，SDK诊断接口、签名/runner/helper/build输入无上游差异，仅常驻Adapter默认方法及已有依赖边变化。同一19Rust专项与Clippy/fmt/core再过（收据51a6a036…）。最终固定92800dd形成受验d3ca6756，保留他项PROGRESS，五Rust/18guest/Cargo/trust输入当时仍相同；为覆盖panel/probes新编译输入再过同一19及Clippy/fmt/core（收据7021f9db…），PG已停、PID不存在/端口关闭。重复基线验证不增场景，不认证其它新能力；文档回填形成首个源码点7d4e940，原证据保留。
-- 发布前发现 curl 8.4 之前 `--max-filesize` 无法限制未知长度响应，已在同一项中补接收边界：curl第一项`--disable`，stdout经helper最多读2MiB＋1，合法后才O_EXCL/NOFOLLOW创建0600文件，超限不写目标，pipefail保留旧制品/checksum。新版mac来源15全部通过、0失败/跳过，含实际回环chunked/声明超限、严格umask与子进程/server清理；只证明有限流读取，不认证TLS或上游执行。五Rust/Cargo/trust未变，19不重跑；原guest34/12证据只对应旧helper快照。
-- 新版来源15在专用Debian12 guest只追加单次运行：14通过/1缺minisign条件跳过，2.513秒；actualcurl7.88未知长度control实际写2,097,153B，新receive两种超限响应均拒绝且无目标。本次限额在单元内部持久化读回（MemoryMax256MiB/Swap0/Tasks64/weights10/OOM500/PrivateNetwork+NNP/KillMode），峰值47,603,712B/7pids、memory.events max/oom/oomkill0。18inputs前后不变，cleanup无OOM/进程/挂载/cgroup残留、SSH406重启0、同boot/swap0；新result1c5a9a51…/postf6ac776f…/index3e74cebe…保留，旧34和19未重复。
-- 保持四个 workflow 暂停；未触发 CI、正式签名、发布或部署。后续仍按原整改顺序完成整条 NodeQuality 执行链修复与专用节点验收，不把五首层 pin 等同 rootfs/二级链完成。
-
 ## 2026-10-01：sing-box 策略组、套餐周期与两跳链路
 
 - 按用户新增需求在 `plugins/singbox/panel/` 实现策略组、套餐模板/不可变分配快照与独立入口到出口的两跳链路。一个用户可绑定多个策略组和一个当前套餐，单独授权与组授权取并集；旧用户 ID、订阅令牌、节点 UUID 与流水保持。没有套餐仍是显式提示的不限额/不限期兼容模式。界面新增“策略与套餐”，用户详情分别分配可用范围和套餐。详见 [ADR 0035](docs/adr/0035-singbox-policy-package-groups.md) 与 [使用说明](docs/singbox-groups.md)。
@@ -1028,6 +1016,46 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 实际 main `ed1d935` 的源码已含公网/内网折叠，HTML 却仍加载旧 `index-BCdIyArN.js`；真实 dist 地址页夹具找不到 private 折叠控件，原失败保留。部分未引用资源还残留合并内容。按冻结 Bun1.4.2/lock 重建并清理本树旧生成文件，恢复源与产物一致。
 - TypeScript/Vite 通过，真实 Chromium 地址页1280/390正例通过；重建全部19个文件逐字节等于本聊天受验 `8e1f1f9` 的产物，该输入的分组/地址/展示浏览器已通过。运行源码/迁移不变，无额外Cargo/PG、正式签名、发布部署或CI；四个workflow继续暂停。
+
+## 2026-10-01：补齐服务器资产与账单周期流量
+
+- 按用户追加授权完成地区、展示分组、标签、展示隐藏、金额/币种/费用周期、到期日期、自动顺延记录、网卡额度/统计口径/月重置日/网卡筛选。新增与编辑共用分区表单及快捷跳转，后台列表、详情和服务器展示页接入真实配置；支持地区/分组筛选及标签搜索。
+- 新增 0016 迁移与兼容默认值；旧仅名称请求仍可用，PATCH 省略资产时保留现有值，非法字段整体拒绝。金额和字节使用精确字符串，保留免费与未填写的区别，编辑超过 JavaScript 安全整数范围的额度不丢精度。自动顺延按费用周期追平到期记录，并发维护不覆盖编辑；不代供应商付款。
+- 使用既有带时间戳遥测，逐网卡保存计数检查点和 UTC 日累计，与遥测确认处于同一事务。首样本建立基线，同批乱序按时间处理，重放与旧采样不重复累加；识别计数回退、可观察重启、网卡变化和采样缺口。每月账单日按 UTC 日历计算，短月取月末，修改统计网卡、口径和重置日会重新汇总保留的历史。到期或超额仅提示状态，不修改服务与代理授权。
+- 最终完整 `cargo test` 396 通过、0 失败、13 条既有条件忽略；真实临时 PostgreSQL 覆盖资产鉴权/原子保存/默认值/清空、日期顺延、月末闰年、网卡过滤、重放乱序、大整数及注入写入故障后的事务回滚。旧库迁移快照新增空资产默认值断言，原有身份、凭据、授权和账本不变检查通过。全 targets Clippy（warnings 为错误）、fmt、core 边界和差异检查通过。一次中途终止的运行未计入通过结果，最终完整重跑退出码为 0。
+- Bun 1.4.2 / TypeScript / Vite 构建通过并同步 dist，20 项前端测试 / 795 断言通过。最终产物的 Chromium 1440/390 像素覆盖新增、编辑、失败保留与重试、清空、二进制小数额度和最大字节精度、自动顺延条件、地区/分组/标签筛选及隐藏；既有接入流程的两种宽度与展示页 1440/390/320 像素深浅主题回归通过。浏览器错误、非预期接口调用均为零，弹窗无横向溢出；嵌入静态资源的真实 HTTP 测试通过。
+- 使用和升级说明见 [服务器资产与流量额度](docs/server-assets.md)、[ADR 0036](docs/adr/0036-server-assets-and-traffic.md)。网卡差值归于后一采样日，跨日断连、升级前和无法识别的重启期间不能恢复精确用量，不承诺与供应商账单一致。未做生产升级、真实多平台流量或长期续期验收；下一步在专用测试机核对出口网卡、基线、断连和月边界。CI 按用户安排继续暂停，本次提交标记 `[skip ci]`。
+- 推送前将 `382550f` 正常整合上游 `92800dd`，保留双方进度记录并重新构建前端；核对上游 Agent 0.3.1、磁盘计量、系统保护、IP 与拨测修复的源码原字节保留。最终完整 Rust 回归 416 通过、0 失败、14 条既有条件忽略；全 targets Clippy、fmt、core 边界、差异检查通过。最终 dist 的 20 项前端测试 / 795 断言，以及资产、接入、展示三组桌面/手机浏览器回归通过；新产物为 `index-BshCnV6e.js` 与 `ServerDisplay-B_BGOdU6.js`。本地结果不替代各平台实机或远端 CI，CI 继续暂停。
+
+## 2026-10-01：完善服务器新增配置与接入流程
+
+- 按用户选择参考 NodeFlare 的新增表单与安装引导，改为“配置服务器 → 安装与接入”两步弹窗。分区呈现名称、监控采样/上传间隔、公网地址识别、自动更新和可选初始 TCP/ICMP 拨测，提供实时、均衡、轻量预设及自定义间隔，保留手机布局与键盘操作。成本、标签、地区和流量额度留待后续独立工作。
+- 创建接口支持可选 AgentSettings 与最多 32 个初始拨测，同一 PostgreSQL 事务保存，非法参数或拨测存储失败回滚；旧仅名称请求及重命名行为兼容。复用既有协议、设置和拨测表，无新增依赖或迁移，也不创建默认公网目标。
+- 新增与详情接入复用安装组件：签名版本选择、命令复制、过期隐藏、失败独立重试与排查说明；可见页面每 3 秒查询实际注册/在线状态。重试命令不重复创建服务器，编辑版本立即隐藏旧命令，状态读取失败不显示旧在线状态，已有设备在线不冒充升级完成。保留可信 bootstrap；Linux 命令与原生平台文档流程分别说明。
+- 本地完整 Rust 回归 388 通过、13 条既有条件忽略；新增真实 PostgreSQL 用例覆盖旧客户端默认值、认证、TCP/ICMP 保存、UUID 重建、非法配置、32 条上限、重命名保留设置及中途写入失败回滚。全 targets Clippy（warnings 为错误）、fmt、core 边界与差异检查通过。
+- Bun 1.4.2 / TypeScript / Vite 构建通过并同步 dist，17 项前端单测 / 771 断言通过。最终产物 Chromium 1440×1000 与 390×844 覆盖配置校验、失败保留输入、重复提交、命令重试/复制、切换版本、缺少制品、令牌过期、自动注册/上线检测、查询失败恢复、详情继续接入与焦点循环；浏览器错误和额外接口调用均为零，弹窗无横向溢出。已有展示页 1440/390/320 像素回归通过，最终面板静态资源 HTTP 集成测试通过。
+- 未执行生产安装、真实设备升级和远端 CI，不将浏览器夹具的上线状态当作实机验收。CI 继续暂停，提交使用 `[skip ci]`；部署后可在测试服务器按 [接入步骤](docs/deploy.md) 检查采样与拨测设置同步。
+
+## PR #103 合并验证与时钟校正（2026-10-01）
+
+在保留作者 `238ce393` 和主线 `412e8fc` 的普通整合提交 `ba3892c6` 上，资产迁移使用 `0017_server_assets.sql`，ADR 使用 0036，保留现代协议、策略组、套餐/两跳链路、固定拨测身份与私有地址折叠。修复墙钟跳变被当成重启而重复累计网卡总量的问题：只有运行时长实际回退确认重启；墙钟/运行时长不一致只标记不完整，单调计数仍取差值。真实 PostgreSQL 回归覆盖向前校时、回拨夹持、明确重启、重放及事务失败回滚。
+
+本聊天在该精确提交完成 workspace/all-targets Rust 与 PostgreSQL：442 通过、0 失败、15 项既有实机或平台条件忽略；另 macOS umask 077 原子写入/链接 1 项通过，fmt、core 分层、workspace 全 targets Clippy 通过。忽略项、生产网卡/账单比对、真实 Agent 联合负载和实机总验仍未验证；GitHub 四个仓库 CI 工作流继续暂停，本项未触发 CI、正式签署、发布或部署。
+
+同一 `ba3892c6` 的前端独立验收：Bun 20 通过/795 断言，TypeScript/Vite 77 模块构建逐字复现 19 个已提交产物；9 个真实 Chromium 夹具全部通过，19 次桌面/手机视口检查、28 张截图。覆盖接入/资产、IP 折叠、策略组、代理业务、展示、TCP、NodeQuality full 门禁和确认式取消；所有写入由私有 API 替身承接，不代表真实面板或 Agent 接入。最终仅追加本段进度，受验 Rust/前端运行输入保持。
+
+## 2026-10-01：NodeQuality 首层五脚本固定来源（关联 #28 独立项）
+
+- r6 构建器从四仓完整提交获取入口、五首层脚本和四份完整 LICENSE，逐文件验证 SHA256/大小后原字节嵌入一个签名 runner；来源/版权信息和许可证不被删改。宿主 curl shim 在原入口真实通路按五个精确 URL 供给本地来源，未知请求拒绝且不能回退在线 main。helper 可独立输出固定清单、打包/校验/供给，不执行源码；有界普通文件读取拒绝 FIFO/符号链接。
+- 原硬件/IP/网络/回程参数、章节和历史 r2–r5 收集保留，r4–r6 日常入口保持；面板和 Agent 所有 full 门禁不变，不添加 `-p` 或减少原硬件能力。rootfs、二级工具/数据/二进制许可与所有上传路径仍未完整收敛，#28/#65 保持开放，不据此签收完整 NodeQuality。
+- macOS 新来源专项 12、旧 wrapper 34、日常 helper 7 通过；发布契约 32 项运行（28 通过/4 既有条件跳过）。真实私有 shim/runner PATH、单字节篡改/缺源、意外 URL、FIFO、两架构不可变/重建、完整 TEST_ONLY 签名覆盖及篡改拒绝有行为证明；恢复旧 shim 的三个用例出现 16 个预期失败断言/0 异常，证明接线路径不是未使用代码。没有执行上游脚本、rootfs、benchmark 或公网探测。
+- 冻结源码的 adapter 诊断 15、panel chain_gate HTTP/PostgreSQL 3、日常接口追加 1 项通过，0 失败/忽略；workspace fmt、adapter 全 targets Clippy（warnings 为错误）、core 分层和差异检查通过，自有 PG55439 已停止。完整 workspace/全部 panel/其它平台未重跑；独立步骤与来源摘要见 [验收文档](docs/acceptance/nodequality-pinned-first-level-sources.md)。
+- 专用 Debian 12 ARM64 guest 原单次运行 wrapper34全部通过、来源12运行（11通过/1缺minisign条件跳过）；18输入摘要前后不变，实际测试3.929184秒。清理核验以真实journal monotonic起点取证，OOM/夹具进程/挂载为空、unit inactive/not-found/cgroup不存在、SSH406重启0、同boot、swap0。只证明纯夹具的Linux/root包装/回收；本次限额只有systemd-run配置参数，运行期readback未持久化，不夸大为实机预算或完整验机/代理联合总验。
+- 保留已验61a源码快照aca2f62后，重定位到be6bf81形成受验71a778b；本项5Rust/18guest输入SHA逐个不变，SDK诊断接口、签名/runner/helper/build输入无上游差异，仅常驻Adapter默认方法及已有依赖边变化。同一19Rust专项与Clippy/fmt/core再过（收据51a6a036…）。最终固定92800dd形成受验d3ca6756，保留他项PROGRESS，五Rust/18guest/Cargo/trust输入当时仍相同；为覆盖panel/probes新编译输入再过同一19及Clippy/fmt/core（收据7021f9db…），PG已停、PID不存在/端口关闭。重复基线验证不增场景，不认证其它新能力；文档回填形成首个源码点7d4e940，原证据保留。
+- 发布前发现 curl 8.4 之前 `--max-filesize` 无法限制未知长度响应，已在同一项中补接收边界：curl第一项`--disable`，stdout经helper最多读2MiB＋1，合法后才O_EXCL/NOFOLLOW创建0600文件，超限不写目标，pipefail保留旧制品/checksum。新版mac来源15全部通过、0失败/跳过，含实际回环chunked/声明超限、严格umask与子进程/server清理；只证明有限流读取，不认证TLS或上游执行。五Rust/Cargo/trust未变，19不重跑；原guest34/12证据只对应旧helper快照。
+- 新版来源15在专用Debian12 guest只追加单次运行：14通过/1缺minisign条件跳过，2.513秒；actualcurl7.88未知长度control实际写2,097,153B，新receive两种超限响应均拒绝且无目标。本次限额在单元内部持久化读回（MemoryMax256MiB/Swap0/Tasks64/weights10/OOM500/PrivateNetwork+NNP/KillMode），峰值47,603,712B/7pids、memory.events max/oom/oomkill0。18inputs前后不变，cleanup无OOM/进程/挂载/cgroup残留、SSH406重启0、同boot/swap0；新result1c5a9a51…/postf6ac776f…/index3e74cebe…保留，旧34和19未重复。
+- 保持四个 workflow 暂停；未触发 CI、正式签名、发布或部署。后续仍按原整改顺序完成整条 NodeQuality 执行链修复与专用节点验收，不把五首层 pin 等同 rootfs/二级链完成。
+
 
 ## 2026-10-01：#104 文档冲突整合
 

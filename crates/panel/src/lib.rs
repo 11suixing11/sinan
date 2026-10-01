@@ -20,6 +20,8 @@ pub use plugins::singbox::{accesses, business, deployments, nodes, subscriptions
 pub mod publisher;
 pub mod releases;
 pub mod retirement;
+pub mod server_assets;
+pub mod server_traffic;
 pub mod servers;
 pub mod telemetry;
 
