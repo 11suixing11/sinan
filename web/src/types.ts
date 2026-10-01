@@ -32,7 +32,8 @@ export type DiagnosticRecord = { id: string; status: 'queued' | 'running' | 'can
 export type QualityProvider = { provider: string; label: string; kind: 'aggregator' | 'credential_api' | 'node_self'; execution: 'panel' | 'node'; enabled: boolean; reason: string | null; databases: { database: string; label: string }[] }
 export type ServerIpInfo = { ip_addresses: string[]; public_ip_addresses: string[]; private_ip_addresses: string[]; quality: IpQuality[]; providers?: QualityProvider[] }
 export type NodeQuality = { cancel_supported: boolean; plugin_ready: boolean; plugin_reason: string | null; full_ready: boolean; full_reason: string | null; reports: DiagnosticRecord[]; proxy_activity?: { state: 'active' | 'unknown' | 'not_enabled'; reason: string; checked_at: number; last_positive_at: number | null } }
-export type PluginServer = { id: number; name: string; enabled: boolean; online: boolean; agent_supported: boolean; read_only: boolean; source: 'administrator' | 'agent_capability' | 'legacy_nodes' | 'legacy_deployments' | null }
+export type PluginInstallation = { state: 'not_enabled' | 'queued' | 'waiting_agent' | 'offline' | 'pending' | 'ready' | 'failed'; reason: string; target_rev: number; applied_rev: number }
+export type PluginServer = { id: number; name: string; enabled: boolean; online: boolean; agent_supported: boolean; read_only: boolean; source: 'administrator' | 'agent_capability' | 'legacy_nodes' | 'legacy_deployments' | null; installation?: PluginInstallation }
 
 export type TcpQualityTarget = { id: string; name: string; target: string; port: number; carrier: string; region: string | null }
 export type DiagnosticView = { cancel_supported: boolean; plugins: { plugin: string; title: string; version: string; ready: boolean; reason: string | null }[]; reports: DiagnosticRecord[] }

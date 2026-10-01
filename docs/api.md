@@ -105,9 +105,9 @@
 |---|---|
 | `GET /api/plugins/sing-box/servers` | 未删除服务器的插件启用元数据列表 |
 | `GET /api/plugins/sing-box/servers/{id}` | 单台服务器的插件启用元数据 |
-| `POST /api/plugins/sing-box/servers/{id}/enable` | 空 JSON `{}`；管理员明确启用，重复请求幂等 |
+| `POST /api/plugins/sing-box/servers/{id}/enable` | 空 JSON `{}`；管理员明确启用并安排首次安装，重复请求幂等 |
 
-元数据为 `{id,name,enabled,online,agent_supported,read_only,source}`。source 为 `administrator`、当前 `agent_capability`、兼容 `legacy_nodes` / `legacy_deployments` 或 null。设备声明与既有配置来源显示为只读；没有当前能力、管理员选择或历史代理配置的服务器保持关闭，保存过但已消失的设备声明不会单独启用。创建节点和读取部署需先启用，否则返回 409；启用不表示设备已经声明支持。关闭服务器的详情不请求代理节点或部署，后台不生成代理配置；已有网卡遥测继续显示。
+元数据为 `{id,name,enabled,online,agent_supported,read_only,source,installation}`。source 为 `administrator`、兼容 `legacy_nodes` / `legacy_deployments` 或 null；旧能力标记仅保留历史记录，单独能力声明不自动启用。`installation={state,reason,target_rev,applied_rev}`，state 为 `not_enabled`、`queued`、`waiting_agent`、`offline`、`pending`、`ready` 或 `failed`，reason 提供中文原因。启用安排无部署服务器的首次安全配置，重复请求不延后待办；实际安装仍须签名制品、设备支持和应用确认。创建节点和读取部署需先启用，否则返回 409。未启用服务器详情不请求节点或部署；已有网卡遥测继续显示。详见 [安装流程](singbox-installation.md)。
 
 ## 节点
 

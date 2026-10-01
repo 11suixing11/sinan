@@ -56,6 +56,7 @@ export default function ServerEnrollment({ server, created = false, onClose }: {
           <li className={online ? 'is-done' : ''}><Icon name={online ? 'check' : 'activity'} size={14} />{online ? '设备在线' : '等待设备上线'}</li>
         </ol>
         <ErrorNotice message={live.error} retry={live.reload} />
+        {online && <div className="notice"><div><strong>下一步：安装服务器插件</strong><p>监控已接入。安装 sing-box 后可创建代理节点、代理用户和两跳链路。</p><a className="button button-primary button-small" href="#/plugins/sing-box" onClick={onClose}>安装服务器插件<Icon name="arrow" size={15} /></a></div></div>}
         <div className="server-enrollment-status-actions"><span>页面可见时，每 3 秒自动检查</span><button type="button" className="text-button" onClick={live.reload}>立即检查</button></div>
         <button type="button" className="text-button server-enrollment-help-toggle" aria-expanded={showHelp} aria-controls="enrollment-help" onClick={() => setShowHelp(value => !value)}>{showHelp ? '收起排查说明' : '设备迟迟未上线？'}</button>
         {showHelp && <ul id="enrollment-help" className="server-enrollment-help"><li>确认安装命令执行成功，Agent 服务正在运行。</li><li>确认设备能访问命令中的面板地址，HTTPS 与 WebSocket 反向代理可用。</li><li>令牌过期或已被使用时，重新生成命令；已有服务器需保留原设备身份。</li><li>接入后暂时没有拨测结果时，等待配置同步，并检查目标地址与检测权限。</li></ul>}

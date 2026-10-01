@@ -25,6 +25,7 @@ export default function ServerDetail({ id }: { id: number }) {
     <button className="back-link" onClick={() => navigate('/servers')}><Icon name="back" size={16} />返回服务器</button>
     <PageHeader eyebrow={`服务器 #${entry.id}`} title={entry.name} description="系统概况、运行指标与设备状态。"><Badge tone={entry.online ? 'good' : 'neutral'}>{entry.online ? '在线' : entry.device_public_key ? '离线' : '待接入'}</Badge>{entry.metrics_stale && <Badge tone="warm">指标过期</Badge>}<Refresh onClick={refresh} /><button className="button button-primary" onClick={() => setInstalling(true)}><Icon name="plus" size={16} />接入 / 升级</button></PageHeader>
     <ServerNavigation id={id} active="overview" />
+    <p className="helper"><a className="text-button" href="#/system/plugins">管理服务器插件</a> · 需要代理服务时，可在插件设置中安装 sing-box。</p>
     <ErrorNotice message={server.error} retry={refresh} />
     {!entry.online && <div className="notice">{entry.device_public_key ? '设备当前离线，以下指标是最近一次上报的数据。' : '设备尚未接入。点击“接入 / 升级”获取安装命令。'}</div>}
     {entry.metrics_stale && <div className="notice">指标过期，以下保留的是最后一次采集的历史数据。最后指标时间：{entry.metrics_sampled_at ? time(entry.metrics_sampled_at / 1000) : '未知'}。心跳独立更新，在线状态不代表指标仍在采集。</div>}
