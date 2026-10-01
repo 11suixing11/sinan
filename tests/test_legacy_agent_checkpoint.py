@@ -170,7 +170,7 @@ class LegacyCheckpointTests(unittest.TestCase):
 
         try:
             with patch.object(guard, "protected"), patch.object(guard, "quiescent"), \
-                    patch.object(guard.sqlite3, "connect", side_effect=ConcurrentRead), \
+                    patch.object(sqlite3, "connect", side_effect=ConcurrentRead), \
                     self.assertRaisesRegex(ValueError, "预检期间变化"):
                 guard.preflight("0.3.0", self.configuration)
             self.assertEqual(writer.execute("SELECT value FROM kv").fetchone()[0], changed)
