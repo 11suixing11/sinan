@@ -13,8 +13,8 @@ Rust musl target first:
   rustup target add x86_64-unknown-linux-musl   # amd64
   rustup target add aarch64-unknown-linux-musl # arm64
 
-Output: ARTIFACT_ROOT/agent/<workspace-version>/<arch> (a raw static ELF)
-        ARTIFACT_ROOT/agent/<workspace-version>/SHA256SUMS
+Output: ARTIFACT_ROOT/agent/<agent-version>/<arch> (a raw static ELF)
+        ARTIFACT_ROOT/agent/<agent-version>/SHA256SUMS
 
 The script verifies ELF architecture, absence of dynamic dependencies, and
 native --version/--help execution. Existing architecture files are immutable;

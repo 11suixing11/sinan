@@ -270,7 +270,7 @@ jobs:
 
           target = os.environ['AGENT_TARGET']
           runpy.run_path('tools/build-agent.py')['verify_architecture'](Path('.ci-binaries/sinan-agent'), target)
-          version = tomllib.loads(Path('Cargo.toml').read_text())['workspace']['package']['version']
+          version = tomllib.loads(Path('crates/agent/Cargo.toml').read_text())['package']['version']
           with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
               output.write(f'version={version}\n')
           PY

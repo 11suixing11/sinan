@@ -17,6 +17,7 @@ struct RecordingOps {
     output: Mutex<CommandOutput>,
     unavailable: Mutex<bool>,
     files: Mutex<Vec<(PathBuf, Vec<u8>)>>,
+    directories: Mutex<Vec<(PathBuf, u32, Option<String>)>>,
     allow_files: bool,
     allow_diagnostic_lock: bool,
     lock_preparations: Mutex<usize>,
@@ -63,14 +64,18 @@ impl Privileged for RecordingOps {
             }
             if program == Path::new("stat") {
                 anyhow::ensure!(
-                    self.allow_diagnostic_lock
-                        && *self.lock_preparations.lock().unwrap() > 0
-                        && args == ["-c", "%f %u", "--", "/run/sinan-diagnostic"],
+                    self.allow_diagnostic_lock && *self.lock_preparations.lock().unwrap() > 0,
                     "unexpected diagnostic lock inspection"
                 );
+                assert_eq!(args, ["-c", "%f %u", "--", "/run/sinan-diagnostic"]);
+                assert!(self.directories.lock().unwrap().contains(&(
+                    PathBuf::from("/run/sinan-diagnostic"),
+                    0o700,
+                    Some("root".into()),
+                )));
                 return Ok(CommandOutput {
                     success: true,
-                    stdout: "41c0 0\n".into(), // Ordinary root-owned 0700 directory.
+                    stdout: "41c0 0\n".into(),
                     ..Default::default()
                 });
             }
@@ -90,9 +95,14 @@ impl Privileged for RecordingOps {
                     "unexpected diagnostic lock directory permissions"
                 );
                 *self.lock_preparations.lock().unwrap() += 1;
-                return Ok(());
+            } else {
+                anyhow::ensure!(self.allow_files, "unexpected filesystem operation");
             }
-            anyhow::ensure!(self.allow_files, "unexpected filesystem operation");
+            self.directories.lock().unwrap().push((
+                path.to_owned(),
+                mode,
+                group.map(str::to_owned),
+            ));
             Ok(())
         })
     }
@@ -290,7 +300,6 @@ async fn openrc_starts_independent_diagnostic_jobs_without_invoking_systemd() ->
     let calls = ops.calls.lock().unwrap();
     assert_eq!(calls.len(), 2);
     assert_eq!(calls[0].0, Path::new("stat"));
-    assert_eq!(calls[0].1, ["-c", "%f %u", "--", "/run/sinan-diagnostic"]);
     assert_eq!(calls[1].0, Path::new("rc-service"));
     let files = ops.files.lock().unwrap();
     assert_eq!(files.len(), 2);
@@ -327,7 +336,6 @@ async fn systemd_diagnostic_jobs_keep_independent_supervision_and_status() -> Re
     let calls = ops.calls.lock().unwrap();
     assert_eq!(calls.len(), 3);
     assert_eq!(calls[0].0, Path::new("stat"));
-    assert_eq!(calls[0].1, ["-c", "%f %u", "--", "/run/sinan-diagnostic"]);
     assert_eq!(calls[1].0, Path::new("systemd-run"));
     assert!(
         calls[1]

@@ -115,8 +115,8 @@ def main():
     )
     args = parser.parse_args()
     if args.binary is not None:
-        workspace = tomllib.loads((REPOSITORY / "Cargo.toml").read_text(encoding="utf-8"))
-        version = workspace["workspace"]["package"]["version"]
+        manifest = tomllib.loads((REPOSITORY / "crates/agent/Cargo.toml").read_text(encoding="utf-8"))
+        version = manifest["package"]["version"]
     else:
         host = next(
             line.removeprefix("host: ")
@@ -138,7 +138,7 @@ def main():
             for package in metadata["packages"]
             if package["name"] == "sinan-agent"
         )
-    if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?", version):
+    if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?", version):
         parser.error("invalid Agent package version")
     output = args.artifact_root / "agent" / version / args.target
     if output.exists() or output.is_symlink():
