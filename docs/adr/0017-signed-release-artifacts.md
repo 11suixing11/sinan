@@ -1,6 +1,6 @@
 # ADR 0017：minisign 发布制品、构建时信任根与 Release 导入
 
-> 2026-10-01 更新：[ADR 0037](0037-server-operations-and-public-dashboard.md) 按用户要求将 Agent 安装/自更新改为 GitHub Release 下载，支持独立 HTTPS 镜像且不发送设备凭据。下文面板同源下载仅继续约束运行时和配置；签名及编译时信任根要求不变。
+> 2026-10-01 更新：[ADR 0038](0038-server-operations-and-public-dashboard.md) 按用户要求将 Agent 安装/自更新改为 GitHub Release 下载，支持独立 HTTPS 镜像且不发送设备凭据。下文面板同源下载仅继续约束运行时和配置；签名及编译时信任根要求不变。
 
 - 状态：已采纳，2026-09-30；先完成本文，再实施。正式信任根与正式签署由用户提供；实现先使用明确的测试根。
 - 用户决定：minisign、编译时多个公钥、`minisign-verify` 验签，CI 不取得发布私钥。
@@ -64,6 +64,8 @@ Agent CLI 提供无网络 `verify-installed --binary <path> --name <expected-nam
 旧未签缓存或回滚目标不会自动被认可。升级安装器在替换 Agent 前预检当前及 pending intent 所引用的制品，只有实际 binary 与正式签名完全相符才能补证明。否则保留旧进程、身份和账本，报告需要迁移或维护窗口。core 若遇到未签恢复/回滚，持久记录失败和非健康状态、保留可调查 intent，并输出明确错误；已有连接的处理路径可上报失败，但启动恢复发生在 transport 建连之前，失败时只能在本地记录并中止启动，不能声称面板已经收到 `ApplyResult`。不得为兼容继续执行 unsigned previous。只读预检和人工补证明不提供对旧 Agent 的跨版本事务锁，迁移时需避免并发管理操作。
 
 ## bootstrap 信任起点
+
+2026-10-01 官方在线安装与本地架构下载的调整见 [ADR 0037](0037-bootstrap-and-selective-import.md)：普通部署改为复制固定官方 GitHub 自包含入口命令，免手动预置 bootstrap；完整 proof 和 Agent 编译根验签不变。下述手工预置步骤继续用于独立审查、自建根与离线安装。
 
 面板的 `curl <panel>/install.sh | sh` 可被篡改，不能作为信任起点。公钥跟脚本从同一面板下载，也不能修复这一问题。
 

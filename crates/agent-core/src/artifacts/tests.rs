@@ -5,6 +5,35 @@ use sinan_adapter_sdk::{Plan, Prepared, RuntimeSpec};
 use std::{collections::BTreeMap, fs, path::PathBuf};
 use uuid::Uuid;
 
+#[tokio::test]
+async fn update_negotiation_does_not_relax_artifact_download_urls() {
+    let client = super::PanelClient::new("http://127.0.0.1:1", "fixture-session").unwrap();
+    for path in [
+        "/api/agent/v1/update?download_source=panel",
+        "/api/agent/v1/update?download_source=github&extra=1",
+        "/api/agent/v1/update?download_source=github#fragment",
+        "/api/agent/v1/manifest?download_source=github",
+        "//example.com/api/agent/v1/update?download_source=github",
+    ] {
+        let error = client
+            .get_json::<serde_json::Value>(path)
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("without credentials, query or fragment")
+        );
+    }
+    assert!(
+        client
+            .validate_url(
+                "http://127.0.0.1:1/api/agent/v1/artifacts/agent/0.9.0/amd64?download_source=github"
+            )
+            .is_err()
+    );
+}
+
 struct Fixture {
     directory: PathBuf,
     config: Config,
