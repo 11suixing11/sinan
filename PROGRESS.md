@@ -1,5 +1,23 @@
 # 执行进度
 
+## 2026-10-01：TCP 诊断面板登记（独立 PR）
+
+登记第二诊断插件并由 Linux Agent 加载无状态适配器，共用任务服务负责互斥、预算、上传、确认取消和历史。仅开放地区、IPv4/6、4/8 次连接和1/2并发，冻结已配置 TCP 目标及摘要，地区标签在插件独立表保存；空 PATCH 拒绝、显式 null 才清除。前端另一个独立 PR。
+
+3963c28 组合源码的 PostgreSQL/API 3项、面板参数/目标2项、适配器15项与原生17项全部通过，workspace全targets Clippy和Linux Agent构建通过，限额容器exit0/OOM=false。fe4ae60平铺后显式地区键/API3+unit2、Clippy和Agentbuild再次通过。已正常合入根sing-box插件主线8ef465f；工具版本pin改为版权补齐后公开且实际Bookworm/五aux签名验收通过的b562effcd90f8ae319665fb4ead1807b770ed4d5，1c640d3的新pin/API3+unit2/fmt/Clippy/Agentbuild再次通过，exit0/OOM=false；最终CI另核。没有以夹具替代真实测试机验收，aws-jp0仍待恢复，完整验机工具链仍被安全门禁暂停。见 docs/acceptance/tcpquality-panel-registration.md。
+
+
+## 2026-10-01：TCP 报告界面（独立 PR）
+
+服务器导航新增 TCP 连接诊断，四项小预设及配置目标地区，按本次冻结范围显示工具版本/时间/参数、连接成功统计和独立章节；未知不补零，取消确认前保留屏障，部分报告可看，不做跨参数排名。主线管理员与 sing-box 插件导航继续保留，NodeQuality 完整门禁不由本 PR 改动。
+
+012ca9f 的 Bun/TypeScript/Vite 与 Chromium1280/390px夹具验收通过，零页面错误、正确创建/地区请求和取消禁用均已核实；最终主线整合后重新构建与浏览器复验另补。验收范围与真实节点待办见 docs/acceptance/tcpquality-report-view.md。
+
+- 在面板 fe4ae60 与公开制品主线 9a41fe5 上重整源代码，NodeQuality门禁及管理员/插件导航保留；9dbff20 的 Bun frozen install、5项/711断言、TypeScript/Vite和最终dist Chromium1280/390px复验均通过，零页面错误、每宽度一条白名单创建/地区PATCH，未知/真实0/部分/旧报告过滤/取消屏障成立。实际dist index-D5k-FUiH.js，独立PR最终CI另跟。
+
+- fa8dca4保留完整主报告统计，部分章仅能补更完整/更多连接样本的结果；目标缺数据显式未知。持久化浏览器夹具在实际index-CkSqyBT0.js的1280/390px通过，完整报告不降级、目标403/离线禁止创建以及原部分/真实0/未知/互斥取消都成立，页面错误0。旧dist被完整结果反对照准确抓住，测试脚本ASI错误修复后实跑通过；没有把这些夹具称为真实节点验收。
+
+
 ## 2026-10-01：会话签发时间跨秒修复
 
 - 对应 [Issue #47](https://github.com/theLucius7/sinan/issues/47)。[PR #45 的 CI](https://github.com/theLucius7/sinan/actions/runs/36767325898) 中服务夹具已通过，认证测试暴露两次取时跨秒：存储的会话过期时间与稍后 ACK 的服务器时间相差 3599 秒。会话签发和 ACK 现在使用同一时间快照，过期时间仍由数据库保存并供 HTTP/WebSocket 强制校验。
@@ -712,20 +730,21 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 保留作者 Bookworm 启动及精确 workspace 信任修复；`b536476` 的 Debian12/amd64/arm64 原生制品 CI 全过。本地修正回环 CLI 测试的非阻塞 socket 读取竞态，TCP 17项单线程通过，TCP 全targets Clippy、fmt、Python来源12/发布22、旧Release28通过/4条件跳过及 core/actionlint 通过。永久源与当前 main 的锁文件区别已明确，生产引擎预算和固定制品未改；最终整合 HEAD 的主线 CI 尚须实时核对。
 
+### P2 原生 TCP 实际 bundled musl 原文补齐（Issue #75，独立 PR）
 
-## 2026-10-01：TCP 诊断面板登记（独立 PR）
+自带musl/CRT配方使用Rust官方固定commit对应musl1.2.5与安全补丁；旧system1.2.3通知不作为实际libc来源。纳入官方完整版权原文、不可执行Rust证明配方与固定摘要，构建不联网补齐、未知rustc/原文篡改在Cargo前拒绝；签名验证对比固定source与实际rustc，真实重签缺失/篡改仍拒绝。五aux与ABI不变；新的公开工具pin、实际Bookworm及最新CI完成后单独记录，未正式发布。
 
-登记第二诊断插件并由 Linux Agent 加载无状态适配器，共用任务服务负责互斥、预算、上传、确认取消和历史。仅开放地区、IPv4/6、4/8 次连接和1/2并发，冻结已配置 TCP 目标及摘要，地区标签在插件独立表保存；空 PATCH 拒绝、显式 null 才清除。前端另一个独立 PR。
+- 修复后永久公开工具pin b562effcd90f8ae319665fb4ead1807b770ed4d5已实际Bookworm构建/ELF/version/build-info/完整5aux TEST_ONLY签名通过，35锁定依赖与Rust标准库、actual bundledmusl1.2.5、system1.2.3工具通知分别完整记录。fmt/core/15行为与真实重签/旧Release32/模拟发布22通过，exit0/OOMfalse，binary SHA e493d095...，日志evidence/tcp-musl-notices-b562eff。仅Python/库存变动，无重复全workspace；最新独立PR CI待核，未正式发布。
+### P1 sing-box 根插件物理目录恢复（独立后续）
 
-3963c28 组合源码的 PostgreSQL/API 3项、面板参数/目标2项、适配器15项与原生17项全部通过，workspace全targets Clippy和Linux Agent构建通过，限额容器exit0/OOM=false。后续显式地区键补丁和最终HEAD专项待补；没有以夹具替代真实测试机验收，aws-jp0仍待恢复，完整验机工具链仍被安全门禁暂停。见 docs/acceptance/tcpquality-panel-registration.md。
+合并后 sing-box 面板实现位于 crates/panel/src/plugins/singbox，与用户要求及ADR0023的根 plugins/singbox 不一致。独立后续将13文件 git mv 至 plugins/singbox/panel，以薄的 Rust path 桥保留模块名与接口；逐文件blob SHA一致，无业务/API/数据库/epoch/前端变动。ADR0030与AGENTS明确物理路径。静态fmt/core/差异检查及最新CI分别记录，未重新宣称实机流量完成。详见singbox-plugin-business独立验收。
 
+本轮独立审查逐一确认13个Git blob完全相同，path桥解析全部子模块及publisher嵌套测试，Rust可见性/旧导出保持；Docker COPY plugins与Compose根上下文保留。冻结源码 `7d1bda4` 的19项Rust/PostgreSQL专项全部通过、0失败/忽略（搬迁publisher2、插件业务/迁移4、账本4、业务/旧订阅4、订阅重置2、端口2、真实Agent配置/丢失ACK/重启1），workspace全targets Clippy（warnings为错误）、fmt、core门禁及六项行为、build-script5、runtime-cache3与差异检查通过。独立55432数据库由本任务启动并已停止，未触5432或生产；正常合入正式main `5d908b9` 后业务13文件与桥仍保持已验原字节，新增TCP/构建流程证据由其独立验收负责，最终整合CI继续单独核对。
 
-## 2026-10-01：TCP 报告界面（独立 PR）
+## 2026-10-01：Reality 间歇传输失败证据（Issue #6）
 
-服务器导航新增 TCP 连接诊断，四项小预设及配置目标地区，按本次冻结范围显示工具版本/时间/参数、连接成功统计和独立章节；未知不补零，取消确认前保留屏障，部分报告可看，不做跨参数排名。主线管理员与 sing-box 插件导航继续保留，NodeQuality 完整门禁不由本 PR 改动。
+- 业务源码743955c原CI在HUP后的2MiB下载只收到1,103,168字节，90秒exit28；同源码失败job只重跑一次，attempt2安装/双向流量/Agent重启/HUP/续传/签名拒绝/重装/在线退役全过。后续75cf整合源码另在首次下载90秒0字节失败，不能归因于业务或门禁。追加既有milestone1 Issue #6，保持原因未知，不重复开Issue或推已合并分支。
+- 独立标准库helper记录最多4条固定传输的数字/错误类别，保留curl90秒、退出码与原载荷核对；失败清理前最多7秒直接HTTP/TCP/TLS夹具检查、有限宿主资源和进程存在性布尔状态；并行审查发现socket超时不能限制慢滴HTTP，改唯一短命子进程硬2秒结束并回收。沿用常驻单元状态白名单，不读取/上传配置、env、密钥、令牌、证书或完整日志；写入与公开汇总均重新过滤，失败取证不吞失败或重试代理流量。
+- 14专项含真实回环HTTP/TLS、卡死夹具预算及恶意摘要隐私回归通过；验收驱动21、运行时缓存3、签名8、Python仓库101项/6既有条件跳过通过，fmt/core/shell/差异检查通过。独立提交CI与实际Reality另行核对，未将同源旧提交重跑当成本项集成验收。见 [独立验收](docs/acceptance/reality-failure-evidence.md)。
 
-012ca9f 的 Bun/TypeScript/Vite 与 Chromium1280/390px夹具验收通过，零页面错误、正确创建/地区请求和取消禁用均已核实；最终主线整合后重新构建与浏览器复验另补。验收范围与真实节点待办见 docs/acceptance/tcpquality-report-view.md。
-
-- 在面板 fe4ae60 与公开制品主线 9a41fe5 上重整源代码，NodeQuality门禁及管理员/插件导航保留；9dbff20 的 Bun frozen install、5项/711断言、TypeScript/Vite和最终dist Chromium1280/390px复验均通过，零页面错误、每宽度一条白名单创建/地区PATCH，未知/真实0/部分/旧报告过滤/取消屏障成立。实际dist index-D5k-FUiH.js，独立PR最终CI另跟。
-
-- fa8dca4保留完整主报告统计，部分章仅能补更完整/更多连接样本的结果；目标缺数据显式未知。持久化浏览器夹具在实际index-CkSqyBT0.js的1280/390px通过，完整报告不降级、目标403/离线禁止创建以及原部分/真实0/未知/互斥取消都成立，页面错误0。旧dist被完整结果反对照准确抓住，测试脚本ASI错误修复后实跑通过；没有把这些夹具称为真实节点验收。
+- 最终正常保留作者原始 `7db4c1a` 及推进后的 `7ce37b9`，合入正式主线 `8ef465f`，保留原生Bookworm制品修复/CLI夹具及根sing-box插件物理目录。冻结源码 `357eadb` 中HTTP每次底层读取共享绝对截止，作者的唯一短命worker硬2秒截止/回收与进程存在性字段均保留；已有失败的清理继续尝试并保留原28，原成功流程的清理错误仍拒绝。真实负对照捕获慢滴头/体3.48/3.50秒超限和原28被清理7覆盖，恢复后取证16、驱动21、缓存3、签名8全部通过；仓库Python101项运行（95通过/6既有条件跳过），合计143通过、0失败、6跳过。Python/Bash语法、fmt只读检查、core/actionlint及链接/差异检查通过，未运行Rust编译/测试或实际生产Reality/公开网络，完整提交CI继续单独核对，Issue #6原因仍未知。

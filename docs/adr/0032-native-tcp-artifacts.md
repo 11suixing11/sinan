@@ -31,3 +31,11 @@ Rust 的 COPYRIGHT-library.html 与 license 原文库存，以及本机 musl 包
 ## Debian 12 本机构建兼容
 
 实际 Bookworm 验收发现 musl-gcc wrapper 与静态 PIE 启动不兼容，构建后 --version 即 SIGSEGV，构建器拒绝产物。相同最小 Rust hello 在 wrapper 下 -11，使用 native cc + -Clink-self-contained=yes 返回0；选择 Rust 自带 musl/CRT，保留静态 PIE，而非混用系统启动对象。依据 [Rust issue 95926](https://github.com/rust-lang/rust/issues/95926) 和 [rustc 官方 self-contained 文档](https://doc.rust-lang.org/rustc/codegen-options/index.html#link-self-contained)；独立 Debian12 CI 与 Ubuntu amd64/arm64 CI 各执行真实启动与签名校验。未改 Agent 既有构建脚本，该模块配方需独立评估。
+
+## Rust 实际 bundled musl 库存
+
+Self-contained 链接必须记录 Rust 自带的 libc，而不是以系统 musl 版本替代。该工具当前支持已核实 rustc commit 48a229ceaefd4985c50990b14116b6d856af0985。其[官方固定配方](https://github.com/rust-lang/rust/blob/48a229ceaefd4985c50990b14116b6d856af0985/src/ci/docker/scripts/musl.sh)使用 musl1.2.5 及两项 CVE-2025-26519 iconv补丁。官方 release 归档 SHA256 为 a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4；完整 COPYRIGHT 原文、不可执行的 Rust 配方文本、来源与摘要库存纳入固定 Git 源码。构建不下载许可文件，也不执行该证明配方。
+
+第五辅助文件分别保存 Rust标准库原文、实际 Rust bundled musl1.2.5 原文及其精确来源证明、系统musl构建工具通知。系统1.2.3通知不再标作实际静态链接 libc。构建在 Cargo metadata/build 前核对 rustc commit 与本地原文摘要；未审计的新工具链明确拒绝，须以新固定源完成库存更新。签名验证重新对比库存、source.tar.gz 中原文与recipe、binary build-info 的实际 rustc，缺失/篡改/重签不一致均拒绝。五辅助文件集合和三字段CLI身份契约不变。
+
+此修复对应 Issue #75，新工具源须公开完整 Git 对象并经过原生Bookworm实际构建/运行与TEST_ONLY完整签名验收；旧5e只保留其既有测试记录，不作为修复后分发候选。未签正式Release。
