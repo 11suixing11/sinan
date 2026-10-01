@@ -68,7 +68,7 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
             </div>
           </section>
           <section className="server-setup-section" aria-labelledby="setup-probes">
-            <div className="server-setup-heading"><div><h3 id="setup-probes">初始网络拨测 <span className="server-setup-tag">可选</span></h3><p>接入后持续检测指定目标，结果显示在服务器展示页。</p></div><button type="button" className="button button-secondary button-small" onClick={addProbe} disabled={probes.length >= 32}><Icon name="plus" size={15} />添加目标</button></div>
+            <div className="server-setup-heading"><div><h3 id="setup-probes">初始网络拨测 <span className="server-setup-tag">可选</span></h3><p>接入后持续检测指定目标，结果显示在服务器展示页。统一延迟任务中的默认目标也会自动分配。</p></div><button type="button" className="button button-secondary button-small" onClick={addProbe} disabled={probes.length >= 32}><Icon name="plus" size={15} />添加目标</button></div>
             {!probes.length && <div className="server-setup-probe-empty"><Icon name="nodes" size={23} /><div><strong>关心的线路，从接入时开始观察</strong><p>添加 TCP 目标查看延迟与连接失败率，或通过 ICMP 检测延迟与丢包。也可以稍后配置。</p></div></div>}
             {probes.map((probe, index) => <div key={probe.key} className="server-setup-probe" role="group" aria-label={`拨测目标 ${index + 1}`}>
               <div className="server-setup-probe-heading"><strong>目标 {String(index + 1).padStart(2, '0')}</strong><button type="button" className="text-button danger-text" onClick={() => setProbes(current => current.filter(item => item.key !== probe.key))} aria-label={`移除目标 ${index + 1}`}>移除</button></div>

@@ -10,7 +10,7 @@ CI 为两种架构构建 musl Agent、固定上游运行时和当前 NodeQuality
 
 `SHA256SUMS` 按 ASCII 路径排序，格式为小写 SHA-256、两个空格、规范路径、LF。制品路径为 `name/version/arch`，GitHub 平铺文件名由已签 metadata 的 `asset_name` 映射；另包含 `release.json` 与 `install.sh`。签名本身不在 SUMS 内，签名资产必须是完整四行 `SHA256SUMS.minisig`。
 
-官方在线部署可直接复制面板接入命令，无需手动预装 bootstrap；命令下载固定官方 GitHub 入口并核对摘要，入口内置正式公开根并自动准备验证工具，再独立验证已签 Release。本文的手动预置流程继续用于自建信任域、离线部署或独立审查方式；调整范围见 [ADR 0037](adr/0037-bootstrap-and-selective-import.md) 与 [ADR 0039](adr/0039-cross-platform-enrollment.md)。
+官方在线部署可直接复制面板接入命令，无需手动预装 bootstrap；命令下载固定官方 GitHub 入口并核对摘要，入口内置正式公开根并自动准备验证工具，再独立验证已签 Release。本文的手动预置流程继续用于自建信任域、离线部署或独立审查方式；调整范围见 [ADR 0037](adr/0037-bootstrap-and-selective-import.md) 与 [ADR 0041](adr/0041-cross-platform-enrollment.md)。
 
 ## 生产根与离线签名
 

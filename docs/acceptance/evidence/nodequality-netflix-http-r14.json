@@ -1,0 +1,182 @@
+{
+  "schema": 1,
+  "issue": 123,
+  "date": "2026-10-01",
+  "source_commit": "3711052dea572e271e656f9828bdb9b79f007e00",
+  "source_commit_location": "local validated worktree; publication preserves file bytes, not Git author/time metadata",
+  "base_commit": "c316bfcf6654e3ea3abc734aa3526157da7775a6",
+  "dependent_pr": 118,
+  "version": "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14",
+  "python": {
+    "groups": [
+      {
+        "suite": "nodequality netflix-policy",
+        "total": 14,
+        "passed": 14,
+        "skipped": 0,
+        "seconds": 25.735
+      },
+      {
+        "suite": "nodequality ip-score-policy",
+        "total": 10,
+        "passed": 10,
+        "skipped": 0,
+        "seconds": 46.649
+      },
+      {
+        "suite": "nodequality ranking-policy",
+        "total": 8,
+        "passed": 8,
+        "skipped": 0,
+        "seconds": 19.626
+      },
+      {
+        "suite": "nodequality loader-policy",
+        "total": 10,
+        "passed": 10,
+        "skipped": 0,
+        "seconds": 13.705
+      },
+      {
+        "suite": "nodequality sources",
+        "total": 16,
+        "passed": 16,
+        "skipped": 0,
+        "seconds": 17.245
+      },
+      {
+        "suite": "nodequality data-policy",
+        "total": 6,
+        "passed": 6,
+        "skipped": 0,
+        "seconds": 8.069
+      },
+      {
+        "suite": "nodequality dependency-policy",
+        "total": 11,
+        "passed": 11,
+        "skipped": 0,
+        "seconds": 3.37
+      },
+      {
+        "suite": "nodequality swap-policy",
+        "total": 10,
+        "passed": 10,
+        "skipped": 0,
+        "seconds": 3.003
+      },
+      {
+        "suite": "nodequality report-policy",
+        "total": 6,
+        "passed": 6,
+        "skipped": 0,
+        "seconds": 114.96
+      },
+      {
+        "suite": "wrapper and report persistence",
+        "total": 34,
+        "passed": 34,
+        "skipped": 0,
+        "seconds": 6.252
+      },
+      {
+        "suite": "release manifest compatibility",
+        "total": 32,
+        "passed": 28,
+        "skipped": 4,
+        "seconds": 0.204
+      },
+      {
+        "suite": "core boundary",
+        "total": 6,
+        "passed": 6,
+        "skipped": 0,
+        "seconds": 0.104
+      }
+    ],
+    "total": 163,
+    "passed": 159,
+    "skipped": 4,
+    "failed": 0,
+    "skip_reason": "Four release installer tests require isolated container root; this run deliberately uses a non-root user."
+  },
+  "rust": {
+    "adapter_tests_passed": 15,
+    "failed": 0,
+    "ignored": 0,
+    "workspace_fmt": true,
+    "adapter_all_targets_clippy": true,
+    "full_workspace_or_postgres_tests": false
+  },
+  "isolation": {
+    "network": "none",
+    "user": "65534:65534",
+    "read_only_root": true,
+    "memory_max": 268435456,
+    "memory_swap_total": 268435456,
+    "pids_max": 64,
+    "nano_cpus": 1000000000,
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_options": [
+      "no-new-privileges"
+    ],
+    "memory_peak": 86511616,
+    "pids_peak": 11,
+    "memory_events": {
+      "low": 0,
+      "high": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0
+    }
+  },
+  "cleanup": {
+    "owned_test_containers_removed": true,
+    "remaining_owned_test_containers": [],
+    "production_services_modified": false
+  },
+  "input_sha256": {
+    ".github/workflows/ci.yml": "20c7e4249cb21f783b88efd289b7eea823f8d3f86e2c9dce499ed232046cad4a",
+    "crates/adapter-nodequality/src/lib.rs": "871421dd53c16bdf6025d25469f9b3e4155dbd597625c5c99f2782fc91a3019f",
+    "crates/adapter-nodequality/tests/diagnostic/versions.rs": "fb238fc49b15aa7e17d7caa9ea61bd7ee2c072ce8d37e77e298c0ad8898cac18",
+    "plugins/nodequality/netflix-policy.py": "4c1f7c584ac3e0bc71f2aa37b2b739ec1383e60a0e554eb645db6bec95f89751",
+    "plugins/nodequality/panel/mod.rs": "4b602ace250448e1f705e99d0fc3f1a123efd416fbc24cac4c49906afec619f4",
+    "plugins/nodequality/runner.sh.tmpl": "adfa51525fd24b8d2a95a7583a0fb02c977dded8fc612413a98d68e54b22b97d",
+    "plugins/nodequality/source-helper.py": "e90cd38f0c50b167378c172f8755af99d827ac72a091a8784dde8459d71f54bc",
+    "tools/build-nodequality.sh": "34cb8ad6934e7fdc7113ff05a9c8dde00f26c01acc199b303afb9f502ea0f74d",
+    "tools/nodequality-source-fixture.py": "16408f3ea84ab9765ed06210962f79e7b55dd5e24e6a2c046084b7940f4b97d1",
+    "tools/release.py": "a10117ad0ce60cdaff55b7f7fb0b5080f5cd68f679b678a64d15f0e22e79a95c",
+    "tools/test-nodequality-data-policy.py": "c0502ad51d634f2602c97944d749130b5c77084da6827ff895c01d99480b4133",
+    "tools/test-nodequality-dependency-policy.py": "010efb1952022a91b9ac632e9cf145ef2fd3bfd4f23f85be8031543af5b08bbb",
+    "tools/test-nodequality-ip-score-policy.py": "e8b3e3ab2010cf41b2d59d4f479aa67b90e5e912cd2293e40dd3e58fef2c0a3c",
+    "tools/test-nodequality-netflix-policy.py": "48ce39af80631d24a1930279871f77bfd53db78db62556dadf5ab02634e9b759",
+    "tools/test-nodequality-report-policy.py": "6749909448961a182a4f5b1704ad7506c3ab9e58513e1b127260ed02202ba066",
+    "tools/test-nodequality-sources.py": "2d90a1a94a768416c2848b8718aeb7eeb5189da093acd36e99a3abe453457c94",
+    "tools/test-nodequality.py": "a2b679dbb4e7036c46ca3b0bacd39a13c2cffb2cb64a45542f072b2399ce0716"
+  },
+  "log_sha256": {
+    "cargo-fetch-user.log": "9a9e17e08a88868613ff9cbcd2ef584eef205adcc746221b8dd50a262e79e686",
+    "rust-verified.log": "8e9e2960bee275308a24ea431a3836a130f48b4c1e19e1cb6d9de46d9606cc05",
+    "python-all.log": "1cfb26743a90a15eb5af7886574b8fa5e20c03f3b957057cbef78ff563627826",
+    "initial-smoke.log": "0ba3f1604b4245e5ad86c897798db85bbf2da5af73182304c23874190c31fcfd",
+    "netflix-suite.log": "0e95052ddc9a4d4e4c94f406d899b97af686d7993af3a24811f45bf974c40b0d",
+    "rust-suite.log": "816917e0592a1601b5c2e2297bbee2c328a3a86d773428f5956127f2febf0730",
+    "python-final.log": "606e9b5117e699411756364448568744e398a9b1112552e95fa419cd9f96b357",
+    "cargo-fetch.log": "5ebf8ea1428c593997029224784f47ed414416cc092d3aac24b7bc73ff4c321b",
+    "rust-final.log": "b1b97fe3c58e93cc8eca695f787d93185e4a44fb4b81fe2723f47144832e4553"
+  },
+  "limitations": [
+    "Only extracted upstream functions and inert report orchestration execute.",
+    "Live Netflix and playback are not verified; positive HTML fixtures are synthetic contracts.",
+    "No full NodeQuality, benchmarks, signed release, deployment or remote CI.",
+    "UA, cookie, credential and secondary tool-chain issues remain independent."
+  ],
+  "negative_controls": [
+    "Original function + stderr 403 / exit 22 stub: SUCCESS; patched: FAILED.",
+    "Real default curl -fsL HTTP 403: original already FAILED because stderr is suppressed.",
+    "Real loopback HTTP 200 unexpected HTML: original SUCCESS; patched FAILED."
+  ]
+}

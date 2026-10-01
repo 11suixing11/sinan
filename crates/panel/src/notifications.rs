@@ -1,16 +1,30 @@
+mod evaluation;
+mod events;
+mod resources;
+pub mod rules;
 mod telegram;
-use crate::{AppState, auth, error::ApiResult, settings::Settings};
+mod template;
+use crate::{
+    AppState, auth,
+    error::{ApiError, ApiResult},
+    settings::Settings,
+};
 use axum::{Json, extract::State, http::HeaderMap};
+pub use evaluation::evaluate;
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::{FromRow, PgPool, Postgres, Transaction};
+pub use template::valid as valid_template;
 
 #[derive(Serialize, FromRow)]
 pub struct Event {
     id: i64,
     server_id: i64,
     server_name: String,
-    last_seen: i64,
+    last_seen: Option<i64>,
+    category: String,
+    message: String,
+    details: Value,
     opened_at: i64,
     resolved_at: Option<i64>,
     resolution: Option<String>,
@@ -22,88 +36,66 @@ pub async fn list(
     headers: HeaderMap,
 ) -> ApiResult<Json<Vec<Event>>> {
     auth::require_admin(&state, &headers).await?;
-    Ok(Json(sqlx::query_as("SELECT e.*, COALESCE((SELECT jsonb_agg(jsonb_build_object('kind',o.kind,'status',o.status,'attempts',o.attempts,'last_error',o.last_error) ORDER BY o.id) FROM notification_outbox o WHERE o.event_id=e.id),'[]'::jsonb) AS deliveries FROM server_offline_events e ORDER BY e.id DESC LIMIT 200").fetch_all(&state.pool).await?))
+    Ok(Json(sqlx::query_as("SELECT e.*, COALESCE((SELECT jsonb_agg(jsonb_build_object('kind',o.kind,'status',o.status,'attempts',o.attempts,'last_error',o.last_error) ORDER BY o.id) FROM notification_outbox o WHERE o.event_id=e.id),'[]'::jsonb) AS deliveries FROM server_alert_events e ORDER BY e.id DESC LIMIT 200").fetch_all(&state.pool).await?))
 }
 
-async fn enqueue(
-    tx: &mut Transaction<'_, Postgres>,
-    event: i64,
-    kind: &str,
-    name: &str,
-    now: i64,
-) -> anyhow::Result<()> {
-    let title = if kind == "offline" {
-        "服务器离线"
-    } else {
-        "服务器恢复在线"
-    };
-    sqlx::query("INSERT INTO notification_outbox(event_id,kind,message,next_attempt_at) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING")
-        .bind(event).bind(kind).bind(format!("司南 · {title}\n{name}\n事件 #{event}"))
-        .bind(now).execute(&mut **tx).await?;
-    Ok(())
-}
-
-#[derive(FromRow)]
-struct Candidate {
-    id: i64,
-    name: String,
-    last_seen: Option<i64>,
-    enabled: bool,
-    event_id: Option<i64>,
-}
-
-pub async fn evaluate(pool: &PgPool, started_at: i64, now: i64) -> anyhow::Result<()> {
-    let mut tx = pool.begin().await?;
-    // Serialize alert transitions and configuration changes across workers.
+pub(super) async fn lock_settings(tx: &mut Transaction<'_, Postgres>) -> anyhow::Result<Settings> {
     let value: Value =
         sqlx::query_scalar("SELECT settings FROM panel_settings WHERE singleton FOR UPDATE")
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await?;
-    let settings: Settings = serde_json::from_value(value)?;
-    let threshold = i64::from(settings.offline_minutes) * 60;
-    if now.saturating_sub(started_at) < threshold {
-        return Ok(());
+    Ok(serde_json::from_value(value)?)
+}
+
+pub async fn test_telegram(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    auth::require_admin(&state, &headers).await?;
+    let mut tx = state.pool.begin().await?;
+    let settings = lock_settings(&mut tx).await?;
+    if settings.telegram_token.is_empty() || settings.telegram_chat_id.is_empty() {
+        return Err(ApiError::BadRequest("请先保存机器人令牌与会话 ID".into()));
     }
-    let candidates: Vec<Candidate> = sqlx::query_as(
-        "SELECT s.id,s.name,s.last_seen,(s.deleted_at IS NULL AND COALESCE(s.asset_settings->>'offline_notify','true')<>'false') AS enabled,e.id AS event_id
-         FROM servers s LEFT JOIN server_offline_events e ON e.server_id=s.id AND e.resolved_at IS NULL
-         WHERE e.id IS NOT NULL OR ($2 AND s.deleted_at IS NULL AND s.last_seen IS NOT NULL AND s.last_seen<=$1
-            AND COALESCE(s.asset_settings->>'offline_notify','true')<>'false') ORDER BY s.id FOR UPDATE OF s")
-        .bind(now-threshold).bind(settings.offline_alerts).fetch_all(&mut *tx).await?;
-    for server in candidates {
-        let enabled = settings.offline_alerts && server.enabled;
-        let online = server
-            .last_seen
-            .is_some_and(|seen| now.saturating_sub(seen) <= 60);
-        if let Some(event) = server.event_id {
-            if !enabled || online {
-                let resolution = if online { "recovered" } else { "disabled" };
-                sqlx::query(
-                    "UPDATE server_offline_events SET resolved_at=$2,resolution=$3 WHERE id=$1",
-                )
-                .bind(event)
-                .bind(now)
-                .bind(resolution)
-                .execute(&mut *tx)
-                .await?;
-                if !enabled {
-                    sqlx::query("UPDATE notification_outbox SET status='cancelled' WHERE event_id=$1 AND status='pending'").bind(event).execute(&mut *tx).await?;
-                } else if settings.telegram_ready() {
-                    enqueue(&mut tx, event, "recovery", &server.name, now).await?;
-                }
-            }
-        } else if enabled && !online {
-            let event: i64 = sqlx::query_scalar("INSERT INTO server_offline_events(server_id,server_name,last_seen,opened_at) VALUES($1,$2,$3,$4) RETURNING id")
-                .bind(server.id).bind(&server.name).bind(server.last_seen).bind(now).fetch_one(&mut *tx).await?;
-            if settings.telegram_ready() {
-                enqueue(&mut tx, event, "offline", &server.name, now).await?;
-            }
-        }
+    let now = sinan_protocol::now_timestamp();
+    let previous: i64 = sqlx::query_scalar(
+        "SELECT sent_at FROM notification_test_limit WHERE singleton FOR UPDATE",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if now.saturating_sub(previous) < 30 {
+        return Err(ApiError::Busy);
     }
-    sqlx::query("DELETE FROM server_offline_events WHERE id IN (SELECT e.id FROM server_offline_events e WHERE e.resolved_at<$1 AND NOT EXISTS(SELECT 1 FROM notification_outbox o WHERE o.event_id=e.id AND o.status='pending') ORDER BY e.id LIMIT 500)")
-        .bind(now-90*86400).execute(&mut *tx).await?;
+    sqlx::query("UPDATE notification_test_limit SET sent_at=$1 WHERE singleton")
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+    let timestamp: String = sqlx::query_scalar(
+        "SELECT to_char(to_timestamp($1) AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') || ' UTC'",
+    )
+    .bind(now as f64)
+    .fetch_one(&mut *tx)
+    .await?;
     tx.commit().await?;
-    Ok(())
+    let message = template::render(
+        &settings.telegram_template,
+        [
+            "测试通知",
+            "示例服务器",
+            "这是一条手动测试消息，用于确认 Telegram 通知配置。",
+            &timestamp,
+            "测试",
+        ],
+    );
+    telegram::send(
+        &settings.telegram_token,
+        &settings.telegram_chat_id,
+        settings.telegram_thread_id,
+        &message,
+    )
+    .await
+    .map_err(|failure| ApiError::BadRequest(failure.message))?;
+    Ok(Json(serde_json::json!({"sent":true})))
 }
 
 pub async fn dispatch(pool: &PgPool, now: i64) -> anyhow::Result<()> {
@@ -111,6 +103,7 @@ pub async fn dispatch(pool: &PgPool, now: i64) -> anyhow::Result<()> {
         telegram::send(
             &settings.telegram_token,
             &settings.telegram_chat_id,
+            settings.telegram_thread_id,
             &message,
         )
         .await
@@ -135,12 +128,12 @@ where
         }
         let row: Option<(i64,String,i32)> = sqlx::query_as(
             "SELECT o.id,o.message,o.attempts FROM notification_outbox o
-             JOIN server_offline_events e ON e.id=o.event_id JOIN servers s ON s.id=e.server_id
+             JOIN server_alert_events e ON e.id=o.event_id JOIN servers s ON s.id=e.server_id
              WHERE o.status='pending' AND o.next_attempt_at<=$1 AND s.deleted_at IS NULL
-             AND COALESCE(s.asset_settings->>'offline_notify','true')<>'false'
+             AND (e.category<>'offline' OR ($2 AND COALESCE(s.asset_settings->>'offline_notify','true')<>'false'))
              AND NOT EXISTS(SELECT 1 FROM notification_outbox earlier WHERE earlier.event_id=o.event_id AND earlier.id<o.id AND earlier.status='pending')
              ORDER BY o.id LIMIT 1 FOR UPDATE OF o SKIP LOCKED")
-            .bind(now).fetch_optional(&mut *tx).await?;
+            .bind(now).bind(settings.offline_alerts).fetch_optional(&mut *tx).await?;
         let Some((id, message, attempts)) = row else {
             return Ok(());
         };
@@ -187,10 +180,11 @@ mod tests {
             sqlx::query_scalar("INSERT INTO servers(name) VALUES('outbox fixture') RETURNING id")
                 .fetch_one(&pool)
                 .await?;
-        let event: i64 = sqlx::query_scalar("INSERT INTO server_offline_events(server_id,server_name,last_seen,opened_at,resolved_at,resolution) VALUES($1,'outbox fixture',0,1,2,'recovered') RETURNING id").bind(id).fetch_one(&pool).await?;
+        let event: i64 = sqlx::query_scalar("INSERT INTO server_alert_events(server_id,server_name,last_seen,opened_at,resolved_at,resolution) VALUES($1,'outbox fixture',0,1,2,'recovered') RETURNING id").bind(id).fetch_one(&pool).await?;
         let mut tx = pool.begin().await?;
-        enqueue(&mut tx, event, "offline", "fixture", 100).await?;
-        enqueue(&mut tx, event, "recovery", "fixture", 100).await?;
+        let settings = lock_settings(&mut tx).await?;
+        events::enqueue(&mut tx, &settings, event, "offline", 100).await?;
+        events::enqueue(&mut tx, &settings, event, "recovery", 100).await?;
         tx.commit().await?;
         dispatch_with(&pool, 100, |_, _| async {
             Err(telegram::Failure {
