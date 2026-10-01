@@ -240,13 +240,16 @@ pub(crate) async fn sync_users(tx: &mut Transaction<'_, Postgres>, users: &[i64]
     super::business::mark_dirty(tx, &servers).await?;
     sqlx::query("DELETE FROM accesses a WHERE user_id=ANY($1) AND NOT direct_grant AND NOT EXISTS(SELECT 1 FROM singbox_desired_accesses d WHERE d.user_id=a.user_id AND d.node_id=a.node_id)")
         .bind(users).execute(&mut **tx).await?;
-    let missing = sqlx::query("SELECT d.user_id,d.node_id FROM singbox_desired_accesses d WHERE d.user_id=ANY($1) AND NOT EXISTS(SELECT 1 FROM accesses a WHERE a.user_id=d.user_id AND a.node_id=d.node_id) ORDER BY d.user_id,d.node_id")
+    let missing = sqlx::query("SELECT d.user_id,d.node_id,n.protocol_config FROM singbox_desired_accesses d JOIN nodes n ON n.id=d.node_id WHERE d.user_id=ANY($1) AND NOT EXISTS(SELECT 1 FROM accesses a WHERE a.user_id=d.user_id AND a.node_id=d.node_id) ORDER BY d.user_id,d.node_id")
         .bind(users).fetch_all(&mut **tx).await?;
     for row in missing {
         let user: i64 = row.get("user_id");
         let node: i64 = row.get("node_id");
-        sqlx::query("INSERT INTO accesses(user_id,node_id,uuid,stat_name,direct_grant) VALUES($1,$2,$3,$4,FALSE)")
-            .bind(user).bind(node).bind(Uuid::new_v4()).bind(sinan_compiler::stat_name(user,node)).execute(&mut **tx).await?;
+        let protocol: sinan_compiler::ProtocolConfig =
+            serde_json::from_value(row.get("protocol_config")).map_err(anyhow::Error::from)?;
+        sqlx::query("INSERT INTO accesses(user_id,node_id,uuid,stat_name,direct_grant,credential) VALUES($1,$2,$3,$4,FALSE,$5)")
+            .bind(user).bind(node).bind(Uuid::new_v4()).bind(sinan_compiler::stat_name(user,node))
+            .bind(super::node_protocol::credential(protocol.credential_size())).execute(&mut **tx).await?;
     }
     Ok(())
 }

@@ -1,4 +1,4 @@
-use super::{CompileError, Node, compile_server, inbound, pretty, unbracket_host};
+use super::{CompileError, Node, compile_server, pretty, protocols, unbracket_host};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -42,6 +42,8 @@ pub fn compile_server_with_relays(
             || !ids.insert(relay.chain_id)
             || !entries.insert(relay.entry_node_id)
             || (entry.is_some() == exit.is_some())
+            || entry.is_some_and(|node| !node.protocol_config.is_reality())
+            || exit.is_some_and(|node| !node.protocol_config.is_reality())
             || relay.port == 0
             || !super::valid_public_host(&relay.public_host)
             || !super::valid_dns_name(&relay.sni)
@@ -52,7 +54,7 @@ pub fn compile_server_with_relays(
         {
             return Err(CompileError::InvalidNode {
                 node_id: relay.entry_node_id,
-                reason: "invalid, duplicate, or non-two-host relay".into(),
+                reason: "invalid, duplicate, or non-two-host VLESS Reality relay".into(),
             });
         }
         let tag = format!("chain-{}", relay.chain_id);
@@ -77,7 +79,9 @@ pub fn compile_server_with_relays(
                     .expect("compiled identities")
                     .push(relay_identity);
             } else {
-                inbounds.push(inbound(exit, vec![relay_identity]));
+                let mut inbound = protocols::server(exit, &[]);
+                inbound["users"] = json!([relay_identity]);
+                inbounds.push(inbound);
             }
             // Relay identities intentionally never enter stats.users: only the entry is billed.
         }

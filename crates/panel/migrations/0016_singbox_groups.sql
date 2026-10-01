@@ -148,9 +148,9 @@ CREATE VIEW singbox_desired_accesses AS
     );
 
 CREATE FUNCTION singbox_eligible_accesses(at_s BIGINT)
-RETURNS TABLE (user_id BIGINT, node_id BIGINT, uuid UUID, stat_name TEXT)
+RETURNS TABLE (user_id BIGINT, node_id BIGINT, uuid UUID, stat_name TEXT, credential TEXT)
 LANGUAGE sql STABLE AS $$
-    SELECT a.user_id, a.node_id, a.uuid, a.stat_name FROM accesses a
+    SELECT a.user_id, a.node_id, a.uuid, a.stat_name, a.credential FROM accesses a
     JOIN singbox_desired_accesses d USING (user_id, node_id)
     JOIN singbox_entitlements(at_s) e ON e.user_id=a.user_id AND e.allowed;
 $$;

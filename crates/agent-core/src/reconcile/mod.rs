@@ -148,6 +148,17 @@ impl Reconciler {
         .context("operation timed out")?
     }
 
+    async fn runtime_health(&self, runtime: &Prepared) -> Result<bool> {
+        let budget = Duration::from_secs(self.config.operation_timeout_secs).max(
+            self.adapter
+                .health_timeout(runtime)
+                .min(Duration::from_secs(300)),
+        );
+        timeout(budget, self.adapter.health(runtime, self.services.as_ref()))
+            .await
+            .context("runtime health check timed out")?
+    }
+
     pub async fn reconcile(
         &self,
         manifest: &ModuleManifest,
@@ -220,8 +231,7 @@ impl Reconciler {
             self.verify_applied_runtime(previous).await?;
             if manifest.config_rev < previous.spec.revision {
                 anyhow::ensure!(
-                    self.bounded(self.adapter.health(previous, self.services.as_ref()))
-                        .await?,
+                    self.runtime_health(previous).await?,
                     "last applied runtime is unhealthy"
                 );
                 return Ok(previous.spec.revision);
@@ -235,9 +245,7 @@ impl Reconciler {
             if manifest.config_rev == previous.spec.revision
                 && manifest.kernel_version == previous.spec.kernel_version
             {
-                let healthy = self
-                    .bounded(self.adapter.health(previous, self.services.as_ref()))
-                    .await?;
+                let healthy = self.runtime_health(previous).await?;
                 self.state
                     .lock()
                     .map_err(|_| anyhow::anyhow!("state poisoned"))?

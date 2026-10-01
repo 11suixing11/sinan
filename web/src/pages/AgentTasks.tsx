@@ -3,9 +3,9 @@ import { api } from '../api'
 import { ErrorNotice, Loading } from '../components'
 import { time } from '../format'
 import { useAction, useResource } from '../hooks'
+import { latency, loss, lossLabel, probeState, probeValue } from '../probes'
+import type { Probe, ProbeResult } from '../probes'
 
-type Probe = { id: string; name: string; kind: 'tcp' | 'icmp'; target: string; port: number | null; interval_secs: number; carrier: string; enabled: boolean }
-type ProbeResult = { id: string; probe_id: string; sampled_at: number; latency_ms: number | null; loss_percent: number; error: string | null }
 type Command = { spec: { id: string; command: string; timeout_secs: number; expires_at: number }; requested_at: number; result: null | { status: 'succeeded' | 'failed' | 'expired' | 'interrupted'; stdout: string; stderr: string; finished_at: number; timed_out: boolean; truncated: boolean } }
 const emptyProbe: Probe = { id: '00000000-0000-0000-0000-000000000000', name: '', kind: 'tcp', target: '', port: 443, interval_secs: 30, carrier: '', enabled: true }
 
@@ -20,7 +20,8 @@ export default function AgentTasks({ serverId, commandsEnabled }: { serverId: nu
   const [command, setCommand] = useState(''), [seconds, setSeconds] = useState(30), [ttl, setTtl] = useState(300)
   const [selected, setSelected] = useState<string | null>(null)
   const labels = { succeeded: '已完成', failed: '执行失败', expired: '已过期', interrupted: '执行被中断' }
-  const selectedResults = results.data?.filter(result => result.probe_id === selected).slice(0, 60)
+  const selectedHistory = useResource<ProbeResult[]>(selected ? `${base}/probe-results?probe_id=${encodeURIComponent(selected)}` : null, 15_000)
+  const selectedResults = selectedHistory.data?.slice(0, 60)
   return <>
     <section className="panel"><div className="panel-heading"><h2>持续网络拨测</h2><span className="subtle">延迟与丢包率</span></div><div className="panel-body">
       <ErrorNotice message={probes.error || results.error || probeAction.error} />
@@ -33,11 +34,12 @@ export default function AgentTasks({ serverId, commandsEnabled }: { serverId: nu
           <label>线路备注<input maxLength={64} placeholder="如电信、联通、移动" value={probe.carrier} onChange={event => setProbe({ ...probe, carrier: event.target.value })} /></label></div>
         <button type="submit" className="button button-primary" disabled={probeAction.busy}>{editing ? '保存拨测' : '添加拨测'}</button>{editing && <button type="button" className="button button-secondary" onClick={() => { setEditing(false); setProbe(emptyProbe) }}>取消编辑</button>}
       </form></div>
-      {probes.loading && !probes.data ? <Loading /> : !probes.data?.length ? <div className="inline-empty">尚未配置拨测。</div> : <div className="table-wrap"><table><thead><tr><th>名称 / 线路</th><th>目标</th><th>延迟</th><th>丢包率</th><th>最近测量</th><th>操作</th></tr></thead><tbody>{probes.data.map(item => {
+      {probes.loading && !probes.data ? <Loading /> : !probes.data?.length ? <div className="inline-empty">尚未配置拨测。</div> : <div className="table-wrap"><table><thead><tr><th>名称 / 线路</th><th>目标</th><th>延迟</th><th>丢包 / 连接失败率</th><th>最近测量</th><th>操作</th></tr></thead><tbody>{probes.data.map(item => {
         const latest = results.data?.find(result => result.probe_id === item.id)
-        return <tr key={item.id}><td><button className="text-button" onClick={() => setSelected(selected === item.id ? null : item.id)}>{item.name}</button><small>{item.carrier || '未备注'} · {item.enabled ? '已启用' : '已暂停'}</small></td><td>{item.kind.toUpperCase()} {item.target}{item.port && `:${item.port}`}</td><td>{latest?.latency_ms == null ? '暂无数据' : `${latest.latency_ms.toFixed(2)} 毫秒`}{latest?.error && <small>{latest.error}</small>}</td><td>{latest ? `${latest.loss_percent.toFixed(0)}%` : '暂无数据'}</td><td>{latest ? time(latest.sampled_at / 1000) : '等待设备测量'}</td><td><button className="text-button" onClick={() => { setProbe(item); setEditing(true) }}>编辑</button> <button className="text-button" disabled={probeAction.busy} onClick={() => void probeAction.run(() => api(`${base}/probes/${item.id}`, 'PATCH', { ...item, enabled: !item.enabled }), probes.reload)}>{item.enabled ? '暂停' : '启用'}</button> <button className="text-button" disabled={probeAction.busy} onClick={() => void probeAction.run(() => api(`${base}/probes/${item.id}`, 'DELETE'), () => { probes.reload(); if (probe.id === item.id) { setEditing(false); setProbe(emptyProbe) } })}>删除</button></td></tr>
+        const current = probeState(item, latest, Date.now(), Boolean(results.error)) === '最近采样' ? latest : undefined
+        return <tr key={item.id}><td><button className="text-button" onClick={() => setSelected(selected === item.id ? null : item.id)}>{item.name}</button><small>{item.carrier || '未备注'} · {item.enabled ? '已启用' : '已暂停'}</small></td><td>{item.kind.toUpperCase()} {item.target}{item.port && `:${item.port}`}</td><td>{latency(probeValue(current, 'latency_ms'))}{latest?.error && <small>{latest.error}</small>}</td><td>{loss(probeValue(current, 'loss_percent'))}<small>{lossLabel(item)} · {probeState(item, latest, Date.now(), Boolean(results.error))}</small></td><td>{latest ? time(latest.sampled_at / 1000) : '等待设备测量'}</td><td><button className="text-button" onClick={() => { setProbe(item); setEditing(true) }}>编辑</button> <button className="text-button" disabled={probeAction.busy} onClick={() => void probeAction.run(() => api(`${base}/probes/${item.id}`, 'PATCH', { ...item, enabled: !item.enabled }), probes.reload)}>{item.enabled ? '暂停' : '启用'}</button> <button className="text-button" disabled={probeAction.busy} onClick={() => void probeAction.run(() => api(`${base}/probes/${item.id}`, 'DELETE'), () => { probes.reload(); if (probe.id === item.id) { setEditing(false); setProbe(emptyProbe) } })}>删除</button></td></tr>
       })}</tbody></table></div>}
-      {selected && <div className="panel-body"><h3>最近 60 次测量</h3>{selectedResults?.length ? <div className="table-wrap"><table><thead><tr><th>时间</th><th>延迟</th><th>丢包率</th></tr></thead><tbody>{selectedResults.map(item => <tr key={item.id}><td>{time(item.sampled_at / 1000)}</td><td>{item.latency_ms == null ? '暂无数据' : `${item.latency_ms.toFixed(2)} 毫秒`}</td><td>{item.loss_percent}%</td></tr>)}</tbody></table></div> : <p>暂无测量记录。</p>}</div>}
+      {selected && <div className="panel-body"><h3>最近 60 次测量</h3><ErrorNotice message={selectedHistory.error} />{selectedResults?.length ? <div className="table-wrap"><table><thead><tr><th>时间</th><th>延迟</th><th>丢包 / 连接失败率</th></tr></thead><tbody>{selectedResults.map(item => <tr key={item.id}><td>{time(item.sampled_at / 1000)}</td><td>{latency(probeValue(item, 'latency_ms'))}</td><td>{loss(probeValue(item, 'loss_percent'))}{item.error != null && <small>检测不可用</small>}</td></tr>)}</tbody></table></div> : <p>暂无测量记录。</p>}</div>}
     </section>
     <section className="panel"><div className="panel-heading"><h2>远程命令</h2><span className="subtle">设备服务账号执行</span></div><div className="panel-body"><ErrorNotice message={commands.error || commandAction.error} />
       {!commandsEnabled && <p className="helper">远程命令默认关闭。需要在节点本机的 Agent 配置中启用 allow_remote_commands 并重启后才能使用。</p>}

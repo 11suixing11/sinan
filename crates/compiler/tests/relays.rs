@@ -1,9 +1,13 @@
 #![forbid(unsafe_code)]
 
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{
+    Engine,
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+};
 use serde_json::Value;
 use sinan_compiler::{
-    Access, Node, Relay, compile_client, compile_server, compile_server_with_relays,
+    Access, AcmeChallenge, Node, ProtocolConfig, Relay, SsMethod, TlsConfig, compile_client,
+    compile_server, compile_server_with_relays,
 };
 use uuid::Uuid;
 
@@ -18,6 +22,7 @@ fn node(id: i64, users: Vec<Access>) -> Node {
         public_key: URL_SAFE_NO_PAD.encode([2; 32]),
         short_id: "1234abcd".into(),
         users,
+        protocol_config: ProtocolConfig::VlessReality,
     }
 }
 fn relay(id: i64) -> Relay {
@@ -40,6 +45,7 @@ fn routes_entry_and_counts_only_real_users() {
         vec![Access {
             user_id: 7,
             uuid: Uuid::from_u128(7),
+            credential: String::new(),
         }],
     );
     let route = relay(1);
@@ -89,6 +95,7 @@ fn shared_exit_keeps_direct_stats_and_is_deterministic() {
         vec![Access {
             user_id: 9,
             uuid: Uuid::from_u128(9),
+            credential: String::new(),
         }],
     );
     let first = relay(1);
@@ -108,6 +115,79 @@ fn shared_exit_keeps_direct_stats_and_is_deterministic() {
         config["experimental"]["v2ray_api"]["stats"]["users"],
         serde_json::json!(["u9_n2"])
     );
+}
+
+#[test]
+fn relays_preserve_modern_inbounds_acme_and_determinism() {
+    let entry = node(
+        1,
+        vec![Access {
+            user_id: 7,
+            uuid: Uuid::from_u128(7),
+            credential: String::new(),
+        }],
+    );
+    let mut modern = node(
+        3,
+        vec![Access {
+            user_id: 9,
+            uuid: Uuid::from_u128(9),
+            credential: STANDARD.encode([9; 32]),
+        }],
+    );
+    modern.port = 444;
+    modern.sni = "tls.example.com".into();
+    modern.protocol_config = ProtocolConfig::Anytls {
+        tls: TlsConfig::Acme {
+            email: "ops@example.com".into(),
+            challenge: AcmeChallenge::Http01,
+        },
+    };
+    let nodes = [entry.clone(), modern.clone()];
+    let plain: Value = serde_json::from_str(&compile_server(&nodes).unwrap()).unwrap();
+    let compiled = compile_server_with_relays(&nodes, &[relay(1)]).unwrap();
+    let reversed = compile_server_with_relays(&[modern, entry], &[relay(1)]).unwrap();
+    assert_eq!(compiled, reversed);
+    let config: Value = serde_json::from_str(&compiled).unwrap();
+    assert_eq!(config["inbounds"], plain["inbounds"]);
+    assert_eq!(
+        config["certificate_providers"],
+        plain["certificate_providers"]
+    );
+    assert_eq!(config["inbounds"][1]["type"], "anytls");
+    assert_eq!(
+        config["inbounds"][1]["users"][0]["password"],
+        STANDARD.encode([9; 32])
+    );
+    assert_eq!(
+        config["inbounds"][1]["tls"]["certificate_provider"],
+        "managed-tls"
+    );
+    assert_eq!(
+        config["certificate_providers"][0]["domain"],
+        serde_json::json!(["tls.example.com"])
+    );
+    assert_eq!(
+        config["route"]["rules"][0]["inbound"],
+        serde_json::json!(["node-1"])
+    );
+}
+
+#[test]
+fn relays_reject_non_reality_endpoints() {
+    for endpoint in [1, 2] {
+        let mut modern = node(endpoint, vec![]);
+        modern.sni.clear();
+        modern.protocol_config = ProtocolConfig::Shadowsocks2022 {
+            method: SsMethod::Aes128,
+            password: STANDARD.encode([9; 16]),
+        };
+        assert!(compile_server(std::slice::from_ref(&modern)).is_ok());
+        assert!(matches!(
+            compile_server_with_relays(&[modern], &[relay(1)]),
+            Err(sinan_compiler::CompileError::InvalidNode { .. })
+        ));
+    }
 }
 
 #[test]
@@ -134,6 +214,7 @@ fn pinned_native_runtime_accepts_entry_exit_and_client_configs()
         vec![Access {
             user_id: 7,
             uuid: Uuid::from_u128(7),
+            credential: String::new(),
         }],
     );
     let exit = node(2, vec![]);

@@ -18,14 +18,17 @@ fn nodes() -> Vec<Node> {
             private_key: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE".into(),
             public_key: "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI".into(),
             short_id: "1234abcd".into(),
+            protocol_config: Default::default(),
             users: vec![
                 Access {
                     user_id: 2,
                     uuid: Uuid::from_u128(2),
+                    credential: String::new(),
                 },
                 Access {
                     user_id: 1,
                     uuid: Uuid::from_u128(1),
+                    credential: String::new(),
                 },
             ],
         },
@@ -38,6 +41,7 @@ fn nodes() -> Vec<Node> {
             private_key: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE".into(),
             public_key: "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI".into(),
             short_id: "abcd1234".into(),
+            protocol_config: Default::default(),
             users: vec![],
         },
     ]

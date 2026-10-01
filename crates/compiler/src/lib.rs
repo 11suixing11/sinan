@@ -13,10 +13,16 @@ use std::{collections::BTreeSet, net::IpAddr};
 use thiserror::Error;
 use uuid::Uuid;
 
+mod certificates;
+mod protocols;
+pub use protocols::{AcmeChallenge, ProtocolConfig, SsMethod, TlsConfig};
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Access {
     pub user_id: i64,
     pub uuid: Uuid,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub credential: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -30,6 +36,8 @@ pub struct Node {
     pub public_key: String,
     pub short_id: String,
     pub users: Vec<Access>,
+    #[serde(default, skip_serializing_if = "ProtocolConfig::is_reality")]
+    pub protocol_config: ProtocolConfig,
 }
 
 #[derive(Debug, Error)]
@@ -46,6 +54,8 @@ pub enum CompileError {
     InvalidUserId(i64),
     #[error("user {0} has no authorized nodes")]
     NoAuthorizedNodes(i64),
+    #[error("node {node_id}: protocol {protocol} requires the singbox JSON subscription format")]
+    RequiresJson { node_id: i64, protocol: String },
     #[error("cannot serialize configuration: {0}")]
     Json(#[from] serde_json::Error),
 }
@@ -59,23 +69,19 @@ pub fn compile_server(nodes: &[Node]) -> Result<String, CompileError> {
     let nodes = sorted_validated(nodes, true)?;
     let mut inbounds = Vec::new();
     let mut stats_users = BTreeSet::new();
+    let provider = certificates::provider(&nodes)?;
     for node in nodes {
         if node.users.is_empty() {
             continue;
         }
         let mut users: Vec<_> = node.users.iter().collect();
         users.sort_by_key(|user| user.user_id);
-        let users: Vec<_> = users
-            .into_iter()
-            .map(|user| {
-                let name = stat_name(user.user_id, node.id);
-                stats_users.insert(name.clone());
-                json!({"name": name, "uuid": user.uuid, "flow": "xtls-rprx-vision"})
-            })
-            .collect();
-        inbounds.push(inbound(node, users));
+        for access in &users {
+            stats_users.insert(stat_name(access.user_id, node.id));
+        }
+        inbounds.push(protocols::server(node, &users));
     }
-    pretty(json!({
+    let mut config = json!({
         "log": { "level": "warn", "timestamp": true },
         "inbounds": inbounds,
         "outbounds": [{ "type": "direct", "tag": "direct" }],
@@ -83,18 +89,11 @@ pub fn compile_server(nodes: &[Node]) -> Result<String, CompileError> {
         "experimental": { "v2ray_api": { "listen": "127.0.0.1:18085", "stats": {
             "enabled": true, "users": stats_users
         } } }
-    }))
-}
-
-fn inbound(node: &Node, users: Vec<Value>) -> Value {
-    json!({
-        "type": "vless", "tag": format!("node-{}", node.id), "listen": "::", "listen_port": node.port,
-        "users": users,
-        "tls": { "enabled": true, "server_name": node.sni, "reality": {
-            "enabled": true, "handshake": { "server": node.sni, "server_port": 443 },
-            "private_key": node.private_key, "short_id": [node.short_id]
-        } }
-    })
+    });
+    if let Some(provider) = provider {
+        config["certificate_providers"] = json!([provider]);
+    }
+    pretty(config)
 }
 
 /// Callers supply only successfully applied nodes; only this user's credentials are emitted.
@@ -109,16 +108,7 @@ pub fn compile_client(nodes: &[Node], user_id: i64) -> Result<String, CompileErr
         .collect();
     let mut outbounds = vec![json!({ "type": "selector", "tag": "proxy", "outbounds": tags })];
     for (node, access) in accesses {
-        outbounds.push(json!({
-            "type": "vless", "tag": format!("node-{}", node.id),
-            "server": unbracket_host(&node.public_host), "server_port": node.port,
-            "uuid": access.uuid, "flow": "xtls-rprx-vision",
-            "tls": {
-                "enabled": true, "server_name": node.sni,
-                "utls": { "enabled": true, "fingerprint": "chrome" },
-                "reality": { "enabled": true, "public_key": node.public_key, "short_id": node.short_id }
-            }
-        }));
+        outbounds.push(protocols::client(node, access));
     }
     outbounds.push(json!({ "type": "direct", "tag": "direct" }));
     pretty(json!({
@@ -131,6 +121,14 @@ pub fn compile_client(nodes: &[Node], user_id: i64) -> Result<String, CompileErr
 
 pub fn subscription_links(nodes: &[Node], user_id: i64) -> Result<String, CompileError> {
     let accesses = authorized_nodes(nodes, user_id)?;
+    for (node, _) in &accesses {
+        if !node.protocol_config.is_reality() {
+            return Err(CompileError::RequiresJson {
+                node_id: node.id,
+                protocol: node.protocol_config.kind().into(),
+            });
+        }
+    }
     let links: Vec<_> = accesses.into_iter().map(|(node, access)| {
         let host = unbracket_host(&node.public_host);
         let host = if host.contains(':') { format!("[{host}]") } else { host.to_string() };
@@ -205,21 +203,7 @@ fn validate_node(node: &Node) -> Result<(), CompileError> {
             "public_host must be a DNS name or IP address without a port",
         ));
     }
-    if !valid_dns_name(&node.sni) || node.sni.parse::<IpAddr>().is_ok() {
-        return Err(invalid_node(node, "sni must be a DNS hostname"));
-    }
-    if !valid_key(&node.private_key) || !valid_key(&node.public_key) {
-        return Err(invalid_node(
-            node,
-            "Reality keys must encode 32 bytes as unpadded URL-safe base64",
-        ));
-    }
-    if node.short_id.len() != 8 || !node.short_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(invalid_node(
-            node,
-            "short_id must contain exactly eight hexadecimal digits",
-        ));
-    }
+    protocols::validate(node)?;
     let mut users = BTreeSet::new();
     for access in &node.users {
         if access.user_id <= 0 {

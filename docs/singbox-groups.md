@@ -1,6 +1,6 @@
 # sing-box 策略与套餐使用说明
 
-这三类配置都位于 **sing-box 插件 → 策略与套餐**，不属于服务器的通用监控配置。代理用户详情分别分配策略组和套餐。实现约束见 [ADR 0034](adr/0034-singbox-policy-package-groups.md)。
+这三类配置都位于 **sing-box 插件 → 策略与套餐**，不属于服务器的通用监控配置。代理用户详情分别分配策略组和套餐。实现约束见 [ADR 0035](adr/0035-singbox-policy-package-groups.md)。
 
 ## 使用顺序
 

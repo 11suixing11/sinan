@@ -55,7 +55,7 @@ async fn snapshot(
         .bind(server_id)
         .fetch_all(&mut **tx)
         .await?;
-    let rows = sqlx::query("SELECT a.node_id,a.user_id,a.uuid FROM singbox_eligible_accesses($2) a JOIN nodes n ON n.id=a.node_id WHERE n.server_id=$1 ORDER BY a.node_id,a.user_id")
+    let rows = sqlx::query("SELECT a.node_id,a.user_id,a.uuid,a.credential FROM singbox_eligible_accesses($2) a JOIN nodes n ON n.id=a.node_id WHERE n.server_id=$1 ORDER BY a.node_id,a.user_id")
         .bind(server_id).bind(at).fetch_all(&mut **tx).await?;
     let mut accesses: BTreeMap<i64, Vec<Access>> = BTreeMap::new();
     for row in rows {
@@ -65,6 +65,7 @@ async fn snapshot(
             .push(Access {
                 user_id: row.get("user_id"),
                 uuid: row.get("uuid"),
+                credential: row.get("credential"),
             });
     }
     nodes
