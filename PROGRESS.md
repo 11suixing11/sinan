@@ -1066,3 +1066,22 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 保留作者 `2d63c965` 与主线资产/流量整合 `00151f47`，精确输入 `e11bf9c`：显式补回 queued r5 的门禁回归，r2–r6 full 继续拒绝；不依赖当前版本常量代替旧版本覆盖。adapter 29、panel diagnostics 13，共 42 项通过/0 失败/忽略，fmt、core、workspace 全 targets Clippy 通过，自己的 PostgreSQL 55432 已停止。这是专项验证，不把 #103 的 442 全量结果改称 r6 版本全量，也未在 guest 重演作者验收。
 
 本聊天独立来源/wrapper/daily/release 在 `df1c1dd` 完成 88 场景，84 通过/4 既有条件跳过（15/34/7/28）；十个官方固定提交文件大小及 SHA256 与清单全部一致，清单 SHA256 `3d20398eeda72654c59b3271fd03b35ca8c0b4e92ee92a054a4a8c432a62723a`。源码只读取未执行；签名测试只用公开 TEST_ONLY key。整合后相关脚本/清单/构建器字节未变。rootfs、二级工具、全部上传与 swap 仍未完整验证，没有签署/发布/部署 r6 或触发暂停中的 CI。
+
+## 2026-10-01：NodeQuality 三处公开报告 POST 策略（关联 #65 独立项）
+
+- r7 将固定 report-policy helper 接入实际 builder、runner 与 source-helper serve；先核 canonical SHA，再固定变换 HW/IP/Net 三处公开报告 POST。默认 false，非法策略在 bootstrap/探测前拒绝；不修改隐私模式或 CPU/GPU 调用、`-o` 本地 JSON/ANSI 和面板采集。Net 增加局部空链接，避免禁止上传时显示继承的旧链接。canonical source-lock/许可证和 r2–r6 旧不可变制品保持，r4–r7 daily 兼容。
+- 私有组合夹具实际走嵌入 helper 与 shim；旧未 patch 负对照和 true 到自有回环 recorder，false/default 零 POST。三份既有真实源的静态 production transform 收据均核验 original/patched SHA，逆向移除固定变更后逐字节恢复；不执行有效上游脚本或真实探测。Mac Bash 3 的 stdin 模拟只证明接线；Linux 原 FD 与有限真实 chroot 环境继承在下述独立 guest 组中分别验收。
+- 已保留 r6 `6d1e731` 下载流上限补修并在受测 `bf0ad14` 执行 host 来源16、合成策略6、固定原文函数体组合2，全部通过且无跳过；3份原源的 production helper 静态收据可逆还原。固定重基到 r6 合流 `2d63c965` 仅解决双方 PROGRESS 追加记录，19份选定产品/测试/构建/Cargo输入SHA逐项不变，不重复host。此前 r7 版本阶段 wrapper34、daily7、release32（28通过/4既有跳过）另保留原快照归属。
+- 最终 Rust19 及 Debian guest 的原 FD/有限 chroot 收据由根任务单独记录，尚不以 Mac stdin 模拟签收 Linux；具体结果与源码身份见 [三处 POST 策略验收](docs/acceptance/nodequality-public-report-policy.md)。四个 workflow 保持暂停；仅登记未来测试命令，不触发/重启 CI，也不正式签名、发布或部署。
+- `mark.check.place`、Geekbench 自身上传、完整 rootfs/二级工具执行与授权仍未解决；#65/#28/#66 不关闭，全版本 full 门禁保留，不把三处 POST 禁止宣称为全部零上传或完整验机通过。
+
+- 根复核冻结 `5cb2ed1`，Rust19（adapter15/面板gate3/HTTP-PG日常1）全部通过、0忽略，Clippy/fmt/core/diff通过；源码和Cargo/trust前后不变，专属PG55439按归属停止、PID消失/端口关闭，收据3effc37e…。专用Debian12 Bash5来源16运行（15过/1缺minisign跳过）、Policy4、原函数体FD组合2通过；旧/true四次回环POST，false/default零，97.541秒。独立最小真实chroot的24个stdin策略/参数组合通过，不将它当FD或完整rootfs证据。
+- 两个guest单元限额运行期读回；FD/chroot峰值65,818,624B/15,495,168B，0OOM，结束后无进程/挂载/cgroup残留，SSH406重启0、同boot/swap0。21/3输入SHA与产品文件对应不变，收据1c6b1d3b…/96c4cad4…；最终只回填文档，不重复测试。完整负载故障矩阵仍待整条受控执行链就绪，本项不关闭#65或解除full门禁。
+
+## PR #106 本聊天整合复核（2026-10-01）
+
+普通合并最新 `b714629`，保留 #103 资产/周期流量、#104 首层固定和完整进度，在精确输入 `5ab55cc` 补 queued r6 显式门禁用例，不以当前 r7 常量覆盖它。adapter29+panel diagnostics13共42通过/0失败/忽略；fmt、core、workspace全targets Clippy、四workflow actionlint通过，自有PG55432已停。这是r7专项，不把此前442全量改称r7全量。
+
+同一输入纯本地来源16/wrapper34/策略6/daily7/release28通过，共95运行、91通过/4既有条件跳过；官方十文件大小/SHA与固定清单一致。另独立审查在原作者 `fc3bb5a` 完成固定原函数体组合2项和23个边界检查，11份受验产品/测试/构建输入逐字匹配最终整合点；全部上游探测/serializer为替身，只允许自己的回环POST。Mac Bash3 stdin替身不证明Linux process-substitution FD或真实chroot，本聊天未重演作者guest或完整验机。
+
+r7只控制入口及三份固定脚本的公开报告POST，保留隐私、轻量、回程、硬件参数、AGPL原文与修改告知；其他工具上传、二级来源/许可、rootfs及宿主副作用仍未总体验收。r2–r6历史精确版本回收、r4–r7 daily和所有full门禁保持；没有正式签署/发布/部署r7，没有触发暂停中的CI。
