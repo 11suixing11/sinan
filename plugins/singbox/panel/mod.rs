@@ -2,9 +2,13 @@ pub mod accesses;
 mod activity;
 pub mod agent;
 pub mod business;
+pub mod chains;
 pub mod deployments;
+pub mod entitlements;
 mod node_protocol;
 pub mod nodes;
+pub mod packages;
+pub mod policies;
 pub mod proxy_users;
 pub mod publisher;
 pub mod settings;
@@ -21,6 +25,27 @@ use axum::{
 
 pub fn router() -> Router<AppState> {
     let management = Router::new()
+        .route("/policy-groups", get(policies::list).post(policies::create))
+        .route(
+            "/policy-groups/{id}",
+            axum::routing::put(policies::update).delete(policies::remove),
+        )
+        .route(
+            "/package-groups",
+            get(packages::list).post(packages::create),
+        )
+        .route(
+            "/package-groups/{id}",
+            axum::routing::put(packages::update).delete(packages::remove),
+        )
+        .route("/chains", get(chains::list).post(chains::create))
+        .route("/chains/{id}", delete(chains::remove))
+        .route(
+            "/users/{id}/policy-groups",
+            get(policies::user_get).put(policies::user_set),
+        )
+        .route("/users/{id}/package", post(packages::assign))
+        .route("/users/{id}/entitlement", get(entitlements::get))
         .route("/servers", get(settings::list))
         .route("/servers/{id}", get(settings::get))
         .route("/servers/{id}/enable", post(settings::enable))

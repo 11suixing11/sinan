@@ -548,6 +548,8 @@ async fn ip_and_nodequality_views_are_independent_and_legacy_routes_preserve_sha
         .json()
         .await?;
     assert_eq!(ip["ip_addresses"], json!(["192.0.2.1"]));
+    assert_eq!(ip["public_ip_addresses"], json!([]));
+    assert_eq!(ip["private_ip_addresses"], ip["ip_addresses"]);
     assert_eq!(ip["quality"], refreshed);
     assert!(ip.get("reports").is_none() && ip.get("plugin_ready").is_none());
     let node: Value = panel

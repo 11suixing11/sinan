@@ -43,21 +43,30 @@ export default function ServerIpInfo({ serverId }: { serverId: number }) {
   const resource = useResource<ServerIpInfoData>(`/api/servers/${serverId}/ip-quality`)
   const refresh = useAction()
   const data = resource.data
+  const publicIps = data?.public_ip_addresses ?? []
+  const privateIps = data?.private_ip_addresses ?? []
   return <section className="panel">
-    <div className="panel-heading"><h2>服务器 IP 信息</h2><button className="button button-secondary" disabled={refresh.busy || !data?.ip_addresses.length} onClick={() => void refresh.run(() => api<IpQuality[]>(`/api/servers/${serverId}/ip-quality/refresh`, 'POST'), () => resource.reload())}><Icon name="refresh" size={14} />{refresh.busy ? '查询中…' : '刷新 IP 质量'}</button></div>
+    <div className="panel-heading"><h2>服务器 IP 信息</h2><button className="button button-secondary" disabled={refresh.busy || !publicIps.length} onClick={() => void refresh.run(() => api<IpQuality[]>(`/api/servers/${serverId}/ip-quality/refresh`, 'POST'), () => resource.reload())}><Icon name="refresh" size={14} />{refresh.busy ? '查询中…' : '刷新 IP 质量'}</button></div>
     <div className="panel-body quality-body"><ErrorNotice message={resource.error || refresh.error} retry={resource.reload} />
       {!data ? resource.loading && <Loading /> : <>
-        <p className="helper">IP 由 Agent 上报，包含设备网卡地址与配置补充的公网出口地址。质量查询会将公网 IP 发送给已启用入口；缓存仅作参考，不推导统一评分。</p>
-        {data.providers && <div className="quality-databases">{data.providers.map(provider => <div key={provider.provider} className="quality-database">
+        <p className="helper">公网地址直接展示，内网地址合并在下方查看。质量查询仅将公网 IP 发送给已启用入口；缓存仅作参考，不推导统一评分。</p>
+        {data.providers && data.providers.length > 0 && <div className="quality-databases">{data.providers.map(provider => <div key={provider.provider} className="quality-database">
           <div className="quality-summary"><strong>{provider.label}</strong><Badge tone={provider.enabled ? 'neutral' : 'warm'}>{provider.enabled ? provider.kind === 'credential_api' ? '已配置' : '已启用' : '未启用 · 信息未知'}</Badge></div>
           <p className="helper">{provider.kind === 'aggregator' ? `一个聚合入口，包含 ${provider.databases.length} 种响应视图` : provider.kind === 'credential_api' ? '一个凭据接口，仅展示官方文档字段' : '节点自身出口执行'} · {provider.execution === 'panel' ? '面板查询' : '节点自查'}</p>
           {provider.reason && <p className="quality-database-error">{provider.reason}</p>}
         </div>)}</div>}
         <p className="helper">流媒体解锁：未知。需要在节点自身出口执行已验收的自查工具，目前尚未启用。</p>
-        {!data.ip_addresses.length ? <div className="inline-empty">设备尚未上报 IP 地址，请升级 Agent 或等待设备上报。</div> : <div className="quality-addresses">{data.ip_addresses.map(ip => {
+        {!data.ip_addresses.length ? <div className="inline-empty">设备尚未上报 IP 地址，请升级 Agent 或等待设备上报。</div> : <>
+        {!publicIps.length ? <div className="inline-empty">尚未识别到公网 IP 地址，暂不能查询公网 IP 质量。</div> : <div className="quality-addresses" aria-label="公网地址">{publicIps.map(ip => {
           const results = data.quality.filter(item => item.ip === ip)
-          return <article key={ip} className="quality-address"><h3 className="mono">{ip}</h3>{results.length ? results.map(result => <QualityResult key={`${ip}/${result.provider ?? 'check-place'}`} result={result} />) : <p className="helper">尚未查询质量。点击“刷新 IP 质量”查询已启用入口。</p>}</article>
+          return <article key={ip} className="quality-address"><h3><span className="mono">{ip}</span> <Badge tone="neutral">公网 {ip.includes(':') ? 'IPv6' : 'IPv4'}</Badge></h3>{results.length ? results.map(result => <QualityResult key={`${ip}/${result.provider ?? 'check-place'}`} result={result} />) : <p className="helper">尚未查询质量。点击“刷新 IP 质量”查询已启用入口。</p>}</article>
         })}</div>}
+        {privateIps.length > 0 && <details className="quality-private-addresses">
+          <summary>内网地址（{privateIps.length}）</summary>
+          <p className="helper">包含内网、Docker 等虚拟网卡及其他非公网地址，不进行公网质量查询。</p>
+          <ul>{privateIps.map(ip => <li key={ip} className="mono">{ip}</li>)}</ul>
+        </details>}
+        </>}
       </>}
     </div>
   </section>
