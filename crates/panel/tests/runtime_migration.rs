@@ -60,7 +60,7 @@ async fn runtime_extensions_upgrade_the_existing_installation_schema_without_rep
         sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
             .fetch_all(&pool)
             .await?;
-    assert_eq!(versions, (1..=28).collect::<Vec<_>>());
+    assert_eq!(versions, (1..=32).collect::<Vec<_>>());
     assert_eq!(
         sqlx::query_scalar::<_, String>("SELECT to_regclass('singbox_installation')::text")
             .fetch_one(&pool)

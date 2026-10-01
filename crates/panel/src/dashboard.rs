@@ -19,8 +19,11 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/dashboard/access", get(access))
         .route("/api/dashboard/servers", get(list))
+        .route("/api/dashboard/live", get(live))
+        .route("/api/dashboard/exchange-rates", get(exchange_rates))
         .route("/api/dashboard/servers/{id}", get(detail))
         .route("/api/dashboard/servers/{id}/metrics", get(metrics))
+        .route("/api/dashboard/servers/{id}/history", get(history))
         .route("/api/dashboard/servers/{id}/probes", get(probe_list))
         .route(
             "/api/dashboard/servers/{id}/probe-results",
@@ -71,13 +74,15 @@ fn select(value: &Value, fields: &[&str]) -> Value {
     )
 }
 
-fn public_metrics(value: &Value) -> Value {
+pub(crate) fn public_metrics(value: &Value) -> Value {
     let mut result = select(
         value,
         &[
             "cpu_percent",
             "memory_used",
+            "memory_total",
             "disk_used",
+            "disk_total",
             "swap_used",
             "swap_total",
             "processes",
@@ -89,21 +94,33 @@ fn public_metrics(value: &Value) -> Value {
             "load_15",
         ],
     );
+    // Capacities are optional extension fields, including in older stored JSON.
+    // A whitelisted name must never make an object or secret string public.
+    result.as_object_mut().unwrap().retain(|_, value| {
+        value.is_null()
+            || value
+                .as_f64()
+                .is_some_and(|number| number.is_finite() && number >= 0.0)
+    });
     let mut networks = serde_json::Map::new();
     if let Some(interfaces) = value.get("network_interfaces").and_then(Value::as_object) {
         for (index, metric) in interfaces.values().enumerate() {
-            networks.insert(
-                format!("网卡 {}", index + 1),
-                select(
-                    metric,
-                    &[
-                        "received_bytes",
-                        "transmitted_bytes",
-                        "receive_bytes_per_sec",
-                        "transmit_bytes_per_sec",
-                    ],
-                ),
+            let mut metric = select(
+                metric,
+                &[
+                    "received_bytes",
+                    "transmitted_bytes",
+                    "receive_bytes_per_sec",
+                    "transmit_bytes_per_sec",
+                ],
             );
+            metric.as_object_mut().unwrap().retain(|_, value| {
+                value.is_null()
+                    || value
+                        .as_f64()
+                        .is_some_and(|number| number.is_finite() && number >= 0.0)
+            });
+            networks.insert(format!("网卡 {}", index + 1), metric);
         }
     }
     result["network_interfaces"] = Value::Object(networks);
@@ -126,10 +143,18 @@ fn server_view(server: Server, admin: bool) -> ApiResult<Value> {
             "last_seen",
             "last_heartbeat_at",
             "metrics_sampled_at",
+            "metrics_received_at",
+            "metrics_persisted_at",
+            "served_at",
+            "telemetry_settings",
         ],
     );
     result["registered"] = json!(registered);
     result["public_view"] = json!(true);
+    result["agent_settings"] = select(
+        &value["agent_settings"],
+        &["sample_interval_secs", "upload_interval_secs"],
+    );
     result["static_info"] = select(
         &value["static_info"],
         &[
@@ -191,7 +216,65 @@ async fn read_servers(state: &AppState, id: Option<i64>) -> ApiResult<Vec<Server
         .map(Server::with_online)
         .collect();
     crate::server_traffic::attach(&state.pool, &mut servers, now_timestamp()).await?;
+    telemetry::attach_live(state, &mut servers).await?;
     Ok(servers)
+}
+
+async fn live(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    let admin = allowed(&state, &headers, None).await?;
+    Ok(Json(telemetry::dashboard_live(&state, admin).await?))
+}
+
+async fn exchange_rates(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> ApiResult<Json<crate::exchange::ExchangeView>> {
+    allowed(&state, &headers, None).await?;
+    Ok(Json(crate::exchange::current(&state.pool).await?))
+}
+
+async fn history(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Query(query): Query<telemetry::AggregateQuery>,
+) -> ApiResult<Json<telemetry::AggregateHistory>> {
+    let admin = allowed(&state, &headers, Some(id)).await?;
+    let mut history = telemetry::read_aggregate(&state, id, query).await?;
+    if !admin {
+        for point in &mut history.0.points {
+            point.metrics.retain(|key, _| {
+                matches!(
+                    key.as_str(),
+                    "cpu_percent"
+                        | "memory_used"
+                        | "memory_total"
+                        | "memory_percent"
+                        | "disk_used"
+                        | "disk_total"
+                        | "disk_percent"
+                        | "swap_used"
+                        | "swap_total"
+                        | "swap_percent"
+                        | "processes"
+                        | "uptime_secs"
+                        | "tcp_connections"
+                        | "udp_connections"
+                        | "load_1"
+                        | "load_5"
+                        | "load_15"
+                        | "network_receive_bytes_per_sec"
+                        | "network_transmit_bytes_per_sec"
+                )
+            });
+            point.network_counters = std::mem::take(&mut point.network_counters)
+                .into_values()
+                .enumerate()
+                .map(|(index, counter)| (format!("网卡 {}", index + 1), counter))
+                .collect();
+        }
+    }
+    Ok(history)
 }
 
 async fn list(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Vec<Value>>> {

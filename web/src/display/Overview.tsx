@@ -2,13 +2,16 @@ import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { ProbeOverview } from '../probes'
 import type { Server } from '../types'
-import { aggregate, network, size, speed } from './data'
+import { aggregate, fresh, network, size, speed } from './data'
 import { dashboardCounts, savedSort, savedView, selectServers, snapshotUnavailable } from './dashboard'
 import type { DashboardFilter, DashboardSort, DashboardView } from './dashboard'
 import { Icon } from './Icon'
 import { ServerCard } from './ServerCard'
 import ServerTable from './ServerTable'
 import { useDashboardPoll } from './useDashboardPoll'
+import { useDashboardServers } from './useDashboardServers'
+import { CurrencyControls, useCurrency } from './CurrencyContext'
+import { costSummary, money } from './currency'
 
 function Stat({ icon, label, value, unit, children, tone }: { icon: string; label: string; value: ReactNode; unit?: string; children: ReactNode; tone?: string }) {
   return <div className="d-overview-item"><div className="d-overview-label">{label}<span className={`d-stat-icon d-${tone ?? 'good'}`}><Icon name={icon} size={17} /></span></div><div className="d-overview-value"><strong className={tone ? `d-${tone}` : ''}>{value}</strong>{unit && <b>{unit}</b>}</div><div className="d-overview-note">{children}</div></div>
@@ -24,9 +27,10 @@ const filters: [DashboardFilter, string][] = [['all', '全部'], ['online', '在
 
 export default function Overview({ now }: { now: number }) {
   const [paused, setPaused] = useState(false)
-  const resource = useDashboardPoll<Server[]>('/api/dashboard/servers', 5000, paused)
-  const probes = useDashboardPoll<ProbeOverview[]>('/api/dashboard/probes/overview', 15_000, paused)
+  const resource = useDashboardServers(paused)
+  const { currency, quote } = useCurrency()
   const { data: servers, error, loading, updatedAt } = resource
+  const probes = useDashboardPoll<ProbeOverview[]>('/api/dashboard/probes/overview', 15_000, paused, servers?.some(server => server.public_view) ? 'public' : 'admin')
   const [view, setView] = useState<DashboardView>(() => savedView(readPreference('view')))
   const [sort, setSort] = useState<DashboardSort>(() => savedSort(readPreference('sort')))
   const [query, setQuery] = useState('')
@@ -52,13 +56,17 @@ export default function Overview({ now }: { now: number }) {
   const completeCounters = entries.filter(server => network(server.latest_metrics, 'transmitted_bytes') !== null && network(server.latest_metrics, 'received_bytes') !== null)
   const sent = aggregate(completeCounters, 'transmitted_bytes'), received = aggregate(completeCounters, 'received_bytes')
   const total = sent.value === null || received.value === null ? null : sent.value + received.value
+  const costs = costSummary(entries, currency, quote, now)
+  const showCosts = entries.some(server => !server.public_view)
+  const busiest = (field: 'transmit_bytes_per_sec' | 'receive_bytes_per_sec') => entries.filter(fresh).reduce<Server | null>((best, server) => (network(server.latest_metrics, field) ?? -1) > (best ? network(best.latest_metrics, field) ?? -1 : -1) ? server : best, null)
+  const topUpload = busiest('transmit_bytes_per_sec'), topDownload = busiest('receive_bytes_per_sec')
   const coverage = (count: number) => count ? `${count} / ${entries.length} 台指标有效` : '暂无有效速率数据'
   const refresh = () => { resource.reload(); probes.reload() }
   const reset = () => { setQuery(''); setFilter('all'); setGroup(''); setRegion('') }
   const changed = Boolean(query || filter !== 'all' || group || region)
   const chooseView = (value: DashboardView) => { setView(value); savePreference('view', value) }
   const chooseSort = (value: string) => { const next = savedSort(value); setSort(next); savePreference('sort', next) }
-  const feedLabel = paused ? '自动刷新已暂停' : error ? '连接中断' : unavailable && servers ? '等待新快照' : loading && !servers ? '正在连接' : '每 5 秒自动刷新'
+  const feedLabel = paused ? '自动刷新已暂停' : error ? '连接中断' : unavailable && servers ? '等待新快照' : loading && !servers ? '正在连接' : resource.modern ? '实时状态 · 每 3 秒读取' : '每 5 秒自动刷新'
   return <div className="d-home">
     <section className="d-dashboard-hero" aria-label="看板标题与刷新状态">
       <div><div className="d-dashboard-eyebrow"><Icon name="monitor" size={16} />基础设施监控</div><h1>服务器看板</h1><p>集中查看设备状态与网络质量，点击服务器查看历史曲线。</p></div>
@@ -67,9 +75,10 @@ export default function Overview({ now }: { now: number }) {
     <section className="d-overview d-glass" aria-label="服务器总览">
       <Stat icon="server" label="在线服务器" value={!servers || unavailable ? '—' : counts.online} unit={servers ? `/ ${entries.length} 台` : undefined} tone="good">{unavailable ? '当前在线状态待确认' : !entries.length ? '等待服务器接入' : counts.online === counts.all ? '全部服务器在线' : `${counts.offline} 台离线，${counts.pending} 台待接入`}</Stat>
       <Stat icon="database" label="网卡累计流量" value={size(total)}><span className="d-good">↑ {size(sent.value)}</span><span className="d-info">↓ {size(received.value)}</span></Stat>
-      <Stat icon="up" label="实时上行" value={unavailable ? '—' : speed(upload.value)} tone="good">{unavailable ? '等待刷新恢复' : coverage(upload.count)}</Stat>
-      <Stat icon="down" label="实时下行" value={unavailable ? '—' : speed(download.value)} tone="info">{unavailable ? '等待刷新恢复' : coverage(download.count)}</Stat>
+      <Stat icon="up" label="实时上行" value={unavailable ? '—' : speed(upload.value)} tone="good">{unavailable ? '等待刷新恢复' : <><span>{coverage(upload.count)}</span>{topUpload && <span title={topUpload.name}>最高 {topUpload.name}</span>}</>}</Stat>
+      <Stat icon="down" label="实时下行" value={unavailable ? '—' : speed(download.value)} tone="info">{unavailable ? '等待刷新恢复' : <><span>{coverage(download.count)}</span>{topDownload && <span title={topDownload.name}>最高 {topDownload.name}</span>}</>}</Stat>
     </section>
+    {showCosts && <section className="d-cost-summary d-glass" aria-label="服务器成本总览"><div className="d-cost-heading"><div><h2>服务器成本</h2><p>统一币种对比，按所填价格与周期估算。</p></div><CurrencyControls /></div><div className="d-cost-values"><div><span>所填费用合计</span><strong>{money(costs.total, currency)}</strong><small>{costs.converted} 台可折算 · 各台计费周期不同</small></div><div><span>每 30 天折算</span><strong>{money(costs.recurring, currency)}</strong><small>{costs.recurringCount} 台周期付费 · 一次性费用不计入</small></div><div><span>本周期剩余估算</span><strong>{money(costs.remaining, currency)}</strong><small>{costs.remainingCount} 台到期与周期已知</small></div></div>{(costs.missingPrices > 0 || costs.missingRates > 0) && <p className="d-cost-coverage">{costs.missingPrices > 0 && `${costs.missingPrices} 台未填写成本。`}{costs.missingRates > 0 && `${costs.missingRates} 台缺少所需汇率，未计入折算合计。`}</p>}</section>}
     <div className="d-dashboard-toolbar d-glass">
       <div className="d-toolbar"><label className="d-search"><Icon name="search" size={16} /><input type="search" aria-label="搜索服务器" placeholder="搜索名称、地区、标签、系统…" value={query} onChange={event => setQuery(event.target.value)} /></label>
         <div className="d-segmented" role="group" aria-label="服务器状态筛选">{filters.map(([value, label]) => <button key={value} aria-label={label} aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}<span className="d-filter-count" aria-hidden="true">{!servers || (value !== 'all' && unavailable) ? '—' : counts[value]}</span></button>)}</div>
@@ -89,7 +98,7 @@ export default function Overview({ now }: { now: number }) {
     {loading && !servers ? <div className="d-empty" role="status"><span className="spinner" />正在读取服务器…</div> : !servers && paused ? <div className="d-empty"><Icon name="pause" size={28} /><strong>尚未读取服务器</strong><p>恢复自动刷新或手动读取一次快照。</p></div> : visible.length ? view === 'cards' ?
       <section className="d-node-grid" aria-label="服务器列表">{visible.map(server => <ServerCard key={server.id} server={server} unavailable={unavailable} probes={probes.data ? byServer.get(server.id) ?? [] : undefined} probeError={probeUnavailable} probeLoading={probes.loading} now={now} />)}</section> :
       <ServerTable servers={visible} unavailable={unavailable} byServer={byServer} probesKnown={probes.data !== undefined} probeError={probeUnavailable} probeLoading={probes.loading} now={now} /> :
-      !error && <div className="d-empty"><Icon name="server" size={32} /><strong>{entries.length ? '没有匹配的服务器' : servers?.length ? '服务器已在看板隐藏' : '还没有服务器'}</strong><p>{entries.length ? '试试其他关键词、状态、地区或分组。' : servers?.length ? '在服务器管理中取消展示隐藏后，就会出现在这里。' : '在后台添加服务器并接入设备后，运行信息会显示在这里。'}</p>{entries.length ? <button className="d-button" onClick={reset}>重置筛选条件</button> : <a className="d-button" href="#/servers">前往服务器管理</a>}</div>}
-    <p className="d-footnote">汇总覆盖所有未隐藏的服务器，不随下方筛选改变。状态每 5 秒、拨测每 15 秒读取；本页不创建任务或执行诊断。{sort === 'attention' && '关注顺序为离线、指标待更新、待接入或资源占用达到 90%；这只是展示排序，不是告警判定。'}<br />实时速率只统计在线且采样时间已知、未过期的设备。网卡累计是最近上报的接口计数，可能因重启归零，并非代理用户用量。{servers && Math.min(sent.count, received.count) < entries.length ? ` ${entries.length - Math.min(sent.count, received.count)} 台缺少完整网卡计数。` : ''}</p>
+      !error && <div className="d-empty"><Icon name="server" size={32} /><strong>{entries.length ? '没有匹配的服务器' : resource.hiddenOnly ? '服务器已在看板隐藏' : '还没有服务器'}</strong><p>{entries.length ? '试试其他关键词、状态、地区或分组。' : resource.hiddenOnly ? '在服务器管理中取消展示隐藏后，就会出现在这里。' : '在后台添加服务器并接入设备后，运行信息会显示在这里。'}</p>{entries.length ? <button className="d-button" onClick={reset}>重置筛选条件</button> : <a className="d-button" href="#/servers">前往服务器管理</a>}</div>}
+    <p className="d-footnote">汇总覆盖所有未隐藏的服务器，不随下方筛选改变。{resource.modern ? '实时状态每 3 秒读取，静态信息与成本每 30 秒读取' : '状态每 5 秒读取'}，拨测每 15 秒读取；隐藏页面会暂停并取消读取。{sort === 'attention' && '关注顺序为离线、指标待更新、待接入或资源占用达到 90%；这只是展示排序，不是告警判定。'}<br />实时速率只统计在线且采样时间已知、未过期的设备。每次显示的都是实际采样，不在上报间隔内补造数值。网卡累计可能因重启归零，并非代理用户用量。{servers && Math.min(sent.count, received.count) < entries.length ? ` ${entries.length - Math.min(sent.count, received.count)} 台缺少完整网卡计数。` : ''}</p>
   </div>
 }

@@ -1,3 +1,5 @@
+#[path = "../../../../plugins/ddns/panel/mod.rs"]
+pub mod ddns;
 #[path = "../../../../plugins/singbox/panel/mod.rs"]
 pub mod singbox;
 
@@ -19,11 +21,14 @@ pub async fn runtime_activity_on(
 }
 
 pub fn router() -> Router<AppState> {
-    singbox::router()
+    singbox::router().merge(ddns::routes())
 }
 
 pub async fn run(state: AppState) {
-    singbox::publisher::run(state).await
+    tokio::join!(
+        singbox::publisher::run(state.clone()),
+        ddns::run(state.pool.clone())
+    );
 }
 
 pub async fn ingest_usage(

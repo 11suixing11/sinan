@@ -177,6 +177,7 @@ pub async fn run_with_diagnostics(
     capabilities.extend(
         [
             "telemetry:batch",
+            "telemetry:live:v1",
             "agent:settings",
             "ip:discovery",
             "probe:tcp",

@@ -39,6 +39,21 @@ fn spec(aggregation: &str, ids: Vec<i64>) -> Value {
     json!({"name":"负载规则","metric":"cpu","threshold":90,"duration_minutes":2,"aggregation":aggregation,"all_servers":false,"enabled":true,"server_ids":ids})
 }
 
+async fn minute(pool: &PgPool, server: i64, bucket: i64, cpu: f64) -> Result<()> {
+    let at = bucket * 1000;
+    let summary = json!({"bucket_at":at,"sample_count":2,"first_sampled_at":at+1000,"last_sampled_at":at+59000,
+        "metrics":{"cpu_percent":{"count":2,"avg":cpu,"min":cpu,"max":cpu}},"network_counters":{},"partial":false});
+    sqlx::query("INSERT INTO telemetry_history(server_id,resolution_secs,bucket_at,summary) VALUES($1,60,$2,$3) ON CONFLICT(server_id,resolution_secs,bucket_at) DO UPDATE SET summary=$3")
+        .bind(server).bind(at).bind(summary).execute(pool).await?;
+    sqlx::query(
+        "INSERT INTO telemetry_history_initialized(server_id) VALUES($1) ON CONFLICT DO NOTHING",
+    )
+    .bind(server)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 #[sqlx::test]
 async fn resource_windows_require_complete_valid_samples_and_recover_once(
     pool: PgPool,
@@ -51,7 +66,7 @@ async fn resource_windows_require_complete_valid_samples_and_recover_once(
     let now = sinan_protocol::now_timestamp();
     let end = now / 60 * 60;
     config(pool, 0, 0).await?;
-    sqlx::query("UPDATE servers SET last_seen=$1")
+    sqlx::query("UPDATE servers SET last_seen=$1,metrics_sampled_at=$1*1000")
         .bind(now)
         .execute(pool)
         .await?;
@@ -76,6 +91,17 @@ async fn resource_windows_require_complete_valid_samples_and_recover_once(
             .await?;
         rules.push(rule);
     }
+    notifications::evaluate(pool, now, now).await?;
+    assert_eq!(
+        count(pool, "resource").await?,
+        0,
+        "legacy last observations are not complete aggregates"
+    );
+    for id in [server, excluded] {
+        for (offset, cpu) in [(120, 100.0), (60, 85.0)] {
+            minute(pool, id, end - offset, cpu).await?;
+        }
+    }
     let (a, b) = tokio::join!(
         notifications::evaluate(pool, now, now),
         notifications::evaluate(pool, now, now)
@@ -93,9 +119,9 @@ async fn resource_windows_require_complete_valid_samples_and_recover_once(
             .await?;
     assert_eq!(owner, server);
     assert_eq!(value["value"], 92.5);
-    sqlx::query("UPDATE metrics_minutely SET metrics='{}' WHERE server_id=$1 AND bucket=$2")
+    sqlx::query("UPDATE telemetry_history SET summary=jsonb_set(summary,'{metrics}','{}') WHERE server_id=$1 AND bucket_at=$2")
         .bind(server)
-        .bind(end - 60)
+        .bind((end - 60) * 1000)
         .execute(pool)
         .await?;
     notifications::evaluate(pool, now, now).await?;
@@ -108,10 +134,9 @@ async fn resource_windows_require_complete_valid_samples_and_recover_once(
         1,
         "missing is not recovery"
     );
-    sqlx::query("UPDATE metrics_minutely SET metrics='{\"cpu_percent\":10}' WHERE server_id=$1")
-        .bind(server)
-        .execute(pool)
-        .await?;
+    for offset in [120, 60] {
+        minute(pool, server, end - offset, 10.0).await?;
+    }
     notifications::evaluate(pool, now, now).await?;
     notifications::evaluate(pool, now, now).await?;
     assert_eq!(
@@ -122,13 +147,20 @@ async fn resource_windows_require_complete_valid_samples_and_recover_once(
         "one alert plus one recovery"
     );
     // A gap must not be hidden by an out-of-window sample.
-    sqlx::query("UPDATE metrics_minutely SET metrics='{\"cpu_percent\":100}' WHERE server_id=$1")
+    let recovery: String =
+        sqlx::query_scalar("SELECT message FROM notification_outbox WHERE kind='recovery'")
+            .fetch_one(pool)
+            .await?;
+    assert!(
+        recovery.contains("10.00"),
+        "recovery reports the observed value"
+    );
+    for offset in [120, 60] {
+        minute(pool, server, end - offset, 100.0).await?;
+    }
+    sqlx::query("DELETE FROM telemetry_history WHERE server_id=$1 AND bucket_at=$2")
         .bind(server)
-        .execute(pool)
-        .await?;
-    sqlx::query("DELETE FROM metrics_minutely WHERE server_id=$1 AND bucket=$2")
-        .bind(server)
-        .bind(end - 60)
+        .bind((end - 60) * 1000)
         .execute(pool)
         .await?;
     notifications::evaluate(pool, now, now).await?;

@@ -267,9 +267,10 @@ pub async fn process_message(
             reconcile_hint(state, server_id, heartbeat.applied).await?
         }
         Message::TelemetryStatic(info) => {
-            sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
+            sqlx::query("UPDATE servers SET static_info=$2,static_info_received_at=$3 WHERE id=$1 AND deleted_at IS NULL")
                 .bind(server_id)
                 .bind(serde_json::to_value(info)?)
+                .bind(now_timestamp())
                 .execute(&state.pool)
                 .await?;
         }

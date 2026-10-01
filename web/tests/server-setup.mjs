@@ -72,6 +72,7 @@ try {
         return fulfill({ token: 'TEST_ONLY', expires_at: Math.floor(Date.now() / 1000) + (enrollmentMode === 'expired' ? -1 : 86400), installation: enrollmentMode === 'missing' ? null : { version, tag: version === 'latest' ? null : `agent-v${version}`, target, platform }, install_command: enrollmentMode === 'missing' ? null : installCommand(version, platform, target), warning: enrollmentMode === 'missing' ? '测试：请维护者准备兼容的签名发布' : null })
       }
       if (path === '/api/servers/1/agent-settings') return fulfill(settings)
+      if (path === '/api/servers/1/telemetry-settings') return fulfill({ persist_interval_secs: 60 })
       if (path === '/api/servers/1/probes') return fulfill(probes)
       if (path === '/api/servers/1/probe-results' || path === '/api/servers/1/commands') return fulfill([])
       if (path === '/api/plugins/sing-box/servers/1') return fulfill({ id: 1, name: entry.name, enabled: false, online: entry.online, agent_supported: false, read_only: false, source: null })
@@ -150,6 +151,7 @@ try {
     assert.equal(creates.length, 2, 'Repeated submission must not duplicate the successful creation')
     assert.equal(enrollments.length, 1)
     assert.equal(creates[1].name, '东京 · 主节点')
+    assert.deepEqual(creates[1].telemetry_settings, { persist_interval_secs: 60 })
     assert.deepEqual(settings, { sample_interval_secs: 3, upload_interval_secs: 10, auto_update: true, discover_public_ips: false })
     assert.deepEqual(probes.map(({ kind, port, interval_secs }) => ({ kind, port, interval_secs })), [{ kind: 'tcp', port: 8443, interval_secs: 45 }, { kind: 'icmp', port: null, interval_secs: 30 }])
     assert.deepEqual(probes.map(probe => probe.monitor.authorization.identity), [

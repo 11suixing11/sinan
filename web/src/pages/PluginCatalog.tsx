@@ -31,7 +31,7 @@ function SelectServer({ plugin, onClose }: { plugin: CatalogDefinition; onClose:
   const path = server ? pluginServerPath(plugin, server.id) : null
   return <Modal title={`选择使用 ${plugin.title} 的服务器`} onClose={onClose}>
     <div className="modal-body">
-      <p className="helper">这里只选择要管理的服务器，不会立即安装或运行插件。后续操作由该服务器的 Agent 执行。</p>
+      <p className="helper">{plugin.execution === 'panel' ? '选择服务器后启用 DDNS 插件，由面板使用 Agent 已上报的 IP 更新 DNS。' : '这里只选择要管理的服务器，不会立即安装或运行插件。后续操作由该服务器的 Agent 执行。'}</p>
       <ErrorNotice message={servers.error} retry={servers.reload} />
       {servers.loading && !servers.data ? <Loading /> : !servers.error && !servers.data?.length ? <Empty icon="server" title="还没有服务器" description="先添加服务器并接入 Agent，再使用插件。"><a className="button button-primary" href="#/servers">前往服务器</a></Empty> : <Field label="目标服务器">
         <select value={selected} onChange={event => setSelected(event.target.value)} disabled={!!servers.error}>
@@ -51,17 +51,17 @@ export default function PluginCatalog() {
   const unavailable = !!resource.error || !resource.data
   return <>
     <PageHeader eyebrow="服务器扩展" title="插件目录" description="了解每个插件的用途，再选择要使用它的服务器。同一插件的不同版本与架构集中展示。"><Refresh onClick={resource.reload} /></PageHeader>
-    <div className="notice quiet-notice"><Icon name="server" size={19} /><div><strong>插件运行在服务器上，不安装到面板</strong><p>面板负责配置、分发与展示；下载、校验和执行由目标服务器的 Agent 完成。下载包已验证，不代表服务器已安装或已就绪。</p></div></div>
+    <div className="notice quiet-notice"><Icon name="server" size={19} /><div><strong>按服务器启用插件，执行位置见插件说明</strong><p>设备插件由 Agent 下载、校验和执行；面板插件使用已上报的数据处理任务。下载包已验证，不代表服务器已安装或已就绪。</p></div></div>
     <ErrorNotice message={resource.error} retry={resource.reload} />
     {resource.loading && !resource.data && <Loading />}
     <div className="catalog-grid" aria-label="插件目录">
       {catalog.plugins.map(plugin => <article className="panel catalog-card" key={plugin.id} data-catalog-plugin={plugin.id}>
-        <div className="panel-heading"><div className="catalog-identity"><Icon name={plugin.icon} /><h2>{plugin.title}</h2></div><Badge>{unavailable ? '版本状态未知' : plugin.versions.length ? '有已验证下载包' : '暂无下载包'}</Badge></div>
+        <div className="panel-heading"><div className="catalog-identity"><Icon name={plugin.icon} /><h2>{plugin.title}</h2></div><Badge>{plugin.execution === 'panel' ? '面板插件' : unavailable ? '版本状态未知' : plugin.versions.length ? '有已验证下载包' : '暂无下载包'}</Badge></div>
         <div className="panel-body"><p className="catalog-description">{plugin.description}</p><p className="helper">{plugin.usage}</p>
           {!!plugin.architectures.length && <div className="catalog-architectures"><span>已收录架构</span>{plugin.architectures.map(arch => <Badge key={arch}>{arch}</Badge>)}</div>}
-          <Packages item={plugin} unavailable={unavailable} />
+          {plugin.execution === 'panel' ? <p className="catalog-package-note">随面板提供，无需设备下载包。</p> : <Packages item={plugin} unavailable={unavailable} />}
         </div>
-        <div className="catalog-actions"><span>执行位置：服务器 Agent</span><button className="button button-secondary" onClick={() => setSelected(plugin)}>选择服务器<Icon name="arrow" size={15} /></button></div>
+        <div className="catalog-actions"><span>执行位置：{plugin.execution === 'panel' ? '面板' : '服务器 Agent'}</span><button className="button button-secondary" onClick={() => setSelected(plugin)}>选择服务器<Icon name="arrow" size={15} /></button></div>
       </article>)}
     </div>
     <section className="panel catalog-agent" aria-label="基础组件"><div className="panel-heading"><h2>服务器 Agent</h2><Badge>基础组件，不是插件</Badge></div><div className="panel-body"><p className="catalog-description">采集服务器状态，接收面板配置，并管理服务器上的插件。接入或升级请在具体服务器页面操作。</p><Packages item={catalog.agent} unavailable={unavailable} /><a className="text-button" href="#/servers">管理服务器接入 <Icon name="arrow" size={15} /></a></div></section>

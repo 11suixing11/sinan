@@ -30,14 +30,15 @@ pub(super) async fn enqueue(
     kind: &str,
     now: i64,
 ) -> anyhow::Result<()> {
-    if !settings.telegram_ready() {
+    if !settings.telegram_ready() && !settings.webhook_ready() {
         return Ok(());
     }
-    let (category, name, message): (String, String, String) =
-        sqlx::query_as("SELECT category,server_name,message FROM server_alert_events WHERE id=$1")
-            .bind(event)
-            .fetch_one(&mut **tx)
-            .await?;
+    let (category, name, message, details): (String, String, String, Value) = sqlx::query_as(
+        "SELECT category,server_name,message,details FROM server_alert_events WHERE id=$1",
+    )
+    .bind(event)
+    .fetch_one(&mut **tx)
+    .await?;
     let timestamp: String = sqlx::query_scalar(
         "SELECT to_char(to_timestamp($1) AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') || ' UTC'",
     )
@@ -45,22 +46,56 @@ pub(super) async fn enqueue(
     .fetch_one(&mut **tx)
     .await?;
     let message = if kind == "recovery" {
-        "检测已恢复正常。"
+        details
+            .pointer("/recovery/message")
+            .and_then(Value::as_str)
+            .unwrap_or("检测已恢复正常。")
     } else {
         &message
     };
-    let text = super::template::render(
-        &settings.telegram_template,
-        [
-            title(&category, kind == "recovery"),
-            &name,
-            message,
-            &timestamp,
-            &event.to_string(),
-        ],
-    );
-    sqlx::query("INSERT INTO notification_outbox(event_id,kind,message,next_attempt_at) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING")
+    if settings.telegram_ready() {
+        let text = super::template::render(
+            &settings.telegram_template,
+            [
+                title(&category, kind == "recovery"),
+                &name,
+                message,
+                &timestamp,
+                &event.to_string(),
+            ],
+        );
+        sqlx::query("INSERT INTO notification_outbox(event_id,kind,message,next_attempt_at,channel) VALUES($1,$2,$3,$4,'telegram') ON CONFLICT DO NOTHING")
         .bind(event).bind(kind).bind(text).bind(now).execute(&mut **tx).await?;
+    }
+    if settings.webhook_ready()
+        && let Some(config) = &settings.webhook
+    {
+        let event_id = event.to_string();
+        let event_name = match (category.as_str(), kind) {
+            ("offline", "recovery") => "online",
+            ("resource", "recovery") => "resource_recovery",
+            (category, _) => category,
+        };
+        let rendered = super::webhook::render(
+            &config.body,
+            &super::webhook::Message {
+                title: title(&category, kind == "recovery"),
+                server: &name,
+                message,
+                time: &timestamp,
+                event: event_name,
+                event_id: &event_id,
+                category: &category,
+            },
+        );
+        // A malformed or oversized payload in one channel must not suppress the other channel.
+        let (body, status, error) = match rendered {
+            Ok(body) => (body, "pending", None),
+            Err(error) => (String::new(), "failed", Some(error)),
+        };
+        sqlx::query("INSERT INTO notification_outbox(event_id,kind,message,next_attempt_at,channel,status,last_error) VALUES($1,$2,$3,$4,'webhook',$5,$6) ON CONFLICT DO NOTHING")
+            .bind(event).bind(kind).bind(body).bind(now).bind(status).bind(error).execute(&mut **tx).await?;
+    }
     Ok(())
 }
 
@@ -76,10 +111,11 @@ pub(super) async fn observe(
     if let Some(event) = previous {
         if !observation.active {
             sqlx::query(
-                "UPDATE server_alert_events SET resolved_at=$2,resolution='recovered' WHERE id=$1",
+                "UPDATE server_alert_events SET resolved_at=$2,resolution='recovered',details=details||jsonb_build_object('recovery',$3::jsonb) WHERE id=$1",
             )
             .bind(event)
             .bind(now)
+            .bind(serde_json::json!({"message": if observation.category == "offline" { "设备已重新上报，恢复在线。".into() } else { observation.message }, "details": observation.details, "observed_at": now}))
             .execute(&mut **tx)
             .await?;
             if matches!(observation.category, "offline" | "resource") {

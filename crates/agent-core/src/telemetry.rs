@@ -187,7 +187,7 @@ impl Collector {
             .collect();
         self.last_disks = Some((now, disk_counts));
         let load = load_average();
-        Metrics {
+        let mut metrics = Metrics {
             swap_total: Some(self.system.total_swap()),
             swap_used: Some(self.system.used_swap()),
             processes: u64::try_from(self.system.processes().len()).ok(),
@@ -203,7 +203,16 @@ impl Collector {
             udp_connections: connection_count("udp"),
             uptime_secs: positive(System::uptime()),
             ..Metrics::default()
+        };
+        // Snapshot capacities with each measurement; using present-day host
+        // metadata to normalize old samples would rewrite historical usage.
+        if let Some(total) = positive(self.system.total_memory()) {
+            metrics.extra.insert("memory_total".into(), total.into());
         }
+        if let Some((total, _)) = disks::totals(&self.disks) {
+            metrics.extra.insert("disk_total".into(), total.into());
+        }
+        metrics
     }
 }
 

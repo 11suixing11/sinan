@@ -29,6 +29,14 @@ pub struct Server {
     pub last_seen: Option<i64>,
     pub last_heartbeat_at: Option<i64>,
     pub metrics_sampled_at: Option<i64>,
+    #[sqlx(skip)]
+    pub metrics_received_at: Option<i64>,
+    #[sqlx(skip)]
+    pub metrics_persisted_at: Option<i64>,
+    #[sqlx(skip)]
+    pub served_at: i64,
+    #[sqlx(skip)]
+    pub telemetry_settings: Option<sinan_protocol::telemetry::TelemetrySettings>,
     pub agent_settings: Value,
     #[sqlx(json)]
     pub asset_settings: AssetSettings,
@@ -79,6 +87,8 @@ pub struct CreateServerRequest {
     #[serde(default)]
     pub agent_settings: AgentSettings,
     #[serde(default)]
+    pub telemetry_settings: sinan_protocol::telemetry::TelemetrySettings,
+    #[serde(default)]
     pub probes: Vec<ProbeSpec>,
     #[serde(default)]
     pub asset_settings: AssetSettings,
@@ -96,6 +106,7 @@ pub async fn list(
         .await?;
     let mut servers: Vec<_> = servers.into_iter().map(Server::with_online).collect();
     server_traffic::attach(&state.pool, &mut servers, now_timestamp()).await?;
+    crate::telemetry::attach_live(&state, &mut servers).await?;
     Ok(Json(servers))
 }
 
@@ -114,6 +125,9 @@ pub async fn create(
             "采样与上传间隔必须在 1–60 秒内，上传间隔不能小于采样间隔".into(),
         ));
     }
+    if !request.telemetry_settings.valid() {
+        return Err(ApiError::BadRequest("历史写入间隔须为 15–3600 秒".into()));
+    }
     if request.probes.len() > 32 {
         return Err(ApiError::BadRequest("每台服务器最多配置 32 个拨测".into()));
     }
@@ -124,12 +138,13 @@ pub async fn create(
     let mut transaction = state.pool.begin().await?;
     crate::latency_tasks::lock(&mut transaction).await?;
     let query = format!(
-        "INSERT INTO servers (name, agent_settings, asset_settings) VALUES ($1, $2, $3) RETURNING {SERVER_COLUMNS}"
+        "INSERT INTO servers (name, agent_settings, asset_settings, telemetry_settings) VALUES ($1, $2, $3, $4) RETURNING {SERVER_COLUMNS}"
     );
     let server = sqlx::query_as::<_, Server>(&query)
         .bind(name)
         .bind(json!(request.agent_settings))
         .bind(json!(asset))
+        .bind(json!(request.telemetry_settings))
         .fetch_one(&mut *transaction)
         .await?;
     for spec in request.probes {
@@ -142,7 +157,9 @@ pub async fn create(
     }
     crate::latency_tasks::assign_defaults(&mut transaction, server.id).await?;
     transaction.commit().await?;
-    Ok((StatusCode::CREATED, Json(server.with_online())))
+    let mut server = server.with_online();
+    crate::telemetry::attach_live(&state, std::slice::from_mut(&mut server)).await?;
+    Ok((StatusCode::CREATED, Json(server)))
 }
 
 pub async fn get(
@@ -165,6 +182,7 @@ pub async fn get(
         now_timestamp(),
     )
     .await?;
+    crate::telemetry::attach_live(&state, std::slice::from_mut(&mut server)).await?;
     Ok(Json(server))
 }
 
@@ -224,6 +242,7 @@ pub async fn update(
         now_timestamp(),
     )
     .await?;
+    crate::telemetry::attach_live(&state, std::slice::from_mut(&mut server)).await?;
     Ok(Json(server))
 }
 

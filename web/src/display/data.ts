@@ -2,7 +2,7 @@ import { bytes } from '../format'
 import type { Metrics, Server } from '../types'
 
 export type Sample = { id: string; sampled_at: number; metrics: Metrics }
-export type Point = { at: number; value: number | null }
+export type Point = { at: number; value: number | null; range?: { from: number; to: number; count: number; min: number; max: number; samples: number; partial: boolean; live?: boolean; bucketFrom?: number; bucketTo?: number } }
 export type NetworkField = 'received_bytes' | 'transmitted_bytes' | 'receive_bytes_per_sec' | 'transmit_bytes_per_sec'
 
 export function number(value: unknown): number | null {
@@ -74,8 +74,8 @@ export function segments(points: Point[], from: number, to: number, gap: number,
       groups.set(key, group)
     }
     return [...groups.values()].flatMap(group => {
-      const low = group.reduce((best, point) => point.value! < best.value! ? point : best)
-      const high = group.reduce((best, point) => point.value! > best.value! ? point : best)
+      const low = group.reduce((best, point) => (point.range?.min ?? point.value!) < (best.range?.min ?? best.value!) ? point : best)
+      const high = group.reduce((best, point) => (point.range?.max ?? point.value!) > (best.range?.max ?? best.value!) ? point : best)
       return [...new Set([group[0], low, high, group[group.length - 1]])].sort((a, b) => a.at - b.at)
     })
   })

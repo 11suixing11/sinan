@@ -51,6 +51,8 @@ try {
         reads.push(path)
         if (path === '/api/dashboard/access') value = { authenticated: true, public_dashboard: false }
         else if (path === '/api/me') value = { authenticated: true }
+        else if (path === '/api/plugins/ddns/rules') value = []
+        else if (path === '/api/plugins/ddns/servers') value = [{ id: 2, name: 'DDNS 测试服务器', online: true, enabled: false }]
         else if (path === '/api/artifacts') {
           if (artifactFailure) { await route.fulfill({ status: 403, json: { error: 'CATALOG_READ_FAILED' } }); return }
           value = inventory
@@ -77,7 +79,16 @@ try {
       await page.getByText('有已验证下载包', { exact: true }).first().waitFor()
     }
     await openCatalog('/artifacts')
-    assert.equal(await cards.count(), 3)
+    const ddns = page.locator('[data-catalog-plugin="ddns"]')
+    await ddns.getByRole('button', { name: '选择服务器' }).click()
+    const ddnsDialog = page.getByRole('dialog')
+    await ddnsDialog.getByLabel('目标服务器').selectOption('2')
+    await ddnsDialog.getByRole('button', { name: '前往服务器管理' }).click()
+    await page.waitForURL(`${origin}/#/servers/2/ddns`)
+    await page.getByRole('button', { name: '启用 DDNS 插件', exact: true }).waitFor()
+    assert.deepEqual(mutations, [])
+    await openCatalog('/artifacts')
+    assert.equal(await cards.count(), 4)
     assert.equal(await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '插件目录' }).getAttribute('aria-current'), 'page')
     assert.equal(await page.title(), '插件目录 · 司南')
     assert.equal(await page.getByRole('link', { name: '制品', exact: true }).count(), 0)
@@ -86,7 +97,7 @@ try {
     assert.equal(await page.getByRole('heading', { name: '服务器 Agent', exact: true }).count(), 1)
     assert.equal(await page.getByRole('heading', { name: 'custom-component', exact: true }).count(), 1)
     assert.equal(await page.locator('.catalog-unknown').getByRole('button', { name: /选择服务器|安装|启用/ }).count(), 0)
-    assert.equal(reads.includes('/api/servers'), false)
+    assert.equal(reads.filter(path => path === '/api/servers').length, 1)
     assert.equal(await singbox.locator('.catalog-architectures .badge').count(), 2)
     await singbox.locator('summary').click()
     assert.equal(await singbox.locator('.catalog-version').count(), 2)
@@ -113,7 +124,8 @@ try {
     inventory = []
     await page.getByRole('button', { name: '刷新', exact: true }).click()
     await page.getByText('暂无下载包', { exact: true }).first().waitFor()
-    assert.equal(await cards.count(), 3)
+    assert.equal(await cards.count(), 4)
+    assert.equal(await page.locator('[data-catalog-plugin="ddns"]').getByText('面板插件', { exact: true }).count(), 1)
     assert.equal(await cards.locator('summary').count(), 0)
     inventory = packages
     await page.getByRole('button', { name: '刷新', exact: true }).click()

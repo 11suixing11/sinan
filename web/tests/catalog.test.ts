@@ -8,7 +8,7 @@ test('one product contains every architecture and version without mutating the A
   const input = [artifact('sing-box', '1.14.2', 'arm64'), artifact('sing-box', '1.14.2', 'amd64'), artifact('sing-box', '1.13.0', 'amd64'), artifact('nodequality', 'snapshot-r12', 'arm64')]
   const before = structuredClone(input)
   const catalog = pluginCatalog(input)
-  expect(catalog.plugins).toHaveLength(3)
+  expect(catalog.plugins).toHaveLength(4)
   const plugin = catalog.plugins.find(item => item.id === 'sing-box')!
   expect(plugin.architectures).toEqual(['amd64', 'arm64'])
   expect(plugin.versions.map(item => item.version)).toEqual(['1.14.2', '1.13.0'])
@@ -19,7 +19,7 @@ test('one product contains every architecture and version without mutating the A
 
 test('catalog descriptions remain available before any signed download packages exist', () => {
   const catalog = pluginCatalog([])
-  expect(catalog.plugins.map(item => item.id)).toEqual(['sing-box', 'nodequality', 'tcpquality'])
+  expect(catalog.plugins.map(item => item.id)).toEqual(['ddns', 'sing-box', 'nodequality', 'tcpquality'])
   for (const plugin of catalog.plugins) {
     expect(plugin.description.length).toBeGreaterThan(10)
     expect(plugin.usage.length).toBeGreaterThan(10)
@@ -46,7 +46,7 @@ test('the platform/version matrix does not invent cross-platform version availab
 })
 
 test('all plugin destinations require a real server identity; no panel install destination exists', () => {
-  expect(pluginDefinitions.map(plugin => pluginServerPath(plugin, 42))).toEqual(['/servers/42/plugins', '/servers/42/node-quality', '/servers/42/tcp-quality'])
+  expect(pluginDefinitions.map(plugin => pluginServerPath(plugin, 42))).toEqual(['/servers/42/ddns', '/servers/42/plugins', '/servers/42/node-quality', '/servers/42/tcp-quality'])
   for (const plugin of pluginDefinitions) {
     for (const invalid of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) expect(pluginServerPath(plugin, invalid)).toBeNull()
   }
