@@ -174,6 +174,10 @@ def assemble(args):
 def installer_source(template, agent_unit, runtime_unit, source_root=SOURCE_ROOT):
     """Render audited static Linux installation logic for release or trusted bootstrap."""
     text = read_regular(Path(template), 262144).decode("utf-8")
+    if "@@LEGACY_CHECKPOINT_PREFLIGHT@@" in text:
+        ensure(text.count("@@LEGACY_CHECKPOINT_PREFLIGHT@@") == 2, "missing or duplicate legacy preflight marker")
+        guard = read_regular(Path(source_root) / "tools/legacy_agent_checkpoint.py", 65536).decode("utf-8")
+        text = text.replace("@@LEGACY_CHECKPOINT_PREFLIGHT@@", guard.rstrip())
     for marker, filename in (("@@AGENT_UNIT@@", agent_unit),
                              ("@@RUNTIME_UNIT@@", runtime_unit)):
         ensure(text.count(marker) == 1, "missing or duplicate installer unit marker")
