@@ -16,7 +16,7 @@ LIMA_HOME=/private/sinan-test/lima limactl shell --workdir=/tmp sinan-p0-debian1
 
 独立 `LIMA_HOME` 保留本任务的配置、磁盘、日志和自动生成的管理身份，不修改默认实例。禁止把管理身份、原始日志或其他业务凭据提交到仓库。软件依据 [Lima VZ 文档](https://lima-vm.io/docs/config/vmtype/vz/)；镜像依据 [Debian 官方 SHA512SUMS](https://cloud.debian.org/images/cloud/bookworm/20260712-2537/SHA512SUMS) 与 [Lima 固定版本模板](https://github.com/lima-vm/lima/blob/v2.2.0/templates/_images/debian-12.yaml)。
 
-合并审查补齐 `guestIPMustBeZero: false`：固定 Lima 2.2.0 在未设置此字段时，显式 `guestIP: 0.0.0.0` 的忽略规则只匹配该监听地址，guest 回环监听会落入自动转发。修改后的配置已用同版本 `limactl validate` 校验；以下已有启动和六夹具证据属于修改前的 guest。本轮没有启动或重启该实例，新规则的运行期端口验证须由实例任务在应用或重建后补验，不能把配置校验当作已完成此项实测。
+合并审查在 [PR #91](https://github.com/theLucius7/sinan/pull/91) 补齐 `guestIPMustBeZero: false`：固定 Lima 2.2.0 在未设置此字段时，显式 `guestIP: 0.0.0.0` 的忽略规则只匹配该监听地址，guest 回环监听会落入自动转发。修改后的配置通过同版本 `limactl validate`；下文分别记录原启动/六夹具和实际应用修正后的端口补验，不用配置校验代替运行期验证。
 
 ## 已取得的证据
 
@@ -54,6 +54,16 @@ sudo <frozen-arm64-core-tests> real_systemd_diagnostic_ --ignored --test-threads
 另在 guest 唯一 0700 临时目录的私有 16 MiB tmpfs 上预分配严格最多 16 MiB，实际有限写入返回 `ENOSPC`（errno 28），statfs 可用字节为 0。单元实际为 64 MiB/无 swap/16 tasks/PrivateMounts，峰值 24,055,808 字节、oom 0；随后卸载并删除目录，根盘仍余 4,951,310,336 字节，swap 前后不变。这是文件系统原语复核，不计为 Agent 持久化/预检失败端到端已通过。
 
 私有证据包含源码与 ELF 身份、六项名称/日志、测试前后内核差异、单元活动期属性、最终进程/挂载状态与 ENOSPC 结果。transient 单元回收后属性可能回退默认，实际预算以活动期间保存的快照为准；不公开原始日志或管理身份。
+
+## 端口转发规则的运行期补验
+
+2026-10-01，确认本任务构建结束、未启动 Agent 或业务监听后，仅停止本任务实例，使用 `limactl edit --set '.portForwards[0].guestIPMustBeZero = false'` 修改原有规则，并重新启动一次。保留原磁盘、身份和证据，没有创建或重建其他实例。模板对应 PR #91 的 `363ebd856b98183f5621322117254acc4e5ade6d`，SHA256 为 `8f1b29a013fdfcefd43092e0ff75840fcd2a0b132589ff0552651429a1da3f04`；实际实例配置 SHA256 为 `5e7bc6afbcaaabffa142085ba41e434a8db0132b66755628441f340d410fd709`。
+
+新 boot ID 的 SHA256 为 `5a2730c8d35f994be6e7931791fa3e7637cf12043d87875e4bfcc571a3850217`。启动日志明确关闭除 SSH 外的 TCP 和 UDP 转发；新管理 SSH 读回 active、MainPID=406、NRestarts=0，宿主管理监听仍仅为 loopback。此处是有意重启后的新身份，不能宣称 PID 仍为原启动的 446。
+
+两个短期 HTTP 夹具分别绑定 guest 的 `127.0.0.1` 和 `0.0.0.0`，只返回固定验收文字，无凭据或业务数据。guest 内两次正向请求均成功；启动后 0、5、10 秒，宿主对两端口的六次 TCP 连接均返回拒绝（errno 61），对应六次 `lsof` 检查均无宿主监听。夹具 15 秒正常退出，最终读回无该进程、监听或准备文件，无宿主共享文件系统；根盘仍余 3,990,147,072 字节。UDP 关闭仅由启动日志确认，本项未执行 UDP 收发，不把 TCP 结果扩展为 UDP 线路实测。
+
+私有结果保存在本任务证据目录 `port-rule-runtime/result.json`，含正/负对照、三轮检查、配置与 boot 摘要和最终清理。该补验只证明上述两类 IPv4 TCP 监听的实际端口隔离，IPv6 回环监听及线路未单独实测；原六夹具及 swap 专项仍各对应原 boot 和原源码，新 Agent 与持续代理联合负载另行记录。CI 保持暂停，本项不重跑 Cargo，也不补签完整 NodeQuality 或其他阶段。
 
 ## 验收范围与缺口
 
