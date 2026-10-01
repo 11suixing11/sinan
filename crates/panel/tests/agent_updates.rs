@@ -17,7 +17,7 @@ async fn updates_require_opt_in_matching_platform_and_newer_verified_stable_rele
     let panel = TestPanel::start(pool).await?;
     let cookie = panel.admin_cookie().await?;
     let (server, _socket, ack) = panel.authenticated_device(&cookie, "updates").await?;
-    let url = format!("{}/api/agent/v1/update", panel.base);
+    let url = format!("{}/api/agent/v1/update?download_source=github", panel.base);
     assert_eq!(
         panel.client.get(&url).send().await?.status(),
         StatusCode::UNAUTHORIZED
@@ -127,6 +127,98 @@ async fn updates_require_opt_in_matching_platform_and_newer_verified_stable_rele
         .bind(server).bind("https://mirror.example.com").execute(&panel.state.pool).await?;
     let release: Value = fetch().await?.error_for_status()?.json().await?;
     assert_eq!(release["download_mirror"], "https://mirror.example.com");
+    Ok(())
+}
+
+#[sqlx::test]
+async fn update_download_capability_requires_exact_negotiation_after_authentication(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, ack) = panel.authenticated_device(&cookie, "update-source").await?;
+    let mut entry = release_support::entry(
+        "agent",
+        "0.9.0",
+        "sinan-agent",
+        "raw",
+        b"fixture",
+        b"fixture",
+    );
+    entry.arch = "linux-musl-amd64".into();
+    entry.asset_name = canonical_asset_name(&entry)?;
+    release_fixture::write_entries(
+        &panel.state.config.data_dir,
+        vec![(entry, b"fixture".to_vec())],
+    )?;
+    sqlx::query("UPDATE servers SET agent_settings=jsonb_set(agent_settings,'{auto_update}','true'),static_info=$2 WHERE id=$1")
+        .bind(server)
+        .bind(json!({"os":"linux","arch":"amd64","libc":"musl","agent_version":"0.3.0"}))
+        .execute(&panel.state.pool)
+        .await?;
+    let url = format!("{}/api/agent/v1/update", panel.base);
+    // The same version may run an old client or a GitHub-capable client.
+    for query in [
+        "",
+        "?download_source=panel",
+        "?download_source=",
+        "?download_source=GitHub",
+        "?download_source=github&download_source=github",
+    ] {
+        let request_url = format!("{url}{query}");
+        assert!(
+            panel
+                .client
+                .get(&request_url)
+                .bearer_auth(&ack.session_token)
+                .send()
+                .await?
+                .error_for_status()?
+                .json::<Value>()
+                .await?
+                .is_null()
+        );
+        for token in [None, Some("invalid-fixture-session")] {
+            let mut request = panel.client.get(&request_url);
+            if let Some(token) = token {
+                request = request.bearer_auth(token);
+            }
+            assert_eq!(request.send().await?.status(), StatusCode::UNAUTHORIZED);
+        }
+    }
+    let github_url = format!("{url}?download_source=github");
+    let release: Value = panel
+        .client
+        .get(&github_url)
+        .bearer_auth(&ack.session_token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(release["version"], "0.9.0");
+    assert!(
+        release["artifact"]["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://github.com/theLucius7/sinan/releases/download/")
+    );
+    sqlx::query("UPDATE servers SET deleted_at=now() WHERE id=$1")
+        .bind(server)
+        .execute(&panel.state.pool)
+        .await?;
+    for request_url in [&url, &github_url] {
+        assert_eq!(
+            panel
+                .client
+                .get(request_url)
+                .bearer_auth(&ack.session_token)
+                .send()
+                .await?
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
     Ok(())
 }
 
