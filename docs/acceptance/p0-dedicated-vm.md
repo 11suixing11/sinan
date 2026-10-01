@@ -16,6 +16,8 @@ LIMA_HOME=/private/sinan-test/lima limactl shell --workdir=/tmp sinan-p0-debian1
 
 独立 `LIMA_HOME` 保留本任务的配置、磁盘、日志和自动生成的管理身份，不修改默认实例。禁止把管理身份、原始日志或其他业务凭据提交到仓库。软件依据 [Lima VZ 文档](https://lima-vm.io/docs/config/vmtype/vz/)；镜像依据 [Debian 官方 SHA512SUMS](https://cloud.debian.org/images/cloud/bookworm/20260712-2537/SHA512SUMS) 与 [Lima 固定版本模板](https://github.com/lima-vm/lima/blob/v2.2.0/templates/_images/debian-12.yaml)。
 
+合并审查补齐 `guestIPMustBeZero: false`：固定 Lima 2.2.0 在未设置此字段时，显式 `guestIP: 0.0.0.0` 的忽略规则只匹配该监听地址，guest 回环监听会落入自动转发。修改后的配置已用同版本 `limactl validate` 校验；以下已有启动和六夹具证据属于修改前的 guest。本轮没有启动或重启该实例，新规则的运行期端口验证须由实例任务在应用或重建后补验，不能把配置校验当作已完成此项实测。
+
 ## 已取得的证据
 
 2026-10-01（Asia/Taipei）Lima 配置校验通过，实际启动完成。重新读取缓存原始镜像 341,114,880 字节，其 SHA512 与配置及官方清单一致：

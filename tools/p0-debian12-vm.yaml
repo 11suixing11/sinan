@@ -21,6 +21,7 @@ ssh:
   forwardX11: false
 portForwards:
   - guestIP: "0.0.0.0"
+    guestIPMustBeZero: false
     proto: any
     guestPortRange: [1, 65535]
     hostIP: "127.0.0.1"
