@@ -1,4 +1,5 @@
 """Prepare private synthetic policy identities; never change production files."""
+import ast
 import hashlib
 import importlib.util
 from pathlib import Path
@@ -24,7 +25,76 @@ def inert_source(name, policy):
         if name == 'net.sh':
             source += policy.NET_OUTPUT
         source += policy.SOURCES[name]['original_guard'] + b'}\n'
-    return source + swap_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+
+
+def ranking_anchors(name):
+    if name != 'hardware.sh':
+        return b''
+    policy = module('fixture_ranking_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/ranking-policy.py')
+    # These anchors stay inside an uncalled heredoc; no script runs here.
+    return b"fixture_unused_ranking(){\ncat <<'SINAN_FIXTURE_RANKING'\n" + b''.join(a for a, _ in policy.REPLACEMENTS) + b'SINAN_FIXTURE_RANKING\n}\n'
+
+
+def undo_ranking(role, patched):
+    if role != 'hardware.sh':
+        return patched
+    policy = module('fixture_undo_ranking', Path(__file__).resolve().parents[1] / 'plugins/nodequality/ranking-policy.py')
+    for before, after in reversed(policy.REPLACEMENTS):
+        patched = replace_once(patched, after, before)
+    return patched
+
+
+def loader_anchors(name, existing=b''):
+    if name != 'NodeQuality.sh':
+        return b''
+    policy = module('fixture_loader_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/loader-policy.py')
+    missing = [before for before, _ in policy.REPLACEMENTS if before not in existing]
+    return b'fixture_unused_loaders(){\n' + b''.join(missing) + b'}\n'
+
+
+def undo_loader(role, patched):
+    if role != 'NodeQuality.sh':
+        return patched
+    policy = module('fixture_undo_loader', Path(__file__).resolve().parents[1] / 'plugins/nodequality/loader-policy.py')
+    for before, after in reversed(policy.REPLACEMENTS):
+        patched = replace_once(patched, after, before)
+    return patched
+
+
+def data_anchors(name):
+    policy = module('fixture_data_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/data-policy.py')
+    if name not in policy.REQUESTS:
+        return b''
+    return b'fixture_unused_data(){\n' + b'\n'.join(policy.REQUESTS[name]) + b'\n}\n'
+
+
+def undo_data(role, patched, contents):
+    policy = module('fixture_undo_data', Path(__file__).resolve().parents[1] / 'plugins/nodequality/data-policy.py')
+    for request, name in policy.REQUESTS.get(role, {}).items():
+        patched = replace_once(patched, policy.data_command(contents[name]), request)
+    return patched
+
+
+def assignment(content, name, value):
+    statements = [node for node in ast.parse(content).body if isinstance(node, ast.Assign)
+                  and any(isinstance(target, ast.Name) and target.id == name for target in node.targets)]
+    if len(statements) != 1:
+        raise ValueError('fixture policy assignment must be unique')
+    node = statements[0]
+    lines = content.splitlines(keepends=True)
+    return b''.join(lines[:node.lineno - 1]) + (name + ' = ' + repr(value) + '\n').encode() + b''.join(lines[node.end_lineno:])
+
+
+def dependency_anchors(name):
+    policy = module('fixture_dependency_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/dependency-policy.py')
+    if name == 'NodeQuality.sh':
+        return b'fixture_unused_dependencies(){\n' + b''.join(a for a, _ in policy.ENTRY_REPLACEMENTS) + b'}\n'
+    if name in policy.END_MARKERS:
+        end = policy.END_MARKERS[name]
+        suffix = b':\n}\n' if name == 'hardware.sh' else b')\n'
+        return b'fixture_unused_dependencies(){\ninstall_dependencies(){\n:\n}\n' + end + suffix + policy.CHECK_CALL + b'}\n'
+    return b''
 
 
 def swap_anchors(name):
@@ -34,6 +104,17 @@ def swap_anchors(name):
     if name == 'hardware.sh':
         return policy.HARDWARE_PREFIX + b':\ncleanup_local(){\n' + policy.SWAP_CLEANUP + b':\n}\n}\n'
     return b''
+
+
+def undo_dependencies(role, patched, original):
+    policy = module('fixture_undo_dependencies', Path(__file__).resolve().parents[1] / 'plugins/nodequality/dependency-policy.py')
+    if role == 'NodeQuality.sh':
+        for before, after in reversed(policy.ENTRY_REPLACEMENTS):
+            patched = replace_once(patched, after, before)
+        return patched
+    start, stop = policy.installer_span(role, original)
+    patched = replace_once(patched, policy.checks(role), original[start:stop])
+    return replace_once(patched, policy.REQUIRED_CALL, policy.CHECK_CALL)
 
 
 def prepare_policy(plugin, contents):
@@ -67,4 +148,55 @@ def prepare_policy(plugin, contents):
         outputs[role] = patched
     swap_path.write_bytes(content)
     helper.write_bytes(replace_once(helper.read_bytes(), original_swap_hash, hashlib.sha256(content).hexdigest().encode()))
+    dependency_path = Path(plugin) / 'dependency-policy.py'
+    dependency = module('synthetic_dependency_policy_input', dependency_path)
+    content = dependency_path.read_bytes()
+    original_hash = hashlib.sha256(content).hexdigest().encode()
+    for role, spec in dependency.SOURCES.items():
+        canonical = outputs.get(role, contents[role])
+        patched = dependency.patch(role, canonical)
+        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
+        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
+        outputs[role] = patched
+    dependency_path.write_bytes(content)
+    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
+    data_path = Path(plugin) / 'data-policy.py'
+    data_policy = module('synthetic_data_policy_input', data_path)
+    content = data_path.read_bytes()
+    original_hash = hashlib.sha256(content).hexdigest().encode()
+    identities = {name: {'sha256': hashlib.sha256(contents[name]).hexdigest(), 'size': len(contents[name])}
+                  for name in data_policy.DATA}
+    content = assignment(content, 'DATA', identities)
+    for role, spec in data_policy.SOURCES.items():
+        canonical = outputs[role]
+        patched = data_policy.patch(role, canonical, {name: contents[name] for name in data_policy.REQUESTS[role].values()})
+        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
+        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
+        outputs[role] = patched
+    data_path.write_bytes(content)
+    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
+    loader_path = Path(plugin) / 'loader-policy.py'
+    loader = module('synthetic_loader_policy_input', loader_path)
+    content = loader_path.read_bytes()
+    original_hash = hashlib.sha256(content).hexdigest().encode()
+    for role, spec in loader.SOURCES.items():
+        canonical = outputs[role]
+        patched = loader.patch(canonical)
+        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
+        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
+        outputs[role] = patched
+    loader_path.write_bytes(content)
+    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
+    ranking_path = Path(plugin) / 'ranking-policy.py'
+    ranking = module('synthetic_ranking_policy_input', ranking_path)
+    content = ranking_path.read_bytes()
+    original_hash = hashlib.sha256(content).hexdigest().encode()
+    for role, spec in ranking.SOURCES.items():
+        canonical = outputs[role]
+        patched = ranking.patch(canonical)
+        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
+        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
+        outputs[role] = patched
+    ranking_path.write_bytes(content)
+    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
     return outputs

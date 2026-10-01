@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Package canonical NodeQuality sources and the fixed public report policy.
+# Package canonical NodeQuality sources, reference data and fixed policies.
 set -euo pipefail
 umask 022
 
@@ -8,13 +8,14 @@ usage() {
 Usage: tools/build-nodequality.sh <amd64|arm64> <ARTIFACT_ROOT>
 
 Build prerequisites: bash, curl, python3. No benchmark runs during packaging.
-Output: ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r8/<arch>
-        ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r8/SHA256SUMS
+Output: ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r12/<arch>
+        ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r12/SHA256SUMS
 
 Both targets contain one architecture-independent executable named nodequality.
-The canonical entrypoint, five first-level scripts and four full licenses are
-retained verbatim. Fixed helpers remove swap changes and gate public report POSTs
-without removing hardware tests. Rootfs and secondary tools remain unpinned.
+The canonical entrypoint, five first-level scripts, seven reference files and
+four full licenses are retained verbatim. Fixed helpers forbid runtime installs
+and swap changes, gate public reports and embed static data without removing
+hardware tests. Rootfs and secondary tools still require independent work.
 Existing architecture files are immutable. Packaging verifies and retains the
 other architecture's checksum entry. Run architectures sequentially.
 USAGE
@@ -27,7 +28,7 @@ case "$arch" in amd64|arm64) ;; *) die 'architecture must be amd64 or arm64' ;; 
 [[ -n $2 ]] || die 'ARTIFACT_ROOT must not be empty'
 for tool in curl python3; do command -v "$tool" >/dev/null || die "missing build tool: $tool"; done
 upstream_revision=a92fca6c0067df29ddd03fdc2fee6f3000f64545
-version=$upstream_revision-r8
+version=$upstream_revision-r12
 output=$2/nodequality/$version
 [[ ! -L $output ]] || die 'output version directory must not be a symlink'
 mkdir -p "$output"
@@ -107,6 +108,10 @@ for marker, path in (
     ("SOURCE_HELPER", plugin / "source-helper.py"),
     ("REPORT_POLICY_HELPER", plugin / "report-policy.py"),
     ("SWAP_POLICY_HELPER", plugin / "swap-policy.py"),
+    ("DEPENDENCY_POLICY_HELPER", plugin / "dependency-policy.py"),
+    ("DATA_POLICY_HELPER", plugin / "data-policy.py"),
+    ("LOADER_POLICY_HELPER", plugin / "loader-policy.py"),
+    ("RANKING_POLICY_HELPER", plugin / "ranking-policy.py"),
     ("REPORT_HELPER", plugin / "report.py"),
     ("EXIT_OBSERVER", plugin / "exit-observer.sh"),
     ("DAILY_HELPER", plugin / "daily.py"),

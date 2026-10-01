@@ -86,6 +86,69 @@
       "path": "LICENSE",
       "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
       "size": 34523
+    },
+    {
+      "name": "ip-iso3166.json",
+      "repository": "xykt/IPQuality",
+      "commit": "87397e2c3196ec796f5477c83343c2354df601ea",
+      "path": "ref/iso3166.json",
+      "sha256": "e1434e42786484b1841082a0a16cf27208691443dc6440d125ad81d49007ea42",
+      "size": 65317,
+      "license_file": "LICENSE.ip"
+    },
+    {
+      "name": "ip-dnsbl.list",
+      "repository": "xykt/IPQuality",
+      "commit": "87397e2c3196ec796f5477c83343c2354df601ea",
+      "path": "ref/dnsbl.list",
+      "sha256": "a92ca482843310167309c82f05cb7e208d7decc7f8bb7eada0f96af42f1143ad",
+      "size": 8812,
+      "license_file": "LICENSE.ip"
+    },
+    {
+      "name": "net-AS_Mapping.txt",
+      "repository": "xykt/NetQuality",
+      "commit": "d5b99484d51286374d24b892c1b54235dc282148",
+      "path": "ref/AS_Mapping.txt",
+      "sha256": "18596092c50e95ba23a6e997dc1ed823e4b01401034ffa2068a69e3a05c3cc50",
+      "size": 1154,
+      "license_file": "LICENSE.net"
+    },
+    {
+      "name": "net-iso3166.json",
+      "repository": "xykt/NetQuality",
+      "commit": "d5b99484d51286374d24b892c1b54235dc282148",
+      "path": "ref/iso3166.json",
+      "sha256": "e1434e42786484b1841082a0a16cf27208691443dc6440d125ad81d49007ea42",
+      "size": 65317,
+      "license_file": "LICENSE.net"
+    },
+    {
+      "name": "net-province.json",
+      "repository": "xykt/NetQuality",
+      "commit": "d5b99484d51286374d24b892c1b54235dc282148",
+      "path": "ref/province.json",
+      "sha256": "a2b8fd700adc16a95dfc9d1671dfca6c1bb0ea3d8f94bf11e8fce2a7c15807e1",
+      "size": 3960,
+      "license_file": "LICENSE.net"
+    },
+    {
+      "name": "net-iperf.json",
+      "repository": "xykt/NetQuality",
+      "commit": "d5b99484d51286374d24b892c1b54235dc282148",
+      "path": "ref/iperf.json",
+      "sha256": "83170b97007fd9f3792934943d2120cd0c6650b6499ac56c67056f9d20c43298",
+      "size": 2120,
+      "license_file": "LICENSE.net"
+    },
+    {
+      "name": "net-speedtest_cn.json",
+      "repository": "xykt/NetQuality",
+      "commit": "d5b99484d51286374d24b892c1b54235dc282148",
+      "path": "ref/speedtest_cn.json",
+      "sha256": "ec153fa9b0db16abbb0c93e6eacba6494ce56fc9427d3ea0afe21a9126279d87",
+      "size": 7772,
+      "license_file": "LICENSE.net"
     }
   ]
 }
