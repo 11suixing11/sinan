@@ -1,0 +1,233 @@
+{
+  "schema": 1,
+  "scope": "registered NodeQuality r8 daily lifecycle on dedicated Debian 12; full remains blocked",
+  "source": {
+    "source_commit": "b0869eff88254c7dc4b770be13c66cd569bee045",
+    "archive_sha256": "2c309b8893b7a319ee42e5c377e3dc107e5fde1980887cdde0cf14ddf626dabd",
+    "archive_bytes": 1311369,
+    "cargo_lock_sha256": "02e3ac8f8a90c522b1267049cce2ed27fdd819bd0ab86e4d25c75581cb3bc948"
+  },
+  "binaries": {
+    "sinan-agent": {
+      "sha256": "5df77631e3807bd3ccdabf9dd47748c862b1a0bd680be2606a1dbc5920bfc25b",
+      "bytes": 59482760
+    },
+    "sinan-panel": {
+      "sha256": "99b7414a4eca7714d2b667c99f828fd284f92ebccb7d094ec0aa6b15a9b850b1",
+      "bytes": 52767864
+    }
+  },
+  "public_test_trust_sha256": "55ebe27668bb604bd0af02838ea030895ccccaf0391a4bf0124484443daf16ad",
+  "artifact": {
+    "source_commit": "b0869eff88254c7dc4b770be13c66cd569bee045",
+    "build_method": "unmodified build-nodequality.sh; curl transport mirror of ten SHA-checked canonical files",
+    "archive_sha256": "c2e7a766be030d3c71704a7a69b25839dbe34f1dba88e7d44a54b8bc54b346f3",
+    "archive_size": 247819,
+    "release_json_sha256": "c160fcf89fe66f515e4c316119931682795d3157e8cf74a030d8a8da7754bfe4",
+    "test_only": true
+  },
+  "cases": [
+    {
+      "name": "normal-v2",
+      "ok": true,
+      "job_id": "675de491-e18a-476f-964d-d3d5adbd9028",
+      "started_at": 1790836089.6900651,
+      "finished_at": 1790836133.9450338,
+      "status": "succeeded",
+      "completeness": "complete",
+      "result_sha256": "3b125ccc3a553118f77b9797d063561b3d5ccf04e866554a5f797df02564cb0d",
+      "traffic": {
+        "requests": 174,
+        "bytes": 5701632,
+        "failures": 0,
+        "max_elapsed": 0.014368772506713867
+      },
+      "observed_heartbeats": [
+        1790836073,
+        1790836093,
+        1790836113,
+        1790836133
+      ],
+      "max_heartbeat_gap_seconds": 20,
+      "fault_started_at": null,
+      "fault_ended_at": null
+    },
+    {
+      "name": "cancel-v2",
+      "ok": true,
+      "job_id": "539031ce-416a-4214-85c8-a10cf8624871",
+      "started_at": 1790836206.7871165,
+      "finished_at": 1790836235.3693013,
+      "status": "cancelled",
+      "completeness": "partial",
+      "result_sha256": "34d62027ada5f25d0eeb0ce3246c136fdb2ad0475205d30955953d07a89dca43",
+      "traffic": {
+        "requests": 112,
+        "bytes": 3670016,
+        "failures": 0,
+        "max_elapsed": 0.006697177886962891
+      },
+      "observed_heartbeats": [
+        1790836198,
+        1790836214,
+        1790836234
+      ],
+      "max_heartbeat_gap_seconds": 20,
+      "fault_started_at": 1790836213.590923,
+      "fault_ended_at": 1790836214.7261217
+    },
+    {
+      "name": "restart",
+      "ok": true,
+      "job_id": "eb041b87-dbf4-4c71-b991-27ab40712ee3",
+      "started_at": 1790836235.6941295,
+      "finished_at": 1790836265.9023552,
+      "status": "succeeded",
+      "completeness": "complete",
+      "result_sha256": "86d11f981f745a0c722189b57ea3ffba5e5808fc47f964a2d06dd49fc178f327",
+      "traffic": {
+        "requests": 118,
+        "bytes": 3866624,
+        "failures": 0,
+        "max_elapsed": 0.04616045951843262
+      },
+      "observed_heartbeats": [
+        1790836234,
+        1790836244,
+        1790836264
+      ],
+      "max_heartbeat_gap_seconds": 20,
+      "fault_started_at": 1790836244.9327734,
+      "fault_ended_at": 1790836244.957981
+    },
+    {
+      "name": "disconnect",
+      "ok": true,
+      "job_id": "5664a6eb-a692-4bdf-8bf2-4687e5d592c0",
+      "started_at": 1790836266.187218,
+      "finished_at": 1790836331.4115765,
+      "status": "succeeded",
+      "completeness": "complete",
+      "result_sha256": "b0a5e9f10335aa85b46982befad4ca1af4694a9b5aab1c328c76c54c49e4b8e7",
+      "traffic": {
+        "requests": 257,
+        "bytes": 8421376,
+        "failures": 0,
+        "max_elapsed": 0.009372711181640625
+      },
+      "observed_heartbeats": [
+        1790836264,
+        1790836310,
+        1790836330
+      ],
+      "max_heartbeat_gap_seconds": 46,
+      "fault_started_at": 1790836275.1518033,
+      "fault_ended_at": 1790836295.8129156
+    },
+    {
+      "name": "low-memory",
+      "ok": true,
+      "job_id": "ddcae630-071d-4d0a-a15a-542f65691a37",
+      "started_at": 1790836331.7321253,
+      "finished_at": 1790836351.5273383,
+      "status": "failed",
+      "completeness": "empty",
+      "result_sha256": "dd84c732196cfe39fcceaa1de4314e818b03fadaffd52f7b53afee156a8bba41",
+      "traffic": {
+        "requests": 78,
+        "bytes": 2555904,
+        "failures": 0,
+        "max_elapsed": 0.028184175491333008
+      },
+      "observed_heartbeats": [
+        1790836330,
+        1790836350
+      ],
+      "max_heartbeat_gap_seconds": 20,
+      "fault_started_at": null,
+      "fault_ended_at": null
+    },
+    {
+      "name": "low-disk",
+      "ok": true,
+      "job_id": "e492d726-9ca6-4099-9676-6cf35bc3ad8f",
+      "started_at": 1790836351.9502795,
+      "finished_at": 1790836371.0675035,
+      "status": "failed",
+      "completeness": "empty",
+      "result_sha256": "a56239bdf0417e9f1c8a3d6a69512ac40ba7c631718ad651f7e6de533ccf415d",
+      "traffic": {
+        "requests": 75,
+        "bytes": 2457600,
+        "failures": 0,
+        "max_elapsed": 0.05932879447937012
+      },
+      "observed_heartbeats": [
+        1790836350,
+        1790836370
+      ],
+      "max_heartbeat_gap_seconds": 20,
+      "fault_started_at": null,
+      "fault_ended_at": null
+    },
+    {
+      "name": "memory-stop",
+      "ok": true,
+      "job_id": "d265d966-37c1-466e-a836-7e485df5edcc",
+      "started_at": 1790836371.391725,
+      "finished_at": 1790836391.1624422,
+      "status": "failed",
+      "completeness": "partial",
+      "result_sha256": "61135d218a5bca0d4159105502492ea1c334cf40b8a3e1f6944468f55e488803",
+      "traffic": {
+        "requests": 78,
+        "bytes": 2555904,
+        "failures": 0,
+        "max_elapsed": 0.006754159927368164
+      },
+      "observed_heartbeats": [
+        1790836370,
+        1790836390
+      ],
+      "max_heartbeat_gap_seconds": 20,
+      "fault_started_at": null,
+      "fault_ended_at": null
+    }
+  ],
+  "traffic_total": {
+    "requests": 1917,
+    "bytes": 62816256,
+    "failures": 0,
+    "first_at": 1790835934.8584397,
+    "last_at": 1790836422.5876296,
+    "max_elapsed": 0.05932879447937012
+  },
+  "cleanup": {
+    "owned_services_stopped": true,
+    "private_database_retained_stopped": true,
+    "job_pids_cgroups_mounts_empty": true,
+    "runtime_kernel_oom_events": 0,
+    "ssh_pid": 406,
+    "ssh_restarts": 0,
+    "proxy_pid_during_run": 11933,
+    "proxy_restarts_during_run": 0,
+    "full_gate_opened": false,
+    "kernel_log_since_unix": 1790835933
+  },
+  "receipts": {
+    "receipt.json": "c85399d9efffe3753d2d6e61ac8702a2d9537310237eefb078f55308a55534cb",
+    "final-live.json": "92a6c885f6ea34d307db032acec32fc357dbba4e0a2781bdd42f3fd0d9e63184",
+    "post-runtime.json": "c1dcd1fb80c19741b0d1877570d6b296a791c6fdf836119a7769b07b658703b7",
+    "evidence-index.json": "59a634339c2414bc139fa365f8bce14232519eb4ab075b1edb1b5ce4d853b83c",
+    "evidence.tar.gz": "c129fb40eb3411f5c8a2d75445548c1fa73ada4c1bd85184f9952143313a891b"
+  },
+  "not_verified": [
+    "complete upstream NodeQuality execution",
+    "upstream rootfs cleanup",
+    "public provider queries",
+    "legacy subscription client migration",
+    "native TCP plugin registered lifecycle",
+    "CI",
+    "production release or deployment"
+  ]
+}

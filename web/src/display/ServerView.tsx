@@ -42,11 +42,11 @@ function ResourceCharts({ server, now }: { server: Server; now: number }) {
 export default function ServerView({ id, now }: { id: number; now: number }) {
   const resource = useResource<Server>(`/api/servers/${id}`)
   const server = resource.data
-  if (!server) return <><a className="d-button d-back" href="#/overview"><Icon name="back" />返回总览</a>{resource.error ? <div className="d-notice d-error" role="alert"><span>{resource.error}</span><button onClick={resource.reload}>重试</button></div> : <div className="d-empty" role="status"><span className="spinner" />正在读取服务器…</div>}</>
+  if (!server) return <><a className="d-button d-back" href="#/dashboard"><Icon name="back" />返回看板</a>{resource.error ? <div className="d-notice d-error" role="alert"><span>{resource.error}</span><button onClick={resource.reload}>重试</button></div> : <div className="d-empty" role="status"><span className="spinner" />正在读取服务器…</div>}</>
   const info = server.static_info, metrics = server.latest_metrics, state = status(server, Boolean(resource.error))
   const live = fresh(server) && !resource.error
   return <div className="d-detail">
-    <section className="d-detail-hero d-glass"><a href="#/overview" className="d-icon-button" aria-label="返回服务器总览"><Icon name="back" size={20} /></a><div><h1>{server.name}<span className={`d-status d-${state.tone}`}>{state.label}</span></h1><p><OSIcon system={info.system} />{info.system ?? '系统尚未上报'}<span>·</span>{info.arch ?? '架构未知'}</p></div><button className="d-icon-button" aria-label="刷新服务器详情" onClick={resource.reload}><Icon name="refresh" /></button></section>
+    <section className="d-detail-hero d-glass"><a href="#/dashboard" className="d-icon-button" aria-label="返回服务器看板"><Icon name="back" size={20} /></a><div><h1>{server.name}<span className={`d-status d-${state.tone}`}>{state.label}</span></h1><p><OSIcon system={info.system} />{info.system ?? '系统尚未上报'}<span>·</span>{info.arch ?? '架构未知'}</p></div><button className="d-icon-button" aria-label="刷新服务器详情" onClick={resource.reload}><Icon name="refresh" /></button></section>
     {resource.error && <div className="d-notice d-error" role="alert">{resource.error} 以下保留最近一次读取的信息。</div>}
     {!live && <div className="d-notice"><Icon name="clock" size={16} /><span>{resource.error ? '暂时无法读取最新设备状态。' : !server.online ? '设备离线或尚未接入。' : server.metrics_stale ? '指标已过期；在线心跳不代表指标仍在采集。' : '采样时间未知，无法确认指标是否仍然有效。'}以下为最后上报的数据，实时速率暂不显示。</span></div>}
     <div className="d-info-groups">

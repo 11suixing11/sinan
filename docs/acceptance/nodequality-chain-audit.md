@@ -30,7 +30,7 @@ NextTrace：
 
 ## 副作用与上传
 
-1. **宿主 swap，#66。** 固定入口在宿主 source swap helper。helper 的 MemTotal <1024 MiB 且 MemTotal+SwapTotal <1500 MiB 分支会 dd/mkswap/swapon；r4 自动应答首个 y。隔离无特权 shell 中只覆盖 free、dd、chmod、mkswap、swapon 为记录函数，输入 y，实际记录到 988 MiB 文件与 swapon 命令，没有运行真实修改。HardwareQuality 另有 .gb5_tmp.swap 分支。MemorySwapMax=0/PrivateMounts 不把全局 swapon 变成私有操作。
+1. **宿主 swap，#66。** 固定入口在宿主 source swap helper，但固定入口未调用 check_swap，加载仅定义函数；不能由 r4 自动应答首个 y 推导该 helper 实际执行。入口 clear_mount 直接调用 swapoff，内层 HardwareQuality 的 test_cpu_gb5 另有实际创建临时 swap 的分支。旧 helper 被独立调用时，MemTotal <1024 MiB 且 MemTotal+SwapTotal <1500 MiB 分支会 dd/mkswap/swapon。隔离无特权 shell 中只覆盖 free、dd、chmod、mkswap、swapon 为记录函数，输入 y，实际记录到 988 MiB 文件与 swapon 命令，没有运行真实修改。HardwareQuality 另有 .gb5_tmp.swap 分支。MemorySwapMax=0/PrivateMounts 不把全局 swapon 变成私有操作。
 2. **内层公开上传，#65。** 入口传 -y -o json，没有 -p；三个脚本在 mode_privacy=0 仍 POST upload.check.place（Hardware 使用 HTTP）。host curl shim 只拦 api.nodequality.com，chroot 内 curl 没经过此 shim。-o 只输出文件，不能证明禁上传。Geekbench trial 还有工具自身结果上传。
 3. **UA 与网络行为。** IP/Net 生成随机浏览器 UA，并用于页面/非正式入口请求；IP 的 ref/cookies.txt 有 --retry 3。不能以 UA 仿冒、公开页面抽取临时 key 或暴力重试修复查询失败。-L 只跳过 Ookla 三网测速，不禁 iperf 公共测速；目标数据仍来自在线 main。
 4. **宿主可见资源。** rootfs 挂载 /proc、/sys、/dev；chroot 不隔离内核/网络。当前 fio 使用工作目录临时文件（256 MiB–2 GiB），此次未发现这一分支直接写原始块设备，不能把 /dev 可写暴露推导成绝对无宿主副作用。

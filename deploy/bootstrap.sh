@@ -175,7 +175,7 @@ if __name__ == "__main__":
         raise SystemExit(f"Bootstrap refused: {error}") from error
 SINAN_BOOTSTRAP_89B24407E0B9F17187979BBC89C5656C2034ECB4BF65F135C1A601CC3A1C3AFA
 
-cat > "$STAGING/release.py" <<'SINAN_BOOTSTRAP_99E3BAC561E20F854C3A33D3E94BDF91FF76AEA4CC7C2A05847CE31A673CCBCE'
+cat > "$STAGING/release.py" <<'SINAN_BOOTSTRAP_5BEB5B60E5E07A9D386D453F0BEB23AF5E709961036716BA8D88CFA0D3DCB4E5'
 #!/usr/bin/env python3
 """Build canonical release manifests and verify complete offline-signed bundles."""
 
@@ -196,7 +196,7 @@ TEST_ONLY_PUBLIC_KEY = "RWS3NbDikg3VqWRlxJMUyaB1dTvErk0ptJ695xQ50Kyb+MmtynMhN/lq
 TEST_ONLY_ROTATION_PUBLIC_KEY = "RWRURVNUUk9UMjMuvo0ny3Mjs6QBwcE7XdZLzMDhDs2hwrXRGgN3moXl"
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 TEST_PUBLIC_KEY_DIRS = (SOURCE_ROOT / "fixtures", SOURCE_ROOT / "crates/protocol/tests/fixtures")
-NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r7"
+NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r8"
 SEGMENT = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}\Z")
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?\Z")
 MAX_BINARY = 256 * 1024 * 1024
@@ -555,7 +555,7 @@ if __name__ == "__main__":
         main()
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise SystemExit(f"Release verification failed: {error}") from error
-SINAN_BOOTSTRAP_99E3BAC561E20F854C3A33D3E94BDF91FF76AEA4CC7C2A05847CE31A673CCBCE
+SINAN_BOOTSTRAP_5BEB5B60E5E07A9D386D453F0BEB23AF5E709961036716BA8D88CFA0D3DCB4E5
 
 cat > "$STAGING/tcp_probe_artifact.py" <<'SINAN_BOOTSTRAP_7C9C790035F22EC0554D1B922A5B960571792B991659DDFBF9C0A8E337C0BD0A'
 """Validate the complete, pinned native TCP artifact without executing it."""
