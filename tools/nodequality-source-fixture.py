@@ -25,7 +25,23 @@ def inert_source(name, policy):
         if name == 'net.sh':
             source += policy.NET_OUTPUT
         source += policy.SOURCES[name]['original_guard'] + b'}\n'
-    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ip_score_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ip_score_anchors(name) + netflix_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+
+
+def netflix_anchors(name):
+    if name != 'ip.sh':
+        return b''
+    policy = module('fixture_netflix_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/netflix-policy.py')
+    return b"fixture_unused_netflix(){\ncat <<'SINAN_FIXTURE_NETFLIX'\n" + b''.join(a for a, _ in policy.REPLACEMENTS) + b'SINAN_FIXTURE_NETFLIX\n}\n'
+
+
+def undo_netflix(role, patched):
+    if role != 'ip.sh':
+        return patched
+    policy = module('fixture_undo_netflix', Path(__file__).resolve().parents[1] / 'plugins/nodequality/netflix-policy.py')
+    for before, after in reversed(policy.REPLACEMENTS):
+        patched = replace_once(patched, after, before)
+    return patched
 
 
 def ip_score_anchors(name):
@@ -226,5 +242,17 @@ def prepare_policy(plugin, contents):
         content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
         outputs[role] = patched
     score_path.write_bytes(content)
+    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
+    netflix_path = Path(plugin) / 'netflix-policy.py'
+    netflix = module('synthetic_netflix_policy_input', netflix_path)
+    content = netflix_path.read_bytes()
+    original_hash = hashlib.sha256(content).hexdigest().encode()
+    for role, spec in netflix.SOURCES.items():
+        canonical = outputs[role]
+        patched = netflix.patch(canonical)
+        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
+        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
+        outputs[role] = patched
+    netflix_path.write_bytes(content)
     helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
     return outputs
