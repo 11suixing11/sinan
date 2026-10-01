@@ -1,0 +1,48 @@
+{
+  "product_source": "3e7cbbb",
+  "final_test_source": "e5af1197d3f33a3aafd0f78aba64e7050f97a8bf",
+  "scope": "Netflix failure guard plus existing inert/owned-loopback source and runner regressions; no complete upstream or public provider execution.",
+  "host_unique": {
+    "ran": 164,
+    "passed": 144,
+    "skipped": 20,
+    "initial_errors_retained": 6
+  },
+  "debian_unique": {
+    "ran": 128,
+    "passed": 127,
+    "skipped": 1,
+    "initial_errors_retained": 3
+  },
+  "rust": {
+    "passed": 19,
+    "failed": 0,
+    "ignored": 0,
+    "source": "3e7cbbbf2b9b68454587880221f0d3a4ca8f5d24",
+    "inputs_still_identical": true
+  },
+  "helper_sha256": "e4ec8e34c9264b25b64d5ec6252f419762493be9b928d96beaba7addffe3aa00",
+  "ip_output_sha256": "66c7f3c662f24bdccbd142acf25d2a176fbe72ff417848ef977aa755d6d38c8e",
+  "private_receipts": {
+    "host-receipt": "c7d3f4bd0856803fc4e9adb3eea08a42694fc5526f7632be45beac86b2249cff",
+    "host-supplement": "c7ffce56c26ba72f5bf7b76bb9ee3dfe1f2e57eaee90cbc116f754c9c3e1390c",
+    "host-final": "1df6f97da0d7d0e66b6897b789bfaad0b268113ef692b18df493db435192c292",
+    "rust": "9b0ee982be321db740c6979b8456f508b0cf3b3b55e3b10b56bdf291617fe236",
+    "nodequality-r15-fd-20261001/input": "6998657053c3458b5d8f2623fc58853b1ed7c5eafca154bdbf1d60460a0bc3a9",
+    "nodequality-r15-fd-20261001/result": "8c4663ed95786e5f565db9a932ce4d3e8be25e5a8e22b2decc1d0b7627d901db",
+    "nodequality-r15-fd-20261001/postcheck": "ce983f72528ff12900beb0ae1b0790cc3a85c768bea674342f8b319ccfd8f505",
+    "nodequality-r15-fd-20261001/receipt": "9b60f860fb74b69c932af620be8b68a5c8962e563d29b9be7b8df6e80741b638",
+    "nodequality-r15-supplement-fd-20261001/input": "9feb6f59d6045e8d72daa7f6017c05ae2dc9dbbb516e70efa82c57f3863e4f67",
+    "nodequality-r15-supplement-fd-20261001/result": "135fc89bfcc43417b905a3653869f17ff0f0bd09f6866ec39145fa2bb6a08a5a",
+    "nodequality-r15-supplement-fd-20261001/postcheck": "99d9fb6ad7b9b9f7b70b7500668e2be01f4a3182289eb31dd520f314d181c22a",
+    "nodequality-r15-supplement-fd-20261001/receipt": "ccca7778a5cdbda2cfd381648024a365ca4f089a057dd99f31f7d17c3b59807a"
+  },
+  "cleanup": "Both guest units collected with no residual processes, mounts, cgroups or new kernel OOM. SSH PID406 NRestarts0, same boot, swap0. Private PG55439 stopped/PID absent/port closed.",
+  "not_accepted": [
+    "full NodeQuality load and complete fault matrix",
+    "public Netflix playback or provider schema contract",
+    "public cookies/credential remediation",
+    "licensed fixed rootfs and secondary tools",
+    "formal release, production deployment or paused CI"
+  ]
+}
