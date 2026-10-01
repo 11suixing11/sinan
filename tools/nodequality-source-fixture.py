@@ -24,7 +24,18 @@ def inert_source(name, policy):
         if name == 'net.sh':
             source += policy.NET_OUTPUT
         source += policy.SOURCES[name]['original_guard'] + b'}\n'
-    return source + swap_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+    return source + swap_anchors(name) + dependency_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+
+
+def dependency_anchors(name):
+    policy = module('fixture_dependency_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/dependency-policy.py')
+    if name == 'NodeQuality.sh':
+        return b'fixture_unused_dependencies(){\n' + b''.join(a for a, _ in policy.ENTRY_REPLACEMENTS) + b'}\n'
+    if name in policy.END_MARKERS:
+        end = policy.END_MARKERS[name]
+        suffix = b':\n}\n' if name == 'hardware.sh' else b')\n'
+        return b'fixture_unused_dependencies(){\ninstall_dependencies(){\n:\n}\n' + end + suffix + policy.CHECK_CALL + b'}\n'
+    return b''
 
 
 def swap_anchors(name):
@@ -34,6 +45,17 @@ def swap_anchors(name):
     if name == 'hardware.sh':
         return policy.HARDWARE_PREFIX + b':\ncleanup_local(){\n' + policy.SWAP_CLEANUP + b':\n}\n}\n'
     return b''
+
+
+def undo_dependencies(role, patched, original):
+    policy = module('fixture_undo_dependencies', Path(__file__).resolve().parents[1] / 'plugins/nodequality/dependency-policy.py')
+    if role == 'NodeQuality.sh':
+        for before, after in reversed(policy.ENTRY_REPLACEMENTS):
+            patched = replace_once(patched, after, before)
+        return patched
+    start, stop = policy.installer_span(role, original)
+    patched = replace_once(patched, policy.checks(role), original[start:stop])
+    return replace_once(patched, policy.REQUIRED_CALL, policy.CHECK_CALL)
 
 
 def prepare_policy(plugin, contents):
@@ -67,4 +89,16 @@ def prepare_policy(plugin, contents):
         outputs[role] = patched
     swap_path.write_bytes(content)
     helper.write_bytes(replace_once(helper.read_bytes(), original_swap_hash, hashlib.sha256(content).hexdigest().encode()))
+    dependency_path = Path(plugin) / 'dependency-policy.py'
+    dependency = module('synthetic_dependency_policy_input', dependency_path)
+    content = dependency_path.read_bytes()
+    original_hash = hashlib.sha256(content).hexdigest().encode()
+    for role, spec in dependency.SOURCES.items():
+        canonical = outputs.get(role, contents[role])
+        patched = dependency.patch(role, canonical)
+        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
+        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
+        outputs[role] = patched
+    dependency_path.write_bytes(content)
+    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
     return outputs

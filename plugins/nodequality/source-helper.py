@@ -12,6 +12,7 @@ import sys
 
 MAX_FILE = 2 * 1024 * 1024
 MAX_BUNDLE = 8 * 1024 * 1024
+DEPENDENCY_POLICY_SHA256 = '9424dded5fd6c74ff9888fa6e2e3d9482fe8db144fa4c572682fca3f8cf5b5de'
 REPORT_POLICY_SHA256 = '0c66e702084820e399a16b18b51ba331cd8edd406dd96ede7c2ee84f78c30245'
 REPORT_ROLES = frozenset({'hardware.sh', 'ip.sh', 'net.sh'})
 SWAP_POLICY_SHA256 = '1d6acda7821d013773b273d77db12973d7075631b0309614dadb9c5cfc09ff24'
@@ -147,16 +148,36 @@ def without_swap(name, content):
     return result
 
 
+def dependency_policy():
+    path = Path(__file__).with_name('dependency-policy.py')
+    content = ordinary(path, 65536)
+    if hashlib.sha256(content).hexdigest() != DEPENDENCY_POLICY_SHA256:
+        raise ValueError('signed dependency policy helper SHA256 mismatch')
+    namespace = {'__name__': 'sinan_dependency_policy', '__file__': str(path)}
+    exec(compile(content, str(path), 'exec'), namespace)
+    return namespace
+
+
+def offline_dependencies(name, content):
+    policy = dependency_policy()
+    result = policy['transform'](name, content)
+    if (not isinstance(result, bytes) or len(result) > MAX_FILE + 4096
+            or hashlib.sha256(result).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
+        raise ValueError('served dependency policy output SHA256 or byte limit mismatch')
+    return result
+
+
 def entrypoint(bundle):
     rows = validate(bundle['lock'])
     original = verified(base64.b64decode(bundle['files']['NodeQuality.sh'], validate=True), rows['NodeQuality.sh'])
-    return without_swap('NodeQuality.sh', original)
+    return offline_dependencies('NodeQuality.sh', without_swap('NodeQuality.sh', original))
 
 
 def pack(lock, directory):
     rows = validate(lock)
     report_policy()
     swap_policy()
+    dependency_policy()
     files = {name: base64.b64encode(verified(ordinary(directory / name, MAX_FILE), row)).decode()
              for name, row in rows.items()}
     result = (json.dumps(dict(schema=1, lock=lock, files=files), sort_keys=True, separators=(',', ':')) + '\n').encode()
@@ -199,7 +220,8 @@ def serve(directory, arguments):
     if (not isinstance(patched, bytes) or len(patched) > MAX_FILE + 2048
             or hashlib.sha256(patched).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
         raise ValueError('served report policy output SHA256 or byte limit mismatch')
-    return without_swap(name, patched) if name == 'hardware.sh' else patched
+    prior = without_swap(name, patched) if name == 'hardware.sh' else patched
+    return offline_dependencies(name, prior)
 
 
 def main():

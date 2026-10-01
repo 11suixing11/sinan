@@ -290,7 +290,7 @@ main
         patched_entry = helper.entrypoint(bundle)
         self.assertEqual(entry.splitlines()[454], b'    exit 1')
         self.assertEqual(patched_entry.splitlines()[454], b'    exit 1')
-        restored = patched_entry
+        restored = source_tests.fixture.undo_dependencies('NodeQuality.sh', patched_entry, entry)
         for before, after in reversed(policy.ENTRY_REPLACEMENTS):
             restored = policy.replace_once(restored, after, before)
         self.assertEqual(restored, entry)
@@ -299,7 +299,8 @@ main
             helper.materialize(bundle, directory)
             served = helper.serve(directory, ['-Ls', 'https://Hardware.Check.Place'])
             prior = report.transform('hardware.sh', (directory / 'hardware.sh').read_bytes())
-            restored = policy.replace_once(served, policy.NO_SWAP_CLEANUP, policy.SWAP_CLEANUP)
+            restored = source_tests.fixture.undo_dependencies('hardware.sh', served, prior)
+            restored = policy.replace_once(restored, policy.NO_SWAP_CLEANUP, policy.SWAP_CLEANUP)
             restored = policy.replace_once(restored, policy.MEMORY_GUARD, policy.HARDWARE_PREFIX)
             self.assertEqual(restored, prior)
             for token in (b'swapon ', b'swapoff ', b'mkswap ', b'.gb5_tmp.swap'):

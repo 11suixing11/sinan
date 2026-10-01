@@ -1,0 +1,304 @@
+{
+  "schema": 1,
+  "scope": "Finite guards, fixed original function bodies with inert probes, and packaging/API regressions. No full upstream execution or production deployment.",
+  "tested_source": "fc4e49fd980121f0a9097c63e25f0e4a9745f020",
+  "integrated_source": "9d99b282c342bebfe50066c9e3685f6ff97f273d",
+  "integration": {
+    "upstream": "8ffcc44",
+    "unchanged_trees": [
+      "crates",
+      "plugins",
+      "tools",
+      "Cargo.lock",
+      ".github/workflows/ci.yml"
+    ],
+    "note": "Main added dashboard assets and documentation; these are not certified by the earlier Rust/API receipt."
+  },
+  "host": {
+    "receipt_sha256": "2eda52dd07e9fe8376a28830a50fea04e316d8f193fe1833bd6a7e58e6feed98",
+    "checks": [
+      {
+        "name": "dependencies",
+        "exit_code": 0,
+        "tests": 11,
+        "skipped": 1,
+        "seconds": 2.375,
+        "log_sha256": "e6390f375d4e2161763a6a813d4bf648d4f282d452ef8373ecc86a586a88e62b"
+      },
+      {
+        "name": "swap",
+        "exit_code": 0,
+        "tests": 10,
+        "skipped": 0,
+        "seconds": 1.519,
+        "log_sha256": "7bd8d79cd304b4d1d86aa118fdfc7ede287bac842e41e7b1d0ad72911232b529"
+      },
+      {
+        "name": "sources",
+        "exit_code": 0,
+        "tests": 16,
+        "skipped": 0,
+        "seconds": 10.315,
+        "log_sha256": "7115b17db30d268d12b3b7bec1800d8485f9c3d51f9f047749a9a8feffde73b8"
+      },
+      {
+        "name": "report",
+        "exit_code": 0,
+        "tests": 6,
+        "skipped": 0,
+        "seconds": 28.85,
+        "log_sha256": "788aa0bb2d99a816827aa21870f8447c2787796ee2c26a330fdd4ca8defe0b42"
+      },
+      {
+        "name": "wrapper",
+        "exit_code": 0,
+        "tests": 34,
+        "skipped": 0,
+        "seconds": 10.456,
+        "log_sha256": "c44e575e1671f775d4f917c2012e5207099ec2b34740cc7ff51e661176c20220"
+      },
+      {
+        "name": "daily",
+        "exit_code": 0,
+        "tests": 7,
+        "skipped": 0,
+        "seconds": 6.533,
+        "log_sha256": "ad7b0594ab5c8f120ae478ae6ff9722cae03bb4bd9ff1bf8e87e3588091ee276"
+      },
+      {
+        "name": "release",
+        "exit_code": 0,
+        "tests": 32,
+        "skipped": 4,
+        "seconds": 0.499,
+        "log_sha256": "e399aadd084cfbe5e247f4678562aa9978ef6b2f3ba833d150b8ee81d865f71f"
+      }
+    ]
+  },
+  "rust": {
+    "receipt_sha256": "9c7014087734781eae79a5064fb153afad16eaafa19b067f6d67b7c80297aa4f",
+    "checks": [
+      {
+        "name": "postgres-start",
+        "exit_code": 0,
+        "log_sha256": "66afd0411ccc09366e99fdd99b85f21899c8d2d064f5835126859618802153ad"
+      },
+      {
+        "name": "adapter-diagnostic",
+        "exit_code": 0,
+        "tests": {
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "8b2d0a4090cbbc777808a015208970506b133b1d3505e28d8e4c0cd49c686e89"
+      },
+      {
+        "name": "panel-chain-gate",
+        "exit_code": 0,
+        "tests": {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "11e6e49e0d6530815394fc91625f67216935f26e3fcc55d4a6a1256693757915"
+      },
+      {
+        "name": "panel-daily-version",
+        "exit_code": 0,
+        "tests": {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "239951a7cd2fbd6002b66bb4ce5a07b2b64f7062638acb74960e551018f9a6ff"
+      },
+      {
+        "name": "adapter-clippy",
+        "exit_code": 0,
+        "log_sha256": "dda7980e8da1041233b9bd7cd86f479320cbe44ef953019bb06c5f1c023ea622"
+      },
+      {
+        "name": "workspace-fmt",
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "core-boundary",
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "diff-check",
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "postgres-stop",
+        "exit_code": 0,
+        "log_sha256": "ca19178a35ab4153b75b494963b66ce8243e1b94c173107c87b44d09db23652d"
+      }
+    ],
+    "postgres_stopped": true,
+    "postgres_pid_absent": true,
+    "postgres_port_closed": true,
+    "frozen_inputs": {
+      "crates/adapter-nodequality/src/lib.rs": "e6fc6766d8393117a46475d39427a231b73b8c3f9a65877cab041b6f348779ee",
+      "crates/adapter-nodequality/tests/diagnostic.rs": "61999f5b453659c744677c834badf3843b0014d5d90c2c84612d47170952d988",
+      "crates/adapter-nodequality/tests/diagnostic/versions.rs": "4b552831a17c0ed879d3b2a13f8c1a37f27c5e6e05942da069c56c1f995cbf19",
+      "plugins/nodequality/panel/mod.rs": "0b77e0da8eb600fbac320d3b767554f12504f0e51920e2b36534cad6f9244744",
+      "crates/panel/tests/diagnostics/modes.rs": "55b8a7c27bcf4c07d06e0a7702b40fd492d0aa71e45a1f6a2da767f8055fa582",
+      "crates/panel/tests/diagnostics/chain_gate.rs": "304bf0bbc599930cf7770c2b14f97298fb59785e1e619dd9bb8821ec9c3daa64"
+    },
+    "cargo_lock_sha256": "02e3ac8f8a90c522b1267049cce2ed27fdd819bd0ab86e4d25c75581cb3bc948",
+    "trust": {
+      "kind": "public_TEST_ONLY",
+      "public_fixture_sha256": "8c689ae79af3e30bf35a83d68384a65f0979f7e0f0390401b2bba1c194e4704d"
+    }
+  },
+  "debian": {
+    "os": "Debian 12 arm64",
+    "bash": "5.2.15(1)-release",
+    "duration_seconds": 45.658,
+    "checks": [
+      {
+        "name": "source",
+        "exit_code": 0,
+        "ran": 16,
+        "skipped": 1,
+        "elapsed_seconds": 3.362267043999964,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "c7b8f8d185d318c7203c7f78a249e465b08fefa85fb52d834255a7fe9e15e216"
+      },
+      {
+        "name": "dependencies",
+        "exit_code": 0,
+        "ran": 11,
+        "skipped": 0,
+        "elapsed_seconds": 0.6066302090002864,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "9f5feabf00c355faff762b01185552700349f4f56a1b988e8e70179941e17a94"
+      },
+      {
+        "name": "swap",
+        "exit_code": 0,
+        "ran": 10,
+        "skipped": 0,
+        "elapsed_seconds": 0.4451233330000832,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "2a1041122a09d24e38ebd011e1e41599d59a0952580f79e303fa68cb46e94978"
+      },
+      {
+        "name": "original-body-fd",
+        "exit_code": 0,
+        "ran": 2,
+        "skipped": 0,
+        "elapsed_seconds": 36.414337600999716,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "0d5ff4f84c6e53c48f9df832be4a065fa219d6b279c146c58edcde3626b9f48a"
+      },
+      {
+        "name": "wrapper",
+        "exit_code": 0,
+        "ran": 34,
+        "skipped": 0,
+        "elapsed_seconds": 2.475255584999104,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "28ea43d15e87c6f70891dd605a9bf8500847578feae239fa24f5769c1b5f055b"
+      },
+      {
+        "name": "daily",
+        "exit_code": 0,
+        "ran": 7,
+        "skipped": 0,
+        "elapsed_seconds": 2.3432680840014655,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "c1a4df0930a7be7fc2a1865f81f9d0368afaa338dffb27851464dae650efa81b"
+      }
+    ],
+    "runtime_properties": {
+      "MainPID": "16591",
+      "ControlGroup": "/system.slice/sinan-nodequality-r9-fd-v1.service",
+      "CPUWeight": "10",
+      "IOWeight": "10",
+      "MemoryMax": "268435456",
+      "MemorySwapMax": "0",
+      "TasksMax": "64",
+      "OOMScoreAdjust": "500",
+      "PrivateNetwork": "yes",
+      "PrivateMounts": "yes",
+      "NoNewPrivileges": "yes",
+      "KillMode": "control-group"
+    },
+    "cgroup_metrics": {
+      "memory.peak": "76435456",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "pids.peak": "11"
+    },
+    "postcheck": {
+      "success": true,
+      "final_unit_properties": {
+        "MainPID": "0",
+        "ControlPID": "0",
+        "ControlGroup": "",
+        "LoadState": "not-found",
+        "ActiveState": "inactive",
+        "SubState": "dead"
+      },
+      "oom_since_actual_start": [],
+      "residual_fixture_pids": [],
+      "residual_fixture_mounts": [],
+      "cgroup_exists": false,
+      "ssh": {
+        "MainPID": "406",
+        "NRestarts": "0",
+        "ActiveState": "active"
+      },
+      "swap_entries": 0,
+      "source_files_unchanged": true
+    },
+    "files_sha256": {
+      "result.json": "1ed70cb9737489a21d332f28afe962307166fc997993640628ee32c831d0b692",
+      "postcheck.json": "0dd4fcc65a5f6e74259bfb313adea9d03bb590442dfbf832a00559e9d090f520",
+      "receipt.json": "5f3200122302a7082eb6437d26f9cb6e5b13ffc0ef207343f115ce33573581ee",
+      "source-sha256.json": "3b1bfa9bf95351812f1547d64836fc28f7e88884daadeafc770e94b0fd14f45e",
+      "source.tar": "7df144fe71085fb5b0a93a012f0c41431d827a8d87e5c55d9194d968b8da82dd"
+    },
+    "input_file_count": 33,
+    "repository_input_sha256": {
+      "plugins/nodequality/dependency-policy.py": "9424dded5fd6c74ff9888fa6e2e3d9482fe8db144fa4c572682fca3f8cf5b5de",
+      "plugins/nodequality/report-policy.py": "0c66e702084820e399a16b18b51ba331cd8edd406dd96ede7c2ee84f78c30245",
+      "plugins/nodequality/chroot-shim.sh": "6d12129f92b8869b9fd78ed5b73a2dff57c3fca82ccc7995fd777646e5ba79bc",
+      "plugins/nodequality/swap-policy.py": "1d6acda7821d013773b273d77db12973d7075631b0309614dadb9c5cfc09ff24",
+      "plugins/nodequality/runner.sh.tmpl": "2e28eaa6a447e810d4fc83e36c0969acc79e55a2c61969d6af357866b397910f",
+      "plugins/nodequality/UPSTREAM.txt": "e4f5b2144e880ebb62e150d2cc44c64f475ff90d9de61a8baede4f3ad04f9797",
+      "plugins/nodequality/source-helper.py": "177bea419a130afad071320c2410c4a12859e155eb3afcce2f4899c1a29dfb78",
+      "plugins/nodequality/curl-shim.sh": "307b56270d67a71d3af667f6e17351bd115676bd3eecb6686b7be26931d0cfce",
+      "plugins/nodequality/daily.py": "8f376ca7ef0616fedcf981c6ba671401a2e8ffb0c5ac9e4308e9e12a07c38a26",
+      "plugins/nodequality/exit-observer.sh": "b1f68e376ff7e9ee23b03bcfc854aa54440b30370ce7aada2be34ea79b06b257",
+      "plugins/nodequality/report.py": "5118a7cbe5ddb5d317e56606904bd301c30ac28519e8dcda106ce1151afc0b38",
+      "plugins/nodequality/source-lock.json": "3d20398eeda72654c59b3271fd03b35ca8c0b4e92ee92a054a4a8c432a62723a",
+      "tools/build-nodequality.sh": "ad050349f44e679862351e4f05a833b888d7e78793c82ba9cc06bb77728c6976",
+      "tools/test-nodequality-sources.py": "0bf5ade76711257d2906a3c07faff8c8aa4dcc0dca9a4784dccc163d436382a6",
+      "tools/test-nodequality-report-policy.py": "2269cfa5a45cbb499098be1a9ba60252f3a0325bdaadae4c10edbf4eb266f655",
+      "tools/nodequality-source-fixture.py": "4735df4ff3cd9a13641e9bf127f85b4df97d5bb074b5f505b673be83e215de00",
+      "tools/test-nodequality-swap-policy.py": "0ea6ed8425e2e82b18618c555da0845a2e0918d2ee2a60da79ca6b89d47b3903",
+      "tools/test-nodequality-dependency-policy.py": "d30442d9794c4ab019e8301f44c04565cc419236cc172b59fdb57ebb48b0b496",
+      "tools/test-nodequality.py": "4eed2226da53c98e0ee5c0355113a8834a1faf39157b925dfe66bd851bfe145e",
+      "tools/test-diagnostic-modes.py": "00522348739ef4adca56964d263c1951dfca798aacc12092f2de5240b73331c3",
+      "crates/protocol/tests/fixtures/TEST_ONLY.key": "21c747afcd9c2932cd2f10fc356028b46730d76eb57e0c820ea90fa44753c07c",
+      "crates/protocol/tests/fixtures/TEST_ONLY.pub": "1883353600a9b2869b72be791a44d6d86e17566042e1ee8becfdca1b3f7a24d1"
+    }
+  },
+  "not_verified": [
+    "Complete rootfs and secondary dependency provenance, integrity and licenses",
+    "All upstream uploads and host side effects",
+    "Full NodeQuality benchmark under continuous proxy load",
+    "Agent restart, disconnection and cancellation during that full workload",
+    "Production provider credentials or migration acceptance",
+    "Formal signing, release or deployment",
+    "Paused GitHub CI"
+  ],
+  "previous_rust_receipt_sha256": "ea1def6c3cf2c841b38669e197b9217e6b7d54db1469c501807f201eb2a32e8e",
+  "final_rust_source": "4b3580184decd11d848bed81fd886e052f305b60"
+}
