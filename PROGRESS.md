@@ -1179,3 +1179,10 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 版本升r12，嵌入helper并校验自身及输入/输出摘要，保留r11历史兼容；原始源码/许可证、全版本full门禁不变。代码初检来源16通过，Mac专项8运行/4通过/4因Bash3条件跳过，实际Bash5/HTTP验证待冻结后记录。未执行完整上游或绕过专有工具许可。
 - 冻结2d08c61：Debian新增8项全部通过，实际回环HTTP旧/新默认对照、显式true、403/429/10秒超时/非JSON/缺字段及无陈旧百分位；整体104运行/103通过/1缺minisign跳过，80.001秒。实际256MiB/Swap0/Tasks64等读回，峰值70,348,800B/11pids、0OOM；结束无进程/挂载/cgroup，SSH406重启0/同boot/swap0。46输入不变，28仓库输入匹配冻结提交。
 - Rust/API19通过及Clippy/fmt/core/diff通过，专属PG55439已停止/PID不存在/端口关闭。本机140唯一用例最终131通过/9条件跳过，另保留旧报告逆变换断言首次1次失败；643522b仅补剥离ranking补丁，单项复测及未完成组通过，产品字节不变。详见[百分位上传独立验收](docs/acceptance/nodequality-ranking-upload.md)及JSON；#65继续保留其他上传缺口，未恢复CI、正式签署/部署或签收完整能力。
+
+### PR #116 合并复核（2026-10-01）
+
+- 正常合入 r11 main 并保留作者 r12 与所有历史兼容，除本聊天进度追加外与独立受验树 82494ac 完全相同。
+- 刷新编译输入后的 Rust/PostgreSQL 诊断专项 42 项、workspace 全 targets Clippy、fmt/core 通过。最终 Python/runner 组合含同源复用的真实 Bash5 排名 8 项，共 140 个唯一用例 136 通过、4 个仅 Linux root 安装器条件跳过；初次报告超时另存，回调优化后原 20 秒预算下 6 项通过，未放宽预算。
+- 默认和 false 上传时本地分数保留、真实回环 POST 为零；true 保留原载荷，403/429/实际超时/非 JSON/缺字段不重试且不继承旧百分位。耐久证据 pr116-root-rust-fresh-local、pr116-python-final-local、pr115-116-review-20261001。
+- 这是受控本地夹具与库验证，不是作者 guest、本机完整上游负载或线上签收；CI 暂停与 full 门禁保持。
