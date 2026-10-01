@@ -998,3 +998,8 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 协议整合后重新运行完整 Rust/PostgreSQL：423 通过、0 失败、15 条件忽略；本 PR 专项含 PostgreSQL 15 项、编译器 4 项。另显式执行原生 1.14.2 的三个配置检查均通过，不重复计入 workspace；其余 12 个条件用例未补验。全 targets Clippy、fmt、前端 17 项、TypeScript/Vite、桌面/手机 Chromium、core 边界及检查器 6 项通过。前端跨目录测试的挂载问题修正后正常通过，无放宽断言。生产、真实双机流量和暂停 CI 的边界保持。
 
 - 最终继续保留主线 `92800dd`（#98/#101）的验收工具和拨测修复，解决共用前端构建产物与进度文档冲突；相对 `e05541f`，sing-box 插件、编译器、迁移及前端源码保持。最新整合状态完整重跑 Rust/PostgreSQL：425 通过、0 失败、15 条件忽略；另显式原生配置检查 3 项、前端单元 17 项、桌面/手机 Chromium、fmt/全 targets Clippy、core 边界和检查器均通过。
+
+## 2026-10-01：#100 本聊天最终合流
+
+- 受验源码 `f179cc6` 完整 Rust/PostgreSQL 428 通过、0 失败、15 条件忽略，另 macOS umask077、workspace 全 targets Clippy/fmt/core 通过。保留作者 d93→e055→7f 推进、全部主线进度/开放问题及 #98/#101；最终文档变化不改受验产品/测试输入。初轮47b的425/0/15与作者历史实机证据分别保留。
+- 迁移0016/ADR0035解决编号冲突，普通组现代凭据和套餐资格、Reality-only链双端限制、无绕链降级与两侧互补回归保持。Bun17/771、TS/Vite与分组/展示/TCP/业务/NodeQuality/取消六套真实Chromium通过；旧业务fixture新增chains响应，原未知API断言仍在，初次失败日志保留。未执行15项条件实机、真实双机负载、生产迁移/签名/发布/部署或CI；四workflow保持暂停。详见[独立验收](docs/acceptance/singbox-groups.md)。
