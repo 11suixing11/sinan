@@ -26,7 +26,7 @@
 
 `tools/test-nodequality-report-policy.py` 默认使用私有合成 SHA 和无探测函数；实际 builder、runner、helper 与 curl shim 接线不替换。可选的只读源目录仅用于测试读取已核验固定原文中的 `check_*` 和四个 `run_*` 编排函数体，替换所有探测和 serializer，完整原有效脚本装载流程不执行。旧 serve 未 patch 的负对照和显式 true 必须真正到达自有回环 HTTP recorder；false/default 必须为零 POST，完整 argv、NQENV、CPU/GPU 调用、本地 JSON/ANSI 章节保持一致。隐私、IP 轻量和回程模式分别作条件对照，并检查污染环境不能显示旧链接。
 
-Mac Bash 3 的测试 chroot 替身对 process substitution 使用 stdin 模拟；记录原 argv，但不作为 Linux Bash >=4 的 FD 继承证据。在 Bash >=4 中，该替身保留原 `bash -c "$*"` 调用。真实 Debian guest 的原 FD 路径和有限 chroot 环境继承需单独记录，不能以 Mac 组合结果替代。
+Mac Bash 3 的测试 chroot 替身对 process substitution 使用 stdin 模拟；记录原 argv，但不作为 Linux Bash >=4 的 FD 继承证据。在 Bash >=4 中，该替身保留原 `bash -c "$*"` 调用。真实 Debian guest 的原 FD 路径和有限 chroot 环境继承分别验收如下，不能以 Mac 组合结果替代。
 
 helper 失败测试覆盖未知角色、源一字节漂移、重复锚点、错误输出 SHA、超长输出、helper 缺失/篡改/符号链接/FIFO/超长文件，均不能输出可执行脚本或回落在线源。构建测试还验证缺失/篡改 helper 不生成制品，以及已公开 TEST_ONLY 信任根的签名覆盖嵌入 helper；这是测试签名，未经正式签名或发布。
 
@@ -39,10 +39,25 @@ helper 失败测试覆盖未知角色、源一字节漂移、重复锚点、错�
 | 固定原文函数体组合专项 | 2 通过，0 失败/跳过，73.278 秒 | 四个原 caller 的完整 argv、NQENV、原条件、全部 stub 章节；Mac 的 FD 路径使用上述 stdin 模拟 |
 | 三份真实源静态收据 | 3 份原/补丁 SHA 匹配，逆变换逐字节相同 | 只调用已核验 production helper 的纯 transform，不执行上游有效脚本 |
 | r7 版本切换阶段原 wrapper/daily/release 基线 | wrapper 34、daily 7 通过；release 32 运行，28 通过/4 既有条件跳过 | 对应接入 r6 bounded receive 前的 r7 快照；合流后未重复这些基线，不签收新增来源路径 |
-| Rust 版本及 API 专项 | 待根任务记录最终 19 项结果 | 历史 r2–r6、r4–r7 daily、全版本 full 门禁及面板接口 |
-| Debian guest 有限环境继承与原 FD 组合 | 待根任务回填独立收据 | 真正 Bash >=4 caller/FD 路径与最小受控 chroot，分别记录，不认证完整 rootfs |
+| Rust 版本及 API 专项 | 冻结 `5cb2ed1`：19 通过，0 失败/忽略（adapter 15、面板 gate 3、HTTP/PostgreSQL daily 1） | 历史 r2–r6、r4–r7 daily、全版本 full 门禁及面板接口；新主线编译输入已包含 |
+| Debian guest 来源与策略异常 | 来源 16 运行、15 通过/1 缺 minisign 跳过；策略 4 通过 | 实际 curl 7.88 的 chunked/声明超限与固定 helper 边界 |
+| Debian guest 原函数体/FD 组合 | Bash 5.2.15，2 通过，97.541 秒 | 保留 Linux 原 process substitution FD 分支；旧逻辑及 true 四次回环 POST，false/default 零 POST，探测和 serializer 全部 stub |
+| Debian guest 最小真实 chroot | 24 个参数/策略组合全部通过 | 固定生产 shim、已安装 Bash/env/动态库；精确策略片段加 printf 从 stdin 执行，证明环境和参数继承，不证明 FD 或完整 rootfs |
 
 私有 host 收据位于本任务 `nq-inner-report-prototype-20261001/evidence/`：`r7-final-inputs-before.json`、`r7-final-inputs-after.json`、`r7-production-source-receipt-final.json` 和三份 `r7-*-final.log`；仅保存摘要、合成参数和测试结果。根任务另保存 guest 与 Rust 受验身份，不能把不同快照的历史证据改写成同一次运行。
+
+### 根任务独立复核
+
+Rust 使用公开 TEST_ONLY 编译信任根、Rust/Cargo 1.97.1 和私有 PostgreSQL 55439，限定专项离线编译；adapter all-targets Clippy（warnings 为错误）、workspace fmt、core 分层和差异检查通过。五个 Rust 输入、Cargo.lock、信任根和 `5cb2ed1` HEAD 前后不变。数据库在 finally 中按 PID/启动时刻归属停止，PID 不存在、端口已关闭。收据 SHA-256：`3effc37eb435f1b59ddda3e9db5c6d1e8a4ffa0df61f4451b7c7d3afd3d6925c`。
+
+两组 guest 逐个串行运行，单元内部保存实际限额：MemoryMax 256 MiB、MemorySwapMax 0、TasksMax 64、CPUWeight/IOWeight 10、OOMScoreAdjust 500、PrivateNetwork/PrivateMounts/NoNewPrivileges=yes、KillMode=control-group。FD 组峰值 65,818,624 字节/11 个进程，最小 chroot 组 15,495,168 字节/5 个进程；两者 memory.events max/oom/oom_kill 均为零。结束后核对实际 journal 起点至清理的内核日志，无新 OOM、无测试进程/挂载/cgroup，SSH PID 406/重启数 0、同 boot、swap 0。最小根目录已删除；受验 21 份 FD 输入及 3 份 chroot 输入与当前对应文件逐字节一致。第一次读取 FD 清理状态时它仍正常运行，未重启测试；自然完成后才记录最终清理收据。
+
+| 私有证据索引 | result.json SHA-256 | postcheck.json SHA-256 | receipt.json SHA-256 |
+| --- | --- | --- | --- |
+| `nodequality-r7-fd-20261001` | `6282970a6836e87b63dcfa7e06127c82fe663f4f433d469022d885b553604df6` | `6d3c6564bf69c441bc1220b9b136409a18d74dbec7f5747f8683ae0da6ef71c2` | `1c6b1d3bae9dfe8601505c87ff2b2aa3c43be4be732c8868262d7670d6ce3b32` |
+| `nodequality-r7-chroot-20261001` | `275be317586874c66c151ebdb27036b379e9a7e0b313591694ecb668ea469738` | `b4c74a4012544843eaae8457ec3fdc61df5a1713fe974abf694bed3910cc2034` | `96c4cad4f2c10a0c80d80ef45e4e3bfdd1dbca93224986d4c2e71ab9f410d189` |
+
+本项没有运行真实 Agent/面板的完整任务、持续代理联合负载或完整工具链。小内存拒绝、磁盘不足、查询 403/429/超时、Agent 重启、面板断连、取消、重复提交和部分报告的总体签收仍按[整改故障矩阵](ordered-remediation.md)逐项推进；有限上传接线测试不替代这些验收。
 
 GitHub Actions 按用户要求暂停，不触发或以历史 CI 签收本项。完整工具链、实际完整诊断、公开上传总量为零、宿主副作用和生产部署均未验收。
 
