@@ -1,5 +1,13 @@
 # 执行进度
 
+## 2026-10-01：四平台接入后续守卫与并发提交整合
+
+- PR #132 作者同期合入 `dd13a6c` 后，通过独立后续 PR 普通整合实际 main `bb9638b`，完整保留作者负号令牌兼容及原运行输入。补旧正式 0.3 的静止服务/SQLite WAL 只读检查，Preparing 的完整验机及不兼容 Started 降级被拒绝，原状态不改；Started 只接受精确原 r2 与原三个参数。安装器不自动停止现有服务，失败保护旧配置。
+- 补目录共享 30 秒绝对截止、PowerShell 五种单引号的双层转义，以及每次验签/Agent 原生调用的实际启动结果。旧退出码为 0 而工具无法执行的真实负例在新实现被拒绝；生成入口与源码一致。
+- 冻结运行输入 `0683dd9`：本聊天完整 Rust/PostgreSQL workspace/all-targets 482 通过、0 失败、15 项既有实机条件忽略；macOS umask077 原子文件/链接专项、全 targets Clippy、fmt/core 通过。自己的 PostgreSQL 127.0.0.1:55432 已停止。
+- 同份输入的 Python/实际 PowerShell 7.5.3：旧检查点 12 通过、bootstrap 21 通过/3 条件跳过、PowerShell 15 通过/0 跳过、release 29 通过/7 条件跳过，生成一致与 Shell 语法通过。UI/web/dist 与前次本聊天 36 Bun、14 Chromium 所受验输入逐字相同，不把私有 API 替身当作新原生安装。
+- 作者的隔离 OpenRC 真实接入证据仍归作者；本聊天未复演原生 Windows PS5.1/UAC/ACL、macOS/FreeBSD 服务安装，也未正式签署、发布、部署。所有 full 门禁保持；CI 继续暂停，未执行不算通过。
+
 ## 2026-10-01：四平台接入整合 86e2ef4 与负号令牌回归
 
 - 普通整合主线 `86e2ef4`，保留 PR #127 的统一监控/通知与 PR #128 的 NodeQuality r14；跨平台决策重编号为 [ADR 0041](docs/adr/0041-cross-platform-enrollment.md)，主线 0039/0040 保持原意。相对主线 Core、旧 Agent 更新与监控逻辑不变；接入入口仍只从 GitHub/独立镜像下载 Agent。
