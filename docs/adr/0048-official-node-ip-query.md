@@ -20,7 +20,7 @@
 
 专用管理员端点 `POST /api/servers/{id}/ip-quality/node-query` 只接收 `ip_version`，默认 both。面板从 Agent 已上报地址冻结 1–8 个不同公网 IP；Agent 对每个所选 IP family 先请求正式来源的 origin/self 端点，再校验返回 IP 的标准表示、版本和公网身份。只有与观察出口相同的冻结地址才继续查询；其他地址逐来源为未知。不会拿面板出口、传入目标或单纯 operator 声明当作已证明的节点出口。无所选版本地址则拒绝创建。
 
-专用 NodeQuality r20 和 `diagnostic:nodequality-node-query` capability 才能启动此模式；旧 r18 包装器、默认版本和历史制品契约不改，r19 是另一离线准备制品。任务仍由公共诊断服务负责排队、90 秒截止、64 MiB / 32 tasks 预算、设备隔离、重复提交、报告历史和确认式取消。Agent adapter 只调用 SDK，不增加插件持久化。完整验机门禁继续保持。
+专用 NodeQuality r21 和 `diagnostic:nodequality-node-query` capability 才能启动此模式；主线默认 r19 包装器保留完整执行准入与日常正式 IP 自查，r18 历史制品契约不改；r20 是另一离线准备制品。r20/r21 从完整的主线 r19 严格派生，保留其准入记录、来源 helper 与日常接口，使用独立签名身份，不改写 r19 字节。任务仍由公共诊断服务负责排队、90 秒截止、64 MiB / 32 tasks 预算、设备隔离、重复提交、报告历史和确认式取消。Agent adapter 只调用 SDK，不增加插件持久化。完整验机门禁继续保持。
 
 插件解释 `sinan.node-ip-quality.v1` 的独立 `ip_quality` 章节：固定 job UUID、来源、数据库、节点执行标识、冻结 IP 列表、观察出口、时间及 schema。只能接收登记字段；零数值和 false 保留。已提供字段类型错误或没有可信字段时，该来源为 schema_mismatch，不用其他有效字段掩盖错误。未配置、401/403/429、超时、响应不符均保持逐来源未知；错误展示由登记错误类别生成，不能回显上游错误的含凭证 URL。
 

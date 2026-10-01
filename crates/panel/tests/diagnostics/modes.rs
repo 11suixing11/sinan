@@ -12,22 +12,41 @@ async fn daily_targets_exclude_unconfirmed_revoked_and_expired_monitoring_scope(
         .await?;
     capable(&panel, server).await?;
     fixture(&panel).await?;
-    for (name, confirmed, enabled, expires_at) in [
-        ("TEST_ONLY owned", true, true, None),
-        ("TEST_ONLY unconfirmed", false, true, None),
-        ("TEST_ONLY revoked", true, false, None),
+    use sinan_protocol::ProbeAddressFamily::{Any, Ipv4};
+    let now = sinan_protocol::now_timestamp();
+    for (name, authorization, enabled, expires_at, family) in [
+        ("TEST_ONLY owned", Some(true), true, None, Any),
+        ("TEST_ONLY unconfirmed", None, true, None, Any),
+        ("TEST_ONLY revoked", Some(false), true, None, Any),
+        ("TEST_ONLY disabled", Some(true), false, None, Any),
+        ("TEST_ONLY expired", Some(true), true, Some(now - 1), Any),
         (
-            "TEST_ONLY expired",
+            "TEST_ONLY finite scope",
+            Some(true),
             true,
-            true,
-            Some(sinan_protocol::now_timestamp() - 1),
+            Some(now + 600),
+            Any,
         ),
+        ("TEST_ONLY restricted family", Some(true), true, None, Ipv4),
     ] {
         let id = Uuid::new_v4();
-        let spec = json!({"id":id,"name":name,"kind":"tcp","target":"127.0.0.1","port":443,
-            "interval_secs":60,"carrier":"","enabled":enabled,"monitoring":{"network":"other","region":"",
-            "ip_version":"auto","authorization":{"basis":"owned","confirmed":confirmed,"source":"TEST_ONLY self-owned loopback",
-            "scope":"TEST_ONLY 4 attempts per diagnostic","expires_at":expires_at}}});
+        let mut spec: sinan_protocol::ProbeSpec = serde_json::from_value(json!({
+            "id":id,"name":name,"kind":"tcp","target":"127.0.0.1","port":443,
+            "interval_secs":60,"carrier":"","enabled":enabled
+        }))?;
+        crate::probe_support::authorize(&mut spec);
+        spec.monitor.as_mut().unwrap().address_family = family;
+        let identity = spec.identity();
+        let monitor = spec.monitor.as_mut().unwrap();
+        if let Some(authorized) = authorization {
+            let record = monitor.authorization.as_mut().unwrap();
+            record.enabled = authorized;
+            record.expires_at = expires_at;
+            record.identity = identity;
+        } else {
+            monitor.authorization = None;
+        }
+        let spec = serde_json::to_value(spec)?;
         sqlx::query("INSERT INTO network_probes(id,server_id,spec) VALUES($1,$2,$3)")
             .bind(id)
             .bind(server)
@@ -115,7 +134,7 @@ async fn modes_require_admin_confirmation_gate_capability_and_bound_daily_target
     assert!(view["plugin_reason"].as_str().unwrap().contains("Linux"));
     capable(&panel, server).await?;
     for index in 0..8 {
-        let spec = sinan_protocol::ProbeSpec {
+        let mut spec = sinan_protocol::ProbeSpec {
             id: Uuid::new_v4(),
             name: format!("private target {index}"),
             kind: sinan_protocol::ProbeKind::Tcp,
@@ -123,18 +142,11 @@ async fn modes_require_admin_confirmation_gate_capability_and_bound_daily_target
             port: Some(443),
             interval_secs: 60,
             carrier: String::new(),
+            monitor: None,
+            execution_authorized: None,
             enabled: index != 0,
-            monitoring: sinan_protocol::ProbeMonitoring {
-                authorization: sinan_protocol::ProbeAuthorization {
-                    basis: sinan_protocol::ProbeAuthorizationBasis::Owned,
-                    confirmed: true,
-                    source: "TEST_ONLY owned loopback fixture".into(),
-                    scope: "TEST_ONLY four loopback attempts at the configured interval".into(),
-                    expires_at: None,
-                },
-                ..Default::default()
-            },
         };
+        crate::probe_support::authorize(&mut spec);
         sqlx::query("INSERT INTO network_probes(id,server_id,spec) VALUES($1,$2,$3)")
             .bind(spec.id)
             .bind(server)

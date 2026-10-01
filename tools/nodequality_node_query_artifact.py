@@ -7,7 +7,7 @@ import nodequality_rootfs_artifact as canonical
 
 ROOT = canonical.ROOT
 PLUGIN = canonical.PLUGIN
-VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20"
+VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21"
 BINARY = "nodequality"
 FILES = {BINARY}
 MAX_RUNNER = canonical.MAX_RUNNER
@@ -21,12 +21,12 @@ def runner(base):
     ensure(isinstance(base, bytes) and 0 < len(base) <= MAX_RUNNER,
            "invalid canonical runner size")
     bundle = canonical.embedded(base, canonical.MARKERS["PINNED_CHAIN"])
-    ensure(base == canonical.legacy_runner(bundle),
-           "node query requires the unchanged canonical r18 runner")
+    ensure(base == canonical.canonical_runner(bundle),
+           "node query requires the unchanged canonical r19 runner")
     helper = canonical.runtime().ordinary(PLUGIN / "node-query.py", 128 * 1024)
     ensure(helper.endswith(b"\n") and b"\nSINAN_OFFICIAL_NODE_QUERY\n" not in helper,
            "invalid official node-query payload")
-    result = replace_once(base, ("version=" + canonical.LEGACY_VERSION + "\n").encode(),
+    result = replace_once(base, ("version=" + canonical.CANONICAL_VERSION + "\n").encode(),
                           ("version=" + VERSION + "\n").encode())
     result = replace_once(result, b"--mode daily|full", b"--mode daily|ip|full")
     result = replace_once(result, b"       nodequality --version\n",
@@ -41,7 +41,6 @@ def runner(base):
     result = replace_once(result,
         b'case "$mode" in daily|full) ;; *) die \'invalid diagnostic mode\' ;; esac\n',
         b'case "$mode" in daily|ip|full) ;; *) die \'invalid diagnostic mode\' ;; esac\n'
-        b'[[ $mode != full ]] || die \'Full diagnostics are suspended: licensed tools and complete acceptance are pending\'\n'
         b'if [[ $mode == ip ]]; then\n'
         b'  [[ $network_mode == low && $upload_report == false && -z $targets_file ]] || die \'IP queries require a bounded private job\'\n'
         b'  [[ $ips_file == "$workspace/node-ips.json" && -n $job_id ]] || die \'IP input and job identity are required\'\n'
@@ -56,8 +55,8 @@ def runner(base):
   exit 0
 fi
 '''
-    result = replace_once(result, b'if [[ $mode == daily ]]; then\n  cat > "$runtime/daily.py"',
-                          injection + b'if [[ $mode == daily ]]; then\n  cat > "$runtime/daily.py"')
+    result = replace_once(result, b'if [[ $mode == daily ]]; then\n  cat > "$runtime/official-ip.py"',
+                          injection + b'if [[ $mode == daily ]]; then\n  cat > "$runtime/official-ip.py"')
     ensure(len(result) <= MAX_RUNNER, "official query runner exceeds byte budget")
     return result
 
@@ -69,7 +68,7 @@ def validate_files(files, version, arch):
     ensure(isinstance(content, bytes) and 0 < len(content) <= MAX_RUNNER,
            "official node-query runner exceeds byte budget")
     bundle = canonical.embedded(content, canonical.MARKERS["PINNED_CHAIN"])
-    ensure(content == runner(canonical.legacy_runner(bundle)),
+    ensure(content == runner(canonical.canonical_runner(bundle)),
            "official node-query runner differs from its controlled derivation")
 
 

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 mod business_support;
+mod probe_support;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
 use anyhow::Result;
@@ -10,7 +11,14 @@ use sinan_protocol::ProbeSpec;
 use sqlx::PgPool;
 
 fn spec() -> Value {
-    json!({"id":uuid::Uuid::nil(),"name":"统一线路","kind":"tcp","target":"127.0.0.1","port":443,"interval_secs":30,"carrier":"测试线路","enabled":true,"monitoring":{"network":"telecom","region":"TEST_ONLY loopback","ip_version":"ipv4","authorization":{"basis":"owned","confirmed":true,"source":"TEST_ONLY fixture owner","scope":"TEST_ONLY four loopback attempts every 30 seconds","expires_at":null}}})
+    let mut spec = probe_support::authorized(
+        json!({"id":uuid::Uuid::nil(),"name":"统一线路","kind":"tcp","target":"127.0.0.1","port":443,"interval_secs":30,"carrier":"测试线路","enabled":true}),
+    );
+    spec["monitor"]["network"] = json!("telecom");
+    spec["monitor"]["region"] = json!("TEST_ONLY loopback");
+    spec["monitor"]["address_family"] = json!("ipv4");
+    spec["monitor"]["authorization"]["identity"]["address_family"] = json!("ipv4");
+    spec
 }
 
 #[sqlx::test]
@@ -293,12 +301,12 @@ async fn authorization_metadata_is_scoped_immutable_and_revocation_preserves_his
         .await?;
     let probe = &probes[0];
     assert_eq!(
-        probe.monitoring.network,
+        probe.monitor.as_ref().unwrap().network,
         sinan_protocol::ProbeNetwork::Telecom
     );
     let result = json!({"id":uuid::Uuid::new_v4(),"probe_id":probe.id,
         "sampled_at":sinan_protocol::telemetry::now_millis()-1000,"latency_ms":null,
-        "loss_percent":100.0,"error":"TEST_ONLY TCP connection refused","ip_version":4,"attempts":4});
+        "loss_percent":100.0,"error":"TEST_ONLY TCP connection refused","address_family":"ipv4","attempts":4});
     let endpoint = format!("{}/api/agent/v1/probe-results", panel.base);
     for _ in 0..2 {
         panel
@@ -314,11 +322,11 @@ async fn authorization_metadata_is_scoped_immutable_and_revocation_preserves_his
     for (field, value) in [
         ("network", json!("mobile")),
         ("region", json!("different TEST_ONLY region")),
-        ("ip_version", json!("ipv6")),
+        ("address_family", json!("ipv6")),
     ] {
         let mut changed =
             json!({"spec":task["spec"],"default_enabled":false,"server_ids":[server],"revision":1});
-        changed["spec"]["monitoring"][field] = value;
+        changed["spec"]["monitor"][field] = value;
         assert_eq!(
             panel
                 .admin(Method::PATCH, &path, &cookie, Some(changed))
@@ -329,7 +337,7 @@ async fn authorization_metadata_is_scoped_immutable_and_revocation_preserves_his
     }
     let mut changed =
         json!({"spec":task["spec"],"default_enabled":false,"server_ids":[server],"revision":1});
-    changed["spec"]["monitoring"]["authorization"]["source"] = json!("");
+    changed["spec"]["monitor"]["authorization"]["source"] = json!("");
     assert_eq!(
         panel
             .admin(Method::PATCH, &path, &cookie, Some(changed.clone()))
@@ -337,7 +345,9 @@ async fn authorization_metadata_is_scoped_immutable_and_revocation_preserves_his
             .status(),
         StatusCode::BAD_REQUEST
     );
-    changed["spec"]["monitoring"]["authorization"]["confirmed"] = json!(false);
+    changed["spec"] = task["spec"].clone();
+    changed["spec"]["enabled"] = json!(false);
+    changed["spec"]["monitor"]["authorization"]["enabled"] = json!(false);
     panel
         .admin(Method::PATCH, &path, &cookie, Some(changed))
         .await?

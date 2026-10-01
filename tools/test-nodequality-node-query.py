@@ -49,15 +49,23 @@ class NodeQueryContracts(unittest.TestCase):
                 query.run(workspace, source, version, JOB)
             return json.loads(receipts[-1]['text']), receipts, requests.call_args_list, (workspace / 'result.txt').read_text()
 
-    def curl(self, raw, code=0, provider='dbip-node', environment=None):
+    def curl(self, raw, code=0, provider='dbip-node', environment=None, read_failure=False):
         actual = subprocess.Popen
         captured = {}
+        original_read = os.read
+        def read(descriptor, size):
+            if read_failure and descriptor == captured.get('stdout_fd'):
+                raise OSError(KEY)
+            return original_read(descriptor, size)
         script = 'import sys; sys.stdin.buffer.read(); sys.stdout.buffer.write(' + repr(raw) + '); sys.exit(' + str(code) + ')'
         def spawn(arguments, **kwargs):
             captured['args'], captured['env'] = arguments, kwargs['env']
             process = actual([sys.executable, '-c', script], **kwargs)
+            captured['stdout_fd'] = process.stdout.fileno()
             original = process.stdin
             class Input:
+                @property
+                def closed(self): return original.closed
                 def write(self, data):
                     captured['stdin'] = data
                     return original.write(data)
@@ -65,7 +73,8 @@ class NodeQueryContracts(unittest.TestCase):
             process.stdin = Input()
             return process
         with patch.object(query.subprocess, 'Popen', side_effect=spawn), \
-             patch.dict(os.environ, environment or {}, clear=False):
+             patch.dict(os.environ, environment or {}, clear=False), \
+             patch.object(query.os, 'read', side_effect=read):
             try:
                 value = query.curl_json(provider, KEY, 'self', 4, time.monotonic() + 75)
                 return value, captured
@@ -106,8 +115,8 @@ class NodeQueryContracts(unittest.TestCase):
             self.assertNotIn(KEY, str(caught.exception))
 
     def test_response_pipe_failure_is_a_sanitized_per_source_error(self):
-        with patch.object(query.os, 'read', side_effect=OSError(KEY)), self.assertRaises(query.QueryFailure) as caught:
-            self.curl(b'{}\n200')
+        with self.assertRaises(query.QueryFailure) as caught:
+            self.curl(b'{}\n200', read_failure=True)
         self.assertEqual(caught.exception.kind, 'body_error')
         self.assertNotIn(KEY, str(caught.exception))
 

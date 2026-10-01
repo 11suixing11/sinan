@@ -989,7 +989,7 @@ if __name__ == "__main__":
         raise SystemExit("Legacy Agent refused: 旧状态路径无法安全读取，安装未切换") from None
 SINAN_BOOTSTRAP_3787069DD3526732BC6A95C780003451986974D878DB9DFA33BDE240E46770DB
 
-cat > "$STAGING/release.py" <<'SINAN_BOOTSTRAP_14C52CA4C83C037331C27F05273A6C0F332744019DEFDF060CDC6E2632B2CAA0'
+cat > "$STAGING/release.py" <<'SINAN_BOOTSTRAP_46F91695DB2ED5EDDE57C19517049D30A42C4A64C1F099DA0C7CAD719374B0C1'
 #!/usr/bin/env python3
 """Build canonical release manifests and verify complete offline-signed bundles."""
 
@@ -1010,7 +1010,7 @@ TEST_ONLY_PUBLIC_KEY = "RWS3NbDikg3VqWRlxJMUyaB1dTvErk0ptJ695xQ50Kyb+MmtynMhN/lq
 TEST_ONLY_ROTATION_PUBLIC_KEY = "RWRURVNUUk9UMjMuvo0ny3Mjs6QBwcE7XdZLzMDhDs2hwrXRGgN3moXl"
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 TEST_PUBLIC_KEY_DIRS = (SOURCE_ROOT / "fixtures", SOURCE_ROOT / "crates/protocol/tests/fixtures")
-NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18"
+NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19"
 SEGMENT = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}\Z")
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?\Z")
 MAX_BINARY = 256 * 1024 * 1024
@@ -1143,14 +1143,14 @@ def assemble(args):
                 auxiliary = {name: {"sha256": digest(content), "size": len(content)}
                              for name, content in files.items() if name != binary_name}
                 entry["auxiliary_files"] = auxiliary
-            if name == "nodequality" and version == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19":
+            if name == "nodequality" and version == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
                 from nodequality_rootfs_artifact import archive_files, validate_files
                 files = archive_files(data)
                 validate_files(files, version, arch)
                 auxiliary = {name: {"sha256": digest(content), "size": len(content)}
                              for name, content in files.items() if name != binary_name}
                 entry["auxiliary_files"] = auxiliary
-            if name == "nodequality" and version == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
+            if name == "nodequality" and version == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21":
                 from nodequality_node_query_artifact import archive_files, validate_files
                 validate_files(archive_files(data), version, arch)
             binary = binary_bytes(data, archive_format, binary_name, auxiliary)
@@ -1325,13 +1325,13 @@ def validate_manifest(bundle, expected_tag=None, protocol_version=1):
                    and re.fullmatch(re.escape(TOOL_VERSION) + r"-[0-9a-f]{40}-r1", entry["version"])
                    and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
                    "wrong or incomplete native TCP artifact identity")
-        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19":
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
             from nodequality_rootfs_artifact import BINARY, FILES
             ensure(entry["format"] == "tar.gz" and entry["binary_name"] == BINARY
                    and entry["arch"] in ("amd64", "arm64")
                    and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
                    "wrong or incomplete offline NodeQuality artifact identity")
-        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21":
             from nodequality_node_query_artifact import BINARY
             ensure(entry["format"] == "tar.gz" and entry["binary_name"] == BINARY
                    and entry["arch"] in ("amd64", "arm64")
@@ -1363,10 +1363,10 @@ def verify_bundle(bundle, roots, minisign, expected_tag=None, exact_assets=True)
         if entry["name"] == "tcpquality":
             from tcp_probe_artifact import archive_files, validate_files
             validate_files(archive_files(data), entry["version"], entry["arch"])
-        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19":
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
             from nodequality_rootfs_artifact import archive_files, validate_files
             validate_files(archive_files(data), entry["version"], entry["arch"])
-        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21":
             from nodequality_node_query_artifact import archive_files, validate_files
             validate_files(archive_files(data), entry["version"], entry["arch"])
     if exact_assets:
@@ -1409,7 +1409,7 @@ if __name__ == "__main__":
         main()
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise SystemExit(f"Release verification failed: {error}") from error
-SINAN_BOOTSTRAP_14C52CA4C83C037331C27F05273A6C0F332744019DEFDF060CDC6E2632B2CAA0
+SINAN_BOOTSTRAP_46F91695DB2ED5EDDE57C19517049D30A42C4A64C1F099DA0C7CAD719374B0C1
 
 cat > "$STAGING/tcp_probe_artifact.py" <<'SINAN_BOOTSTRAP_7C9C790035F22EC0554D1B922A5B960571792B991659DDFBF9C0A8E337C0BD0A'
 """Validate the complete, pinned native TCP artifact without executing it."""

@@ -70,6 +70,7 @@ class DailyChecks(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             helper = root / "stall.py"
+            (root / "official-ip.py").write_bytes((HELPER.parent / "official-ip.py").read_bytes())
             helper.write_text(HELPER.read_text().replace(
                 "values = socket.getaddrinfo", "time.sleep(60)\n        values = socket.getaddrinfo", 1))
             started = time.monotonic()

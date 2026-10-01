@@ -97,44 +97,20 @@ async fn slow_probes_do_not_delay_results_and_configuration_changes_cancel_work(
             port: None,
             interval_secs: 3600,
             carrier: String::new(),
+            monitor: None,
+            execution_authorized: None,
             enabled: true,
-            monitoring: sinan_protocol::ProbeMonitoring {
-                authorization: sinan_protocol::ProbeAuthorization {
-                    basis: sinan_protocol::ProbeAuthorizationBasis::Owned,
-                    confirmed: true,
-                    source: "TEST_ONLY owned loopback fixture".into(),
-                    scope: "TEST_ONLY four loopback attempts at the configured interval".into(),
-                    expires_at: None,
-                },
-                ..Default::default()
-            },
         })
         .collect();
+    for spec in &mut specs {
+        authorize_fixture(spec);
+    }
     state
         .lock()
         .unwrap()
         .set_json("probes:configuration", &(now_timestamp(), &specs))?;
     let worker = tokio::spawn(sample_loop(state.clone(), ops.clone(), retirement.clone()));
     until(|| state.lock().unwrap().probe_results().unwrap().len() == 1).await?;
-    until(|| ops.active.load(Ordering::SeqCst) == 4).await?;
-    // Revocation interrupts in-flight work without changing IDs or deleting history.
-    for spec in &mut specs {
-        spec.monitoring.authorization.confirmed = false;
-    }
-    state
-        .lock()
-        .unwrap()
-        .set_json("probes:configuration", &(now_timestamp(), &specs))?;
-    until(|| ops.active.load(Ordering::SeqCst) == 0).await?;
-    assert_eq!(state.lock().unwrap().probe_results()?.len(), 1);
-    for spec in &mut specs {
-        spec.monitoring.authorization.confirmed = true;
-    }
-    state
-        .lock()
-        .unwrap()
-        .set_json("probes:configuration", &(now_timestamp(), &specs))?;
-    until(|| state.lock().unwrap().probe_results().unwrap().len() == 2).await?;
     until(|| ops.active.load(Ordering::SeqCst) == 4).await?;
     // Reconfigure a completed target before its hour-long interval, freeing one slot.
     specs[0].name = "changed".into();
@@ -144,10 +120,10 @@ async fn slow_probes_do_not_delay_results_and_configuration_changes_cancel_work(
         .lock()
         .unwrap()
         .set_json("probes:configuration", &(now_timestamp(), &specs))?;
-    until(|| state.lock().unwrap().probe_results().unwrap().len() == 3).await?;
+    until(|| state.lock().unwrap().probe_results().unwrap().len() == 2).await?;
     assert!(ops.peak.load(Ordering::SeqCst) <= 4);
     for spec in &mut specs {
-        spec.monitoring.authorization.expires_at = Some(now_timestamp() - 1);
+        spec.enabled = false;
     }
     state
         .lock()
@@ -156,8 +132,109 @@ async fn slow_probes_do_not_delay_results_and_configuration_changes_cancel_work(
     until(|| ops.active.load(Ordering::SeqCst) == 0).await?;
     // Cancelled measurements release the gate used by retirement and persist no results.
     let guard = timeout(Duration::from_secs(1), retirement.gate.write()).await?;
-    assert_eq!(state.lock().unwrap().probe_results()?.len(), 3);
+    assert_eq!(state.lock().unwrap().probe_results()?.len(), 2);
     drop(guard);
+    worker.abort();
+    assert!(worker.await.unwrap_err().is_cancelled());
+    Ok(())
+}
+
+#[tokio::test]
+async fn cached_legacy_targets_are_inert_and_revocation_aborts_active_measurement() -> Result<()> {
+    let state = Arc::new(Mutex::new(crate::State::open(Path::new(":memory:"))?));
+    let ops = Arc::new(ControlledOps::default());
+    let retirement = Arc::new(crate::retirement::Retirement::new(
+        crate::Config::default(),
+        state.clone(),
+        vec![],
+        ops.clone(),
+        Arc::new(crate::fake::FakeServiceManager::default()),
+    )?);
+    let mut spec = ProbeSpec {
+        id: Uuid::new_v4(),
+        name: "cached legacy fixture".into(),
+        kind: ProbeKind::Icmp,
+        target: "127.0.0.2".into(),
+        port: None,
+        interval_secs: 3600,
+        carrier: String::new(),
+        enabled: true,
+        monitor: None,
+        execution_authorized: Some(true),
+    };
+    state.lock().unwrap().set_json(
+        "probes:configuration",
+        &(now_timestamp(), vec![spec.clone()]),
+    )?;
+    let worker = tokio::spawn(sample_loop(state.clone(), ops.clone(), retirement.clone()));
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    assert_eq!(ops.active.load(Ordering::SeqCst), 0);
+    assert!(state.lock().unwrap().probe_results()?.is_empty());
+    authorize_fixture(&mut spec);
+    state.lock().unwrap().set_json(
+        "probes:configuration",
+        &(now_timestamp(), vec![spec.clone()]),
+    )?;
+    until(|| ops.active.load(Ordering::SeqCst) == 1).await?;
+    spec.monitor
+        .as_mut()
+        .unwrap()
+        .authorization
+        .as_mut()
+        .unwrap()
+        .enabled = false;
+    state
+        .lock()
+        .unwrap()
+        .set_json("probes:configuration", &(now_timestamp(), vec![spec]))?;
+    until(|| ops.active.load(Ordering::SeqCst) == 0).await?;
+    assert!(state.lock().unwrap().probe_results()?.is_empty());
+    let guard = timeout(Duration::from_secs(1), retirement.gate.write()).await?;
+    drop(guard);
+    worker.abort();
+    assert!(worker.await.unwrap_err().is_cancelled());
+    Ok(())
+}
+
+#[tokio::test]
+async fn authorization_expiry_cancels_a_cached_measurement_without_panel_refresh() -> Result<()> {
+    let state = Arc::new(Mutex::new(crate::State::open(Path::new(":memory:"))?));
+    let ops = Arc::new(ControlledOps::default());
+    let retirement = Arc::new(crate::retirement::Retirement::new(
+        crate::Config::default(),
+        state.clone(),
+        vec![],
+        ops.clone(),
+        Arc::new(crate::fake::FakeServiceManager::default()),
+    )?);
+    let mut spec = ProbeSpec {
+        id: Uuid::new_v4(),
+        name: "expiring fixture".into(),
+        kind: ProbeKind::Icmp,
+        target: "127.0.0.2".into(),
+        port: None,
+        interval_secs: 3600,
+        carrier: String::new(),
+        enabled: true,
+        monitor: None,
+        execution_authorized: None,
+    };
+    authorize_fixture(&mut spec);
+    spec.monitor
+        .as_mut()
+        .unwrap()
+        .authorization
+        .as_mut()
+        .unwrap()
+        .expires_at = Some(now_timestamp() + 3);
+    state
+        .lock()
+        .unwrap()
+        .set_json("probes:configuration", &(now_timestamp(), vec![spec]))?;
+    let worker = tokio::spawn(sample_loop(state.clone(), ops.clone(), retirement.clone()));
+    until(|| ops.active.load(Ordering::SeqCst) == 1).await?;
+    until(|| ops.active.load(Ordering::SeqCst) == 0).await?;
+    assert!(state.lock().unwrap().probe_results()?.is_empty());
     worker.abort();
     assert!(worker.await.unwrap_err().is_cancelled());
     Ok(())
@@ -166,37 +243,42 @@ async fn slow_probes_do_not_delay_results_and_configuration_changes_cancel_work(
 #[test]
 fn expired_leases_future_cache_times_and_invalid_authorizations_fail_closed() -> Result<()> {
     let mut state = crate::State::open(Path::new(":memory:"))?;
-    let spec: ProbeSpec = serde_json::from_value(serde_json::json!({
-        "id":Uuid::new_v4(),"name":"TEST_ONLY","kind":"tcp","target":"127.0.0.1","port":443,
-        "interval_secs":30,"carrier":"","enabled":true,
-        "monitoring":{"network":"mobile","region":"TEST_ONLY loopback","ip_version":"ipv4",
-            "authorization":{"basis":"owned","confirmed":true,"source":"TEST_ONLY owner",
-                "scope":"TEST_ONLY four loopback attempts every 30 seconds","expires_at":null}}
-    }))?;
+    let mut spec: ProbeSpec = serde_json::from_value(
+        serde_json::json!({"id":Uuid::new_v4(),"name":"TEST_ONLY","kind":"tcp","target":"127.0.0.1","port":443,"interval_secs":30,"carrier":"","enabled":true}),
+    )?;
+    authorize_fixture(&mut spec);
     state.set_json(
         "probes:configuration",
         &(now_timestamp(), vec![spec.clone()]),
     )?;
-    assert_eq!(leased_configuration(&state), vec![spec.clone()]);
+    assert_eq!(leased_configuration(&state)?, vec![spec.clone()]);
     for fetched in [
         now_timestamp() - CONFIGURATION_LEASE_SECS,
         now_timestamp() + 3600,
     ] {
         state.set_json("probes:configuration", &(fetched, vec![spec.clone()]))?;
-        assert!(leased_configuration(&state).is_empty());
+        assert!(leased_configuration(&state)?.is_empty());
     }
     let mut unauthorized = spec;
-    unauthorized.monitoring.authorization.scope.clear();
+    unauthorized
+        .monitor
+        .as_mut()
+        .unwrap()
+        .authorization
+        .as_mut()
+        .unwrap()
+        .scope
+        .clear();
     state.set_json(
         "probes:configuration",
         &(now_timestamp(), vec![unauthorized]),
     )?;
-    assert!(leased_configuration(&state).is_empty());
+    assert!(leased_configuration(&state)?.is_empty());
     state.set_json(
         "probes:configuration",
         &"TEST_ONLY invalid cached structure",
     )?;
-    assert!(leased_configuration(&state).is_empty());
+    assert!(leased_configuration(&state).is_err());
     Ok(())
 }
 
@@ -212,12 +294,10 @@ async fn lease_expiry_cancels_work_and_persistence_failure_does_not_stop_the_sch
         ops.clone(),
         Arc::new(crate::fake::FakeServiceManager::default()),
     )?);
-    let mut spec: ProbeSpec = serde_json::from_value(serde_json::json!({
-        "id":Uuid::new_v4(),"name":"TEST_ONLY","kind":"icmp","target":"127.0.0.2",
-        "port":null,"interval_secs":30,"carrier":"","enabled":true,
-        "monitoring":{"authorization":{"basis":"owned","confirmed":true,
-            "source":"TEST_ONLY fixture owner","scope":"TEST_ONLY owned loopback echoes","expires_at":null}}
-    }))?;
+    let mut spec: ProbeSpec = serde_json::from_value(
+        serde_json::json!({"id":Uuid::new_v4(),"name":"TEST_ONLY","kind":"icmp","target":"127.0.0.2","port":null,"interval_secs":30,"carrier":"","enabled":true}),
+    )?;
+    authorize_fixture(&mut spec);
     state.lock().unwrap().set_json(
         "probes:configuration",
         &(now_timestamp(), vec![spec.clone()]),
@@ -246,6 +326,7 @@ async fn lease_expiry_cancels_work_and_persistence_failure_does_not_stop_the_sch
             .execute_batch(&format!("PRAGMA max_page_count={pages}"))?;
     }
     spec.target = "127.0.0.1".into();
+    authorize_fixture(&mut spec);
     state.lock().unwrap().set_json(
         "probes:configuration",
         &(now_timestamp(), vec![spec.clone()]),

@@ -24,13 +24,17 @@ class OfficialQueryArtifactTests(unittest.TestCase):
         helper = canonical.module("official_query_fixture_sources", canonical.PLUGIN / "source-helper.py")
         lock = helper.decode(helper.ordinary(canonical.PLUGIN / "source-lock.json", 65536))
         cls.bundle = helper.pack(lock, Path(directory))
-        cls.base = canonical.legacy_runner(cls.bundle)
+        cls.base = canonical.canonical_runner(cls.bundle)
         cls.runner = artifact.runner(cls.base)
 
     def test_retains_all_canonical_sources_and_full_licenses(self):
         for sentinel in canonical.MARKERS.values():
             self.assertEqual(canonical.embedded(self.runner, sentinel),
                              canonical.embedded(self.base, sentinel))
+        self.assertEqual(canonical.embedded(self.runner, "SINAN_NODEQUALITY_EXECUTION_ADMISSION"),
+                         canonical.embedded(self.base, "SINAN_NODEQUALITY_EXECUTION_ADMISSION"))
+        self.assertEqual(canonical.embedded(self.runner, "SINAN_OFFICIAL_IP_HELPER"),
+                         canonical.embedded(self.base, "SINAN_OFFICIAL_IP_HELPER"))
         helper = (canonical.PLUGIN / "node-query.py").read_bytes()
         self.assertEqual(canonical.embedded(self.runner, "SINAN_OFFICIAL_NODE_QUERY"), helper)
         for arch in ("amd64", "arm64"):
@@ -50,7 +54,7 @@ class OfficialQueryArtifactTests(unittest.TestCase):
             result = subprocess.run(["/bin/bash", str(script), "--workspace", str(workspace),
                                      "--mode", "full"], env=environment, capture_output=True, timeout=3)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn(b"licensed tools and complete acceptance are pending", result.stderr)
+            self.assertIn(b"new full diagnostics are paused", result.stderr)
             self.assertFalse(workspace.exists())
 
     def test_changed_sources_or_embedded_queries_cannot_receive_fixed_identity(self):
@@ -60,7 +64,7 @@ class OfficialQueryArtifactTests(unittest.TestCase):
         for content in (self.runner + b"# altered\n", self.runner.replace(b"api.ipregistry.co", b"untrusted.invalid", 1)):
             with self.assertRaises(ValueError):
                 artifact.validate_files({artifact.BINARY: content}, artifact.VERSION, "amd64")
-        for version in (canonical.LEGACY_VERSION, canonical.VERSION):
+        for version in (canonical.CANONICAL_VERSION, canonical.VERSION):
             with self.assertRaises(ValueError):
                 artifact.validate_files({artifact.BINARY: self.runner}, version, "amd64")
 

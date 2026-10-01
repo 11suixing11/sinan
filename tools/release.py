@@ -18,7 +18,7 @@ TEST_ONLY_PUBLIC_KEY = "RWS3NbDikg3VqWRlxJMUyaB1dTvErk0ptJ695xQ50Kyb+MmtynMhN/lq
 TEST_ONLY_ROTATION_PUBLIC_KEY = "RWRURVNUUk9UMjMuvo0ny3Mjs6QBwcE7XdZLzMDhDs2hwrXRGgN3moXl"
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 TEST_PUBLIC_KEY_DIRS = (SOURCE_ROOT / "fixtures", SOURCE_ROOT / "crates/protocol/tests/fixtures")
-NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18"
+NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19"
 SEGMENT = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}\Z")
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?\Z")
 MAX_BINARY = 256 * 1024 * 1024
@@ -151,14 +151,14 @@ def assemble(args):
                 auxiliary = {name: {"sha256": digest(content), "size": len(content)}
                              for name, content in files.items() if name != binary_name}
                 entry["auxiliary_files"] = auxiliary
-            if name == "nodequality" and version == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19":
+            if name == "nodequality" and version == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
                 from nodequality_rootfs_artifact import archive_files, validate_files
                 files = archive_files(data)
                 validate_files(files, version, arch)
                 auxiliary = {name: {"sha256": digest(content), "size": len(content)}
                              for name, content in files.items() if name != binary_name}
                 entry["auxiliary_files"] = auxiliary
-            if name == "nodequality" and version == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
+            if name == "nodequality" and version == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21":
                 from nodequality_node_query_artifact import archive_files, validate_files
                 validate_files(archive_files(data), version, arch)
             binary = binary_bytes(data, archive_format, binary_name, auxiliary)
@@ -333,13 +333,13 @@ def validate_manifest(bundle, expected_tag=None, protocol_version=1):
                    and re.fullmatch(re.escape(TOOL_VERSION) + r"-[0-9a-f]{40}-r1", entry["version"])
                    and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
                    "wrong or incomplete native TCP artifact identity")
-        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19":
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
             from nodequality_rootfs_artifact import BINARY, FILES
             ensure(entry["format"] == "tar.gz" and entry["binary_name"] == BINARY
                    and entry["arch"] in ("amd64", "arm64")
                    and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
                    "wrong or incomplete offline NodeQuality artifact identity")
-        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21":
             from nodequality_node_query_artifact import BINARY
             ensure(entry["format"] == "tar.gz" and entry["binary_name"] == BINARY
                    and entry["arch"] in ("amd64", "arm64")
@@ -371,10 +371,10 @@ def verify_bundle(bundle, roots, minisign, expected_tag=None, exact_assets=True)
         if entry["name"] == "tcpquality":
             from tcp_probe_artifact import archive_files, validate_files
             validate_files(archive_files(data), entry["version"], entry["arch"])
-        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19":
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
             from nodequality_rootfs_artifact import archive_files, validate_files
             validate_files(archive_files(data), entry["version"], entry["arch"])
-        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21":
             from nodequality_node_query_artifact import archive_files, validate_files
             validate_files(archive_files(data), entry["version"], entry["arch"])
     if exact_assets:

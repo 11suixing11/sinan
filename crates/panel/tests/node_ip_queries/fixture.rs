@@ -1,7 +1,7 @@
 use super::*;
 use sinan_protocol::{Hello, Message, PROTOCOL_VERSION};
 use std::collections::BTreeMap;
-pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20";
+pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21";
 
 pub async fn prepare(panel: &TestPanel, server: i64) -> Result<()> {
     sqlx::query("UPDATE servers SET static_info=static_info || '{\"os\":\"linux\",\"ip_addresses\":[\"1.1.1.1\",\"127.0.0.1\"]}'::jsonb WHERE id=$1")

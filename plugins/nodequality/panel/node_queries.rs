@@ -6,7 +6,7 @@ mod parsing;
 #[cfg(test)]
 mod tests;
 
-pub const NODE_QUERY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20";
+pub const NODE_QUERY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21";
 pub const NODE_QUERY_CAPABILITY: &str = "diagnostic:nodequality-node-query";
 const SCHEMA: &str = "sinan.node-ip-quality.v1";
 
@@ -120,7 +120,7 @@ pub async fn readiness(state: &AppState, server_id: i64) -> ApiResult<Option<Str
     }
     .await;
     Ok(result.err().map(|error| match error {
-        ApiError::NotFound => "正式节点查询 r20 制品尚未上传；需要对应架构的受控签名制品".into(),
+        ApiError::NotFound => "正式节点查询 r21 制品尚未上传；需要对应架构的受控签名制品".into(),
         error => error.to_string(),
     }))
 }

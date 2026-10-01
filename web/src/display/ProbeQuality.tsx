@@ -20,7 +20,7 @@ export default function ProbeQuality({ probes, now, unavailable, loading, online
     const state = probeState(probe, latest, now, unavailable || !online)
     const slots = probeSlots(results, probe, now)
     return <div className="d-quality-row" key={probe.id}>
-      <div className="d-quality-heading"><span title={`${probe.target}${probe.port ? `:${probe.port}` : ''} · ${networkLabel(probe)} · ${probe.monitoring?.region || '地区未配置'} · ${familyLabel(probe, latest)} · 每格 ${probe.interval_secs} 秒`}>{probe.monitoring?.network && probe.monitoring.network !== 'other' ? `${networkLabel(probe)} · ${probe.monitoring.region} · ` : ''}{probe.carrier ? `${probe.carrier} · ` : ''}{probe.name}</span><small>{state === '最近采样' ? probe.kind === 'icmp' ? 'ICMP' : 'TCP' : state}</small></div>
+      <div className="d-quality-heading"><span title={`${probe.target}${probe.port ? `:${probe.port}` : ''} · ${networkLabel(probe)} · ${probe.monitor?.region || '地区未配置'} · ${familyLabel(probe, latest)} · 每格 ${probe.interval_secs} 秒`}>{probe.monitor?.network && probe.monitor.network !== 'other' ? `${networkLabel(probe)} · ${probe.monitor.region} · ` : ''}{probe.carrier ? `${probe.carrier} · ` : ''}{probe.name}</span><small>{state === '最近采样' ? probe.kind === 'icmp' ? 'ICMP' : 'TCP' : state}</small></div>
       <div className="d-quality-grid"><Quality label="延迟" field="latency_ms" compact={compact} latest={latest} slots={slots} live={state === '最近采样'} /><Quality label={lossLabel(probe)} field="loss_percent" compact={compact} latest={latest} slots={slots} live={state === '最近采样'} /></div>
     </div>
   })}{enabled.length > (compact ? 1 : 3) && <small className="d-muted">另有 {enabled.length - (compact ? 1 : 3)} 个目标，详情中查看</small>}</div>

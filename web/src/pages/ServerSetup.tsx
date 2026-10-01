@@ -2,8 +2,8 @@ import { useRef, useState } from 'react'
 import { api } from '../api'
 import { ErrorNotice, Field, Icon, Modal } from '../components'
 import { useAction } from '../hooks'
-import { emptyMonitoring } from '../probes'
-import type { Probe } from '../probes'
+import { emptyMonitoring, withMonitoring, bindProbeAuthorization } from '../probes'
+import type { Probe, ProbeMonitoring } from '../probes'
 import ProbeMonitoringFields from './ProbeMonitoringFields'
 import type { AgentSettings, Server } from '../types'
 import './server-setup.css'
@@ -11,7 +11,7 @@ import ServerOperationsFields from './ServerOperationsFields'
 import { assetDraft, assetPayload } from '../server-assets'
 import ServerAssetFields, { SetupNavigation } from './ServerAssetFields'
 
-type ProbeDraft = Omit<Probe, 'id' | 'enabled' | 'port' | 'interval_secs'> & { key: number; port: string; interval: string }
+type ProbeDraft = Omit<Probe, 'id' | 'enabled' | 'port' | 'interval_secs'> & { key: number; port: string; interval: string; monitoring: ProbeMonitoring }
 const frequencies = [
   { label: '实时', sample: '1', upload: '3', note: '及时观察变化' },
   { label: '均衡', sample: '3', upload: '10', note: '兼顾频率与开销' },
@@ -33,14 +33,19 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
   const [autoUpdate, setAutoUpdate] = useState(false), [discover, setDiscover] = useState(true)
   const [probes, setProbes] = useState<ProbeDraft[]>([])
   const nextKey = useRef(0)
-  const updateProbe = (key: number, change: Partial<ProbeDraft>) => setProbes(current => current.map(probe => probe.key === key ? { ...probe, ...change } : probe))
+  const updateProbe = (key: number, change: Partial<ProbeDraft>) => setProbes(current => current.map(probe => {
+    if (probe.key !== key) return probe
+    const changed = { ...probe, ...change }
+    const identityChanged = changed.target !== probe.target || changed.kind !== probe.kind || changed.port !== probe.port || changed.monitoring.ip_version !== probe.monitoring.ip_version
+    return identityChanged ? { ...changed, monitoring: { ...changed.monitoring, authorization: { ...changed.monitoring.authorization, confirmed: false } } } : changed
+  }))
   const addProbe = () => {
     const key = nextKey.current++
     setProbes(current => current.length >= 32 ? current : [...current, { key, name: '', kind: 'tcp', target: '', port: '443', interval: '30', carrier: '', monitoring: emptyMonitoring() }])
   }
   const submit = () => {
     const agent_settings: AgentSettings = { sample_interval_secs: Number(sample), upload_interval_secs: Number(upload), auto_update: autoUpdate, discover_public_ips: discover }
-    const initialProbes: Probe[] = probes.map(probe => ({ id: '00000000-0000-0000-0000-000000000000', name: probe.name.trim(), kind: probe.kind, target: probe.target.trim(), port: probe.kind === 'tcp' ? Number(probe.port) : null, interval_secs: Number(probe.interval), carrier: probe.carrier.trim(), enabled: true, monitoring: probe.monitoring }))
+    const initialProbes: Probe[] = probes.map(probe => bindProbeAuthorization(withMonitoring({ id: '00000000-0000-0000-0000-000000000000', name: probe.name.trim(), kind: probe.kind, target: probe.target.trim(), port: probe.kind === 'tcp' ? Number(probe.port) : null, interval_secs: Number(probe.interval), carrier: probe.carrier.trim(), enabled: true, monitor: null }, probe.monitoring))))
     void action.run(() => api<Server>('/api/servers', 'POST', { name: name.trim(), agent_settings, probes: initialProbes, asset_settings: assetPayload(asset) }), onCreated)
   }
 

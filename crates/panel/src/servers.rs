@@ -120,9 +120,7 @@ pub async fn create(
     for spec in &mut request.probes {
         spec.normalize();
         spec.id = Uuid::new_v4();
-        if !spec.valid() {
-            return Err(ApiError::BadRequest("拨测配置无效".into()));
-        }
+        crate::probes::prepare_write(spec)?;
     }
     let mut transaction = state.pool.begin().await?;
     crate::latency_tasks::lock(&mut transaction).await?;

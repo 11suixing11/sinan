@@ -8,12 +8,13 @@ use sinan_adapter_sdk::{
 use std::{path::Path, time::Duration};
 use tokio::{io::AsyncReadExt, time::timeout};
 
-pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18";
+pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19";
 /// Explicit offline environment preparation, never the panel default.
-pub const OFFLINE_ROOTFS_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19";
+pub const OFFLINE_ROOTFS_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20";
 /// Configured official queries executed at the managed node egress.
-pub const NODE_QUERY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20";
+pub const NODE_QUERY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21";
 pub const NODE_QUERY_CAPABILITY: &str = "diagnostic:nodequality-node-query";
+const PUBLIC_ACCESS_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18";
 const BROWSER_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17";
 const REPORT_IO_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r16";
 const INTEGRATED_QUERY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r15";
@@ -77,6 +78,7 @@ fn supports_modes(version: &str) -> bool {
         VERSION
             | OFFLINE_ROOTFS_VERSION
             | NODE_QUERY_VERSION
+            | PUBLIC_ACCESS_VERSION
             | BROWSER_VERSION
             | REPORT_IO_VERSION
             | INTEGRATED_QUERY_VERSION
@@ -100,6 +102,7 @@ fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String, String)> {
         VERSION
             | OFFLINE_ROOTFS_VERSION
             | NODE_QUERY_VERSION
+            | PUBLIC_ACCESS_VERSION
             | BROWSER_VERSION
             | REPORT_IO_VERSION
             | INTEGRATED_QUERY_VERSION

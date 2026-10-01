@@ -313,7 +313,7 @@ def main(args):
         slow = SlowTargets()
         specs = []
         for index, port in enumerate(slow.ports):
-            spec = {'id': str(uuid.UUID(int=0)), 'name': 'TEST_ONLY slow loopback ' + str(index), 'kind': 'tcp', 'target': '127.0.0.1', 'port': port, 'interval_secs': 10, 'carrier': '', 'enabled': True, 'monitoring': {'network': ['telecom', 'unicom', 'mobile', 'other'][index], 'region': 'TEST_ONLY owned loopback', 'ip_version': 'ipv4', 'authorization': {'basis': 'owned', 'confirmed': True, 'source': 'TEST_ONLY controller owns these listener sockets', 'scope': f'TEST_ONLY server {sid}, TCP to 127.0.0.1:{port}, four attempts every ten seconds', 'expires_at': None}}}
+            spec = {'id': str(uuid.UUID(int=0)), 'name': 'TEST_ONLY slow loopback ' + str(index), 'kind': 'tcp', 'target': '127.0.0.1', 'port': port, 'interval_secs': 10, 'carrier': '', 'enabled': True, 'monitor': {'network': ['telecom', 'unicom', 'mobile', 'other'][index], 'region': 'TEST_ONLY owned loopback', 'address_family': 'ipv4', 'authorization': {'kind': 'owned', 'enabled': True, 'source': 'TEST_ONLY controller owns these listener sockets', 'scope': f'TEST_ONLY server {sid}, TCP to 127.0.0.1:{port}, four attempts every ten seconds', 'expires_at': None, 'identity': {'kind': 'tcp', 'target': '127.0.0.1', 'port': port, 'address_family': 'ipv4'}}}}
             specs.append(api.expect('POST', f'/api/servers/{sid}/probes', spec))
         state_dir.mkdir(mode=0o700)
         common.command(['mount', '-t', 'tmpfs', '-o', 'size=16m,mode=0700,nodev,nosuid,noexec', 'sinan-carrier-test-only', str(state_dir)])
@@ -473,12 +473,13 @@ def main(args):
         late = {row[0]: json.loads(row[1]) for row in state_rows(db, 'SELECT id,result FROM probe_outbox') if json.loads(row[1])['probe_id'] == specs[0]['id']}
         require(late, 'real removed-target late outbox is missing')
         api.expect('DELETE', f'/api/servers/{sid}/probes/{specs[0]["id"]}')
-        specs[1]['monitoring']['authorization']['confirmed'] = False
+        specs[1]['enabled'] = False
+        specs[1]['monitor']['authorization']['enabled'] = False
         api.expect('PATCH', f'/api/servers/{sid}/probes/{specs[1]["id"]}', specs[1])
         for spec in specs[2:]:
             spec['enabled'] = False
             api.expect('PATCH', f'/api/servers/{sid}/probes/{spec["id"]}', spec)
-        common.wait_for(lambda: (value := cached(db)) and all(item['id'] != specs[0]['id'] and (not item['enabled'] or not item['monitoring']['authorization']['confirmed']) for item in value[1]), timeout=40)
+        common.wait_for(lambda: (value := cached(db)) and all(item['id'] != specs[0]['id'] and (not item['enabled'] or not item['monitor']['authorization']['enabled']) for item in value[1]), timeout=40)
         common.wait_for(lambda: sum(active_connects(agent_pid, slow.ports).values()) == 0, timeout=4)
         gate.upload = True
         common.wait_for(lambda: set(late).issubset(gate.acked), timeout=20)

@@ -51,7 +51,7 @@ pub async fn list(State(state): State<AppState>, headers: HeaderMap) -> ApiResul
         .map(|(id, spec, default_enabled, revision, server_ids)| {
             Ok(Task {
                 id,
-                spec: serde_json::from_value(spec)?,
+                spec: crate::probes::presentation(serde_json::from_value(spec)?),
                 default_enabled,
                 server_ids,
                 revision,
@@ -84,10 +84,8 @@ pub async fn update(
 
 async fn save(state: &AppState, id: Uuid, mut input: Input, editing: bool) -> ApiResult<Task> {
     input.spec.id = id;
-    input.spec.normalize();
     input.server_ids.sort_unstable();
-    if !input.spec.valid()
-        || input.server_ids.len() > 4096
+    if input.server_ids.len() > 4096
         || input.server_ids.iter().any(|id| *id <= 0)
         || input.server_ids.windows(2).any(|ids| ids[0] == ids[1])
     {
@@ -108,9 +106,9 @@ async fn save(state: &AppState, id: Uuid, mut input: Input, editing: bool) -> Ap
             return Err(ApiError::Conflict("任务已被修改，请刷新后重试".into()));
         }
         let previous: ProbeSpec = serde_json::from_value(previous).map_err(anyhow::Error::from)?;
-        if !input.spec.same_measurement(&previous) {
+        if !input.spec.same_measurement_identity(&previous) {
             return Err(ApiError::Conflict(
-                "检测方式、目标、端口、运营商、地区和网络版本创建后不可修改，请新建任务以保留历史归属".into(),
+                "检测方式、目标、端口、网络版本、运营商和地区创建后不可修改，请新建任务以保留历史归属".into(),
             ));
         }
         revision + 1
@@ -123,6 +121,7 @@ async fn save(state: &AppState, id: Uuid, mut input: Input, editing: bool) -> Ap
         }
         1
     };
+    crate::probes::prepare_write(&mut input.spec)?;
     let servers: Vec<i64> = sqlx::query_scalar(
         "SELECT id FROM servers WHERE id=ANY($1) AND deleted_at IS NULL ORDER BY id FOR UPDATE",
     )
@@ -167,7 +166,7 @@ async fn save(state: &AppState, id: Uuid, mut input: Input, editing: bool) -> Ap
     tx.commit().await?;
     Ok(Task {
         id,
-        spec: input.spec,
+        spec: crate::probes::presentation(input.spec),
         default_enabled: input.default_enabled,
         server_ids: servers,
         revision,

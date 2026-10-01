@@ -2,8 +2,8 @@
 
 2026-10-02：实现与回归已准备，当前批次未运行测试/构建，最终整合统一验证。
 
-- `crates/protocol/src/tasks/probes.rs`：`legacy_configuration_is_readable_but_never_authorized`、`legacy_result_reserialization_keeps_the_original_digest_input`。缺省授权暂停，旧结果序列化兼容。
-- `crates/agent-core/src/tasks/probes.rs`：`tcp_probe_measures_a_real_listener_and_closed_port`、`selected_ipv6_measures_an_owned_loopback_listener`、`invalid_target_is_unavailable_instead_of_a_loss_measurement`。真实自有回环 IPv4/IPv6、拒绝连接、无授权及错误版本均保留实际/未知语义。
+- `crates/protocol/src/tasks/probes.rs`：`crates/protocol/tests/probe_authorization.rs` 的 `historical_probes_remain_readable_without_implicit_permission`、`permission_binds_exact_identity_and_expires_at_the_boundary`。缺省授权暂停，旧结果序列化兼容。
+- `crates/agent-core/src/tasks/probes.rs`：`tcp_probe_measures_a_real_listener_and_closed_port`、`selected_ipv6_records_the_actual_family_and_rejects_wrong_family`、`invalid_target_is_unavailable_instead_of_a_loss_measurement`。真实自有回环 IPv4/IPv6、拒绝连接、无授权及错误版本均保留实际/未知语义。
 - `crates/agent-core/src/tasks/probes/scheduling_tests.rs`：`slow_probes_do_not_delay_results_and_configuration_changes_cancel_work`、`expired_leases_future_cache_times_and_invalid_authorizations_fail_closed`、`lease_expiry_cancels_work_and_persistence_failure_does_not_stop_the_scheduler`。最多四并发，撤销/到期/配置过期停止，故障不杀调度任务。
 - `crates/agent-core/src/state/storage.rs`：`real_sqlite_full_rolls_back_and_retries_without_erasing_durable_samples`、`full_acknowledged_cleanup_retains_rows_until_storage_recovers`；`telemetry/worker/tests.rs`：`full_storage_keeps_worker_alive_and_retries_the_same_snapshot_after_recovery`；`transport/connection/tests/storage.rs`：`full_storage_retains_clock_and_unacked_usage_without_interrupting_authenticated_heartbeat`。真实 SQLite 页上限触发 FULL；旧样本、时间下限和设置保留，状态锁在周期之间释放，结构/协议错误不降级为存储重试，认证后的实际 20 秒心跳和 ACK 重放独立于写入成功。
 - `crates/panel/tests/latency_tasks.rs`：`assignment_defaults_keep_wire_compatibility_and_preserve_measurement_identity`、`authorization_metadata_is_scoped_immutable_and_revocation_preserves_history`；既有 `crates/panel/tests/tasks.rs` 覆盖删目标迟到结果、设备隔离、重复内容冲突与完整一天历史。
@@ -29,3 +29,5 @@ SINAN_REMAINING_TEST_SIGNAL=1 /usr/bin/python3 <新构建目录>/src/tools/carri
 满盘只填满独立 16 MiB tmpfs，不填 Guest 根盘。观察实际 SQLite FULL/IOERR 日志，至少 45 秒保留心跳/运行时/PID，释放填充文件后要求正常周期恢复、无重启。清理持续执行所有已拥有步骤：停止自己服务、保留 SQLite/PG 私有证据、卸载自己 tmpfs、移除自己临时 unit/运行时目录，检查监听、子进程、OOM、SSH/启动/交换状态不变。失败收据不覆盖、不凭简单重跑签收。
 
 `carrier-result.json` 与 `cleanup-result.json` 当前尚未生成。最终本地全目标和该实机专项完成后再记录事实；实际 Linux/macOS/FreeBSD/Windows ICMP 工具/权限以及旧二进制真实升级验收另列未验证范围。使用自有或有记录明确许可的目标，不测试生产，不借此签收完整三网排名。
+
+整合主线后，唯一协议模型为 `spec.monitor={network,region,address_family,authorization}`，授权绑定 `identity` 并使用 `kind`/`enabled`；表单依据/确认只转换为此模型。迁移 0029 仅暂停缺少授权对象的旧记录，已有主线记录保留并由 Rust 严格校验。主线 `?authorization=1` 保留原形状；新授权端点携带三网标签。主线旧离线 Agent 自身 24 小时缓存策略不能由面板更新立即改变，本版 120 秒租期由当前源码实机验证。

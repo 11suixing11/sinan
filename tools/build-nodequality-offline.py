@@ -171,7 +171,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--arch", choices=("amd64", "arm64"), required=True)
     parser.add_argument("--legacy-artifact", type=Path, required=True,
-                        help="unchanged r18 artifact built from this checkout")
+                        help="unchanged canonical r19 artifact built from this checkout")
     parser.add_argument("--rootfs-directory", type=Path, required=True,
                         help="verified rootfs.tar.gz and rootfs-manifest.json export")
     parser.add_argument("--prepared-directory", type=Path, required=True,

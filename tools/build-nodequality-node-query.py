@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package the explicit r20 node-query artifact from verified local sources only."""
+"""Package the explicit r21 node-query artifact from verified local sources only."""
 import argparse
 import contextlib
 import hashlib
@@ -105,7 +105,7 @@ def build(args):
     helper = canonical.module("sinan_official_query_source", canonical.PLUGIN / "source-helper.py")
     lock = helper.decode(ordinary(canonical.PLUGIN / "source-lock.json", 65536))
     bundle = helper.pack(lock, args.sources)
-    files = {artifact.BINARY: artifact.runner(canonical.legacy_runner(bundle))}
+    files = {artifact.BINARY: artifact.runner(canonical.canonical_runner(bundle))}
     artifact.validate_files(files, artifact.VERSION, args.arch)
     data = artifact.pack(files)
     release.binary_bytes(data, "tar.gz", artifact.BINARY)

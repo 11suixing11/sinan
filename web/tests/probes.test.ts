@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test'
-import { emptyMonitoring, familyLabel, lossLabel, probeSlots, probeState, probeTone, probeValue } from '../src/probes'
+import { familyLabel, authorizationMatches, bindProbeAuthorization, changeProbe, lossLabel, probeSlots, probeState, probeTone, probeValue } from '../src/probes'
 import type { Probe, ProbeResult } from '../src/probes'
 
-const probe: Probe = { id: 'probe', name: '回环', kind: 'icmp', target: '127.0.0.1', port: null, interval_secs: 10, carrier: '', enabled: true, monitoring: { ...emptyMonitoring(), authorization: { basis: 'owned', confirmed: true, source: 'TEST_ONLY owned loopback fixture', scope: 'TEST_ONLY loopback measurement fixture', expires_at: null } } }
+const probe: Probe = { id: 'probe', name: '回环', kind: 'icmp', target: '127.0.0.1', port: null, interval_secs: 10, carrier: '', enabled: true, monitor: { region: '', address_family: 'any', authorization: { kind: 'owned', source: 'TEST_ONLY owner', scope: 'TEST_ONLY owned loopback measurement', enabled: true, expires_at: null, identity: { kind: 'icmp', target: '127.0.0.1', port: null, address_family: 'any' } } } }
 const point: ProbeResult = { id: 'point', probe_id: probe.id, sampled_at: 100_000, latency_ms: 0, loss_percent: 0, error: null }
 
 test('probes distinguish zero, total loss and unavailable legacy measurements', () => {
@@ -35,18 +35,46 @@ test('quality bars keep time gaps and unavailable samples instead of carrying fo
   expect(probeValue(slots[2], 'loss_percent')).toBe(100)
 })
 
-
-test('missing, revoked and expired authorizations cannot expose historical values as current', () => {
-  expect(probeState({ ...probe, monitoring: undefined }, point, 101_000)).toBe('目标未授权')
-  expect(probeState({ ...probe, monitoring: emptyMonitoring() }, point, 101_000)).toBe('目标未授权')
-  expect(probeState({ ...probe, monitoring: { ...probe.monitoring!, authorization: { ...probe.monitoring!.authorization, expires_at: 101 } } }, point, 101_000)).toBe('目标授权已到期')
+test('revoked and expired authorization cannot display current successful telemetry', () => {
+  const authorized: Probe = { ...probe, target: '::1', execution_authorized: true, monitor: { region: '华东', address_family: 'ipv6', authorization: {
+    kind: 'owned', source: 'TEST_ONLY-owned-target', scope: 'ICMP on this loopback only', enabled: true, expires_at: 102,
+    identity: { kind: 'icmp', target: '::1', port: null, address_family: 'ipv6' },
+  } } }
+  expect(probeState(authorized, point, 103_000)).toBe('授权已过期')
+  expect(probeState({ ...probe, execution_authorized: false }, point, 101_000)).toBe('未取得执行授权')
+  const revoked = { ...authorized, monitor: { ...authorized.monitor!, authorization: { ...authorized.monitor!.authorization!, enabled: false } } }
+  expect(probeState(revoked, point, 101_000)).toBe('授权已撤销')
+  const payload = bindProbeAuthorization({ ...authorized, target: '::1' })
+  expect(payload.execution_authorized).toBeUndefined()
+  expect(payload.monitor!.authorization!.identity).toEqual({ kind: 'icmp', target: '::1', port: null, address_family: 'ipv6' })
+  expect(bindProbeAuthorization({ ...probe, monitor: null }).monitor).toBeNull()
 })
 
-test('actual failed attempts retain failure ratios while tool and DNS failures remain unknown', () => {
-  const refused: ProbeResult = { ...point, latency_ms: null, loss_percent: 100, error: 'TEST_ONLY connection refused', attempts: 4, ip_version: 6 }
-  expect(probeValue(refused, 'latency_ms')).toBeNull()
-  expect(probeValue(refused, 'loss_percent')).toBe(100)
-  expect(probeState(probe, refused, 101_000)).toBe('最近采样')
-  expect(familyLabel(probe, refused)).toBe('IPv6')
-  expect(probeValue({ ...refused, attempts: undefined }, 'loss_percent')).toBeNull()
+test('editing destination identity requires a fresh confirmation and submitting never transfers the old grant', () => {
+  const authorized: Probe = { ...probe, kind: 'tcp', target: 'probe.example.com', port: 443, monitor: { region: '', address_family: 'ipv4', authorization: {
+    kind: 'consent', source: 'TEST_ONLY explicit consent', scope: 'Only this target, method, port and family', enabled: true, expires_at: null,
+    identity: { kind: 'tcp', target: 'probe.example.com', port: 443, address_family: 'ipv4' },
+  } } }
+  for (const part of [{ target: 'other.example.com' }, { kind: 'icmp' as const, port: null }, { port: 8443 }, { monitor: { ...authorized.monitor!, address_family: 'ipv6' as const } }]) {
+    const changed = changeProbe(authorized, part)
+    expect(changed.monitor!.authorization!.enabled).toBe(false)
+    expect(changed.monitor!.authorization!.identity).toEqual(authorized.monitor!.authorization!.identity)
+    expect(authorizationMatches(changed)).toBe(false)
+    const submitted = bindProbeAuthorization({ ...authorized, ...part })
+    expect(submitted.monitor!.authorization!.enabled).toBe(false)
+    expect(submitted.monitor!.authorization!.identity).toEqual(authorized.monitor!.authorization!.identity)
+    expect(changeProbe(changed, authorized).monitor!.authorization!.enabled).toBe(false)
+  }
+  expect(changeProbe(authorized, { name: 'renamed', interval_secs: 60 }).monitor!.authorization!.enabled).toBe(true)
+})
+
+
+test('unconfirmed targets are inert and actual four failed connections keep measured loss', () => {
+  expect(probeState({ ...probe, monitor: null }, point, 101_000)).toBe('未取得执行授权')
+  const failed: ProbeResult = { ...point, latency_ms: null, loss_percent: 100, error: 'TEST_ONLY connection refused', attempts: 4, address_family: 'ipv6' }
+  expect(probeValue(failed, 'latency_ms')).toBeNull()
+  expect(probeValue(failed, 'loss_percent')).toBe(100)
+  expect(probeState(probe, failed, 101_000)).toBe('最近采样')
+  expect(familyLabel(probe, failed)).toBe('IPv6')
+  expect(probeValue({ ...failed, attempts: undefined }, 'loss_percent')).toBeNull()
 })

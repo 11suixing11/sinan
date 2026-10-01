@@ -71,11 +71,17 @@ class OpenrcFixtureTests(unittest.TestCase):
     def test_agent_version_signed_manifest_and_bootstrap_tag_agree(self):
         with tempfile.TemporaryDirectory() as temporary:
             bundle = Path(temporary)
-            with patch.object(smoke, "BUNDLE", bundle):
+            trust_directory = bundle / "trust"
+            trust_file = smoke.provision_test_roots(trust_directory)
+            with patch.object(smoke, "BUNDLE", bundle), \
+                 patch.object(smoke, "TRUST_DIRECTORY", trust_directory), \
+                 patch.object(smoke, "TRUST_FILE", trust_file):
                 command = smoke.install_script("http://127.0.0.1:12345")
             expected_tag = f"agent-v{smoke.AGENT_VERSION}"
             self.assertEqual(command[command.index("--tag") + 1], expected_tag)
-            self.assertEqual(command[command.index("--trusted-keys") + 1], str(smoke.TRUST_FILE))
+            self.assertEqual(command[command.index("--trusted-keys") + 1], str(trust_file))
+            self.assertEqual(trust_file.read_bytes(), PUBLIC_KEYS.read_bytes())
+            self.assertEqual(Path(command[command.index("--trusted-installer") + 1]).parent, trust_directory)
             release.verify_manifest(bundle, release.load_roots(PUBLIC_KEYS), "minisign", expected_tag)
             metadata = json.loads((bundle / "release.json").read_text())
             self.assertEqual(metadata["artifacts"][0]["version"], smoke.AGENT_VERSION)

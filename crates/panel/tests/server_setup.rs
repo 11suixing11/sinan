@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod business_support;
+mod probe_support;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
 
@@ -13,10 +14,10 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 fn probe() -> Value {
-    json!({
+    probe_support::authorized(json!({
         "id": Uuid::nil(), "name": "连通性", "kind": "tcp", "target": "probe.example.com",
         "port": 443, "interval_secs": 30, "carrier": "测试线路", "enabled": true
-    })
+    }))
 }
 
 async fn stored_counts(pool: &PgPool) -> Result<(i64, i64)> {
@@ -56,6 +57,7 @@ async fn creation_preserves_defaults_and_persists_initial_monitoring(pool: PgPoo
     icmp["kind"] = json!("icmp");
     icmp["port"] = Value::Null;
     icmp["target"] = json!("::1");
+    icmp = probe_support::authorized(icmp);
     let request =
         json!({"name":"  测试服务器  ","agent_settings":settings,"probes":[probe(),icmp]});
     let unauthorized = panel

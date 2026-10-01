@@ -154,8 +154,6 @@ def curl_json(provider, key, target, family, deadline):
                         if len(collected) > BODY_LIMIT + 4:
                             raise QueryFailure('response_limit', '质量查询响应超过 64 KiB')
         code = process.wait(timeout=max(0.01, local_deadline - time.monotonic()))
-    except (OSError, subprocess.TimeoutExpired):
-        raise QueryFailure('timeout', '质量查询超时或响应读取未完成') from None
     except subprocess.TimeoutExpired:
         raise QueryFailure('timeout', '节点正式接口查询超时，信息未知') from None
     except OSError:

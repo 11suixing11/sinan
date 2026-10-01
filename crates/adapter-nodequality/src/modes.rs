@@ -45,7 +45,7 @@ pub(super) fn validate(spec: &DiagnosticSpec) -> Result<Mode> {
                 .is_some_and(|value| value != "false")
             || spec.timeout_secs > 90
         {
-            bail!("official node IP diagnostics require r20 and a bounded private job");
+            bail!("official node IP diagnostics require r21 and a bounded private job");
         }
         let ips = spec
             .options

@@ -17,11 +17,13 @@ import signal
 import time
 import stat
 import threading
+import shutil
 from unittest import mock
 
 
 sys.dont_write_bytecode = True
 PLUGIN = pathlib.Path(__file__).resolve().parent.parent / "plugins/nodequality"
+FULL_START_GUARD = "[[ $mode != full ]] || die 'new full diagnostics are paused: complete tool provenance, redistribution rights, upload control and host side effects remain unverified'"
 module_spec = importlib.util.spec_from_file_location("nodequality_report", PLUGIN / "report.py")
 report = importlib.util.module_from_spec(module_spec)
 module_spec.loader.exec_module(report)
@@ -454,6 +456,10 @@ class BuildTests(unittest.TestCase):
                 upstream = ('python3 "$SINAN_REPORT_HELPER" capture "$SINAN_REPORT_WORKSPACE" <<\'ARCHIVE\'\n'
                             + base64.b64encode(archive).decode() + '\nARCHIVE\nexit ' + str(exit_code) + '\n')
                 runner = (PLUGIN / "runner.sh.tmpl").read_text()
+                # This private inert collector fixture retains old recovery
+                # coverage; the production template has no bypass option.
+                self.assertEqual(runner.count(FULL_START_GUARD), 1)
+                runner = runner.replace(FULL_START_GUARD, ":")
                 # The fixture executes no hardware, mounts or network operations;
                 # exercise the exact wrapper on macOS without requiring real root.
                 for requirement in ("[[ $EUID == 0 ]] || die 'diagnostics require root'",
@@ -476,6 +482,8 @@ class BuildTests(unittest.TestCase):
                                        ("@REPORT_HELPER@", (PLUGIN / "report.py").read_text()),
                                        ("@EXIT_OBSERVER@", (PLUGIN / "exit-observer.sh").read_text()),
                                        ("@DAILY_HELPER@", (PLUGIN / "daily.py").read_text()),
+                                       ("@OFFICIAL_IP_HELPER@", (PLUGIN / "official-ip.py").read_text()),
+                                       ("@EXECUTION_ADMISSION@", (PLUGIN / "execution-admission.json").read_text()),
                                        ("@CURL_SHIM@", (PLUGIN / "curl-shim.sh").read_text()),
                                        ("@CHROOT_SHIM@", (PLUGIN / "chroot-shim.sh").read_text())):
                     runner = runner.replace(marker, source)
@@ -493,7 +501,7 @@ class BuildTests(unittest.TestCase):
 
     def test_repeated_build_refuses_to_modify_the_existing_artifact_and_checksum(self):
         with tempfile.TemporaryDirectory() as directory:
-            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18"
+            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19"
             root = pathlib.Path(directory) / "nodequality" / version
             root.mkdir(parents=True)
             artifact = root / "amd64"
@@ -509,7 +517,7 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(artifact.read_bytes(), content)
             self.assertEqual(manifest.read_text(), checksum)
             self.assertFalse((root / ".build.lock").exists())
-    def test_trace_binary_translation_is_limited_to_the_fixed_upstream_command(self):
+    def test_retained_trace_installation_is_refused_in_both_architectures(self):
         fixed = "wget https://github.com/nxtrace/NTrace-core/releases/download/v1.3.7/nexttrace_linux_amd64 -qO /usr/local/bin/nexttrace"
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -521,13 +529,17 @@ class BuildTests(unittest.TestCase):
                 fake_uname.write_text("#!/bin/sh\nprintf '%s\\n' '" + arch + "'\n")
                 fake_uname.chmod(0o755)
                 environment = dict(os.environ, PATH=str(root) + ":" + os.environ["PATH"], SINAN_REAL_CHROOT=str(real))
-                for command in (fixed, fixed.replace("v1.3.7", "v1.3.8"), "printf ordinary-command"):
+                for command in (fixed, fixed.replace('nexttrace_linux_amd64', 'nexttrace_linux_arm64'), "printf ordinary-command"):
                     with self.subTest(arch=arch, command=command):
                         result = subprocess.run(["bash", str(PLUGIN / "chroot-shim.sh"), "/fixture/BenchOs", "/bin/bash", "-c", command],
-                                                env=environment, capture_output=True, text=True, check=True)
-                        arguments = report.json.loads(result.stdout)
-                        expected = command.replace("nexttrace_linux_amd64", "nexttrace_linux_arm64") if command == fixed and arch in ("aarch64", "arm64") else command
-                        self.assertEqual(arguments, ["/fixture/BenchOs", "/bin/bash", "-c", expected])
+                                                env=environment, capture_output=True, text=True)
+                        if 'wget ' in command:
+                            self.assertEqual(result.returncode, 70)
+                            self.assertIn('online trace installation is forbidden', result.stderr)
+                            self.assertEqual(result.stdout, '')
+                        else:
+                            self.assertEqual(result.returncode, 0)
+                            self.assertEqual(report.json.loads(result.stdout), ["/fixture/BenchOs", "/bin/bash", "-c", command])
 
     def test_runner_rejects_workspace_expansion_before_starting_any_test(self):
         for directory in ("/tmp/space path", "/tmp/wild*card", "/tmp/question?mark", "/tmp/bracket[1]"):
@@ -545,12 +557,33 @@ class BuildTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("invalid report upload option", result.stderr)
 
+    def test_unmodified_runner_refuses_explicit_and_default_full_before_any_external_call_or_write(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            binary = root / 'bin'
+            binary.mkdir()
+            called = root / 'called'
+            for name in ('uname', 'python3', 'curl', 'mkdir', 'mount', 'chroot', 'rm', 'umount'):
+                tool = binary / name
+                tool.write_text('#!/bin/sh\nprintf called > "$NQ_CALLED"\nexit 99\n')
+                tool.chmod(0o700)
+            environment = dict(os.environ, PATH=str(binary), NQ_CALLED=str(called))
+            for options in ([], ['--mode', 'full'], ['--mode', 'full', '--upload-report', 'true']):
+                workspace = root / 'not-created'
+                result = subprocess.run([shutil.which('bash'), str(PLUGIN / 'runner.sh.tmpl'),
+                                         '--workspace', str(workspace)] + options,
+                                        env=environment, capture_output=True, timeout=3)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(b'new full diagnostics are paused', result.stderr)
+                self.assertFalse(called.exists())
+                self.assertFalse(workspace.exists())
+
     def test_shell_syntax_and_nonexecuting_help(self):
         for script in (PLUGIN / "runner.sh.tmpl", PLUGIN / "exit-observer.sh", PLUGIN / "curl-shim.sh", PLUGIN / "chroot-shim.sh", PLUGIN.parents[1] / "tools/build-nodequality.sh"):
             subprocess.run(["bash", "-n", str(script)], check=True)
         result = subprocess.run(["bash", str(PLUGIN / "runner.sh.tmpl"), "--version"],
                                 capture_output=True, text=True, check=True)
-        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18")
+        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19")
 
     def test_existing_architecture_checksums_are_not_replaced(self):
         script = (PLUGIN.parents[1] / "tools/build-nodequality.sh").read_text()
@@ -661,6 +694,8 @@ work_dir=$workspace/.nodequalityfixture
         fixture += "\n" * (439 - len(fixture.splitlines())) + PINNED_POST_CLEANUP + "main \"$@\"\n"
         self.assertEqual(fixture.splitlines()[454], "    exit 1")
         content = (PLUGIN / "runner.sh.tmpl").read_text()
+        self.assertEqual(content.count(FULL_START_GUARD), 1)
+        content = content.replace(FULL_START_GUARD, ':')
         # Mounts, chroot and networking are always fake. Outside Linux/root only
         # the fixture copy bypasses entry guards; native CI keeps them unchanged.
         if self.emulated_guards:
@@ -686,6 +721,8 @@ work_dir=$workspace/.nodequalityfixture
             ("REPORT_HELPER", (PLUGIN / "report.py").read_text()),
             ("EXIT_OBSERVER", (PLUGIN / "exit-observer.sh").read_text()),
             ("DAILY_HELPER", (PLUGIN / "daily.py").read_text()),
+            ("OFFICIAL_IP_HELPER", (PLUGIN / "official-ip.py").read_text()),
+            ("EXECUTION_ADMISSION", (PLUGIN / "execution-admission.json").read_text()),
             ("CURL_SHIM", (PLUGIN / "curl-shim.sh").read_text()),
             ("CHROOT_SHIM", (PLUGIN / "chroot-shim.sh").read_text()),
         ):
