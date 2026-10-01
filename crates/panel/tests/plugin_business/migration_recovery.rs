@@ -98,6 +98,7 @@ async fn failed_enablement_backfill_rolls_back_and_can_be_retried_idempotently(
     for server in before.get_mut("servers").unwrap().as_array_mut().unwrap() {
         server["asset_settings"] = serde_json::json!({});
         server["telemetry_settings"] = serde_json::json!({"persist_interval_secs":60});
+        server["static_info_received_at"] = serde_json::Value::Null;
     }
     let enabled: (i64, String, bool) = sqlx::query_as(
         "SELECT server_id,source,enabled FROM server_plugins WHERE plugin='sing-box'",

@@ -1,6 +1,6 @@
 # 遥测实时读取与分层历史：实现和本地验证
 
-本次依据 ADR 0046，对照本地 NodeFlare 的 `agent/src/live.rs`、`live_batch.rs`、`shared/telemetry.rs`、`backend/src/websocket/ingest.rs` 和 `backend/src/db/queries/{ingest,history,rollup,maintenance}.rs`。保留 Sinan 的设备认证、SQLite 待确认队列、网卡整数账本和公开白名单，没有新增依赖。
+本次依据 ADR 0047，对照本地 NodeFlare 的 `agent/src/live.rs`、`live_batch.rs`、`shared/telemetry.rs`、`backend/src/websocket/ingest.rs` 和 `backend/src/db/queries/{ingest,history,rollup,maintenance}.rs`。保留 Sinan 的设备认证、SQLite 待确认队列、网卡整数账本和公开白名单，没有新增依赖。
 
 ## 采样、上传和持久化
 

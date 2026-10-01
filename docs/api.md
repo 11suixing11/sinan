@@ -344,3 +344,23 @@
 任务记录包含 `{id,status,job,report,error,created_at,updated_at,expires_at,agent_completed,cancel_requested_at,cancel_error,expected_sections,report_completeness,sections}`。status 为 `queued`、`running`、`cancel_requested`、`cancelled`、`succeeded`、`failed`；job 的协议结构见 [设备协议](protocol.md)。入口 `mode=daily|full` 默认为 full，旧空请求因缺少明确完整确认而返回 400；`confirm_full` 和 `acknowledge_traffic_warning` 必须是真正 JSON bool。完整需要 confirm_full=true，流量 active/unknown 时还需要 acknowledge_traffic_warning=true，否则返回 409。`proxy_activity={state,reason,checked_at,last_positive_at}` 的 state 为 active、unknown 或 not_enabled，近一分钟正向代理计量为 active；配置存在但无新正向计量时为 unknown，不以网卡流量推断无连接。确认和该次流量证据作为 job 的额外审计字段保存。IP 版本允许 `both|ipv4|ipv6`；full 网络模式允许 `low|normal`，默认 both/low。daily 必须 low、关闭 upload_report，目标来自该服务器最多4个已启用TCP拨测，不能通过该接口传任意目标。每台设备同时最多一个活跃任务；等待确认取消也保持同机互斥；并发点击由事务锁与数据库唯一约束去重，返回 409。full 执行时限为30分钟，daily为90秒，面板均另留五分钟传输窗口。日常入口同时调用独立IP刷新接口，查询失败仍按逐源历史缓存显示；Agent只执行有界TCP检查，DNS2秒/每连接1秒/每地址族4次。资源profile日常64MiB/32tasks、完整512MiB/128，保留现有预检和运行保护。启动资源、负载与实际ServiceJob预算随检查点保存为environment独立章；日常预期2章，完整6章。
 
 report 为 `{text,report_url?}`，文本以纯文本呈现，协议接受上限 512 KiB；NodeQuality 适配器输出最多 256 KiB，超过时标注截断，原始 ZIP 保留在节点本地。可选链接限定 NodeQuality 官方 HTTPS origin。在线上传失败仍可保存本地报告。报告会执行节点上的资源和带宽测试，上游可能生成公开链接；只有管理员明确点击才创建任务。设备结果持久化后才确认，重复最终回报幂等；晚到的 running 不覆盖最终结果。
+
+
+## DDNS 插件（Cloudflare）
+
+全部接口要求管理员会话，不进入 Agent API 或公开看板。按服务器启用，插件标识为 `ddns`；核心 IP 报告不包含 Token。
+
+| 方法与路径 | 用途 |
+| --- | --- |
+| `GET /api/plugins/ddns/servers` | 服务器及插件启用状态 |
+| `POST /api/plugins/ddns/servers/{id}/enable` | 显式启用插件 |
+| `POST /api/plugins/ddns/servers/{id}/disable` | 停用插件，保留规则与 DNS；运行中返回 409 |
+| `GET /api/plugins/ddns/rules` | 规则、候选地址、插件状态与最近结果，无 Token |
+| `POST /api/plugins/ddns/rules` | 创建规则，目标服务器须已启用插件 |
+| `PATCH /api/plugins/ddns/rules/{id}` | 全量替换 config，必须带当前 revision；空 Token 保留 |
+| `DELETE /api/plugins/ddns/rules/{id}` | 删除本地规则及凭据，保留远端 DNS |
+| `POST /api/plugins/ddns/rules/{id}/sync` | 手动同步；插件与规则均需启用，限流返回 429 |
+
+写入体为 `{"config":{"name":"示例规则","server_id":1,"zone_id":"00000000000000000000000000000000","record_name":"node.example.com","record_type":"A","ttl":1,"proxied":false,"interval_secs":300,"enabled":false,"adopt_existing":false},"api_token":"YOUR_CLOUDFLARE_API_TOKEN"}`。Zone、域名、Token 与服务器 ID 均需替换为自己管理的资源。更新另加 `revision`；Zone、域名和类型不可改变。接口拒绝重复身份、非法域名/TTL、过期修订及运行中修改。
+
+执行返回的 `status` 为 pending/running/updated/unchanged/waiting/error，`error_code` 为固定脱敏代码。同步 API 成功返回结果不代表 Cloudflare 一定写入成功，应检查 status/error_code；失败保留 last_ip/last_success_at。busy 与 plugin_enabled 单独反映运行和启用状态；读取无外部请求。详细语义见 [DDNS 插件](ddns.md)。

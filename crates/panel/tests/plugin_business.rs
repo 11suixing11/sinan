@@ -263,6 +263,7 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
     for server in legacy.get_mut("servers").unwrap().as_array_mut().unwrap() {
         server["asset_settings"] = json!({});
         server["telemetry_settings"] = json!({"persist_interval_secs":60});
+        server["static_info_received_at"] = Value::Null;
     }
     for node in legacy.get_mut("nodes").unwrap().as_array_mut().unwrap() {
         node["protocol_config"] = json!({"type":"vless-reality"});
