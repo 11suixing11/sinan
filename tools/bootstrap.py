@@ -17,6 +17,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from legacy_agent_checkpoint import preflight as legacy_checkpoint_preflight
+
 from release import (REPOSITORY, VERSION, digest, ensure, load_roots, read_regular,
                      require_protected_file, validate_manifest, verify_manifest)
 
@@ -526,6 +528,8 @@ def main():
         if not actual.startswith("linux-"):
             install_native(bundle, args.panel, token, item, actual, mirror, args.release_dir)
             return
+
+        legacy_checkpoint_preflight(version)
 
         installer = Path(args.trusted_installer) if args.trusted_installer else Path(__file__).with_name("trusted-install.sh")
         require_protected_file(installer)
