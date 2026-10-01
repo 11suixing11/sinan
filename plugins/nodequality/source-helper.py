@@ -14,6 +14,7 @@ MAX_FILE = 2 * 1024 * 1024
 MAX_BUNDLE = 8 * 1024 * 1024
 REPORT_POLICY_SHA256 = '0c66e702084820e399a16b18b51ba331cd8edd406dd96ede7c2ee84f78c30245'
 REPORT_ROLES = frozenset({'hardware.sh', 'ip.sh', 'net.sh'})
+SWAP_POLICY_SHA256 = 'd43b3e6fa6bfc0a31fcff5e3bc7a3228cdd1501c9f15f7e27175d09dada9a96b'
 FILES = {
     'NodeQuality.sh': ('LloydAsp/NodeQuality', 'NodeQuality.sh', 'LICENSE.nodequality'),
     'header.sh': ('LloydAsp/NodeQuality', 'part/header.sh', 'LICENSE.nodequality'),
@@ -127,9 +128,35 @@ def report_policy():
     return namespace
 
 
+def swap_policy():
+    path = Path(__file__).with_name('swap-policy.py')
+    content = ordinary(path, 65536)
+    if hashlib.sha256(content).hexdigest() != SWAP_POLICY_SHA256:
+        raise ValueError('signed swap policy helper SHA256 mismatch')
+    namespace = {'__name__': 'sinan_swap_policy', '__file__': str(path)}
+    exec(compile(content, str(path), 'exec'), namespace)
+    return namespace
+
+
+def without_swap(name, content):
+    policy = swap_policy()
+    result = policy['transform'](name, content)
+    if (not isinstance(result, bytes) or len(result) > MAX_FILE + 2048
+            or hashlib.sha256(result).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
+        raise ValueError('served swap policy output SHA256 or byte limit mismatch')
+    return result
+
+
+def entrypoint(bundle):
+    rows = validate(bundle['lock'])
+    original = verified(base64.b64decode(bundle['files']['NodeQuality.sh'], validate=True), rows['NodeQuality.sh'])
+    return without_swap('NodeQuality.sh', original)
+
+
 def pack(lock, directory):
     rows = validate(lock)
     report_policy()
+    swap_policy()
     files = {name: base64.b64encode(verified(ordinary(directory / name, MAX_FILE), row)).decode()
              for name, row in rows.items()}
     result = (json.dumps(dict(schema=1, lock=lock, files=files), sort_keys=True, separators=(',', ':')) + '\n').encode()
@@ -172,15 +199,20 @@ def serve(directory, arguments):
     if (not isinstance(patched, bytes) or len(patched) > MAX_FILE + 2048
             or hashlib.sha256(patched).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
         raise ValueError('served report policy output SHA256 or byte limit mismatch')
-    return patched
+    return without_swap(name, patched) if name == 'hardware.sh' else patched
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=['downloads', 'receive', 'pack', 'materialize', 'serve'])
+    parser.add_argument('operation', choices=['downloads', 'receive', 'pack', 'materialize', 'serve', 'entrypoint'])
     parser.add_argument('input', type=Path)
     parser.add_argument('remaining', nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.operation == 'entrypoint':
+        if args.remaining:
+            raise ValueError('entrypoint accepts only a pinned bundle')
+        sys.stdout.buffer.write(entrypoint(decode(ordinary(args.input, MAX_BUNDLE))))
+        return
     if args.operation == 'receive':
         if args.remaining:
             raise ValueError('receive accepts only a new private target')

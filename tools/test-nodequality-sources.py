@@ -22,7 +22,7 @@ from unittest import mock
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / 'plugins/nodequality'
-VERSION = 'a92fca6c0067df29ddd03fdc2fee6f3000f64545-r7'
+VERSION = 'a92fca6c0067df29ddd03fdc2fee6f3000f64545-r8'
 
 
 def module(name, path):
@@ -148,7 +148,7 @@ class SourceTests(unittest.TestCase):
         for name, payload in [('NODEQUALITY_SOURCE', entry), ('NODEQUALITY_LICENSE', '# Synthetic license\n'),
                               ('PINNED_CHAIN', self.bundle_path.read_text())] + [
                               (name, (self.fixture_plugin / path).read_text()) for name, path in [
-                                  ('SOURCE_HELPER', 'source-helper.py'), ('REPORT_POLICY_HELPER', 'report-policy.py'), ('REPORT_HELPER', 'report.py'),
+                                  ('SOURCE_HELPER', 'source-helper.py'), ('REPORT_POLICY_HELPER', 'report-policy.py'), ('SWAP_POLICY_HELPER', 'swap-policy.py'), ('REPORT_HELPER', 'report.py'),
                                   ('EXIT_OBSERVER', 'exit-observer.sh'), ('DAILY_HELPER', 'daily.py'),
                                   ('CURL_SHIM', 'curl-shim.sh'), ('CHROOT_SHIM', 'chroot-shim.sh')]]:
             runner = runner.replace('@' + name + '@\n', payload)
@@ -450,6 +450,7 @@ sys.stdout.buffer.write((pathlib.Path(os.environ['NQ_INPUTS']) / matching[0]['na
         with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
             content = archive.extractfile('nodequality').read()
         self.assertIn((tree / 'plugins/nodequality/report-policy.py').read_bytes(), content)
+        self.assertIn((tree / 'plugins/nodequality/swap-policy.py').read_bytes(), content)
         # Mutate an embedded license's base64 representation inside the runner.
         bundle_text = helper.pack(self.lock, self.sources)
         self.assertIn(bundle_text, content)

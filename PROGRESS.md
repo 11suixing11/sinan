@@ -1043,3 +1043,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 根复核冻结 `5cb2ed1`，Rust19（adapter15/面板gate3/HTTP-PG日常1）全部通过、0忽略，Clippy/fmt/core/diff通过；源码和Cargo/trust前后不变，专属PG55439按归属停止、PID消失/端口关闭，收据3effc37e…。专用Debian12 Bash5来源16运行（15过/1缺minisign跳过）、Policy4、原函数体FD组合2通过；旧/true四次回环POST，false/default零，97.541秒。独立最小真实chroot的24个stdin策略/参数组合通过，不将它当FD或完整rootfs证据。
 - 两个guest单元限额运行期读回；FD/chroot峰值65,818,624B/15,495,168B，0OOM，结束后无进程/挂载/cgroup残留，SSH406重启0、同boot/swap0。21/3输入SHA与产品文件对应不变，收据1c6b1d3b…/96c4cad4…；最终只回填文档，不重复测试。完整负载故障矩阵仍待整条受控执行链就绪，本项不关闭#65或解除full门禁。
+
+## 2026-10-01：NodeQuality 禁止脚本改动 swap（关联 #66 独立项）
+
+- r8 固定 swap-policy 纳入签名 runner：入口不再 source 未调用的旧 helper，清理不调用 swapoff；内层硬件不再分配/格式化/启停/删除临时 swap。低于原950MiB宿主可用内存阈值或无法读取时退出70，入口读取管道原硬件状态，拒绝后不启动后续章节；不借隐私模式删除硬件能力。canonical来源/许可证和原post_cleanup/第455行保持，旧r2–r7报告及r4–r8日常兼容。
+- 更正Issue和原审计中的证据边界：固定入口加载旧helper但没有check_swap调用；独立模拟只证明helper自身行为。实际硬件分支先分配文件，swapon失败need_swap仍0，原清理会遗留文件；新无特权负对照用9字节文件证明差异。公开报告开关仍通过原6项组合对照，源码/helper/构建的边界拒绝保留。
+- host来源16、swap8（包含既有真实固定源的静态接线）、wrapper34、daily7通过；测试签名单项通过，release32运行/28通过/4既有条件跳过。原型空锚点及合成空函数问题由夹具拒绝后修正，最终来源与swap专项重验通过。Rust和专用guest结果待冻结后回填，没有正式签名/发布/部署/CI。
+- 950MiB并非已实测Geekbench预算，未证明默认512MiB cgroup可跑完整硬件；full门禁和#66保持，根文件系统/二级工具、上传与许可和完整联合负载仍待验证。详见[独立验收](docs/acceptance/nodequality-no-swap.md)。
