@@ -221,7 +221,7 @@
 
 | 方法与路径 | 请求与用途 |
 |---|---|
-| `GET /api/servers/{id}/ip-quality` | 返回 `{ip_addresses,quality,providers}`；只读取当前 IP 缓存，不依赖 NodeQuality 能力、在线或制品准备 |
+| `GET /api/servers/{id}/ip-quality` | 返回 `{ip_addresses,public_ip_addresses,private_ip_addresses,quality,providers}`；公网/非公网分类复用质量查询的地址规则，保留原 `ip_addresses` 和数量上限；只读取当前 IP 缓存，不依赖 NodeQuality 能力、在线或制品准备 |
 | `POST /api/servers/{id}/ip-quality/refresh` | 无请求体；查询并保存质量结果，返回质量数组 |
 
 两个接口均要求管理员会话和未删除的服务器。读取不会发起外部查询或创建诊断任务。
