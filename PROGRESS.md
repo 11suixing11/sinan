@@ -711,3 +711,7 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 # PR #72 整合复核
 
 保留作者 Bookworm 启动及精确 workspace 信任修复；`b536476` 的 Debian12/amd64/arm64 原生制品 CI 全过。本地修正回环 CLI 测试的非阻塞 socket 读取竞态，TCP 17项单线程通过，TCP 全targets Clippy、fmt、Python来源12/发布22、旧Release28通过/4条件跳过及 core/actionlint 通过。永久源与当前 main 的锁文件区别已明确，生产引擎预算和固定制品未改；最终整合 HEAD 的主线 CI 尚须实时核对。
+
+### P2 原生 TCP 实际 bundled musl 原文补齐（Issue #75，独立 PR）
+
+自带musl/CRT配方使用Rust官方固定commit对应musl1.2.5与安全补丁；旧system1.2.3通知不作为实际libc来源。纳入官方完整版权原文、不可执行Rust证明配方与固定摘要，构建不联网补齐、未知rustc/原文篡改在Cargo前拒绝；签名验证对比固定source与实际rustc，真实重签缺失/篡改仍拒绝。五aux与ABI不变；新的公开工具pin、实际Bookworm及最新CI完成后单独记录，未正式发布。
