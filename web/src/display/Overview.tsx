@@ -24,8 +24,8 @@ const filters: [DashboardFilter, string][] = [['all', '全部'], ['online', '在
 
 export default function Overview({ now }: { now: number }) {
   const [paused, setPaused] = useState(false)
-  const resource = useDashboardPoll<Server[]>('/api/servers', 5000, paused)
-  const probes = useDashboardPoll<ProbeOverview[]>('/api/probes/overview', 15_000, paused)
+  const resource = useDashboardPoll<Server[]>('/api/dashboard/servers', 5000, paused)
+  const probes = useDashboardPoll<ProbeOverview[]>('/api/dashboard/probes/overview', 15_000, paused)
   const { data: servers, error, loading, updatedAt } = resource
   const [view, setView] = useState<DashboardView>(() => savedView(readPreference('view')))
   const [sort, setSort] = useState<DashboardSort>(() => savedSort(readPreference('sort')))

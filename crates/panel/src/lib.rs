@@ -6,14 +6,18 @@ pub mod artifacts;
 pub mod auth;
 pub mod commands;
 pub mod config;
+pub mod dashboard;
 pub mod diagnostic_plugins;
 pub mod diagnostics;
 pub mod error;
 pub mod frontend;
 pub mod ip_quality;
 pub mod maintenance;
+pub mod notifications;
 pub mod plugins;
 pub mod probes;
+pub mod settings;
+pub mod traffic_correction;
 // Compatibility exports preserve the public Rust embedding API.
 pub use plugins::singbox::proxy_users as users;
 pub use plugins::singbox::{accesses, business, deployments, nodes, subscriptions, usage};
@@ -45,6 +49,7 @@ pub struct AgentConnection {
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
+    pub started_at: i64,
     pub login_permits: Arc<Semaphore>,
     pub quality_permits: Arc<Semaphore>,
     pub quality_providers: Arc<ip_quality::ProviderRegistry>,
@@ -61,6 +66,7 @@ impl AppState {
         auth::ensure_admin(&pool, config.admin_password.as_deref()).await?;
         Ok(Self {
             pool,
+            started_at: sinan_protocol::now_timestamp(),
             login_permits: Arc::new(Semaphore::new(4)),
             quality_permits: Arc::new(Semaphore::new(2)),
             quality_providers: Arc::new(ip_quality::ProviderRegistry::from_env()),
@@ -81,6 +87,13 @@ pub fn router(state: AppState) -> Router {
         .route("/api/login", post(auth::login))
         .route("/api/logout", post(auth::logout))
         .route("/api/me", get(auth::me))
+        .route("/api/settings", get(settings::get).patch(settings::update))
+        .route("/api/notifications", get(notifications::list))
+        .route(
+            "/api/servers/{id}/traffic-correction",
+            post(traffic_correction::correct),
+        )
+        .merge(dashboard::routes())
         .route("/api/security/totp", get(auth::totp_status))
         .route("/api/security/totp/setup", post(auth::totp_setup))
         .route("/api/security/totp/confirm", post(auth::totp_confirm))

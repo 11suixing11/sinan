@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, errorMessage } from '../api'
+import { api, ApiError, errorMessage } from '../api'
 
 // Dashboard-only read polling: preserve the last successful snapshot, bound every read,
 // and stop both streams on pause, hidden tabs, or navigation away.
@@ -25,6 +25,7 @@ export function useDashboardPoll<T>(path: string, interval: number, paused: bool
         const result = await api<T>(path, 'GET', undefined, request.signal)
         if (active && controller === request) { setData(result); setUpdatedAt(Date.now()); setError('') }
       } catch (reason) {
+        if (active && reason instanceof ApiError && [401, 403, 404].includes(reason.status)) { setData(undefined); setUpdatedAt(null) }
         if (active && controller === request && (!request.signal.aborted || timedOut)) setError(timedOut ? '读取超过 12 秒，保留上次快照，请重试。' : errorMessage(reason))
       } finally {
         if (controller === request) { window.clearTimeout(timeout); controller = undefined; if (active) setLoading(false) }
