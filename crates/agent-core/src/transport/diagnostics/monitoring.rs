@@ -9,7 +9,11 @@ impl DiagnosticWorker {
         let Some(control) = &self.cancellations else {
             return self.network_tick(client).await;
         };
-        let sending_existing = matches!(self.active()?, Some(Checkpoint::Started { .. }));
+        let owner = match self.active()? {
+            Some(Checkpoint::Started { spec, .. }) => Some(spec.id),
+            _ => None,
+        };
+        let sending_existing = owner.is_some();
         let mut wake = control.subscribe();
         let outcome = {
             let work = self.network_tick(client);
@@ -27,7 +31,14 @@ impl DiagnosticWorker {
                         if interrupt { break None; }
                         // Once a start request is in flight, settle it before checking
                         // cleanup. Preparing downloads can be dropped before that point.
-                        if sending_existing { self.process_cancellations().await?; }
+                        if sending_existing {
+                            self.process_cancellations().await?;
+                            let current = match self.active()? {
+                                Some(Checkpoint::Started { spec, .. }) => Some(spec.id),
+                                _ => None,
+                            };
+                            if current != owner { break None; }
+                        }
                     }
                 }
             }
@@ -38,7 +49,7 @@ impl DiagnosticWorker {
 
     async fn network_tick(&self, client: Option<&PanelClient>) -> Result<()> {
         if let Some(checkpoint @ Checkpoint::Started { .. }) = self.active()? {
-            self.observe(&checkpoint).await?;
+            self.observe_and_notify(&checkpoint, client).await?;
         }
         let Some(client) = client else {
             return Ok(());
@@ -50,14 +61,9 @@ impl DiagnosticWorker {
         // durable start remain sequential so an uncertain start cannot be repeated.
         let send = async {
             self.flush(client).await?;
-            if let Some(Checkpoint::Started { spec, .. }) = self.active()? {
-                self.bounded(client.diagnostic_update(&DiagnosticUpdate {
-                    id: Uuid::parse_str(&spec.id)?,
-                    status: DiagnosticStatus::Running,
-                    report: None,
-                    error: None,
-                }))
-                .await?;
+            if let Some(checkpoint @ Checkpoint::Started { .. }) = self.active()? {
+                self.bounded(client.diagnostic_update(&self.current_status_update(&checkpoint)?))
+                    .await?;
             }
             Ok(())
         };

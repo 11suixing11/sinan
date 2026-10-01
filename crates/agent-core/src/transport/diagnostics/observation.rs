@@ -2,6 +2,27 @@ use super::*;
 
 impl DiagnosticWorker {
     pub(super) async fn observe(&self, checkpoint: &Checkpoint) -> Result<()> {
+        let Checkpoint::Started { spec, service, .. } = checkpoint else {
+            anyhow::bail!("only a started diagnostic can be observed");
+        };
+        let id = super::finalization::validate_saved_target(&self.config, spec, service)?;
+        if self
+            .read::<bool>(&format!("diagnostics:done:{id}"))?
+            .unwrap_or(false)
+            || !matches!(self.active()?, Some(Checkpoint::Started { spec: current, .. }) if current.id == spec.id)
+        {
+            return Ok(());
+        }
+        let result = self.observe_execution(checkpoint).await;
+        if let Err(error) = &result
+            && let Err(storage) = self.record_cleanup_error(id, error)
+        {
+            tracing::warn!(%id, %storage, "pending diagnostic cleanup error could not be recorded; ownership is retained");
+        }
+        result
+    }
+
+    async fn observe_execution(&self, checkpoint: &Checkpoint) -> Result<()> {
         let Checkpoint::Started {
             spec,
             service,
@@ -10,6 +31,7 @@ impl DiagnosticWorker {
             start_error,
             expires_at,
             protection_stop_reason,
+            terminal_update,
             ..
         } = checkpoint
         else {
@@ -19,18 +41,36 @@ impl DiagnosticWorker {
         if self.cancellation_requested(id)? {
             return Ok(());
         }
+        if terminal_update.is_some() {
+            return self.finish_cleanup(checkpoint).await;
+        }
+        let execution_deadline = started_at
+            .saturating_add(u64::from(spec.timeout_secs))
+            .saturating_add(61);
+        let absolute_deadline = expires_at
+            .map(|deadline| u64::try_from(deadline).unwrap_or(0))
+            .unwrap_or(u64::MAX);
+        let deadline = execution_deadline.min(absolute_deadline);
+        let deadline_reason = if absolute_deadline <= execution_deadline {
+            "diagnostic reached its absolute deadline"
+        } else {
+            "diagnostic exceeded its execution deadline"
+        };
         let (status, stop_reason) = self
-            .status_with_memory_protection(&service.unit, protection_stop_reason.as_deref())
+            .status_with_memory_protection(
+                &service.unit,
+                protection_stop_reason.as_deref(),
+                deadline,
+                deadline_reason,
+            )
             .await?;
-        let now = unix_time();
+        let mut stopping = checkpoint.clone();
         if let Err(error) = self.capture_environment(checkpoint) {
             tracing::warn!(%id, %error, "execution environment capture failed; resource protection continues");
         }
-        let deadline_reached = expires_at.is_some_and(|deadline| deadline <= now as i64);
         if protection_stop_reason.is_none()
             && let Some(reason) = &stop_reason
         {
-            let mut stopping = checkpoint.clone();
             if let Checkpoint::Started {
                 protection_stop_reason,
                 ..
@@ -40,14 +80,13 @@ impl DiagnosticWorker {
             }
             if let Err(error) = self.save(&stopping) {
                 // Storage failure must not prevent the memory protection action.
-                tracing::warn!(%id, %error, "cannot persist protection reason; stopping diagnostic anyway");
+                let stopped = self.bounded(self.services.stop(&service.unit)).await;
+                tracing::warn!(%id, result=?stopped, "diagnostic stopped despite protection checkpoint storage failure");
+                return Err(error)
+                    .context("cannot persist diagnostic protection reason; ownership retained");
             }
         }
-        if status == Some(JobStatus::Running)
-            && stop_reason.is_none()
-            && !deadline_reached
-            && now.saturating_sub(*started_at) <= u64::from(spec.timeout_secs) + 60
-        {
+        if status == Some(JobStatus::Running) && stop_reason.is_none() {
             // Reading a damaged output filesystem must not delay resource protection.
             if let Err(error) =
                 tokio::time::timeout(Duration::from_secs(2), self.capture_sections(spec, plugin))
@@ -89,7 +128,7 @@ impl DiagnosticWorker {
             .as_ref()
             .ok()
             .and_then(|output| output.as_ref())
-            .filter(|output| !output.text.is_empty() && output.text.len() <= MAX_REPORT)
+            .filter(|output| !output.text.trim().is_empty() && output.text.len() <= MAX_REPORT)
             .map(|output| DiagnosticReport {
                 text: output.text.clone(),
                 report_url: output.report_url.clone(),
@@ -124,25 +163,26 @@ impl DiagnosticWorker {
                     ),
                     report,
                 ),
-                JobStatus::Running => failure(
-                    id,
-                    if deadline_reached {
-                        "diagnostic reached its absolute deadline"
-                    } else {
-                        "diagnostic exceeded its execution deadline"
-                    }
-                    .into(),
-                    report,
-                ),
+                JobStatus::Running => failure(id, deadline_reason.into(), report),
             }
         };
         if self.cancellation_requested(id)? {
             return Ok(());
         }
-        self.finish(update)?;
-        if let Err(error) = self.bounded(self.services.stop(&service.unit)).await {
-            tracing::warn!(%id, %error, "diagnostic service cleanup failed");
+        if let Checkpoint::Started {
+            terminal_update,
+            cleanup_error,
+            ..
+        } = &mut stopping
+        {
+            *terminal_update = Some(Box::new(update));
+            *cleanup_error = None;
         }
-        Ok(())
+        // Freeze the observed result before cleanup changes the systemd state.
+        // Recovery retries only cleanup and does not reread a damaged report.
+        if !self.save_if_owned(&stopping)? {
+            return Ok(());
+        }
+        self.finish_cleanup(&stopping).await
     }
 }

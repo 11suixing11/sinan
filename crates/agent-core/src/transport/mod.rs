@@ -211,6 +211,7 @@ pub async fn run_with_diagnostics(
     let (runtime_control, control_receiver) = runtime_control::Control::channel();
     let cancellation = if !diagnostics.is_empty() && services.supports_confirmed_cancellation() {
         capabilities.push(sinan_protocol::DIAGNOSTIC_CANCEL_CAPABILITY.into());
+        capabilities.push(sinan_protocol::DIAGNOSTIC_COMPLETION_CAPABILITY.into());
         Some(Arc::new(
             diagnostics::cancellation::CancellationControl::new(
                 state.clone(),

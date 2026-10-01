@@ -11,6 +11,10 @@ impl DiagnosticWorker {
         &self,
         service: &ServiceJob,
     ) -> Result<sinan_adapter_sdk::DiagnosticResources> {
+        ensure!(
+            self.services.supports_confirmed_cancellation(),
+            "当前服务后端无法确认诊断进程和挂载清理，请升级或更换支持 systemd/cgroup v2 的测试节点"
+        );
         let resources = tokio::time::timeout(
             PROBE_TIMEOUT,
             self.privileged
@@ -69,6 +73,8 @@ impl DiagnosticWorker {
         &self,
         unit: &str,
         persisted_reason: Option<&str>,
+        deadline: u64,
+        deadline_reason: &str,
     ) -> Result<(Option<JobStatus>, Option<String>)> {
         if let Some(reason) = persisted_reason {
             // A pending protection stop must retry even when service queries fail.
@@ -88,6 +94,8 @@ impl DiagnosticWorker {
                             let reason = self.memory_stop_reason().await;
                             if reason.is_some() {
                                 Ok((result.ok(), reason))
+                            } else if unix_time() >= deadline {
+                                Ok((result.ok(), Some(deadline_reason.into())))
                             } else {
                                 Ok((Some(result?), None))
                             }
@@ -99,6 +107,9 @@ impl DiagnosticWorker {
                         // Keep sampling while status is hung, so new pressure also
                         // stops unsafe work before the service query times out.
                         return Ok((None, Some(reason)));
+                    }
+                    if unix_time() >= deadline {
+                        return Ok((None, Some(deadline_reason.into())));
                     }
                 },
             }

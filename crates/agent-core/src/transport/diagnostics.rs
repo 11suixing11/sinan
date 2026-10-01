@@ -27,6 +27,7 @@ const MAX_REPORT: usize = 512 * 1024;
 
 pub mod cancellation;
 mod environment;
+mod finalization;
 mod monitoring;
 mod observation;
 mod safety;
@@ -47,6 +48,10 @@ enum Checkpoint {
         protection_stop_reason: Option<String>,
         #[serde(default)]
         environment: Option<environment::ExecutionEnvironment>,
+        #[serde(default)]
+        terminal_update: Option<Box<DiagnosticUpdate>>,
+        #[serde(default)]
+        cleanup_error: Option<String>,
     },
 }
 
@@ -137,11 +142,87 @@ impl DiagnosticWorker {
         Ok(self.read::<Option<Checkpoint>>(ACTIVE)?.flatten())
     }
 
-    fn finish(&self, update: DiagnosticUpdate) -> Result<()> {
+    fn save_if_owned(&self, checkpoint: &Checkpoint) -> Result<bool> {
+        let Checkpoint::Started {
+            spec,
+            terminal_update,
+            ..
+        } = checkpoint
+        else {
+            anyhow::bail!("only started diagnostic updates require ownership");
+        };
+        let id = Uuid::parse_str(&spec.id)?;
         let mut state = self
             .state
             .lock()
             .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+        if state
+            .get_json::<bool>(&format!("diagnostics:done:{id}"))?
+            .unwrap_or(false)
+        {
+            return Ok(false);
+        }
+        let active = state.get_json::<Option<Checkpoint>>(ACTIVE)?.flatten();
+        let Some(Checkpoint::Started {
+            spec: known,
+            terminal_update: frozen,
+            ..
+        }) = active
+        else {
+            return Ok(false);
+        };
+        if known.id != spec.id || (frozen.is_some() && frozen != *terminal_update) {
+            return Ok(false);
+        }
+        state.set_json(ACTIVE, &Some(checkpoint))?;
+        Ok(true)
+    }
+
+    fn finish(&self, update: DiagnosticUpdate) -> Result<()> {
+        self.finish_result(update, false)
+    }
+
+    fn finish_owned(&self, update: DiagnosticUpdate) -> Result<()> {
+        self.finish_result(update, true)
+    }
+
+    fn finish_result(&self, update: DiagnosticUpdate, require_owned: bool) -> Result<()> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+        if state
+            .get_json::<bool>(&format!("diagnostics:done:{}", update.id))?
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
+        let active: Option<Checkpoint> = state.get_json::<Option<Checkpoint>>(ACTIVE)?.flatten();
+        if require_owned
+            && !matches!(&active,
+            Some(Checkpoint::Started { spec, terminal_update: Some(saved), .. })
+                if spec.id == update.id.to_string() && saved.as_ref() == &update)
+        {
+            return Ok(());
+        }
+        if let Some(active) = active {
+            let active_id = match active {
+                Checkpoint::Preparing(job) => job.id,
+                Checkpoint::Started { spec, .. } => Uuid::parse_str(&spec.id)?,
+            };
+            ensure!(
+                active_id == update.id,
+                "terminal result differs from the active diagnostic"
+            );
+        }
+        if self.cancellations.is_some() {
+            let requests: Vec<sinan_protocol::DiagnosticCancelRequest> =
+                state.get_json(cancellation::PENDING)?.unwrap_or_default();
+            if requests.iter().any(|request| request.job.id == update.id) {
+                // The same SQLite lock serializes this decision with cancellation.
+                return Ok(());
+            }
+        }
         let mut outbox: Vec<DiagnosticUpdate> = state.get_json(OUTBOX)?.unwrap_or_default();
         if !outbox.iter().any(|saved| saved.id == update.id) {
             outbox.push(update.clone());
@@ -249,7 +330,7 @@ impl DiagnosticWorker {
             // only observes it; an uncertain start must never execute the task again.
             let mut checkpoint = Checkpoint::Started {
                 environment: Some(environment::ExecutionEnvironment::capture(&service, &resources, started_at)),
-                spec, service: service.clone(), started_at, plugin: job.plugin, start_error: None, expires_at: job.expires_at, protection_stop_reason: None,
+                spec, service: service.clone(), started_at, plugin: job.plugin, start_error: None, expires_at: job.expires_at, protection_stop_reason: None, terminal_update: None, cleanup_error: None,
             };
             ensure!(!self.cancellation_requested(id)?, "diagnostic cancellation was requested before service start");
             self.save(&checkpoint)?;
@@ -259,14 +340,24 @@ impl DiagnosticWorker {
                 if let Checkpoint::Started { start_error, .. } = &mut checkpoint {
                     *start_error = Some(error.to_string().chars().take(4096).collect());
                 }
-                self.save(&checkpoint)?;
+                self.save_if_owned(&checkpoint)?;
             }
             Ok(())
         }.await;
         if let Err(error) = result
             && !self.cancellation_requested(id)?
         {
-            self.finish(failure(id, format!("诊断准备失败：{error:#}"), None))?;
+            match self.active()? {
+                Some(Checkpoint::Started { .. }) => {
+                    // A durable start checkpoint owns a possibly running unit, even
+                    // when recording the environment or uncertain response fails.
+                    tracing::warn!(%id, %error, "diagnostic preparation left a durable start; observation retains cleanup ownership");
+                }
+                Some(Checkpoint::Preparing(known)) if known.id == id => {
+                    self.finish(failure(id, format!("诊断准备失败：{error:#}"), None))?;
+                }
+                _ => return Err(error),
+            }
         }
         Ok(())
     }
@@ -274,7 +365,7 @@ impl DiagnosticWorker {
     pub async fn tick(&self, client: Option<&PanelClient>) -> Result<()> {
         self.process_cancellations().await?;
         if let Some(checkpoint @ Checkpoint::Started { .. }) = self.active()? {
-            self.observe(&checkpoint).await?;
+            self.observe_and_notify(&checkpoint, client).await?;
         }
         self.connected_tick(client).await
     }
@@ -290,14 +381,9 @@ impl DiagnosticWorker {
         }
         match self.active()? {
             Some(Checkpoint::Preparing(job)) => self.prepare(job, client).await?,
-            Some(Checkpoint::Started { spec, .. }) => {
-                self.bounded(client.diagnostic_update(&DiagnosticUpdate {
-                    id: Uuid::parse_str(&spec.id)?,
-                    status: DiagnosticStatus::Running,
-                    report: None,
-                    error: None,
-                }))
-                .await?
+            Some(checkpoint @ Checkpoint::Started { .. }) => {
+                self.bounded(client.diagnostic_update(&self.current_status_update(&checkpoint)?))
+                    .await?
             }
             None => {}
         }
@@ -347,6 +433,7 @@ fn failure(id: Uuid, error: String, report: Option<DiagnosticReport>) -> Diagnos
 mod tests;
 
 pub(crate) async fn stop_for_retirement(
+    config: &Config,
     state: &SharedState,
     services: &dyn ServiceManager,
     timeout_secs: u64,
@@ -357,21 +444,11 @@ pub(crate) async fn stop_for_retirement(
         .get_json::<Option<Checkpoint>>(ACTIVE)?
         .flatten();
     if let Some(Checkpoint::Started { spec, service, .. }) = active {
-        let id = Uuid::parse_str(&spec.id)?;
-        ensure!(
-            service.unit == format!("sinan-diagnostic-{id}.service"),
-            "invalid saved diagnostic service identity"
-        );
-        tokio::time::timeout(Duration::from_secs(timeout_secs), async {
-            if services.job_status(&service.unit).await? == JobStatus::Running {
-                services.stop(&service.unit).await?;
-            }
-            ensure!(
-                services.job_status(&service.unit).await? != JobStatus::Running,
-                "diagnostic service remains active during retirement"
-            );
-            Ok::<_, anyhow::Error>(())
-        })
+        finalization::validate_saved_target(config, &spec, &service)?;
+        tokio::time::timeout(
+            Duration::from_secs(timeout_secs),
+            finalization::stop_and_confirm(services, &service.unit, &spec.job_dir),
+        )
         .await
         .context("diagnostic retirement timed out")??;
     }

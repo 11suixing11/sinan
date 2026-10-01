@@ -85,6 +85,7 @@ struct Services {
     status: Mutex<JobStatus>,
     starts: AtomicUsize,
     hang: AtomicBool,
+    status_queries: AtomicUsize,
     last_job: Mutex<Option<ServiceJob>>,
     stops: AtomicUsize,
     conflicts: Mutex<Result<Vec<String>, String>>,
@@ -92,6 +93,14 @@ struct Services {
     fail_status: AtomicBool,
     remain_active: AtomicBool,
     cleanup_confirmed: AtomicBool,
+    cleanup_supported: AtomicBool,
+    fail_cleanup: AtomicBool,
+    hang_cleanup: AtomicBool,
+    cleanup_queries: AtomicUsize,
+    cleanup_units: Mutex<Vec<String>>,
+    hung_cleanup_unit: Mutex<Option<String>>,
+    fail_start: AtomicBool,
+    read_only_on_start: Mutex<Option<SharedState>>,
     stopped_units: Mutex<Vec<String>>,
 }
 impl Services {
@@ -100,6 +109,7 @@ impl Services {
             status: Mutex::new(status),
             starts: AtomicUsize::new(0),
             hang: AtomicBool::new(false),
+            status_queries: AtomicUsize::new(0),
             last_job: Mutex::new(None),
             stops: AtomicUsize::new(0),
             conflicts: Mutex::new(Ok(Vec::new())),
@@ -107,20 +117,38 @@ impl Services {
             fail_status: AtomicBool::new(false),
             remain_active: AtomicBool::new(false),
             cleanup_confirmed: AtomicBool::new(true),
+            cleanup_supported: AtomicBool::new(true),
+            fail_cleanup: AtomicBool::new(false),
+            hang_cleanup: AtomicBool::new(false),
+            cleanup_queries: AtomicUsize::new(0),
+            cleanup_units: Mutex::new(Vec::new()),
+            hung_cleanup_unit: Mutex::new(None),
+            fail_start: AtomicBool::new(false),
+            read_only_on_start: Mutex::new(None),
             stopped_units: Mutex::new(Vec::new()),
         }
     }
 }
 impl ServiceManager for Services {
     fn supports_confirmed_cancellation(&self) -> bool {
-        true
+        self.cleanup_supported.load(Ordering::Relaxed)
     }
     fn diagnostic_cleanup_confirmed<'a>(
         &'a self,
-        _unit: &'a str,
+        unit: &'a str,
         _directory: &'a Path,
     ) -> BoxFuture<'a, bool> {
-        Box::pin(async {
+        Box::pin(async move {
+            self.cleanup_queries.fetch_add(1, Ordering::Relaxed);
+            self.cleanup_units.lock().unwrap().push(unit.into());
+            let hangs_for_unit = self.hung_cleanup_unit.lock().unwrap().as_deref() == Some(unit);
+            if self.hang_cleanup.load(Ordering::Relaxed) || hangs_for_unit {
+                return std::future::pending().await;
+            }
+            ensure!(
+                !self.fail_cleanup.load(Ordering::Relaxed),
+                "fixture cleanup evidence failure"
+            );
             Ok(self.cleanup_confirmed.load(Ordering::Relaxed)
                 && !self.remain_active.load(Ordering::Relaxed))
         })
@@ -161,11 +189,23 @@ impl ServiceManager for Services {
         Box::pin(async move {
             *self.last_job.lock().unwrap() = Some(job.clone());
             self.starts.fetch_add(1, Ordering::Relaxed);
+            if let Some(state) = self.read_only_on_start.lock().unwrap().as_ref() {
+                state
+                    .lock()
+                    .unwrap()
+                    .connection
+                    .execute_batch("PRAGMA query_only = ON")?;
+            }
+            ensure!(
+                !self.fail_start.load(Ordering::Relaxed),
+                "fixture uncertain start failure"
+            );
             Ok(())
         })
     }
     fn job_status<'a>(&'a self, _unit: &'a str) -> BoxFuture<'a, JobStatus> {
         Box::pin(async move {
+            self.status_queries.fetch_add(1, Ordering::Relaxed);
             if self.hang.load(Ordering::Relaxed) {
                 return std::future::pending().await;
             }
@@ -219,6 +259,8 @@ fn checkpoint(config: &Config, id: Uuid) -> Checkpoint {
         expires_at: None,
         protection_stop_reason: None,
         environment: None,
+        terminal_update: None,
+        cleanup_error: None,
     }
 }
 
@@ -247,6 +289,9 @@ async fn legacy_running_checkpoint_recovers_without_restarting_or_losing_report(
     {
         let first = worker(&directory, services.clone())?;
         let mut saved = serde_json::to_value(checkpoint(&first.config, id))?;
+        let started = saved["Started"].as_object_mut().unwrap();
+        started.remove("terminal_update");
+        started.remove("cleanup_error");
         let service = saved["Started"]["service"].as_object_mut().unwrap();
         for field in [
             "memory_max",
@@ -474,3 +519,6 @@ mod report_sections;
 
 #[path = "tests/provenance.rs"]
 mod provenance;
+
+#[path = "tests/termination.rs"]
+mod termination;

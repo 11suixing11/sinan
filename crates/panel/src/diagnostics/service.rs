@@ -257,11 +257,11 @@ pub(crate) async fn create_job(
     let now = now_timestamp();
     sqlx::query("UPDATE diagnostic_jobs SET status='failed',error='任务超时或设备未及时回报',updated_at=$2 WHERE server_id=$1 AND status IN ('queued','running') AND expires_at<=$2")
         .bind(id).bind(now).execute(&mut *tx).await?;
-    let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM diagnostic_jobs WHERE server_id=$1 AND status IN ('queued','running','cancel_requested'))")
+    let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM diagnostic_jobs WHERE server_id=$1 AND status IN ('queued','running','cleaning','cancel_requested'))")
         .bind(id).fetch_one(&mut *tx).await?;
     if active {
         return Err(ApiError::Conflict(
-            "此服务器已有诊断任务或正在等待取消确认，请等待设备完成".into(),
+            "此服务器已有诊断任务或正在等待清理、取消确认，请等待设备完成".into(),
         ));
     }
     let plan = plugin.plan(request, id, &mut tx).await?;

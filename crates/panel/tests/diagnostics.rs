@@ -3,6 +3,8 @@
 mod business_support;
 #[path = "diagnostics/chain_gate.rs"]
 mod chain_gate;
+#[path = "diagnostics/completion.rs"]
+mod completion;
 #[path = "diagnostics/modes.rs"]
 mod modes;
 mod release_fixture;

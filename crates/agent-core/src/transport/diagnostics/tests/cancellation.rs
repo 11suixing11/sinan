@@ -121,7 +121,8 @@ async fn foreign_device_plugin_and_corrupt_saved_unit_cannot_cancel_an_arbitrary
     }
     worker.save(&saved)?;
     control.request(request(id))?;
-    worker.tick(None).await?;
+    let error = worker.tick(None).await.unwrap_err();
+    assert!(error.to_string().contains("owned task identity"));
     assert_eq!(services.stops.load(Ordering::Relaxed), 0);
     let results: Vec<DiagnosticCancelResult> = worker.read(RESULTS)?.unwrap();
     assert!(!results[0].confirmed);

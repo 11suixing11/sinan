@@ -1642,3 +1642,13 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 实际ARM64材料metadata实时plan只读保持原摘要，prepare副本正文1,069,414,018B、含块与临时余量新增1,143,840,768B；guest观测675,377,152B，prepare/build/export加预留均拒绝。未删除旧材料、扩VM或换生产节点，未伪造builder绑定/审批，也未启动完整构建。
 - 冻结驱动字段/cargo PATH预检、r1旧synthetic closure的5方法/7子场景错误、r2错误的detached loop空数组断言及后续inode条件跳过均保留；夹具修正后只补受影响/未执行范围。收尾审阅补日志EOF后仍运行的容量检查，Linux4项（3重复）及mac新增1项通过。见[本步验收](docs/acceptance/nodequality-factory-capacity.md)、[机器证据](docs/acceptance/evidence/nodequality-factory-capacity.json)、[ADR0048](docs/adr/0048-nodequality-factory-capacity.md)。
 - 完整builder镜像/provisioning身份、原生双架构构建/复建、Geekbench/Ookla等许可与全部工具、Agent/常驻代理完整联合负载和混合订阅路径仍待；没有正式签署、发布、生产部署或恢复CI，整体目标继续进行。
+
+
+## 2026-10-02：诊断结束、取消与退役清理确认大步骤
+
+- 先集中完成 Agent 生命周期、SDK/协议、面板迁移与状态、前端、测试代码及 ADR0049，再冻结统一验收。自然成功/失败/Missing 先持久固定原结果和报告；低内存与期限先记原因，停止及强清理证据完成后才原子释放。失败或未知保持 ACTIVE，重启只重试清理，面板 cleaning 保持互斥、原因与已完成章节可读。
+- 精确绑定保存的 UUID/单元/程序/工作目录后才特权查询和停止；服务非 Running 不等于已清理。原子核对所有权/done/取消意图及固定结果，取消确认后丢弃旧观察，不能复活 ACTIVE 或覆盖取消；历史任务取消延后处理以保当前保护时效，证明能力失效仍尝试停止已有任务但不误报完成。冻结为空报告也不重采集；退役两次确认清理后才移除凭据。
+- 最终646功能输入与冻结逐字保持，工作区十包/69不同目标共593不同方法通过、0仍失败、18条件忽略。首次七个未变包与其余 core 方法保留，最终诊断56/退役17及此前未执行的六个 core 集成目标、Agent、面板补验通过；重复73项不累加。fmt、全workspace/all-targets warnings-deny Clippy、core分层和diff通过，自有PG停止/PID/端口/socket清理核实。
+- 一次前端构建取得19dist，Bun48/1024零失败/跳过，三套受影响实际dist Chromium（TcpQuality、NodeQuality门禁、确认取消）通过，涵盖手机/等待清理/报告/重复提交/取消接管/恢复。原旧dist预检、枚举Clippy、core首轮3失败及展开报告夹具失败均保留；集中修复后只补受影响/未执行范围，未重复未变Python/其余浏览器。
+- 见[本步验收](docs/acceptance/confirmed-diagnostic-completion.md)、[机器证据](docs/acceptance/evidence/confirmed-diagnostic-completion.json)、[ADR0049](docs/adr/0049-confirmed-diagnostic-completion.md)及原milestone下的[#143](https://github.com/theLucius7/sinan/issues/143)。四源码CI继续disabled_manually，未新建单项PR、正式签署、发布或生产部署；新Agent与面板需同版切换，旧设备未因源码验证而获得保护。
+- 当前源码的专用Linux/systemd确认、完整NodeQuality与持续代理流量/心跳/故障矩阵，以及builder身份/双架构复建/Geekbench和Ookla条件仍待；混合订阅链路亦未签收。本步骤不是P0总验收或整体目标完成，后续继续按完整大步骤集中修改和提交。

@@ -115,6 +115,12 @@ pub async fn update(
         return Err(ApiError::BadRequest("进行中的任务不能回报最终结果".into()));
     }
     let mut tx = state.pool.begin().await?;
+    // Creation and cancellation use this same lock order. A late cleanup
+    // checkpoint cannot race a new task admitted after a panel-only timeout.
+    let _: i64 = sqlx::query_scalar("SELECT id FROM servers WHERE id=$1 FOR UPDATE")
+        .bind(server_id)
+        .fetch_one(&mut *tx)
+        .await?;
     let row = sqlx::query(
         "SELECT status,expires_at,agent_completed,job FROM diagnostic_jobs WHERE id=$1 AND server_id=$2 FOR UPDATE",
     )
@@ -135,8 +141,14 @@ pub async fn update(
             .transpose()
             .map_err(anyhow::Error::from)?;
         sqlx::query("UPDATE diagnostic_jobs SET report=COALESCE($2,report),report_completeness=CASE WHEN cardinality(expected_sections)=0 AND COALESCE($2,report) IS NOT NULL THEN 'legacy' ELSE report_completeness END,agent_completed=agent_completed OR $3,updated_at=$4 WHERE id=$1")
-            .bind(id).bind(report).bind(update.status != DiagnosticStatus::Running).bind(now_timestamp())
+            .bind(id).bind(report).bind(update.status.is_terminal()).bind(now_timestamp())
             .execute(&mut *tx).await?;
+        tx.commit().await?;
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    if status == "cleaning" && update.status == DiagnosticStatus::Running {
+        // An in-flight running request can arrive after a cleanup checkpoint.
         tx.commit().await?;
         return Ok(StatusCode::NO_CONTENT);
     }
@@ -149,21 +161,51 @@ pub async fn update(
         return Ok(StatusCode::NO_CONTENT);
     }
     let now = now_timestamp();
-    let completed = update.status != DiagnosticStatus::Running;
-    let (status, error) = if row.get::<i64, _>("expires_at") <= now && !completed {
+    let completed = update.status.is_terminal();
+    if update.status == DiagnosticStatus::Cleaning {
+        let conflict: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM diagnostic_jobs WHERE server_id=$1 AND id<>$2 AND status IN ('queued','running','cleaning','cancel_requested'))")
+            .bind(server_id).bind(id).fetch_one(&mut *tx).await?;
+        if conflict {
+            // Preserve submitted evidence even when an older panel timeout has
+            // already admitted another task. Keep the device's cleanup pending;
+            // only a later retry may restore the active status.
+            let report = update
+                .report
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(anyhow::Error::from)?;
+            let error: String = update
+                .error
+                .unwrap_or_else(|| "设备正在清理诊断进程和挂载，等待确认".into())
+                .chars()
+                .take(4096)
+                .collect();
+            sqlx::query("UPDATE diagnostic_jobs SET report=COALESCE($2,report),error=$3,report_completeness=CASE WHEN cardinality(expected_sections)=0 AND COALESCE($2,report) IS NOT NULL THEN 'legacy' ELSE report_completeness END,updated_at=$4 WHERE id=$1")
+                .bind(id).bind(report).bind(error).bind(now).execute(&mut *tx).await?;
+            tx.commit().await?;
+            return Err(ApiError::Conflict(
+                "同机已有另一项待处理诊断，已保留清理报告；设备仍须确认原任务清理".into(),
+            ));
+        }
+    }
+    let (status, error) = if row.get::<i64, _>("expires_at") <= now
+        && update.status == DiagnosticStatus::Running
+    {
         ("failed", Some("任务超时，迟到回报已忽略".to_owned()))
     } else {
         let status = match update.status {
             DiagnosticStatus::Running => "running",
+            DiagnosticStatus::Cleaning => "cleaning",
             DiagnosticStatus::Succeeded => "succeeded",
             DiagnosticStatus::Failed => "failed",
         };
         let error = update.error.map(|value| value.chars().take(4096).collect());
         (
             status,
-            error.or_else(|| {
-                (update.status == DiagnosticStatus::Failed)
-                    .then(|| "插件执行失败，未提供错误详情".into())
+            error.or_else(|| match update.status {
+                DiagnosticStatus::Failed => Some("插件执行失败，未提供错误详情".into()),
+                DiagnosticStatus::Cleaning => Some("设备正在清理诊断进程和挂载，等待确认".into()),
+                _ => None,
             }),
         )
     };
@@ -173,7 +215,7 @@ pub async fn update(
         .transpose()
         .map_err(anyhow::Error::from)?;
     sqlx::query(
-        "UPDATE diagnostic_jobs SET status=$2,report=$3,error=$4,updated_at=$5,agent_completed=$6 WHERE id=$1",
+        "UPDATE diagnostic_jobs SET status=$2,report=COALESCE($3,report),error=$4,updated_at=$5,agent_completed=$6 WHERE id=$1",
     )
     .bind(id)
     .bind(status)

@@ -189,6 +189,7 @@ impl Retirement {
             .context("runtime retirement timed out")??;
         }
         crate::transport::diagnostics::stop_for_retirement(
+            &self.config,
             &self.state,
             self.services.as_ref(),
             self.config.operation_timeout_secs,

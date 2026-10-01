@@ -196,8 +196,8 @@ async fn registered_plugins_use_one_server_mutex_and_require_budget_aware_agents
     let existing = Uuid::new_v4();
     let now = sinan_protocol::now_timestamp();
     sqlx::query("INSERT INTO diagnostic_jobs(id,server_id,job,created_at,updated_at,expires_at) VALUES($1,$2,$3,$4,$4,$4+300)").bind(existing).bind(server).bind(json!({"plugin":"different-diagnostic-plugin"})).bind(now).execute(&panel.state.pool).await?;
-    for status in ["queued", "running", "cancel_requested"] {
-        let expiry = if status == "cancel_requested" {
+    for status in ["queued", "running", "cleaning", "cancel_requested"] {
+        let expiry = if matches!(status, "cleaning" | "cancel_requested") {
             now - 1
         } else {
             now + 300

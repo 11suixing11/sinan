@@ -268,6 +268,8 @@ pub trait ServiceManager: Send + Sync {
     fn supports_confirmed_cancellation(&self) -> bool {
         false
     }
+    /// Proves that the bound diagnostic has no remaining processes or mounts.
+    /// Automatic completion, cancellation and retirement use the same evidence.
     fn diagnostic_cleanup_confirmed<'a>(
         &'a self,
         _unit: &'a str,
