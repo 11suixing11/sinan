@@ -290,7 +290,8 @@ main
         patched_entry = helper.entrypoint(bundle)
         self.assertEqual(entry.splitlines()[454], b'    exit 1')
         self.assertEqual(patched_entry.splitlines()[454], b'    exit 1')
-        restored = source_tests.fixture.undo_dependencies('NodeQuality.sh', patched_entry, entry)
+        restored = source_tests.fixture.undo_loader('NodeQuality.sh', patched_entry)
+        restored = source_tests.fixture.undo_dependencies('NodeQuality.sh', restored, entry)
         for before, after in reversed(policy.ENTRY_REPLACEMENTS):
             restored = policy.replace_once(restored, after, before)
         self.assertEqual(restored, entry)
