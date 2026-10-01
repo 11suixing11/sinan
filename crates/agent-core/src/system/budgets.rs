@@ -279,7 +279,8 @@ finally:
             .await??;
             if memory_test {
                 assert!(
-                    matches!(status, JobStatus::Failed { error } if error.contains("oom-kill"))
+                    matches!(&status, JobStatus::Failed { error } if error.contains("oom-kill")),
+                    "memory budget result: {status:?}"
                 );
             } else {
                 assert_eq!(status, JobStatus::Succeeded);
@@ -299,7 +300,12 @@ finally:
                     ],
                 )
                 .await?;
-            ensure!(properties.success, "cannot inspect stopped budget fixture");
+            ensure!(
+                properties.success,
+                "cannot inspect stopped budget fixture: stdout={}, stderr={}",
+                properties.stdout,
+                properties.stderr
+            );
             let pids: std::collections::BTreeMap<_, _> = properties
                 .stdout
                 .lines()

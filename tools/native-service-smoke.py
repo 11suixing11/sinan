@@ -149,6 +149,11 @@ def main():
             expected_rights = dict(original_rights)
             expected_rights['SeBatchLogonRight'] = original_rights.get('SeBatchLogonRight', set()) | {account}
             assert_windows_rights(root, expected_rights)
+            # Capture fixture runtime output without changing its account or launch arguments.
+            launcher = root / 'core/runtime-launcher.ps1'
+            transcript = str(root / 'runtime/sing-box@main/data/runtime-transcript.log').replace("'", "''")
+            prefix = "Start-Transcript -LiteralPath '" + transcript + "' -Append | Out-Null\n"
+            launcher.write_bytes(prefix.encode('utf-8') + launcher.read_bytes())
         panel.manifest = dict(rev=1, modules={'singbox': module})
         revision = 1
         def applied():
@@ -222,7 +227,6 @@ def main():
         for path in [root / 'core/update-state.json', Path('/var/log/sinan-agent.log'), Path('/var/log/sinan-singbox@main.log')]:
             if path.exists():
                 print(path, path.read_text(errors='replace')[-12000:])
-        print('Apply results:', json.dumps([m for m in panel.messages if m['type'] == 'apply.result']))
         if SYSTEM == 'Darwin':
             print(command(['launchctl', 'print', 'system/org.sinan.sinan-singbox.main'], False).stdout)
             print(command(['id', 'sinan-singbox'], False).stdout)
@@ -235,7 +239,17 @@ def main():
                 print(messages.read_text(errors='replace')[-6000:])
         if SYSTEM == 'Windows':
             print(powershell("Get-ScheduledTaskInfo -TaskName 'sinan-agent'; Get-ScheduledTaskInfo -TaskName 'sinan-singbox@main'", False).stdout)
-            print(powershell("$scheduler=New-Object -ComObject Schedule.Service; $scheduler.Connect(); $task=$scheduler.GetFolder('\\').GetTask('sinan-singbox@main'); $task.GetSecurityDescriptor(7); Get-LocalUser -Name 'sinan-singbox'; Get-LocalGroupMember -SID 'S-1-5-32-545'; Get-WinEvent -LogName 'Microsoft-Windows-TaskScheduler/Operational' -MaxEvents 100 | Where-Object { $_.Message -match 'sinan-' } | Select-Object -First 12 TimeCreated,Id,Message | Format-List", False).stdout)
+            print(powershell("$scheduler=New-Object -ComObject Schedule.Service; $scheduler.Connect(); $task=$scheduler.GetFolder('\\').GetTask('sinan-singbox@main'); $task.GetSecurityDescriptor(7); Get-LocalUser -Name 'sinan-singbox'; Get-LocalGroupMember -SID 'S-1-5-32-545'; Get-WinEvent -LogName 'Microsoft-Windows-TaskScheduler/Operational' -MaxEvents 100 | Where-Object { $_.Message -match 'sinan-' } | Select-Object -First 6 TimeCreated,Id,Message | ConvertTo-Json -Compress", False).stdout)
+            print(powershell("Get-CimInstance Win32_Process -Filter \"Name='sinan-agent.exe' OR Name='sing-box.exe'\" | Select-Object ProcessId,ParentProcessId,CreationDate,CommandLine | ConvertTo-Json -Compress", False).stdout)
+            transcript = root / 'runtime/sing-box@main/data/runtime-transcript.log'
+            if transcript.exists():
+                print('Runtime transcript:', transcript.read_text(encoding='utf-8-sig', errors='replace')[-8000:])
+        # Keep the application failure after verbose service diagnostics in the bounded CI tail.
+        print('Apply results:', json.dumps([m for m in panel.messages if m['type'] == 'apply.result'][-8:]))
+        try:
+            print('Current Agent status:', json.dumps(status(binary, config)))
+        except (OSError, subprocess.SubprocessError) as status_error:
+            print('Agent status unavailable:', status_error)
         raise
     finally:
         for name in ('sinan-agent', 'sinan-singbox@main'):
