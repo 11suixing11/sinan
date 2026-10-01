@@ -72,6 +72,9 @@ traffic_specification.loader.exec_module(traffic)
 summary = {"passed": passed == "1", "last_phase": phase, "exit_code": int(exit_code), "runtime_version": "1.14.2"}
 if not summary["passed"]:
     summary["failure_line"] = int(failure_line)
+traffic_evidence = traffic.load(Path(state_path).with_name(traffic.EVIDENCE_NAME))
+if traffic_evidence:
+    summary["traffic"] = traffic_evidence
 readiness = Path(state_path).with_name("ready-timeout.json")
 if readiness.is_file():
     last = json.loads(readiness.read_text())
