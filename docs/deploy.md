@@ -96,7 +96,7 @@ SQL
 
 ## 导入签名 Release
 
-当前公开 `agent-v0.3.0` 的签名安装器仍依赖面板二进制下载，不支持此 GitHub-only 接入流程。新面板会拒绝为它生成安装命令；维护者须先提供新的不可变、支持预下载 Agent 的兼容签名 Release，并安排旧 Agent 的可信手工迁移，再部署新面板。历史制品导入和诊断报告读取不因此失效。
+当前公开 `agent-v0.3.0` 的签名安装器仍依赖面板二进制下载。新的独立入口核对其完整签名 proof，从 GitHub 下载对应 Agent，再使用固定官方 blob 中内嵌的可信 Linux 执行器安装，因此可兼容旧发布而不修改任何正式资产。旧 Agent 的自动升级能力仍需用新的兼容签名 Agent 手工迁移；新平台仍需发布对应正式签名制品。
 
 正常部署无需在服务器编译运行时或 `docker cp` 制品。面板原“制品”页现为[插件目录](plugin-catalog.md)，只介绍插件和展示版本、架构，不再提供 Release 导入表单，也不在面板本机安装插件。旧 `/#/artifacts` 书签继续显示目录，新入口为 `/#/plugins/catalog`。
 
@@ -104,7 +104,7 @@ SQL
 
 相同标签可重复导入以追加其他架构，或修复缺失、损坏的下载文件；不会覆写同一签名身份的不同内容。已有完整导入目录保持兼容。只下载所需架构不改变正式 Release 对完整资产集合的要求。此接口只准备分发数据，不执行安装；移除网页表单不等于删除验签、分发或运维 API。
 
-发布工作流从选定源码构建 Linux amd64/arm64 的 Agent、固定版本运行时、当前 NodeQuality 包装器、固定安装器、`release.json` 与 `SHA256SUMS`；维护者在本机签署清单，再上传 `SHA256SUMS.minisig`。已公开的 [agent-v0.3.0](https://github.com/theLucius7/sinan/releases/tag/agent-v0.3.0) 固定在源码 `75cd846`，包含 r2 包装器，正式签名与面板导入已验证。当前源码默认包装器为 r13，须完成对应能力验收后另行构建、签署和发布，不能覆盖已发布 r2，或借旧 Release 的验收宣称新能力已通过。
+发布工作流从选定源码构建 Linux amd64/arm64 的 Agent、固定版本运行时、当前 NodeQuality 包装器、固定安装器、`release.json` 与 `SHA256SUMS`；维护者在本机签署清单，再上传 `SHA256SUMS.minisig`。已公开的 [agent-v0.3.0](https://github.com/theLucius7/sinan/releases/tag/agent-v0.3.0) 固定在源码 `75cd846`，包含 r2 包装器，正式签名与面板导入已验证。当前源码默认包装器为 r14，须完成对应能力验收后另行构建、签署和发布，不能覆盖已发布 r2，或借旧 Release 的验收宣称新能力已通过。
 
 Linux musl 静态 Agent 保留原制品目录。GNU、macOS、Windows、FreeBSD 与完整运行时的实现和手动验证入口继续保留，详见 [设备平台与能力](platforms.md)。当前主线 `ci.yml` 也包含全平台检查定义，但所有工作流均按用户要求临时暂停；全部任务完成后统一确定恢复范围，见 [协作规则](../AGENTS.md#临时-ci-暂停2026-10-01-用户要求)。原生生产部署仍需独立验证来源的已签平台 bundle，不能直接使用日常 CI 的 TEST_ONLY 制品。
 
@@ -114,11 +114,24 @@ Linux musl 静态 Agent 保留原制品目录。GNU、macOS、Windows、FreeBSD 
 
 ## 复制安装命令
 
-官方部署不需要预装 `sinan-bootstrap`。在接入页面复制完整命令，粘贴到运行 systemd 或 OpenRC 的目标 Linux 服务器执行；普通管理员账户需要 `sudo`，也可直接以 root 执行。目标服务器需要基本 shell 工具，以及可访问官方 GitHub、系统软件源和面板的网络；缺少 `curl` 时命令先通过系统软件源自动安装。
+接入页选择 Shell 或 PowerShell，并选择“自动匹配”或真实已签版本。复制的一行命令可在目标服务器执行：
 
-命令从官方 GitHub 的固定 blob URL 下载自包含入口，核对 SHA-256 后才执行。入口通过系统软件源自动准备 Python、minisign 等工具，使用内嵌的正式公开根验证已签 Release 和静态安装器，只下载本机 Agent 架构。Agent 资产缺失或缺少对应架构时，由维护者检查可信 GitHub Release，不借面板文件或另一架构二进制降级；运行时及诊断制品的本地缺失则可按目标架构重复导入修复。一次性令牌过期或已使用时，重新生成命令。
+| 服务器 | 入口与权限 | 常驻方式 |
+|---|---|---|
+| Linux AMD64/ARM64，GNU 或 musl | Shell，root 或具备 sudo 的管理员 | systemd / OpenRC |
+| macOS ARM64 | Shell，root 或具备 sudo 的管理员 | launchd |
+| FreeBSD AMD64/ARM64 | Shell，root 或具备 sudo 的管理员 | rc.d |
+| Windows AMD64/ARM64 | PowerShell，普通终端触发 UAC 提升或直接使用管理员终端 | 计划任务 |
 
-首次信任来源为官方 GitHub HTTPS 渠道与已批准的入口公钥，不从面板下载新的发布根。旧 `/install.sh` 仅提供安装描述 JSON，不能管道执行。自建根、离线部署或需要独立预置验证器时使用下一节。决策与适用范围见 [ADR 0037](adr/0037-bootstrap-and-selective-import.md)。
+自动匹配在执行时识别本机系统与 CPU/ABI，选择最新兼容稳定版本；指定版本时只安装该版本。macOS AMD64、32 位系统和未知 ABI 会明确拒绝，不能借其他系统制品安装。需要对应平台的正式签名 Agent 发布；版本下拉只提供已经导入完整签名 proof 的版本。没有签名制品的平台会提示由维护者准备对应发布后重试；可从插件目录查看已收录版本。
+
+命令从官方 GitHub 固定 blob 下载自包含入口，核对 SHA-256 后才执行。Linux/FreeBSD 自动使用系统软件源准备依赖，macOS 在缺少 Python 时安装固定官方 pkg 并准备固定 minisign，Windows 自动准备本机架构 minisign。目标服务器需能访问官方 GitHub、平台依赖来源和面板；Linux 需运行中的 systemd 或 OpenRC。
+
+Agent 资产缺失或缺少对应架构时，由维护者检查可信 GitHub Release。运行时及诊断制品的本地缺失可按目标架构重复导入修复。
+
+入口独立验证正式根、完整发布 proof 和本机兼容性。即使面板只缓存 ARM，AMD 服务器也可安装同一签名发布的 AMD Agent：入口直接从 GitHub 或服务器已配置的独立 HTTPS 镜像取对应目标，不向 GitHub/镜像发送接入令牌或设备凭据，也不因此下载运行时和其他架构。面板不提供 Agent 二进制；软链路径拒绝。重复安装保留原设备身份，缓存预检失败时不会切换服务；令牌过期或已使用时重新生成命令。
+
+首次信任来源为固定官方 HTTPS 渠道与已批准的入口公钥，不从面板下载新的发布根。`/install.sh` 和 `/install.ps1` 仅提供安装描述 JSON，不能管道执行。自建根、离线部署或需要独立预置验证器时使用下一节。决策与适用范围见 [ADR 0037](adr/0037-bootstrap-and-selective-import.md) 与 [ADR 0041](adr/0041-cross-platform-enrollment.md)。Windows/macOS/FreeBSD 入口的函数与签名测试不替代真实平台服务安装验收。
 
 ## 手动准备可信 bootstrap
 
@@ -130,6 +143,8 @@ Linux musl 静态 Agent 保留原制品目录。GNU、macOS、Windows、FreeBSD 
 sudo apt-get update
 sudo apt-get install -y python3 minisign ca-certificates curl coreutils passwd
 sudo install -d -m 755 /usr/local/lib/sinan /etc/sinan/trust
+python3 tools/release.py render-installer --template deploy/install.sh.tmpl --agent-unit deploy/sinan-agent.service --runtime-unit plugins/sing-box/sinan-singbox@.service --output /临时目录/trusted-install.sh
+sudo install -m 644 /临时目录/trusted-install.sh /usr/local/lib/sinan/trusted-install.sh
 sudo install -m 755 tools/bootstrap.py /usr/local/lib/sinan/bootstrap.py
 sudo install -m 644 tools/release.py /usr/local/lib/sinan/release.py
 sudo install -m 644 /已独立核对的路径/public-keys.json /etc/sinan/trust/public-keys.json
@@ -192,7 +207,7 @@ bootstrap 的公钥文件仅用于独立确认安装起点；它不会写进 Age
 
 Agent 支持自动更新，默认关闭。安装好的监督服务可在服务器详情“Agent 设置”中开启“自动更新 Agent”，从绑定面板选择协议兼容、匹配平台且签名通过的新稳定版本；正常检查间隔约六小时并附加抖动。更新保留身份和账本，代理运行时独立运行；试运行失败或未确认的更新中断会恢复旧 Agent。具体平台与恢复边界见 [设备平台与能力](platforms.md#监控任务与更新)。
 
-手动升级时，导入协议兼容的新签名 Release 后，到原服务器详情点击“接入 / 升级”，可指定已导入的 Agent 版本，签发**新的**一次性令牌，再执行可信 bootstrap 命令。面板和 Agent 产品版本无需相同；首次安装使用独立预置验证器，重复安装可以明确指定已信任的旧 Agent 验证下一版。
+手动升级时，导入协议兼容的新签名 Release 后，到原服务器详情点击“接入 / 升级”，可指定已导入的 Agent 版本，签发**新的**一次性令牌，再执行可信 bootstrap 命令。面板和 Agent 产品版本无需相同；普通首次安装使用页面的独立单行入口；自建根/离线流程继续独立预置验证器，重复安装也可明确指定已信任的旧 Agent 验证下一版。
 
 安装器先核对签名和实际内容，预检既有运行时、诊断和未完成回滚引用，再注册暂存 Agent、切换当前版本并重启 Agent。身份、配置与状态库继续保留；同一服务器只允许原公钥再次注册，不能复制其他设备的身份目录。旧命令消费后不可复用。
 
@@ -225,9 +240,9 @@ public_ips = ["192.0.2.10", "2001:db8::10"]
 
 点击“刷新 IP 质量”时，由面板访问 NodeQuality 使用的 [IPQuality](https://github.com/xykt/IPQuality) 数据库接口，查询位置、ASN、用途、风险及代理等信息。各数据库独立展示，包含更新时间、原始字段和错误；第三方数据可能缺失或互相矛盾，不合成为一个无依据的总分。私网和回环地址不向外部接口查询。本次开发环境对该接口的实际请求返回 403，因此记录了服务错误；成功字段解析和失败处理通过受控 HTTP 夹具验证，不能据此宣称线上数据库服务当前可用。
 
-日常检查使用已导入签名 Release 中的 NodeQuality 外插；完整验机目前暂停新任务，原因在界面显示。单独编译或拷贝未签名目录不能代替验签导入。外插固定 [NodeQuality 上游提交](https://github.com/LloydAsp/NodeQuality/tree/a92fca6c0067df29ddd03fdc2fee6f3000f64545)，保留原样源码和许可证，版本为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r13`。旧制品不能覆盖；历史顶层上传开关不能证明内层脚本零上传；旧排队完整任务保存明确失败原因，已有 Started 继续收集与取消，不重新执行。
+日常检查使用已导入签名 Release 中的 NodeQuality 外插；完整验机目前暂停新任务，原因在界面显示。单独编译或拷贝未签名目录不能代替验签导入。外插固定 [NodeQuality 上游提交](https://github.com/LloydAsp/NodeQuality/tree/a92fca6c0067df29ddd03fdc2fee6f3000f64545)，保留原样源码和许可证，版本为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14`。旧制品不能覆盖；历史顶层上传开关不能证明内层脚本零上传；旧排队完整任务保存明确失败原因，已有 Started 继续收集与取消，不重新执行。
 
-r13 保留固定上游来源与原文许可证，执行时不下载或安装 NextTrace 等工具；daily 所需工具须由维护者预置，缺失时明确拒绝对应执行。固定辅助脚本与静态数据须在整份源码校验完成后使用，不回退在线 main。外插工作路径不能包含空白或 shell 通配符，使用默认目录即可。
+r14 保留固定上游来源与原文许可证，执行时不下载或安装 NextTrace 等工具；daily 所需工具须由维护者预置，缺失时明确拒绝对应执行。固定辅助脚本与静态数据须在整份源码校验完成后使用，不回退在线 main。外插工作路径不能包含空白或 shell 通配符，使用默认目录即可。
 
 日常目标服务器需要 Linux systemd、root、Bash、Python 3 与面板制品访问；已配置 TCP 目标决定实际探测范围。最小 Debian 系统可先安装：
 
@@ -274,4 +289,4 @@ IP 信息页区分一个 check-place 聚合入口和 AbuseIPDB 官方接口。�
 
 升级到包含 `0018_server_operations.sql` 的版本后，后台「看板与通知」配置公开看板、离线阈值与 Telegram。服务器新增和编辑中配置单节点告警、Agent 自动更新与 GitHub 镜像；详情可进行本期流量矫正。默认私有看板、离线阈值 5 分钟，Telegram 默认关闭。操作和计量语义见 [服务器资产与运营说明](server-assets.md)。
 
-Agent 安装与自动更新从 GitHub Release 获取已签二进制，面板只下发更新元数据，旧 Agent 下载接口不再提供文件。部署前需要使用本次源码的新可信 bootstrap 及新签名 Release；旧版本如何衔接见 [发布与安装说明](release.md)。本次源码工作不代表已发布新 Release 或完成多平台实机升级验收，CI 暂停安排继续有效。
+Agent 安装与自动更新从 GitHub Release 获取已签二进制，面板只下发更新元数据，旧 Agent 下载接口不再提供文件。部署前需要使用本次源码的独立可信 bootstrap；它包含从 GitHub 下载后安装已签 Agent 的静态 Linux 执行器，可兼容旧 0.3.0 的完整签名 proof，不修改正式 Release。新平台仍需发布对应签名制品；衔接说明见 [发布与安装说明](release.md)。本次源码工作不代表已发布新 Release 或完成多平台实机升级验收，CI 暂停安排继续有效。

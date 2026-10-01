@@ -6,12 +6,14 @@ umask 027
 BUNDLE=
 PANEL=
 VERSION=
+TARGET=
 TOKEN_FILE=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --bundle) BUNDLE=$2 ;;
     --panel) PANEL=$2 ;;
     --version) VERSION=$2 ;;
+    --target) TARGET=$2 ;;
     --token-file) TOKEN_FILE=$2 ;;
     *) echo '未知安装参数' >&2; exit 2 ;;
   esac
@@ -34,7 +36,9 @@ fi
 for tool in python3 install getent cmp mv seq; do
   command -v "$tool" >/dev/null || { echo "缺少工具: $tool" >&2; exit 1; }
 done
-case "$(uname -m)" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; *) exit 1 ;; esac
+case "$(uname -m)" in x86_64|amd64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; *) exit 1 ;; esac
+[ -n "$TARGET" ] || TARGET=$ARCH
+case "$TARGET" in "$ARCH"|"linux-musl-$ARCH"|"linux-gnu-$ARCH") ;; *) echo '所选 Agent 平台与本机架构不兼容' >&2; exit 1 ;; esac
 DOWNLOAD=$(mktemp -d)
 STAGE=
 PREVIOUS=$(readlink /opt/sinan/core/current 2>/dev/null || true)
@@ -70,9 +74,9 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' HUP TERM
 TOKEN=$(cat "$TOKEN_FILE")
-# Bootstrap already downloaded this asset from GitHub and verified the signed proof.
-python3 -I - "$BUNDLE" "$VERSION" "$ARCH" "$DOWNLOAD/sinan-agent" "$PANEL" "$TOKEN_FILE" <<'PY'
-import hashlib, ipaddress, json, pathlib, re, sys, urllib.parse
+# Bootstrap downloaded this asset from GitHub and verified the signed proof.
+python3 -I - "$BUNDLE" "$VERSION" "$ARCH" "$DOWNLOAD/sinan-agent" "$PANEL" "$TOKEN_FILE" "$TARGET" <<'PY'
+import hashlib, ipaddress, json, pathlib, platform, re, subprocess, sys, urllib.parse
 
 def ensure(condition, message):
     if not condition:
@@ -83,10 +87,32 @@ def ordinary(path, limit):
            '安装证明必须是有界普通文件')
     return path.read_bytes()
 
+def protected_existing_parents(path):
+    while not path.exists() and not path.is_symlink():
+        path = path.parent
+    for current in (path, *path.parents):
+        properties = current.lstat()
+        ensure(current.is_dir() and not current.is_symlink() and properties.st_uid == 0
+               and properties.st_mode & 0o022 == 0,
+               'Agent 执行目录与父目录必须由 root 保护，不能含符号链接')
+
 root, version, arch, asset = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3], pathlib.Path(sys.argv[4])
 panel, token_file = sys.argv[5], pathlib.Path(sys.argv[6])
+target = sys.argv[7]
+protected_existing_parents(pathlib.Path('/opt/sinan/core'))
 ensure(re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?', version), '无效 Agent 版本')
 ensure(arch in ('amd64', 'arm64'), '无效 Agent 架构')
+ensure(target in (arch, 'linux-musl-' + arch, 'linux-gnu-' + arch), 'Agent 平台与本机 CPU 不匹配')
+if target.startswith('linux-gnu-'):
+    libc = platform.libc_ver()[0].lower()
+    if libc not in ('glibc', 'gnu'):
+        try:
+            result = subprocess.run(['ldd', '--version'], capture_output=True, check=False, timeout=10)
+            description = (result.stdout + result.stderr).decode('utf-8', errors='replace').lower()
+        except (OSError, subprocess.TimeoutExpired):
+            description = ''
+        libc = 'gnu' if 'glibc' in description or 'gnu libc' in description else ''
+    ensure(libc in ('glibc', 'gnu'), 'GNU Agent 需要 GNU/glibc 主机，不能在 musl 上安装')
 origin = urllib.parse.urlsplit(panel)
 ensure(not any(ord(character) < 32 or ord(character) == 127 for character in panel)
        and origin.scheme in ('http', 'https') and origin.hostname
@@ -107,10 +133,10 @@ ensure(type(metadata['schema']) is int and metadata['schema'] == 1
        and metadata['source_repo'] == 'theLucius7/sinan', '发布身份不匹配')
 ensure(metadata['tag'] == 'agent-v' + version, '发布标签不匹配')
 matches = [item for item in metadata['artifacts'] if
-           (item['name'], item['version'], item['arch']) == ('agent', version, arch)]
+           (item['name'], item['version'], item['arch']) == ('agent', version, target)]
 ensure(len(matches) == 1, '发布缺失或重复目标 Agent')
 item = matches[0]
-expected_name = 'agent-' + version + '-linux-musl-' + arch
+expected_name = 'agent-' + version + ('-linux-musl-' + arch if target == arch else '-' + target)
 ensure(item['format'] == 'raw' and item['binary_name'] == 'sinan-agent'
        and item['asset_name'] == expected_name, 'Agent 制品身份不匹配')
 expected_size = item['archive_size']
@@ -125,7 +151,7 @@ for line in ordinary(root / 'SHA256SUMS', 8192).decode('utf-8').splitlines():
     ensure(match is not None and match[2] not in checksums, '发布清单格式错误或重复')
     checksums[match[2]] = match[1]
 ensure(checksums.get('release.json') == hashlib.sha256(metadata_bytes).hexdigest(), '已签 metadata 摘要不匹配')
-ensure(checksums.get('agent/' + version + '/' + arch) == item['binary_sha256'], '已签 Agent 摘要不匹配')
+ensure(checksums.get('agent/' + version + '/' + target) == item['binary_sha256'], '已签 Agent 摘要不匹配')
 source = root / expected_name
 payload = ordinary(source, expected_size)
 ensure(len(payload) == expected_size, 'Agent 长度不匹配')
@@ -152,19 +178,70 @@ if [ -e /etc/sinan/agent.toml ] || [ -L /etc/sinan/agent.toml ]; then
     exit 1
   }
 else
-  python3 -I - <<'PY'
+  python3 -I - "$PANEL" <<'PY'
+import ipaddress, os, re, sys, urllib.parse
 from pathlib import Path
-paths = [Path('/var/lib/sinan/core/state.db'), Path('/etc/sinan/identity'),
-         Path('/opt/sinan/core/current')]
+paths = [Path('/var/lib/sinan/core/state.db' + suffix) for suffix in ('', '-wal', '-shm')]
+paths.append(Path('/opt/sinan/core/current'))
 plugins = Path('/opt/sinan/plugins')
 if plugins.exists():
     paths.extend(plugins.glob('*/current'))
 for path in paths:
-    exists = path.exists() or path.is_symlink()
-    if path.name == 'identity' and path.is_dir() and not path.is_symlink():
-        exists = any(path.iterdir())
-    if exists:
+    if path.exists() or path.is_symlink():
         raise SystemExit('已有安装状态但配置缺失，签名预检无法确定引用；安装未切换')
+
+def protected(path):
+    for current in (path, *path.parents):
+        info = current.lstat()
+        if current.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
+            raise SystemExit('首次接入身份与父目录必须由 root 保护')
+        if current != path and not current.is_dir():
+            raise SystemExit('首次接入身份父路径必须是普通目录')
+
+def ordinary(path, limit):
+    protected(path)
+    if not path.is_file() or not 0 < path.stat().st_size <= limit:
+        raise SystemExit('首次接入身份必须是有界普通文件')
+    return path.read_bytes()
+
+def origin(value):
+    parsed = urllib.parse.urlsplit(value)
+    if (any(ord(c) < 32 or ord(c) == 127 for c in value) or parsed.scheme not in ('http', 'https')
+            or not parsed.hostname or parsed.username or parsed.password or parsed.path not in ('', '/')
+            or parsed.query or parsed.fragment or parsed.port is not None and not 0 < parsed.port <= 65535):
+        raise SystemExit('首次接入面板地址无效')
+    hostname = parsed.hostname.lower()
+    try:
+        address = ipaddress.ip_address(hostname)
+        hostname = address.compressed
+        loopback = (getattr(address, 'ipv4_mapped', None) or address).is_loopback
+    except ValueError:
+        hostname = hostname.encode('idna').decode('ascii')
+        loopback = hostname == 'localhost'
+    if parsed.scheme == 'http' and not loopback:
+        raise SystemExit('首次接入 HTTP 面板仅允许回环地址')
+    return parsed.scheme, hostname, parsed.port or (443 if parsed.scheme == 'https' else 80)
+
+identity = Path('/etc/sinan/identity')
+if identity.exists() or identity.is_symlink():
+    protected(identity)
+    if not identity.is_dir():
+        raise SystemExit('首次接入身份目录必须是普通目录')
+    names = {path.name for path in identity.iterdir()}
+    if names:
+        if ('panel_origin' not in names or not names <= {'panel_origin', 'device.key', 'server_id'}
+                or 'server_id' in names and 'device.key' not in names):
+            raise SystemExit('已有身份不是可恢复的首次接入状态')
+        if origin(ordinary(identity / 'panel_origin', 8192).decode('utf-8').strip()) != origin(sys.argv[1]):
+            raise SystemExit('已有身份属于另一面板，请在原面板重新获取令牌')
+        if 'device.key' in names:
+            key = identity / 'device.key'
+            if key.stat().st_mode & 0o077 or len(ordinary(key, 32)) != 32:
+                raise SystemExit('首次接入设备密钥必须是私有 32 字节文件')
+        if 'server_id' in names:
+            value = ordinary(identity / 'server_id', 32).decode('ascii').strip()
+            if not re.fullmatch(r'[1-9][0-9]{0,18}', value) or int(value) > 9223372036854775807:
+                raise SystemExit('首次接入服务器身份无效')
 PY
 fi
 if [ -e "/opt/sinan/core/$VERSION" ]; then
@@ -188,7 +265,7 @@ install -d -m 0755 -o root -g root /opt/sinan/plugins /opt/sinan/plugins/sing-bo
 install -d -m 0700 /etc/sinan /etc/sinan/identity /var/lib/sinan/core
 install -d -m 2750 -o root -g sinan-singbox /var/lib/sinan/plugins /var/lib/sinan/plugins/sing-box@main /var/lib/sinan/plugins/sing-box@main/revisions
 install -d -m 0750 -o sinan-singbox -g sinan-singbox /var/lib/sinan/plugins/sing-box@main/data
-"/opt/sinan/core/$VERSION/sinan-agent" enroll --panel "$PANEL" --token "$TOKEN"
+"/opt/sinan/core/$VERSION/sinan-agent" enroll --panel "$PANEL" --token="$TOKEN"
 unset TOKEN
 ACTIVATING=1
 ln -s "$VERSION" "/opt/sinan/core/current.$$"

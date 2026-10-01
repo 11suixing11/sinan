@@ -57,7 +57,7 @@ pub(super) async fn default_targets(state: &AppState) -> ApiResult<Vec<String>> 
     Ok(targets.into_iter().collect())
 }
 
-fn candidates(target: &str, format: &str) -> Vec<String> {
+pub(super) fn candidates(target: &str, format: &str) -> Vec<String> {
     if matches!(target, "amd64" | "arm64") {
         // Architecture-only requests describe the original GNU host deployment.
         return if format == "raw" {

@@ -1,8 +1,31 @@
 # 执行进度
 
+## 2026-10-01：四平台接入整合 86e2ef4 与负号令牌回归
+
+- 普通整合主线 `86e2ef4`，保留 PR #127 的统一监控/通知与 PR #128 的 NodeQuality r14；跨平台决策重编号为 [ADR 0041](docs/adr/0041-cross-platform-enrollment.md)，主线 0039/0040 保持原意。相对主线 Core、旧 Agent 更新与监控逻辑不变；接入入口仍只从 GitHub/独立镜像下载 Agent。
+- 最终安装验证发现真实随机接入令牌可首字符为 `-`，分离的 `--token` 参数会被解析成选项。修正 Unix 外层、内嵌 Linux 执行器、Unix 原生及 Windows Agent CLI 为 `--token=值`，不调整令牌生成规则或既有正式制品。新增真实 argparse/CLI 边界回归；前次失败日志保留，不计为安装通过。
+- 冻结最终 505 份运行/构建/测试输入，收据 SHA-256 `ee1ee1b59e8eafabf87fadb606ede69c24aae9038e00bf63b942ef0795422419`；逐字核对不变。使用公开 TEST_ONLY 编译根与专属 PostgreSQL 重跑完整 Rust workspace/all-targets：482 通过、0 失败、15 项既有条件忽略，64 组；全 targets Clippy、fmt/core/diff 通过。
+- 最终 Unix root 29/29、Linux 上 PowerShell 函数/独立验签/清单/下载/恢复 11/11、root 发布工具 36/36 全部通过；模板/生成输出及 Shell 语法检查通过。Unix 固定 blob `05be468326df1c70afed2c23d4763243f8a0e990`，Windows 固定 blob `ec7bb81cbece50114f234e7d4dae96cfc0905433`，均已按 Git 对象与 SHA-256 核对。
+- 最终 UI 36 项 Bun 单测、TypeScript/Vite/dist 构建及接入、插件目录、监控、运营、代理业务、看板、服务器展示、NodeQuality、TCPQuality 九组桌面/手机浏览器回归通过；覆盖单行剪贴板、无签名版本不生成令牌和手机布局。受验 dist 逐字保持，另以正式公开根重编最终嵌入前端的面板成功；浏览器使用私有回环 API 替身。
+- 隔离 Linux ARM64/OpenRC 容器先移除 curl/minisign，正式公开根面板通过真实 API 生成首字符为 `-` 的令牌；直接执行返回的自动匹配单行命令，以普通用户完成提权、补依赖、独立验签正式 `agent-v0.3.0`、注册并上线。再用显式 `0.3.0/linux-musl-arm64` 命令重复安装，设备公钥与私钥摘要不变。实际受验入口为上列最终 Unix blob；面板只缓存 ARM 三个模块、完整签名目录仍提供 AMD/ARM，Agent 面板下载实际为 409。
+- 自有测试面板及两个专属容器已停止/移除；生产面板/PostgreSQL 容器健康且未部署。没有签署或发布新正式 Agent/诊断 Release；Windows/macOS/FreeBSD 对应正式签名制品与原生 ACL/UAC/launchd/rc.d/计划任务实机安装仍待独立发布和验收，macOS 现有 ABI 仅 ARM64。CI 继续按仓库约定暂停，未执行不算通过。下一步审阅后按部署流程升级面板，并由维护者准备对应平台签名发布。
+
+
+## 2026-10-01：四平台接入整合 33a/824 的阶段验证
+
+- 按本聊天补充要求完成 Shell（Linux/macOS/FreeBSD）与 PowerShell（Windows）入口；执行时检测 OS、CPU/libc，选择最新兼容稳定版，也可指定完整签名 proof 中的版本及 ABI。界面复制为一行，缺少本平台已签版本时禁用生成并说明原因。macOS 目前仅有 ARM64 ABI，Linux/Windows/FreeBSD 支持 AMD64/ARM64；32 位及未知平台拒绝。
+- 整合已合入原 PR #114 的主线 `33a3085`，完整保留 `download_source=github` 协商、旧 Agent 空候选保护、制品 URL 约束、镜像与服务器运营功能。Agent 始终从 GitHub/独立镜像匿名下载；面板 Agent 文件接口保持 409。旧正式 0.3.0 的 install.sh 仍校验签名摘要，但实际执行固定 blob 内嵌的受信 Linux 执行器；唯一预下载契约针对实际执行器，不修改既有正式资产。
+- Unix 单行固定程序先提权，再在 root 私有目录下载、核对摘要及执行入口；直接非 root 运行入口拒绝，不再特权重读用户可写文件。Windows 在提升后的管理员进程重新下载固定入口，检查 ACL/重解析路径及摘要；原生安装保留身份、旧配置恢复、JSON current 引用与正式根复验。Unix 单文件 300 秒总预算、20 秒/剩余预算读取限制和 Windows 有界流式下载保持。
+- `f45ade0` 冻结 504 份运行/构建/测试输入，收据 SHA-256 `2c8434a8300d42e3682ba65a411e8f3aa15f29ac7f1f71bc78a003ac359c6a89`。整合后显式使用公开 TEST_ONLY 编译根的完整 Rust workspace/all-targets 471 通过、0 失败、15 项既有实机条件忽略，61 组；Clippy 全 targets、fmt/core/diff 通过。此前未显式配置 fixture 编译根时三个监督退役夹具失败，改用正确测试根后全量通过；未修改 core 产品或测试去放宽验证。
+- `f45ade0` 对应 Unix root 测试 28/28（含实际降权至 UID 65534 的直接入口拒绝）、Linux 上 PowerShell 函数/签名/清单/HTTP/平台/恢复测试 10/10、root 发布工具测试 36/36；两个生成器输出同步。Bun 30/850 断言、TypeScript/Vite 构建及 19 个 dist 一致性通过，接入/运营/制品各桌面与手机共六组 Chromium 通过；最终 UI 相对此前完整看板受验输入仅保留 main 的旧 Agent 迁移提示及相应资源哈希，不冒称重演原生服务。
+- 以正式公开根重编面板，在隔离 Linux ARM64/OpenRC 容器清除 curl/minisign，直接执行最终 API 返回的一行命令：普通用户自动提权、准备依赖、独立验签正式 `agent-v0.3.0`、注册并上线；显式 `0.3.0/linux-musl-arm64` 再次安装，设备公钥与私钥摘要不变。最终 Unix blob `a3269772648687109e442b8ea26fa98c64b519f8`，Windows blob `9901b27b65c0e265f718990d33c9ec25f2900e15`；面板只缓存 ARM 三个模块而签名目录仍提供 AMD/ARM，Agent 面板下载实际返回 409。
+- 后续 PR #132 提交期间主线合入插件目录与混合链路规划，再普通整合 `8249326`：保留新只读插件目录、删除旧制品页与旧制品浏览器用例，空版本提示改为维护者准备签名发布及实际目录链接；README/运维文档同步。Rust/安装器/构建工具/测试的 405 份输入逐字保持 `f45ade0`，上述 471、28/10/36 及正式根 E2E 不改称重新执行；最终 UI 另完成 36 个 Bun 用例、89 模块 TS/Vite/dist 构建、插件目录/接入/业务/运营四套桌面手机 Chromium，均通过。最终正式根 `cargo build -p sinan-panel` 也通过，确认嵌入最新前端；浏览器只用回环私有 API 替身，既有原生验收缺口不变。
+- 专属测试面板、Agent 容器及 PostgreSQL 已停止/移除，生产两容器健康且未部署。没有正式签署或发布新 Agent/诊断 Release；当前正式发布只有 Linux，Windows/macOS/FreeBSD 对应正式制品及实机 ACL/UAC/launchd/rc.d/计划任务安装仍待独立发布与验收。CI 按用户安排继续暂停，未执行不算通过。实现决策见 [ADR 0041](docs/adr/0041-cross-platform-enrollment.md)。
+
+
 ## 2026-10-01：一行接入命令与按服务器架构导入制品
 
-> 以下保留 PR #114 原作者在合入 GitHub-only PR #119 前的历史受测输入。旧正式 0.3.0/OpenRC 成功不能认证最终新下载机制；本聊天未重演作者私有容器。最终新流程明确拒绝旧安装器，须另发兼容签名 Release 后安排旧 Agent 迁移再部署新面板，最终整合验证另记于本文件末尾。
+> 以下保留 PR #114 原作者在合入 GitHub-only PR #119 前的历史受测输入。旧正式 0.3.0/OpenRC 成功不能认证最终新下载机制；本聊天未重演作者私有容器。PR #114 合并时的流程明确拒绝旧安装器，彼时要求另发兼容签名 Release；这次四平台扩展改用独立固定 blob 中的受信 Linux 执行器兼容旧正式制品，新的实际验证记于本文件前部的四平台接入整合记录。
 
 - 核对当前 ARM64 部署：旧安装命令依赖预装 `sinan-bootstrap`，`/install.sh` 返回冲突；导入的六个制品同时包含 ARM/AMD。现有完整发布独立 minisign 验签及八项摘要全部匹配，未发现下载物损坏。
 - 新接入命令从固定官方 GitHub blob 下载自包含入口，核对 SHA-256 后执行；缺少 curl 时先通过系统软件源准备，入口自动准备 Python/minisign，使用已批准的公开根独立验证已签 Release 与安装器，再下载本机 Agent。`/install.sh` 返回安装描述 JSON，不执行面板动态 shell。生成入口由原有验证工具生成并检查同步，无新增依赖；首次信任流程调整见 ADR 0037。
@@ -1158,6 +1181,12 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 保留作者 `88bfb836` 并普通合入主线 `d343ae81` 的已验r8和日常验收文档；看板源码及19份产物逐字保持受验版本，Rust/插件/构建输入逐字保持主线。Bun27通过/843断言、TypeScript/Vite构建与已提交dist完全一致，10套真实Chromium均通过：新看板1440/768/390/320、展示页含键盘历史曲线、资产/接入/IP折叠、TCP/业务/策略组/NQ门禁及确认式取消。额外验证未登录仅请求/api/me、禁用localStorage、键盘导航、全屏拒绝、非法ID及零业务写入；截图实际目视。全部API写入由私有替身承接，不代表线上或真实Agent验收。
 
 本项只改前端与文档，不重跑Rust/PG，也不把先前442或42专项称作该看板实机验收。保留旧诊断full门禁、精确账本与签名生命周期；四workflow继续暂停，未正式签署/发布/部署或触发CI。
+
+## 2026-10-01：四平台单行 Agent 接入（整合前检查）
+
+- 按本聊天追加要求实现 Shell（Linux/macOS/FreeBSD）与 PowerShell（Windows）入口、执行时最新兼容稳定版或显式版、实际 OS/CPU/libc 检测及真实签名目录下拉。一行复制、签名未缓存目标可选，native proof目录、升级回滚与首次失败保留身份重试均补齐。
+- 隔离 PG 的 lib49/releases21/foundation7/platform2/updates2/setup3 共84项通过；all-targets Clippy、fmt/core检查通过。Python Unix入口19项与发布33项（4既有条件跳过）、PowerShell函数9项、Bun30项/850断言与1440/390接入/资产浏览器回归通过。PowerShell在Linux ARM64上执行，不代替Windows ACL/UAC/计划任务或PS5.1实机测试；macOS/FreeBSD没有真实主机安装验收。
+- 此检查对应整合前输入。工作中主线更新到44ba222，AGENTS新增明确Agent二进制必须从GitHub下载、面板不得提供；后续整合保留其原生/镜像及服务器运营改动，入口调整直接GitHub下载并重验。上述结果不追认为整合后的验证，没有触发CI、正式签名/发布或生产部署。
 
 
 
