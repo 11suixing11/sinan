@@ -1050,3 +1050,5 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 更正Issue和原审计中的证据边界：固定入口加载旧helper但没有check_swap调用；独立模拟只证明helper自身行为。实际硬件分支先分配文件，swapon失败need_swap仍0，原清理会遗留文件；新无特权负对照用9字节文件证明差异。公开报告开关仍通过原6项组合对照，源码/helper/构建的边界拒绝保留。
 - host来源16、swap8（包含既有真实固定源的静态接线）、wrapper34、daily7通过；测试签名单项通过，release32运行/28通过/4既有条件跳过。原型空锚点及合成空函数问题由夹具拒绝后修正，最终来源与swap专项重验通过。Rust和专用guest结果待冻结后回填，没有正式签名/发布/部署/CI。
 - 950MiB并非已实测Geekbench预算，未证明默认512MiB cgroup可跑完整硬件；full门禁和#66保持，根文件系统/二级工具、上传与许可和完整联合负载仍待验证。详见[独立验收](docs/acceptance/nodequality-no-swap.md)。
+
+- r8根复核冻结ebf7302：Rust/API19全部通过/0忽略、Clippy/fmt/core/shell/diff通过，PG55439按归属停止且PID/端口已消失；收据c0ba55b1…。专用Debian12单次来源16（15过/1缺minisign跳过）、swap8和Bash5原函数体FD组合2通过，29输入前后不变。实际限额读回、峰值64,737,280B/11pids、0OOM，结束无进程/挂载/cgroup，SSH406重启0/同boot/swap0，guest收据841d30bb…。不运行真实swap、bootstrap或benchmark，不把该有限验收签为完整联合负载。
