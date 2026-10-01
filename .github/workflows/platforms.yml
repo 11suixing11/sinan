@@ -183,6 +183,12 @@ jobs:
       - name: Build, verify, and package the native Agent
         id: native-agent-build
         run: python tools/ci-run.py python tools/build-agent.py '${{ matrix.target }}' .ci-artifacts
+      - name: Verify link publication under a restrictive umask
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          umask 077
+          cargo test --locked -p sinan-agent-core --test artifacts atomic_writes_and_links_preserve_modes_and_real_files -- --exact
       - name: Verify native Agent operation and failed-update recovery
         shell: bash
         run: |

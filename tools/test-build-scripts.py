@@ -68,15 +68,21 @@ class BuildScriptTests(unittest.TestCase):
             self.assertFalse((root / "artifacts").exists())
 
     def test_freebsd_workflow_expects_the_independent_agent_version(self):
-        workflow = (TOOLS.parent / ".github/workflows/platforms.yml").read_text()
-        source = textwrap.dedent(workflow.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
-        with self.independent_prebuilt_agent() as (root, _):
-            with mock.patch.dict(os.environ, {
-                "AGENT_TARGET": "x86_64-unknown-freebsd", "GITHUB_OUTPUT": str(root / "outputs"),
-            }), mock.patch("runpy.run_path", return_value={"verify_architecture": mock.Mock()}), \
-                    contextlib.chdir(root):
-                exec(compile(source, "platforms-freebsd-metadata", "exec"), {})
-            self.assertEqual((root / "outputs").read_text(), "version=1.2.3\n")
+        for name in ("platforms.yml", "ci.yml"):
+            with self.subTest(workflow=name):
+                workflow = (TOOLS.parent / ".github/workflows" / name).read_text()
+                _, job, steps = workflow.partition("\n  agent-freebsd:\n")
+                if not job:
+                    self.assertEqual(name, "ci.yml", "manual FreeBSD coverage must remain available")
+                    continue
+                source = textwrap.dedent(steps.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
+                with self.independent_prebuilt_agent() as (root, _):
+                    with mock.patch.dict(os.environ, {
+                        "AGENT_TARGET": "x86_64-unknown-freebsd", "GITHUB_OUTPUT": str(root / "outputs"),
+                    }), mock.patch("runpy.run_path", return_value={"verify_architecture": mock.Mock()}), \
+                            contextlib.chdir(root):
+                        exec(compile(source, f"{name}-freebsd-metadata", "exec"), {})
+                    self.assertEqual((root / "outputs").read_text(), "version=1.2.3\n")
 
     def test_prebuilt_agent_rejects_invalid_architecture_without_rust(self):
         with tempfile.TemporaryDirectory() as directory:

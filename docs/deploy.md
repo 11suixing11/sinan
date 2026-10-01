@@ -100,7 +100,7 @@ SQL
 
 发布工作流从选定源码构建 Linux amd64/arm64 的 Agent、固定版本运行时、当前 NodeQuality 包装器、固定安装器、`release.json` 与 `SHA256SUMS`；维护者在本机签署清单，再上传 `SHA256SUMS.minisig`。已公开的 [agent-v0.3.0](https://github.com/theLucius7/sinan/releases/tag/agent-v0.3.0) 固定在源码 `75cd846`，包含 r2 包装器，正式签名与面板导入已验证。当前源码默认包装器为 r5，须完成对应能力验收后另行构建、签署和发布，不能覆盖已发布 r2，或借旧 Release 的验收宣称新能力已通过。
 
-Linux musl 静态 Agent 保留原制品目录。自动 CI 的 Agent 矩阵仅含 musl amd64/arm64；GNU、macOS、Windows、FreeBSD 与完整运行时矩阵保留在仅手动触发的 `platforms.yml`，详见 [设备平台与能力](platforms.md)。原生生产部署还需独立验证来源的已签平台 bundle，不能直接使用日常 CI 的 TEST_ONLY 制品。当前 CI 按用户要求临时暂停，恢复条件见 [协作规则](../AGENTS.md#临时-ci-暂停2026-10-01-用户要求)。
+Linux musl 静态 Agent 保留原制品目录。GNU、macOS、Windows、FreeBSD 与完整运行时的实现和手动验证入口继续保留，详见 [设备平台与能力](platforms.md)。当前主线 `ci.yml` 也包含全平台检查定义，但所有工作流均按用户要求临时暂停；全部任务完成后统一确定恢复范围，见 [协作规则](../AGENTS.md#临时-ci-暂停2026-10-01-用户要求)。原生生产部署仍需独立验证来源的已签平台 bundle，不能直接使用日常 CI 的 TEST_ONLY 制品。
 
 面板核对签名、仓库/tag、架构、版本、归档内容和安装后二进制摘要，完成后一次发布整个目录。相同组件版本不能用不同内容覆盖。Agent 下载后独立以自身内嵌公钥再次验证，运行时服务启动前也复验本地签名缓存。
 

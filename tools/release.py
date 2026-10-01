@@ -168,7 +168,7 @@ def assemble(args):
     paths.update({"release.json": digest(encoded), "install.sh": digest(installer)})
     checksums = "".join(f"{paths[path]}  {path}\n" for path in sorted(paths))
     ensure(len(checksums.encode()) <= 8192, "checksums too large")
-    (output / "SHA256SUMS").write_text(checksums)
+    (output / "SHA256SUMS").write_bytes(checksums.encode("utf-8"))
 
 
 def render_installer(args):
@@ -185,7 +185,7 @@ def render_installer(args):
     ensure("@@" not in text, "unexpanded installer marker")
     output = Path(args.output)
     ensure(not output.exists(), "installer output exists")
-    output.write_text(text)
+    output.write_bytes(text.encode("utf-8"))
 
 
 def public_record(key):

@@ -159,3 +159,13 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 - 新增标准库配置初始化命令，独立生成密码、创建时限制权限，并拒绝覆盖已有文件或符号链接；宿主端口可选以兼容已有服务。提供可追加的 Caddy 示例，保持 WebSocket 路由与面板 origin 一致。
 - 共享 VPS 上的 Docker Rust 构建默认并发为 2，可用 build arg 调整；不改运行期的业务并发。
 - 新接入设备还没有运行时或配置时，已启用的代理服务应跳过启动。systemd 单元增加路径条件，后续 Agent 安装运行时并发布配置后仍可正常启动，避免首次重启进入无意义的失败循环。
+
+## 签名与多平台整合后的 CI 修复
+
+- Windows 的文本模式写入会将 LF 转成 CRLF，使安装到磁盘的签名证明不再符合 canonical 格式。夹具、清单及固定安装器都按 UTF-8 原始字节写入；不让验证器替换换行或放宽签名检查。回归在 Linux 模拟 Windows 文本模式，并使用独立 minisign 验证正确证明及拒绝篡改。
+- 当前 cryptography 50.0.2 的发布文件没有 Windows ARM64 wheel，直接 pip 安装会进入本机构建。原生 CI 改用 `sinan-protocol` 已有的 ed25519-dalek/blake2 测试签名实现，编译独立 example；仅内嵌公开 TEST_ONLY 密钥，只接受有界 stdin，不接受密钥参数。合并上游 `541f52d` 后统一使用其 `ci-fixture-sign` 和 `SINAN_CI_FIXTURE_SIGNER`，同时覆盖 macOS 与 Windows；未增加生产依赖，也不向 CI 提供正式私钥。
+- BusyBox `install -d` 会让隐式父目录受 `umask 027` 影响。安装器显式创建共享的 `/opt/sinan`、`/opt/sinan/plugins` 和 `/var/lib/sinan` 为 0755，保证独立普通运行账户可遍历；身份和 core 账本仍为 0700，运行时私有配置仍按专用组限制。隔离 Alpine 实际启动验证保留，不通过把运行时改为 root 绕过权限问题。
+- 静态 musl Agent 可以运行在 glibc 主机上，编译 ABI 不能兼作外部运行时的 libc。保留 `libc` 的 Agent 更新语义，新增可选 `runtime_libc`；在 core 读取系统程序有界 ELF64 头中的 `PT_INTERP` 判断 GNU/musl，不执行额外工具、不依赖 init 类型、不新增依赖。面板与 core 的签名缓存选择使用宿主信息，旧协议字段缺失仍兼容。解析参考 [ELF Header](https://refspecs.linuxfoundation.org/elf/gabi4+/ch4.eheader.html) 与 [Program Header](https://refspecs.linuxfoundation.org/elf/gabi4+/ch5.pheader.html)；无法识别时保留编译 ABI 回退，不将未知 libc 任意映射到 GNU。
+- 合入上游 `13f2975` 后统一使用其 `runtime_platform` 实现，移除重复解析与选择逻辑。GNU 宿主上的静态 Agent 保留已有 musl、旧目录、GNU 运行时的优先级，以避免同一已签证明包含多个平台时改变现有不可变缓存的选择；Agent 自更新仍按编译 ABI。
+- 上游把扩展平台检查改为手动；按本次此前的多平台自动构建要求，`CI` 继续在 push/PR 构建全部平台，OpenRC 保留在 Linux musl 任务内。上游的独立手动平台工作流保留，便于按需复验。
+- macOS 的软链接继承进程 umask，`readlink` 又检查链接自身的读取权限；launchd 的 `umask 027` 因此会阻止普通运行账户解析 root 创建的 `current`。依据 [Apple XNU 的 symlink/readlink 实现](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/vfs/vfs_syscalls.c)，在 `SystemOps::atomic_symlink` 发布前使用 `chmod -h 755` 设置临时链接自身权限；不改变目标文件、私有目录权限或整个进程的 umask。仍保留签名、路径边界、摘要与离线缓存复验，并在 macOS CI 用 `umask 077` 检查链接可读、目标权限不变及悬空链接替换。
