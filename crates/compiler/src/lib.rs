@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+mod relays;
+pub use relays::{Relay, compile_server_with_relays};
+
 use base64::{
     Engine,
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},

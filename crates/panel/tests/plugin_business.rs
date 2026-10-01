@@ -261,8 +261,13 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
     for node in legacy.get_mut("nodes").unwrap().as_array_mut().unwrap() {
         node["protocol_config"] = json!({"type":"vless-reality"});
     }
-    for access in legacy.get_mut("accesses").unwrap().as_array_mut().unwrap() {
+    for access in legacy
+        .get_mut("accesses")
+        .and_then(Value::as_array_mut)
+        .context("legacy accesses")?
+    {
         access["credential"] = json!("");
+        access["direct_grant"] = json!(true);
     }
     // Starting the new panel applies the real migration to already imported records.
     let panel = TestPanel::start(pool.clone()).await?;

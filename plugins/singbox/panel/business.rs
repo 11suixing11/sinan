@@ -144,6 +144,8 @@ pub(crate) async fn mark_dirty(
     transaction: &mut Transaction<'_, Postgres>,
     server_ids: &[i64],
 ) -> ApiResult<()> {
-    sqlx::query("UPDATE servers SET dirty_at=FLOOR(EXTRACT(EPOCH FROM clock_timestamp())*1000)::bigint WHERE id=ANY($1) AND deleted_at IS NULL").bind(server_ids).execute(&mut **transaction).await?;
+    let affected: Vec<i64> = sqlx::query_scalar("SELECT id FROM servers WHERE id=ANY($1) OR id IN (SELECT unnest(ARRAY[n.server_id,e.server_id]) FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id WHERE n.server_id=ANY($1) OR e.server_id=ANY($1)) ORDER BY id FOR UPDATE")
+        .bind(server_ids).fetch_all(&mut **transaction).await?;
+    sqlx::query("UPDATE servers SET dirty_at=FLOOR(EXTRACT(EPOCH FROM clock_timestamp())*1000)::bigint WHERE id=ANY($1) AND deleted_at IS NULL").bind(&affected).execute(&mut **transaction).await?;
     Ok(())
 }

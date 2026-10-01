@@ -4,7 +4,9 @@
 
 ## 接口与历史兼容
 
-IP 独立 GET `/api/servers/{id}/ip-quality` 返回 ip_addresses/quality，POST `/ip-quality/refresh` 与原刷新使用同一逻辑。NodeQuality 独立 GET `/api/servers/{id}/node-quality/reports` 只返回 plugin_ready/plugin_reason/reports，与现有 POST 创建接口共路径。NodeQualityView 无 IP 查询字段，IP 读取不查询诊断准备，报告读取不访问 IP 缓存。
+IP 独立 GET `/api/servers/{id}/ip-quality` 返回 ip_addresses/quality，另提供 public_ip_addresses/private_ip_addresses 分组，POST `/ip-quality/refresh` 与原刷新使用同一逻辑。公网分类复用后端现有查询规则，不在浏览器另写一套地址判断；原地址列表、去重排序、八地址上限与缓存语义保留。页面仅为公网 IPv4/IPv6 展开质量卡片，内网、Docker 等虚拟网卡及其他非公网地址合并到默认关闭的“内网地址”中；仅内网或空列表时禁用公网质量刷新。NodeQuality 独立 GET `/api/servers/{id}/node-quality/reports` 只返回 plugin_ready/plugin_reason/reports，与现有 POST 创建接口共路径。NodeQualityView 无 IP 查询字段，IP 读取不查询诊断准备，报告读取不访问 IP 缓存。
+
+本地回归：`cargo test --locked -p sinan-panel --test ip_addresses` 验证混合 IPv4/IPv6、Docker 私网、ULA、映射私网、共享地址、链路本地、重复/无效输入和空列表；既有独立/兼容路由测试继续检查原字段与质量缓存。`SINAN_PLAYWRIGHT_MODULE=<playwright/index.mjs> node web/tests/ip-addresses.mjs` 使用构建后的 dist 和回环模拟 API，在 1280/390 宽度验证公网可见、内网默认折叠/键盘展开、刷新后展开状态、仅内网/仅公网/空列表及页面无横向溢出。测试不查询外部 IP 服务，不涉及 Agent 升级或生产部署。
 
 旧 GET `/node-quality` 由 LegacyNodeQualityView 保留全部原字段，旧 POST `/node-quality/refresh` 保留原刷新别名。没有数据库迁移、表名修改、历史报告/缓存清理或旧路由撤销。保留主线当前 r3 签名制品、章节组件与 r2 历史兼容，本项不修改制品或执行。
 

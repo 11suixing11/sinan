@@ -2,6 +2,8 @@
 
 本页记录面板管理接口，供中文前端和集成测试使用。所有路径都相对于 `SINAN_PUBLIC_URL`。管理接口使用同源 Cookie；请求 JSON 时发送 `Content-Type: application/json`。应用错误返回 `{"error":"中文说明"}`，常见状态码为 400（输入无效）、401（未登录）、404（资源不存在）、409（冲突）、429（请求过多）、500（内部错误）。框架对无法解析的 JSON 或路径参数也可能返回文本错误。
 
+策略组、套餐组、两跳链路与代理用户分配接口见 [sing-box 策略与套餐 API](singbox-groups.md#api)。这些业务仅属于 `/api/plugins/sing-box`；管理会话和错误约定沿用本页。
+
 ## 登录
 
 | 方法与路径 | 请求 | 成功响应 |
@@ -237,7 +239,7 @@
 
 | 方法与路径 | 请求与用途 |
 |---|---|
-| `GET /api/servers/{id}/ip-quality` | 返回 `{ip_addresses,quality,providers}`；只读取当前 IP 缓存，不依赖 NodeQuality 能力、在线或制品准备 |
+| `GET /api/servers/{id}/ip-quality` | 返回 `{ip_addresses,public_ip_addresses,private_ip_addresses,quality,providers}`；公网/非公网分类复用质量查询的地址规则，保留原 `ip_addresses` 和数量上限；只读取当前 IP 缓存，不依赖 NodeQuality 能力、在线或制品准备 |
 | `POST /api/servers/{id}/ip-quality/refresh` | 无请求体；查询并保存质量结果，返回质量数组 |
 
 两个接口均要求管理员会话和未删除的服务器。读取不会发起外部查询或创建诊断任务。
