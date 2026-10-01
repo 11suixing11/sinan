@@ -216,7 +216,7 @@ class AccessTests(unittest.TestCase):
                 updates = '\n'.join(line for line in text.splitlines() if line.startswith('media_updates+=') and 'Youtube' in line)
                 script += 'media_updates=""\n' + updates + '\n'
                 script += 'ipjson=$(printf "%s" "$ipjson"|jq "$media_updates.")\n'
-                script += metadata + '\nprintf "%s\\n" "$ipjson"\n'
+                script += metadata + '\nprintf "%s" "$ipjson"|jq -c .\n'
                 if child:
                     # The production native curl wrapper is exported to child
                     # shells; verify its identity separately below.
@@ -287,7 +287,7 @@ class AccessTests(unittest.TestCase):
             script += score + '\n' + '\n'.join(factors + media) + '\n'
             script += 'ipjson=\'{"Media":{"Other":"retained"},"Score":{"Other":42},"Factor":{}}\'\n'
             script += 'ipjson=$(printf "%s" "$ipjson"|jq "$score_updates$factor_updates$media_updates.")\n'
-            script += policy.JSON_ADDITION.decode() + '\nprintf "%s\\n" "$ipjson"\n'
+            script += policy.JSON_ADDITION.decode() + '\nprintf "%s" "$ipjson"|jq -c .\n'
             result = subprocess.run([BASH], input=script.encode(), env=environment, capture_output=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stderr, b'')
