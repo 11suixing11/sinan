@@ -4,7 +4,7 @@
 
 登记第二诊断插件并由 Linux Agent 加载无状态适配器，共用任务服务负责互斥、预算、上传、确认取消和历史。仅开放地区、IPv4/6、4/8 次连接和1/2并发，冻结已配置 TCP 目标及摘要，地区标签在插件独立表保存；空 PATCH 拒绝、显式 null 才清除。前端另一个独立 PR。
 
-3963c28 组合源码的 PostgreSQL/API 3项、面板参数/目标2项、适配器15项与原生17项全部通过，workspace全targets Clippy和Linux Agent构建通过，限额容器exit0/OOM=false。fe4ae60平铺后显式地区键/API3+unit2、Clippy和Agentbuild再次通过。已正常合入根sing-box插件主线8ef465f；工具版本pin改为版权补齐后公开且实际Bookworm/五aux签名验收通过的b562effcd90f8ae319665fb4ead1807b770ed4d5，新pin专项与最终CI另核。没有以夹具替代真实测试机验收，aws-jp0仍待恢复，完整验机工具链仍被安全门禁暂停。见 docs/acceptance/tcpquality-panel-registration.md。
+3963c28 组合源码的 PostgreSQL/API 3项、面板参数/目标2项、适配器15项与原生17项全部通过，workspace全targets Clippy和Linux Agent构建通过，限额容器exit0/OOM=false。fe4ae60平铺后显式地区键/API3+unit2、Clippy和Agentbuild再次通过。已正常合入根sing-box插件主线8ef465f；工具版本pin改为版权补齐后公开且实际Bookworm/五aux签名验收通过的b562effcd90f8ae319665fb4ead1807b770ed4d5，1c640d3的新pin/API3+unit2/fmt/Clippy/Agentbuild再次通过，exit0/OOM=false；最终CI另核。没有以夹具替代真实测试机验收，aws-jp0仍待恢复，完整验机工具链仍被安全门禁暂停。见 docs/acceptance/tcpquality-panel-registration.md。
 
 
 ## 2026-10-01：会话签发时间跨秒修复
