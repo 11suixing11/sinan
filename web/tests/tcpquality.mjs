@@ -17,7 +17,7 @@ const server = createServer(async (request, response) => {
   catch { response.writeHead(404).end() }
 })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-const origin = `http://127.0.0.1:${server.address().port}`
+const origin = `http://127.0.0.1:${server.address().port}`;
 
 (async()=>{
  const browser=await chromium.launch({headless:true,...(process.env.SINAN_CHROME_PATH?{executablePath:process.env.SINAN_CHROME_PATH}:{})});
