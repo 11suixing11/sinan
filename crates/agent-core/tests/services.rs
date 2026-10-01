@@ -79,6 +79,26 @@ impl Privileged for RecordingOps {
                     ..Default::default()
                 });
             }
+            let probe = if program == Path::new("systemctl")
+                && args == ["show", "--property=Features", "--value"]
+            {
+                Some("+SECCOMP\n")
+            } else if program == Path::new("cat") && args == ["/proc/1/comm", "/proc/1/status"] {
+                Some("systemd\nSeccomp: 0\nSeccomp_filters: 0\n")
+            } else if program == Path::new("cat")
+                && args == ["/proc/sys/kernel/seccomp/actions_avail"]
+            {
+                Some("errno allow\n")
+            } else {
+                None
+            };
+            if let Some(probe) = probe {
+                return Ok(CommandOutput {
+                    success: true,
+                    stdout: probe.into(),
+                    ..Default::default()
+                });
+            }
             Ok(self.output.lock().unwrap().clone())
         })
     }
@@ -280,7 +300,7 @@ async fn rejects_untrusted_service_names_before_any_privileged_command() {
 }
 
 #[tokio::test]
-async fn openrc_starts_independent_diagnostic_jobs_without_invoking_systemd() -> Result<()> {
+async fn openrc_refuses_diagnostic_starts_without_equivalent_swap_protection() -> Result<()> {
     let ops = RecordingOps::diagnostic(true);
     let services = SystemServiceManager::new(ops.clone(), ServiceBackend::OpenRc);
     let job = ServiceJob {
@@ -295,21 +315,17 @@ async fn openrc_starts_independent_diagnostic_jobs_without_invoking_systemd() ->
         io_weight: Default::default(),
         oom_score_adjust: Default::default(),
     };
-    services.start_job(&job).await?;
-    assert_eq!(*ops.lock_preparations.lock().unwrap(), 1);
-    let calls = ops.calls.lock().unwrap();
-    assert_eq!(calls.len(), 2);
-    assert_eq!(calls[0].0, Path::new("stat"));
-    assert_eq!(calls[1].0, Path::new("rc-service"));
-    let files = ops.files.lock().unwrap();
-    assert_eq!(files.len(), 2);
-    let saved: ServiceJob = serde_json::from_slice(&files[0].1)?;
-    assert_eq!(saved, job);
-    let script = String::from_utf8(files[1].1.clone())?;
-    assert!(script.contains("command_background=true"));
-    assert!(script.lines().any(|line| line == "umask=0077"));
-    assert!(script.contains("run-job --spec"));
-    assert!(!script.contains("respawn"));
+    assert!(
+        services
+            .start_job(&job)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("不允许降级运行")
+    );
+    assert_eq!(*ops.lock_preparations.lock().unwrap(), 0);
+    assert!(ops.calls.lock().unwrap().is_empty());
+    assert!(ops.files.lock().unwrap().is_empty());
     Ok(())
 }
 
@@ -334,24 +350,24 @@ async fn systemd_diagnostic_jobs_keep_independent_supervision_and_status() -> Re
     ops.output.lock().unwrap().stdout = "LoadState=loaded\nActiveState=active\nSubState=exited\nResult=success\nExecMainStatus=0\nExecMainCode=1\nExecMainStartTimestampMonotonic=1\n".into();
     assert_eq!(services.job_status(&job.unit).await?, JobStatus::Succeeded);
     let calls = ops.calls.lock().unwrap();
-    assert_eq!(calls.len(), 3);
+    assert_eq!(calls.len(), 6);
     assert_eq!(calls[0].0, Path::new("stat"));
-    assert_eq!(calls[1].0, Path::new("systemd-run"));
+    assert_eq!(calls[4].0, Path::new("systemd-run"));
     assert!(
-        calls[1]
+        calls[4]
             .1
             .contains(&"--property=KillMode=control-group".into())
     );
-    assert!(calls[1].1.contains(&"--property=PrivateMounts=yes".into()));
-    assert!(calls[1].1.contains(&"--property=UMask=0077".into()));
+    assert!(calls[4].1.contains(&"--property=PrivateMounts=yes".into()));
+    assert!(calls[4].1.contains(&"--property=UMask=0077".into()));
     assert!(
-        calls[1]
+        calls[4]
             .1
             .contains(&"--property=TimeoutStartSec=10s".into())
     );
-    let separator = calls[1].1.iter().position(|arg| arg == "--").unwrap();
+    let separator = calls[4].1.iter().position(|arg| arg == "--").unwrap();
     assert_eq!(
-        &calls[1].1[separator + 1..],
+        &calls[4].1[separator + 1..],
         [
             "/usr/bin/flock",
             "--exclusive",
@@ -361,7 +377,7 @@ async fn systemd_diagnostic_jobs_keep_independent_supervision_and_status() -> Re
             "/bin/true",
         ]
     );
-    assert_eq!(calls[2].0, Path::new("systemctl"));
-    assert_eq!(calls[2].1.last(), Some(&job.unit));
+    assert_eq!(calls[5].0, Path::new("systemctl"));
+    assert_eq!(calls[5].1.last(), Some(&job.unit));
     Ok(())
 }
