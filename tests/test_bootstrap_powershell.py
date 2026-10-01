@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Exercise the real PowerShell bootstrap functions without native service changes."""
+import base64
 import http.server
 import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -20,7 +22,7 @@ import release
 
 
 def quote(value):
-    return "'" + str(value).replace("'", "''") + "'"
+    return "'" + ''.join(character * 2 if character in "'\u2018\u2019\u201a\u201b" else character for character in str(value)) + "'"
 
 
 class PowerShellGenerationTests(unittest.TestCase):
@@ -153,6 +155,40 @@ class PowerShellBootstrapTests(unittest.TestCase):
     def test_windows_architecture_uses_native_os_under_wow64(self):
         self.assert_ok('$env:PROCESSOR_ARCHITECTURE="AMD64"; $env:PROCESSOR_ARCHITEW6432="ARM64"; Assert-Sinan ((Get-HostTarget) -eq "windows-arm64") "wrong native architecture"; $env:PROCESSOR_ARCHITEW6432=""; Assert-Sinan ((Get-HostTarget) -eq "windows-amd64") "wrong native architecture"')
         self.assertNotEqual(self.run_ps('$env:PROCESSOR_ARCHITEW6432=""; $env:PROCESSOR_ARCHITECTURE="X86"; Get-HostTarget').returncode, 0)
+
+    @unittest.skipUnless(shutil.which('rustc'), 'requires rustc to exercise the actual launcher quote function')
+    def test_rust_launcher_quote_recovers_all_arguments_without_smart_quote_injection(self):
+        source = (ROOT / 'crates/panel/src/installation/windows.rs').read_text()
+        function = re.search(r'(?ms)^fn quote\(value: &str\) -> String \{.*?^\}', source).group()
+        harness = self.directory / 'quote.rs'
+        harness.write_text(function + '\nfn main() { for value in std::env::args().skip(1) { for byte in quote(&value).as_bytes() { print!("{byte:02x}"); } println!(); } }\n')
+        executable = self.directory / ('quote.exe' if os.name == 'nt' else 'quote')
+        subprocess.run(['rustc', '--edition=2024', '-C', 'debuginfo=0', str(harness), '-o', str(executable)], check=True, capture_output=True, timeout=30)
+
+        def rust_quote(values):
+            result = subprocess.run([str(executable), *values], check=True, capture_output=True, text=True, timeout=5)
+            return [bytes.fromhex(line).decode() for line in result.stdout.splitlines()]
+
+        delimiters = "'\u2018\u2019\u201a\u201b"
+        exploit = 'https://mirror.example.com/\u2019;[Environment]::Exit(61);\u2018tail'
+        # The original ASCII-only quoting executes the marker before payload dispatch.
+        old_payload = "Capture -Mirror '" + exploit.replace("'", "''") + "'"
+        old_outer = "'" + old_payload.replace("'", "''") + "'"
+        self.assertEqual(self.run_ps('$payload=' + old_outer + '; & ([ScriptBlock]::Create($payload))').returncode, 61)
+        mirrors = [f'https://mirror.example.com/{character};[Environment]::Exit(61);{character}tail' for character in delimiters]
+        mirrors.append('https://mirror.example.com/' + delimiters + '路径/😀')
+        for mirror in mirrors:
+            values = ['0.3.1', 'https://panel.example.com', 'fixture' + delimiters + '\n$([Environment]::Exit(61));', 'windows-arm64', mirror]
+            literals = rust_quote(values)
+            payload = 'Capture ' + ' '.join(f'-{name} {literal}' for name, literal in zip(('Version', 'Panel', 'Token', 'Target', 'Mirror'), literals))
+            outer = rust_quote([payload])[0]
+            code = 'function Capture { param([string]$Version,[string]$Panel,[string]$Token,[string]$Target,[string]$Mirror); foreach($value in @($Version,$Panel,$Token,$Target,$Mirror)) { [Console]::WriteLine([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($value))) } }\n'
+            code += '$payload=' + outer + '; & ([ScriptBlock]::Create($payload))'
+            output = self.assert_ok(code)
+            recovered = [base64.b64decode(line).decode('utf-16le') for line in output.splitlines()]
+            self.assertEqual(recovered, values)
+            # These are valid anonymous HTTPS mirror paths; no installation is run.
+            self.assert_ok('Assert-Mirror ' + literals[-1] + ' https://panel.example.com')
 
     def test_download_bounds_and_panel_redirects_and_numeric_version_selection(self):
         class Handler(http.server.BaseHTTPRequestHandler):

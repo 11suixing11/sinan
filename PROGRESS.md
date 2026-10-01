@@ -1357,3 +1357,9 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 前端按 `1313a29` 的实际源码执行：36 个 Bun 用例、901 个断言、TypeScript/Vite 93 模块构建、19 份产物逐字复现，12 套仓库真实 Chromium 和两套独立浏览器负例全部通过。覆盖自动与精确版本、Unix/Windows 系统和 ABI 筛选、缺少兼容制品、失败后清除旧命令、一次性令牌提示、匿名只读、401 清除秘密、目录选择服务器与监控/旧业务入口；全部请求只用私有回环 API 替身，1440/390 布局与可滚动复制动作已检查。
 - 普通整合后的前端源码、产物和活跃浏览器脚本仍与上述受验输入逐字相同。相对 `86e2ef40`，332 份既有 Rust/插件/Cargo.lock 输入逐字保留；13 个 Rust 例外仅为面板安装入口、已签版本选择、服务器接入路由及对应测试，Agent/core、协议、compiler、SDK、适配器和所有插件没有例外。66 个本地文档链接、core 边界及差异检查通过。
 - Linux 旧 Preparing/full 检查点守卫与 PowerShell Unicode 引号修复由独立脚本审查继续整合，以上前端结果不认证其最终实现；原作者容器与正式根记录没有在本聊天重演。没有运行 Cargo/PostgreSQL 或远端 CI，没有原生平台常驻安装、完整诊断、上传、swap、正式签署/发布或生产部署。CI 继续暂停，NodeQuality full 门禁保留；Windows/macOS/FreeBSD 正式制品和实机验收仍独立待办。
+
+## 2026-10-01 PR #132 PowerShell 字面参数整合补修
+
+- 保留作者 `ae9d6961`。实际定位允许的 HTTPS 镜像路径可含 PowerShell 智能单引号，原 ASCII-only 转义会在外层 payload 赋值时提前执行路径内容。按固定 PowerShell 词法源码将 ASCII 单引号及 U+2018/U+2019/U+201A/U+201B 在参数、外层 payload 两处全部倍写，保留路径原值及单行编码/UAC 后重新下载、Git blob/SHA-256 校验与完整发布验签流程。
+- 在本任务私有目录核对官方 PowerShell 7.5.3 macOS ARM64 归档 SHA-256 `f4fac5c72e8c09ba3b6fb8667f21b1d73556047819857fce7883268d02369cde`，与官方摘要文件及 API 一致；固定词法源码为 `b72c7ab1238c2d95b5c9004bca8399b8b3ca88ac`。真实 PowerShell 本地 11 项通过、0 失败、0 跳过；直接编译受验 Rust quote 函数的隔离小夹具，原转义负对照实际以 61 退出，新转义的五类引号/相邻引号/换行/中文/emoji 在六组双层 payload 中逐值恢复。其余用例覆盖真实 TEST_ONLY minisign、完整清单拒绝、历史身份/目录、回环下载预算与镜像匿名规则。
+- 另只读下载固定官方 bootstrap Git blob，精确核对嵌入入口原字节；Windows minisign 0.12 官方归档和两架构 PE 文件均实际读回并核对固定摘要，没有执行 Windows 二进制。以上是 macOS PowerShell 7 函数及词法夹具，不是 Windows PowerShell 5.1、UAC、Windows ACL/计划任务或真实 Agent 安装验收；本补修子任务未运行 Cargo/PostgreSQL，也未签署、发布、部署或恢复 CI。
