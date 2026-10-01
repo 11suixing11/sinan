@@ -102,6 +102,16 @@ canonical sources/licenses remain intact. Geekbench and other tool traffic,
 rootfs provenance/licenses and full execution remain unresolved. This is not
 an approval to execute the complete toolchain or a claim of zero total upload.
 
+Sinan r14 modifications (2026-10-01): netflix-policy.py verifies each Netflix
+transfer's exit status, final HTTP status and a conservative title-page shape
+before invoking the existing classification. Error text is never used as HTML.
+Per-title failure reasons are retained in text and JSON; other media fields and
+the original licensed source bundle remain unchanged. The helper, input and
+output are SHA256-pinned and the helper is embedded in the artifact. Existing
+r13 tasks/reports remain supported. No live provider or playback validation is
+claimed. UA, cookies, credentials, secondary dependencies and full-run gates
+remain separate work; this change does not enable full diagnostics.
+
 Sinan r13 modifications (2026-10-01): ip-score-policy.py validates the four
 numeric IP scores as JSON integers within 0..100, the ipapi formatted fraction
 as 0..1 with a known label, and DB-IP's categorical level as low/medium/high.

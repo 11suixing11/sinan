@@ -67,7 +67,8 @@ class ScoreTests(unittest.TestCase):
             target = Path(name) / 'sources'
             lock = helper.decode((PLUGIN / 'source-lock.json').read_bytes())
             helper.materialize(helper.decode(helper.pack(lock, READONLY_SOURCES)), target)
-            return helper.serve(target, ['-Ls', 'https://IP.Check.Place'])
+            # Keep the r13 identity assertions exact while r14 adds a later policy.
+            return sources.fixture.undo_netflix('ip.sh', helper.serve(target, ['-Ls', 'https://IP.Check.Place']))
 
     def value(self, response, path, kind):
         if shutil.which('jq') is None:
