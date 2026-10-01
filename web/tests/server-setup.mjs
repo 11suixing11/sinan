@@ -20,19 +20,37 @@ const browser = await chromium.launch({ headless: true, ...(process.env.SINAN_CH
 const screenshots = process.env.SINAN_UI_SCREENSHOT_DIR
 if (screenshots) await mkdir(screenshots, { recursive: true })
 const results = []
-const installCommand = version => `sh -c 'set -eu; d=$(mktemp -d); curl --fail --silent --show-error --proto "=https" --tlsv1.2 -H "Accept: application/vnd.github.raw+json" "$1" -o "$d/bootstrap.sh"; printf "%s  %s\\n" "$2" "$d/bootstrap.sh" | sha256sum -c -; /bin/sh "$d/bootstrap.sh" --tag "$3" --panel "$4" --token "$5"' sinan-bootstrap 'https://api.github.com/repos/theLucius7/sinan/git/blobs/${'1'.repeat(40)}' '${'a'.repeat(64)}' 'agent-v${version}' 'https://panel.example.com' 'TEST_ONLY'`
+const installCommand = (version, platform = 'unix', target = 'auto') => platform === 'windows'
+  ? `& { param($Version,$Panel,$Token,$Target) Write-Output "TEST_ONLY: $Version $Panel $Token $Target" } '${version}' 'https://panel.example.com' 'TEST_ONLY' '${target}'`
+  : `sh -c 'set -eu; d=$(mktemp -d); curl -fsSL "$1" -o "$d/bootstrap.sh"; printf "%s  %s\\n" "$2" "$d/bootstrap.sh" | sha256sum -c -; /bin/sh "$d/bootstrap.sh" --version "$3" --panel "$4" --token "$5" --target "$6"' sinan-bootstrap 'https://api.github.com/repos/theLucius7/sinan/git/blobs/${'1'.repeat(40)}' '${'a'.repeat(64)}' '${version}' 'https://panel.example.com' 'TEST_ONLY' '${target}'`
+const signedVersion = (version, targets, cached_targets = targets) => ({ version, tag: `agent-v${version}`, targets, cached_targets, protocol_min: 1, protocol_max: 1 })
+const catalogue = [signedVersion('0.3.1', ['windows-amd64', 'windows-arm64', 'macos-arm64', 'freebsd-amd64']), signedVersion('0.3.0', ['linux-musl-arm64', 'linux-gnu-amd64'], ['linux-musl-arm64']), signedVersion('0.2.9', ['arm64']), signedVersion('0.2.8', ['linux-gnu-amd64'])]
+const matchesTarget = (entry, target) => {
+  const arch = target.split('-').at(-1)
+  if (target.startsWith('linux-gnu-')) return entry.targets.some(value => [target, `linux-musl-${arch}`, arch].includes(value))
+  if (target.startsWith('linux-musl-')) return entry.targets.some(value => [target, arch].includes(value))
+  return entry.targets.includes(target)
+}
 
 try {
   for (const width of [1440, 390]) {
     const context = await browser.newContext({ viewport: { width, height: width > 800 ? 1000 : 844 } })
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
-    const page = await context.newPage(), errors = [], unexpected = [], creates = [], enrollments = []
+    const page = await context.newPage(), errors = [], unexpected = [], creates = [], enrollments = [], enrollmentTargets = [], enrollmentPlatforms = []
     page.on('pageerror', error => errors.push(error.message))
-    let entry, settings, probes = [], createFailure = true, enrollmentMode = 'failure', statusFailure = false
+    let entry, settings, probes = [], createFailure = true, enrollmentMode = 'failure', statusFailure = false, windowsVersionsMissing = false, allVersionsMissing = false
     await page.route('**/api/**', async route => {
       const request = route.request(), url = new URL(request.url()), path = url.pathname
       const fulfill = (json, status = 200) => route.fulfill({ status, json })
       if (path === '/api/me') return fulfill({ id: 1 })
+      if (path === '/api/artifacts/agent-versions') {
+        const platform = url.searchParams.get('platform'), target = url.searchParams.get('target')
+        let versions = allVersionsMissing ? [] : catalogue
+        if (platform === 'windows') versions = windowsVersionsMissing ? [] : versions.filter(item => item.targets.some(value => value.startsWith('windows-')))
+        if (platform === 'unix') versions = versions.filter(item => item.targets.some(value => !value.startsWith('windows-')))
+        if (target) versions = versions.filter(item => matchesTarget(item, target))
+        return fulfill({ versions })
+      }
       if (path === '/api/servers' && request.method() === 'GET') return fulfill(entry ? [entry] : [])
       if (path === '/api/servers' && request.method() === 'POST') {
         const body = request.postDataJSON(); creates.push(body)
@@ -45,9 +63,11 @@ try {
       if (path === '/api/servers/1') return fulfill(statusFailure ? { error: '测试：状态暂不可用' } : entry, statusFailure ? 503 : 200)
       if (path === '/api/servers/1/enrollment' && request.method() === 'POST') {
         enrollments.push(url.searchParams.get('agent_version'))
+        enrollmentTargets.push(url.searchParams.get('agent_target'))
+        enrollmentPlatforms.push(url.searchParams.get('platform'))
         if (enrollmentMode === 'failure') return fulfill({ error: '测试：命令接口暂不可用' }, 503)
-        const version = url.searchParams.get('agent_version') ?? '0.3.0'
-        return fulfill({ token: 'TEST_ONLY', expires_at: Math.floor(Date.now() / 1000) + (enrollmentMode === 'expired' ? -1 : 86400), installation: enrollmentMode === 'missing' ? null : { version, tag: `agent-v${version}` }, install_command: enrollmentMode === 'missing' ? null : installCommand(version), warning: enrollmentMode === 'missing' ? '测试：请先导入兼容的签名制品' : null })
+        const version = url.searchParams.get('agent_version') ?? 'latest', target = url.searchParams.get('agent_target') ?? 'auto', platform = url.searchParams.get('platform') ?? 'unix'
+        return fulfill({ token: 'TEST_ONLY', expires_at: Math.floor(Date.now() / 1000) + (enrollmentMode === 'expired' ? -1 : 86400), installation: enrollmentMode === 'missing' ? null : { version, tag: version === 'latest' ? null : `agent-v${version}`, target, platform }, install_command: enrollmentMode === 'missing' ? null : installCommand(version, platform, target), warning: enrollmentMode === 'missing' ? '测试：请先导入兼容的签名制品' : null })
       }
       if (path === '/api/servers/1/agent-settings') return fulfill(settings)
       if (path === '/api/servers/1/probes') return fulfill(probes)
@@ -113,14 +133,69 @@ try {
     await dialog.getByRole('button', { name: '复制安装命令' }).waitFor()
     await dialog.getByRole('button', { name: '复制安装命令' }).click()
     await dialog.getByRole('button', { name: '已复制' }).waitFor()
-    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), installCommand('0.3.0'), 'Copy preserves the complete URL command and its shell quoting')
+    const copied = await page.evaluate(() => navigator.clipboard.readText())
+    assert.equal(copied, installCommand('latest'), 'Automatic enrollment lets the actual machine choose its compatible signed version')
+    assert.equal(/[\r\n]/.test(copied), false, 'The copied command contains exactly one physical line')
+    assert.equal(await dialog.locator('code').evaluate(element => getComputedStyle(element).whiteSpace), 'pre', 'The command preview is also displayed on one line')
     assert.equal(await dialog.evaluate(element => element.scrollWidth > element.clientWidth + 1), false, `The URL command overflows the dialog at ${width}px`)
     assert.equal(creates.length, 2, 'Retrying enrollment must not recreate the server')
-    await dialog.getByLabel('Agent 版本', { exact: false }).fill('0.2.9')
+    const versionSelect = dialog.getByLabel('Agent 版本', { exact: false }), targetSelect = dialog.getByLabel('目标系统与架构', { exact: false }), platformSelect = dialog.getByLabel('服务器系统', { exact: false })
+    assert.equal(await versionSelect.inputValue(), '')
+    assert.equal(await targetSelect.inputValue(), '')
+    await targetSelect.selectOption('linux-gnu-amd64')
+    await versionSelect.locator('option[value="0.2.8"]').waitFor({ state: 'attached' })
+    assert.equal(await versionSelect.locator('option[value="0.2.9"]').count(), 0, 'An AMD target excludes ARM-only versions')
+    assert.equal(await versionSelect.locator('option[value="0.3.0"]').count(), 1, 'A signed AMD variant remains selectable when only ARM is cached')
+    await versionSelect.selectOption('0.2.8')
+    await dialog.getByRole('button', { name: '重新生成命令' }).click()
+    await dialog.locator('code').filter({ hasText: '0.2.8' }).waitFor()
+    assert.equal(enrollmentTargets.at(-1), 'linux-gnu-amd64')
+    assert.equal(enrollments.at(-1), '0.2.8')
+    await targetSelect.selectOption('linux-musl-arm64')
+    await versionSelect.locator('option[value="0.2.9"]').waitFor({ state: 'attached' })
+    assert.equal(await versionSelect.inputValue(), '', 'Changing target resets the old version choice')
+    assert.equal(await versionSelect.locator('option[value="0.2.8"]').count(), 0, 'A musl ARM target excludes GNU AMD versions')
+    await versionSelect.selectOption('0.2.9')
     assert.equal(await dialog.getByRole('button', { name: '复制安装命令' }).count(), 0, 'Changing the version hides the old command')
     await dialog.getByRole('button', { name: '重新生成命令' }).click()
-    await dialog.locator('code').filter({ hasText: 'agent-v0.2.9' }).waitFor()
+    await dialog.locator('code').filter({ hasText: '0.2.9' }).waitFor()
     assert.equal(enrollments.at(-1), '0.2.9')
+    await platformSelect.selectOption('windows')
+    await versionSelect.locator('option[value="0.3.1"]').waitFor({ state: 'attached' })
+    assert.equal(await dialog.locator('code').count(), 0, 'Switching to PowerShell hides the old Unix command')
+    assert.equal(await targetSelect.locator('option[value="linux-musl-arm64"]').count(), 0)
+    assert.equal(await versionSelect.locator('option[value="0.2.9"]').count(), 0)
+    await targetSelect.selectOption('windows-arm64')
+    await dialog.getByRole('button', { name: '重新生成命令' }).click()
+    await dialog.getByRole('button', { name: '复制安装命令' }).click()
+    await dialog.getByRole('button', { name: '已复制' }).waitFor()
+    const windowsCommand = await page.evaluate(() => navigator.clipboard.readText())
+    assert.equal(windowsCommand, installCommand('latest', 'windows', 'windows-arm64'), 'Windows receives and copies the PowerShell command')
+    assert.equal(/[\r\n]/.test(windowsCommand), false)
+    assert.equal(enrollmentPlatforms.at(-1), 'windows')
+    await versionSelect.selectOption('0.3.1')
+    await dialog.getByRole('button', { name: '重新生成命令' }).click()
+    await dialog.locator('code').filter({ hasText: '0.3.1' }).waitFor()
+    assert.equal(enrollments.at(-1), '0.3.1')
+    await platformSelect.selectOption('unix')
+    await versionSelect.locator('option[value="0.2.9"]').waitFor({ state: 'attached' })
+    await targetSelect.selectOption('macos-arm64')
+    await versionSelect.locator('option[value="0.3.1"]').waitFor({ state: 'attached' })
+    assert.equal(await versionSelect.locator('option[value="0.3.0"]').count(), 0, 'macOS lists only compatible native versions')
+    await targetSelect.selectOption('freebsd-amd64')
+    await dialog.getByRole('button', { name: '重新生成命令' }).click()
+    await dialog.getByRole('button', { name: '复制安装命令' }).waitFor()
+    assert.equal(enrollmentTargets.at(-1), 'freebsd-amd64')
+    assert.equal(enrollmentPlatforms.at(-1), null)
+    windowsVersionsMissing = true
+    await platformSelect.selectOption('windows')
+    await dialog.getByText(/当前没有适合此系统与架构的已签名版本/).waitFor()
+    assert.equal(await dialog.getByRole('button', { name: '重新生成命令' }).isDisabled(), true, 'No published compatible Windows version cannot produce a misleading install command')
+    assert.equal(await dialog.locator('code').count(), 0)
+    windowsVersionsMissing = false
+    await platformSelect.selectOption('unix')
+    await versionSelect.locator('option[value="0.2.9"]').waitFor({ state: 'attached' })
+    await versionSelect.selectOption('0.2.9')
     enrollmentMode = 'expired'
     await dialog.getByRole('button', { name: '重新生成命令' }).click()
     await dialog.getByText('接入令牌已过期，请重新生成命令。', { exact: true }).waitFor()
@@ -158,10 +233,18 @@ try {
     assert.equal(await dialog.getByRole('heading', { name: '服务器已上线' }).count(), 0, 'An already online device does not confirm an upgrade')
     await page.keyboard.press('Escape')
     await dialog.waitFor({ state: 'hidden' })
+    allVersionsMissing = true
+    const previousEnrollmentCount = enrollments.length
+    await page.getByRole('button', { name: '接入 / 升级', exact: true }).click()
+    await dialog.getByText(/当前没有适合此系统与架构的已签名版本/).waitFor()
+    assert.equal(await dialog.getByRole('button', { name: '复制安装命令' }).count(), 0, 'An empty signed catalogue offers no install command')
+    assert.equal(enrollments.length, previousEnrollmentCount, 'An empty catalogue does not issue an unusable enrollment token')
+    await page.keyboard.press('Escape')
+    await dialog.waitFor({ state: 'hidden' })
     assert.equal(creates.length, 2)
     assert.deepEqual(unexpected, [])
     assert.deepEqual(errors, [])
-    results.push({ width, creation: 'passed', enrollment: 'passed', recovery: 'passed', liveStatus: 'passed', keyboard: 'passed' })
+    results.push({ width, creation: 'passed', enrollment: 'passed', signedVersions: 'passed', platforms: 'passed', singleLineCopy: 'passed', recovery: 'passed', liveStatus: 'passed', keyboard: 'passed' })
     await context.close()
   }
   console.log(JSON.stringify(results, null, 2))

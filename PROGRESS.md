@@ -1131,3 +1131,9 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 保留作者 `88bfb836` 并普通合入主线 `d343ae81` 的已验r8和日常验收文档；看板源码及19份产物逐字保持受验版本，Rust/插件/构建输入逐字保持主线。Bun27通过/843断言、TypeScript/Vite构建与已提交dist完全一致，10套真实Chromium均通过：新看板1440/768/390/320、展示页含键盘历史曲线、资产/接入/IP折叠、TCP/业务/策略组/NQ门禁及确认式取消。额外验证未登录仅请求/api/me、禁用localStorage、键盘导航、全屏拒绝、非法ID及零业务写入；截图实际目视。全部API写入由私有替身承接，不代表线上或真实Agent验收。
 
 本项只改前端与文档，不重跑Rust/PG，也不把先前442或42专项称作该看板实机验收。保留旧诊断full门禁、精确账本与签名生命周期；四workflow继续暂停，未正式签署/发布/部署或触发CI。
+
+## 2026-10-01：四平台单行 Agent 接入（整合前检查）
+
+- 按本聊天追加要求实现 Shell（Linux/macOS/FreeBSD）与 PowerShell（Windows）入口、执行时最新兼容稳定版或显式版、实际 OS/CPU/libc 检测及真实签名目录下拉。一行复制、签名未缓存目标可选，native proof目录、升级回滚与首次失败保留身份重试均补齐。
+- 隔离 PG 的 lib49/releases21/foundation7/platform2/updates2/setup3 共84项通过；all-targets Clippy、fmt/core检查通过。Python Unix入口19项与发布33项（4既有条件跳过）、PowerShell函数9项、Bun30项/850断言与1440/390接入/资产浏览器回归通过。PowerShell在Linux ARM64上执行，不代替Windows ACL/UAC/计划任务或PS5.1实机测试；macOS/FreeBSD没有真实主机安装验收。
+- 此检查对应整合前输入。工作中主线更新到44ba222，AGENTS新增明确Agent二进制必须从GitHub下载、面板不得提供；后续整合保留其原生/镜像及服务器运营改动，入口调整直接GitHub下载并重验。上述结果不追认为整合后的验证，没有触发CI、正式签名/发布或生产部署。

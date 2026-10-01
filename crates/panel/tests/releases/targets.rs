@@ -2,7 +2,7 @@ use super::*;
 use sinan_protocol::release::canonical_asset_name;
 use std::sync::Mutex;
 
-fn multi_arch_bundle() -> Result<Bundle> {
+pub(super) fn multi_arch_bundle() -> Result<Bundle> {
     let mut artifacts = Vec::new();
     for (arch, agent, runtime) in [
         ("arm64", b"arm agent".as_slice(), b"arm runtime".as_slice()),
@@ -35,7 +35,7 @@ fn multi_arch_bundle() -> Result<Bundle> {
     })
 }
 
-async fn import_target(
+pub(super) async fn import_target(
     state: &AppState,
     bundle: &Bundle,
     target: &str,
@@ -187,10 +187,11 @@ async fn inventory_rejects_unsigned_paths_duplicates_and_missing_advertised_payl
         releases::entries(&fixture.state).await,
         Err(ApiError::Conflict(_))
     ));
-    assert!(matches!(
-        releases::select_agent(&fixture.state, None).await,
-        Err(ApiError::Conflict(_))
-    ));
+    // The signed catalogue can still issue a command that repairs this Agent on demand.
+    assert_eq!(
+        releases::select_agent(&fixture.state, None).await?,
+        ("0.3.0".into(), "agent-v0.3.0".into())
+    );
     let downloads = Mutex::new(Vec::new());
     assert_eq!(
         import_target(&fixture.state, &bundle, "arm64", &downloads).await?,

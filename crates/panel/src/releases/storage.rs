@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 const MAX_INVENTORY: usize = 256 * 1024;
 const INVENTORY_FILE: &str = "inventory.json";
 
+#[cfg(test)]
+#[path = "../../../protocol/tests/support/release.rs"]
+mod signing;
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct LocalInventory {
@@ -36,7 +40,7 @@ pub(super) async fn stored_paths(
     Ok(paths)
 }
 
-async fn existing_bytes(path: &Path, maximum: usize) -> Result<Option<Vec<u8>>> {
+pub(super) async fn existing_bytes(path: &Path, maximum: usize) -> Result<Option<Vec<u8>>> {
     if !ordinary_directory(path.parent().context("release file parent")?, false).await? {
         return Ok(None);
     }
@@ -53,6 +57,86 @@ async fn existing_bytes(path: &Path, maximum: usize) -> Result<Option<Vec<u8>>> 
         return Ok(None);
     }
     Ok(Some(ordinary_bytes(path, maximum).await?))
+}
+
+pub(super) async fn publish_agent<A, Aut>(
+    release: &StoredRelease,
+    artifact: &VerifiedArtifact,
+    bytes: &[u8],
+    mut authorize: A,
+) -> ApiResult<()>
+where
+    A: FnMut() -> Aut,
+    Aut: Future<Output = ApiResult<()>>,
+{
+    let root = release.directory.parent().context("release parent")?;
+    let staging = root.join(format!(".staging-{}", Uuid::new_v4()));
+    ordinary_directory(root, false).await.map_err(invalid)?;
+    tokio::fs::create_dir(&staging).await.map_err(invalid)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tokio::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o700))
+            .await
+            .map_err(invalid)?;
+    }
+    let result = async {
+        verify_payload(artifact, bytes).map_err(invalid)?;
+        let staged = staging.join(artifact.path());
+        let parent = staged.parent().context("artifact parent")?;
+        ordinary_directory(parent, true).await.map_err(invalid)?;
+        synced_write(&staged, bytes).await.map_err(invalid)?;
+        let mut paths = release.paths.clone();
+        paths.insert(artifact.path().into());
+        let inventory = serde_json::to_vec(&LocalInventory {
+            paths: paths.into_iter().collect(),
+        })
+        .map_err(invalid)?;
+        synced_write(&staging.join(INVENTORY_FILE), &inventory)
+            .await
+            .map_err(invalid)?;
+        sync_directory(parent).await.map_err(invalid)?;
+        sync_directory(parent.parent().context("component parent")?)
+            .await
+            .map_err(invalid)?;
+        sync_directory(&staging).await.map_err(invalid)?;
+        // A revoked or expired token cannot publish a payload after its download.
+        authorize().await?;
+        checked(
+            proof_at(&release.directory).await.map_err(invalid)? == release.proof
+                && stored_paths(&release.directory, &release.verified)
+                    .await
+                    .map_err(invalid)?
+                    == release.paths,
+            "stored release changed during Agent download",
+        )?;
+        let output = release.directory.join(artifact.path());
+        let parent = output.parent().context("artifact parent")?;
+        ordinary_directory(parent, true).await.map_err(invalid)?;
+        existing_bytes(&output, MAX_ARTIFACT)
+            .await
+            .map_err(invalid)?;
+        existing_bytes(&release.directory.join(INVENTORY_FILE), MAX_INVENTORY)
+            .await
+            .map_err(invalid)?;
+        tokio::fs::rename(&staged, &output).await.map_err(invalid)?;
+        sync_directory(parent).await.map_err(invalid)?;
+        sync_directory(parent.parent().context("component parent")?)
+            .await
+            .map_err(invalid)?;
+        // Only this signed Agent is added; unrelated payloads and proof bytes stay intact.
+        tokio::fs::rename(
+            staging.join(INVENTORY_FILE),
+            release.directory.join(INVENTORY_FILE),
+        )
+        .await
+        .map_err(invalid)?;
+        sync_directory(&release.directory).await.map_err(invalid)?;
+        Ok(())
+    }
+    .await;
+    let _ = tokio::fs::remove_dir_all(&staging).await;
+    result
 }
 
 fn installer_valid(verified: &VerifiedRelease, bytes: &[u8]) -> bool {
@@ -203,4 +287,56 @@ where
     .await;
     let _ = tokio::fs::remove_dir_all(&directory).await;
     result.map_err(invalid)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn expired_authorization_cannot_publish_a_staged_agent() -> Result<()> {
+        let root = std::env::temp_dir()
+            .canonicalize()?
+            .join(format!("sinan-agent-authorization-{}", Uuid::new_v4()));
+        let directory = root.join("agent-v0.3.0");
+        std::fs::create_dir_all(&directory)?;
+        let bytes = b"signed Agent fixture";
+        let entry = signing::entry("agent", "0.3.0", "sinan-agent", "raw", bytes, bytes);
+        let arch = entry.arch.clone();
+        let proof = signing::signed_release(vec![(entry, bytes.to_vec())]);
+        signing::install_proof(&directory, &proof);
+        let verified = verify_release(&proof, &signing::trusted_keys())?;
+        let artifact = verified.artifact("agent", "0.3.0", &arch)?;
+        let output = directory.join(artifact.path());
+        std::fs::create_dir_all(output.parent().context("artifact parent")?)?;
+        std::fs::write(&output, b"previous damaged Agent")?;
+        let release = StoredRelease {
+            directory: directory.clone(),
+            proof,
+            verified,
+            paths: BTreeSet::from([artifact.path().into()]),
+        };
+        let result = publish_agent(&release, &artifact, bytes, || async {
+            Err(ApiError::Unauthorized)
+        })
+        .await;
+        ensure!(
+            matches!(result, Err(ApiError::Unauthorized)),
+            "authorization must fail"
+        );
+        ensure!(
+            std::fs::read(output)? == b"previous damaged Agent",
+            "payload must stay unchanged"
+        );
+        ensure!(
+            !directory.join(INVENTORY_FILE).exists(),
+            "inventory must not be published"
+        );
+        ensure!(
+            std::fs::read_dir(&root)?.count() == 1,
+            "staging must be removed"
+        );
+        std::fs::remove_dir_all(root)?;
+        Ok(())
+    }
 }

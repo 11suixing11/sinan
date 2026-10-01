@@ -274,9 +274,13 @@ class ReleaseTests(unittest.TestCase):
             self.verify()
 
     def test_signed_wrong_protocol_range(self):
-        self.rewrite_metadata(lambda data: data.update(protocol_max=2))
+        self.rewrite_metadata(lambda data: data.update(protocol_min=2, protocol_max=2))
         with self.assertRaises(ValueError):
             self.verify()
+
+    def test_signed_protocol_range_that_includes_this_client_is_compatible(self):
+        self.rewrite_metadata(lambda data: data.update(protocol_max=2))
+        self.assertEqual(self.verify()["protocol_max"], 2)
 
     def test_signed_unknown_metadata_field(self):
         self.rewrite_metadata(lambda data: data.update(public_keys=self.roots))

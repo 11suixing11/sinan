@@ -15,6 +15,8 @@ use sinan_protocol::Artifact;
 pub struct TokenQuery {
     pub token: String,
     pub agent_version: Option<String>,
+    pub agent_target: Option<String>,
+    pub platform: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -71,9 +73,14 @@ pub async fn bootstrap(
     crate::servers::validate_enrollment(&state.pool, &query.token).await?;
     sinan_protocol::release::canonical_path("agent", &version, &arch)
         .map_err(|_| ApiError::NotFound)?;
-    match bytes_response(&state, "agent", &version, &arch).await {
+    let result = async {
+        crate::releases::ensure_bootstrap_agent(&state, &query.token, &version, &arch).await?;
+        bytes_response(&state, "agent", &version, &arch).await
+    }
+    .await;
+    match result {
         Err(ApiError::NotFound) => Err(ApiError::Conflict(format!(
-            "尚未下载 Agent {version} 的 {arch} 制品，请在制品页导入该服务器架构后重试"
+            "尚未导入包含 Agent {version} 的 {arch} 制品的已签名发布，请先在制品页导入该发布"
         ))),
         result => result,
     }
@@ -129,8 +136,14 @@ pub async fn install_script(
     Query(query): Query<TokenQuery>,
 ) -> ApiResult<Response> {
     crate::servers::validate_enrollment(&state.pool, &query.token).await?;
-    let installation =
-        crate::installation::select(&state, query.agent_version.as_deref(), &query.token).await?;
+    let installation = crate::installation::select(
+        &state,
+        query.agent_version.as_deref(),
+        &query.token,
+        query.platform.as_deref(),
+        query.agent_target.as_deref(),
+    )
+    .await?;
     Ok(([(header::CACHE_CONTROL, "no-store")], Json(installation)).into_response())
 }
 
@@ -139,8 +152,13 @@ pub async fn install_powershell(
     Query(query): Query<TokenQuery>,
 ) -> ApiResult<Response> {
     crate::servers::validate_enrollment(&state.pool, &query.token).await?;
-    Err(ApiError::Conflict(
-        "原生平台安装需要独立验证的签名安装器，请查看部署文档；不得执行面板提供的未签名安装脚本"
-            .into(),
-    ))
+    let installation = crate::installation::select(
+        &state,
+        query.agent_version.as_deref(),
+        &query.token,
+        Some("windows"),
+        query.agent_target.as_deref(),
+    )
+    .await?;
+    Ok(([(header::CACHE_CONTROL, "no-store")], Json(installation)).into_response())
 }

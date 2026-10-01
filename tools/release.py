@@ -253,12 +253,12 @@ def verify_signature(bundle, roots, minisign):
     raise ValueError("no trusted key verifies the complete signature")
 
 
-def verify_manifest(bundle, roots, minisign, expected_tag=None):
+def verify_manifest(bundle, roots, minisign, expected_tag=None, protocol_version=1):
     verify_signature(Path(bundle), roots, minisign)
-    return validate_manifest(bundle, expected_tag)
+    return validate_manifest(bundle, expected_tag, protocol_version)
 
 
-def validate_manifest(bundle, expected_tag=None):
+def validate_manifest(bundle, expected_tag=None, protocol_version=1):
     """Validate contents only after an independently successful signature verifier."""
     bundle = Path(bundle)
     ensure(not bundle.is_symlink(), "bundle must not be a symlink")
@@ -281,7 +281,9 @@ def validate_manifest(bundle, expected_tag=None):
     ensure(type(metadata["schema"]) is int and metadata["schema"] == 1
            and metadata["source_repo"] == REPOSITORY, "wrong release identity")
     ensure(type(metadata["protocol_min"]) is int and type(metadata["protocol_max"]) is int
-           and metadata["protocol_min"] == 1 and metadata["protocol_max"] == 1,
+           and 1 <= metadata["protocol_min"] <= metadata["protocol_max"] <= 65535
+           and (protocol_version is None
+                or metadata["protocol_min"] <= protocol_version <= metadata["protocol_max"]),
            "unsupported protocol range")
     ensure(expected_tag is None or metadata["tag"] == expected_tag, "wrong release tag")
     ensure(isinstance(metadata["artifacts"], list) and 0 < len(metadata["artifacts"]) <= 30,

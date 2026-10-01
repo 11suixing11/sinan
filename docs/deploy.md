@@ -110,11 +110,22 @@ Linux musl 静态 Agent 保留原制品目录。GNU、macOS、Windows、FreeBSD 
 
 ## 复制安装命令
 
-官方部署不需要预装 `sinan-bootstrap`。在接入页面复制完整命令，粘贴到运行 systemd 或 OpenRC 的目标 Linux 服务器执行；普通管理员账户需要 `sudo`，也可直接以 root 执行。目标服务器需要基本 shell 工具，以及可访问官方 GitHub、系统软件源和面板的网络；缺少 `curl` 时命令先通过系统软件源自动安装。
+接入页选择 Shell 或 PowerShell，并选择“自动匹配”或真实已签版本。复制的一行命令可在目标服务器执行：
 
-命令从官方 GitHub 的固定 blob URL 下载自包含入口，核对 SHA-256 后才执行。入口通过系统软件源自动准备 Python、minisign 等工具，使用内嵌的正式公开根验证已签 Release 和静态安装器，只下载本机 Agent 架构。缺少对应制品时，在制品页选择目标架构重复导入；不要用另一个架构的二进制替代。一次性令牌过期或已使用时，重新生成命令。
+| 服务器 | 入口与权限 | 常驻方式 |
+|---|---|---|
+| Linux AMD64/ARM64，GNU 或 musl | Shell，root 或具备 sudo 的管理员 | systemd / OpenRC |
+| macOS ARM64 | Shell，root 或具备 sudo 的管理员 | launchd |
+| FreeBSD AMD64/ARM64 | Shell，root 或具备 sudo 的管理员 | rc.d |
+| Windows AMD64/ARM64 | PowerShell，普通终端触发 UAC 提升或直接使用管理员终端 | 计划任务 |
 
-首次信任来源为官方 GitHub HTTPS 渠道与已批准的入口公钥，不从面板下载新的发布根。旧 `/install.sh` 仅提供安装描述 JSON，不能管道执行。自建根、离线部署或需要独立预置验证器时使用下一节。决策与适用范围见 [ADR 0037](adr/0037-bootstrap-and-selective-import.md)。
+自动匹配在执行时识别本机系统与 CPU/ABI，选择最新兼容稳定版本；指定版本时只安装该版本。macOS AMD64、32 位系统和未知 ABI 会明确拒绝，不能借其他系统制品安装。需要对应平台的正式签名 Agent 发布；版本下拉只提供已经导入完整签名 proof 的版本。没有签名制品的平台会提示先发布并导入。
+
+命令从官方 GitHub 固定 blob 下载自包含入口，核对 SHA-256 后才执行。Linux/FreeBSD 自动使用系统软件源准备依赖，macOS 在缺少 Python 时安装固定官方 pkg 并准备固定 minisign，Windows 自动准备本机架构 minisign。目标服务器需能访问官方 GitHub、平台依赖来源和面板；Linux 需运行中的 systemd 或 OpenRC。
+
+入口独立验证正式根、完整发布 proof 和本机兼容性。即使面板只缓存 ARM，AMD 服务器也可安装同一签名发布的 AMD Agent：有效令牌请求时面板仅按需补对应 Agent；运行时和其他架构不会因此下载。已损坏普通文件按签名恢复，软链路径拒绝。重复安装保留原设备身份，缓存预检失败时不会切换服务；令牌过期或已使用时重新生成命令。
+
+首次信任来源为固定官方 HTTPS 渠道与已批准的入口公钥，不从面板下载新的发布根。`/install.sh` 和 `/install.ps1` 仅提供安装描述 JSON，不能管道执行。自建根、离线部署或需要独立预置验证器时使用下一节。决策与适用范围见 [ADR 0037](adr/0037-bootstrap-and-selective-import.md) 与 [ADR 0038](adr/0038-cross-platform-enrollment.md)。Windows/macOS/FreeBSD 入口的函数与签名测试不替代真实平台服务安装验收。
 
 ## 手动准备可信 bootstrap
 
@@ -188,7 +199,7 @@ bootstrap 的公钥文件仅用于独立确认安装起点；它不会写进 Age
 
 Agent 支持自动更新，默认关闭。安装好的监督服务可在服务器详情“Agent 设置”中开启“自动更新 Agent”，从绑定面板选择协议兼容、匹配平台且签名通过的新稳定版本；正常检查间隔约六小时并附加抖动。更新保留身份和账本，代理运行时独立运行；试运行失败或未确认的更新中断会恢复旧 Agent。具体平台与恢复边界见 [设备平台与能力](platforms.md#监控任务与更新)。
 
-手动升级时，导入协议兼容的新签名 Release 后，到原服务器详情点击“接入 / 升级”，可指定已导入的 Agent 版本，签发**新的**一次性令牌，再执行可信 bootstrap 命令。面板和 Agent 产品版本无需相同；首次安装使用独立预置验证器，重复安装可以明确指定已信任的旧 Agent 验证下一版。
+手动升级时，导入协议兼容的新签名 Release 后，到原服务器详情点击“接入 / 升级”，可指定已导入的 Agent 版本，签发**新的**一次性令牌，再执行可信 bootstrap 命令。面板和 Agent 产品版本无需相同；普通首次安装使用页面的独立单行入口；自建根/离线流程继续独立预置验证器，重复安装也可明确指定已信任的旧 Agent 验证下一版。
 
 安装器先核对签名和实际内容，预检既有运行时、诊断和未完成回滚引用，再注册暂存 Agent、切换当前版本并重启 Agent。身份、配置与状态库继续保留；同一服务器只允许原公钥再次注册，不能复制其他设备的身份目录。旧命令消费后不可复用。
 

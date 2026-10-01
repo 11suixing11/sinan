@@ -215,6 +215,8 @@ pub async fn remove(
 #[derive(Deserialize, Default)]
 pub struct EnrollmentQuery {
     pub agent_version: Option<String>,
+    pub agent_target: Option<String>,
+    pub platform: Option<String>,
 }
 
 pub async fn issue_enrollment(
@@ -226,6 +228,27 @@ pub async fn issue_enrollment(
     require_admin(&state, &headers).await?;
     let token = random_token();
     let expires_at = now_timestamp() + 86_400;
+    let selection = crate::installation::select(
+        &state,
+        query.agent_version.as_deref(),
+        &token,
+        query.platform.as_deref(),
+        query.agent_target.as_deref(),
+    )
+    .await;
+    let (install_command, installation, warning) = match selection {
+        Ok(installation) => (
+            Some(installation.install_command.clone()),
+            Some(json!(installation)),
+            None,
+        ),
+        Err(ApiError::Conflict(_)) => (
+            None,
+            None,
+            Some("请先导入协议兼容且已签名的 Agent Release，再获取安装命令"),
+        ),
+        Err(error) => return Err(error),
+    };
     let mut transaction = state.pool.begin().await?;
     let exists =
         sqlx::query("SELECT id FROM servers WHERE id = $1 AND deleted_at IS NULL FOR UPDATE")
@@ -244,20 +267,6 @@ pub async fn issue_enrollment(
     .execute(&mut *transaction)
     .await?;
     transaction.commit().await?;
-    let selection =
-        crate::installation::select(&state, query.agent_version.as_deref(), &token).await;
-    let (install_command, installation, warning) = match selection {
-        Ok(installation) => (
-            Some(installation.install_command.clone()),
-            Some(json!(installation)),
-            None,
-        ),
-        Err(_) => (
-            None,
-            None,
-            Some("请先导入协议兼容且已签名的 Agent Release，再获取安装命令"),
-        ),
-    };
     Ok(Json(
         json!({"token": token, "expires_at": expires_at, "install_command": install_command,
         "installation": installation, "warning": warning}),

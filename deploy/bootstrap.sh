@@ -1,63 +1,168 @@
 #!/bin/sh
 # Independent official bootstrap. Generated with the audited release verifier and roots.
 set -eu
-PATH=/usr/sbin:/usr/bin:/sbin:/bin
+PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin:/usr/local/bin
 export PATH
 umask 077
 
 if [ "${1:-}" = --help ]; then
-  printf '%s\n' '用法: bootstrap.sh --tag agent-v版本 --panel https://面板 --token 一次性接入令牌'
+  printf '%s\n' '用法: bootstrap.sh --panel https://面板 --token 接入令牌 --version latest或版本 --target auto或平台'
   exit 0
 fi
 if [ "$(id -u)" != 0 ]; then
   command -v sudo >/dev/null || { echo '请以 root 执行安装命令，或先安装 sudo' >&2; exit 1; }
   exec sudo /bin/sh "$0" "$@"
 fi
-[ "$(uname -s)" = Linux ] || { echo '此接入入口需要 Linux systemd 或 OpenRC' >&2; exit 1; }
-case "$(uname -m)" in x86_64|aarch64|arm64) ;; *) echo '此接入入口仅支持 amd64 和 arm64' >&2; exit 1 ;; esac
+PLATFORM=$(uname -s)
+case "$PLATFORM" in
+  Linux)
+    STAGING_BASE=/opt/sinan
+    if [ -d /run/systemd/system ] && command -v systemctl >/dev/null; then :
+    elif [ -f /run/openrc/softlevel ] && command -v rc-service >/dev/null && command -v rc-update >/dev/null; then :
+    else echo 'Linux 接入需要运行中的 systemd 或 OpenRC' >&2; exit 1; fi
+    ;;
+  Darwin)
+    [ "$(uname -m)" = arm64 ] || { echo 'macOS Agent 仅支持 ARM64' >&2; exit 1; }
+    STAGING_BASE=/opt/sinan
+    ;;
+  FreeBSD) STAGING_BASE=/opt/sinan ;;
+  *) echo '此入口支持 Linux、macOS 和 FreeBSD；Windows 请使用 PowerShell 入口' >&2; exit 1 ;;
+esac
+case "$(uname -m)" in x86_64|amd64|aarch64|arm64) ;; *) echo '此接入入口仅支持 AMD64 和 ARM64' >&2; exit 1 ;; esac
+
+# /run and system temporary volumes can be noexec; /opt is the Agent executable volume.
+protected_directory() {
+  PROTECTED_CHECK=$1
+  while :; do
+    [ -d "$PROTECTED_CHECK" ] && [ ! -L "$PROTECTED_CHECK" ] || { echo '安装临时目录与父目录必须是普通目录' >&2; exit 1; }
+    if [ "$PLATFORM" = Linux ]; then
+      PROTECTED_OWNER=$(stat -c '%u' "$PROTECTED_CHECK")
+      PROTECTED_MODE=$(stat -c '%a' "$PROTECTED_CHECK")
+    else
+      PROTECTED_OWNER=$(/usr/bin/stat -f '%u' "$PROTECTED_CHECK")
+      PROTECTED_MODE=$(/usr/bin/stat -f '%Lp' "$PROTECTED_CHECK")
+    fi
+    [ "$PROTECTED_OWNER" = 0 ] && [ "$((0$PROTECTED_MODE & 022))" = 0 ] || { echo '安装临时目录与父目录必须由 root 保护，不能由其他账户写入' >&2; exit 1; }
+    [ "$PROTECTED_CHECK" != / ] || break
+    PROTECTED_CHECK=$(dirname "$PROTECTED_CHECK")
+  done
+}
+EXISTING_PARENT=$STAGING_BASE
+while [ ! -e "$EXISTING_PARENT" ] && [ ! -L "$EXISTING_PARENT" ]; do EXISTING_PARENT=$(dirname "$EXISTING_PARENT"); done
+protected_directory "$EXISTING_PARENT"
+(umask 022; mkdir -p "$STAGING_BASE")
+protected_directory "$STAGING_BASE"
+STAGING=$(mktemp -d "$STAGING_BASE/sinan-bootstrap.XXXXXX")
+cleanup() { rm -rf "$STAGING"; }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' HUP TERM
+PYTHON=python3
+MINISIGN=minisign
+
+if [ "$PLATFORM" = Darwin ]; then
+  # Use independently pinned upstream tools instead of running Homebrew as root.
+  PYTHON=/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13
+  if [ ! -x "$PYTHON" ]; then
+    /usr/bin/curl --fail --silent --show-error --proto '=https' --noproxy '*' --connect-timeout 20 --max-time 600 --max-filesize 100000000 https://www.python.org/ftp/python/3.13.16/python-3.13.16-macos11.pkg -o "$STAGING/python.pkg"
+    printf '%s  %s\n' 30666509020b4da0dd8bc2e773255f34d76b7bb80b66960a928d5f6daa0192d7 "$STAGING/python.pkg" | /usr/bin/shasum -a 256 -c - >/dev/null
+    /usr/sbin/pkgutil --check-signature "$STAGING/python.pkg" >/dev/null
+    /usr/sbin/installer -pkg "$STAGING/python.pkg" -target /
+  fi
+  # Resolve the fixed official Framework alias, then execute only its protected real path.
+  PYTHON_LINKS=0
+  while [ -L "$PYTHON" ]; do
+    PYTHON_LINKS=$((PYTHON_LINKS + 1))
+    [ "$PYTHON_LINKS" -le 16 ] || { echo 'Python Framework 链接过多' >&2; exit 1; }
+    PYTHON_PARENT=$(dirname "$PYTHON")
+    PYTHON_LINK=$(/usr/bin/readlink "$PYTHON")
+    case "$PYTHON_LINK" in /*) PYTHON=$PYTHON_LINK ;; *) PYTHON="$PYTHON_PARENT/$PYTHON_LINK" ;; esac
+  done
+  PYTHON_PARENT=$(cd -P "$(dirname "$PYTHON")" && pwd -P)
+  PYTHON="$PYTHON_PARENT/$(basename "$PYTHON")"
+  PYTHON_CHECK=$PYTHON
+  while :; do
+    PYTHON_OWNER=$(/usr/bin/stat -f '%u' "$PYTHON_CHECK")
+    PYTHON_MODE=$(/usr/bin/stat -f '%Lp' "$PYTHON_CHECK")
+    [ "$PYTHON_OWNER" = 0 ] && [ "$((0$PYTHON_MODE & 022))" = 0 ] && [ ! -L "$PYTHON_CHECK" ] || { echo 'Python Framework 与父目录必须由 root 保护' >&2; exit 1; }
+    [ "$PYTHON_CHECK" != / ] || break
+    PYTHON_CHECK=$(dirname "$PYTHON_CHECK")
+  done
+  /usr/bin/curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --noproxy '*' --connect-timeout 20 --max-time 120 --max-filesize 1000000 https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-macos.zip -o "$STAGING/minisign.zip"
+  printf '%s  %s\n' 89000b19535765f9cffc65a65d64a820f433ef6db8020667f7570e06bf6aac63 "$STAGING/minisign.zip" | /usr/bin/shasum -a 256 -c - >/dev/null
+  "$PYTHON" -I - "$STAGING/minisign.zip" "$STAGING/minisign" <<'PY'
+import hashlib, pathlib, stat, sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    if set(archive.namelist()) != {'minisign', '._minisign'}:
+        raise SystemExit('minisign 官方归档包含非预期文件')
+    member = archive.getinfo('minisign')
+    if member.file_size != 180736 or member.is_dir() or stat.S_ISLNK(member.external_attr >> 16):
+        raise SystemExit('minisign 官方归档文件无效')
+    data = archive.read(member)
+    if hashlib.sha256(data).hexdigest() != 'd41cde458303d45c95b00473e2455a7f45f95b550931f1f0cc98ef1f61b2a8ff':
+        raise SystemExit('minisign 官方可执行文件摘要不匹配')
+    target = pathlib.Path(sys.argv[2])
+    target.write_bytes(data)
+    target.chmod(0o700)
+PY
+  MINISIGN="$STAGING/minisign"
+  /usr/bin/security find-certificate -a -p /System/Library/Keychains/SystemRootCertificates.keychain > "$STAGING/system-ca.pem"
+  [ -s "$STAGING/system-ca.pem" ] || { echo '无法读取 macOS 系统信任根证书' >&2; exit 1; }
+  SSL_CERT_FILE="$STAGING/system-ca.pem"
+  export SSL_CERT_FILE
+else
 
 NEEDS_PACKAGES=0
-for tool in python3 minisign install getent cmp mv seq; do
+TOOLS='python3'
+if [ "$PLATFORM" = Linux ]; then
+  TOOLS="$TOOLS install getent cmp mv seq"
+  mv --version >/dev/null 2>&1 || NEEDS_PACKAGES=1
+else
+  TOOLS="$TOOLS minisign"
+fi
+for tool in $TOOLS; do
   command -v "$tool" >/dev/null || NEEDS_PACKAGES=1
 done
 if [ "$NEEDS_PACKAGES" = 1 ]; then
   printf '%s\n' '正在通过系统软件源准备 Python、minisign 和安装工具。'
   if command -v apt-get >/dev/null; then
     apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 minisign ca-certificates coreutils libc-bin passwd
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 ca-certificates coreutils libc-bin passwd
   elif command -v apk >/dev/null; then
-    apk add --no-cache python3 minisign ca-certificates coreutils musl-utils shadow
+    apk add --no-cache python3 ca-certificates coreutils musl-utils shadow
   elif command -v dnf >/dev/null; then
-    dnf install -y python3 minisign ca-certificates coreutils glibc-common shadow-utils
+    dnf install -y python3 ca-certificates coreutils glibc-common shadow-utils
   elif command -v yum >/dev/null; then
-    yum install -y python3 minisign ca-certificates coreutils glibc-common shadow-utils
+    yum install -y python3 ca-certificates coreutils glibc-common shadow-utils
+  elif [ "$PLATFORM" = FreeBSD ] && command -v pkg >/dev/null; then
+    ASSUME_ALWAYS_YES=yes pkg bootstrap -f
+    pkg install -y python3 minisign ca_root_nss
   else
-    echo '无法自动准备安装工具：需要 apt-get、apk、dnf 或 yum 软件源' >&2
+    echo '无法自动准备安装工具：需要系统 apt-get、apk、dnf、yum 或 FreeBSD pkg 软件源' >&2
     exit 1
   fi
 fi
-for tool in python3 minisign install getent cmp mv seq; do
+for tool in $TOOLS; do
   command -v "$tool" >/dev/null || { echo "系统软件源未提供所需工具: $tool" >&2; exit 1; }
 done
-
-# A protected parent is required because the bootstrap rejects writable trust paths.
-STAGING=$(mktemp -d /run/sinan-bootstrap.XXXXXX)
-cleanup() { rm -rf "$STAGING"; }
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' HUP TERM
-cat > "$STAGING/bootstrap.py" <<'SINAN_BOOTSTRAP_89B24407E0B9F17187979BBC89C5656C2034ECB4BF65F135C1A601CC3A1C3AFA'
+fi
+cat > "$STAGING/bootstrap.py" <<'SINAN_BOOTSTRAP_332E2D1CAC820E4E48B3072A15EA435D29E26E86A163BD765081A9E1ACB6D3FC'
 #!/usr/bin/env python3
 """Trusted, operator-provisioned bootstrap; never fetched from the panel and executed."""
 
 import argparse
+import hashlib
 import ipaddress
 import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
+import tarfile
 import tempfile
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -66,6 +171,18 @@ from release import (REPOSITORY, VERSION, ensure, load_roots, read_regular,
 
 GITHUB_DOWNLOAD_HOSTS = frozenset(("github.com", "release-assets.githubusercontent.com",
                                     "objects.githubusercontent.com"))
+PROTOCOL_VERSION = 1
+MINISIGN_LINUX_ARCHIVE_SHA256 = "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73"
+MINISIGN_LINUX_BINARIES = {
+    "x86_64": (288200, "2c74dffcc1c9a5ee55957c60971998ace2b89f22585631594ec2152c588af8db"),
+    "aarch64": (195288, "cec9f88be8c975af76854a53b4d49c3d257feae38d916edb0d16fb55aacd3000"),
+}
+PROOF_FILES = (("SHA256SUMS", 8192), ("SHA256SUMS.minisig", 16384),
+               ("release.json", 32768), ("install.sh", 262144))
+
+
+class IncompatibleRelease(ValueError):
+    pass
 
 
 def validate_github_url(url):
@@ -118,9 +235,282 @@ def download(base, name, destination, limit):
     destination.write_bytes(data)
 
 
+def prepare_linux_minisign(staging):
+    ensure(platform.system() == "Linux", "minisign 静态后备包仅适用于 Linux")
+    machine = {"amd64": "x86_64", "arm64": "aarch64"}.get(platform.machine(), platform.machine())
+    ensure(machine in MINISIGN_LINUX_BINARIES, "minisign 不支持此 CPU")
+    staging = Path(staging)
+    require_protected_file(staging)
+    archive = staging / "minisign.tar.gz"
+    download("https://github.com/jedisct1/minisign/releases/download/0.12",
+             "minisign-0.12-linux.tar.gz", archive, 1048576)
+    ensure(hashlib.sha256(archive.read_bytes()).hexdigest() == MINISIGN_LINUX_ARCHIVE_SHA256,
+           "minisign 官方后备归档摘要不匹配")
+    name = "minisign-linux/" + machine + "/minisign"
+    size, checksum = MINISIGN_LINUX_BINARIES[machine]
+    with tarfile.open(archive, "r:gz") as source:
+        matches = [member for member in source if member.name == name]
+        ensure(len(matches) == 1 and matches[0].isfile() and matches[0].size == size,
+               "minisign 官方后备包缺少唯一目标 CPU 文件")
+        binary = source.extractfile(matches[0]).read(size + 1)
+    ensure(len(binary) == size and hashlib.sha256(binary).hexdigest() == checksum,
+           "minisign 官方后备可执行文件摘要不匹配")
+    target = staging / "minisign"
+    target.write_bytes(binary)
+    target.chmod(0o700)
+    return str(target)
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, response, code, message, headers, new_url):
+        raise ValueError("面板响应禁止重定向")
+
+
+def panel_opener():
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+
+
+def host_target():
+    arch = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine())
+    ensure(arch is not None, "仅支持 AMD64 和 ARM64 架构")
+    system = platform.system()
+    if system == "Darwin":
+        ensure(arch == "arm64", "macOS Agent 仅支持 ARM64")
+        return "macos-arm64"
+    if system == "FreeBSD":
+        return "freebsd-" + arch
+    ensure(system == "Linux", "此入口支持 Linux、macOS 和 FreeBSD；Windows 请使用 PowerShell 入口")
+    libc = platform.libc_ver()[0].lower()
+    if libc in ("glibc", "gnu"):
+        return "linux-gnu-" + arch
+    if libc == "musl" or list(Path("/lib").glob("ld-musl-*.so.1")):
+        return "linux-musl-" + arch
+    try:
+        result = subprocess.run(["ldd", "--version"], capture_output=True, check=False, timeout=10)
+        description = (result.stdout + result.stderr).decode("utf-8", errors="replace").lower()
+    except (OSError, subprocess.TimeoutExpired):
+        description = ""
+    if "musl" in description:
+        return "linux-musl-" + arch
+    if "glibc" in description or "gnu libc" in description:
+        return "linux-gnu-" + arch
+    raise ValueError("无法识别 Linux libc，拒绝猜测 GNU/musl 制品")
+
+
+def compatible_targets(actual, requested="auto"):
+    if actual.startswith("linux-"):
+        arch = actual.rsplit("-", 1)[1]
+        targets = ["linux-musl-" + arch, arch]
+        if actual.startswith("linux-gnu-"):
+            targets.append(actual)
+    else:
+        targets = [actual]
+    ensure(requested == "auto" or requested in targets,
+           f"所选平台 {requested} 与本机 {actual} 不兼容，请选择自动匹配或本机平台")
+    if requested != "auto":
+        targets.remove(requested)
+        targets.insert(0, requested)
+    return targets
+
+
+def catalog(panel, token, target, version):
+    validate_panel_origin(panel)
+    parameters = {"token": token, "target": target}
+    if version != "latest":
+        parameters["agent_version"] = version
+    url = panel.rstrip("/") + "/api/bootstrap/versions?" + urllib.parse.urlencode(parameters)
+    try:
+        with panel_opener().open(url, timeout=30) as response:
+            ensure(response.status == 200 and response.url == url, "接入版本目录响应无效")
+            encoded = response.read(131073)
+    except urllib.error.HTTPError as error:
+        raise ValueError("无法获取接入版本，请检查令牌是否有效以及面板是否已导入签名 Release") from error
+    ensure(0 < len(encoded) <= 131072, "接入版本目录超出大小限制")
+    value = json.loads(encoded)
+    ensure(isinstance(value, dict) and isinstance(value.get("versions"), list)
+           and len(value["versions"]) <= 256, "接入版本目录格式无效")
+    candidates = []
+    seen = set()
+    for item in value["versions"]:
+        ensure(isinstance(item, dict), "接入版本条目无效")
+        release_version = item.get("version")
+        ensure(isinstance(release_version, str) and VERSION.fullmatch(release_version)
+               and item.get("tag") == "agent-v" + release_version
+               and isinstance(item.get("targets"), list)
+               and all(isinstance(t, str) for t in item["targets"]), "接入版本身份无效")
+        if version != "latest" and release_version != version:
+            continue
+        if version == "latest" and not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", release_version):
+            continue
+        if release_version not in seen:
+            seen.add(release_version)
+            candidates.append(item)
+    candidates.sort(key=lambda item: tuple(int(part) for part in item["version"].split("-")[0].split("+")[0].split(".")), reverse=True)
+    ensure(candidates, f"面板未导入本机 {target} 可用的签名 Agent 版本，请先导入 Release")
+    return candidates
+
+
+def select_artifact(metadata, version, actual, requested="auto"):
+    ensure(metadata["tag"] == "agent-v" + version, "签名发布版本与所选版本不匹配")
+    if not metadata["protocol_min"] <= PROTOCOL_VERSION <= metadata["protocol_max"]:
+        raise IncompatibleRelease("签名 Agent 发布不支持此接入入口的协议版本")
+    for target in compatible_targets(actual, requested):
+        matches = [item for item in metadata["artifacts"] if
+                   (item["name"], item["version"], item["arch"]) == ("agent", version, target)]
+        if matches:
+            ensure(len(matches) == 1, "签名发布重复了本机 Agent 身份")
+            item = matches[0]
+            ensure(item["format"] == "raw" and item["binary_name"] == "sinan-agent"
+                   and item["archive_size"] == item["binary_size"], "签名 Agent 格式不匹配")
+            return item
+    raise IncompatibleRelease(f"签名发布 {version} 没有本机 {actual} 可运行的 Agent")
+
+
+def download_agent(panel, token, item, destination):
+    validate_panel_origin(panel)
+    expected_size = item["archive_size"]
+    ensure(type(expected_size) is int and 0 < expected_size <= 256 * 1024 * 1024,
+           "已签 Agent 大小无效")
+    url = (panel.rstrip("/") + "/api/bootstrap/" + urllib.parse.quote(item["version"], safe="")
+           + "/" + urllib.parse.quote(item["arch"], safe="")
+           + "?" + urllib.parse.urlencode({"token": token}))
+    deadline = time.monotonic() + 300
+    try:
+        with panel_opener().open(url, timeout=30) as response:
+            ensure(response.status == 200 and response.url == url, "面板 Agent 响应无效")
+            declared = response.headers.get("Content-Length")
+            ensure(declared is None or int(declared) == expected_size, "面板 Agent 声明长度不匹配")
+            total, digest = 0, hashlib.sha256()
+            with destination.open("xb") as output:
+                while True:
+                    ensure(time.monotonic() < deadline, "Agent 下载超时")
+                    data = response.read(min(65536, expected_size + 1 - total))
+                    ensure(time.monotonic() < deadline, "Agent 下载超时")
+                    if not data:
+                        break
+                    total += len(data)
+                    ensure(total <= expected_size, "Agent 超出已签大小")
+                    output.write(data)
+                    digest.update(data)
+            ensure(total == expected_size and digest.hexdigest() == item["binary_sha256"],
+                   "Agent 不符合已签大小或摘要，拒绝执行")
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
+
+
+def checked_agent(agent, arguments):
+    result = subprocess.run([str(agent)] + arguments, check=False)
+    ensure(result.returncode == 0, "Agent 验证、接入或服务安装失败；已有版本未通过切换验收")
+
+
+def native_paths(actual):
+    configuration = Path("/private/etc/sinan/agent.toml" if actual == "macos-arm64" else "/etc/sinan/agent.toml")
+    base = Path("/private/var" if actual == "macos-arm64" else "/var")
+    return configuration, Path("/usr/local/bin/sinan-agent"), base, Path("/opt/sinan/core")
+
+
+def normalized_origin(value):
+    validate_panel_origin(value)
+    parsed = urllib.parse.urlsplit(value)
+    hostname = parsed.hostname.lower()
+    try:
+        hostname = ipaddress.ip_address(hostname).compressed
+    except ValueError:
+        hostname = hostname.encode("idna").decode("ascii")
+    return parsed.scheme.lower(), hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
+
+
+def validate_partial_identity(identity, panel):
+    if not identity.exists() and not identity.is_symlink():
+        return
+    require_protected_file(identity)
+    ensure(identity.is_dir() and not identity.is_symlink(), "首次接入身份目录必须是普通受控目录")
+    names = {path.name for path in identity.iterdir()}
+    if not names:
+        return
+    ensure("panel_origin" in names and names <= {"device.key", "panel_origin", "server_id"}
+           and ("server_id" not in names or "device.key" in names),
+           "已有身份不是可恢复的首次接入状态，请先核对已有安装")
+    key = identity / "device.key"
+    if "device.key" in names:
+        require_protected_file(key)
+        ensure(key.stat().st_mode & 0o077 == 0 and len(read_regular(key, 32)) == 32,
+               "首次接入的设备密钥必须是私有 32 字节文件")
+    origin = identity / "panel_origin"
+    require_protected_file(origin)
+    recorded = read_regular(origin, 8192).decode("utf-8").strip()
+    ensure(normalized_origin(recorded) == normalized_origin(panel),
+           "首次接入身份属于另一面板，请使用原面板重新获取令牌")
+    server = identity / "server_id"
+    if server.exists() or server.is_symlink():
+        require_protected_file(server)
+        value = read_regular(server, 32).decode("ascii").strip()
+        ensure(re.fullmatch(r"[1-9][0-9]{0,18}", value) and int(value) <= 9223372036854775807,
+               "首次接入的服务器身份无效")
+
+
+def install_native(bundle, panel, token, item, actual):
+    import tomllib
+
+    agent = bundle / "sinan-agent"
+    download_agent(panel, token, item, agent)
+    agent.chmod(0o755)
+    checked_agent(agent, ["verify-installed", "--binary", str(agent), "--name", "agent", "--format", "raw"])
+    configuration, command, base, agent_root = native_paths(actual)
+    if command.exists() or command.is_symlink():
+        ensure(command.is_symlink(), "已有 /usr/local/bin/sinan-agent 普通文件，请先核对安装来源")
+    if command.parent.exists():
+        require_protected_file(command.parent)
+    previous_configuration = None
+    if configuration.exists() or configuration.is_symlink():
+        require_protected_file(configuration)
+        checked_agent(agent, ["--config", str(configuration), "verify-cache"])
+        saved = tomllib.loads(read_regular(configuration, 1048576).decode("utf-8"))
+        previous_configuration = configuration.read_bytes()
+        if "agent_root" in saved:
+            ensure(isinstance(saved["agent_root"], str) and Path(saved["agent_root"]).is_absolute(), "已有 Agent 安装目录无效")
+            agent_root = Path(saved["agent_root"])
+    else:
+        identity = configuration.parent / "identity"
+        roots = [base / ("lib/sinan/core/state.db" + suffix) for suffix in ("", "-wal", "-shm")]
+        roots.append(agent_root / "current")
+        roots.extend(Path("/opt/sinan/plugins").glob("*/current"))
+        ensure(not any(path.exists() or path.is_symlink() for path in roots),
+               "已有 Agent 状态但缺少配置，无法安全预检；请先修复已有安装")
+        validate_partial_identity(identity, panel)
+    previous_agent = agent_root / "current/sinan-agent"
+    if previous_agent.exists():
+        previous_agent = previous_agent.resolve(strict=True)
+        checked_agent(agent, ["verify-installed", "--binary", str(previous_agent), "--name", "agent", "--format", "raw"])
+    try:
+        checked_agent(agent, ["--config", str(configuration), "enroll", "--panel", panel, "--token", token])
+        checked_agent(agent, ["--config", str(configuration), "install-service"])
+    except (ValueError, OSError):
+        if previous_configuration is not None:
+            with tempfile.NamedTemporaryFile(prefix=".sinan-config-rollback-", dir=configuration.parent, delete=False) as output:
+                restoration = Path(output.name)
+                output.write(previous_configuration)
+                output.flush()
+                os.fsync(output.fileno())
+            restoration.chmod(0o600)
+            restoration.replace(configuration)
+            # The native CLI restores its previous current link; reload its restored configuration.
+            if previous_agent.exists():
+                checked_agent(agent, ["verify-installed", "--binary", str(previous_agent), "--name", "agent", "--format", "raw"])
+                checked_agent(previous_agent, ["--config", str(configuration), "install-service"])
+        raise
+    command.parent.mkdir(parents=True, exist_ok=True)
+    temporary = command.with_name(".sinan-agent-" + str(os.getpid()))
+    temporary.symlink_to(agent_root / "current/sinan-agent")
+    temporary.replace(command)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tag", required=True)
+    parser.add_argument("--tag", help="Legacy exact release tag")
+    parser.add_argument("--version", help="Exact Agent version or latest; defaults to latest")
+    parser.add_argument("--target", default="auto", help="Expected server platform or auto")
     parser.add_argument("--panel", required=True)
     parser.add_argument("--token")
     parser.add_argument("--trusted-keys", default="/etc/sinan/trust/public-keys.json",
@@ -130,41 +520,77 @@ def main():
     parser.add_argument("--release-dir", help="Pre-downloaded proof and signed installer; CI/offline proof only")
     args = parser.parse_args()
     ensure(os.getuid() == 0, "bootstrap requires root")
-    ensure(args.tag.startswith("agent-v") and VERSION.fullmatch(args.tag[7:]), "invalid tag")
-    version = args.tag[7:]
+    if args.tag:
+        ensure(args.tag.startswith("agent-v") and VERSION.fullmatch(args.tag[7:]), "invalid tag")
+        ensure(args.version is None or args.version == args.tag[7:], "--tag 与 --version 不一致")
+    version = args.tag[7:] if args.tag else args.version or "latest"
+    ensure(version == "latest" or VERSION.fullmatch(version), "无效 Agent 版本")
     validate_panel_origin(args.panel)
-    ensure(platform.machine() in ("x86_64", "aarch64"), "unsupported architecture")
+    actual = host_target()
+    compatible_targets(actual, args.target)
     token = args.token or os.environ.pop("SINAN_ENROLLMENT_TOKEN", None)
     ensure(token, "provide one-time token through SINAN_ENROLLMENT_TOKEN")
     roots = None if args.trusted_agent else load_roots(args.trusted_keys, require_protected=True)
-    tag = args.tag
-    base = f"https://github.com/{REPOSITORY}/releases/download/{tag}"
+    if args.release_dir:
+        if version == "latest":
+            unverified = json.loads(read_regular(Path(args.release_dir) / "release.json", 32768))
+            tag = unverified.get("tag", "")
+            ensure(isinstance(tag, str) and tag.startswith("agent-v") and VERSION.fullmatch(tag[7:]), "离线 Release 标签无效")
+            version = tag[7:]
+        candidates = [{"version": version, "tag": "agent-v" + version}]
+    elif args.tag:
+        candidates = [{"version": version, "tag": args.tag}]
+    else:
+        candidates = catalog(args.panel, token, actual if args.target == "auto" else args.target, version)
     os.umask(0o077)
-    with tempfile.TemporaryDirectory(prefix="sinan-bootstrap-") as temporary:
-        bundle = Path(temporary)
-        for name, limit in (("SHA256SUMS", 8192), ("SHA256SUMS.minisig", 16384),
-                            ("release.json", 32768), ("install.sh", 262144)):
-            if args.release_dir:
-                (bundle / name).write_bytes(read_regular(Path(args.release_dir) / name, limit))
+    temporary_root = Path("/opt/sinan")
+    temporary_root.mkdir(mode=0o755, parents=True, exist_ok=True)
+    require_protected_file(temporary_root)
+    with tempfile.TemporaryDirectory(prefix="sinan-bootstrap-", dir=temporary_root) as temporary:
+        bundle = None
+        item = None
+        for candidate in candidates:
+            release_version, tag = candidate["version"], candidate["tag"]
+            selected = Path(temporary) / release_version
+            selected.mkdir()
+            base = f"https://github.com/{REPOSITORY}/releases/download/{tag}"
+            for name, limit in PROOF_FILES:
+                if args.release_dir:
+                    (selected / name).write_bytes(read_regular(Path(args.release_dir) / name, limit))
+                else:
+                    download(base, name, selected / name, limit)
+            if args.trusted_agent:
+                trusted_agent = Path(args.trusted_agent).resolve(strict=True)
+                require_protected_file(trusted_agent)
+                ensure(trusted_agent.name == "sinan-agent", "trusted verifier must be the installed Agent")
+                for command in ([str(trusted_agent), "verify-installed", "--binary", str(trusted_agent),
+                                 "--name", "agent", "--format", "raw"],
+                                [str(trusted_agent), "verify-release", "--proof-dir", str(selected)]):
+                    result = subprocess.run(command, capture_output=True, check=False)
+                    ensure(result.returncode == 0, "previous Agent refused release verification")
+                metadata, _ = validate_manifest(selected, tag, protocol_version=None)
             else:
-                download(base, name, bundle / name, limit)
-        if args.trusted_agent:
-            trusted_agent = Path(args.trusted_agent).resolve(strict=True)
-            require_protected_file(trusted_agent)
-            ensure(trusted_agent.name == "sinan-agent", "trusted verifier must be the installed Agent")
-            for command in ([str(trusted_agent), "verify-installed", "--binary", str(trusted_agent),
-                             "--name", "agent", "--format", "raw"],
-                            [str(trusted_agent), "verify-release", "--proof-dir", str(bundle)]):
-                result = subprocess.run(command, capture_output=True, check=False)
-                ensure(result.returncode == 0, "previous Agent refused release verification")
-            validate_manifest(bundle, tag)
-        else:
-            verify_manifest(bundle, roots, args.minisign, tag)
+                metadata, _ = verify_manifest(selected, roots, args.minisign, tag, protocol_version=None)
+            try:
+                item = select_artifact(metadata, release_version, actual, args.target)
+            except IncompatibleRelease:
+                if version != "latest":
+                    raise
+                continue
+            bundle, version = selected, release_version
+            break
+        ensure(bundle is not None and item is not None, f"没有通过签名和本机 {actual} 兼容检查的 Agent 版本")
+        print(f"已验证 Agent {version}，安装平台 {item['arch']}（本机 {actual}）", flush=True)
+        if not actual.startswith("linux-"):
+            install_native(bundle, args.panel, token, item, actual)
+            return
         token_file = bundle / ".enrollment-token"
         token_file.write_text(token)
-        result = subprocess.run(["/bin/sh", str(bundle / "install.sh"), "--bundle", str(bundle),
-                                 "--panel", args.panel, "--version", version,
-                                 "--token-file", str(token_file)], check=False)
+        command = ["/bin/sh", str(bundle / "install.sh"), "--bundle", str(bundle),
+                   "--panel", args.panel, "--version", version, "--token-file", str(token_file)]
+        if item["arch"] not in ("amd64", "arm64"):
+            command.extend(["--target", item["arch"]])
+        result = subprocess.run(command, check=False)
         raise SystemExit(result.returncode)
 
 
@@ -173,9 +599,9 @@ if __name__ == "__main__":
         main()
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise SystemExit(f"Bootstrap refused: {error}") from error
-SINAN_BOOTSTRAP_89B24407E0B9F17187979BBC89C5656C2034ECB4BF65F135C1A601CC3A1C3AFA
+SINAN_BOOTSTRAP_332E2D1CAC820E4E48B3072A15EA435D29E26E86A163BD765081A9E1ACB6D3FC
 
-cat > "$STAGING/release.py" <<'SINAN_BOOTSTRAP_5BEB5B60E5E07A9D386D453F0BEB23AF5E709961036716BA8D88CFA0D3DCB4E5'
+cat > "$STAGING/release.py" <<'SINAN_BOOTSTRAP_B7B46B7314B26DB189D55C48848F67EAA9AE991F05280212819BB2F419AA9D01'
 #!/usr/bin/env python3
 """Build canonical release manifests and verify complete offline-signed bundles."""
 
@@ -431,12 +857,12 @@ def verify_signature(bundle, roots, minisign):
     raise ValueError("no trusted key verifies the complete signature")
 
 
-def verify_manifest(bundle, roots, minisign, expected_tag=None):
+def verify_manifest(bundle, roots, minisign, expected_tag=None, protocol_version=1):
     verify_signature(Path(bundle), roots, minisign)
-    return validate_manifest(bundle, expected_tag)
+    return validate_manifest(bundle, expected_tag, protocol_version)
 
 
-def validate_manifest(bundle, expected_tag=None):
+def validate_manifest(bundle, expected_tag=None, protocol_version=1):
     """Validate contents only after an independently successful signature verifier."""
     bundle = Path(bundle)
     ensure(not bundle.is_symlink(), "bundle must not be a symlink")
@@ -459,7 +885,9 @@ def validate_manifest(bundle, expected_tag=None):
     ensure(type(metadata["schema"]) is int and metadata["schema"] == 1
            and metadata["source_repo"] == REPOSITORY, "wrong release identity")
     ensure(type(metadata["protocol_min"]) is int and type(metadata["protocol_max"]) is int
-           and metadata["protocol_min"] == 1 and metadata["protocol_max"] == 1,
+           and 1 <= metadata["protocol_min"] <= metadata["protocol_max"] <= 65535
+           and (protocol_version is None
+                or metadata["protocol_min"] <= protocol_version <= metadata["protocol_max"]),
            "unsupported protocol range")
     ensure(expected_tag is None or metadata["tag"] == expected_tag, "wrong release tag")
     ensure(isinstance(metadata["artifacts"], list) and 0 < len(metadata["artifacts"]) <= 30,
@@ -555,7 +983,7 @@ if __name__ == "__main__":
         main()
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise SystemExit(f"Release verification failed: {error}") from error
-SINAN_BOOTSTRAP_5BEB5B60E5E07A9D386D453F0BEB23AF5E709961036716BA8D88CFA0D3DCB4E5
+SINAN_BOOTSTRAP_B7B46B7314B26DB189D55C48848F67EAA9AE991F05280212819BB2F419AA9D01
 
 cat > "$STAGING/tcp_probe_artifact.py" <<'SINAN_BOOTSTRAP_7C9C790035F22EC0554D1B922A5B960571792B991659DDFBF9C0A8E337C0BD0A'
 """Validate the complete, pinned native TCP artifact without executing it."""
@@ -951,5 +1379,9 @@ cat > "$STAGING/public-keys.json" <<'SINAN_BOOTSTRAP_51121348A57E37D339622582811
 SINAN_BOOTSTRAP_51121348A57E37D3396225828114D19A3F62EDB0AAD0F6157E7FBCBEBF56B576
 
 
+if [ "$PLATFORM" = Linux ] && ! command -v minisign >/dev/null; then
+  MINISIGN=$("$PYTHON" -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import bootstrap; print(bootstrap.prepare_linux_minisign(sys.argv[1]))' "$STAGING")
+fi
+
 # Isolated mode ignores Python environment/path overrides; imports use only this bundle.
-python3 -I -c 'import runpy, sys; sys.path.insert(0, sys.argv.pop(1)); runpy.run_module("bootstrap", run_name="__main__")' "$STAGING" "$@" --trusted-keys "$STAGING/public-keys.json" --minisign "$(command -v minisign)"
+"$PYTHON" -I -c 'import runpy, sys; sys.path.insert(0, sys.argv.pop(1)); runpy.run_module("bootstrap", run_name="__main__")' "$STAGING" "$@" --trusted-keys "$STAGING/public-keys.json" --minisign "$(command -v "$MINISIGN")"

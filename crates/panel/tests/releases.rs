@@ -5,6 +5,8 @@ mod release_fixture;
 mod release_support;
 #[path = "releases/targets.rs"]
 mod targets;
+#[path = "releases/versions.rs"]
+mod versions;
 
 use anyhow::{Context, Result, bail};
 use release_support as signing;
@@ -310,10 +312,10 @@ async fn latest_agent_is_selected_numerically_with_signed_protocol_compatibility
         releases::select_agent(&fixture.state, Some("9.0.0")).await,
         Err(ApiError::Conflict(_))
     ));
-    assert!(matches!(
-        releases::select_agent(&fixture.state, Some("0.11.0-rc.1")).await,
-        Err(ApiError::Conflict(_))
-    ));
+    assert_eq!(
+        releases::select_agent(&fixture.state, Some("0.11.0-rc.1")).await?,
+        ("0.11.0-rc.1".into(), "agent-v0.11.0-rc.1".into())
+    );
     Ok(())
 }
 

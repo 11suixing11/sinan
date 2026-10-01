@@ -42,6 +42,7 @@ try {
       const request = route.request(), url = new URL(request.url()), path = url.pathname
       const fulfill = (json, status = 200) => route.fulfill({ status, json })
       if (path === '/api/me') return fulfill({ id: 1 })
+      if (path === '/api/artifacts/agent-versions') return fulfill({ versions: [{ version: '0.3.0', tag: 'agent-v0.3.0', targets: ['linux-musl-amd64'], cached_targets: ['linux-musl-amd64'], protocol_min: 1, protocol_max: 1 }] })
       if (request.method() !== 'GET') writes.push({ path, method: request.method(), body: request.postDataJSON() })
       if (path === '/api/servers' && request.method() === 'GET') return fulfill(entries)
       if (path === '/api/servers' && request.method() === 'POST') {

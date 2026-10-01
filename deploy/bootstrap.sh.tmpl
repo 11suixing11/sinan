@@ -1,52 +1,156 @@
 #!/bin/sh
 # Independent official bootstrap. Generated with the audited release verifier and roots.
 set -eu
-PATH=/usr/sbin:/usr/bin:/sbin:/bin
+PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin:/usr/local/bin
 export PATH
 umask 077
 
 if [ "${1:-}" = --help ]; then
-  printf '%s\n' '用法: bootstrap.sh --tag agent-v版本 --panel https://面板 --token 一次性接入令牌'
+  printf '%s\n' '用法: bootstrap.sh --panel https://面板 --token 接入令牌 --version latest或版本 --target auto或平台'
   exit 0
 fi
 if [ "$(id -u)" != 0 ]; then
   command -v sudo >/dev/null || { echo '请以 root 执行安装命令，或先安装 sudo' >&2; exit 1; }
   exec sudo /bin/sh "$0" "$@"
 fi
-[ "$(uname -s)" = Linux ] || { echo '此接入入口需要 Linux systemd 或 OpenRC' >&2; exit 1; }
-case "$(uname -m)" in x86_64|aarch64|arm64) ;; *) echo '此接入入口仅支持 amd64 和 arm64' >&2; exit 1 ;; esac
+PLATFORM=$(uname -s)
+case "$PLATFORM" in
+  Linux)
+    STAGING_BASE=/opt/sinan
+    if [ -d /run/systemd/system ] && command -v systemctl >/dev/null; then :
+    elif [ -f /run/openrc/softlevel ] && command -v rc-service >/dev/null && command -v rc-update >/dev/null; then :
+    else echo 'Linux 接入需要运行中的 systemd 或 OpenRC' >&2; exit 1; fi
+    ;;
+  Darwin)
+    [ "$(uname -m)" = arm64 ] || { echo 'macOS Agent 仅支持 ARM64' >&2; exit 1; }
+    STAGING_BASE=/opt/sinan
+    ;;
+  FreeBSD) STAGING_BASE=/opt/sinan ;;
+  *) echo '此入口支持 Linux、macOS 和 FreeBSD；Windows 请使用 PowerShell 入口' >&2; exit 1 ;;
+esac
+case "$(uname -m)" in x86_64|amd64|aarch64|arm64) ;; *) echo '此接入入口仅支持 AMD64 和 ARM64' >&2; exit 1 ;; esac
+
+# /run and system temporary volumes can be noexec; /opt is the Agent executable volume.
+protected_directory() {
+  PROTECTED_CHECK=$1
+  while :; do
+    [ -d "$PROTECTED_CHECK" ] && [ ! -L "$PROTECTED_CHECK" ] || { echo '安装临时目录与父目录必须是普通目录' >&2; exit 1; }
+    if [ "$PLATFORM" = Linux ]; then
+      PROTECTED_OWNER=$(stat -c '%u' "$PROTECTED_CHECK")
+      PROTECTED_MODE=$(stat -c '%a' "$PROTECTED_CHECK")
+    else
+      PROTECTED_OWNER=$(/usr/bin/stat -f '%u' "$PROTECTED_CHECK")
+      PROTECTED_MODE=$(/usr/bin/stat -f '%Lp' "$PROTECTED_CHECK")
+    fi
+    [ "$PROTECTED_OWNER" = 0 ] && [ "$((0$PROTECTED_MODE & 022))" = 0 ] || { echo '安装临时目录与父目录必须由 root 保护，不能由其他账户写入' >&2; exit 1; }
+    [ "$PROTECTED_CHECK" != / ] || break
+    PROTECTED_CHECK=$(dirname "$PROTECTED_CHECK")
+  done
+}
+EXISTING_PARENT=$STAGING_BASE
+while [ ! -e "$EXISTING_PARENT" ] && [ ! -L "$EXISTING_PARENT" ]; do EXISTING_PARENT=$(dirname "$EXISTING_PARENT"); done
+protected_directory "$EXISTING_PARENT"
+(umask 022; mkdir -p "$STAGING_BASE")
+protected_directory "$STAGING_BASE"
+STAGING=$(mktemp -d "$STAGING_BASE/sinan-bootstrap.XXXXXX")
+cleanup() { rm -rf "$STAGING"; }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' HUP TERM
+PYTHON=python3
+MINISIGN=minisign
+
+if [ "$PLATFORM" = Darwin ]; then
+  # Use independently pinned upstream tools instead of running Homebrew as root.
+  PYTHON=/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13
+  if [ ! -x "$PYTHON" ]; then
+    /usr/bin/curl --fail --silent --show-error --proto '=https' --noproxy '*' --connect-timeout 20 --max-time 600 --max-filesize 100000000 https://www.python.org/ftp/python/3.13.16/python-3.13.16-macos11.pkg -o "$STAGING/python.pkg"
+    printf '%s  %s\n' 30666509020b4da0dd8bc2e773255f34d76b7bb80b66960a928d5f6daa0192d7 "$STAGING/python.pkg" | /usr/bin/shasum -a 256 -c - >/dev/null
+    /usr/sbin/pkgutil --check-signature "$STAGING/python.pkg" >/dev/null
+    /usr/sbin/installer -pkg "$STAGING/python.pkg" -target /
+  fi
+  # Resolve the fixed official Framework alias, then execute only its protected real path.
+  PYTHON_LINKS=0
+  while [ -L "$PYTHON" ]; do
+    PYTHON_LINKS=$((PYTHON_LINKS + 1))
+    [ "$PYTHON_LINKS" -le 16 ] || { echo 'Python Framework 链接过多' >&2; exit 1; }
+    PYTHON_PARENT=$(dirname "$PYTHON")
+    PYTHON_LINK=$(/usr/bin/readlink "$PYTHON")
+    case "$PYTHON_LINK" in /*) PYTHON=$PYTHON_LINK ;; *) PYTHON="$PYTHON_PARENT/$PYTHON_LINK" ;; esac
+  done
+  PYTHON_PARENT=$(cd -P "$(dirname "$PYTHON")" && pwd -P)
+  PYTHON="$PYTHON_PARENT/$(basename "$PYTHON")"
+  PYTHON_CHECK=$PYTHON
+  while :; do
+    PYTHON_OWNER=$(/usr/bin/stat -f '%u' "$PYTHON_CHECK")
+    PYTHON_MODE=$(/usr/bin/stat -f '%Lp' "$PYTHON_CHECK")
+    [ "$PYTHON_OWNER" = 0 ] && [ "$((0$PYTHON_MODE & 022))" = 0 ] && [ ! -L "$PYTHON_CHECK" ] || { echo 'Python Framework 与父目录必须由 root 保护' >&2; exit 1; }
+    [ "$PYTHON_CHECK" != / ] || break
+    PYTHON_CHECK=$(dirname "$PYTHON_CHECK")
+  done
+  /usr/bin/curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --noproxy '*' --connect-timeout 20 --max-time 120 --max-filesize 1000000 https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-macos.zip -o "$STAGING/minisign.zip"
+  printf '%s  %s\n' 89000b19535765f9cffc65a65d64a820f433ef6db8020667f7570e06bf6aac63 "$STAGING/minisign.zip" | /usr/bin/shasum -a 256 -c - >/dev/null
+  "$PYTHON" -I - "$STAGING/minisign.zip" "$STAGING/minisign" <<'PY'
+import hashlib, pathlib, stat, sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    if set(archive.namelist()) != {'minisign', '._minisign'}:
+        raise SystemExit('minisign 官方归档包含非预期文件')
+    member = archive.getinfo('minisign')
+    if member.file_size != 180736 or member.is_dir() or stat.S_ISLNK(member.external_attr >> 16):
+        raise SystemExit('minisign 官方归档文件无效')
+    data = archive.read(member)
+    if hashlib.sha256(data).hexdigest() != 'd41cde458303d45c95b00473e2455a7f45f95b550931f1f0cc98ef1f61b2a8ff':
+        raise SystemExit('minisign 官方可执行文件摘要不匹配')
+    target = pathlib.Path(sys.argv[2])
+    target.write_bytes(data)
+    target.chmod(0o700)
+PY
+  MINISIGN="$STAGING/minisign"
+  /usr/bin/security find-certificate -a -p /System/Library/Keychains/SystemRootCertificates.keychain > "$STAGING/system-ca.pem"
+  [ -s "$STAGING/system-ca.pem" ] || { echo '无法读取 macOS 系统信任根证书' >&2; exit 1; }
+  SSL_CERT_FILE="$STAGING/system-ca.pem"
+  export SSL_CERT_FILE
+else
 
 NEEDS_PACKAGES=0
-for tool in python3 minisign install getent cmp mv seq; do
+TOOLS='python3'
+if [ "$PLATFORM" = Linux ]; then
+  TOOLS="$TOOLS install getent cmp mv seq"
+  mv --version >/dev/null 2>&1 || NEEDS_PACKAGES=1
+else
+  TOOLS="$TOOLS minisign"
+fi
+for tool in $TOOLS; do
   command -v "$tool" >/dev/null || NEEDS_PACKAGES=1
 done
 if [ "$NEEDS_PACKAGES" = 1 ]; then
   printf '%s\n' '正在通过系统软件源准备 Python、minisign 和安装工具。'
   if command -v apt-get >/dev/null; then
     apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 minisign ca-certificates coreutils libc-bin passwd
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 ca-certificates coreutils libc-bin passwd
   elif command -v apk >/dev/null; then
-    apk add --no-cache python3 minisign ca-certificates coreutils musl-utils shadow
+    apk add --no-cache python3 ca-certificates coreutils musl-utils shadow
   elif command -v dnf >/dev/null; then
-    dnf install -y python3 minisign ca-certificates coreutils glibc-common shadow-utils
+    dnf install -y python3 ca-certificates coreutils glibc-common shadow-utils
   elif command -v yum >/dev/null; then
-    yum install -y python3 minisign ca-certificates coreutils glibc-common shadow-utils
+    yum install -y python3 ca-certificates coreutils glibc-common shadow-utils
+  elif [ "$PLATFORM" = FreeBSD ] && command -v pkg >/dev/null; then
+    ASSUME_ALWAYS_YES=yes pkg bootstrap -f
+    pkg install -y python3 minisign ca_root_nss
   else
-    echo '无法自动准备安装工具：需要 apt-get、apk、dnf 或 yum 软件源' >&2
+    echo '无法自动准备安装工具：需要系统 apt-get、apk、dnf、yum 或 FreeBSD pkg 软件源' >&2
     exit 1
   fi
 fi
-for tool in python3 minisign install getent cmp mv seq; do
+for tool in $TOOLS; do
   command -v "$tool" >/dev/null || { echo "系统软件源未提供所需工具: $tool" >&2; exit 1; }
 done
-
-# A protected parent is required because the bootstrap rejects writable trust paths.
-STAGING=$(mktemp -d /run/sinan-bootstrap.XXXXXX)
-cleanup() { rm -rf "$STAGING"; }
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' HUP TERM
+fi
 @@BOOTSTRAP_FILES@@
 
+if [ "$PLATFORM" = Linux ] && ! command -v minisign >/dev/null; then
+  MINISIGN=$("$PYTHON" -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import bootstrap; print(bootstrap.prepare_linux_minisign(sys.argv[1]))' "$STAGING")
+fi
+
 # Isolated mode ignores Python environment/path overrides; imports use only this bundle.
-python3 -I -c 'import runpy, sys; sys.path.insert(0, sys.argv.pop(1)); runpy.run_module("bootstrap", run_name="__main__")' "$STAGING" "$@" --trusted-keys "$STAGING/public-keys.json" --minisign "$(command -v minisign)"
+"$PYTHON" -I -c 'import runpy, sys; sys.path.insert(0, sys.argv.pop(1)); runpy.run_module("bootstrap", run_name="__main__")' "$STAGING" "$@" --trusted-keys "$STAGING/public-keys.json" --minisign "$(command -v "$MINISIGN")"

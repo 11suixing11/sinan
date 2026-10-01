@@ -1,6 +1,12 @@
+mod agents;
 mod network;
 mod selection;
 mod storage;
+
+pub use agents::{
+    AgentVersion, AgentVersions, agent_versions, bootstrap_agent_versions, cache_agent_payload,
+    ensure_bootstrap_agent, list_agent_versions, select_agent_for_target,
+};
 
 use crate::{
     AppState, auth,
@@ -347,36 +353,7 @@ pub async fn entries(state: &AppState) -> ApiResult<Vec<crate::artifacts::Artifa
 }
 
 pub async fn select_agent(state: &AppState, version: Option<&str>) -> ApiResult<(String, String)> {
-    let mut candidates = Vec::new();
-    for release in released(state).await? {
-        let metadata = release.verified.metadata();
-        if metadata.protocol_min > PROTOCOL_MAX || metadata.protocol_max < PROTOCOL_MIN {
-            continue;
-        }
-        for entry in &metadata.artifacts {
-            if entry.name != "agent" || version.is_some_and(|v| v != entry.version) {
-                continue;
-            }
-            let artifact = release
-                .verified
-                .artifact(&entry.name, &entry.version, &entry.arch)
-                .map_err(invalid)?;
-            if !release.paths.contains(artifact.path()) {
-                continue;
-            }
-            stored_bytes(&release, &artifact).await.map_err(invalid)?;
-            let numbers: Option<Vec<u64>> =
-                entry.version.split('.').map(|v| v.parse().ok()).collect();
-            if let Some(numbers) = numbers.filter(|v| v.len() == 3) {
-                candidates.push((numbers, entry.version.clone(), metadata.tag.clone()));
-            }
-        }
-    }
-    candidates.sort();
-    candidates
-        .pop()
-        .map(|(_, version, tag)| (version, tag))
-        .ok_or_else(|| ApiError::Conflict("请先导入协议兼容且已签名的 Agent Release".into()))
+    select_agent_for_target(state, version, None).await
 }
 
 /// Returns only protocol-compatible, signed updates for the requested ABI.

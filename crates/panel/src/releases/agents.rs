@@ -1,0 +1,323 @@
+use super::*;
+use axum::{
+    extract::Query,
+    http::header,
+    response::{IntoResponse, Response},
+};
+use serde::Serialize;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct AgentVersion {
+    pub version: String,
+    pub tag: String,
+    pub targets: Vec<String>,
+    pub cached_targets: Vec<String>,
+    pub protocol_min: u16,
+    pub protocol_max: u16,
+}
+
+#[derive(Serialize)]
+pub struct AgentVersions {
+    pub versions: Vec<AgentVersion>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentVersionQuery {
+    pub target: Option<String>,
+    pub agent_version: Option<String>,
+    pub platform: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BootstrapVersionQuery {
+    pub token: String,
+    pub target: Option<String>,
+    pub agent_version: Option<String>,
+    pub platform: Option<String>,
+}
+
+fn linux_target(target: &str) -> bool {
+    matches!(target, "amd64" | "arm64") || target.starts_with("linux-")
+}
+
+fn version_key(version: &str) -> Option<(u64, u64, u64)> {
+    let core = version.split(['-', '+']).next()?;
+    let suffix = version.strip_prefix(core)?;
+    if !suffix.is_empty()
+        && (suffix.len() == 1
+            || !suffix[1..]
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-')))
+    {
+        return None;
+    }
+    let parts: Vec<_> = core.split('.').collect();
+    if parts.len() != 3
+        || parts
+            .iter()
+            .any(|part| part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        return None;
+    }
+    Some((
+        parts[0].parse().ok()?,
+        parts[1].parse().ok()?,
+        parts[2].parse().ok()?,
+    ))
+}
+
+fn validate_filter(target: Option<&str>, platform: Option<&str>) -> ApiResult<()> {
+    if let Some(target) = target {
+        selection::validate_targets(&[target.into()])?;
+    }
+    if platform.is_some_and(|platform| !matches!(platform, "linux" | "unix" | "windows")) {
+        return Err(ApiError::BadRequest("请选择有效的安装平台".into()));
+    }
+    Ok(())
+}
+
+fn valid_agent(release: &StoredRelease, artifact: &VerifiedArtifact) -> bool {
+    let entry = artifact.metadata();
+    let metadata = release.verified.metadata();
+    let binary_name = if entry.arch.starts_with("windows-") {
+        "sinan-agent.exe"
+    } else {
+        "sinan-agent"
+    };
+    entry.name == "agent"
+        && entry.format == "raw"
+        && entry.binary_name == binary_name
+        && version_key(&entry.version).is_some()
+        && metadata.tag == format!("agent-v{}", entry.version)
+        && metadata.protocol_min <= PROTOCOL_MAX
+        && metadata.protocol_max >= PROTOCOL_MIN
+}
+
+async fn versions(
+    state: &AppState,
+    target: Option<&str>,
+    version: Option<&str>,
+    platform: Option<&str>,
+) -> ApiResult<Vec<AgentVersion>> {
+    let target = target.filter(|target| *target != "auto");
+    validate_filter(target, platform)?;
+    let version = version.filter(|version| *version != "latest");
+    let targets = target.map(|target| selection::candidates(target, "raw"));
+    let releases = released(state).await?;
+    inventory(&releases).map_err(invalid)?;
+    let mut values = BTreeMap::new();
+    for release in &releases {
+        for entry in &release.verified.metadata().artifacts {
+            if entry.name != "agent" || version.is_some_and(|version| version != entry.version) {
+                continue;
+            }
+            if version.is_none() && sinan_protocol::release_version(&entry.version).is_none() {
+                continue;
+            }
+            let artifact = release
+                .verified
+                .artifact(&entry.name, &entry.version, &entry.arch)
+                .map_err(invalid)?;
+            if !valid_agent(release, &artifact)
+                || targets
+                    .as_ref()
+                    .is_some_and(|targets| !targets.contains(&entry.arch))
+                || match platform {
+                    Some("linux") => !linux_target(&entry.arch),
+                    Some("unix") => entry.arch.starts_with("windows-"),
+                    Some("windows") => !entry.arch.starts_with("windows-"),
+                    _ => false,
+                }
+            {
+                continue;
+            }
+            let key = (
+                version_key(&entry.version).expect("validated version"),
+                entry.version.clone(),
+            );
+            let metadata = release.verified.metadata();
+            let value = values.entry(key).or_insert_with(|| AgentVersion {
+                version: entry.version.clone(),
+                tag: metadata.tag.clone(),
+                targets: Vec::new(),
+                cached_targets: Vec::new(),
+                protocol_min: metadata.protocol_min,
+                protocol_max: metadata.protocol_max,
+            });
+            value.targets.push(entry.arch.clone());
+            if release.paths.contains(artifact.path()) {
+                let bytes =
+                    storage::existing_bytes(&release.directory.join(artifact.path()), MAX_ARTIFACT)
+                        .await
+                        .map_err(invalid)?;
+                if bytes.is_some_and(|bytes| verify_payload(&artifact, &bytes).is_ok()) {
+                    value.cached_targets.push(entry.arch.clone());
+                }
+            }
+        }
+    }
+    Ok(values
+        .into_values()
+        .rev()
+        .map(|mut value| {
+            value.targets.sort();
+            value.cached_targets.sort();
+            value
+        })
+        .collect())
+}
+
+/// Lists protocol-compatible signed identities, including targets not yet cached.
+pub async fn agent_versions(
+    state: &AppState,
+    target: Option<&str>,
+    version: Option<&str>,
+) -> ApiResult<Vec<AgentVersion>> {
+    versions(state, target, version, None).await
+}
+
+pub async fn select_agent_for_target(
+    state: &AppState,
+    version: Option<&str>,
+    target: Option<&str>,
+) -> ApiResult<(String, String)> {
+    let target = target.filter(|target| *target != "auto");
+    versions(state, target, version, target.is_none().then_some("linux"))
+        .await?
+        .into_iter()
+        .next()
+        .map(|release| (release.version, release.tag))
+        .ok_or_else(|| {
+            ApiError::Conflict("请先导入对应平台且协议兼容的已签名 Agent Release".into())
+        })
+}
+
+pub async fn list_agent_versions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<AgentVersionQuery>,
+) -> ApiResult<Response> {
+    auth::require_admin(&state, &headers).await?;
+    let versions = versions(
+        &state,
+        query.target.as_deref(),
+        query.agent_version.as_deref(),
+        query.platform.as_deref(),
+    )
+    .await?;
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(AgentVersions { versions }),
+    )
+        .into_response())
+}
+
+pub async fn bootstrap_agent_versions(
+    State(state): State<AppState>,
+    Query(query): Query<BootstrapVersionQuery>,
+) -> ApiResult<Response> {
+    crate::servers::validate_enrollment(&state.pool, &query.token).await?;
+    let versions = versions(
+        &state,
+        query.target.as_deref(),
+        query.agent_version.as_deref(),
+        query.platform.as_deref(),
+    )
+    .await?;
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(AgentVersions { versions }),
+    )
+        .into_response())
+}
+
+async fn cache_payload<F, Fut, A, Aut>(
+    state: &AppState,
+    version: &str,
+    arch: &str,
+    mut asset_bytes: F,
+    mut authorize: A,
+) -> ApiResult<()>
+where
+    F: FnMut(String, String, usize) -> Fut,
+    Fut: Future<Output = Result<Vec<u8>>>,
+    A: FnMut() -> Aut,
+    Aut: Future<Output = ApiResult<()>>,
+{
+    canonical_path("agent", version, arch).map_err(|_| ApiError::NotFound)?;
+    authorize().await?;
+    let _permit = state
+        .release_permits
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|_| ApiError::Busy)?;
+    authorize().await?;
+    let releases = released(state).await?;
+    let declared = inventory(&releases).map_err(invalid)?;
+    let identity = ("agent".into(), version.into(), arch.into());
+    let (index, artifact) = declared.get(&identity).ok_or(ApiError::NotFound)?;
+    let release = &releases[*index];
+    checked(
+        valid_agent(release, artifact),
+        "Agent release identity or protocol differs",
+    )?;
+    let bytes = storage::existing_bytes(&release.directory.join(artifact.path()), MAX_ARTIFACT)
+        .await
+        .map_err(invalid)?;
+    let bytes = bytes.filter(|bytes| verify_payload(artifact, bytes).is_ok());
+    if bytes.is_some() && release.paths.contains(artifact.path()) {
+        return Ok(());
+    }
+    let bytes = match bytes {
+        Some(bytes) => bytes,
+        None => asset_bytes(
+            release.verified.metadata().tag.clone(),
+            artifact.metadata().asset_name.clone(),
+            artifact
+                .metadata()
+                .archive_size
+                .try_into()
+                .map_err(invalid)?,
+        )
+        .await
+        .map_err(invalid)?,
+    };
+    verify_payload(artifact, &bytes).map_err(invalid)?;
+    storage::publish_agent(release, artifact, &bytes, authorize).await
+}
+
+/// Low-level cache helper: callers authorize mutations; HTTP enrollment uses a live token.
+pub async fn cache_agent_payload<F, Fut>(
+    state: &AppState,
+    version: &str,
+    arch: &str,
+    asset_bytes: F,
+) -> ApiResult<()>
+where
+    F: FnMut(String, String, usize) -> Fut,
+    Fut: Future<Output = Result<Vec<u8>>>,
+{
+    cache_payload(state, version, arch, asset_bytes, || async { Ok(()) }).await
+}
+
+pub async fn ensure_bootstrap_agent(
+    state: &AppState,
+    token: &str,
+    version: &str,
+    arch: &str,
+) -> ApiResult<()> {
+    cache_payload(
+        state,
+        version,
+        arch,
+        |tag, asset, maximum| async move { network::asset(&tag, &asset, maximum).await },
+        || async {
+            crate::servers::validate_enrollment(&state.pool, token).await?;
+            Ok(())
+        },
+    )
+    .await
+}

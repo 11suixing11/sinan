@@ -5,12 +5,14 @@ umask 027
 BUNDLE=
 PANEL=
 VERSION=
+TARGET=
 TOKEN_FILE=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --bundle) BUNDLE=$2 ;;
     --panel) PANEL=$2 ;;
     --version) VERSION=$2 ;;
+    --target) TARGET=$2 ;;
     --token-file) TOKEN_FILE=$2 ;;
     *) echo '未知安装参数' >&2; exit 2 ;;
   esac
@@ -33,7 +35,9 @@ fi
 for tool in python3 install getent cmp mv seq; do
   command -v "$tool" >/dev/null || { echo "缺少工具: $tool" >&2; exit 1; }
 done
-case "$(uname -m)" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; *) exit 1 ;; esac
+case "$(uname -m)" in x86_64|amd64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; *) exit 1 ;; esac
+[ -n "$TARGET" ] || TARGET=$ARCH
+case "$TARGET" in "$ARCH"|"linux-musl-$ARCH"|"linux-gnu-$ARCH") ;; *) echo '所选 Agent 平台与本机架构不兼容' >&2; exit 1 ;; esac
 DOWNLOAD=$(mktemp -d)
 STAGE=
 PREVIOUS=$(readlink /opt/sinan/core/current 2>/dev/null || true)
@@ -70,8 +74,8 @@ trap 'exit 130' INT
 trap 'exit 143' HUP TERM
 TOKEN=$(cat "$TOKEN_FILE")
 # Agent downloads remain same-origin panel bootstrap requests.
-python3 -I - "$BUNDLE" "$VERSION" "$ARCH" "$DOWNLOAD/sinan-agent" "$PANEL" "$TOKEN_FILE" <<'PY'
-import hashlib, ipaddress, json, pathlib, re, sys, time, urllib.parse, urllib.request
+python3 -I - "$BUNDLE" "$VERSION" "$ARCH" "$DOWNLOAD/sinan-agent" "$PANEL" "$TOKEN_FILE" "$TARGET" <<'PY'
+import hashlib, ipaddress, json, pathlib, platform, re, subprocess, sys, time, urllib.parse, urllib.request
 
 def ensure(condition, message):
     if not condition:
@@ -84,8 +88,20 @@ def ordinary(path, limit):
 
 root, version, arch, asset = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3], pathlib.Path(sys.argv[4])
 panel, token_file = sys.argv[5], pathlib.Path(sys.argv[6])
+target = sys.argv[7]
 ensure(re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?', version), '无效 Agent 版本')
 ensure(arch in ('amd64', 'arm64'), '无效 Agent 架构')
+ensure(target in (arch, 'linux-musl-' + arch, 'linux-gnu-' + arch), 'Agent 平台与本机 CPU 不匹配')
+if target.startswith('linux-gnu-'):
+    libc = platform.libc_ver()[0].lower()
+    if libc not in ('glibc', 'gnu'):
+        try:
+            result = subprocess.run(['ldd', '--version'], capture_output=True, check=False, timeout=10)
+            description = (result.stdout + result.stderr).decode('utf-8', errors='replace').lower()
+        except (OSError, subprocess.TimeoutExpired):
+            description = ''
+        libc = 'gnu' if 'glibc' in description or 'gnu libc' in description else ''
+    ensure(libc in ('glibc', 'gnu'), 'GNU Agent 需要 GNU/glibc 主机，不能在 musl 上安装')
 origin = urllib.parse.urlsplit(panel)
 ensure(not any(ord(character) < 32 or ord(character) == 127 for character in panel)
        and origin.scheme in ('http', 'https') and origin.hostname
@@ -106,10 +122,10 @@ ensure(type(metadata['schema']) is int and metadata['schema'] == 1
        and metadata['source_repo'] == 'theLucius7/sinan', '发布身份不匹配')
 ensure(metadata['tag'] == 'agent-v' + version, '发布标签不匹配')
 matches = [item for item in metadata['artifacts'] if
-           (item['name'], item['version'], item['arch']) == ('agent', version, arch)]
+           (item['name'], item['version'], item['arch']) == ('agent', version, target)]
 ensure(len(matches) == 1, '发布缺失或重复目标 Agent')
 item = matches[0]
-expected_name = 'agent-' + version + '-linux-musl-' + arch
+expected_name = 'agent-' + version + ('-linux-musl-' + arch if target == arch else '-' + target)
 ensure(item['format'] == 'raw' and item['binary_name'] == 'sinan-agent'
        and item['asset_name'] == expected_name, 'Agent 制品身份不匹配')
 expected_size = item['archive_size']
@@ -124,10 +140,10 @@ for line in ordinary(root / 'SHA256SUMS', 8192).decode('utf-8').splitlines():
     ensure(match is not None and match[2] not in checksums, '发布清单格式错误或重复')
     checksums[match[2]] = match[1]
 ensure(checksums.get('release.json') == hashlib.sha256(metadata_bytes).hexdigest(), '已签 metadata 摘要不匹配')
-ensure(checksums.get('agent/' + version + '/' + arch) == item['binary_sha256'], '已签 Agent 摘要不匹配')
+ensure(checksums.get('agent/' + version + '/' + target) == item['binary_sha256'], '已签 Agent 摘要不匹配')
 token = ordinary(token_file, 8192).decode('utf-8')
 url = (panel.rstrip('/') + '/api/bootstrap/' + urllib.parse.quote(version, safe='')
-       + '/' + arch + '?' + urllib.parse.urlencode({'token': token}))
+       + '/' + target + '?' + urllib.parse.urlencode({'token': token}))
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, request, response, code, message, headers, new_url):
