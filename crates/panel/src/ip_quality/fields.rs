@@ -262,11 +262,22 @@ pub(super) fn confirmed_response(value: &Value) -> bool {
     {
         return false;
     }
+    if value.get("errors").is_some_and(|errors| match errors {
+        Value::Null => false,
+        Value::Array(errors) => !errors.is_empty(),
+        Value::Object(errors) => !errors.is_empty(),
+        _ => true,
+    }) {
+        return false;
+    }
     true
 }
 
 pub(super) fn parse_fields(database: &str, value: &Value) -> Vec<QualityField> {
-    if !confirmed_response(value) {
+    // Only documented response envelopes have query status semantics.
+    let confirmed_data = !matches!(database, "abuseipdb" | "abuseipdb-v2")
+        || value.get("data").is_some_and(confirmed_response);
+    if !confirmed_response(value) || !confirmed_data {
         return Vec::new();
     }
     definitions(database)
