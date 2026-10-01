@@ -1,5 +1,13 @@
 # 执行进度
 
+## 2026-10-01：准备独立 Debian 12 P0 测试虚拟机
+
+- 单独保存 [固定 Lima/VZ 配置](tools/p0-debian12-vm.yaml) 与 [实际隔离及验收范围](docs/acceptance/p0-dedicated-vm.md)。2 CPU、1536 MiB、8 GiB 的 Debian 12 ARM64 guest 已实际启动，固定镜像 341,114,880 字节的 SHA512 校验一致；不共享宿主目录、管理密钥或业务端口，不执行生产硬件压测。
+- 实际读回 systemd running、cgroup v2、启动时约 1.3 GiB 可用内存与 6.4 GiB 根盘剩余、无启用 swap。管理 SSH loopback 绑定、重启数 0。安装仅限 guest 编译依赖和校验过摘要的 Rust 1.97.1，构建单元限 1100 MiB/无 swap/128 tasks/一个 Cargo 编译任务。
+- 源码冻结 `356350e` 的 ARM64 ELF 实际串行运行六个 systemd 夹具，6 通过、0 失败/忽略、2.30 秒；预算 OOM 仅在诊断 cgroup，结束无残留单元/进程/挂载、无手动补清理。另 16 MiB 私有 tmpfs 实测 ENOSPC 后完整卸载；SSH PID/重启数保持。这些证据不认证后续主线、不证明 Agent 预检整链或持续代理服务。
+- 专用 aws-jp0 仍需恢复，完整 NodeQuality 授权与受控执行链门禁保持。真实 systemd 有限夹具、小文件系统、实际 Agent 联合负载分别记录，不把准备 VM 或旧 CI 当阶段总验；本项不恢复暂停的远端 CI。
+- 合并审查补齐端口忽略规则的 `guestIPMustBeZero: false`，覆盖回环监听；Lima 2.2.0 配置校验、文档链接、fmt/core 和差异检查通过。原运行证据不转记为修订规则的运行期端口验收，本轮未启动或重启既有 guest，应用后实测单独跟进。
+
 ## 2026-10-01：补齐 NodeQuality amd64 rootfs 证据
 
 - 对应 [Issue #82](https://github.com/theLucius7/sinan/issues/82)，单独记录 [归档静态盘点](docs/acceptance/nodequality-rootfs-inventory.md)。单次取得固定发布资产，312,475,959 字节及 SHA256 与发布元数据一致；禁网、只读、512 MiB/1 CPU 分析容器仅流式读取，没有解压执行、挂载或运行诊断。
