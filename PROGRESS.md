@@ -1095,6 +1095,12 @@ r7只控制入口及三份固定脚本的公开报告POST，保留隐私、轻�
 
 - r8根复核冻结ebf7302：Rust/API19全部通过/0忽略、Clippy/fmt/core/shell/diff通过，PG55439按归属停止且PID/端口已消失；收据c0ba55b1…。专用Debian12单次来源16（15过/1缺minisign跳过）、swap8和Bash5原函数体FD组合2通过，29输入前后不变。实际限额读回、峰值64,737,280B/11pids、0OOM，结束无进程/挂载/cgroup，SSH406重启0/同boot/swap0，guest收据841d30bb…。不运行真实swap、bootstrap或benchmark，不把该有限验收签为完整联合负载。
 
+## 2026-10-01：真实注册 Agent 日常诊断故障矩阵
+
+- 固定 `b0869ef`，专用 Debian12 以普通注册 Agent、真实面板/PG、TEST_ONLY 根验签 r8 和 systemd 完成七项：正常/重复、确认取消、Agent 重启、面板断连、低内存启动拒绝、磁盘不足、运行内存保护。Agent 重启保留原诊断 PID/启动时间；断连时真实 SQLite 保存一章节/一结果并恢复补传；取消/保护停止只留环境章节，状态与完整度独立。
+- 真实 sing-box 回环持续1917请求/62,816,256B/0失败，PID与重启数不变；正常和资源故障心跳最大间隔20秒，主动面板断连为46秒，未伪称不中断。结束全部专属服务/PG停止、进程/cgroup/任务挂载清理、SSH406重启0/同boot/swap0；110文件证据索引59a63433…、总收据c85399d9…已复制核验。详见[独立验收](docs/acceptance/registered-nodequality-daily.md)。
+- 构建缺缓存、768MiB构建OOM及两次验收脚本缺陷保留失败原始记录；1GiB离线构建成功，修正脚本后只计最终七项通过。产品代码不改；full门禁、完整链许可/副作用及真实完整联合负载仍待验，IP供应商与迁移/TCP证据没有补签。CI、正式签名/发布/生产部署均未执行。
+
 ## PR #107 本聊天整合与观察器复核（2026-10-01）
 
 正常保留作者 `b0869ef`，将原堆叠PR改到main后整合 `de299906`，精确受验运行输入 `a083c099` 保留资产、流量、策略组、r6固定来源和r7报告开关；补 queued r7 显式门禁覆盖。adapter29+panel diagnostics13共42通过/0失败/忽略，fmt/core/workspace全targets Clippy/四workflow actionlint通过，自有PG55432已停。Python105运行、101通过/4既有条件跳过（来源16/wrapper34/策略6/swap10/daily7/release28），官方十来源大小/SHA匹配；这不是r8完整workspace或实机总验。
