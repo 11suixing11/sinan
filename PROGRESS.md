@@ -1558,3 +1558,17 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 合并后独立完整 Rust/PostgreSQL：625 通过、0 失败、20 条件忽略；全 targets Clippy、fmt、core 边界与差异检查通过。测试日志 `/tmp/sinan-monitoring-ddns-upstream-test.log`，Clippy 日志 `/tmp/sinan-monitoring-ddns-upstream-clippy.log`。运行输入不含随后开发中的 DDNS；后续增量必须独立验证。
 - 前端 Bun 51 通过、1018 断言；TypeScript/Vite 构建通过，产物从合并源码重生。实际 Chromium 回归节点路由、混合链路、服务器接入、监控配置、命令生命周期 5 套通过，含手机布局，接口均为私有替身。上游其他 Python/实机收据仅保留，没有声称本次重跑。
 - 下一步按照用户授权接入 Cloudflare DDNS，继续使用已有 Agent IP 上报。CI 保持暂停，真实 Cloudflare 写入、生产迁移与诊断实机能力均未执行或签收。
+
+
+## 2026-10-02：Cloudflare DDNS 面板插件
+
+- 在上游同步提交 `dc65301` 后实现用户授权的 DDNS，并按进一步要求做成独立插件。后端位于 `plugins/ddns/panel/`，经既有 plugins 桥注册路由与后台任务；前端位于 `web/src/plugins/ddns/`，提供插件目录、服务器插件页、全局与单服务器入口。复用 `server_plugins` 按服务器显式启停，默认未启用，不要求额外 Agent 制品，不改变 sing-box 插件或诊断准入。
+- 复用 Agent 已有静态 IP 消息，只在面板增加通用接收时间；不把旧数据库缓存当作新报告，不给 Agent 下发 Cloudflare 凭据。支持 A/AAAA、泛域名/IDN、TTL、Cloudflare 代理、周期及手动同步；自动选择对应家族有效公网地址，优先保持仍在本轮上报中的上次成功地址。离线、过期、无地址、删除或退役时保留解析。
+- 每条规则保存写入后不回显的 API Token；固定 Cloudflare HTTPS，禁代理/重定向，响应限 256 KiB，单轮 20 秒，租约 60 秒，最多 32 规则及两项并发。唯一同名记录需明确接管，重复或 CNAME/NS 冲突停止；PATCH 保留其他字段，创建带规则标记用于丢失回执恢复；无变化不写 DNS，失败退避并保留上次成功。暂停、停用及删除规则不删除远端记录，进行中编辑/停用拒绝。
+- 新增 0032 迁移；同步完成后的 0001–0031 字节保持不变，旧业务迁移断言补新接收时间为 NULL，仍完整核对原字段、凭据、授权与账本。参考 IPFlare `19bcf463a3dfdc3d13a9e61dd22bbf1a6fc68c80` 的行为思路并核对官方接口，实现独立编写，不复制参考项目 GPL 源码，无新增依赖。决策、边界及用法见 [ADR 0048](docs/adr/0048-cloudflare-ddns.md) 与 [DDNS 使用说明](docs/ddns.md)。
+- 前端 Bun 53 通过、1036 断言；TypeScript/Vite 129 模块通过，21 份 dist 两次重建逐字一致。DDNS、插件目录、节点路由、服务器接入 4 套 Chromium 通过；DDNS 覆盖 1440/390/320 像素、按服务器启用/停用、目录跳转、限定服务器、失败保留草稿、空 Token 编辑、手动同步、暂停及删除，目录含匿名保护。修正表单带提示的标签定位及 320 像素下继承 340 像素最小宽度导致的溢出，没有移除原语义断言；截图在 `/tmp/sinan-monitoring-screenshots`，已目视复核。
+- 首次最终插件整轮 Rust 为 637 通过、1 失败、20 条件忽略：既有 `diagnostic_end_to_end::chain_gate` 在等待拒绝回执时超时。保持源码、预算和全部门禁断言原样，独立复查该目标 3/3 通过；不将该超时归因为已确认的产品问题或冒称已修复。原失败日志 `/tmp/sinan-monitoring-ddns-plugin-final.log` 与复查 `/tmp/sinan-monitoring-ddns-diagnostic-recheck.log` 保留，最终完整复验另行记录。
+- 第二轮整体验证的该诊断用例通过，但既有订阅来源用例等待任务完成超时，总计仍为 637 通过、1 失败、20 条件忽略；订阅目标独立复查 3/3 通过。检查发现该 HTTP 测试夹具没有启动生产 publisher 的每秒任务调度，只依赖繁忙时可能跳过的 API 唤醒；在 `settled` 中补同频率调度，保留 20 秒截止与全部身份、凭据和历史断言，不改产品调度器。原日志 `/tmp/sinan-monitoring-ddns-plugin-verified.log` 与 `/tmp/sinan-monitoring-ddns-subscription-recheck.log` 保留；夹具缺口是源码确认的条件差异，不据此将两次超时全部归为同一原因。
+- 补齐夹具调度后，订阅专项 3/3 通过，最终完整 Rust/PostgreSQL 工作区 638 通过、0 失败、20 条件忽略（93 个结果组）。包含 11 个 DDNS 单元/数据库/提供方替身用例及 2 个 DDNS HTTP 集成用例；先前两项超时用例也在整轮通过。最终日志 `/tmp/sinan-monitoring-ddns-plugin-complete.log`，前端受测产物与 `/tmp/sinan-ddns-dist-manifest.json` 的 21 个摘要全部一致。
+- 本轮新增依赖为零，Agent 协议与设备端代码未改。Vite 的主后台块仍有大于 500 kB 的提示（509.50 kB，gzip 153.48 kB），DDNS 为异步独立块（12.67 kB，gzip 4.93 kB），不把该提示记为构建失败。66 个相关本地文档链接检查通过，最终全工作区、全 targets、warnings-deny Clippy 通过（`/tmp/sinan-monitoring-ddns-plugin-complete-clippy.log`），fmt、core 边界与差异检查通过；原有 31 条迁移再次逐字核对不变。
+- 本次专用回环 PostgreSQL 55439 已停止，没有操作其他实例。20 项条件忽略仍需 root/systemd、ICMP、正式代理运行时及 ACME 等环境；真实 Cloudflare 凭据、DNS 写入和传播、长期动态 IP 变化及生产历史迁移均未验证。下一步是在单独授权的测试域名验证实际变更与恢复；本轮仅本地 main 源码提交，不推送、发布或部署。CI 继续暂停，未执行部分记为未验证，不据此签收诊断实机能力。

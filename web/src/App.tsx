@@ -22,8 +22,9 @@ import ServerToolPage from './pages/ServerToolPage'
 import { dashboardRoute } from './display/dashboard'
 
 const ServerDisplay = lazy(() => import('./display/ServerDisplay'))
+const Ddns = lazy(() => import('./plugins/ddns/Ddns'))
 
-const navigation = [{ path: '/statistics', label: '统计仪表盘', icon: 'activity', group: '概览' }, { path: '/dashboard', label: '服务器看板', icon: 'activity', group: '服务器' }, { path: '/servers', label: '服务器', icon: 'server', group: '服务器' }, { path: '/latency', label: '延迟检测', icon: 'activity', group: '服务器' }, { path: '/plugins/sing-box/nodes', label: '代理节点', icon: 'nodes', group: 'sing-box 插件' }, { path: '/plugins/sing-box/users', label: '代理用户', icon: 'users', group: 'sing-box 插件' }, { path: '/plugins/sing-box/groups', label: '策略与套餐', icon: 'nodes', group: 'sing-box 插件' }, { path: '/plugins/catalog', label: '插件目录', icon: 'box', group: '系统' }, { path: '/system/plugins', label: '服务器插件', icon: 'server', group: '系统' }, { path: '/system/settings', label: '看板与通知', icon: 'activity', group: '系统' }, { path: '/system/notifications', label: '告警通知', icon: 'activity', group: '系统' }, { path: '/system/administrator', label: '系统管理员', icon: 'lock', group: '系统' }]
+const navigation = [{ path: '/statistics', label: '统计仪表盘', icon: 'activity', group: '概览' }, { path: '/dashboard', label: '服务器看板', icon: 'activity', group: '服务器' }, { path: '/servers', label: '服务器', icon: 'server', group: '服务器' }, { path: '/latency', label: '延迟检测', icon: 'activity', group: '服务器' }, { path: '/plugins/ddns', label: '动态域名解析', icon: 'nodes', group: 'DDNS 插件' }, { path: '/plugins/sing-box/nodes', label: '代理节点', icon: 'nodes', group: 'sing-box 插件' }, { path: '/plugins/sing-box/users', label: '代理用户', icon: 'users', group: 'sing-box 插件' }, { path: '/plugins/sing-box/groups', label: '策略与套餐', icon: 'nodes', group: 'sing-box 插件' }, { path: '/plugins/catalog', label: '插件目录', icon: 'box', group: '系统' }, { path: '/system/plugins', label: '服务器插件', icon: 'server', group: '系统' }, { path: '/system/settings', label: '看板与通知', icon: 'activity', group: '系统' }, { path: '/system/notifications', label: '告警通知', icon: 'activity', group: '系统' }, { path: '/system/administrator', label: '系统管理员', icon: 'lock', group: '系统' }]
 function Login({ onLogin, notice }: { onLogin: () => void; notice: string }) {
   const action = useAction()
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -59,23 +60,25 @@ export default function App() {
     window.addEventListener('hashchange', hash)
     return () => { active = false; controller.abort(); window.removeEventListener('sinan:unauthorized', unauthorized); window.removeEventListener('hashchange', hash) }
   }, [accessRevision])
-  const match = path.match(/^\/servers\/([1-9]\d*)(?:\/(ip-info|node-quality|tcp-quality|plugins))?$/)
+  const match = path.match(/^\/servers\/([1-9]\d*)(?:\/(ip-info|node-quality|tcp-quality|plugins|ddns))?$/)
   const proxyResource = resourceRoute(path)
   const display = dashboardRoute(path)
   const nodePage = nodeRoute(path)
-  const current = navigation.find(item => path === item.path || (item.path === '/servers' && Boolean(match)) || (item.path === '/plugins/sing-box/nodes' && (nodePage !== null || proxyResource !== null)) || (item.path === '/plugins/catalog' && isCatalogPath(path)))
+  const current = navigation.find(item => path === item.path || (item.path === '/servers' && Boolean(match) && match?.[2] !== 'ddns') || (item.path === '/plugins/ddns' && match?.[2] === 'ddns') || (item.path === '/plugins/sing-box/nodes' && (nodePage !== null || proxyResource !== null)) || (item.path === '/plugins/catalog' && isCatalogPath(path)))
   const title = display ? '服务器看板' : current?.label ?? '控制面板'
   useEffect(() => { document.title = `${title} · 司南` }, [title])
   if (session === null) return <div className="boot"><Brand /><Loading /></div>
   if (!session && !(display && publicDashboard)) return <Login notice={notice} onLogin={() => { setNotice(''); setSession(true); setAccessRevision(value => value + 1) }} />
   if (display) return <Suspense fallback={<div className="boot"><Brand /><Loading /></div>}><ServerDisplay key={session ? 'admin' : 'public'} serverId={display.serverId} /></Suspense>
   const page = match && Number.isSafeInteger(Number(match[1]))
-    ? match[2] === 'plugins' ? <Plugins key={match[1]} serverId={Number(match[1])} />
+    ? match[2] === 'ddns' ? <Suspense fallback={<Loading />}><Ddns key={match[1]} serverId={Number(match[1])} /></Suspense>
+      : match[2] === 'plugins' ? <Plugins key={match[1]} serverId={Number(match[1])} />
       : match[2] ? <ServerToolPage key={`${match[1]}/${match[2]}`} id={Number(match[1])} section={match[2] as 'ip-info' | 'node-quality' | 'tcp-quality'} />
         : <ServerDetail key={match[1]} id={Number(match[1])} />
     : path === '/servers' || path === '/' ? <Servers />
       : path === '/statistics' ? <Statistics />
       : path === '/latency' ? <LatencyTasks />
+      : path === '/plugins/ddns' ? <Suspense fallback={<Loading />}><Ddns /></Suspense>
       : nodePage || proxyResource ? <Nodes key={nodePage?.chains ? 'chains' : nodePage?.serverId ?? 'all-nodes'} serverId={nodePage?.serverId} chains={nodePage?.chains} selected={proxyResource ?? undefined} />
         : path === '/plugins/sing-box/users' ? <ProxyUsers />
           : path === '/plugins/sing-box/groups' ? <Groups />

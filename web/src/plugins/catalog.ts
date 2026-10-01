@@ -6,11 +6,17 @@ export type CatalogDefinition = {
   description: string
   usage: string
   icon: string
-  serverSection: '/plugins' | '/node-quality' | '/tcp-quality'
+  serverSection: '/plugins' | '/node-quality' | '/tcp-quality' | '/ddns'
+  execution?: 'panel'
 }
 
 // Product identities are independent of release versions and platform packages.
 export const pluginDefinitions: readonly CatalogDefinition[] = [
+  {
+    id: 'ddns', title: '动态域名解析', icon: 'nodes', serverSection: '/ddns', execution: 'panel',
+    description: '使用服务器 Agent 上报的公网 IP，自动更新 Cloudflare 的 A / AAAA 记录。',
+    usage: '按服务器启用后配置域名和 API Token。DNS 同步由面板插件执行，无需额外设备安装包；停用时保留现有解析。',
+  },
   {
     id: 'sing-box', title: 'sing-box', icon: 'nodes', serverSection: '/plugins',
     description: '在服务器上提供代理节点，管理代理用户、订阅、策略组、套餐和用量周期。',
