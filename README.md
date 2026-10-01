@@ -17,7 +17,7 @@ docker compose --project-name sinan --env-file .env \
 
 「延迟检测」可统一分配 TCP/ICMP 任务；「看板与通知」可配置离线、资源、到期、流量提醒和 Telegram 渠道。操作见[延迟检测与通知](docs/monitoring.md)。检测与通知均需管理员配置，不执行付款、停用或远程命令。
 
-远端接入需要可达的 HTTPS 地址。先按[部署维护流程](docs/deploy.md#导入签名-release)使用管理员运维接口准备对应服务器架构的签名 Release，再复制面板生成的一次性安装命令到目标服务器执行。选择 Shell（Linux、macOS、FreeBSD）或 PowerShell（Windows）入口，自动匹配本机系统、CPU/ABI 与最新兼容的已签稳定版本，也可指定已签版本。一行命令自动下载官方独立安装入口，核对固定入口摘要、准备验证工具并核验制品签名，无需预装 `sinan-bootstrap`。
+远端接入需要可达的 HTTPS 地址。维护者先按部署文档准备已签名的 Agent 发布，再到服务器接入页复制一次性安装命令，在目标服务器执行。选择 Shell（Linux、macOS、FreeBSD）或 PowerShell（Windows）入口，自动匹配本机系统、CPU/ABI 与最新兼容的已签稳定版本，也可指定已签版本。一行命令自动下载官方独立安装入口，核对固定入口摘要、准备验证工具并核验制品签名，无需预装 `sinan-bootstrap`。
 
 Agent 从 GitHub Release 或配置的独立 HTTPS 镜像下载，面板不提供 Agent 二进制。独立入口内嵌可信的 Linux 安装执行器，可在核对完整签名证明后安装旧 `agent-v0.3.0`，无需修改其已发布资产；其他平台仍需对应已签制品。Agent 与面板版本独立，设备只应用内嵌公钥认可的制品。
 

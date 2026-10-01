@@ -123,7 +123,7 @@ Linux musl 静态 Agent 保留原制品目录。GNU、macOS、Windows、FreeBSD 
 | FreeBSD AMD64/ARM64 | Shell，root 或具备 sudo 的管理员 | rc.d |
 | Windows AMD64/ARM64 | PowerShell，普通终端触发 UAC 提升或直接使用管理员终端 | 计划任务 |
 
-自动匹配在执行时识别本机系统与 CPU/ABI，选择最新兼容稳定版本；指定版本时只安装该版本。macOS AMD64、32 位系统和未知 ABI 会明确拒绝，不能借其他系统制品安装。需要对应平台的正式签名 Agent 发布；版本下拉只提供已经导入完整签名 proof 的版本。没有签名制品的平台会提示先发布并导入。
+自动匹配在执行时识别本机系统与 CPU/ABI，选择最新兼容稳定版本；指定版本时只安装该版本。macOS AMD64、32 位系统和未知 ABI 会明确拒绝，不能借其他系统制品安装。需要对应平台的正式签名 Agent 发布；版本下拉只提供已经导入完整签名 proof 的版本。没有签名制品的平台会提示由维护者准备对应发布后重试；可从插件目录查看已收录版本。
 
 命令从官方 GitHub 固定 blob 下载自包含入口，核对 SHA-256 后才执行。Linux/FreeBSD 自动使用系统软件源准备依赖，macOS 在缺少 Python 时安装固定官方 pkg 并准备固定 minisign，Windows 自动准备本机架构 minisign。目标服务器需能访问官方 GitHub、平台依赖来源和面板；Linux 需运行中的 systemd 或 OpenRC。
 
