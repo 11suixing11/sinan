@@ -71,17 +71,18 @@ export default function TcpQuality({ serverId }: { serverId: number }) {
   const [count, setCount] = useState(4)
   const [concurrency, setConcurrency] = useState(1)
   const data = diagnostics.data
-  const readiness = data?.plugins.find(plugin => plugin.plugin === 'tcpquality')
+  const readiness = diagnostics.error ? undefined : data?.plugins.find(plugin => plugin.plugin === 'tcpquality')
   const active = data?.reports.some(record => ['queued', 'running', 'cancel_requested'].includes(record.status))
-  const selected = targets.data?.filter(target => region === 'configured' || target.region === region)
+  const currentTargets = targets.error ? undefined : targets.data
+  const selected = currentTargets?.filter(target => region === 'configured' || target.region === region)
   const reports = data?.reports.filter(record => record.job.plugin === 'tcpquality') ?? []
   const submit = () => void run.run(() => api<DiagnosticRecord>(`/api/servers/${serverId}/diagnostics/tcpquality`, 'POST', { region, ip_version: ipVersion, count, concurrency }), diagnostics.reload)
   return <section className="panel"><div className="panel-heading"><h2>TCP 连接诊断</h2></div><div className="panel-body quality-body tcp-quality-body">
     <ErrorNotice message={diagnostics.error || targets.error || run.error || configure.error} retry={() => { diagnostics.reload(); targets.reload() }} />
     {!data ? diagnostics.loading && <Loading /> : <>
-      <p className="helper">原生 Rust 探测，仅连接本机已配置的 TCP 拨测目标，不发送应用数据、不上传报告、不测速。最多 8 个目标、64 次连接、60 秒；预算 64 MiB / 32 个任务，启动前需额外预留 256 MiB 可用内存和 2 GiB 磁盘。</p>
+      <p className="helper">原生 Rust 探测，仅连接本机已配置的 TCP 拨测目标，不发送应用数据、不向第三方上传报告、不测速。最多 8 个目标、64 次连接、60 秒；预算 64 MiB / 32 个任务，启动前需额外预留 256 MiB 可用内存和 2 GiB 磁盘。</p>
       {readiness?.reason && <div className="notice">{readiness.reason}</div>}
-      {!readiness && <div className="notice">当前面板尚未登记 TCP 诊断插件。</div>}
+      {diagnostics.error ? <div className="notice">当前诊断状态未知，无法确认设备能力或正在执行的任务；状态恢复前暂停创建。</div> : !readiness && <div className="notice">当前面板尚未登记 TCP 诊断插件。</div>}
       {active && <div className="notice">此服务器已有诊断任务或正在等待取消确认；请等待设备完成。</div>}
       <div className="quality-options">
         <label>目标地区<select aria-label="目标地区" value={region} onChange={event => setRegion(event.target.value)} disabled={run.busy || active}>{regions.map(region => <option key={region.value} value={region.value}>{region.label}</option>)}</select></label>
@@ -92,7 +93,7 @@ export default function TcpQuality({ serverId }: { serverId: number }) {
       </div>
       <p className="helper">{selected ? `本次将冻结 ${selected.length} 个目标` : '尚未取得目标列表，本次目标数未知'}；单次允许 1 至 8 个。IPv4/IPv6 不可解析或连接失败会保留原因。不同目标、地区或参数的结果不做横向排名。</p>
       <details><summary>配置目标地区</summary><p className="helper">地区由管理员标注，不根据 IP 推断。仅使用自有或获准使用的目标；在服务器概况的拨测配置中添加、停用或修改目标。</p>
-        {!targets.data ? <p className="helper">尚未取得已启用的 TCP 拨测目标，当前目标配置未知。</p> : !targets.data.length ? <p className="helper">没有已启用的 TCP 拨测目标。</p> : <div className="table-wrap"><table><thead><tr><th>目标</th><th>运营商</th><th>地区</th></tr></thead><tbody>{targets.data.map(target => <tr key={target.id}><td>{target.name}<small className="helper break-all">{target.target}:{target.port}</small></td><td>{target.carrier || '未知'}</td><td><select aria-label={`${target.name}地区`} value={target.region ?? ''} disabled={configure.busy} onChange={event => void configure.run(() => api(`/api/plugins/tcpquality/servers/${serverId}/targets/${target.id}`, 'PATCH', { region: event.target.value || null }), targets.reload)}><option value="">地区未知</option>{regions.filter(region => region.value !== 'configured').map(region => <option key={region.value} value={region.value}>{region.label}</option>)}</select></td></tr>)}</tbody></table></div>}
+        {!currentTargets ? <p className="helper">尚未取得已启用的 TCP 拨测目标，当前目标配置未知。</p> : !currentTargets.length ? <p className="helper">没有已启用的 TCP 拨测目标。</p> : <div className="table-wrap"><table><thead><tr><th>目标</th><th>运营商</th><th>地区</th></tr></thead><tbody>{currentTargets.map(target => <tr key={target.id}><td>{target.name}<small className="helper break-all">{target.target}:{target.port}</small></td><td>{target.carrier || '未知'}</td><td><select aria-label={`${target.name}地区`} value={target.region ?? ''} disabled={configure.busy} onChange={event => void configure.run(() => api(`/api/plugins/tcpquality/servers/${serverId}/targets/${target.id}`, 'PATCH', { region: event.target.value || null }), targets.reload)}><option value="">地区未知</option>{regions.filter(region => region.value !== 'configured').map(region => <option key={region.value} value={region.value}>{region.label}</option>)}</select></td></tr>)}</tbody></table></div>}
       </details>
       <div className="quality-history"><h3>最近 TCP 报告</h3>{reports.length ? reports.map(record => <Report key={record.id} record={record} serverId={serverId} cancelSupported={data.cancel_supported} reload={diagnostics.reload} />) : <p className="helper">尚无 TCP 诊断报告。</p>}</div>
     </>}
