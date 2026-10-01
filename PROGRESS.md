@@ -1386,3 +1386,17 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 正常保留 fork 作者 `b98fa5f` 和已合 #126/#128/#129，冻结 `addcdbe` 运行输入：本地完整 Rust/PostgreSQL workspace/all-targets 473 通过、0 失败、15 既有实机条件忽略；macOS umask077 原子链接、workspace all-targets Clippy/fmt/core 通过。自己的 PostgreSQL 127.0.0.1:55432 已停止。
 - 已受验监控产品与私有前端输入逐字保持 `3dea5d9`：Bun 33/894、TS/Vite、19 dist 重复复现、12 套仓库与两套独立 Chromium 负例通过；仍未真实 Telegram/多平台/Agent 联合负载，未将本地当作 GitHub CI 或实机签收。
 - fork 现有四个工作流 active，逐一固定原 YAML核对仅 push/pull_request/manual 与 agent-v* tag，无 pull_request_target 等额外自动事件；普通 push 最后提交带 [skip ci]，不改变 fork 状态。主仓库四源码工作流继续 disabled_manually，不重跑、恢复或把跳过记为通过。
+
+### 统一交付的执行节奏调整
+
+- 按用户最新要求，每个完整大步骤先集中修改，修改期间不再执行测试、构建或穿插验证；整步修改完成后统一验收并提交，不恢复逐项PR或小步测试提交循环。
+- 已保存的历史验收不重写；新修改的验收须对应整步冻结输入，未运行的部分记为待验。四源码CI继续暂停，完整验机许可、专用节点及阶段签收条件保持。
+- 下一大步骤集中补齐离线rootfs的来源与制品契约、本地有界装载和文档，暂不执行完整验机，不因缺少Geekbench许可删除原要求或宣布通过。
+
+## 2026-10-01 离线 rootfs 准备与装载完整步骤
+
+- 按用户最新节奏集中完成 SDK 版本辅助文件接口、r18 显式准备身份、Debian 固定来源/原生构建/导出契约、保持 canonical r17 的受控派生、签名双辅助文件、本地有界扫描/展开、流式下载与复验及取消清理。r17 默认和 23 份受保护输入逐字不变；所有 full 门禁保持，未取得实际完整工具链或授权，不部署准备版本。
+- 编辑期间未测试/构建。最终冻结后统一验收：本地 Python/Release 90 个不同方法，77 通过、13 条件跳过；Debian 12 的 rootfs20/builder26/artifact12 共58通过，零跳过/失败，真实 TEST_ONLY minisign通过。节点单元256MiB/Swap0/PIDs64/独立net+mount，峰值51,023,872B/5进程、零OOM，无进程/挂载/cgroup/tmp残留，SSH和boot保持。
+- Rust/PostgreSQL workspace/all-targets 唯一完整测试483通过、0失败、16既有条件忽略；最终374输入前后摘要相同，fmt/全targets Clippy/core boundary/diff通过。4个流式缓存测试函数和1个版本清单函数的4个签名组合通过；自己的PG PID/端口/socket均已清理。原mac临时路径夹具、私有驱动路径、PG socket和Clippy失败记录保留，仅补验失败/受影响范围，不重跑已经通过的其他场景。
+- [步骤验收](docs/acceptance/nodequality-offline-rootfs.md)、[ADR0043](docs/adr/0043-nodequality-offline-rootfs.md)和[冻结摘要](docs/acceptance/evidence/nodequality-offline-rootfs-r18.json)列明范围。无真实snapshot闭包、builder审批、rootfs、复建或完整许可/代理联合负载证据；准备代码通过不表示完整验机通过。四源码CI仍暂停，未正式签署、发布或生产部署。
+- 下一完整步骤先固定新main `fdbe668`（#134）整合节点设置/部署/统计/订阅：处理迁移21冲突、保留sing-box签名安装与设备应用状态、旧订阅/凭据/历史，以及文档编号；集中修改完成后再统一验收。现有统一分支继续整体交付，不新增逐项PR。

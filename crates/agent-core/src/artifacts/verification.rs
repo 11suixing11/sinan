@@ -58,13 +58,13 @@ pub(super) async fn read_proof(directory: &Path) -> Result<ReleaseProof> {
         .context("installed artifact has no signed proof")
 }
 
-pub(super) async fn verify_file(binary: &Path, verified: &VerifiedArtifact) -> Result<()> {
-    let metadata = tokio::fs::symlink_metadata(binary).await?;
+async fn verify_digest(path: &Path, expected_size: u64, expected_sha256: &str) -> Result<()> {
+    let metadata = tokio::fs::symlink_metadata(path).await?;
     ensure!(
-        metadata.is_file() && metadata.len() == verified.metadata().binary_size,
+        metadata.is_file() && metadata.len() == expected_size,
         "installed artifact is not an ordinary file of its signed size"
     );
-    let mut file = tokio::fs::File::open(binary).await?;
+    let mut file = tokio::fs::File::open(path).await?;
     let mut hash = Sha256::new();
     let mut buffer = vec![0_u8; 64 * 1024];
     let mut length = 0_u64;
@@ -75,24 +75,30 @@ pub(super) async fn verify_file(binary: &Path, verified: &VerifiedArtifact) -> R
         }
         length += count as u64;
         ensure!(
-            length <= verified.metadata().binary_size,
+            length <= expected_size,
             "installed artifact grew beyond signed size"
         );
         hash.update(&buffer[..count]);
     }
     ensure!(
-        length == verified.metadata().binary_size
-            && format!("{:x}", hash.finalize()) == verified.metadata().binary_sha256,
-        "installed artifact binary differs from signed release"
+        length == expected_size && format!("{:x}", hash.finalize()) == expected_sha256,
+        "installed artifact file differs from signed release"
     );
+    Ok(())
+}
+
+pub(super) async fn verify_file(binary: &Path, verified: &VerifiedArtifact) -> Result<()> {
+    verify_digest(
+        binary,
+        verified.metadata().binary_size,
+        &verified.metadata().binary_sha256,
+    )
+    .await?;
     let directory = binary.parent().context("binary has no parent")?;
     for (name, expected) in &verified.metadata().auxiliary_files {
-        let bytes = ordinary_bytes(&directory.join(name), expected.size as usize).await?;
-        ensure!(
-            bytes.len() as u64 == expected.size
-                && format!("{:x}", Sha256::digest(&bytes)) == expected.sha256,
-            "auxiliary artifact differs from signed release"
-        );
+        verify_digest(&directory.join(name), expected.size, &expected.sha256)
+            .await
+            .context("auxiliary artifact differs from signed release")?;
     }
     Ok(())
 }

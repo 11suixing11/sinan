@@ -337,6 +337,10 @@ pub trait DiagnosticAdapter: Send + Sync {
     fn auxiliary_files(&self) -> Vec<String> {
         Vec::new()
     }
+    /// Select the exact signed inventory without changing older artifact versions.
+    fn auxiliary_files_for_version(&self, _version: &str) -> Vec<String> {
+        self.auxiliary_files()
+    }
     fn describe(&self) -> DiagnosticDescriptor;
     fn capabilities(&self) -> Vec<String> {
         Vec::new()

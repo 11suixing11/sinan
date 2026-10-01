@@ -151,6 +151,13 @@ def assemble(args):
                 auxiliary = {name: {"sha256": digest(content), "size": len(content)}
                              for name, content in files.items() if name != binary_name}
                 entry["auxiliary_files"] = auxiliary
+            if name == "nodequality" and version == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18":
+                from nodequality_rootfs_artifact import archive_files, validate_files
+                files = archive_files(data)
+                validate_files(files, version, arch)
+                auxiliary = {name: {"sha256": digest(content), "size": len(content)}
+                             for name, content in files.items() if name != binary_name}
+                entry["auxiliary_files"] = auxiliary
             binary = binary_bytes(data, archive_format, binary_name, auxiliary)
             entry.update(archive_size=len(data), binary_sha256=digest(binary),
                          binary_size=len(binary), asset_name=asset_name(entry))
@@ -311,6 +318,12 @@ def validate_manifest(bundle, expected_tag=None):
                    and re.fullmatch(re.escape(TOOL_VERSION) + r"-[0-9a-f]{40}-r1", entry["version"])
                    and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
                    "wrong or incomplete native TCP artifact identity")
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18":
+            from nodequality_rootfs_artifact import BINARY, FILES
+            ensure(entry["format"] == "tar.gz" and entry["binary_name"] == BINARY
+                   and entry["arch"] in ("amd64", "arm64")
+                   and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
+                   "wrong or incomplete offline NodeQuality artifact identity")
         if entry["name"] == "agent":
             binary_name = "sinan-agent.exe" if entry["arch"].startswith("windows-") else "sinan-agent"
             ensure(metadata["tag"] == "agent-v" + entry["version"] and entry["format"] == "raw"
@@ -336,6 +349,9 @@ def verify_bundle(bundle, roots, minisign, expected_tag=None, exact_assets=True)
         ensure(len(binary) == entry["binary_size"] and digest(binary) == entry["binary_sha256"], "binary mismatch")
         if entry["name"] == "tcpquality":
             from tcp_probe_artifact import archive_files, validate_files
+            validate_files(archive_files(data), entry["version"], entry["arch"])
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18":
+            from nodequality_rootfs_artifact import archive_files, validate_files
             validate_files(archive_files(data), entry["version"], entry["arch"])
     if exact_assets:
         ensure({p.name for p in bundle.iterdir()} == expected_files, "missing or extra release assets")

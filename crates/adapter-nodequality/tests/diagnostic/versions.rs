@@ -18,10 +18,50 @@ const R10: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r10";
 const R9: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r9";
 const R8: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r8";
 
+#[test]
+fn offline_inventory_preserves_the_runner_only_default_and_historical_versions() {
+    let adapter = NodeQualityAdapter::new();
+    assert_eq!(VERSION, "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17");
+    let descriptor = adapter.describe();
+    assert_eq!(descriptor.plugin_name, "nodequality");
+    assert_eq!(descriptor.binary_name, "nodequality");
+    for version in [
+        R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, VERSION,
+    ] {
+        assert!(
+            adapter.auxiliary_files_for_version(version).is_empty(),
+            "historical runner-only artifact requires unexpected files: {version}"
+        );
+    }
+    assert_eq!(
+        adapter.auxiliary_files_for_version(OFFLINE_ROOTFS_VERSION),
+        vec![
+            "rootfs.tar.gz".to_owned(),
+            "rootfs-manifest.json".to_owned()
+        ]
+    );
+}
+
 #[tokio::test]
 async fn saved_full_jobs_are_not_prepared_but_keep_each_report_version() {
     for version in [
-        R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, VERSION,
+        R2,
+        R3,
+        R4,
+        R5,
+        R6,
+        R7,
+        R8,
+        R9,
+        R10,
+        R11,
+        R12,
+        R13,
+        R14,
+        R15,
+        R16,
+        VERSION,
+        OFFLINE_ROOTFS_VERSION,
     ] {
         let scratch = Scratch::new();
         let mut spec = scratch.spec();
@@ -46,9 +86,23 @@ async fn saved_full_jobs_are_not_prepared_but_keep_each_report_version() {
 }
 
 #[tokio::test]
-async fn r4_through_r17_daily_jobs_keep_mode_targets_budget_and_saved_chapters() {
+async fn r4_through_r18_daily_jobs_keep_mode_targets_budget_and_saved_chapters() {
     for version in [
-        R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, VERSION,
+        R4,
+        R5,
+        R6,
+        R7,
+        R8,
+        R9,
+        R10,
+        R11,
+        R12,
+        R13,
+        R14,
+        R15,
+        R16,
+        VERSION,
+        OFFLINE_ROOTFS_VERSION,
     ] {
         let scratch = Scratch::new();
         let mut spec = scratch.spec();
@@ -64,6 +118,13 @@ async fn r4_through_r17_daily_jobs_keep_mode_targets_budget_and_saved_chapters()
         };
         let adapter = NodeQualityAdapter::new();
         let job = adapter.prepare(&spec, &privileged).await.unwrap();
+        assert!(!scratch.0.join("rootfs.tar.gz").exists());
+        assert!(!scratch.0.join("rootfs-manifest.json").exists());
+        assert_eq!(
+            *privileged.calls.lock().unwrap(),
+            vec![vec!["--version".to_owned()]],
+            "daily preparation must not unpack or execute a rootfs"
+        );
         assert!(job.args.windows(2).any(|args| args == ["--mode", "daily"]));
         let target_file = spec.job_dir.join("daily-targets.json");
         assert!(

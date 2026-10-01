@@ -9,6 +9,8 @@ use std::{path::Path, time::Duration};
 use tokio::{io::AsyncReadExt, time::timeout};
 
 pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17";
+/// Explicit offline packaging preparation; not selected by the panel default.
+pub const OFFLINE_ROOTFS_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18";
 const ACCESS_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r16";
 const QUERY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r15";
 const BROWSER_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14";
@@ -69,6 +71,7 @@ fn supports_modes(version: &str) -> bool {
     matches!(
         version,
         VERSION
+            | OFFLINE_ROOTFS_VERSION
             | ACCESS_VERSION
             | QUERY_VERSION
             | BROWSER_VERSION
@@ -89,6 +92,7 @@ fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String, String)> {
     if !matches!(
         spec.version.as_str(),
         VERSION
+            | OFFLINE_ROOTFS_VERSION
             | ACCESS_VERSION
             | QUERY_VERSION
             | BROWSER_VERSION
@@ -210,6 +214,13 @@ fn valid_report_url(value: &str) -> bool {
 }
 
 impl DiagnosticAdapter for NodeQualityAdapter {
+    fn auxiliary_files_for_version(&self, version: &str) -> Vec<String> {
+        if version == OFFLINE_ROOTFS_VERSION {
+            vec!["rootfs.tar.gz".into(), "rootfs-manifest.json".into()]
+        } else {
+            Vec::new()
+        }
+    }
     fn capabilities(&self) -> Vec<String> {
         vec![MODES_CAPABILITY.into(), FULL_START_GATE_CAPABILITY.into()]
     }
