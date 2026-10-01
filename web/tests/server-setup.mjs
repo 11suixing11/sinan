@@ -44,6 +44,7 @@ try {
       const fulfill = (json, status = 200) => route.fulfill({ status, json })
       if (path === '/api/access') return route.fulfill({ json: { authenticated: true, public_dashboard: false } })
       if (path === '/api/me') return fulfill({ id: 1 })
+      if (path === '/api/artifacts') return fulfill(allVersionsMissing ? [] : catalogue.flatMap(item => item.cached_targets.map(arch => ({ name: 'agent', version: item.version, arch, sha256: 'a'.repeat(64), bytes: 1024 }))))
       if (path === '/api/artifacts/agent-versions') {
         const platform = url.searchParams.get('platform'), target = url.searchParams.get('target')
         let versions = allVersionsMissing ? [] : catalogue
@@ -68,7 +69,7 @@ try {
         enrollmentPlatforms.push(url.searchParams.get('platform'))
         if (enrollmentMode === 'failure') return fulfill({ error: '测试：命令接口暂不可用' }, 503)
         const version = url.searchParams.get('agent_version') ?? 'latest', target = url.searchParams.get('agent_target') ?? 'auto', platform = url.searchParams.get('platform') ?? 'unix'
-        return fulfill({ token: 'TEST_ONLY', expires_at: Math.floor(Date.now() / 1000) + (enrollmentMode === 'expired' ? -1 : 86400), installation: enrollmentMode === 'missing' ? null : { version, tag: version === 'latest' ? null : `agent-v${version}`, target, platform }, install_command: enrollmentMode === 'missing' ? null : installCommand(version, platform, target), warning: enrollmentMode === 'missing' ? '测试：请先导入兼容的签名制品' : null })
+        return fulfill({ token: 'TEST_ONLY', expires_at: Math.floor(Date.now() / 1000) + (enrollmentMode === 'expired' ? -1 : 86400), installation: enrollmentMode === 'missing' ? null : { version, tag: version === 'latest' ? null : `agent-v${version}`, target, platform }, install_command: enrollmentMode === 'missing' ? null : installCommand(version, platform, target), warning: enrollmentMode === 'missing' ? '测试：请维护者准备兼容的签名发布' : null })
       }
       if (path === '/api/servers/1/agent-settings') return fulfill(settings)
       if (path === '/api/servers/1/probes') return fulfill(probes)
@@ -203,7 +204,7 @@ try {
     assert.equal(await dialog.locator('code').count(), 0)
     enrollmentMode = 'missing'
     await dialog.getByRole('button', { name: '重新生成命令' }).click()
-    await dialog.getByText(/测试：请先导入兼容的签名制品/).waitFor()
+    await dialog.getByText(/测试：请维护者准备兼容的签名发布/).waitFor()
     assert.equal(await dialog.locator('code').count(), 0)
     enrollmentMode = 'ok'
     await dialog.getByRole('button', { name: '重新生成命令' }).click()
@@ -238,14 +239,22 @@ try {
     const previousEnrollmentCount = enrollments.length
     await page.getByRole('button', { name: '接入 / 升级', exact: true }).click()
     await dialog.getByText(/当前没有适合此系统与架构的已签名版本/).waitFor()
+    await dialog.getByText(/请维护者准备对应的 Agent 发布后重试/).waitFor()
     assert.equal(await dialog.getByRole('button', { name: '复制安装命令' }).count(), 0, 'An empty signed catalogue offers no install command')
     assert.equal(enrollments.length, previousEnrollmentCount, 'An empty catalogue does not issue an unusable enrollment token')
-    await page.keyboard.press('Escape')
+    assert.equal(await dialog.getByRole('link', { name: /导入/ }).count(), 0, 'Enrollment does not link to a removed import form')
+    const catalogLink = dialog.getByRole('link', { name: '查看已收录版本', exact: true })
+    assert.equal(await catalogLink.getAttribute('href'), '#/plugins/catalog')
+    await catalogLink.click()
     await dialog.waitFor({ state: 'hidden' })
+    await page.getByRole('heading', { name: '插件目录', exact: true }).waitFor()
+    await page.getByRole('heading', { name: '服务器 Agent', exact: true }).waitFor()
+    assert.equal(await page.getByRole('button', { name: /导入|安装/ }).count(), 0, 'The retained catalogue only displays available packages')
+    assert.equal(enrollments.length, previousEnrollmentCount, 'Opening the catalogue does not issue an enrollment token')
     assert.equal(creates.length, 2)
     assert.deepEqual(unexpected, [])
     assert.deepEqual(errors, [])
-    results.push({ width, creation: 'passed', enrollment: 'passed', signedVersions: 'passed', platforms: 'passed', singleLineCopy: 'passed', recovery: 'passed', liveStatus: 'passed', keyboard: 'passed' })
+    results.push({ width, creation: 'passed', enrollment: 'passed', signedVersions: 'passed', platforms: 'passed', singleLineCopy: 'passed', recovery: 'passed', liveStatus: 'passed', keyboard: 'passed', emptyCatalogueNavigation: 'passed' })
     await context.close()
   }
   console.log(JSON.stringify(results, null, 2))

@@ -60,7 +60,7 @@ export default function ServerEnrollment({ server, created = false, onClose }: {
             <option value="">自动匹配系统与架构</option>
             {availableTargets.map(value => <option value={value} key={value}>{agentTargetLabel(value)}</option>)}
           </select></Field>
-          <Field label="Agent 版本" hint="列表只显示已导入、已验签且协议兼容的稳定版本。自动模式会在执行时选择本机最新兼容版本。"><select value={version} onChange={event => { setVersion(event.target.value); setEnrollment(null); action.clearError() }} disabled={action.busy || versionsLoading || !versions.length}>
+          <Field label="Agent 版本" hint="列表只显示已收录、已验签且协议兼容的稳定版本。自动模式会在执行时选择本机最新兼容版本。"><select value={version} onChange={event => { setVersion(event.target.value); setEnrollment(null); action.clearError() }} disabled={action.busy || versionsLoading || !versions.length}>
             <option value="">自动匹配最新兼容版本</option>
             {versions.map(item => <option value={item.version} key={item.version}>{item.version} · 已验签</option>)}
           </select></Field>
@@ -68,13 +68,13 @@ export default function ServerEnrollment({ server, created = false, onClose }: {
         </form>
         {selectedVersion && <p className="server-setup-help">所选版本可用于：{agentInstallTargets(selectedVersion.targets, platform).map(agentTargetLabel).join('、')}。</p>}
         <ErrorNotice message={versionsError} retry={reloadVersions} />
-        {!versionsLoading && !versionsError && !versions.length && <p className="server-setup-help">当前没有适合此系统与架构的已签名版本。请先<a href="#/artifacts" onClick={onClose}>导入 Agent 制品</a>，然后重试。</p>}
+        {!versionsLoading && !versionsError && !versions.length && <p className="server-setup-help">当前没有适合此系统与架构的已签名版本，请维护者准备对应的 Agent 发布后重试。<a href="#/plugins/catalog" onClick={onClose}>查看已收录版本</a></p>}
         <ErrorNotice message={action.error} />
         {action.busy ? <Loading /> : enrollment ? expired ? <div className="notice" role="status">接入令牌已过期，请重新生成命令。</div> : enrollment.install_command ? <div className="server-enrollment-command">
           <div><span><Icon name="box" size={15} />{version ? `签名版本 ${enrollment.installation?.version ?? version}` : '执行时自动匹配最新兼容版本'}</span><small>复制一行命令，在{platform === 'windows' ? '管理员 PowerShell' : '服务器终端'}粘贴执行</small></div>
           <CopyField text={enrollment.install_command} label="复制安装命令" />
           <p>一次性接入令牌有效至 {time(enrollment.expires_at)}，请勿公开分享命令。</p>
-        </div> : <div className="notice" role="status"><span>{enrollment.warning ?? '请先导入已签名的 Agent 制品。'}<br />服务器配置已保留，准备好制品后可在这里重新生成命令。</span></div> : !action.error && versions.length > 0 && <p className="server-setup-help">点击“重新生成命令”获取所选版本的接入命令。</p>}
+        </div> : <div className="notice" role="status"><span>{enrollment.warning ?? '请维护者准备对应的已签名 Agent 发布后重试。'}<br />服务器配置已保留，发布准备好后可在这里重新生成命令。</span></div> : !action.error && versions.length > 0 && <p className="server-setup-help">点击“重新生成命令”获取所选版本的接入命令。</p>}
         {action.error && <p className="server-setup-help">服务器已保存。重试只会生成新的接入命令，不会重复创建服务器。</p>}
         <div className="server-enrollment-trust"><Icon name="lock" size={17} /><p>安装命令会自动下载安装器、准备验证工具，识别目标服务器的系统与架构，并验证对应的签名制品。升级保留设备身份与本地状态。</p></div>
         <p className="server-setup-help">安装时只下载当前系统与架构的 Agent；缺少兼容的签名版本时，会明确提示原因。</p>

@@ -3,4 +3,4 @@ import ServerBusiness from './singbox/ServerBusiness'
 import SingboxSettings from './singbox/Settings'
 
 export function ServerPlugins({ server }: { server: Server }) { return <ServerBusiness server={server} /> }
-export function PluginSettings() { return <SingboxSettings /> }
+export function PluginSettings({ serverId }: { serverId?: number }) { return <SingboxSettings serverId={serverId} /> }
