@@ -87,11 +87,19 @@ async fn arm_import_downloads_only_arm_and_can_append_amd_without_redownloading(
         releases::artifact(&fixture.state, "agent", "0.3.0", "amd64").await,
         Err(ApiError::NotFound)
     ));
-    assert!(
-        releases::newer_agent(&fixture.state, &["amd64".into()], (0, 2, 0))
-            .await?
-            .is_none()
+    // Agent updates use the complete signed proof and download from GitHub,
+    // even when this panel only stores another ABI for runtime distribution.
+    let update = releases::newer_agent(&fixture.state, &["amd64".into()], (0, 2, 0))
+        .await?
+        .context("signed GitHub Agent update missing")?;
+    assert_eq!(update.version, "0.3.0");
+    assert_eq!(
+        update.artifact.url,
+        "https://github.com/theLucius7/sinan/releases/download/agent-v0.3.0/agent-0.3.0-linux-musl-amd64"
     );
+    assert_eq!(update.artifact.sha256, signing::hash(b"amd agent"));
+    assert_eq!(update.artifact.proof, Some(bundle.proof.clone()));
+    assert_eq!(downloads.lock().unwrap().len(), 3);
     assert!(
         releases::newer_agent(&fixture.state, &["arm64".into()], (0, 2, 0))
             .await?
