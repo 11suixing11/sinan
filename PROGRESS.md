@@ -1077,3 +1077,11 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 根复核冻结 `5cb2ed1`，Rust19（adapter15/面板gate3/HTTP-PG日常1）全部通过、0忽略，Clippy/fmt/core/diff通过；源码和Cargo/trust前后不变，专属PG55439按归属停止、PID消失/端口关闭，收据3effc37e…。专用Debian12 Bash5来源16运行（15过/1缺minisign跳过）、Policy4、原函数体FD组合2通过；旧/true四次回环POST，false/default零，97.541秒。独立最小真实chroot的24个stdin策略/参数组合通过，不将它当FD或完整rootfs证据。
 - 两个guest单元限额运行期读回；FD/chroot峰值65,818,624B/15,495,168B，0OOM，结束后无进程/挂载/cgroup残留，SSH406重启0、同boot/swap0。21/3输入SHA与产品文件对应不变，收据1c6b1d3b…/96c4cad4…；最终只回填文档，不重复测试。完整负载故障矩阵仍待整条受控执行链就绪，本项不关闭#65或解除full门禁。
+
+## PR #106 本聊天整合复核（2026-10-01）
+
+普通合并最新 `b714629`，保留 #103 资产/周期流量、#104 首层固定和完整进度，在精确输入 `5ab55cc` 补 queued r6 显式门禁用例，不以当前 r7 常量覆盖它。adapter29+panel diagnostics13共42通过/0失败/忽略；fmt、core、workspace全targets Clippy、四workflow actionlint通过，自有PG55432已停。这是r7专项，不把此前442全量改称r7全量。
+
+同一输入纯本地来源16/wrapper34/策略6/daily7/release28通过，共95运行、91通过/4既有条件跳过；官方十文件大小/SHA与固定清单一致。另独立审查在原作者 `fc3bb5a` 完成固定原函数体组合2项和23个边界检查，11份受验产品/测试/构建输入逐字匹配最终整合点；全部上游探测/serializer为替身，只允许自己的回环POST。Mac Bash3 stdin替身不证明Linux process-substitution FD或真实chroot，本聊天未重演作者guest或完整验机。
+
+r7只控制入口及三份固定脚本的公开报告POST，保留隐私、轻量、回程、硬件参数、AGPL原文与修改告知；其他工具上传、二级来源/许可、rootfs及宿主副作用仍未总体验收。r2–r6历史精确版本回收、r4–r7 daily和所有full门禁保持；没有正式签署/发布/部署r7，没有触发暂停中的CI。
