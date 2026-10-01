@@ -231,6 +231,156 @@ async fn probes_preserve_missing_latency_deduplicate_and_acknowledge_deleted_tar
 }
 
 #[sqlx::test]
+async fn probe_destination_is_immutable_and_metadata_edits_preserve_offline_history(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, ack) = panel
+        .authenticated_device(&cookie, "probe identity")
+        .await?;
+    let original: ProbeSpec = panel
+        .admin(
+            Method::POST,
+            &format!("/api/servers/{server}/probes"),
+            &cookie,
+            Some(json!({"id":Uuid::nil(),"name":"原目标","kind":"tcp","target":"original.test","port":443,"interval_secs":10,"carrier":"原线路","enabled":true})),
+        )
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let sample = ProbeResult {
+        id: Uuid::new_v4(),
+        probe_id: original.id,
+        sampled_at: now_millis() - 1000,
+        latency_ms: Some(0.0),
+        loss_percent: 0.0,
+        error: None,
+    };
+    let endpoint = format!("{}/api/agent/v1/probe-results", panel.base);
+    panel
+        .client
+        .post(&endpoint)
+        .bearer_auth(&ack.session_token)
+        .json(&ProbeBatch {
+            results: vec![sample.clone()],
+        })
+        .send()
+        .await?
+        .error_for_status()?;
+    let saved: (serde_json::Value, String) =
+        sqlx::query_as("SELECT result,digest FROM probe_results WHERE id=$1")
+            .bind(sample.id)
+            .fetch_one(&panel.state.pool)
+            .await?;
+    let path = format!("/api/servers/{server}/probes/{}", original.id);
+    let mut kind = original.clone();
+    kind.kind = ProbeKind::Icmp;
+    kind.port = None;
+    let mut target = original.clone();
+    target.target = "different.test".into();
+    let mut port = original.clone();
+    port.port = Some(8443);
+    for changed in [kind, target, port] {
+        let response = panel
+            .admin(
+                Method::PATCH,
+                &path,
+                &cookie,
+                Some(serde_json::to_value(changed)?),
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert!(
+            response.json::<serde_json::Value>().await?["error"]
+                .as_str()
+                .unwrap()
+                .contains("请新建拨测目标")
+        );
+        let spec: serde_json::Value =
+            sqlx::query_scalar("SELECT spec FROM network_probes WHERE id=$1")
+                .bind(original.id)
+                .fetch_one(&panel.state.pool)
+                .await?;
+        assert_eq!(serde_json::from_value::<ProbeSpec>(spec)?, original);
+        let preserved: (serde_json::Value, String) =
+            sqlx::query_as("SELECT result,digest FROM probe_results WHERE id=$1")
+                .bind(sample.id)
+                .fetch_one(&panel.state.pool)
+                .await?;
+        assert_eq!(preserved, saved);
+    }
+    let mut metadata = original.clone();
+    metadata.name = "更新名称".into();
+    metadata.carrier = "更新线路".into();
+    metadata.interval_secs = 30;
+    metadata.enabled = false;
+    let updated: ProbeSpec = panel
+        .admin(
+            Method::PATCH,
+            &path,
+            &cookie,
+            Some(serde_json::to_value(&metadata)?),
+        )
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(updated, metadata);
+    // A paused or renamed destination still owns samples queued by an offline Agent.
+    let mut offline = sample.clone();
+    offline.id = Uuid::new_v4();
+    offline.sampled_at -= 10_000;
+    offline.latency_ms = None;
+    offline.loss_percent = 100.0;
+    let received: TaskAck = panel
+        .client
+        .post(&endpoint)
+        .bearer_auth(&ack.session_token)
+        .json(&ProbeBatch {
+            results: vec![sample.clone(), offline.clone()],
+        })
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(received.ids, vec![sample.id, offline.id]);
+    let preserved: (serde_json::Value, String) =
+        sqlx::query_as("SELECT result,digest FROM probe_results WHERE id=$1")
+            .bind(sample.id)
+            .fetch_one(&panel.state.pool)
+            .await?;
+    assert_eq!(preserved, saved);
+    let history: Vec<ProbeResult> = panel
+        .admin(
+            Method::GET,
+            &format!(
+                "/api/servers/{server}/probe-results?probe_id={}",
+                original.id
+            ),
+            &cookie,
+            None,
+        )
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(history, vec![sample, offline]);
+    let overview: Vec<serde_json::Value> = panel
+        .admin(Method::GET, "/api/probes/overview", &cookie, None)
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(overview.len(), 1);
+    assert_eq!(overview[0]["probe"], serde_json::to_value(&metadata)?);
+    assert_eq!(overview[0]["results"], serde_json::to_value(history)?);
+    Ok(())
+}
+
+#[sqlx::test]
 async fn probe_display_is_authenticated_target_bounded_and_preserves_full_day_history(
     pool: PgPool,
 ) -> Result<()> {

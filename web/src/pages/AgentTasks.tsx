@@ -27,11 +27,12 @@ export default function AgentTasks({ serverId, commandsEnabled }: { serverId: nu
       <ErrorNotice message={probes.error || results.error || probeAction.error} />
       <form onSubmit={event => { event.preventDefault(); void probeAction.run(() => api<Probe>(editing ? `${base}/probes/${probe.id}` : `${base}/probes`, editing ? 'PATCH' : 'POST', probe), () => { setProbe(emptyProbe); setEditing(false); probes.reload() }) }}>
         <div className="form-grid"><label>名称<input required maxLength={128} value={probe.name} onChange={event => setProbe({ ...probe, name: event.target.value })} /></label>
-          <label>方式<select value={probe.kind} onChange={event => setProbe({ ...probe, kind: event.target.value as Probe['kind'], port: event.target.value === 'tcp' ? 443 : null })}><option value="tcp">TCP 连接</option><option value="icmp">ICMP 回显</option></select></label>
-          <label>目标地址<input required maxLength={253} placeholder="主机名或 IP 地址" value={probe.target} onChange={event => setProbe({ ...probe, target: event.target.value })} /></label>
-          {probe.kind === 'tcp' && <label>端口<input required type="number" min={1} max={65535} value={probe.port ?? 443} onChange={event => setProbe({ ...probe, port: Number(event.target.value) })} /></label>}
+          <label>方式<select disabled={editing} value={probe.kind} onChange={event => setProbe({ ...probe, kind: event.target.value as Probe['kind'], port: event.target.value === 'tcp' ? 443 : null })}><option value="tcp">TCP 连接</option><option value="icmp">ICMP 回显</option></select></label>
+          <label>目标地址<input required disabled={editing} maxLength={253} placeholder="主机名或 IP 地址" value={probe.target} onChange={event => setProbe({ ...probe, target: event.target.value })} /></label>
+          {probe.kind === 'tcp' && <label>端口<input required disabled={editing} type="number" min={1} max={65535} value={probe.port ?? 443} onChange={event => setProbe({ ...probe, port: Number(event.target.value) })} /></label>}
           <label>间隔（秒）<input required type="number" min={10} max={3600} value={probe.interval_secs} onChange={event => setProbe({ ...probe, interval_secs: Number(event.target.value) })} /></label>
           <label>线路备注<input maxLength={64} placeholder="如电信、联通、移动" value={probe.carrier} onChange={event => setProbe({ ...probe, carrier: event.target.value })} /></label></div>
+        {editing && <p className="helper">方式、目标地址和端口创建后不可修改。更换目标请新建拨测，以保留历史归属。</p>}
         <button type="submit" className="button button-primary" disabled={probeAction.busy}>{editing ? '保存拨测' : '添加拨测'}</button>{editing && <button type="button" className="button button-secondary" onClick={() => { setEditing(false); setProbe(emptyProbe) }}>取消编辑</button>}
       </form></div>
       {probes.loading && !probes.data ? <Loading /> : !probes.data?.length ? <div className="inline-empty">尚未配置拨测。</div> : <div className="table-wrap"><table><thead><tr><th>名称 / 线路</th><th>目标</th><th>延迟</th><th>丢包 / 连接失败率</th><th>最近测量</th><th>操作</th></tr></thead><tbody>{probes.data.map(item => {
