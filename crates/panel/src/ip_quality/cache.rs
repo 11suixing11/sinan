@@ -83,9 +83,14 @@ pub(super) async fn persist(pool: &PgPool, id: i64, quality: &[IpQuality]) -> Ap
         return Err(ApiError::NotFound);
     }
     for entry in quality {
-        let updated = sqlx::query("INSERT INTO server_ip_quality(server_id,ip,provider,payload,checked_at,last_attempt_at) VALUES($1,$2,$3,$4,$5,$5) ON CONFLICT(server_id,ip,provider) DO UPDATE SET payload=EXCLUDED.payload,checked_at=EXCLUDED.checked_at,last_attempt_at=EXCLUDED.last_attempt_at WHERE server_ip_quality.checked_at<=EXCLUDED.checked_at")
+        let attempted_at = entry
+            .databases
+            .iter()
+            .filter_map(|dataset| dataset.attempted_at)
+            .max();
+        let updated = sqlx::query("INSERT INTO server_ip_quality(server_id,ip,provider,payload,checked_at,last_attempt_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(server_id,ip,provider) DO UPDATE SET payload=EXCLUDED.payload,checked_at=EXCLUDED.checked_at,last_attempt_at=COALESCE(EXCLUDED.last_attempt_at,server_ip_quality.last_attempt_at) WHERE server_ip_quality.checked_at<=EXCLUDED.checked_at")
             .bind(id).bind(&entry.ip).bind(&entry.provider).bind(encode(entry)?)
-            .bind(entry.checked_at).execute(&mut *tx).await?;
+            .bind(entry.checked_at).bind(attempted_at).execute(&mut *tx).await?;
         if updated.rows_affected() == 0 {
             continue;
         }

@@ -128,3 +128,10 @@ embedded credentials or retries, or certify unrelated boolean classifications.
 Those provider-access audits and the full-toolchain license/provenance work
 remain open. All full-start gates remain closed; this is not a full run or a
 formal signed release.
+
+Sinan r16 modifications (2026-10-01): report.py independently attempts every
+available chapter publication before reporting damaged saved metadata or a
+chapter-specific filesystem failure. Invalid sidecars remain untouched; valid
+chapter snapshots and the original local ZIP remain readable and can retry.
+The panel/adapter/package identity is new and r14 history remains supported.
+No upstream source, license, Netflix policy or complete-toolchain gate changes.

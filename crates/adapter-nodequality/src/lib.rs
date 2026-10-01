@@ -8,7 +8,8 @@ use sinan_adapter_sdk::{
 use std::{path::Path, time::Duration};
 use tokio::{io::AsyncReadExt, time::timeout};
 
-pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14";
+pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r16";
+const NETFLIX_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14";
 const IP_SCORE_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r13";
 const PERCENTILE_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r12";
 const SOURCE_DELIVERY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r11";
@@ -66,6 +67,7 @@ fn supports_modes(version: &str) -> bool {
     matches!(
         version,
         VERSION
+            | NETFLIX_VERSION
             | IP_SCORE_VERSION
             | PERCENTILE_VERSION
             | SOURCE_DELIVERY_VERSION
@@ -83,6 +85,7 @@ fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String, String)> {
     if !matches!(
         spec.version.as_str(),
         VERSION
+            | NETFLIX_VERSION
             | IP_SCORE_VERSION
             | PERCENTILE_VERSION
             | SOURCE_DELIVERY_VERSION

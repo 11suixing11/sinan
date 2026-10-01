@@ -264,6 +264,72 @@ class ChapterTests(unittest.TestCase):
             self.assertTrue(all(json.loads(path.read_text())["complete"] for path in chapters))
             self.assertIn("Actual ip_quality report", json.loads((root / "section-ip_quality.json").read_text())["text"])
 
+    def test_invalid_saved_chapter_does_not_hide_other_archive_chapters(self):
+        for content in ('{"unfinished":', '[]', '{"revision":true}'):
+            with self.subTest(content=content), tempfile.TemporaryDirectory() as directory:
+                data = make_archive()
+                root = self.stage(directory, data)
+                damaged = root / "section-hardware_quality.json"
+                damaged.write_text(content)
+                with self.assertRaisesRegex(ValueError, "hardware_quality"):
+                    report.render(root)
+                self.assertEqual(damaged.read_text(), content)
+                self.assertEqual((root / "report.zip").read_bytes(), data)
+                self.assertFalse((root / "result.txt").exists())
+                for name, _ in report.SECTIONS:
+                    if name != "hardware_quality":
+                        chapter = json.loads((root / ("section-" + name + ".json")).read_text())
+                        self.assertTrue(chapter["complete"])
+                        self.assertIn("Actual " + name + " report", chapter["text"])
+
+    def test_one_chapter_write_failure_preserves_others_and_retries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.stage(directory, make_archive())
+            report.save_section(root, "hardware_quality", "saved preview", False)
+            before = (root / "section-hardware_quality.json").read_bytes()
+            write = report.write_atomic
+
+            def fail_one(path, data):
+                if path.name == "section-hardware_quality.json":
+                    raise OSError("injected chapter write failure")
+                write(path, data)
+
+            with mock.patch.object(report, "write_atomic", side_effect=fail_one):
+                with self.assertRaisesRegex(ValueError, "hardware_quality"):
+                    report.render(root)
+            self.assertEqual((root / "section-hardware_quality.json").read_bytes(), before)
+            self.assertFalse((root / "result.txt").exists())
+            saved = {}
+            for name, _ in report.SECTIONS:
+                if name != "hardware_quality":
+                    path = root / ("section-" + name + ".json")
+                    saved[name] = path.read_bytes()
+                    self.assertTrue(json.loads(saved[name])["complete"])
+            report.render(root)
+            recovered = json.loads((root / "section-hardware_quality.json").read_text())
+            self.assertTrue(recovered["complete"])
+            self.assertEqual(recovered["revision"], 2)
+            for name, content in saved.items():
+                self.assertEqual((root / ("section-" + name + ".json")).read_bytes(), content)
+
+    def test_invalid_saved_chapter_does_not_hide_live_sections(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            live = root / ".nodequalityfixture/BenchOs/result"
+            live.mkdir(parents=True)
+            (root / "section-header_info.json").write_text("[]")
+            (live / "header_info.log").write_text("real header")
+            (live / "hardware_quality.log").write_text("completed hardware")
+            (live / "hardware_quality.json").write_text('{"actual":true}')
+            (live / "ip_quality.log").write_text("live IP preview")
+            with self.assertRaisesRegex(ValueError, "header_info"):
+                report.snapshot(root)
+            hardware = json.loads((root / "section-hardware_quality.json").read_text())
+            self.assertTrue(hardware["complete"])
+            preview = json.loads((root / "section-ip_quality.json").read_text())
+            self.assertFalse(preview["complete"])
+            self.assertEqual(preview["text"], "live IP preview")
+
     def test_running_snapshots_survive_stop_and_monotonically_resume(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -420,7 +486,7 @@ class BuildTests(unittest.TestCase):
 
     def test_repeated_build_refuses_to_modify_the_existing_artifact_and_checksum(self):
         with tempfile.TemporaryDirectory() as directory:
-            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14"
+            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r16"
             root = pathlib.Path(directory) / "nodequality" / version
             root.mkdir(parents=True)
             artifact = root / "amd64"
@@ -477,7 +543,7 @@ class BuildTests(unittest.TestCase):
             subprocess.run(["bash", "-n", str(script)], check=True)
         result = subprocess.run(["bash", str(PLUGIN / "runner.sh.tmpl"), "--version"],
                                 capture_output=True, text=True, check=True)
-        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14")
+        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r16")
 
     def test_existing_architecture_checksums_are_not_replaced(self):
         script = (PLUGIN.parents[1] / "tools/build-nodequality.sh").read_text()
