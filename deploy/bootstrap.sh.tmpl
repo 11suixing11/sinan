@@ -10,8 +10,8 @@ if [ "${1:-}" = --help ]; then
   exit 0
 fi
 if [ "$(id -u)" != 0 ]; then
-  command -v sudo >/dev/null || { echo '请以 root 执行安装命令，或先安装 sudo' >&2; exit 1; }
-  exec sudo /bin/sh "$0" "$@"
+  echo '请以 root 执行此脚本，或使用面板提供的官方单行安装入口。' >&2
+  exit 1
 fi
 PLATFORM=$(uname -s)
 case "$PLATFORM" in

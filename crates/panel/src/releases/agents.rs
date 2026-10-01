@@ -89,6 +89,7 @@ fn valid_agent(release: &StoredRelease, artifact: &VerifiedArtifact) -> bool {
     entry.name == "agent"
         && entry.format == "raw"
         && entry.binary_name == binary_name
+        && entry.archive_size <= 128 * 1024 * 1024
         && version_key(&entry.version).is_some()
         && (linux_target(&entry.arch) || sinan_protocol::release_version(&entry.version).is_some())
         && metadata.tag == format!("agent-v{}", entry.version)
@@ -110,6 +111,13 @@ async fn versions(
     inventory(&releases).map_err(invalid)?;
     let mut values = BTreeMap::new();
     for release in &releases {
+        let installer = ordinary_bytes(&release.directory.join("install.sh"), MAX_INSTALLER)
+            .await
+            .map_err(invalid)?;
+        checked(
+            storage::installer_valid(&release.verified, &installer),
+            "signed installer digest differs",
+        )?;
         for entry in &release.verified.metadata().artifacts {
             if entry.name != "agent" || version.is_some_and(|version| version != entry.version) {
                 continue;

@@ -61,6 +61,8 @@ pub async fn select_with_mirror(
             "所选平台与安装入口不匹配".into(),
         ));
     }
+    // The pinned independent bootstrap verifies the release proof and Agent bytes itself.
+    // Its embedded trusted executor does not execute an older release's installer.
     let versions: Vec<_> = crate::releases::agent_versions(state, Some(target), version)
         .await?
         .into_iter()
@@ -113,12 +115,13 @@ pub fn bootstrap_url() -> String {
     )
 }
 
-pub fn command(tag: &str, panel: &str, token: &str) -> String {
-    command_with_target(
+pub fn command(tag: &str, panel: &str, token: &str, mirror: &str) -> String {
+    command_with_mirror(
         tag.strip_prefix("agent-v").unwrap_or(tag),
         panel,
         token,
         "auto",
+        mirror,
     )
 }
 
@@ -133,6 +136,14 @@ pub fn command_with_mirror(
     target: &str,
     mirror: &str,
 ) -> String {
+    // Elevate the literal program before creating or reading downloaded executable files.
+    let wrapper = concat!(
+        "set -eu; program=$1; shift; ",
+        "if [ \"$(id -u)\" != 0 ]; then ",
+        "command -v sudo >/dev/null || { echo '请以 root 执行安装命令' >&2; exit 1; }; ",
+        "exec sudo /bin/sh -c \"$program\" sinan-bootstrap \"$@\"; fi; ",
+        "exec /bin/sh -c \"$program\" sinan-bootstrap \"$@\""
+    );
     let program = concat!(
         "set -eu; umask 077; ",
         "if ! command -v curl >/dev/null; then ",
@@ -158,7 +169,8 @@ pub fn command_with_mirror(
     );
     let checksum = format!("{:x}", Sha256::digest(BOOTSTRAP));
     format!(
-        "sh -c {} sinan-bootstrap {} {} {} {} {} {} {}",
+        "sh -c {} sinan-bootstrap {} {} {} {} {} {} {} {}",
+        shell_quote(wrapper),
         shell_quote(program),
         shell_quote(&bootstrap_url()),
         shell_quote(&checksum),
@@ -180,14 +192,35 @@ mod tests {
     #[cfg(unix)]
     use std::process::Command;
 
+    #[cfg(unix)]
+    fn tool_path(name: &str) -> std::path::PathBuf {
+        let output = Command::new("/bin/sh")
+            .args(["-c", "command -v \"$1\"", "fixture", name])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "missing fixture tool: {name}");
+        let path = std::path::PathBuf::from(String::from_utf8(output.stdout).unwrap().trim());
+        assert!(
+            path.is_absolute() && path.is_file(),
+            "invalid fixture tool: {name}"
+        );
+        path
+    }
+
     #[test]
     fn command_pins_the_official_blob_and_installer_bytes() {
-        let command = command("agent-v0.3.0", "https://panel.example.com", "fixture-token");
+        let command = command(
+            "agent-v0.3.0",
+            "https://panel.example.com",
+            "fixture-token",
+            "",
+        );
         assert!(command.contains(&bootstrap_url()));
         assert!(command.contains(&format!("{:x}", Sha256::digest(BOOTSTRAP))));
         assert!(command.contains("application/vnd.github.raw+json"));
         assert!(command.contains("sha256sum -c"));
         assert!(command.contains("--noproxy"));
+        assert!(command.contains("exec sudo /bin/sh -c"));
         assert!(!command.contains("/install.sh"));
         assert!(BOOTSTRAP.len() <= 262144);
         assert!(!command.contains(['\r', '\n']));
@@ -210,7 +243,12 @@ mod tests {
             .unwrap();
         assert!(output.status.success());
         assert_eq!(output.stdout, value.as_bytes());
-        let command = command("agent-v0.3.0", value, "'; exit 62; #");
+        let command = command(
+            "agent-v0.3.0",
+            value,
+            "'; exit 62; #",
+            "https://mirror.example.com/'$(exit 63)",
+        );
         assert!(
             Command::new("/bin/sh")
                 .args(["-n", "-c", &command])
@@ -228,6 +266,10 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("sinan-bootstrap-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&directory).unwrap();
+        std::os::unix::fs::symlink(tool_path("sha256sum"), directory.join("sha256sum")).unwrap();
+        let id = directory.join("id");
+        fs::write(&id, "#!/bin/sh\nprintf '0\\n'\n").unwrap();
+        fs::set_permissions(&id, fs::Permissions::from_mode(0o700)).unwrap();
         let marker = directory.join("executed");
         let payload = directory.join("payload");
         fs::write(
@@ -251,7 +293,7 @@ mod tests {
         let output = Command::new("/bin/sh")
             .args([
                 "-c",
-                &command("agent-v0.3.0", "https://panel.example.com", "fixture"),
+                &command("agent-v0.3.0", "https://panel.example.com", "fixture", ""),
             ])
             .env("PATH", format!("{}:/usr/bin:/bin", directory.display()))
             .output()
@@ -291,13 +333,13 @@ mod tests {
                     (
                         curl_seed.clone(),
                         format!(
-                            "#!/bin/sh\nfor target do :; done\n/bin/cat {} > \"$target\"\n",
+                            "#!/bin/sh\n[ \"$(id -u)\" = 0 ] || {{ echo 'download before elevation' >&2; exit 88; }}\nfor target do :; done\n/bin/cat {} > \"$target\"\n",
                             shell_quote(payload.to_str().unwrap())
                         ),
                     ),
                     (
                         directory.join("id"),
-                        format!("#!/bin/sh\nprintf '%s\\n' {uid}\n"),
+                        format!("#!/bin/sh\nprintf '%s\\n' \"${{SINAN_FIXTURE_UID:-{uid}}}\"\n"),
                     ),
                     (
                         directory.join(manager),
@@ -311,7 +353,7 @@ mod tests {
                     (
                         directory.join("sudo"),
                         format!(
-                            "#!/bin/sh\nprintf '%s\\n' invoked >> {}\nexec \"$@\"\n",
+                            "#!/bin/sh\nprintf '%s\\n' invoked >> {}\nSINAN_FIXTURE_UID=0; export SINAN_FIXTURE_UID; exec \"$@\"\n",
                             shell_quote(sudo_log.to_str().unwrap())
                         ),
                     ),
@@ -321,13 +363,12 @@ mod tests {
                     fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
                 }
                 for tool in ["sh", "env", "mktemp", "rm", "sha256sum"] {
-                    std::os::unix::fs::symlink(format!("/usr/bin/{tool}"), directory.join(tool))
-                        .unwrap();
+                    std::os::unix::fs::symlink(tool_path(tool), directory.join(tool)).unwrap();
                 }
                 let output = Command::new("/bin/sh")
                     .args([
                         "-c",
-                        &command("agent-v0.3.0", "https://panel.example.com", "fixture"),
+                        &command("agent-v0.3.0", "https://panel.example.com", "fixture", ""),
                     ])
                     .env("PATH", &directory)
                     .output()

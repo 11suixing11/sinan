@@ -279,11 +279,7 @@ pub async fn issue_enrollment(
             Some(json!(installation)),
             None,
         ),
-        Err(ApiError::Conflict(_)) => (
-            None,
-            None,
-            Some("请先导入协议兼容且已签名的 Agent Release，再获取安装命令"),
-        ),
+        Err(ApiError::Conflict(message)) => (None, None, Some(message)),
         Err(error) => return Err(error),
     };
     sqlx::query(

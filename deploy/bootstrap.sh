@@ -10,8 +10,8 @@ if [ "${1:-}" = --help ]; then
   exit 0
 fi
 if [ "$(id -u)" != 0 ]; then
-  command -v sudo >/dev/null || { echo '请以 root 执行安装命令，或先安装 sudo' >&2; exit 1; }
-  exec sudo /bin/sh "$0" "$@"
+  echo '请以 root 执行此脚本，或使用面板提供的官方单行安装入口。' >&2
+  exit 1
 fi
 PLATFORM=$(uname -s)
 case "$PLATFORM" in
@@ -146,7 +146,7 @@ for tool in $TOOLS; do
   command -v "$tool" >/dev/null || { echo "系统软件源未提供所需工具: $tool" >&2; exit 1; }
 done
 fi
-cat > "$STAGING/bootstrap.py" <<'SINAN_BOOTSTRAP_5FDA1407DC3056D994C69A813AD0F5D481769184693FB39E807177CE787DC7C4'
+cat > "$STAGING/bootstrap.py" <<'SINAN_BOOTSTRAP_2092CBE03C470AE6A2DD609C928E670BA6D7B8202D0A323A60D9AFF5F59DEA56'
 #!/usr/bin/env python3
 """Trusted, operator-provisioned bootstrap; never fetched from the panel and executed."""
 
@@ -179,10 +179,34 @@ MINISIGN_LINUX_BINARIES = {
 }
 PROOF_FILES = (("SHA256SUMS", 8192), ("SHA256SUMS.minisig", 16384),
                ("release.json", 32768), ("install.sh", 262144))
+PRELOADED_INSTALLER_MARKER = b"# SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1"
+DOWNLOAD_BUDGET_SECONDS = 300
+DOWNLOAD_SOCKET_TIMEOUT = 20
 
 
 class IncompatibleRelease(ValueError):
     pass
+
+
+def require_preloaded_installer(installer):
+    """Check the actual independently trusted executor, not an unexecuted release file."""
+    content = read_regular(Path(installer), 262144)
+    ensure(content.splitlines().count(PRELOADED_INSTALLER_MARKER) == 1,
+           "trusted Linux installer requires the preloaded-GitHub Agent contract")
+
+
+def bounded_read(response, size, deadline):
+    remaining = deadline - time.monotonic()
+    ensure(remaining > 0, "GitHub download exceeded total time budget")
+    # urllib otherwise renews its timeout for every socket read. Bound each
+    # active HTTP(S) read by this file's remaining total budget as well.
+    sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+    if sock is not None:
+        sock.settimeout(min(DOWNLOAD_SOCKET_TIMEOUT, remaining))
+    read = getattr(response, "read1", response.read)
+    block = read(size)
+    ensure(time.monotonic() < deadline, "GitHub download exceeded total time budget")
+    return block
 
 
 def validate_mirror(value, panel=None):
@@ -257,9 +281,18 @@ def download(base, name, destination, limit, mirror=""):
     if mirror:
         url = mirror + "/" + url
     validate_github_url(url, mirror)
-    with github_opener(mirror).open(url, timeout=120) as response:
+    deadline = time.monotonic() + DOWNLOAD_BUDGET_SECONDS
+    with github_opener(mirror).open(url, timeout=DOWNLOAD_SOCKET_TIMEOUT) as response:
         validate_github_url(response.url, mirror)
-        data = response.read(limit + 1)
+        blocks, total = [], 0
+        while True:
+            block = bounded_read(response, min(65536, limit + 1 - total), deadline)
+            if not block:
+                break
+            total += len(block)
+            ensure(total <= limit, "download size outside permitted range")
+            blocks.append(block)
+        data = b"".join(blocks)
     ensure(0 < len(data) <= limit, "download size outside permitted range")
     destination.write_bytes(data)
 
@@ -420,8 +453,8 @@ def download_agent(item, destination, mirror="", release_dir=None):
         if mirror:
             url = mirror + "/" + url
         validate_github_url(url, mirror)
-        deadline = time.monotonic() + 300
-        with github_opener(mirror).open(url, timeout=30) as response:
+        deadline = time.monotonic() + DOWNLOAD_BUDGET_SECONDS
+        with github_opener(mirror).open(url, timeout=DOWNLOAD_SOCKET_TIMEOUT) as response:
             validate_github_url(response.url, mirror)
             ensure(response.status == 200, "GitHub Agent 响应无效")
             declared = response.headers.get("Content-Length")
@@ -429,10 +462,7 @@ def download_agent(item, destination, mirror="", release_dir=None):
             total, checksum = 0, hashlib.sha256()
             with destination.open("xb") as output:
                 while True:
-                    ensure(time.monotonic() < deadline, "Agent 下载超时")
-                    read = getattr(response, "read1", response.read)
-                    data = read(min(65536, expected_size + 1 - total))
-                    ensure(time.monotonic() < deadline, "Agent 下载超时")
+                    data = bounded_read(response, min(65536, expected_size + 1 - total), deadline)
                     if not data:
                         break
                     total += len(data)
@@ -638,6 +668,9 @@ def main():
         installer = Path(args.trusted_installer) if args.trusted_installer else Path(__file__).with_name("trusted-install.sh")
         require_protected_file(installer)
         ensure(installer.is_file(), "独立可信 Linux 安装器缺失，请使用官方自包含 bootstrap.sh")
+        # The fixed, independently verified bootstrap supplies this executor.
+        # Legacy signed install.sh is proof material only and is never executed.
+        require_preloaded_installer(installer)
         download_agent(item, bundle / item["asset_name"], mirror, args.release_dir)
         token_file = bundle / ".enrollment-token"
         token_file.write_text(token)
@@ -654,7 +687,7 @@ if __name__ == "__main__":
         main()
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise SystemExit(f"Bootstrap refused: {error}") from error
-SINAN_BOOTSTRAP_5FDA1407DC3056D994C69A813AD0F5D481769184693FB39E807177CE787DC7C4
+SINAN_BOOTSTRAP_2092CBE03C470AE6A2DD609C928E670BA6D7B8202D0A323A60D9AFF5F59DEA56
 
 cat > "$STAGING/release.py" <<'SINAN_BOOTSTRAP_6DD03D6EF5135BCDB95B6849274A2D3C5CB988244B816F951C05B747FC41BC81'
 #!/usr/bin/env python3
@@ -1439,9 +1472,10 @@ cat > "$STAGING/public-keys.json" <<'SINAN_BOOTSTRAP_51121348A57E37D339622582811
 ["RWS4aZYmyBmwROpGKjfADJqNedYCNRhlg0+UoIBjQHxXZxYL7XMlkGJN"]
 SINAN_BOOTSTRAP_51121348A57E37D3396225828114D19A3F62EDB0AAD0F6157E7FBCBEBF56B576
 
-cat > "$STAGING/trusted-install.sh" <<'SINAN_BOOTSTRAP_3D77971B8E87B97D80A93DE5D1791FB648262A72C5BB2421B08E2700ACC1D513'
+cat > "$STAGING/trusted-install.sh" <<'SINAN_BOOTSTRAP_33A18551D364407C261773D2E6973920403976F84E046FC46079F122CDC43CD6'
 #!/bin/sh
 # Static signed release installer. Invoke only after independent verification.
+# SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1
 set -eu
 umask 027
 BUNDLE=
@@ -1840,7 +1874,7 @@ done
 [ "$STARTED" = 1 ] || { echo 'Agent 未通过启动检查' >&2; exit 1; }
 COMPLETED=1
 printf '%s\n' '已验证并安装 Agent，可运行 sinan-agent status 查看状态。'
-SINAN_BOOTSTRAP_3D77971B8E87B97D80A93DE5D1791FB648262A72C5BB2421B08E2700ACC1D513
+SINAN_BOOTSTRAP_33A18551D364407C261773D2E6973920403976F84E046FC46079F122CDC43CD6
 
 
 if [ "$PLATFORM" = Linux ] && ! command -v minisign >/dev/null; then

@@ -356,6 +356,15 @@ pub async fn select_agent(state: &AppState, version: Option<&str>) -> ApiResult<
     select_agent_for_target(state, version, None).await
 }
 
+/// Selects an Agent for the pinned independent Linux bootstrap.
+/// Release installers remain signed evidence; the bootstrap runs its own trusted executor.
+pub async fn select_installable_agent(
+    state: &AppState,
+    version: Option<&str>,
+) -> ApiResult<(String, String)> {
+    select_agent_for_target(state, version, None).await
+}
+
 /// Returns only protocol-compatible, signed updates for the requested ABI.
 pub async fn newer_agent(
     state: &AppState,

@@ -13,7 +13,7 @@ Linux 优先 musl，GNU 系统可使用本机 GNU；musl 不使用 GNU。旧裸 
 
 ## 按架构导入与直接下载
 
-管理员导入保留完整 proof，仅下载所选平台的兼容制品；局部缓存不改变已签目标目录。单行入口直接从固定官方 GitHub tag 下载本机 Agent，可使用该服务器已配置的独立 HTTPS 镜像，不携带面板接入令牌或设备凭据。下载大小与摘要由独立签名限制，再由 Agent 编译根复验。运行时与配置继续走面板；面板 Agent 下载接口保持 409，遵守主线 ADR 0037 的 GitHub-only 规则，不恢复面板分发 Agent。
+管理员导入保留完整 proof，仅下载所选平台的兼容制品；局部缓存不改变已签目标目录。单行入口直接从固定官方 GitHub tag 下载本机 Agent，可使用该服务器已配置的独立 HTTPS 镜像，不携带面板接入令牌或设备凭据。下载大小与摘要由独立签名限制，再由 Agent 编译根复验。运行时与配置继续走面板；面板 Agent 下载接口保持 409，遵守主线 ADR 0038 的 GitHub-only 规则，不恢复面板分发 Agent。
 
 ## 平台依赖与首次信任
 
@@ -21,7 +21,7 @@ Linux、FreeBSD 缺少依赖时使用系统软件源；Linux 默认软件源没�
 
 macOS 和 Windows 自动下载 [minisign 0.12 官方归档](https://github.com/jedisct1/minisign/releases/tag/0.12)，归档及所选二进制均有固定 SHA-256，不信任 PATH 中未知的验证器。macOS 归档为 `89000b19535765f9cffc65a65d64a820f433ef6db8020667f7570e06bf6aac63`，二进制为 `d41cde458303d45c95b00473e2455a7f45f95b550931f1f0cc98ef1f61b2a8ff`；Windows 归档为 `37b600344e20c19314b2e82813db2bfdcc408b77b876f7727889dbd46d539479`，AMD64/ARM64 二进制分别为 `5535be9e4e123831ebe6ef324aafe9dde507015c176191f9e20c3ad60567f9e1` 与 `f39e065e649d5ed7075675accfe0ada234175d63479df650654ec4365d7c4513`。只抽取固定文件名，工具位于 root/管理员保护目录；归档中的其他文件不执行。
 
-首次信任新增这些固定官方依赖来源和源码中的摘要，无新增 Rust/Bun/Python 库依赖。软件许可仍归各上游，仓库不重新分发其二进制。Windows 命令在普通终端通过 UAC 提升，提升后重新从固定源下载入口；编码参数保留引号与换行的字面值，避免从用户可写文件提升执行。Windows PowerShell 5.1 的中文入口使用 UTF-8 BOM，兼容 PowerShell 7。
+首次信任新增这些固定官方依赖来源和源码中的摘要，无新增 Rust/Bun/Python 库依赖。软件许可仍归各上游，仓库不重新分发其二进制。Unix 单行命令先提升执行固定参数化程序，再在 root 私有目录中下载、核对摘要和执行入口；直接运行入口脚本时必须已经是 root，不能将用户可写的已下载文件再次交给 sudo。Windows 命令在普通终端通过 UAC 提升，提升后重新从固定源下载入口；编码参数保留引号与换行的字面值，避免从用户可写文件提升执行。Windows PowerShell 5.1 的中文入口使用 UTF-8 BOM，兼容 PowerShell 7。
 
 ## 验证范围
 

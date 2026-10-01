@@ -103,7 +103,7 @@ class BootstrapTests(unittest.TestCase):
                 "binary_sha256": release.digest(b"raw")}
         url = "https://github.com/theLucius7/sinan/releases/download/agent-v0.3.0/agent-0.3.0-freebsd-arm64"
         with tempfile.TemporaryDirectory() as directory:
-            for data, response_url in ((b"evil", url), (b"bad", url), (b"raw", "https://panel.example.com/agent")):
+            for data, response_url in ((b"evil", url), (b"ra", url), (b"bad", url), (b"raw", "https://panel.example.com/agent")):
                 target = Path(directory) / "agent"
                 with self.subTest(data=data), patch.object(bootstrap, "github_opener") as opener, \
                         patch.object(bootstrap, "panel_opener") as panel:
@@ -250,6 +250,87 @@ class BootstrapTests(unittest.TestCase):
             RENDER.render(trusted_keys=FIXTURES / "public-keys.json")
         with self.assertRaises(ValueError):
             RENDER.render(test_installer="#!/bin/sh\nexit 0\n")
+
+    @unittest.skipUnless(os.getuid() == 0, "unprivileged bootstrap entry test requires root to drop privileges")
+    def test_direct_unprivileged_entry_refuses_before_sudo_or_installation(self):
+        def unprivileged():
+            os.setgroups([])
+            os.setgid(65534)
+            os.setuid(65534)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            root.chmod(0o755)
+            script = root / "bootstrap.sh"
+            script.write_text((ROOT / "deploy/bootstrap.sh").read_text())
+            script.chmod(0o644)
+            result = subprocess.run(["/bin/sh", "-x", str(script)], capture_output=True,
+                                    check=False, timeout=10, preexec_fn=unprivileged)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("请以 root 执行此脚本".encode(), result.stderr)
+            self.assertNotIn(b"sudo", result.stderr)
+            self.assertNotIn(b"mktemp", result.stderr)
+            self.assertEqual(result.stdout, b"")
+
+    def test_actual_trusted_installer_requires_unique_preloaded_agent_contract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            installer = Path(directory) / "trusted-install.sh"
+            installer.write_bytes(b"#!/bin/sh\n# Old trusted executor\n")
+            with self.assertRaisesRegex(ValueError, "preloaded-GitHub Agent contract"):
+                bootstrap.require_preloaded_installer(installer)
+            marker = bootstrap.PRELOADED_INSTALLER_MARKER + b"\n"
+            installer.write_bytes(b"#!/bin/sh\n" + marker)
+            bootstrap.require_preloaded_installer(installer)
+            installer.write_bytes(b"#!/bin/sh\n" + marker + marker)
+            with self.assertRaises(ValueError):
+                bootstrap.require_preloaded_installer(installer)
+
+    def test_slow_proof_and_agent_streams_have_total_budget_and_leave_no_partial_file(self):
+        class SlowResponse(Response):
+            def read1(self, size):
+                return b"x"
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "agent"
+            entry = {"version": "0.3.0", "archive_size": 1024, "binary_size": 1024,
+                     "format": "raw", "asset_name": "agent-0.3.0-linux-musl-amd64",
+                     "binary_sha256": release.digest(b"x" * 1024)}
+            for agent in (False, True):
+                with self.subTest(agent=agent), patch.object(bootstrap, "github_opener") as opener, \
+                        patch.object(bootstrap.time, "monotonic", side_effect=[0, 0, 200, 200, 301]):
+                    opener.return_value.open.return_value = SlowResponse(b"", "https://github.com/asset")
+                    with self.assertRaisesRegex(ValueError, "total time budget"):
+                        if agent:
+                            bootstrap.download_agent(entry, target)
+                        else:
+                            bootstrap.download("https://github.com/allowed", "agent", target, 1024)
+                    self.assertEqual(opener.return_value.open.call_args.kwargs["timeout"], 20)
+                self.assertFalse(target.exists())
+
+    def test_proof_and_agent_socket_timeout_use_remaining_file_budget(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "agent"
+            entry = {"version": "0.3.0", "archive_size": 6, "binary_size": 6,
+                     "format": "raw", "asset_name": "agent-0.3.0-linux-musl-amd64",
+                     "binary_sha256": release.digest(b"signed")}
+            for agent in (False, True):
+                response = Response(b"signed", "https://github.com/asset")
+                sock = Mock()
+                response.fp = SimpleNamespace(raw=SimpleNamespace(_sock=sock))
+                with self.subTest(agent=agent), patch.object(bootstrap, "github_opener") as opener, \
+                        patch.object(bootstrap.time, "monotonic", side_effect=[0, 295, 296, 297, 298]):
+                    opener.return_value.open.return_value = response
+                    if agent:
+                        bootstrap.download_agent(entry, target)
+                    else:
+                        bootstrap.download("https://github.com/allowed", "agent", target, 1024)
+                self.assertEqual([call.args for call in sock.settimeout.call_args_list], [(5,), (3,)])
+                self.assertEqual(target.read_bytes(), b"signed")
+                target.unlink()
+
     def test_mirror_is_explicit_https_prefix_without_panel_credentials(self):
         base = "https://github.com/theLucius7/sinan/releases/download/agent-v0.3.1"
         mirror = "https://mirror.example.com"
@@ -383,7 +464,7 @@ class StandaloneBootstrapTests(unittest.TestCase):
         self.script = self.directory / "bootstrap.sh"
         self.script.write_text(RENDER.render(
             trusted_keys=FIXTURES / "public-keys.json", publication=False,
-            test_installer="#!/bin/sh\nset -eu\nprintf '%s\\n' TRUSTED_INSTALLER_VERIFIED\n"))
+            test_installer="#!/bin/sh\n# SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1\nset -eu\nprintf '%s\\n' TRUSTED_INSTALLER_VERIFIED\n"))
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -398,6 +479,17 @@ class StandaloneBootstrapTests(unittest.TestCase):
         result = self.run_bootstrap()
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertIn(b"TRUSTED_INSTALLER_VERIFIED", result.stdout)
+        self.assertNotIn(b"RELEASE_INSTALLER_MUST_NOT_EXECUTE", result.stdout)
+
+    def test_standalone_rejects_executor_without_contract_but_accepts_signed_legacy_proof(self):
+        script = self.directory / "missing-contract-bootstrap.sh"
+        script.write_text(RENDER.render(
+            trusted_keys=FIXTURES / "public-keys.json", publication=False,
+            test_installer="#!/bin/sh\nset -eu\nprintf '%s\\n' UNCONTRACTED_EXECUTOR_MUST_NOT_RUN\n"))
+        result = self.run_bootstrap(script)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"preloaded-GitHub Agent contract", result.stderr)
+        self.assertNotIn(b"UNCONTRACTED_EXECUTOR_MUST_NOT_RUN", result.stdout)
         self.assertNotIn(b"RELEASE_INSTALLER_MUST_NOT_EXECUTE", result.stdout)
 
     def test_standalone_rejects_writable_staging_before_writing_or_importing_helpers(self):

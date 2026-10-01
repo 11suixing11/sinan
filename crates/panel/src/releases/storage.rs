@@ -55,7 +55,7 @@ pub(super) async fn existing_bytes(path: &Path, maximum: usize) -> Result<Option
     Ok(Some(ordinary_bytes(path, maximum).await?))
 }
 
-fn installer_valid(verified: &VerifiedRelease, bytes: &[u8]) -> bool {
+pub(super) fn installer_valid(verified: &VerifiedRelease, bytes: &[u8]) -> bool {
     bytes.len() <= MAX_INSTALLER
         && verified.checksum("install.sh") == Some(format!("{:x}", Sha256::digest(bytes)).as_str())
 }

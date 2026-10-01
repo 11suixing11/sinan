@@ -30,10 +30,34 @@ MINISIGN_LINUX_BINARIES = {
 }
 PROOF_FILES = (("SHA256SUMS", 8192), ("SHA256SUMS.minisig", 16384),
                ("release.json", 32768), ("install.sh", 262144))
+PRELOADED_INSTALLER_MARKER = b"# SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1"
+DOWNLOAD_BUDGET_SECONDS = 300
+DOWNLOAD_SOCKET_TIMEOUT = 20
 
 
 class IncompatibleRelease(ValueError):
     pass
+
+
+def require_preloaded_installer(installer):
+    """Check the actual independently trusted executor, not an unexecuted release file."""
+    content = read_regular(Path(installer), 262144)
+    ensure(content.splitlines().count(PRELOADED_INSTALLER_MARKER) == 1,
+           "trusted Linux installer requires the preloaded-GitHub Agent contract")
+
+
+def bounded_read(response, size, deadline):
+    remaining = deadline - time.monotonic()
+    ensure(remaining > 0, "GitHub download exceeded total time budget")
+    # urllib otherwise renews its timeout for every socket read. Bound each
+    # active HTTP(S) read by this file's remaining total budget as well.
+    sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+    if sock is not None:
+        sock.settimeout(min(DOWNLOAD_SOCKET_TIMEOUT, remaining))
+    read = getattr(response, "read1", response.read)
+    block = read(size)
+    ensure(time.monotonic() < deadline, "GitHub download exceeded total time budget")
+    return block
 
 
 def validate_mirror(value, panel=None):
@@ -108,9 +132,18 @@ def download(base, name, destination, limit, mirror=""):
     if mirror:
         url = mirror + "/" + url
     validate_github_url(url, mirror)
-    with github_opener(mirror).open(url, timeout=120) as response:
+    deadline = time.monotonic() + DOWNLOAD_BUDGET_SECONDS
+    with github_opener(mirror).open(url, timeout=DOWNLOAD_SOCKET_TIMEOUT) as response:
         validate_github_url(response.url, mirror)
-        data = response.read(limit + 1)
+        blocks, total = [], 0
+        while True:
+            block = bounded_read(response, min(65536, limit + 1 - total), deadline)
+            if not block:
+                break
+            total += len(block)
+            ensure(total <= limit, "download size outside permitted range")
+            blocks.append(block)
+        data = b"".join(blocks)
     ensure(0 < len(data) <= limit, "download size outside permitted range")
     destination.write_bytes(data)
 
@@ -271,8 +304,8 @@ def download_agent(item, destination, mirror="", release_dir=None):
         if mirror:
             url = mirror + "/" + url
         validate_github_url(url, mirror)
-        deadline = time.monotonic() + 300
-        with github_opener(mirror).open(url, timeout=30) as response:
+        deadline = time.monotonic() + DOWNLOAD_BUDGET_SECONDS
+        with github_opener(mirror).open(url, timeout=DOWNLOAD_SOCKET_TIMEOUT) as response:
             validate_github_url(response.url, mirror)
             ensure(response.status == 200, "GitHub Agent 响应无效")
             declared = response.headers.get("Content-Length")
@@ -280,10 +313,7 @@ def download_agent(item, destination, mirror="", release_dir=None):
             total, checksum = 0, hashlib.sha256()
             with destination.open("xb") as output:
                 while True:
-                    ensure(time.monotonic() < deadline, "Agent 下载超时")
-                    read = getattr(response, "read1", response.read)
-                    data = read(min(65536, expected_size + 1 - total))
-                    ensure(time.monotonic() < deadline, "Agent 下载超时")
+                    data = bounded_read(response, min(65536, expected_size + 1 - total), deadline)
                     if not data:
                         break
                     total += len(data)
@@ -489,6 +519,9 @@ def main():
         installer = Path(args.trusted_installer) if args.trusted_installer else Path(__file__).with_name("trusted-install.sh")
         require_protected_file(installer)
         ensure(installer.is_file(), "独立可信 Linux 安装器缺失，请使用官方自包含 bootstrap.sh")
+        # The fixed, independently verified bootstrap supplies this executor.
+        # Legacy signed install.sh is proof material only and is never executed.
+        require_preloaded_installer(installer)
         download_agent(item, bundle / item["asset_name"], mirror, args.release_dir)
         token_file = bundle / ".enrollment-token"
         token_file.write_text(token)

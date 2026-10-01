@@ -124,18 +124,26 @@ fn bundle(
 }
 
 async fn import(state: &AppState, bundle: Bundle) -> Result<usize, ApiError> {
-    releases::import_bundle(state, &bundle.tag, bundle.proof, move |name, maximum| {
-        let bytes = bundle
-            .assets
-            .get(&name)
-            .cloned()
-            .context("fixture asset is missing");
-        async move {
-            let bytes = bytes?;
-            anyhow::ensure!(bytes.len() <= maximum, "fixture exceeds download bound");
-            Ok(bytes)
-        }
-    })
+    // These signed fixtures contain legacy Linux artifacts for the native CPU,
+    // independently of the platform running the test process.
+    releases::import_bundle_for_targets(
+        state,
+        &bundle.tag,
+        bundle.proof,
+        &[native_arch().unwrap().into()],
+        move |name, maximum| {
+            let bytes = bundle
+                .assets
+                .get(&name)
+                .cloned()
+                .context("fixture asset is missing");
+            async move {
+                let bytes = bytes?;
+                anyhow::ensure!(bytes.len() <= maximum, "fixture exceeds download bound");
+                Ok(bytes)
+            }
+        },
+    )
     .await
 }
 
@@ -182,10 +190,11 @@ async fn interrupted_and_tampered_imports_keep_previous_release_unchanged() -> R
     let before = snapshot(&fixture.release_root())?;
     let candidate = bundle("0.4.0", (1, 1), b"next agent", Some(b"runtime"))?;
     let assets = candidate.assets.clone();
-    let result = releases::import_bundle(
+    let result = releases::import_bundle_for_targets(
         &fixture.state,
         &candidate.tag,
         candidate.proof.clone(),
+        &[native_arch()?.into()],
         move |name, _| {
             let bytes = assets.get(&name).cloned();
             async move {
@@ -232,10 +241,11 @@ async fn idempotence_reuses_valid_bytes_and_repairs_damaged_signed_payloads() ->
     let bundle = bundle("0.3.0", (1, 1), b"agent", Some(b"runtime"))?;
     assert_eq!(import(&fixture.state, bundle.clone()).await?, 2);
     let before = snapshot(&fixture.release_root())?;
-    let count = releases::import_bundle(
+    let count = releases::import_bundle_for_targets(
         &fixture.state,
         &bundle.tag,
         bundle.proof.clone(),
+        &[native_arch()?.into()],
         |_, _| async { bail!("idempotent import must use verified existing bytes") },
     )
     .await?;

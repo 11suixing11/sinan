@@ -2,17 +2,32 @@ use crate::{
     AppState, artifacts, auth,
     error::{ApiError, ApiResult},
 };
-use axum::{Json, extract::State, http::HeaderMap};
+use axum::{
+    Json,
+    extract::{Query, State, rejection::QueryRejection},
+    http::HeaderMap,
+};
 use sinan_protocol::{
     AgentRelease, AgentSettings, StaticInfo, platform::artifact_target, release_version,
 };
 use sqlx::Row;
 
+#[derive(serde::Deserialize)]
+pub struct UpdateQuery {
+    download_source: Option<String>,
+}
+
 pub async fn available(
     State(state): State<AppState>,
     headers: HeaderMap,
+    query: Result<Query<UpdateQuery>, QueryRejection>,
 ) -> ApiResult<Json<Option<AgentRelease>>> {
     let server = auth::require_agent(&state, &headers).await?;
+    // Older Agents fetch binaries from the panel and cannot use this descriptor.
+    let source = query.ok().and_then(|Query(query)| query.download_source);
+    if source.as_deref() != Some("github") {
+        return Ok(Json(None));
+    }
     let row = sqlx::query(
         "SELECT agent_settings,static_info,asset_settings FROM servers WHERE id=$1 AND deleted_at IS NULL",
     )
