@@ -13,6 +13,18 @@ BINARY = "sinan-tcp-probe"
 FILES = {BINARY, "build-info.json", "LICENSE", "source.tar.gz", "Cargo.lock", "THIRD_PARTY_NOTICES.txt"}
 TARGETS = {"amd64": "x86_64-unknown-linux-musl", "arm64": "aarch64-unknown-linux-musl"}
 SOURCE_LIMIT = 16 * 1024 * 1024
+BUNDLED_MUSL_FILES = ("tools/licenses/bundled-musl.json", "tools/licenses/musl-1.2.5-COPYRIGHT",
+                      "tools/licenses/rust-1.98.1-musl-recipe.txt")
+BUNDLED_MUSL_IDENTITY = {
+    "schema": 1, "version": "1.2.5",
+    "source_url": "https://musl.libc.org/releases/musl-1.2.5.tar.gz",
+    "source_sha256": "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4",
+    "copyright_sha256": "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af",
+    "rustc_commit": "48a229ceaefd4985c50990b14116b6d856af0985",
+    "rust_recipe_url": "https://raw.githubusercontent.com/rust-lang/rust/48a229ceaefd4985c50990b14116b6d856af0985/src/ci/docker/scripts/musl.sh",
+    "rust_recipe_sha256": "2f218a2dc7b7e73509212bfd4319ebddc2ddac7c651fca142c2b29bd7ea0aa38",
+    "patches": "CVE-2025-26519: two iconv patches in the pinned Rust recipe; copyright unchanged",
+}
 
 
 def ensure(condition, message):
@@ -78,7 +90,7 @@ def source_files(data, commit):
                 "crates/tcp-probe/src/cli.rs", "crates/tcp-probe/src/engine.rs",
                 "crates/tcp-probe/src/journal.rs", "crates/tcp-probe/src/model.rs",
                 "tools/build-tcp-probe.py", "tools/tcp_probe_artifact.py", "tools/artifact_manifest.py", "tools/tcp_probe_notices.py"}
-    ensure(required <= files.keys(), "source archive is missing the tool or its build recipe")
+    ensure(required | set(BUNDLED_MUSL_FILES) <= files.keys(), "source archive is missing the tool or its build recipe")
     return files
 
 
@@ -111,7 +123,7 @@ def validate_files(files, version, arch):
            and workspace["workspace"]["package"]["license"] == "AGPL-3.0-only"
            and package["name"] == BINARY and package["version"] == {"workspace": True}
            and package["license"] == {"workspace": True}, "TCP source version or license mismatch")
-    validate_notices(files["THIRD_PARTY_NOTICES.txt"], files["Cargo.lock"], arch)
+    validate_notices(files["THIRD_PARTY_NOTICES.txt"], files["Cargo.lock"], arch, source, info["rustc"])
     verify_elf(files[BINARY], arch)
     return info
 
@@ -140,7 +152,24 @@ def pack(files):
                 archive.addfile(member, io.BytesIO(files[name]))
     return output.getvalue()
 
-def validate_notices(encoded, lock_bytes, arch):
+def bundled_musl(source, rustc_info):
+    ensure(set(BUNDLED_MUSL_FILES) <= source.keys(), "bundled musl originals are missing from pinned source")
+    identity = json.loads(source[BUNDLED_MUSL_FILES[0]])
+    ensure(identity == BUNDLED_MUSL_IDENTITY, "unknown bundled musl source inventory")
+    copyright_text, recipe = (source[name] for name in BUNDLED_MUSL_FILES[1:])
+    ensure(digest(copyright_text) == identity["copyright_sha256"]
+           and digest(recipe) == identity["rust_recipe_sha256"], "bundled musl source originals differ")
+    ensure(isinstance(rustc_info, str)
+           and re.search(r"^commit-hash: " + identity["rustc_commit"] + r"$", rustc_info, re.MULTILINE),
+           "bundled musl inventory does not cover this rustc commit")
+    return dict(name="Rust bundled musl libc", version=identity["version"], notices=[
+        dict(path="musl-1.2.5/COPYRIGHT", text=copyright_text.decode()),
+        dict(path="rust-1.98.1/musl-recipe.txt", text=recipe.decode()),
+        dict(path="bundled-musl/source.json", text=source[BUNDLED_MUSL_FILES[0]].decode()),
+    ])
+
+
+def validate_notices(encoded, lock_bytes, arch, source, rustc_info):
     ensure(0 < len(encoded) <= 8 * 1024 * 1024, "invalid third-party notice inventory size")
     data = json.loads(encoded)
     ensure(isinstance(data, dict) and set(data) == {"schema", "target", "lock_sha256", "dependencies", "toolchain"}
@@ -173,11 +202,15 @@ def validate_notices(encoded, lock_bytes, arch):
             ensure(any("unicode" in n["path"].lower() for n in package["notices"]), "Unicode license original is missing")
         seen.add(identity)
     libraries = data["toolchain"]
-    ensure(isinstance(libraries, list) and len(libraries) == 2
-           and {p.get("name") for p in libraries} == {"Rust standard library and bundled native libraries", "system musl linker libraries"},
+    ensure(isinstance(libraries, list) and len(libraries) == 3
+           and {p.get("name") for p in libraries} == {"Rust standard library and bundled native libraries", "system musl build tooling", "Rust bundled musl libc"},
            "native library license originals are missing")
     for library in libraries:
         ensure(set(library) == {"name", "version", "notices"} and isinstance(library["version"], str)
                and library["version"], "native library notice identity mismatch")
         originals(library["notices"])
+    bundled = next(p for p in libraries if p["name"] == "Rust bundled musl libc")
+    ensure(bundled == bundled_musl(source, rustc_info), "bundled musl notice differs from pinned source")
+    standard = next(p for p in libraries if p["name"] == "Rust standard library and bundled native libraries")
+    ensure(standard["version"] == rustc_info, "Rust notice and binary toolchain versions differ")
     return data

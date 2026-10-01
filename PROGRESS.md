@@ -719,6 +719,11 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 保留作者 Bookworm 启动及精确 workspace 信任修复；`b536476` 的 Debian12/amd64/arm64 原生制品 CI 全过。本地修正回环 CLI 测试的非阻塞 socket 读取竞态，TCP 17项单线程通过，TCP 全targets Clippy、fmt、Python来源12/发布22、旧Release28通过/4条件跳过及 core/actionlint 通过。永久源与当前 main 的锁文件区别已明确，生产引擎预算和固定制品未改；最终整合 HEAD 的主线 CI 尚须实时核对。
 
+### P2 原生 TCP 实际 bundled musl 原文补齐（Issue #75，独立 PR）
+
+自带musl/CRT配方使用Rust官方固定commit对应musl1.2.5与安全补丁；旧system1.2.3通知不作为实际libc来源。纳入官方完整版权原文、不可执行Rust证明配方与固定摘要，构建不联网补齐、未知rustc/原文篡改在Cargo前拒绝；签名验证对比固定source与实际rustc，真实重签缺失/篡改仍拒绝。五aux与ABI不变；新的公开工具pin、实际Bookworm及最新CI完成后单独记录，未正式发布。
+
+- 修复后永久公开工具pin b562effcd90f8ae319665fb4ead1807b770ed4d5已实际Bookworm构建/ELF/version/build-info/完整5aux TEST_ONLY签名通过，35锁定依赖与Rust标准库、actual bundledmusl1.2.5、system1.2.3工具通知分别完整记录。fmt/core/15行为与真实重签/旧Release32/模拟发布22通过，exit0/OOMfalse，binary SHA e493d095...，日志evidence/tcp-musl-notices-b562eff。仅Python/库存变动，无重复全workspace；最新独立PR CI待核，未正式发布。
 ### P1 sing-box 根插件物理目录恢复（独立后续）
 
 合并后 sing-box 面板实现位于 crates/panel/src/plugins/singbox，与用户要求及ADR0023的根 plugins/singbox 不一致。独立后续将13文件 git mv 至 plugins/singbox/panel，以薄的 Rust path 桥保留模块名与接口；逐文件blob SHA一致，无业务/API/数据库/epoch/前端变动。ADR0030与AGENTS明确物理路径。静态fmt/core/差异检查及最新CI分别记录，未重新宣称实机流量完成。详见singbox-plugin-business独立验收。

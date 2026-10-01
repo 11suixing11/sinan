@@ -7,7 +7,7 @@ import subprocess
 import tarfile
 import tomllib
 
-from tcp_probe_artifact import BINARY, TARGETS, digest, ensure
+from tcp_probe_artifact import BINARY, TARGETS, BUNDLED_MUSL_FILES, bundled_musl, digest, ensure
 
 LIMIT = 8 * 1024 * 1024
 
@@ -18,6 +18,9 @@ def capture(command):
 
 def collect(repository, arch):
     target = TARGETS[arch]
+    rustc_info = capture(["rustc", "-vV"]).decode()
+    pinned = {name: (repository / name).read_bytes() for name in BUNDLED_MUSL_FILES}
+    libc = bundled_musl(pinned, rustc_info)
     metadata = json.loads(capture(["cargo", "metadata", "--locked", "--format-version", "1",
                                   "--filter-platform", target, "--manifest-path", str(repository / "Cargo.toml")]))
     # Select normal/build edges for this package, not features unified across all workspace roots.
@@ -94,9 +97,10 @@ def collect(repository, arch):
                   dependencies=sorted(dependencies, key=lambda p:(p["name"], p["version"], p["source"])),
                   toolchain=[
                       dict(name="Rust standard library and bundled native libraries",
-                           version=capture(["rustc", "-vV"]).decode(), notices=rust_notices),
-                      dict(name="system musl linker libraries", version=musl_version,
+                           version=rustc_info, notices=rust_notices),
+                      dict(name="system musl build tooling", version=musl_version,
                            notices=[dict(path="musl/copyright", text=musl_path.read_text())]),
+                      libc,
                   ])
     encoded = (json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode()
     ensure(len(encoded) <= LIMIT, "third-party notice inventory exceeds size limit")

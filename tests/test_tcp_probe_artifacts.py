@@ -18,6 +18,7 @@ import release
 import tcp_probe_artifact as tcp
 import test_release
 import publish
+import tcp_probe_notices as collector
 
 spec = importlib.util.spec_from_file_location("tcp_builder", ROOT / "tools/build-tcp-probe.py")
 builder = importlib.util.module_from_spec(spec)
@@ -34,7 +35,7 @@ def repository(root):
                  "crates/tcp-probe/src/lib.rs", "crates/tcp-probe/src/main.rs",
                  "crates/tcp-probe/src/cli.rs", "crates/tcp-probe/src/engine.rs",
                  "crates/tcp-probe/src/journal.rs", "crates/tcp-probe/src/model.rs",
-                 "tools/build-tcp-probe.py", "tools/tcp_probe_artifact.py", "tools/artifact_manifest.py", "tools/tcp_probe_notices.py"]:
+                 "tools/build-tcp-probe.py", "tools/tcp_probe_artifact.py", "tools/artifact_manifest.py", "tools/tcp_probe_notices.py", *tcp.BUNDLED_MUSL_FILES]:
         target = root / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / name, target)
@@ -63,15 +64,20 @@ def payload(repo, commit, arch):
              "Cargo.lock": (repo / "Cargo.lock").read_bytes(), "LICENSE": (repo / "LICENSE").read_bytes()}
     locked = next(p for p in tomllib.loads(files["Cargo.lock"].decode())["package"] if p.get("checksum"))
     original = dict(path="LICENSE", text="TEST_ONLY original dependency notice")
+    rustc_info = "rustc 1.98.1 TEST_ONLY fixture\ncommit-hash: " + tcp.BUNDLED_MUSL_IDENTITY["rustc_commit"] + "\n"
+    source = tcp.source_files(archive, commit)
     notices = dict(schema=1, target=tcp.TARGETS[arch], lock_sha256=tcp.digest(files["Cargo.lock"]),
                    dependencies=[dict(name=locked["name"], version=locked["version"], source=locked["source"],
                                       checksum=locked["checksum"], license="MIT", notices=[original])],
-                   toolchain=[dict(name=name, version="TEST_ONLY toolchain", notices=[original])
-                              for name in ["Rust standard library and bundled native libraries", "system musl linker libraries"]])
+                   toolchain=[
+                       dict(name="Rust standard library and bundled native libraries", version=rustc_info, notices=[original]),
+                       dict(name="system musl build tooling", version="TEST_ONLY build tooling", notices=[original]),
+                       tcp.bundled_musl(source, rustc_info),
+                   ])
     files["THIRD_PARTY_NOTICES.txt"] = json.dumps(notices).encode()
     info = dict(schema=1, tool=tcp.BINARY, tool_version=tcp.TOOL_VERSION,
                 artifact_version=version, source_repo=release.REPOSITORY, source_commit=commit,
-                target=tcp.TARGETS[arch], rustc="rustc TEST_ONLY fixture", cargo_locked=True,
+                target=tcp.TARGETS[arch], rustc=rustc_info, cargo_locked=True,
                 source_sha256=tcp.digest(archive), lock_sha256=tcp.digest(files["Cargo.lock"]),
                 license_sha256=tcp.digest(files["LICENSE"]), binary_sha256=tcp.digest(binary),
                 notices_sha256=tcp.digest(files["THIRD_PARTY_NOTICES.txt"]))
@@ -275,6 +281,25 @@ class SignedTcpTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "provenance"):
             self.fixture.verify()
 
+    def test_even_resigned_missing_or_changed_bundled_libc_notices_are_rejected(self):
+        for action in ["missing", "changed"]:
+            with self.subTest(action=action):
+                self.setUp_payload_from_fixture()
+                def mutate(files):
+                    notices = json.loads(files["THIRD_PARTY_NOTICES.txt"])
+                    library = next(item for item in notices["toolchain"] if item["name"] == "Rust bundled musl libc")
+                    if action == "missing":
+                        notices["toolchain"].remove(library)
+                    else:
+                        library["notices"][0]["text"] += "TEST_ONLY forged original"
+                    files["THIRD_PARTY_NOTICES.txt"] = json.dumps(notices).encode()
+                    info = json.loads(files["build-info.json"])
+                    info["notices_sha256"] = tcp.digest(files["THIRD_PARTY_NOTICES.txt"])
+                    files["build-info.json"] = json.dumps(info).encode()
+                self.rewrite_asset_and_resign(mutate)
+                with self.assertRaises(ValueError):
+                    self.fixture.verify()
+
     def test_default_release_keeps_three_modules_and_does_not_require_tcp(self):
         shutil.rmtree(self.fixture.bundle)
         self.fixture.arguments.tcp_probe_version = None
@@ -308,3 +333,44 @@ class NoticeInventoryTests(unittest.TestCase):
                 files["build-info.json"] = json.dumps(info).encode()
                 with self.assertRaises(ValueError):
                     tcp.validate_files(files, version, "amd64")
+
+
+class BundledMuslTests(unittest.TestCase):
+    setUp = FixedSourceTests.setUp
+    tearDown = FixedSourceTests.tearDown
+
+    def test_missing_or_changed_originals_and_unknown_toolchains_fail_before_cargo(self):
+        source = {name: (self.repo / name).read_bytes() for name in tcp.BUNDLED_MUSL_FILES}
+        rustc_info = "rustc 1.98.1 TEST_ONLY\ncommit-hash: " + tcp.BUNDLED_MUSL_IDENTITY["rustc_commit"] + "\n"
+        self.assertEqual(tcp.bundled_musl(source, rustc_info)["version"], "1.2.5")
+        for index, name in enumerate(tcp.BUNDLED_MUSL_FILES):
+            changed = dict(source)
+            changed[name] += b"tampered"
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                tcp.bundled_musl(changed, rustc_info)
+            del changed[name]
+            with self.subTest(missing=name), self.assertRaises(ValueError):
+                tcp.bundled_musl(changed, rustc_info)
+        with patch.object(collector, "capture", return_value=b"rustc TEST_ONLY\ncommit-hash: unknown\n") as calls:
+            with self.assertRaisesRegex(ValueError, "rustc commit"):
+                collector.collect(self.repo, "amd64")
+            calls.assert_called_once_with(["rustc", "-vV"])
+
+    def test_rehashed_missing_or_forged_bundled_notices_are_rejected(self):
+        version, files = payload(self.repo, self.commit, "amd64")
+        original = files["THIRD_PARTY_NOTICES.txt"]
+        for action in ["missing", "copyright", "recipe", "identity", "toolchain"]:
+            notices = json.loads(original)
+            bundled = next(item for item in notices["toolchain"] if item["name"] == "Rust bundled musl libc")
+            if action == "missing":
+                notices["toolchain"].remove(bundled)
+            elif action == "toolchain":
+                next(item for item in notices["toolchain"] if item["name"].startswith("Rust standard"))["version"] = "rustc other"
+            else:
+                bundled["notices"][{"copyright": 0, "recipe": 1, "identity": 2}[action]]["text"] += "forged"
+            files["THIRD_PARTY_NOTICES.txt"] = json.dumps(notices).encode()
+            info = json.loads(files["build-info.json"])
+            info["notices_sha256"] = tcp.digest(files["THIRD_PARTY_NOTICES.txt"])
+            files["build-info.json"] = json.dumps(info).encode()
+            with self.subTest(action=action), self.assertRaisesRegex(ValueError, "native library|bundled musl|toolchain"):
+                tcp.validate_files(files, version, "amd64")
