@@ -40,6 +40,10 @@ impl Privileged for RecordingOps {
                 success: true,
                 stdout: if program == Path::new("stat") {
                     "41c0 0\n".into()
+                } else if let Some(output) =
+                    crate::system::syscall_protection::fixture_output(program, args)
+                {
+                    output.into()
                 } else {
                     String::new()
                 },
@@ -128,9 +132,20 @@ async fn service_command_applies_every_budget_before_the_program_separator() -> 
                 "--property=MemoryMax=infinity"
             ]
         );
+        assert_eq!(
+            args[..separator]
+                .iter()
+                .filter(|arg| arg.starts_with("--property=ExecStartPre="))
+                .collect::<Vec<_>>(),
+            [crate::system::syscall_protection::FILTER_CHECK]
+        );
         for (property, expected) in [
             ("MemoryMax", job.memory_max.get().to_string()),
             ("MemorySwapMax", "0".into()),
+            ("NoNewPrivileges", "yes".into()),
+            ("SystemCallArchitectures", "native".into()),
+            ("SystemCallFilter", "~swapon swapoff".into()),
+            ("SystemCallErrorNumber", "EPERM".into()),
             ("TasksMax", job.tasks_max.get().to_string()),
             ("CPUWeight", job.cpu_weight.get().to_string()),
             ("IOWeight", job.io_weight.get().to_string()),
@@ -144,7 +159,7 @@ async fn service_command_applies_every_budget_before_the_program_separator() -> 
             assert_eq!(properties, vec![&format!("{prefix}{expected}")]);
         }
     }
-    assert_eq!(ops.0.lock().unwrap().len(), 4);
+    assert_eq!(ops.0.lock().unwrap().len(), 10);
     Ok(())
 }
 
