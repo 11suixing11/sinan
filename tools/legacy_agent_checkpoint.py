@@ -14,6 +14,7 @@ import urllib.parse
 import uuid
 
 SEGMENT = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}\Z")
+LEGACY_NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2"
 
 
 def ensure(condition, message):
@@ -148,6 +149,12 @@ def checkpoint_safe(encoded):
         ensure(all(type(service[key]) is int for key in
                    {"memory_max", "tasks_max", "cpu_weight", "io_weight", "oom_score_adjust"} & set(service)),
                "旧已启动检查点资源形状无效，安装未切换")
+        ensure(spec["version"] == LEGACY_NODEQUALITY_VERSION
+               and set(spec["options"]) <= {"ip_version", "network_mode", "upload_report"}
+               and spec["options"].get("ip_version", "both") in ("both", "ipv4", "ipv6")
+               and spec["options"].get("network_mode", "low") in ("low", "normal")
+               and spec["options"].get("upload_report", "false") in ("true", "false"),
+               "旧 Agent 无法按原版本回收此已启动任务；请保留状态并使用兼容的新签名 Agent，安装未切换")
         try:
             uuid.UUID(spec["id"])
         except (ValueError, TypeError, AttributeError):

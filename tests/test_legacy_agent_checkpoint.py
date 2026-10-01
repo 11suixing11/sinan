@@ -125,6 +125,14 @@ class LegacyCheckpointTests(unittest.TestCase):
                 self.checkpoint(encoded)
                 self.inspect(refused=True)
 
+    def test_newer_started_history_is_kept_for_a_compatible_agent_without_downgrade(self):
+        for mutate in (lambda value: value["Started"]["spec"].update(version=VERSION[:-1] + "4"),
+                       lambda value: value["Started"]["spec"].update(options={"mode": "full"})):
+            value = started()
+            mutate(value)
+            self.checkpoint(json.dumps(value, indent=4))
+            self.inspect(refused=True, reason="原版本回收")
+
     def test_missing_wal_shared_memory_is_refused_without_creating_it(self):
         writer = self.checkpoint(json.dumps(preparing()), wal=True)
         try:

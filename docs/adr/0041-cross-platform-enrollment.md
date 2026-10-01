@@ -11,7 +11,7 @@
 
 Linux 优先 musl，GNU 系统可使用本机 GNU；musl 不使用 GNU。旧裸 `amd64`/`arm64` 的 musl 身份继续兼容。完整 Release 中的 install.sh 仍核对签名摘要；Linux 实际使用独立受信 bootstrap 中嵌入、由现有模板与 systemd/OpenRC units 渲染的静态安装器，支持精确目标和 GitHub 已验字节。它与入口一同受固定官方 blob/SHA 保护，避免旧正式 0.3.0 安装器仍要求面板提供 Agent；不修改已发布的任何资产。原生平台下载裸 Agent，依次验证自身、旧缓存、接入，再调用现有 `install-service`，由 launchd、FreeBSD rc.d 或 Windows 计划任务管理。已有配置在切换失败时恢复，已有设备私钥保留；原生 CLI 的版本证明、原子切换与启动失败回滚继续生效。
 
-0.3.0 及更早 Linux Agent 能恢复本地 Preparing，旧 verify-cache 的签名通过不能证明完整启动门禁。已有状态的恢复要求旧 Agent 明确停止并做只读 SQLite 预检，读取真实 WAL、要求既有共享内存并限制期限；完整 Preparing 或未知/损坏状态拒绝且原 JSON 保留。Started 按原版本核验回收，daily 门禁不额外拒绝，但实际执行仍取决于旧适配器兼容能力。bootstrap 与内嵌执行器采用同一标准库守卫，接入前、服务激活前复查；配置解析与停止状态无法确认时拒绝，不自动停服务，也不把单次快照声称为全程原子迁移。
+0.3.0 及更早 Linux Agent 能恢复本地 Preparing，旧 verify-cache 的签名通过不能证明完整启动门禁。已有状态的恢复要求旧 Agent 明确停止并做只读 SQLite 预检，读取真实 WAL、要求既有共享内存并限制期限；完整 Preparing 或未知/损坏状态拒绝且原 JSON 保留。Started 按原版本核验回收，旧 Agent 只接续其确切 r2 及原参数；其他 Started 保留给兼容的新签名 Agent，拒绝不兼容降级。daily 门禁不额外拒绝，但实际执行仍取决于旧适配器兼容能力。bootstrap 与内嵌执行器采用同一标准库守卫，接入前、服务激活前复查；配置解析与停止状态无法确认时拒绝，不自动停服务，也不把单次快照声称为全程原子迁移。
 
 ## 按架构导入与直接下载
 
