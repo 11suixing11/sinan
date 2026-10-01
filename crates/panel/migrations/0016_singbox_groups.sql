@@ -142,10 +142,10 @@ CREATE VIEW singbox_desired_accesses AS
     JOIN nodes n ON n.id=granted.node_id AND n.deleted_at IS NULL
     JOIN servers s ON s.id=n.server_id AND s.deleted_at IS NULL
     LEFT JOIN singbox_chains c ON c.entry_node_id=n.id
-    WHERE c.id IS NULL OR EXISTS (
+    WHERE c.id IS NULL OR (n.protocol='vless-reality' AND EXISTS (
         SELECT 1 FROM nodes e JOIN servers es ON es.id=e.server_id
-        WHERE e.id=c.exit_node_id AND e.deleted_at IS NULL AND es.deleted_at IS NULL
-    );
+        WHERE e.id=c.exit_node_id AND e.protocol='vless-reality' AND e.deleted_at IS NULL AND es.deleted_at IS NULL
+    ));
 
 CREATE FUNCTION singbox_eligible_accesses(at_s BIGINT)
 RETURNS TABLE (user_id BIGINT, node_id BIGINT, uuid UUID, stat_name TEXT, credential TEXT)

@@ -13,6 +13,7 @@ async function main() {
     const errors = [], writes = [], assignments = []
     const root = '/api/plugins/sing-box'
     const nodes = [{ id: 1, name: '标准节点', server_id: 1 }, { id: 2, name: '入口节点', server_id: 1 }, { id: 3, name: '出口节点', server_id: 2 }, { id: 4, name: '备用入口', server_id: 1 }].map(n => ({ ...n, port: 20000 + n.id, protocol: 'vless-reality', public_host: 'proxy.example.com', sni: 'www.example.com' }))
+    nodes.push({ ...nodes[0], id: 5, name: '现代节点', server_id: 2, protocol: 'shadowsocks2022' })
     const chains = [{ id: 1, name: '两跳示例', entry_node_id: 2, exit_node_id: 3, available: true }]
     const policies = [{ id: 1, name: '常用节点', node_ids: [1], chain_ids: [1], member_count: 1 }]
     const plans = [{ id: 1, name: '月度套餐', monthly_bytes: '536870912000', reset_day: 31, reset_hour: 12, reset_minute: 30, timezone: 'Asia/Taipei', duration_days: 365 }]
@@ -57,11 +58,12 @@ async function main() {
     await page.getByRole('button', { name: '创建策略组', exact: true }).click()
     await page.getByRole('textbox', { name: '名称', exact: true }).fill('测试策略')
     await page.getByRole('checkbox', { name: /标准节点/ }).check()
+    await page.getByRole('checkbox', { name: /现代节点/ }).check()
     await page.getByRole('checkbox', { name: /两跳示例/ }).check()
     assert.equal(await page.locator('input[name="node_ids"][value="2"]').count(), 0)
     await page.getByRole('button', { name: '保存', exact: true }).click()
     await page.getByText('测试策略', { exact: true }).waitFor()
-    assert.deepEqual(writes.at(-1).payload, { name: '测试策略', node_ids: [1], chain_ids: [1] })
+    assert.deepEqual(writes.at(-1).payload, { name: '测试策略', node_ids: [1, 5], chain_ids: [1] })
     await page.getByRole('button', { name: '套餐组', exact: true }).click()
     await page.getByRole('button', { name: '创建套餐组', exact: true }).click()
     await page.getByRole('textbox', { name: '名称', exact: true }).fill('精确额度')
@@ -76,6 +78,8 @@ async function main() {
     await page.getByRole('button', { name: '两跳链路', exact: true }).click()
     await page.getByRole('button', { name: '创建两跳链路', exact: true }).click()
     await page.getByRole('textbox', { name: '名称', exact: true }).fill('测试链路')
+    assert.equal(await page.locator('select[name="entry_node_id"] option[value="5"]').count(), 0)
+    assert.equal(await page.locator('select[name="exit_node_id"] option[value="5"]').count(), 0)
     await page.locator('select[name="entry_node_id"]').selectOption('4')
     await page.locator('select[name="exit_node_id"]').selectOption('3')
     await page.getByRole('button', { name: '保存', exact: true }).click()
@@ -83,6 +87,9 @@ async function main() {
     assert.deepEqual(writes.at(-1).payload, { name: '测试链路', entry_node_id: 4, exit_node_id: 3 })
     await page.goto(`${origin}/#/plugins/sing-box/users`)
     await page.getByRole('heading', { name: '可用范围与套餐', exact: true }).waitFor()
+    await page.getByRole('button', { name: '订阅链接', exact: true }).click()
+    assert.equal(await page.getByRole('combobox', { name: '订阅格式' }).inputValue(), 'singbox')
+    await page.getByRole('button', { name: '完成', exact: true }).click()
     await page.getByText('来自策略组', { exact: true }).waitFor()
     assert.equal(await page.getByRole('checkbox', { name: '授权 入口节点', exact: true }).count(), 0)
     assert.equal(await page.getByRole('checkbox', { name: '授权 标准节点', exact: true }).isChecked(), false)
