@@ -194,7 +194,6 @@ fn official_fields(value: &Value, ip: &str) -> Result<Vec<QualityField>, QueryEr
     let valid = target.is_some()
         && super::fields::confirmed_response(value)
         && super::fields::confirmed_response(data)
-        && value.get("errors").is_none_or(Value::is_null)
         && data["ipAddress"]
             .as_str()
             .and_then(|ip| ip.parse::<IpAddr>().ok())
