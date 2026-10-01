@@ -1,0 +1,52 @@
+#!/bin/sh
+# Independent official bootstrap. Generated with the audited release verifier and roots.
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+umask 077
+
+if [ "${1:-}" = --help ]; then
+  printf '%s\n' '用法: bootstrap.sh --tag agent-v版本 --panel https://面板 --token 一次性接入令牌'
+  exit 0
+fi
+if [ "$(id -u)" != 0 ]; then
+  command -v sudo >/dev/null || { echo '请以 root 执行安装命令，或先安装 sudo' >&2; exit 1; }
+  exec sudo /bin/sh "$0" "$@"
+fi
+[ "$(uname -s)" = Linux ] || { echo '此接入入口需要 Linux systemd 或 OpenRC' >&2; exit 1; }
+case "$(uname -m)" in x86_64|aarch64|arm64) ;; *) echo '此接入入口仅支持 amd64 和 arm64' >&2; exit 1 ;; esac
+
+NEEDS_PACKAGES=0
+for tool in python3 minisign install getent cmp mv seq; do
+  command -v "$tool" >/dev/null || NEEDS_PACKAGES=1
+done
+if [ "$NEEDS_PACKAGES" = 1 ]; then
+  printf '%s\n' '正在通过系统软件源准备 Python、minisign 和安装工具。'
+  if command -v apt-get >/dev/null; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 minisign ca-certificates coreutils libc-bin passwd
+  elif command -v apk >/dev/null; then
+    apk add --no-cache python3 minisign ca-certificates coreutils musl-utils shadow
+  elif command -v dnf >/dev/null; then
+    dnf install -y python3 minisign ca-certificates coreutils glibc-common shadow-utils
+  elif command -v yum >/dev/null; then
+    yum install -y python3 minisign ca-certificates coreutils glibc-common shadow-utils
+  else
+    echo '无法自动准备安装工具：需要 apt-get、apk、dnf 或 yum 软件源' >&2
+    exit 1
+  fi
+fi
+for tool in python3 minisign install getent cmp mv seq; do
+  command -v "$tool" >/dev/null || { echo "系统软件源未提供所需工具: $tool" >&2; exit 1; }
+done
+
+# A protected parent is required because the bootstrap rejects writable trust paths.
+STAGING=$(mktemp -d /run/sinan-bootstrap.XXXXXX)
+cleanup() { rm -rf "$STAGING"; }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' HUP TERM
+@@BOOTSTRAP_FILES@@
+
+# Isolated mode ignores Python environment/path overrides; imports use only this bundle.
+python3 -I -c 'import runpy, sys; sys.path.insert(0, sys.argv.pop(1)); runpy.run_module("bootstrap", run_name="__main__")' "$STAGING" "$@" --trusted-keys "$STAGING/public-keys.json" --minisign "$(command -v minisign)"

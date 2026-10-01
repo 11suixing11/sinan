@@ -14,6 +14,7 @@ use sinan_protocol::Artifact;
 #[derive(Deserialize)]
 pub struct TokenQuery {
     pub token: String,
+    pub agent_version: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -127,8 +128,23 @@ pub async fn install_script(
     State(state): State<AppState>,
     Query(query): Query<TokenQuery>,
 ) -> ApiResult<Response> {
-    crate::servers::validate_enrollment(&state.pool, &query.token).await?;
-    Err(ApiError::Conflict("安装入口已迁移至独立验证的 sinan-bootstrap，请查看部署文档；不得执行面板提供的未签名安装脚本".into()))
+    let server_id = crate::servers::validate_enrollment(&state.pool, &query.token).await?;
+    let asset: serde_json::Value = sqlx::query_scalar(
+        "SELECT asset_settings FROM servers WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(server_id)
+    .fetch_one(&state.pool)
+    .await?;
+    let asset: crate::server_assets::AssetSettings =
+        serde_json::from_value(asset).map_err(anyhow::Error::from)?;
+    let installation = crate::installation::select(
+        &state,
+        query.agent_version.as_deref(),
+        &query.token,
+        &asset.agent_mirror,
+    )
+    .await?;
+    Ok(([(header::CACHE_CONTROL, "no-store")], Json(installation)).into_response())
 }
 
 pub async fn install_powershell(

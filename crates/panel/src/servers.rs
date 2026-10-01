@@ -262,11 +262,6 @@ pub async fn issue_enrollment(
     }
     let asset: AssetSettings = serde_json::from_value(exists.unwrap().get("asset_settings"))
         .map_err(anyhow::Error::from)?;
-    let mirror = if asset.agent_mirror.is_empty() {
-        String::new()
-    } else {
-        format!(" --mirror {}", shell_quote(&asset.agent_mirror))
-    };
     sqlx::query(
         "INSERT INTO enrollment_tokens (token_hash, server_id, expires_at) VALUES ($1, $2, $3)",
     )
@@ -276,24 +271,21 @@ pub async fn issue_enrollment(
     .execute(&mut *transaction)
     .await?;
     transaction.commit().await?;
-    let selection = crate::releases::select_agent(&state, query.agent_version.as_deref()).await;
+    let selection = crate::installation::select(
+        &state,
+        query.agent_version.as_deref(),
+        &token,
+        &asset.agent_mirror,
+    )
+    .await;
     let (install_command, installation, warning) = match selection {
-        Ok((version, tag)) => (
-            Some(format!(
-                "sudo sinan-bootstrap --tag {} --panel {} --token {}{}",
-                shell_quote(&tag),
-                shell_quote(&state.config.public_url),
-                shell_quote(&token),
-                mirror
-            )),
-            Some(json!({"version": version, "tag": tag})),
+        Ok(installation) => (
+            Some(installation.install_command.clone()),
+            Some(json!(installation)),
             None,
         ),
-        Err(_) => (
-            None,
-            None,
-            Some("请先导入协议兼容且已签名的 Agent Release，再获取安装命令"),
-        ),
+        Err(ApiError::Conflict(message)) => (None, None, Some(message)),
+        Err(error) => return Err(error),
     };
     Ok(Json(
         json!({"token": token, "expires_at": expires_at, "install_command": install_command,
@@ -367,10 +359,6 @@ fn validate_public_key(value: &str) -> ApiResult<()> {
         return Err(error());
     }
     Ok(())
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 fn validate_mirror(asset: &AssetSettings, panel: &str) -> ApiResult<()> {
