@@ -53,6 +53,10 @@ impl Fixture {
     }
 
     async fn config(&self) -> Result<Config> {
+        self.config_for_version(env!("CARGO_PKG_VERSION")).await
+    }
+
+    async fn config_for_version(&self, agent_version: &str) -> Result<Config> {
         let config = Config {
             agent_root: self.root.join("core"),
             ..Config::default()
@@ -62,7 +66,7 @@ impl Fixture {
         ops.write_file(
             &config.agent_root.join("update-state.json"),
             &serde_json::to_vec(&UpgradeState {
-                current: env!("CARGO_PKG_VERSION").into(),
+                current: agent_version.into(),
                 ..UpgradeState::default()
             })?,
             0o600,
@@ -73,6 +77,10 @@ impl Fixture {
     }
 
     async fn new() -> Result<Self> {
+        Self::with_version("99.0.0").await
+    }
+
+    async fn with_version(version: &str) -> Result<Self> {
         let root = std::env::temp_dir().join(format!("sinan-update-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&root)?;
         let source = root.join("fixture.rs");
@@ -83,7 +91,7 @@ fn main() {
     MARK_EXECUTED
     let arguments: Vec<_> = std::env::args().skip(1).collect();
     if arguments == ["--version"] {
-        println!("sinan-agent 99.0.0");
+        println!("sinan-agent FIXTURE_VERSION");
     } else if arguments.len() == 3 && arguments[0] == "--config" && arguments[2] == "verify-cache" {
         if std::fs::read(&arguments[1]).unwrap() != b"accept cache" { std::process::exit(17); }
     } else {
@@ -91,6 +99,7 @@ fn main() {
     }
 }
 "##
+            .replace("FIXTURE_VERSION", version)
             .replace(
                 "MARK_EXECUTED",
                 &format!(
@@ -116,13 +125,13 @@ fn main() {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let origin = format!("http://{}", listener.local_addr()?);
         let release = Arc::new(Mutex::new(AgentRelease {
-            version: "99.0.0".into(),
-            artifact: Self::artifact(&origin, "99.0.0", &bytes),
+            version: version.into(),
+            artifact: Self::artifact(&origin, version, &bytes),
         }));
         let bytes = Arc::new(Mutex::new(bytes));
         let response_bytes = bytes.clone();
         let binary_path = format!(
-            "GET /api/agent/v1/artifacts/agent/99.0.0/{} ",
+            "GET /api/agent/v1/artifacts/agent/{version}/{} ",
             sinan_protocol::release::native_arch()?
         );
         let response_release = release.clone();
@@ -164,6 +173,51 @@ fn main() {
             task,
         })
     }
+}
+
+#[tokio::test]
+async fn independent_agent_version_can_upgrade_below_the_core_version() -> Result<()> {
+    let current = "0.2.0";
+    let candidate = "0.2.1";
+    assert!(release_version(candidate) < release_version(env!("CARGO_PKG_VERSION")));
+    let fixture = Fixture::with_version(candidate).await?;
+    let config = fixture.config_for_version(current).await?;
+    let client = PanelClient::new(&fixture.origin, "update-fixture-session")?
+        .with_trusted_keys(trusted_keys());
+    check_guarded(&config, &SystemOps, &client, current, None).await?;
+    let pending: PendingUpgrade = read_json(&config.agent_root.join("pending-update.json"))?;
+    assert_eq!(pending.version, candidate);
+    assert!(
+        config
+            .agent_root
+            .join(candidate)
+            .join(executable_name())
+            .is_file()
+    );
+    assert!(fixture.root.join("executed").is_file());
+    assert_eq!(state(&config)?.unwrap().current, current);
+    Ok(())
+}
+
+#[tokio::test]
+async fn independent_agent_version_rejects_equal_or_older_candidate_above_core() -> Result<()> {
+    let candidate = "99.0.0";
+    assert!(release_version(candidate) > release_version(env!("CARGO_PKG_VERSION")));
+    let fixture = Fixture::new().await?;
+    let client = PanelClient::new(&fixture.origin, "update-fixture-session")?
+        .with_trusted_keys(trusted_keys());
+    for current in [candidate, "99.0.1"] {
+        let config = fixture.config_for_version(current).await?;
+        fixture.requests.lock().unwrap().clear();
+        let error = check_guarded(&config, &SystemOps, &client, current, None)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("newer stable"));
+        fixture.assert_no_binary_download();
+        assert!(!config.agent_root.join("pending-update.json").exists());
+        assert!(!fixture.root.join("executed").exists());
+    }
+    Ok(())
 }
 
 #[tokio::test]

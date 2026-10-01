@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Exercise artifact guards without requiring a Linux compiler toolchain."""
 
+import contextlib
 import hashlib
+import io
 import os
 import pathlib
 import runpy
@@ -9,7 +11,9 @@ import struct
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
+from unittest import mock
 
 
 TOOLS = pathlib.Path(__file__).resolve().parent
@@ -17,6 +21,69 @@ NATIVE_AGENT = runpy.run_path(str(TOOLS / "build-agent.py"))
 
 
 class BuildScriptTests(unittest.TestCase):
+    @contextlib.contextmanager
+    def independent_prebuilt_agent(self, reported_version="1.2.3"):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "Cargo.toml").write_text('[workspace.package]\nversion = "9.8.7"\n')
+            agent = root / "crates/agent"
+            agent.mkdir(parents=True)
+            (agent / "Cargo.toml").write_text('[package]\nname = "sinan-agent"\nversion = "1.2.3"\n')
+            binary = root / "sinan-agent"
+            binary.write_text(
+                f"#!{sys.executable}\n"
+                "import sys\n"
+                f"if sys.argv[1:] == ['--version']: print('sinan-agent {reported_version}')\n"
+                "elif sys.argv[1:] == ['--help']: print('sinan-agent')\n"
+                "elif sys.argv[1:] == ['run', '--help']: print('--monitor-only')\n"
+                "else: sys.exit(2)\n"
+            )
+            binary.chmod(0o755)
+            # Architecture headers have separate coverage. Keep executable calls,
+            # version rejection, immutable packaging, and checksums real here.
+            with mock.patch.dict(NATIVE_AGENT["main"].__globals__, {
+                "REPOSITORY": root, "verify_architecture": mock.Mock(),
+            }), mock.patch.object(sys, "argv", [
+                "build-agent.py", "x86_64-unknown-freebsd", str(root / "artifacts"),
+                "--binary", str(binary),
+            ]), contextlib.redirect_stdout(io.StringIO()):
+                yield root, binary
+
+    def test_prebuilt_agent_packages_its_independent_version(self):
+        with self.independent_prebuilt_agent() as (root, binary):
+            NATIVE_AGENT["main"]()
+            artifacts = root / "artifacts/agent"
+            output = artifacts / "1.2.3"
+            payload = binary.read_bytes()
+            digest = hashlib.sha256(payload).hexdigest()
+            self.assertEqual((output / "x86_64-unknown-freebsd/sinan-agent").read_bytes(), payload)
+            self.assertEqual((output / "freebsd-amd64").read_bytes(), payload)
+            self.assertEqual((output / "SHA256SUMS").read_text(), f"{digest}  freebsd-amd64\n")
+            self.assertFalse((artifacts / "9.8.7").exists())
+
+    def test_prebuilt_agent_rejects_binary_reporting_workspace_version(self):
+        with self.independent_prebuilt_agent(reported_version="9.8.7") as (root, _):
+            with self.assertRaisesRegex(ValueError, "unexpected Agent version: sinan-agent 9.8.7"):
+                NATIVE_AGENT["main"]()
+            self.assertFalse((root / "artifacts").exists())
+
+    def test_freebsd_workflow_expects_the_independent_agent_version(self):
+        for name in ("platforms.yml", "ci.yml"):
+            with self.subTest(workflow=name):
+                workflow = (TOOLS.parent / ".github/workflows" / name).read_text()
+                _, job, steps = workflow.partition("\n  agent-freebsd:\n")
+                if not job:
+                    self.assertEqual(name, "ci.yml", "manual FreeBSD coverage must remain available")
+                    continue
+                source = textwrap.dedent(steps.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
+                with self.independent_prebuilt_agent() as (root, _):
+                    with mock.patch.dict(os.environ, {
+                        "AGENT_TARGET": "x86_64-unknown-freebsd", "GITHUB_OUTPUT": str(root / "outputs"),
+                    }), mock.patch("runpy.run_path", return_value={"verify_architecture": mock.Mock()}), \
+                            contextlib.chdir(root):
+                        exec(compile(source, f"{name}-freebsd-metadata", "exec"), {})
+                    self.assertEqual((root / "outputs").read_text(), "version=1.2.3\n")
+
     def test_prebuilt_agent_rejects_invalid_architecture_without_rust(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)

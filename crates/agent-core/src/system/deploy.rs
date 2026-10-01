@@ -27,7 +27,12 @@ pub async fn install_services(
     config: &Config,
     config_path: &Path,
     descriptor: Option<&Descriptor>,
+    agent_version: &str,
 ) -> Result<()> {
+    ensure!(
+        sinan_protocol::release_version(agent_version).is_some(),
+        "invalid Agent release version"
+    );
     if descriptor.is_none() {
         crate::retirement::ensure_monitor_only_allowed(config)?;
     }
@@ -64,8 +69,7 @@ pub async fn install_services(
         None,
     )
     .await?;
-    let version = env!("CARGO_PKG_VERSION");
-    let directory = root.join(version);
+    let directory = root.join(agent_version);
     let binary = directory.join(executable_name());
     ops.create_dir(&directory, 0o755, None).await?;
     let bytes = tokio::fs::read(&source_binary).await?;
@@ -129,7 +133,7 @@ pub async fn install_services(
         services.restart("sinan-agent.service").await?;
         for _ in 0..30 {
             if let Ok(status) = crate::transport::status(&config.status_socket).await
-                && status["agent_version"] == version
+                && status["agent_version"] == agent_version
             {
                 return Ok::<_, anyhow::Error>(());
             }
