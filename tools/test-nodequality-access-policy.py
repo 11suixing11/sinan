@@ -2,6 +2,7 @@
 """Verify credential-free source policy with inert stubs and owned HTTP only."""
 import argparse
 import hashlib
+import http.server
 import importlib.util
 import json
 import os
@@ -11,6 +12,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -68,8 +71,8 @@ def request():
         sys.stdout.write(scenario.get('body', ''))
         if 'body_size' in scenario:
             sys.stdout.write('x' * scenario['body_size'])
-        if '--write-out' in args:
-            sys.stdout.write('\n' + str(scenario.get('status', '000')) + '\n0.001')
+        if '--write-out' in args and not scenario.get('omit_footer'):
+            sys.stdout.write('\nSINAN_HTTP:' + str(scenario.get('status', '000')) + '\nSINAN_TIME:0.001')
         raise SystemExit(scenario['code'])
     endpoint = os.environ['RECORDER']
     if not endpoint.startswith('http://127.0.0.1:'):
@@ -78,11 +81,86 @@ def request():
                    if key.lower() not in ('http_proxy', 'https_proxy', 'all_proxy', 'no_proxy')}
     # Only the forwarding fixture shortens this timeout. The production argv
     # is captured above with its unchanged ten-second ceiling.
-    result = subprocess.run([os.environ['REAL_CURL'], *args[:-1], '--max-time', '0.2', endpoint],
-                            env=environment, capture_output=True, timeout=3)
-    sys.stdout.buffer.write(result.stdout)
-    sys.stderr.buffer.write(result.stderr)
-    raise SystemExit(result.returncode)
+    forwarded = 0
+    broken = False
+    start = time.monotonic()
+    timeout = '10' if scenario.get('streaming') else '0.2'
+    forwarded_args = args[:-1]
+    if scenario.get('ignore_filesize_for_fixture'):
+        index = forwarded_args.index('--max-filesize')
+        forwarded_args = forwarded_args[:index] + forwarded_args[index + 2:]
+    child = subprocess.Popen([os.environ['REAL_CURL'], *forwarded_args, '--max-time', timeout, endpoint],
+                             env=environment, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    with Path(os.environ['PROCESSES']).open('a') as output:
+        output.write(json.dumps({'event': 'started', 'proxy_pid': os.getpid(), 'curl_pid': child.pid}) + '\n')
+    try:
+        while chunk := child.stdout.read(16384):
+            # Forward as bytes arrive. Buffering the complete real curl result
+            # here would hide a missing bound in the production reader.
+            try:
+                position = 0
+                while position < len(chunk):
+                    position += os.write(1, chunk[position:])
+                forwarded += len(chunk)
+            except BrokenPipeError:
+                broken = True
+                child.terminate()
+                break
+        code = child.wait(timeout=11)
+    finally:
+        child.stdout.close()
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=3)
+    with Path(os.environ['PROCESSES']).open('a') as output:
+        output.write(json.dumps({'event': 'reaped', 'proxy_pid': os.getpid(), 'curl_pid': child.pid,
+                                 'curl_exit': code, 'broken_pipe': broken, 'forwarded_bytes': forwarded,
+                                 'duration_seconds': time.monotonic() - start}) + '\n')
+    raise SystemExit(23 if broken else code)
+
+
+class ChunkedRecorder:
+    """Send at most four MiB from an owned server with no Content-Length."""
+    def __init__(self):
+        self.requests = []
+        self.bytes_written = 0
+        owner = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = 'HTTP/1.1'
+
+            def do_GET(self):
+                owner.requests.append({'method': 'GET', 'headers': {k.lower(): v for k, v in self.headers.items()}, 'body': ''})
+                self.send_response(200)
+                self.send_header('Transfer-Encoding', 'chunked')
+                self.send_header('Connection', 'close')
+                self.end_headers()
+                chunk = b'x' * 16384
+                try:
+                    for _ in range(256):
+                        self.wfile.write(b'4000\r\n' + chunk + b'\r\n')
+                        self.wfile.flush()
+                        owner.bytes_written += len(chunk)
+                    self.wfile.write(b'0\r\n\r\n')
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.HTTPServer(('127.0.0.1', 0), Handler)
+        self.server.handle_error = lambda request, address: None
+        self.thread = threading.Thread(target=self.server.serve_forever)
+        self.thread.start()
+        self.url = 'http://127.0.0.1:' + str(self.server.server_port) + '/chunked'
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=3)
+        if self.thread.is_alive():
+            raise AssertionError('owned chunked recorder did not stop')
 
 
 class AccessTests(unittest.TestCase):
@@ -104,10 +182,10 @@ class AccessTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(result).hexdigest(), policy.SOURCES['ip.sh']['patched_sha256'])
             return result
 
-    def youtube(self, scenario, *, status=200, delay=False, payload=KNOWN, child=False):
+    def youtube(self, scenario, *, status=200, delay=False, payload=KNOWN, child=False, chunked=False, fail_reader=None, strict=False):
         self.runtime()
         text = self.production().decode()
-        recorder = browser.Recorder(status=status, delay=delay, payload=payload.encode())
+        recorder = ChunkedRecorder() if chunked else browser.Recorder(status=status, delay=delay, payload=payload.encode())
         # A size-limited client may close before this owned server writes the
         # entire response; suppress only the expected fixture socket traceback.
         recorder.server.handle_error = lambda request, address: None
@@ -117,12 +195,16 @@ class AccessTests(unittest.TestCase):
                 binary = directory / 'curl'
                 binary.write_text('#!/bin/sh\nexec "$PYTHON" "$TOOL" --request "$@"\n')
                 binary.chmod(0o700)
+                if fail_reader:
+                    (directory / fail_reader).write_text('#!/bin/sh\nexit 73\n')
+                    (directory / fail_reader).chmod(0o700)
                 curl_home = directory / 'curl-home'
                 curl_home.mkdir()
                 (curl_home / '.curlrc').write_text('cookie = "fixture-curlrc-cookie=must-not-send"\nuser-agent = "fixture-browser"\n')
                 environment = dict(os.environ, PATH=str(directory) + ':' + os.environ['PATH'],
                                    PYTHON=sys.executable, TOOL=str(Path(__file__).resolve()), SCENARIO=json.dumps(scenario),
                                    RECORDER=recorder.url, ARGUMENTS=str(directory / 'arguments.jsonl'),
+                                   PROCESSES=str(directory / 'processes.jsonl'),
                                    REAL_CURL=shutil.which('curl'), CURL_HOME=str(curl_home))
                 script = PRELUDE + browser.policy.WRAPPER.decode() + policy.HELPERS.decode()
                 script += body(text, 'MediaUnlockTest_YouTube_Premium')
@@ -139,11 +221,25 @@ class AccessTests(unittest.TestCase):
                     # The production native curl wrapper is exported to child
                     # shells; verify its identity separately below.
                     script = PRELUDE + browser.policy.WRAPPER.decode() + "bash -c 'curl -fsS --max-time 10 --write-out \"\\n%{http_code}\\n%{time_total}\" https://www.youtube.com/premium'\n"
-                run = subprocess.run([BASH], input=script.encode(), env=environment, capture_output=True, timeout=6)
+                arguments = [BASH]
+                if strict:
+                    arguments += ['-e', '-o', 'pipefail']
+                    script = 'if shopt -s inherit_errexit 2>/dev/null;then :;else :;fi\n' + script
+                run = subprocess.run(arguments, input=script.encode(), env=environment, capture_output=True, timeout=15)
                 self.assertEqual(run.returncode, 0, run.stderr)
                 self.assertEqual(run.stderr, b'')
                 arguments = directory / 'arguments.jsonl'
                 rows = [json.loads(line) for line in arguments.read_text().splitlines()] if arguments.exists() else []
+                process_path = directory / 'processes.jsonl'
+                process_rows = [json.loads(line) for line in process_path.read_text().splitlines()] if process_path.exists() else []
+                self.last_process_rows = process_rows
+                self.last_chunked_bytes = recorder.bytes_written if chunked else None
+                for started in (row for row in process_rows if row['event'] == 'started'):
+                    completed = [row for row in process_rows if row['event'] == 'reaped' and row['curl_pid'] == started['curl_pid']]
+                    self.assertEqual(len(completed), 1, process_rows)
+                    for pid in (started['proxy_pid'], started['curl_pid']):
+                        with self.assertRaises(ProcessLookupError):
+                            os.kill(pid, 0)
                 if child:
                     return None, [], rows, list(recorder.requests)
                 lines = run.stdout.decode().splitlines()
@@ -289,6 +385,97 @@ class AccessTests(unittest.TestCase):
         self.assertEqual(result['Attempts'][0]['curl_exit'], 0)
         self.assertEqual(records, [])
         self.assert_anonymous_once(argv, records)
+
+    def test_chunked_stream_is_bounded_before_capture_and_all_producers_are_reaped(self):
+        self.runtime()
+        # First exercise the literal production options. On curl 7.88 the
+        # independent reader supplies the bound; newer curl can stop earlier.
+        result, _, argv, records = self.youtube({'kind': 'http', 'streaming': True}, chunked=True)
+        self.assertEqual(result['Error']['category'], 'response_too_large')
+        attempt = result['Attempts'][0]
+        self.assertLessEqual(attempt['captured_bytes'], 2 * 1024 * 1024 + 128)
+        self.assertEqual(attempt['producer_deadline_seconds'], 10)
+        self.assert_anonymous_once(argv, records)
+        literal_result = {'captured_bytes': attempt['captured_bytes'], 'curl_exit': attempt['curl_exit'],
+                          'processes': self.last_process_rows}
+        # Then remove only the proxy's curl size option to exercise the hard
+        # reader on every curl version. Production argv above remains intact.
+        result, _, argv, records = self.youtube({'kind': 'http', 'streaming': True, 'ignore_filesize_for_fixture': True}, chunked=True)
+        attempt = result['Attempts'][0]
+        self.assertEqual(attempt['captured_bytes'], 2 * 1024 * 1024 + 128)
+        self.assertEqual(result['Error']['category'], 'response_too_large')
+        for field in ('curl_exit', 'http_status', 'elapsed_seconds'):
+            self.assertIsNone(attempt[field], field)
+        self.assertIsNone(result['elapsed_seconds'])
+        self.assert_anonymous_once(argv, records)
+        completed = next(row for row in self.last_process_rows if row['event'] == 'reaped')
+        self.assertTrue(completed['broken_pipe'])
+        # Kernel pipe buffering can accept a few additional chunks after the
+        # receiver reaches its cap; the captured byte count above is exact.
+        self.assertLess(completed['forwarded_bytes'], 4 * 1024 * 1024)
+        self.assertLess(completed['duration_seconds'], 11)
+        # Negative control: --max-filesize alone, without the production
+        # receiver, gets only a finite four-MiB response from owned loopback.
+        recorder = ChunkedRecorder()
+        try:
+            environment = {key: value for key, value in os.environ.items()
+                           if key.lower() not in ('http_proxy', 'https_proxy', 'all_proxy', 'no_proxy')}
+            start = time.monotonic()
+            old = subprocess.Popen([shutil.which('curl'), '-q', '-sS', '--max-time', '10', '--max-filesize', '2097152', recorder.url],
+                                   env=environment, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            received = 0
+            try:
+                while chunk := old.stdout.read(16384):
+                    received += len(chunk)
+                    self.assertLessEqual(received, 4 * 1024 * 1024)
+                old_code = old.wait(timeout=11)
+            finally:
+                old.stdout.close()
+                if old.poll() is None:
+                    old.kill()
+                    old.wait(timeout=3)
+            with self.assertRaises(ProcessLookupError):
+                os.kill(old.pid, 0)
+            if old_code == 0:
+                self.assertEqual(received, 4 * 1024 * 1024, 'older curl leaves chunked stdout unbounded by its size option')
+            else:
+                self.assertEqual(old_code, 63, 'newer curl can supply its own independent size bound')
+                self.assertLessEqual(received, 2 * 1024 * 1024)
+            print(json.dumps({'owned_chunked_acceptance': {'literal_production': literal_result,
+                             'independent_reader': {'captured_bytes': attempt['captured_bytes'], 'null_transport_fields': True,
+                                                    'processes': self.last_process_rows},
+                             'finite_old_option_control': {'payload_bytes': 4 * 1024 * 1024, 'received_bytes': received,
+                                                           'curl_exit': old_code, 'duration_seconds': time.monotonic() - start}}}))
+        finally:
+            recorder.close()
+
+    def test_missing_footer_binary_bytes_and_reader_errors_never_invent_transport_success(self):
+        self.runtime()
+        for scenario, reader, expected in (({'kind': 'stub', 'code': 0, 'body': KNOWN, 'omit_footer': True}, None, 'incomplete_response'),
+                                           ({'kind': 'stub', 'code': 0, 'status': 200, 'body': KNOWN + '\0'}, None, 'invalid_response'),
+                                           ({'kind': 'http'}, 'head', 'reader_error'),
+                                           ({'kind': 'http'}, 'base64', 'reader_error')):
+            with self.subTest(reader=reader, category=expected):
+                result, _, _, _ = self.youtube(scenario, fail_reader=reader)
+                self.assertEqual(result['Status'], '未知')
+                self.assertEqual(result['Error']['category'], expected)
+                for field in ('curl_exit', 'http_status', 'elapsed_seconds'):
+                    self.assertIsNone(result['Attempts'][0][field], field)
+
+    def test_errexit_pipefail_and_inherited_errexit_preserve_unknown_and_other_report_data(self):
+        self.runtime()
+        for status, chunked, payload, expected in ((403, False, KNOWN, 'http_403'),
+                                                   (200, True, KNOWN, 'response_too_large'),
+                                                   (200, False, KNOWN.replace('{"contentRegion":"US"}', ''), 'schema_mismatch'),
+                                                   (200, False, '<html>login</html>', 'schema_mismatch')):
+            with self.subTest(status=status, chunked=chunked, category=expected):
+                scenario = {'kind': 'http', 'streaming': chunked, 'ignore_filesize_for_fixture': chunked}
+                result, _, _, _ = self.youtube(scenario, status=status, chunked=chunked, payload=payload, strict=True)
+                self.assertEqual(result['Status'], '未知')
+                self.assertEqual(result['Error']['category'], expected)
+                if chunked:
+                    for field in ('curl_exit', 'http_status', 'elapsed_seconds'):
+                        self.assertIsNone(result['Attempts'][0][field], field)
 
     def test_exact_identity_unique_function_bounds_and_metadata_anchors(self):
         sample = b''.join((name + '(){\n:\n}\n').encode() for name in policy.FUNCTIONS) + policy.JSON_ANCHOR

@@ -165,7 +165,11 @@ Sinan integrated provider access guard (2026-10-01, runner r16):
   Attempted=false, empty Attempts and null elapsed time record that distinction.
   Missing DB-IP scores and affected factors remain unknown, not zero or false.
 - YouTube retains one anonymous native-curl request without cookies, browser
-  identity or retry. It has a 2 MiB response ceiling and records transport/HTTP,
+  identity or retry. Raw output is capped before entering Bash variables at
+  2 MiB plus 128 footer bytes, independently of curl's Content-Length handling.
+  The pipeline waits for the producer, with the existing ten-second deadline;
+  truncated transfers do not invent an exit code, HTTP status or elapsed time.
+  It has a 2 MiB response ceiling and records transport/HTTP,
   timeout, empty/oversize or schema failures as unknown. Only a recognized public
   Premium page with consistent country and availability markers enters the
   existing page heuristic; that does not prove playback or current public schema.

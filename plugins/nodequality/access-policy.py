@@ -6,7 +6,7 @@ MAX_SOURCE = 2 * 1024 * 1024
 SOURCES = {
     'ip.sh': {
         'source_sha256': '66c7f3c662f24bdccbd142acf25d2a176fbe72ff417848ef977aa755d6d38c8e',
-        'patched_sha256': 'ed9787f0baba1d2ae97485dbc88aa7edd5c8a9ef3ca752667f604585bc205e7b',
+        'patched_sha256': 'ec5162dcc8dda76a6251aa6b8940e7973732d71c9fa50def515bb3c92552274b',
     },
 }
 
@@ -26,20 +26,75 @@ youtube[access]=$(sinan_access_youtube_metadata unknown "$1" "$2")
 printf 'YouTube：未知（%s）\n' "$2"
 }
 sinan_access_youtube_fetch(){
-local response code http elapsed body category='' reason='' attempted url
+local capture encoded reader response code='' http='' elapsed='' body='' category='' reason='' attempted url size nonzero body_size
+local producer_status head_status encoding_status exit_line http_line time_line
 url='https://www.youtube.com/premium'
 attempted=$(date +%s)
-if response=$(curl $CurlARG -$1 -fsSL --max-time 10 --max-filesize 2097152 -H 'Accept-Language: en' --write-out $'\n%{http_code}\n%{time_total}' "$url" 2>/dev/null);then code=0;else code=$?;fi
-elapsed=${response##*$'\n'}
+# Bound stdout before command substitution, independently of Content-Length
+# and curl version. Base64 preserves raw byte length, including NUL. The
+# pipeline waits for all producers; a paused peer retains the ten-second curl
+# deadline. Reaching the cap never invents a completed curl result.
+capture=$(
+if {
+if curl $CurlARG -$1 -fsSL --max-time 10 --max-filesize 2097152 -H 'Accept-Language: en' --write-out $'\nSINAN_HTTP:%{http_code}\nSINAN_TIME:%{time_total}' "$url" 2>/dev/null;then producer_code=0;else producer_code=$?;fi
+printf '\nSINAN_CURL_EXIT:%s\n' "$producer_code" 2>/dev/null
+} 2>/dev/null | head -c 2097280 | base64;then
+pipeline_status=("${PIPESTATUS[@]}")
+else
+pipeline_status=("${PIPESTATUS[@]}")
+fi
+printf '\nSINAN_READER:%s:%s:%s' "${pipeline_status[0]}" "${pipeline_status[1]}" "${pipeline_status[2]}"
+)
+reader=${capture##*$'\n'}
+encoded=${capture%$'\n'*}
+if [[ $reader =~ ^SINAN_READER:([0-9]+):([0-9]+):([0-9]+)$ ]];then
+producer_status=${BASH_REMATCH[1]}
+head_status=${BASH_REMATCH[2]}
+encoding_status=${BASH_REMATCH[3]}
+else
+head_status=1;encoding_status=1;producer_status=1
+fi
+if [[ $head_status != 0 || $encoding_status != 0 ]];then
+category=reader_error;reason='有界响应读取失败'
+else
+if size=$(set -o pipefail;printf '%s' "$encoded"|base64 --decode|wc -c) && nonzero=$(set -o pipefail;printf '%s' "$encoded"|base64 --decode|tr -d '\000'|wc -c);then
+if [[ ! $size =~ ^[[:space:]]*[0-9]+[[:space:]]*$ || ! $nonzero =~ ^[[:space:]]*[0-9]+[[:space:]]*$ ]];then
+size=''
+category=reader_error;reason='有界响应字节计数失败'
+elif [[ $size -ge 2097280 ]];then
+category=response_too_large;reason='响应超过 2 MiB 限制；传输未确认完成'
+elif [[ $size -ne $nonzero ]];then
+category=invalid_response;reason='响应包含二进制数据，信息未知'
+elif [[ $producer_status != 0 ]];then
+category=incomplete_response;reason='响应未取得完整的传输确认'
+else
+if response=$(set -o pipefail;printf '%s' "$encoded"|base64 --decode);then
+exit_line=${response##*$'\n'}
 response=${response%$'\n'*}
-http=${response##*$'\n'}
+time_line=${response##*$'\n'}
+response=${response%$'\n'*}
+http_line=${response##*$'\n'}
 body=${response%$'\n'*}
-[[ $http =~ ^[0-9]{3}$ ]] || http=000
-[[ $elapsed =~ ^[0-9]+([.][0-9]+)?$ ]] || elapsed=''
+if [[ $exit_line =~ ^SINAN_CURL_EXIT:([0-9]+)$ ]];then code=${BASH_REMATCH[1]};fi
+if [[ $time_line =~ ^SINAN_TIME:([0-9]+([.][0-9]+)?)$ ]];then elapsed=${BASH_REMATCH[1]};fi
+if [[ $http_line =~ ^SINAN_HTTP:([0-9]{3})$ ]];then http=${BASH_REMATCH[1]};fi
+if [[ -z $code || -z $http || -z $elapsed || $code -gt 255 ]];then
+code='';http='';elapsed='';category=incomplete_response;reason='响应未取得完整的传输确认'
+fi
+else
+size='';category=reader_error;reason='有界响应解码失败'
+fi
+fi
+else
+size='';category=reader_error;reason='有界响应字节计数失败'
+fi
+fi
+if [[ -z $category ]];then
 case "$http" in
 403) category=http_403;reason='HTTP 403：来源拒绝请求';;
 429) category=http_429;reason='HTTP 429：来源限流';;
 esac
+fi
 if [[ -z $category ]];then
 case "$code" in
 6) category=dns;reason='DNS 解析失败';;
@@ -49,11 +104,14 @@ case "$code" in
 63) category=response_too_large;reason='响应超过 2 MiB 限制';;
 0) if [[ $http != 200 ]];then category=http_status;reason="非预期 HTTP $http";
    elif [[ -z ${body//[[:space:]]/} ]];then category=empty_response;reason='响应为空或仅有空白';
-   elif [[ $(LC_ALL=C printf '%s' "$body"|wc -c) -gt 2097152 ]];then category=response_too_large;reason='响应超过 2 MiB 限制';fi;;
+   elif body_size=$(set -o pipefail;LC_ALL=C printf '%s' "$body"|wc -c);then
+     if [[ ! $body_size =~ ^[[:space:]]*[0-9]+[[:space:]]*$ ]];then category=reader_error;reason='有界响应字节计数失败';
+     elif [[ $body_size -gt 2097152 ]];then category=response_too_large;reason='响应超过 2 MiB 限制';fi
+   else category=reader_error;reason='有界响应字节计数失败';fi;;
 *) category=transport;reason="请求失败（curl $code）";;
 esac
 fi
-youtube[attempts]=$(jq -cn --arg target_ip "$IP" --arg url "$url" --arg attempted_at "$attempted" --arg elapsed_seconds "$elapsed" --arg http_status "$http" --argjson curl_exit "$code" --arg error "$category" '[{target_ip:$target_ip,url:$url,attempted_at:($attempted_at|tonumber),elapsed_seconds:(if $elapsed_seconds=="" then null else ($elapsed_seconds|tonumber) end),http_status:(if $http_status=="000" then null else ($http_status|tonumber) end),curl_exit:$curl_exit,error:(if $error=="" then null else $error end)}]')
+youtube[attempts]=$(jq -cn --arg target_ip "$IP" --arg url "$url" --arg attempted_at "$attempted" --arg elapsed_seconds "$elapsed" --arg http_status "$http" --arg captured_bytes "${size:-}" --argjson curl_exit "${code:-null}" --arg error "$category" '[{target_ip:$target_ip,url:$url,attempted_at:($attempted_at|tonumber),elapsed_seconds:(if $elapsed_seconds=="" then null else ($elapsed_seconds|tonumber) end),http_status:(if $http_status=="" or $http_status=="000" then null else ($http_status|tonumber) end),curl_exit:$curl_exit,captured_bytes:(if $captured_bytes=="" then null else ($captured_bytes|tonumber) end),reader_limit_bytes:2097280,producer_deadline_seconds:10,error:(if $error=="" then null else $error end)}]')
 if [[ -n $category ]];then sinan_access_youtube_unknown "$category" "$reason";return 1;fi
 printf -v "$2" '%s' "$body"
 }
@@ -90,7 +148,7 @@ youtube=()
 local result region lower title
 sinan_access_youtube_fetch "$1" result || return 0
 lower=${result,,}
-title=$(printf '%s' "$lower"|grep -oE '<title>[^<]*</title>')
+if title=$(printf '%s' "$lower"|grep -oE '<title>[^<]*</title>');then :;else title='';fi
 if [[ $lower != *'<html'* || $lower != *'</html>'* || $lower != *'<head'* || $lower != *'</head>'* || $lower != *'<body'* || $lower != *'</body>'* ||
       ( $title != '<title>youtube premium</title>' && $title != '<title>youtube premium - youtube</title>' && $title != '<title>premium - youtube</title>' ) ||
       ( $lower == *'<form'* && ( $lower == *'accounts.google.com'* || $lower == *'consent.google.com'* || $lower == *'consent.youtube.com'* ) ) ||
@@ -98,7 +156,7 @@ if [[ $lower != *'<html'* || $lower != *'</html>'* || $lower != *'<head'* || $lo
 sinan_access_youtube_unknown schema_mismatch '响应不是可确认的 Premium 页面，登录或挑战页面信息未知'
 return 0
 fi
-region=$(printf '%s' "$result"|grep -oE '"contentRegion"[[:space:]]*:[[:space:]]*"[A-Z][A-Z]"'|sed -E 's/.*"([A-Z][A-Z])"/\1/'|sort -u)
+if region=$(printf '%s' "$result"|grep -oE '"contentRegion"[[:space:]]*:[[:space:]]*"[A-Z][A-Z]"'|sed -E 's/.*"([A-Z][A-Z])"/\1/'|sort -u);then :;else region='';fi
 if [[ ! $region =~ ^[A-Z][A-Z]$ ]];then
 sinan_access_youtube_unknown schema_mismatch '页面地区字段缺失或不一致'
 return 0

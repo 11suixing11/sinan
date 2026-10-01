@@ -217,6 +217,9 @@ def script_recipe(name):
     result += source_tests.fixture.ip_score_anchors(name).decode()
     result += source_tests.fixture.browser_anchors(name).decode()
     result += source_tests.fixture.query_anchors(name).decode()
+    # These uncalled anchors keep the final signed access stage in packaging.
+    # The callbacks below record the original orchestration without querying.
+    result += source_tests.fixture.access_anchors(name).decode()
     result += 'fixture_record script ' + kind + ' "$@"\n'
     result += '''
 mode_privacy=${FIXTURE_PRIVACY:-0}
