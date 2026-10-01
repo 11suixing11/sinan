@@ -18,10 +18,11 @@ pub async fn select(
     state: &AppState,
     version: Option<&str>,
     token: &str,
+    mirror: &str,
 ) -> ApiResult<Installation> {
-    let (version, tag) = crate::releases::select_agent(state, version).await?;
+    let (version, tag) = crate::releases::select_installable_agent(state, version).await?;
     let bootstrap_url = bootstrap_url();
-    let install_command = command(&tag, &state.config.public_url, token);
+    let install_command = command(&tag, &state.config.public_url, token, mirror);
     Ok(Installation {
         version,
         tag,
@@ -40,7 +41,7 @@ pub fn bootstrap_url() -> String {
     )
 }
 
-pub fn command(tag: &str, panel: &str, token: &str) -> String {
+pub fn command(tag: &str, panel: &str, token: &str, mirror: &str) -> String {
     let program = concat!(
         "set -eu; umask 077; ",
         "if ! command -v curl >/dev/null; then ",
@@ -59,17 +60,18 @@ pub fn command(tag: &str, panel: &str, token: &str) -> String {
         "--noproxy '*' --connect-timeout 20 --max-time 120 --max-filesize 262144 ",
         "-H 'Accept: application/vnd.github.raw+json' \"$1\" -o \"$d/bootstrap.sh\"; ",
         "printf '%s  %s\\n' \"$2\" \"$d/bootstrap.sh\" | sha256sum -c - >/dev/null; ",
-        "/bin/sh \"$d/bootstrap.sh\" --tag \"$3\" --panel \"$4\" --token \"$5\""
+        "/bin/sh \"$d/bootstrap.sh\" --tag \"$3\" --panel \"$4\" --token \"$5\" --mirror \"$6\""
     );
     let checksum = format!("{:x}", Sha256::digest(BOOTSTRAP));
     format!(
-        "sh -c {} sinan-bootstrap {} {} {} {} {}",
+        "sh -c {} sinan-bootstrap {} {} {} {} {} {}",
         shell_quote(program),
         shell_quote(&bootstrap_url()),
         shell_quote(&checksum),
         shell_quote(tag),
         shell_quote(panel),
         shell_quote(token),
+        shell_quote(mirror),
     )
 }
 
@@ -100,7 +102,12 @@ mod tests {
 
     #[test]
     fn command_pins_the_official_blob_and_installer_bytes() {
-        let command = command("agent-v0.3.0", "https://panel.example.com", "fixture-token");
+        let command = command(
+            "agent-v0.3.0",
+            "https://panel.example.com",
+            "fixture-token",
+            "",
+        );
         assert!(command.contains(&bootstrap_url()));
         assert!(command.contains(&format!("{:x}", Sha256::digest(BOOTSTRAP))));
         assert!(command.contains("application/vnd.github.raw+json"));
@@ -121,7 +128,12 @@ mod tests {
             .unwrap();
         assert!(output.status.success());
         assert_eq!(output.stdout, value.as_bytes());
-        let command = command("agent-v0.3.0", value, "'; exit 62; #");
+        let command = command(
+            "agent-v0.3.0",
+            value,
+            "'; exit 62; #",
+            "https://mirror.example.com/'$(exit 63)",
+        );
         assert!(
             Command::new("/bin/sh")
                 .args(["-n", "-c", &command])
@@ -163,7 +175,7 @@ mod tests {
         let output = Command::new("/bin/sh")
             .args([
                 "-c",
-                &command("agent-v0.3.0", "https://panel.example.com", "fixture"),
+                &command("agent-v0.3.0", "https://panel.example.com", "fixture", ""),
             ])
             .env("PATH", format!("{}:/usr/bin:/bin", directory.display()))
             .output()
@@ -238,7 +250,7 @@ mod tests {
                 let output = Command::new("/bin/sh")
                     .args([
                         "-c",
-                        &command("agent-v0.3.0", "https://panel.example.com", "fixture"),
+                        &command("agent-v0.3.0", "https://panel.example.com", "fixture", ""),
                     ])
                     .env("PATH", &directory)
                     .output()

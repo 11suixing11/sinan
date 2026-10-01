@@ -379,6 +379,51 @@ pub async fn select_agent(state: &AppState, version: Option<&str>) -> ApiResult<
         .ok_or_else(|| ApiError::Conflict("请先导入协议兼容且已签名的 Agent Release".into()))
 }
 
+/// Selects a signed installer that can consume a separately downloaded Agent.
+pub async fn select_installable_agent(
+    state: &AppState,
+    version: Option<&str>,
+) -> ApiResult<(String, String)> {
+    const MARKER: &[u8] = b"# SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1";
+    let releases = released(state).await?;
+    inventory(&releases).map_err(invalid)?;
+    let mut candidates = Vec::new();
+    for release in releases {
+        let metadata = release.verified.metadata();
+        if metadata.protocol_min > PROTOCOL_MAX || metadata.protocol_max < PROTOCOL_MIN {
+            continue;
+        }
+        let installer = ordinary_bytes(&release.directory.join("install.sh"), MAX_INSTALLER)
+            .await
+            .map_err(invalid)?;
+        checked(
+            release.verified.checksum("install.sh")
+                == Some(format!("{:x}", Sha256::digest(&installer)).as_str()),
+            "signed installer digest differs",
+        )?;
+        if installer
+            .split(|byte| *byte == b'\n')
+            .filter(|line| *line == MARKER)
+            .count()
+            != 1
+        {
+            continue;
+        }
+        for entry in &metadata.artifacts {
+            if entry.name != "agent" || version.is_some_and(|value| value != entry.version) {
+                continue;
+            }
+            if let Some(numbers) = sinan_protocol::release_version(&entry.version) {
+                candidates.push((numbers, entry.version.clone(), metadata.tag.clone()));
+            }
+        }
+    }
+    candidates.sort();
+    candidates.pop().map(|(_, version, tag)| (version, tag)).ok_or_else(|| ApiError::Conflict(
+        "请导入支持 GitHub 预下载的兼容签名 Agent Release；当前公开 agent-v0.3.0 安装器仍依赖面板下载，不能用于新接入".into()
+    ))
+}
+
 /// Returns only protocol-compatible, signed updates for the requested ABI.
 pub async fn newer_agent(
     state: &AppState,
@@ -386,7 +431,7 @@ pub async fn newer_agent(
     current: (u64, u64, u64),
 ) -> ApiResult<Option<sinan_protocol::AgentRelease>> {
     let releases = released(state).await?;
-    let inventory = available_inventory(&releases).map_err(invalid)?;
+    let inventory = inventory(&releases).map_err(invalid)?;
     let mut candidates = Vec::new();
     for ((name, version, target), (index, artifact)) in inventory {
         let metadata = releases[index].verified.metadata();

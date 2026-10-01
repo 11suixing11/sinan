@@ -128,9 +128,22 @@ pub async fn install_script(
     State(state): State<AppState>,
     Query(query): Query<TokenQuery>,
 ) -> ApiResult<Response> {
-    crate::servers::validate_enrollment(&state.pool, &query.token).await?;
-    let installation =
-        crate::installation::select(&state, query.agent_version.as_deref(), &query.token).await?;
+    let server_id = crate::servers::validate_enrollment(&state.pool, &query.token).await?;
+    let asset: serde_json::Value = sqlx::query_scalar(
+        "SELECT asset_settings FROM servers WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(server_id)
+    .fetch_one(&state.pool)
+    .await?;
+    let asset: crate::server_assets::AssetSettings =
+        serde_json::from_value(asset).map_err(anyhow::Error::from)?;
+    let installation = crate::installation::select(
+        &state,
+        query.agent_version.as_deref(),
+        &query.token,
+        &asset.agent_mirror,
+    )
+    .await?;
     Ok(([(header::CACHE_CONTROL, "no-store")], Json(installation)).into_response())
 }
 

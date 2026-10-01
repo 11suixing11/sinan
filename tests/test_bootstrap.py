@@ -220,9 +220,10 @@ class StandaloneBootstrapTests(unittest.TestCase):
         self.directory = Path(self.temporary.name)
         self.bundle = self.directory / "release"
         self.bundle.mkdir()
-        installer = b"#!/bin/sh\nset -eu\nprintf '%s\\n' INSTALLER_VERIFIED\n"
+        installer = b"#!/bin/sh\n# SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1\nset -eu\nprintf '%s\\n' INSTALLER_VERIFIED\n"
         (self.bundle / "install.sh").write_bytes(installer)
         binary = b"TEST ONLY Agent never executed"
+        (self.bundle / "agent-0.3.0-linux-musl-arm64").write_bytes(binary)
         metadata = dict(schema=1, source_repo=release.REPOSITORY, tag="agent-v0.3.0",
                         protocol_min=1, protocol_max=1, artifacts=[dict(
                             name="agent", version="0.3.0", arch="arm64", format="raw",

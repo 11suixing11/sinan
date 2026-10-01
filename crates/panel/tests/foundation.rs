@@ -843,8 +843,8 @@ async fn panel_never_serves_agent_binaries_even_with_a_live_token(pool: PgPool) 
     assert_eq!(missing.status(), StatusCode::CONFLICT);
     let missing: Value = missing.json().await?;
     let message = missing["error"].as_str().unwrap();
-    assert!(message.contains("arm64"));
-    assert!(message.contains("制品页导入"));
+    assert!(message.contains("GitHub"));
+    assert!(message.contains("面板不再提供"));
     assert_eq!(
         panel
             .client
@@ -947,5 +947,88 @@ async fn panel_never_serves_agent_binaries_even_with_a_live_token(pool: PgPool) 
         .send()
         .await?;
     assert_eq!(response.status(), StatusCode::CONFLICT);
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn installation_requires_signed_preloaded_contract_and_uses_server_mirror(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let server_id = panel
+        .create_server(&cookie, "Signed installer compatibility")
+        .await?;
+    let token = panel.token(&cookie, server_id).await?;
+    let binary = b"TEST ONLY Agent bytes never executed";
+    let artifact = release_fixture::write(
+        &panel.directory,
+        "agent",
+        "0.3.1",
+        "sinan-agent",
+        binary,
+        binary,
+        "raw",
+    )?;
+    let release = panel.directory.join("artifacts/releases/agent-v0.3.0");
+    let marker = b"# SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1";
+    for installer in [
+        b"#!/bin/sh\nexit 0\n".to_vec(),
+        [marker.as_slice(), b"\n", marker.as_slice(), b"\n"].concat(),
+    ] {
+        release_fixture::replace_signed_installer(&release, &installer)?;
+        let response = panel
+            .client
+            .get(format!("{}/install.sh", panel.base))
+            .query(&[("token", &token)])
+            .send()
+            .await?;
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let issued: Value = panel
+            .client
+            .post(format!("{}/api/servers/{server_id}/enrollment", panel.base))
+            .header(header::COOKIE, &cookie)
+            .header(header::ORIGIN, &panel.base)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        assert!(issued["install_command"].is_null());
+        assert!(issued["warning"].as_str().unwrap().contains("预下载"));
+    }
+    let installer = [b"#!/bin/sh\n".as_slice(), marker.as_slice(), b"\nexit 0\n"].concat();
+    release_fixture::replace_signed_installer(&release, &installer)?;
+    // GitHub Agent downloads use signed metadata rather than a local payload.
+    for arch in ["amd64", "arm64"] {
+        std::fs::remove_file(artifact.join(arch))?;
+    }
+    sqlx::query("UPDATE servers SET asset_settings = jsonb_set(asset_settings, '{agent_mirror}', to_jsonb($2::text)) WHERE id = $1")
+        .bind(server_id).bind("https://mirror.example.com").execute(&panel.state.pool).await?;
+    let response = panel
+        .client
+        .get(format!("{}/install.sh", panel.base))
+        .query(&[("token", &token)])
+        .send()
+        .await?
+        .error_for_status()?;
+    let installation: Value = response.json().await?;
+    let command = installation["install_command"].as_str().unwrap();
+    assert!(command.contains("--mirror"));
+    assert!(command.contains("https://mirror.example.com"));
+    std::fs::write(
+        release.join("install.sh"),
+        [installer, b"tampered".to_vec()].concat(),
+    )?;
+    assert_eq!(
+        panel
+            .client
+            .get(format!("{}/install.sh", panel.base))
+            .query(&[("token", &token)])
+            .send()
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
     Ok(())
 }
