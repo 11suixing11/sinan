@@ -165,7 +165,7 @@ pub fn command_with_mirror(
         "if command -v sha256sum >/dev/null; then printf '%s  %s\\n' \"$2\" \"$d/bootstrap.sh\" | sha256sum -c - >/dev/null; ",
         "elif command -v shasum >/dev/null; then printf '%s  %s\\n' \"$2\" \"$d/bootstrap.sh\" | shasum -a 256 -c - >/dev/null; ",
         "else [ \"$(sha256 -q \"$d/bootstrap.sh\")\" = \"$2\" ]; fi; ",
-        "/bin/sh \"$d/bootstrap.sh\" --version \"$3\" --panel \"$4\" --token \"$5\" --target \"$6\" --mirror \"$7\""
+        "/bin/sh \"$d/bootstrap.sh\" --version \"$3\" --panel \"$4\" --token=\"$5\" --target \"$6\" --mirror \"$7\""
     );
     let checksum = format!("{:x}", Sha256::digest(BOOTSTRAP));
     format!(
@@ -221,6 +221,7 @@ mod tests {
         assert!(command.contains("sha256sum -c"));
         assert!(command.contains("--noproxy"));
         assert!(command.contains("exec sudo /bin/sh -c"));
+        assert!(command.contains("--token=\"$5\""));
         assert!(!command.contains("/install.sh"));
         assert!(BOOTSTRAP.len() <= 262144);
         assert!(!command.contains(['\r', '\n']));
@@ -256,6 +257,49 @@ mod tests {
                 .unwrap()
                 .success()
         );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn leading_hyphen_tokens_reach_argparse_as_literal_values() {
+        let parser = concat!(
+            "import argparse; p=argparse.ArgumentParser(); ",
+            "[p.add_argument('--'+name) for name in ('version','panel','token','target','mirror')]; ",
+            "print(p.parse_args().token,end='')"
+        );
+        for token in ["-fixture_token-123", "--help", "-quote'$(exit 61)"] {
+            let rendered =
+                command_with_target("latest", "https://panel.example.com", token, "auto");
+            // Capture the actual rendered literal program without downloading or elevating.
+            let captured = Command::new("/bin/sh")
+                .args(["-c", &format!("sh() {{ printf '%s' \"$4\"; }}; {rendered}")])
+                .output()
+                .unwrap();
+            assert!(captured.status.success());
+            let program = String::from_utf8(captured.stdout).unwrap();
+            let (_, arguments) = program.rsplit_once("/bin/sh \"$d/bootstrap.sh\" ").unwrap();
+            let output = Command::new("/bin/sh")
+                .args([
+                    "-c",
+                    &format!("python3 -c {} {arguments}", shell_quote(parser)),
+                    "fixture",
+                    "fixture-url",
+                    "fixture-hash",
+                    "latest",
+                    "https://panel.example.com",
+                    token,
+                    "auto",
+                    "",
+                ])
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(output.stdout, token.as_bytes());
+        }
     }
 
     #[test]

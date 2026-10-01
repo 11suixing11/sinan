@@ -257,7 +257,7 @@ async fn offline_alerts_survive_restarts_deduplicate_and_record_recovery(
         .error_for_status()?;
     notifications::evaluate(&panel.state.pool, now, now).await?;
     let count = || {
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM server_offline_events")
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM server_alert_events")
             .fetch_one(&panel.state.pool)
     };
     assert_eq!(count().await?, 0);
@@ -285,7 +285,7 @@ async fn offline_alerts_survive_restarts_deduplicate_and_record_recovery(
     notifications::evaluate(&panel.state.pool, now - 600, now).await?;
     notifications::evaluate(&panel.state.pool, now - 600, now).await?;
     let (resolution, total): (String, i64) = sqlx::query_as(
-        "SELECT resolution,(SELECT COUNT(*) FROM notification_outbox) FROM server_offline_events",
+        "SELECT resolution,(SELECT COUNT(*) FROM notification_outbox) FROM server_alert_events",
     )
     .fetch_one(&panel.state.pool)
     .await?;

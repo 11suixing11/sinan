@@ -204,6 +204,8 @@ class BootstrapTests(unittest.TestCase):
             def execute(_agent, arguments):
                 if "enroll" not in arguments:
                     return
+                self.assertIn("--token=-TEST_ONLY_" + str(len(attempts) + 1), arguments)
+                self.assertNotIn("--token", arguments)
                 identity.mkdir(mode=0o700, exist_ok=True)
                 key_path = identity / "device.key"
                 if not key_path.exists():
@@ -223,9 +225,9 @@ class BootstrapTests(unittest.TestCase):
                     patch.object(bootstrap, "require_protected_file"), \
                     patch.object(bootstrap, "native_paths", return_value=(configuration, command, root / "var", agent_root)):
                 with self.assertRaisesRegex(ValueError, "HTTP failure"):
-                    bootstrap.install_native(bundle, "https://panel.example.com", "first-token", {}, "macos-arm64")
+                    bootstrap.install_native(bundle, "https://panel.example.com", "-TEST_ONLY_1", {}, "macos-arm64")
                 self.assertFalse(configuration.exists())
-                bootstrap.install_native(bundle, "https://panel.example.com", "second-token", {}, "macos-arm64")
+                bootstrap.install_native(bundle, "https://panel.example.com", "-TEST_ONLY_2", {}, "macos-arm64")
             self.assertEqual(attempts, [key, key])
             self.assertTrue(configuration.exists())
             self.assertTrue(command.is_symlink())
@@ -284,6 +286,27 @@ class BootstrapTests(unittest.TestCase):
             installer.write_bytes(b"#!/bin/sh\n" + marker + marker)
             with self.assertRaises(ValueError):
                 bootstrap.require_preloaded_installer(installer)
+
+    def test_linux_enrollment_command_preserves_token_with_option_prefix(self):
+        template = (ROOT / "deploy/install.sh.tmpl").read_text()
+        command = next(line for line in template.splitlines() if '" enroll --panel ' in line)
+        with tempfile.TemporaryDirectory() as directory:
+            agent = Path(directory) / "fixture-agent"
+            agent.write_text("#!" + sys.executable + "\n" +
+                             "import argparse, json\n"
+                             "parser = argparse.ArgumentParser()\n"
+                             "parser.add_argument('command')\n"
+                             "parser.add_argument('--panel')\n"
+                             "parser.add_argument('--token')\n"
+                             "print(json.dumps(vars(parser.parse_args())))\n")
+            agent.chmod(0o755)
+            code = "PANEL=$1\nTOKEN=$2\nVERSION=0.3.0\n" + command.replace(
+                '"/opt/sinan/core/$VERSION/sinan-agent"', '"$3"')
+            result = subprocess.run(["/bin/sh", "-c", code, "linux-enrollment-fixture",
+                                     "https://panel.example.com", "-TEST_ONLY_token", str(agent)],
+                                    capture_output=True, text=True, check=False, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["token"], "-TEST_ONLY_token")
 
     def test_slow_proof_and_agent_streams_have_total_budget_and_leave_no_partial_file(self):
         class SlowResponse(Response):
@@ -472,7 +495,7 @@ class StandaloneBootstrapTests(unittest.TestCase):
     def run_bootstrap(self, script=None):
         return subprocess.run(self.root_command + ["/bin/sh", str(script or self.script),
                               "--tag", "agent-v0.3.0", "--panel", "http://127.0.0.1:8000",
-                              "--token", "TEST_ONLY_token", "--release-dir", str(self.bundle)],
+                              "--token=-TEST_ONLY_token", "--release-dir", str(self.bundle)],
                               capture_output=True, check=False, timeout=30)
 
     def test_standalone_bootstrap_provisions_its_own_trust_and_verifies_before_execution(self):

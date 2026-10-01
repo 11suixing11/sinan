@@ -243,7 +243,7 @@
 
 `GET /api/bootstrap/{version}/{arch}?token=…` 验证接入令牌后仍返回 409：Agent 二进制必须从 GitHub Release 或独立 HTTPS 镜像下载，面板不提供 Agent。独立安装入口使用已签 metadata 的 asset_name 构造固定官方 tag 地址，只取本机系统/CPU/ABI，不向 GitHub/镜像发送 token 或设备凭据。
 
-`POST /api/artifacts/import-release` 是部署维护接口，插件目录不提供此操作。请求 `{"tag":"agent-v0.3.0","targets":["linux-gnu-arm64"]}`，`targets` 可省略以自动匹配，不接受空数组、重复或未知目标。仅接受固定官方仓库的规范 tag，不接受 URL。成功返回 `{tag,targets,artifacts,signature_verified:true}`。完整 proof 验签后，仅下载所选平台的兼容制品；ARM 不下载 AMD。所选内容在同文件系统私有 staging 完成核对，随后公布本地清单。相同标签可追加目标或重导以修复缺失/损坏的普通文件；旧完整目录兼容。同一身份不同内容返回 409，并发导入返回 429；下载/验签失败保留原集合。草稿、缺签名、非法根、软链路径或内容篡改均拒绝；面板镜像缺少编译时公钥时也返回 409。此接口只准备已验证的分发文件，不安装或运行插件。目录布局、独立 bootstrap 和轮换步骤见部署文档与 ADR 0017、0037、0038、0039。
+`POST /api/artifacts/import-release` 是部署维护接口，插件目录不提供此操作。请求 `{"tag":"agent-v0.3.0","targets":["linux-gnu-arm64"]}`，`targets` 可省略以自动匹配，不接受空数组、重复或未知目标。仅接受固定官方仓库的规范 tag，不接受 URL。成功返回 `{tag,targets,artifacts,signature_verified:true}`。完整 proof 验签后，仅下载所选平台的兼容制品；ARM 不下载 AMD。所选内容在同文件系统私有 staging 完成核对，随后公布本地清单。相同标签可追加目标或重导以修复缺失/损坏的普通文件；旧完整目录兼容。同一身份不同内容返回 409，并发导入返回 429；下载/验签失败保留原集合。草稿、缺签名、非法根、软链路径或内容篡改均拒绝；面板镜像缺少编译时公钥时也返回 409。此接口只准备已验证的分发文件，不安装或运行插件。目录布局、独立 bootstrap 和轮换步骤见部署文档与 ADR 0017、0037、0038、0041。
 
 ## 服务器 IP 信息
 

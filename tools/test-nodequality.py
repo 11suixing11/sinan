@@ -398,6 +398,7 @@ class BuildTests(unittest.TestCase):
                                        ("@LOADER_POLICY_HELPER@", (PLUGIN / "loader-policy.py").read_text()),
                                        ("@RANKING_POLICY_HELPER@", (PLUGIN / "ranking-policy.py").read_text()),
                                        ("@IP_SCORE_POLICY_HELPER@", (PLUGIN / "ip-score-policy.py").read_text()),
+                                       ("@NETFLIX_POLICY_HELPER@", (PLUGIN / "netflix-policy.py").read_text()),
                                        ("@PINNED_CHAIN@", source_bundle()),
                                        ("@REPORT_HELPER@", (PLUGIN / "report.py").read_text()),
                                        ("@EXIT_OBSERVER@", (PLUGIN / "exit-observer.sh").read_text()),
@@ -419,7 +420,7 @@ class BuildTests(unittest.TestCase):
 
     def test_repeated_build_refuses_to_modify_the_existing_artifact_and_checksum(self):
         with tempfile.TemporaryDirectory() as directory:
-            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r13"
+            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14"
             root = pathlib.Path(directory) / "nodequality" / version
             root.mkdir(parents=True)
             artifact = root / "amd64"
@@ -476,7 +477,7 @@ class BuildTests(unittest.TestCase):
             subprocess.run(["bash", "-n", str(script)], check=True)
         result = subprocess.run(["bash", str(PLUGIN / "runner.sh.tmpl"), "--version"],
                                 capture_output=True, text=True, check=True)
-        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r13")
+        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14")
 
     def test_existing_architecture_checksums_are_not_replaced(self):
         script = (PLUGIN.parents[1] / "tools/build-nodequality.sh").read_text()
@@ -605,6 +606,7 @@ work_dir=$workspace/.nodequalityfixture
             ("LOADER_POLICY_HELPER", (PLUGIN / "loader-policy.py").read_text()),
             ("RANKING_POLICY_HELPER", (PLUGIN / "ranking-policy.py").read_text()),
             ("IP_SCORE_POLICY_HELPER", (PLUGIN / "ip-score-policy.py").read_text()),
+            ("NETFLIX_POLICY_HELPER", (PLUGIN / "netflix-policy.py").read_text()),
             ("PINNED_CHAIN", source_bundle()),
             ("REPORT_HELPER", (PLUGIN / "report.py").read_text()),
             ("EXIT_OBSERVER", (PLUGIN / "exit-observer.sh").read_text()),

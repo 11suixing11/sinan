@@ -85,7 +85,7 @@ GitHub 下载客户端单独禁环境代理、禁止自动跳转，显式检查 
 
 整个候选 Release 在同文件系统私有 staging 完成签名、大小、归档和安装后 binary 校验，fsync 后一次 rename 成 `data/artifacts/releases/<tag>`；列表与 descriptor 只读完整已验目录。同 tag 或相同组件键相同摘要幂等，不同摘要拒绝；半下载和失败 import 不改变现有集合。内存 mutex 串行 import，重启只扫描完整目录，不把残留 staging 曝光。
 
-中文管理界面提供“从 Release 导入制品”和签名/架构/版本状态，取代正常部署的 docker cp。离线数据卷导入可保留完整签名树路径，但不能允许旧 unsigned 目录成为兜底。
+签名 Release 通过已鉴权的管理员运维导入接口准备，取代正常部署的 docker cp。2026-10-01 的插件目录调整后，网页仅展示插件及真实版本、架构，已移除全局 Release 导入表单；维护流程见[部署文档](../deploy.md#导入签名-release)。离线数据卷导入可保留完整签名树路径，但不能允许旧 unsigned 目录成为兜底。
 
 ## 独立版本与兼容旧 Agent
 

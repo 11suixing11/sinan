@@ -398,7 +398,7 @@ function Invoke-SinanBootstrap {
             Assert-PartialIdentity (Join-Path $root 'identity') $Panel
         }
         try {
-            Invoke-CheckedAgent $agent @('--config', $configuration, 'enroll', '--panel', $Panel, '--token', $Token)
+            Invoke-CheckedAgent $agent @('--config', $configuration, 'enroll', '--panel', $Panel, ('--token=' + $Token))
             Invoke-CheckedAgent $agent @('--config', $configuration, 'install-service')
         } catch {
             $failure = $_
