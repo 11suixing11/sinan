@@ -1142,3 +1142,7 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 基于r9独立PR，r10把实际消费的IP国家表/DNSBL、Net国家表/省份表/ASN映射/iperf与speedtest目标表纳入固定提交、大小、SHA和完整源码包；Git blob身份与实际字节逐份核对。IATA变量在固定版本只有声明/赋值，未擅自加入无实际读取的CSV。
 - 新data-policy helper在真实serve通路把七个精确curl表达式替换为固定格式、单引号转义的Bash内建printf，保留每个原字节和原解析/探测代码。不需chroot路径、解码器或临时文件；含单引号、命令替换、反引号和百分号的数据不能执行命令。缺失、篡改、FIFO、符号链接或非法输入拒绝，不回退在线main。
 - 首轮新专项6全部通过；旧来源夹具中双架构下载计数仍写20，真实增加七文件后为34，已修正预期，保留失败日志。最终回归和Debian资源/清理收据另补。所有完整门禁保留；rootfs、二级工具、cookies/UA/广告、内层上传和目标授权仍待收敛，未发布/部署或启用CI。
+
+
+- r10冻结e95fa7b完成host122运行/117通过/5条件跳过；新数据专项6全部通过。Rust19（adapter15/gate3/HTTP-PG日常1）和Clippy/fmt/core/diff通过，专属PG55439已停止/PID消失/端口关闭，收据c027d01d…。Debian12共86运行/85通过/1缺minisign跳过，57.311秒；实际限额256MiB/Swap0/Tasks64等读回，峰值71,118,848B/11pids，0OOM；结束无进程/挂载/cgroup，SSH406重启0/同boot/swap0，42输入不变（24仓库输入匹配），收据74114ba4…。
+- 独立复现并开Issue #112：真实source-helper拒绝篡改数据，但固定加载器bash进程替换吞掉空输出失败，三个网络分支仍退出0。仅用固定函数体/Bash桩，无公网或上游基准；独立单元已回收。不能把供给拒绝等同整项任务正确失败，错误传递下一项单独修复。详见[静态数据独立验收](docs/acceptance/nodequality-pinned-data.md)及JSON索引，全部full门禁、rootfs/授权缺口与总故障矩阵保持；未正式签署/发布/部署/恢复CI。

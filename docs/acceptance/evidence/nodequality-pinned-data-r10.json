@@ -1,0 +1,418 @@
+{
+  "schema": 1,
+  "tested_source": "e95fa7beca63a064547960c9ae3652577f870cb1",
+  "base_pull_request": 111,
+  "scope": "Seven fixed static data requests only; no full upstream execution.",
+  "source_lock_sha256": "16bc414c7f9bf79514b36f9cc3d8b0376a1805ad58f24f8d8be81ddeb8542dd7",
+  "data_policy_sha256": "0115f90f8ce521eab1472d8426b8f8dfbf1fefca427ae0fdfd557b346a8fdab3",
+  "reference_files": [
+    {
+      "name": "ip-iso3166.json",
+      "repository": "xykt/IPQuality",
+      "commit": "87397e2c3196ec796f5477c83343c2354df601ea",
+      "path": "ref/iso3166.json",
+      "sha256": "e1434e42786484b1841082a0a16cf27208691443dc6440d125ad81d49007ea42",
+      "size": 65317,
+      "license_file": "LICENSE.ip",
+      "git_blob": "1e67efc0021eeccacb6f35c6f3dcdc85057f9d9e"
+    },
+    {
+      "name": "ip-dnsbl.list",
+      "repository": "xykt/IPQuality",
+      "commit": "87397e2c3196ec796f5477c83343c2354df601ea",
+      "path": "ref/dnsbl.list",
+      "sha256": "a92ca482843310167309c82f05cb7e208d7decc7f8bb7eada0f96af42f1143ad",
+      "size": 8812,
+      "license_file": "LICENSE.ip",
+      "git_blob": "9428d0d1f31029862dc1fc3835a324f572003646"
+    },
+    {
+      "name": "net-AS_Mapping.txt",
+      "repository": "xykt/NetQuality",
+      "commit": "d5b99484d51286374d24b892c1b54235dc282148",
+      "path": "ref/AS_Mapping.txt",
+      "sha256": "18596092c50e95ba23a6e997dc1ed823e4b01401034ffa2068a69e3a05c3cc50",
+      "size": 1154,
+      "license_file": "LICENSE.net",
+      "git_blob": "d03d6265b30cefa577b10b4643162dc42e5af838"
+    },
+    {
+      "name": "net-iso3166.json",
+      "repository": "xykt/NetQuality",
+      "commit": "d5b99484d51286374d24b892c1b54235dc282148",
+      "path": "ref/iso3166.json",
+      "sha256": "e1434e42786484b1841082a0a16cf27208691443dc6440d125ad81d49007ea42",
+      "size": 65317,
+      "license_file": "LICENSE.net",
+      "git_blob": "1e67efc0021eeccacb6f35c6f3dcdc85057f9d9e"
+    },
+    {
+      "name": "net-province.json",
+      "repository": "xykt/NetQuality",
+      "commit": "d5b99484d51286374d24b892c1b54235dc282148",
+      "path": "ref/province.json",
+      "sha256": "a2b8fd700adc16a95dfc9d1671dfca6c1bb0ea3d8f94bf11e8fce2a7c15807e1",
+      "size": 3960,
+      "license_file": "LICENSE.net",
+      "git_blob": "7d585d6d23375c42ec49bb868e2230222c479548"
+    },
+    {
+      "name": "net-iperf.json",
+      "repository": "xykt/NetQuality",
+      "commit": "d5b99484d51286374d24b892c1b54235dc282148",
+      "path": "ref/iperf.json",
+      "sha256": "83170b97007fd9f3792934943d2120cd0c6650b6499ac56c67056f9d20c43298",
+      "size": 2120,
+      "license_file": "LICENSE.net",
+      "git_blob": "8082098777152f931d26dbcf68b4f22f63b760c3"
+    },
+    {
+      "name": "net-speedtest_cn.json",
+      "repository": "xykt/NetQuality",
+      "commit": "d5b99484d51286374d24b892c1b54235dc282148",
+      "path": "ref/speedtest_cn.json",
+      "sha256": "ec153fa9b0db16abbb0c93e6eacba6494ce56fc9427d3ea0afe21a9126279d87",
+      "size": 7772,
+      "license_file": "LICENSE.net",
+      "git_blob": "de145e0a8f706f3c9d1c25f8ca2eef3072490cb0"
+    }
+  ],
+  "host": {
+    "receipt_sha256": "c91441e67c036b5055401aceef52cf80da5c39d5e35185013738300395811668",
+    "checks": [
+      {
+        "name": "data",
+        "exit_code": 0,
+        "tests": 6,
+        "skipped": 0,
+        "seconds": 6.684,
+        "log_sha256": "376bca6f67d42553937322256736c5beab0a71b16393b8afe9bf5b70c6710a6a"
+      },
+      {
+        "name": "dependencies",
+        "exit_code": 0,
+        "tests": 11,
+        "skipped": 1,
+        "seconds": 2.58,
+        "log_sha256": "4fa6f79a551d336b58c21b6bc37ad8a827aefa675106fb8a15d1ad9257cef0d9"
+      },
+      {
+        "name": "swap",
+        "exit_code": 0,
+        "tests": 10,
+        "skipped": 0,
+        "seconds": 2.354,
+        "log_sha256": "7d10aeff2de7e4092373e5b314ffa5be344057c0c1f54ff8e1487a8cc19c0765"
+      },
+      {
+        "name": "sources",
+        "exit_code": 0,
+        "tests": 16,
+        "skipped": 0,
+        "seconds": 12.286,
+        "log_sha256": "b87be8a6374fb72ba3110ef4f2ca1ccf2a90c041d06c245fb1468a85dd326779"
+      },
+      {
+        "name": "report",
+        "exit_code": 0,
+        "tests": 6,
+        "skipped": 0,
+        "seconds": 35.98,
+        "log_sha256": "9c857829652034dc88dbb4a462b76d1d97efaf2968bd7fdc05a0fead2450ac3b"
+      },
+      {
+        "name": "wrapper",
+        "exit_code": 0,
+        "tests": 34,
+        "skipped": 0,
+        "seconds": 12.522,
+        "log_sha256": "c685d357947aaa0954fd2550db24d3306db47984685ad0745d350d69d319069b"
+      },
+      {
+        "name": "daily",
+        "exit_code": 0,
+        "tests": 7,
+        "skipped": 0,
+        "seconds": 6.539,
+        "log_sha256": "35a24bdfa81e41c9b3ded5ea6f536ef5c9046c2c798635912d8770b25c8268e8"
+      },
+      {
+        "name": "release",
+        "exit_code": 0,
+        "tests": 32,
+        "skipped": 4,
+        "seconds": 0.513,
+        "log_sha256": "55521ecef41534ac70ecf061759518613f6881d92dba892d93fbcbed7dc37321"
+      }
+    ]
+  },
+  "rust": {
+    "receipt_sha256": "c027d01dc1190592703a6629f1d806036bc43dc4798523eac53d5ff493e38a0e",
+    "checks": [
+      {
+        "name": "postgres-start",
+        "exit_code": 0,
+        "log_sha256": "66afd0411ccc09366e99fdd99b85f21899c8d2d064f5835126859618802153ad"
+      },
+      {
+        "name": "adapter-diagnostic",
+        "exit_code": 0,
+        "tests": {
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "77188c5dbf1e9be18fc7a45a92d14eec5563844de28c8baec97451f9726f7653"
+      },
+      {
+        "name": "panel-chain-gate",
+        "exit_code": 0,
+        "tests": {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "9381f0d6dfdd22d942f6e80a0e643ee28acd7b06bf5e65ca316aa56d0faa3ab8"
+      },
+      {
+        "name": "panel-daily-version",
+        "exit_code": 0,
+        "tests": {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "5b8af2fddaebce3398a3da234c7a28dfea5e1034cfcc3e9c26cbe947c2bb6294"
+      },
+      {
+        "name": "adapter-clippy",
+        "exit_code": 0,
+        "log_sha256": "7aeb967e4a7efc207e42a95539e9459c101c7d5a76cfc9f8f0332b14d6174011"
+      },
+      {
+        "name": "workspace-fmt",
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "core-boundary",
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "diff-check",
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "postgres-stop",
+        "exit_code": 0,
+        "log_sha256": "ca19178a35ab4153b75b494963b66ce8243e1b94c173107c87b44d09db23652d"
+      }
+    ],
+    "frozen_inputs": {
+      "crates/adapter-nodequality/src/lib.rs": "ef2ba980f02ff269ea2285055c59fc08755866c3292c431f1b9e536577bcbbd8",
+      "crates/adapter-nodequality/tests/diagnostic.rs": "61999f5b453659c744677c834badf3843b0014d5d90c2c84612d47170952d988",
+      "crates/adapter-nodequality/tests/diagnostic/versions.rs": "8a8e719a07a51c0dc05836ad2d84a304cb8eabd99b651180e4455ebfe066ed3f",
+      "plugins/nodequality/panel/mod.rs": "baf0d05bb2d9387068d3ec58c53f3efc08c1b164f46218f8e94203dd1b1283e1",
+      "crates/panel/tests/diagnostics/modes.rs": "55b8a7c27bcf4c07d06e0a7702b40fd492d0aa71e45a1f6a2da767f8055fa582",
+      "crates/panel/tests/diagnostics/chain_gate.rs": "a06d681703a62f9f8105f19545547e3c379e4333503d7fd5c62b5988d7f59e13"
+    },
+    "cargo_lock_sha256": "02e3ac8f8a90c522b1267049cce2ed27fdd819bd0ab86e4d25c75581cb3bc948",
+    "postgres_stopped": true,
+    "postgres_pid_absent": true,
+    "postgres_port_closed": true,
+    "trust_kind": "public_TEST_ONLY"
+  },
+  "debian": {
+    "os": "Debian 12 arm64",
+    "bash": "5.2.15(1)-release",
+    "duration_seconds": 57.311,
+    "checks": [
+      {
+        "name": "source",
+        "exit_code": 0,
+        "ran": 16,
+        "skipped": 1,
+        "elapsed_seconds": 4.481188128000213,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "d07365b6d68941772d6a23117c91692ecfdab7955f7d8ef612820ad2bfbd5141"
+      },
+      {
+        "name": "data",
+        "exit_code": 0,
+        "ran": 6,
+        "skipped": 0,
+        "elapsed_seconds": 2.67013770900121,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "fbdc76082dbc90e9406f9c184916278073345196223564d7c6d733e8d88d0695"
+      },
+      {
+        "name": "dependencies",
+        "exit_code": 0,
+        "ran": 11,
+        "skipped": 0,
+        "elapsed_seconds": 1.007257250999828,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "824cb08daa6aaf9c56f4be568ec3850da8d5733bebe67a847325a6d8138bb829"
+      },
+      {
+        "name": "swap",
+        "exit_code": 0,
+        "ran": 10,
+        "skipped": 0,
+        "elapsed_seconds": 0.7712892500003363,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "4277118ae49e78f6fd1aa408100127237c614394540731f314592a0c7ba9b94f"
+      },
+      {
+        "name": "original-body-fd",
+        "exit_code": 0,
+        "ran": 2,
+        "skipped": 0,
+        "elapsed_seconds": 43.618235313000696,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "fbc1a1de9a0eddacabb15c408b0a917a47e847b89cfbd5506e6c36071c27096a"
+      },
+      {
+        "name": "wrapper",
+        "exit_code": 0,
+        "ran": 34,
+        "skipped": 0,
+        "elapsed_seconds": 2.4197556259987323,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "e3d1f0d83abb74592307c00b85e153146072aab2584a7fd90a58e5c646d7a7db"
+      },
+      {
+        "name": "daily",
+        "exit_code": 0,
+        "ran": 7,
+        "skipped": 0,
+        "elapsed_seconds": 2.3324967919998016,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "13670f6d6ad847beb24ba2951365b7a9f3704a37e548a2e48dc62c4c748659f1"
+      }
+    ],
+    "runtime_properties": {
+      "MainPID": "19489",
+      "ControlGroup": "/system.slice/sinan-nodequality-r10-fd-v1.service",
+      "CPUWeight": "10",
+      "IOWeight": "10",
+      "MemoryMax": "268435456",
+      "MemorySwapMax": "0",
+      "TasksMax": "64",
+      "OOMScoreAdjust": "500",
+      "PrivateNetwork": "yes",
+      "PrivateMounts": "yes",
+      "NoNewPrivileges": "yes",
+      "KillMode": "control-group"
+    },
+    "cgroup_metrics": {
+      "memory.peak": "71118848",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "pids.peak": "11"
+    },
+    "postcheck": {
+      "success": true,
+      "final_unit_properties": {
+        "MainPID": "0",
+        "ControlPID": "0",
+        "ControlGroup": "",
+        "LoadState": "not-found",
+        "ActiveState": "inactive",
+        "SubState": "dead"
+      },
+      "oom_since_actual_start": [],
+      "residual_fixture_pids": [],
+      "residual_fixture_mounts": [],
+      "cgroup_exists": false,
+      "ssh": {
+        "MainPID": "406",
+        "NRestarts": "0",
+        "ActiveState": "active"
+      },
+      "swap_entries": 0,
+      "source_files_unchanged": true
+    },
+    "files_sha256": {
+      "result.json": "76ffe81380c1ecea351d0c969efad1ef33c531089b0283d35c6c013d9db39d55",
+      "postcheck.json": "ec5126d30300a9cc14fcc362778a43edaf3a23c7de3d87f36d2e3c49b33df622",
+      "receipt.json": "74114ba4a018dd195fd628e60934c65d4a52218ce27f1593eca407d8150c97e0",
+      "source-sha256.json": "619c15bd95c664b540593efa5870c11bf499b658dc455dc815e5432058425717",
+      "source.tar": "a91dff59a8a2dacb1bbb3733be962b915e7cf8d5ce66507c55a880f962a102ce"
+    },
+    "input_file_count": 42,
+    "repository_input_sha256": {
+      "plugins/nodequality/dependency-policy.py": "9424dded5fd6c74ff9888fa6e2e3d9482fe8db144fa4c572682fca3f8cf5b5de",
+      "plugins/nodequality/report-policy.py": "0c66e702084820e399a16b18b51ba331cd8edd406dd96ede7c2ee84f78c30245",
+      "plugins/nodequality/chroot-shim.sh": "6d12129f92b8869b9fd78ed5b73a2dff57c3fca82ccc7995fd777646e5ba79bc",
+      "plugins/nodequality/swap-policy.py": "1d6acda7821d013773b273d77db12973d7075631b0309614dadb9c5cfc09ff24",
+      "plugins/nodequality/runner.sh.tmpl": "9e9dda02c01bf5e285a45742d48ef3ff5c42c67ce9c6bd8b97e1be74724cb714",
+      "plugins/nodequality/UPSTREAM.txt": "308cb8769f287216a8bcb3e8907414f0eef00d8390e9386b6bd5c0ea0855d535",
+      "plugins/nodequality/source-helper.py": "af4f9b1f4aad442129d2e8a9b2f32d2ebbd2860935d86e3b5b896043df94229e",
+      "plugins/nodequality/curl-shim.sh": "307b56270d67a71d3af667f6e17351bd115676bd3eecb6686b7be26931d0cfce",
+      "plugins/nodequality/data-policy.py": "0115f90f8ce521eab1472d8426b8f8dfbf1fefca427ae0fdfd557b346a8fdab3",
+      "plugins/nodequality/daily.py": "8f376ca7ef0616fedcf981c6ba671401a2e8ffb0c5ac9e4308e9e12a07c38a26",
+      "plugins/nodequality/exit-observer.sh": "b1f68e376ff7e9ee23b03bcfc854aa54440b30370ce7aada2be34ea79b06b257",
+      "plugins/nodequality/report.py": "5118a7cbe5ddb5d317e56606904bd301c30ac28519e8dcda106ce1151afc0b38",
+      "plugins/nodequality/source-lock.json": "16bc414c7f9bf79514b36f9cc3d8b0376a1805ad58f24f8d8be81ddeb8542dd7",
+      "tools/build-nodequality.sh": "996cb70a5135de2ba71f6b26ba277bf265ba005b0f3fcfc5385aa91c4bacda46",
+      "tools/test-nodequality-sources.py": "4af11cffbffb59613ee27acf19a236f28b624c47b1b8a3330eb3b5d54d3a60bc",
+      "tools/test-nodequality-report-policy.py": "2b39ba3b4e0a1b2d828be1bc9d6ce8860c96b0c59f46356da0c19f85ade9c7a8",
+      "tools/nodequality-source-fixture.py": "6150eb03de238e86bd9871e7738c3a0523de0dc83b85e702d79bb886e333f705",
+      "tools/test-nodequality-swap-policy.py": "0ea6ed8425e2e82b18618c555da0845a2e0918d2ee2a60da79ca6b89d47b3903",
+      "tools/test-nodequality-dependency-policy.py": "6436dc7f2d8fc2c047609beb199147d88fd3a23adb252200f06333a7e8c91fd6",
+      "tools/test-nodequality-data-policy.py": "cd4031a55496c7e00620ad8e6292c31e58a2f8c12a0f7c6f7f76893bde22acf7",
+      "tools/test-nodequality.py": "98b0d9b124c7ce2b73f62b51a768a10bc7ffbce1ff44b26471cf2c2a71b9f268",
+      "tools/test-diagnostic-modes.py": "00522348739ef4adca56964d263c1951dfca798aacc12092f2de5240b73331c3",
+      "crates/protocol/tests/fixtures/TEST_ONLY.key": "21c747afcd9c2932cd2f10fc356028b46730d76eb57e0c820ea90fa44753c07c",
+      "crates/protocol/tests/fixtures/TEST_ONLY.pub": "1883353600a9b2869b72be791a44d6d86e17566042e1ee8becfdca1b3f7a24d1"
+    }
+  },
+  "separate_known_issue": {
+    "number": 112,
+    "result_sha256": "8c4de8d77f693e5ef9e8269ab58ad76e6e9a7ea121396321f82032dbcf5c418a",
+    "driver_sha256": "943bb395741ef5b21623d0c31c3f56a42d70556543490bfd8b15ce3fa0282e94",
+    "evidence": {
+      "entry_sha256": "34be83427844aba67e4677f1dead79812d5699fbbab08be0a4f074c332efb6fa",
+      "controller_sha256": "bfebdc600322284107a021748bb93bdc0ed18f5fdac3959a59712f4c137708e3",
+      "bash": "5.2.15(1)-release",
+      "reproduced": [
+        {
+          "function": "run_ip_quality",
+          "corrupt_reference": "ip-dnsbl.list",
+          "exit_code": 0,
+          "stdout": "continued",
+          "stderr": "Error: pinned source checksum or size mismatch: ip-dnsbl.list\n",
+          "chapter_log_bytes": 0
+        },
+        {
+          "function": "run_net_quality",
+          "corrupt_reference": "net-province.json",
+          "exit_code": 0,
+          "stdout": "continued",
+          "stderr": "Error: pinned source checksum or size mismatch: net-province.json\n",
+          "chapter_log_bytes": 0
+        },
+        {
+          "function": "run_net_trace",
+          "corrupt_reference": "net-province.json",
+          "exit_code": 0,
+          "stdout": "continued",
+          "stderr": "Error: pinned source checksum or size mismatch: net-province.json\n",
+          "chapter_log_bytes": 0
+        }
+      ],
+      "scope": "Actual source helper and fixed loader functions; curl is local helper and chroot is a Bash-only stub. No full upstream execution."
+    },
+    "fixed_in_this_change": false
+  },
+  "not_verified": [
+    "Issue 112: source supply failure must propagate through process substitution",
+    "Rootfs and secondary tool provenance, integrity, licenses and bounded packaging",
+    "Remaining cookies, browser impersonation, ads and upload paths",
+    "Authorization for third-party targets and provider access",
+    "Full NodeQuality under continuous proxy load and fault matrix",
+    "Formal signing, release, deployment or paused CI"
+  ]
+}
