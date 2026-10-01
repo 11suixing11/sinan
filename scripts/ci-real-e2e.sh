@@ -66,7 +66,13 @@ state_path, output, passed, phase, exit_code, owned_installation = sys.argv[1:]
 specification = importlib.util.spec_from_file_location("e2e_summary_driver", "scripts/e2e-driver.py")
 driver = importlib.util.module_from_spec(specification)
 specification.loader.exec_module(driver)
+traffic_specification = importlib.util.spec_from_file_location("e2e_traffic_evidence", "scripts/e2e-traffic-evidence.py")
+traffic = importlib.util.module_from_spec(traffic_specification)
+traffic_specification.loader.exec_module(traffic)
 summary = {"passed": passed == "1", "last_phase": phase, "exit_code": int(exit_code), "runtime_version": "1.14.2"}
+traffic_evidence = traffic.load(Path(state_path).with_name(traffic.EVIDENCE_NAME))
+if traffic_evidence:
+    summary["traffic"] = traffic_evidence
 readiness = Path(state_path).with_name("ready-timeout.json")
 if readiness.is_file():
     last = json.loads(readiness.read_text())
@@ -132,6 +138,13 @@ PY
 cleanup() {
   result=$?
   trap - EXIT
+  # Keep the triggering failure while still attempting every cleanup operation.
+  if [[ $result != 0 ]]; then set +e; fi
+  if [[ $result != 0 && ($phase == first-traffic || $phase == resumed-traffic) ]]; then
+    # Inspect only this run's fixtures before stopping them. Keep the original failure.
+    python3 scripts/e2e-traffic-evidence.py --scratch "$scratch" failure \
+      --client-pid "${client_pid:-0}" --fixture-pid "${fixture_pid:-0}" || true
+  fi
   write_summary || true
   [[ -z $client_pid ]] || { kill "$client_pid" 2>/dev/null || true; wait "$client_pid" 2>/dev/null || true; }
   [[ -z $fixture_pid ]] || { kill "$fixture_pid" 2>/dev/null || true; wait "$fixture_pid" 2>/dev/null || true; }
@@ -383,8 +396,7 @@ PY
 }
 stop_client() { kill "$client_pid"; wait "$client_pid" || true; client_pid=; }
 traffic_batch() {
-  curl --fail --silent --show-error --max-time 90 --noproxy '' \
-    --proxy socks5h://127.0.0.1:2080 http://127.0.0.1:18081/download -o "$scratch/download.bin"
+  python3 scripts/e2e-traffic-evidence.py --scratch "$scratch" transfer --phase "$phase" --direction download
   python3 - "$scratch/download.bin" "$scratch/upload.bin" <<'PY'
 from pathlib import Path
 import sys
@@ -392,9 +404,7 @@ download = Path(sys.argv[1]).read_bytes()
 if download != b's' * (2 * 1024 * 1024): raise SystemExit('proxy download mismatch')
 Path(sys.argv[2]).write_bytes(b'u' * (1024 * 1024))
 PY
-  curl --fail --silent --show-error --max-time 90 --noproxy '' \
-    --proxy socks5h://127.0.0.1:2080 -X POST --data-binary "@$scratch/upload.bin" \
-    http://127.0.0.1:18081/upload -o "$scratch/upload-response.txt"
+  python3 scripts/e2e-traffic-evidence.py --scratch "$scratch" transfer --phase "$phase" --direction upload
   [[ $(cat "$scratch/upload-response.txt") == 1048576 ]] || die 'proxy upload mismatch'
 }
 
