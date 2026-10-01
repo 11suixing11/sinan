@@ -215,6 +215,7 @@ def script_recipe(name):
     result += source_tests.fixture.data_anchors(name).decode()
     result += source_tests.fixture.ranking_anchors(name).decode()
     result += source_tests.fixture.ip_score_anchors(name).decode()
+    result += source_tests.fixture.netflix_anchors(name).decode()
     result += 'fixture_record script ' + kind + ' "$@"\n'
     result += '''
 mode_privacy=${FIXTURE_PRIVACY:-0}
@@ -357,7 +358,8 @@ class PolicyTests(unittest.TestCase):
             private_policy = module('transform_fixture', plugin / 'report-policy.py')
             private_swap = module('swap_transform_fixture', plugin / 'swap-policy.py')
             for role in private_policy.SOURCES:
-                expected = source_tests.fixture.undo_ip_scores(role, outputs[role])
+                expected = source_tests.fixture.undo_netflix(role, outputs[role])
+                expected = source_tests.fixture.undo_ip_scores(role, expected)
                 expected = source_tests.fixture.undo_ranking(role, expected)
                 expected = source_tests.fixture.undo_data(role, expected, contents)
                 expected = source_tests.fixture.undo_dependencies(role, expected, contents[role])

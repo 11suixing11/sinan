@@ -8,8 +8,8 @@ usage() {
 Usage: tools/build-nodequality.sh <amd64|arm64> <ARTIFACT_ROOT>
 
 Build prerequisites: bash, curl, python3. No benchmark runs during packaging.
-Output: ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r13/<arch>
-        ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r13/SHA256SUMS
+Output: ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14/<arch>
+        ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14/SHA256SUMS
 
 Both targets contain one architecture-independent executable named nodequality.
 The canonical entrypoint, five first-level scripts, seven reference files and
@@ -28,7 +28,7 @@ case "$arch" in amd64|arm64) ;; *) die 'architecture must be amd64 or arm64' ;; 
 [[ -n $2 ]] || die 'ARTIFACT_ROOT must not be empty'
 for tool in curl python3; do command -v "$tool" >/dev/null || die "missing build tool: $tool"; done
 upstream_revision=a92fca6c0067df29ddd03fdc2fee6f3000f64545
-version=$upstream_revision-r13
+version=$upstream_revision-r14
 output=$2/nodequality/$version
 [[ ! -L $output ]] || die 'output version directory must not be a symlink'
 mkdir -p "$output"
@@ -113,6 +113,7 @@ for marker, path in (
     ("LOADER_POLICY_HELPER", plugin / "loader-policy.py"),
     ("RANKING_POLICY_HELPER", plugin / "ranking-policy.py"),
     ("IP_SCORE_POLICY_HELPER", plugin / "ip-score-policy.py"),
+    ("NETFLIX_POLICY_HELPER", plugin / "netflix-policy.py"),
     ("REPORT_HELPER", plugin / "report.py"),
     ("EXIT_OBSERVER", plugin / "exit-observer.sh"),
     ("DAILY_HELPER", plugin / "daily.py"),
