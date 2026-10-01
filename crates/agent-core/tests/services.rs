@@ -63,6 +63,10 @@ impl Privileged for RecordingOps {
                 bail!("service command unavailable");
             }
             if program == Path::new("stat") {
+                anyhow::ensure!(
+                    self.allow_diagnostic_lock && *self.lock_preparations.lock().unwrap() > 0,
+                    "unexpected diagnostic lock inspection"
+                );
                 assert_eq!(args, ["-c", "%f %u", "--", "/run/sinan-diagnostic"]);
                 assert!(self.directories.lock().unwrap().contains(&(
                     PathBuf::from("/run/sinan-diagnostic"),
@@ -85,7 +89,15 @@ impl Privileged for RecordingOps {
         group: Option<&'a str>,
     ) -> BoxFuture<'a, ()> {
         Box::pin(async move {
-            anyhow::ensure!(self.allow_files, "unexpected filesystem operation");
+            if path == Path::new("/run/sinan-diagnostic") {
+                anyhow::ensure!(
+                    self.allow_diagnostic_lock && mode == 0o700 && group == Some("root"),
+                    "unexpected diagnostic lock directory permissions"
+                );
+                *self.lock_preparations.lock().unwrap() += 1;
+            } else {
+                anyhow::ensure!(self.allow_files, "unexpected filesystem operation");
+            }
             self.directories.lock().unwrap().push((
                 path.to_owned(),
                 mode,
@@ -303,14 +315,7 @@ async fn openrc_starts_independent_diagnostic_jobs_without_invoking_systemd() ->
 
 #[tokio::test]
 async fn systemd_diagnostic_jobs_keep_independent_supervision_and_status() -> Result<()> {
-    let ops = Arc::new(RecordingOps {
-        allow_files: true,
-        output: Mutex::new(CommandOutput {
-            success: true,
-            ..Default::default()
-        }),
-        ..Default::default()
-    });
+    let ops = RecordingOps::diagnostic(false);
     let services = SystemServiceManager::new(ops.clone(), ServiceBackend::Systemd);
     let job = ServiceJob {
         unit: format!("sinan-diagnostic-{}.service", uuid::Uuid::new_v4()),
@@ -338,10 +343,23 @@ async fn systemd_diagnostic_jobs_keep_independent_supervision_and_status() -> Re
             .contains(&"--property=KillMode=control-group".into())
     );
     assert!(calls[1].1.contains(&"--property=PrivateMounts=yes".into()));
+    assert!(calls[1].1.contains(&"--property=UMask=0077".into()));
     assert!(
         calls[1]
             .1
             .contains(&"--property=TimeoutStartSec=10s".into())
+    );
+    let separator = calls[1].1.iter().position(|arg| arg == "--").unwrap();
+    assert_eq!(
+        &calls[1].1[separator + 1..],
+        [
+            "/usr/bin/flock",
+            "--exclusive",
+            "--nonblock",
+            "--conflict-exit-code=75",
+            "/run/sinan-diagnostic/lock",
+            "/bin/true",
+        ]
     );
     assert_eq!(calls[2].0, Path::new("systemctl"));
     assert_eq!(calls[2].1.last(), Some(&job.unit));

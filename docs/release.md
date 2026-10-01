@@ -2,7 +2,9 @@
 
 Agent 在 `crates/agent/Cargo.toml` 独立声明版本，面板使用根 `Cargo.toml` 的 workspace 版本；当前两者恰好都为 `0.3.0`，后续可以分别演进。Agent 标签使用 `agent-v<Agent版本>`。当前 wire 协议兼容范围为 `1..1`，记录在已签 `release.json`，不以面板产品版本代替协议兼容判断。
 
-CI 为两种架构构建 musl Agent、固定上游运行时和当前 NodeQuality 包装器，生成六个平铺资产、静态 `install.sh`、`release.json` 与规范 `SHA256SUMS`，只建立 GitHub Release 草稿。运行时按固定版本、架构和构建脚本内容缓存；固定 Go 工具链在 amd64 构建机交叉编译 arm64。Agent 两种架构都使用对应原生 runner。NodeQuality 当前源码默认构建 r5：固定上游提交、原入口 SHA-256 和 AGPL-3.0 许可证不变，新增模式与正常清理退出契约属于包装器内容，需使用新的不可变组件版本。打包不运行基准测试；外部诊断下载继续遵循 ADR 0016。已冻结的 `agent-v0.3.0` 旧候选仍包含 r2，不会因源码默认值变化被重打包、替换或发布。
+CI 为两种架构构建 musl Agent、固定上游运行时和当前 NodeQuality 包装器，生成六个平铺资产、静态 `install.sh`、`release.json` 与规范 `SHA256SUMS`，只建立 GitHub Release 草稿。运行时按固定版本、架构和构建脚本内容缓存；固定 Go 工具链在 amd64 构建机交叉编译 arm64。Agent 两种架构都使用对应原生 runner。NodeQuality 当前源码默认构建 r5：固定上游提交、原入口 SHA-256 和 AGPL-3.0 许可证不变，新增模式与正常清理退出契约属于包装器内容，需使用新的不可变组件版本。打包不运行基准测试；外部诊断下载继续遵循 ADR 0016。
+
+[agent-v0.3.0](https://github.com/theLucius7/sinan/releases/tag/agent-v0.3.0) 已从冻结源码 `75cd846` 正式发布，包含 r2 包装器；维护者本机签署、发布验证和真实面板导入的结果见 [执行进度](../PROGRESS.md)。该 Release 的制品保持不可变，不随当前源码重打包或替换。r5 及后续新增能力须完成各自前置验收后使用新 Release 发布。当前 CI 按用户要求临时暂停，全部任务完成后才统一恢复；暂停期间不执行下文的工作流触发步骤。
 
 缓存命中和新构建都先经过 `tools/verify-release-runtime.py`：检查归档与 SHA256、单个普通二进制、ELF 架构，以及 `go version -m` 读取的 Go 版本、目标平台、构建标签、CGO 和固定源码 revision。这个步骤只读取缓存内容，不执行缓存二进制。源码 revision 与预期版本的关联用于发现错误构建；这些可写入二进制的 metadata 不构成独立构建证明，运行时版本的链接参数也不一定保留在 Go metadata 中。维护者仍需核对候选和构建证据后签名。
 
@@ -43,7 +45,7 @@ minisign -S -m SHA256SUMS -s /离线设备中的私钥路径 \
 
 tag 的最终 commit 必须与草稿记录的完整 build SHA 一致，并有同一 commit 的最新 main push CI 成功记录；以下五个 job 缺失、跳过、未完成或失败都会拒绝：`check`、`compose-smoke`、`Agent Linux musl (amd64)`、`Agent Linux musl (arm64)`、`Reality installation and accounting`。因此应先等待 main CI 通过，再创建指向该提交的 Agent tag。正式生产根尚未提供时，发布流程保持 fail closed；测试根可用于本地和 PR 验收，不能生成正式候选。
 
-自动 CI 的 Agent 矩阵仅含 musl amd64/arm64，Ubuntu runner 固定为 24.04；GNU、macOS、Windows、FreeBSD 与完整运行时矩阵保留在仅手动触发的 [Platform validation](../.github/workflows/platforms.yml)。这些平台的源码与验证入口继续保留，自动发布门禁不声称已完成它们的验证。
+Ubuntu runner 固定为 24.04；GNU、macOS、Windows、FreeBSD 与完整运行时的源码和 [Platform validation](../.github/workflows/platforms.yml) 手动入口继续保留。当前主线 `ci.yml` 也包含全平台检查定义，但所有工作流按用户要求暂停，待全部任务完成后统一确定恢复范围。正式 Linux musl Release 的既有验收不代表其他平台已经通过，自动发布门禁仍按所选发布源码的实际成功记录校验。
 
 发布工具记录每个 GitHub asset 的 ID、name、digest、size、state，按已选 ID 下载，先检查 GitHub digest 与实际 bytes 一致，再以独立生产根验证完整 minisign 和所有制品。GitHub digest 不是签名替代。验完后重新读取 tag 对象与 commit、完整 asset 集合及 CI run/attempt/job ID，必须与验证前一致才调用唯一的 draft→published PATCH；发布后还复查资产和 tag，并保存公开验证证据。workflow concurrency 串行同 tag 的本流程操作。
 

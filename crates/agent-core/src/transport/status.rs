@@ -124,6 +124,7 @@ mod tests {
         let mut tasks = JoinSet::new();
         tasks.spawn(serve(bound, runtime.clone()));
         let value = status(&socket).await?;
+        assert_eq!(value["agent_version"], "fixture-agent");
         assert_eq!(value["connected"], true);
         assert_eq!(value["applied"], json!({}));
         assert_eq!(value["pending_batches"], 0);
