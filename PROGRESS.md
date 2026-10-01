@@ -893,3 +893,11 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 独立验收见 [IP 响应确认](docs/acceptance/ip-response-confirmation.md)。专属回环 HTTP 与临时 PostgreSQL 先保存 73 分，再分别返回根 errors、data.success=false、data.errors；失败后换池读取仍保留历史 73、成功时间和有效期，其余六库继续成功，新 IP 未知。30 项 IP 专项全部通过、无失败/忽略；workspace fmt、panel 全 targets Clippy（warnings 为错误）与差异检查通过。临时 PostgreSQL 已停止。
 - 原解析器字段负对照实际 4 通过/2 预期失败，证明两个错误响应均误返回当前 0；真实 HTTP/PostgreSQL 新历史回归在原解析器下预期失败，恢复修复后通过。源身份与负对照步骤分别记录，不把负例失败当作修复失败或累加场景数。
 - 四个远端 workflow 仍 disabled_manually，未触发、重跑或恢复 CI；未重复完整 workspace、浏览器、平台、正式外部源或节点实机总验，不关闭 Issue #42 剩余验收，也不签收、发布或部署新增诊断能力。下一步按整改顺序继续独立实机验收。
+
+## 2026-10-01：修复磁盘容量重复统计（独立 PR）
+
+- Docker 宿主的真实根分区与嵌套 overlay 原先各累加一次，容器的根 overlay 与 `/etc/hosts` 等文件绑定挂载也重复统计。Agent 统一筛选容量、已用空间与逐盘列表，排除 Linux 非根 overlay 和单文件挂载，保留容器根盘及独立分区。
+- Unix 按文件系统设备标识去重绑定挂载及别名，Btrfs 保留源设备去重；不可读元数据沿用名称/路径回退。Windows 以挂载路径区分同名及无名卷；逐盘 I/O 基线同时包含名称与挂载点。沿用已挂载文件系统容量、保留空间和未知值语义，不新增依赖、协议字段或面板换算规则；边界见 [磁盘容量决策](docs/open-questions.md#磁盘容量容器挂载与文件系统去重)。
+- Rust 1.98.1 限额 Linux 容器执行 `cargo test --locked --offline -p sinan-agent-core`，181 项通过、0 失败、6 项既有真实服务条件忽略；包含新增 8 项磁盘回归。workspace fmt、core 全 targets Clippy（warnings 为错误）、core 分层门禁与差异检查通过。
+- 使用相同构建的 Collector 做只读采样：宿主仅保留 `/`、`/boot`、`/boot/efi`，总量 `541018241536` bytes（503.863 GiB），逐字节等于 `df -B1 --output=size` 之和，已用等于逐盘已用之和。另建无目录卷的临时 Debian 12 容器，旧名称累加结果 `1079556669440` bytes，修复后仅 `/` 为 `539778334720` bytes；容器退出 0、无 OOM，采样后已删除。
+- 未重跑完整 workspace、面板浏览器或非 Linux 原生实机；未推断容器额外目录卷与不可见 overlay 后端的物理归属。遵循临时约定保留四个 workflow 暂停并使用 `[skip ci]`，不将本地验证称作远端 CI 通过。下一步审查合入后构建并签名新版 Agent，再部署生效；本次仅提交修复 PR，线上 Agent 尚未替换。
