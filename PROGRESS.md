@@ -1303,3 +1303,9 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 保留作者 `ae9d6961`。实际定位允许的 HTTPS 镜像路径可含 PowerShell 智能单引号，原 ASCII-only 转义会在外层 payload 赋值时提前执行路径内容。按固定 PowerShell 词法源码将 ASCII 单引号及 U+2018/U+2019/U+201A/U+201B 在参数、外层 payload 两处全部倍写，保留路径原值及单行编码/UAC 后重新下载、Git blob/SHA-256 校验与完整发布验签流程。
 - 在本任务私有目录核对官方 PowerShell 7.5.3 macOS ARM64 归档 SHA-256 `f4fac5c72e8c09ba3b6fb8667f21b1d73556047819857fce7883268d02369cde`，与官方摘要文件及 API 一致；固定词法源码为 `b72c7ab1238c2d95b5c9004bca8399b8b3ca88ac`。真实 PowerShell 本地 11 项通过、0 失败、0 跳过；直接编译受验 Rust quote 函数的隔离小夹具，原转义负对照实际以 61 退出，新转义的五类引号/相邻引号/换行/中文/emoji 在六组双层 payload 中逐值恢复。其余用例覆盖真实 TEST_ONLY minisign、完整清单拒绝、历史身份/目录、回环下载预算与镜像匿名规则。
 - 另只读下载固定官方 bootstrap Git blob，精确核对嵌入入口原字节；Windows minisign 0.12 官方归档和两架构 PE 文件均实际读回并核对固定摘要，没有执行 Windows 二进制。以上是 macOS PowerShell 7 函数及词法夹具，不是 Windows PowerShell 5.1、UAC、Windows ACL/计划任务或真实 Agent 安装验收；本补修子任务未运行 Cargo/PostgreSQL，也未签署、发布、部署或恢复 CI。
+
+## 2026-10-01 PR #132 原生调用退出状态补修
+
+- 实际复现不可执行的 minisign/Agent 文件配合历史 `LASTEXITCODE=0` 会被旧函数当作成功；四行 ED 结构的假签名因验证器未启动而绕过。每次原生调用先清空全局退出码，立即捕获本次 `$?` 和退出码，只接受本次调用确实成功且返回 0；验签工具未启动直接拒绝，真实返回非零的签名拒绝仍可尝试下一个可信根。
+- 官方私有 macOS ARM64 PowerShell 7.5.3 的最终完整函数夹具 14 项通过、0 失败、0 跳过。另用补修前精确 `fdc60b8` 入口和新入口作真实双负对照：同一不可执行文件在旧验签与 Agent 函数均被接受，在新函数均拒绝且退出码为 null；同时实际运行坏签名/正确签名、错误根后正确根，以及原生子进程返回 0/7，保留智能单引号回归。
+- 同步重生 UTF-8 BOM 入口，新本地 bootstrap SHA-256 为 `425fccaba9de63a4def8a27d95c468338da24a44c29734573bf378a97264acb0`；此前匿名 Git blob 下载核对只对应补修前入口，不能认证这个尚未由本子任务推送的新对象。Windows PS5.1/UAC/ACL/原生服务安装仍待实机验证；本子任务没有 Cargo/PostgreSQL、CI、正式签署、发布或部署操作。

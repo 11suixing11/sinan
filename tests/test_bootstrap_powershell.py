@@ -90,6 +90,33 @@ class PowerShellBootstrapTests(unittest.TestCase):
         result = self.run_ps(f'$script:Roots=@({quote(key)}); Test-ReleaseSignature {quote(self.bundle)} {quote(shutil.which("minisign"))}')
         self.assertNotEqual(result.returncode, 0)
 
+    def test_non_executable_verifier_cannot_reuse_a_previous_success_exit(self):
+        blocked = self.directory / 'blocked-minisign.exe'
+        blocked.write_bytes(b'TEST ONLY non-executable verifier, never run')
+        blocked.chmod(0o600)
+        fake = 'untrusted comment: TEST ONLY\n' + base64.b64encode(b'ED' + b'\0' * 72).decode() + '\ntrusted comment: TEST ONLY\n' + base64.b64encode(b'\0' * 64).decode() + '\n'
+        (self.bundle / 'SHA256SUMS.minisig').write_text(fake)
+        key = release.load_roots(FIXTURES / 'public-keys.json')[0]
+        self.assert_ok(f'$script:Roots=@({quote(key)}); $global:LASTEXITCODE=0; $ErrorActionPreference="Continue"; $rejected=$false; try {{ Test-ReleaseSignature {quote(self.bundle)} {quote(blocked)} }} catch {{ $rejected=$true }}; Assert-Sinan $rejected "non-executable verifier accepted fake signature"; Assert-Sinan ($null -eq $global:LASTEXITCODE) "verifier reused stale native success"')
+
+    def test_real_verifier_rejects_bad_signature_and_can_continue_to_the_correct_root(self):
+        key = release.load_roots(FIXTURES / 'public-keys.json')[0]
+        wrong = release.load_roots(ROOT / 'deploy/release-public-keys.json', publication=True)[0]
+        original = (self.bundle / 'SHA256SUMS').read_bytes()
+        (self.bundle / 'SHA256SUMS').write_bytes(original + b'TEST ONLY tampering\n')
+        result = self.run_ps(f'$script:Roots=@({quote(key)}); $global:LASTEXITCODE=0; Test-ReleaseSignature {quote(self.bundle)} {quote(shutil.which("minisign"))}')
+        self.assertNotEqual(result.returncode, 0)
+        (self.bundle / 'SHA256SUMS').write_bytes(original)
+        self.assert_ok(f'$script:Roots=@({quote(wrong)},{quote(key)}); $global:LASTEXITCODE=7; Test-ReleaseSignature {quote(self.bundle)} {quote(shutil.which("minisign"))}; Assert-Sinan ($global:LASTEXITCODE -eq 0) "correct root was not attempted after wrong signature"')
+
+    def test_agent_native_calls_require_current_success_and_reject_failed_launch(self):
+        blocked = self.directory / 'blocked-agent.exe'
+        blocked.write_bytes(b'TEST ONLY non-executable Agent, never run')
+        blocked.chmod(0o600)
+        self.assert_ok(f'$global:LASTEXITCODE=0; $ErrorActionPreference="Continue"; $rejected=$false; try {{ Invoke-CheckedAgent {quote(blocked)} @("fixture") }} catch {{ $rejected=$true }}; Assert-Sinan $rejected "non-executable Agent accepted stale success"; Assert-Sinan ($null -eq $global:LASTEXITCODE) "Agent reused stale native exit"')
+        for status in (0, 7):
+            code = f'$global:LASTEXITCODE=0; $ErrorActionPreference="Continue"; $rejected=$false; try {{ Invoke-CheckedAgent {quote(PWSH)} @("-NoProfile","-NonInteractive","-Command","[Environment]::Exit({status})") }} catch {{ $rejected=$true }}; Assert-Sinan ($rejected -eq ${"true" if status else "false"}) "wrong current Agent status"; Assert-Sinan ($global:LASTEXITCODE -eq {status}) "wrong current native exit"'
+            self.assert_ok(code)
     def test_canonical_manifest_rejects_metadata_installer_and_duplicate_path_tampering(self):
         manifest = self.bundle / 'SHA256SUMS'
         original = manifest.read_bytes()
