@@ -1,8 +1,8 @@
-# ADR 0037：服务器运营设置、看板访问和 GitHub Agent 下载
+# ADR 0038：服务器运营设置、看板访问和 GitHub Agent 下载
 
 状态：已接受（2026-10-01 用户授权，源码实现与本地验证；CI 暂停，实机验收另行记录）。
 
-> 后续通知范围已按用户确认由 [ADR 0038](0038-latency-tasks-and-notification-rules.md) 扩展到资源、到期、流量及 Telegram 模板和测试。
+> 后续通知范围已按用户确认由 [ADR 0039](0039-latency-tasks-and-notification-rules.md) 扩展到资源、到期、流量及 Telegram 模板和测试。
 
 用户要求补齐隐藏节点、自动续费记录、Agent 自动更新、离线告警、下载加速、网卡流量矫正及看板是否公开，并明确 Agent 必须从 GitHub 下载，不能由面板提供二进制。
 
