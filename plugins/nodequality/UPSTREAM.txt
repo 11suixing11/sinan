@@ -101,3 +101,20 @@ The new helper is embedded and identity-checked like the existing policies;
 canonical sources/licenses remain intact. Geekbench and other tool traffic,
 rootfs provenance/licenses and full execution remain unresolved. This is not
 an approval to execute the complete toolchain or a claim of zero total upload.
+
+Sinan r13 modifications (2026-10-01): ip-score-policy.py validates the four
+numeric IP scores as JSON integers within 0..100, the ipapi formatted fraction
+as 0..1 with a known label, and DB-IP's categorical level as low/medium/high.
+Malformed, missing, wrong-type or explicitly failed responses leave scores
+unknown before arithmetic. Valid zero and the existing risk thresholds remain.
+Unknown text rows are explicit; six missing JSON Score values become actual
+null, while valid values retain the existing string representation. IPQS now
+reads its own score instead of an unrelated ipapi array member.
+
+The helper, its input and its output are SHA256 checked; ordinary-file and
+size limits apply. Original sources/licenses and all HTTP request expressions
+remain unchanged. This patch does not remove browser impersonation, cookies,
+embedded credentials or retries, or certify unrelated boolean classifications.
+Those provider-access audits and the full-toolchain license/provenance work
+remain open. All full-start gates remain closed; this is not a full run or a
+formal signed release.

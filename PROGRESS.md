@@ -1161,3 +1161,9 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 版本升r12，嵌入helper并校验自身及输入/输出摘要，保留r11历史兼容；原始源码/许可证、全版本full门禁不变。代码初检来源16通过，Mac专项8运行/4通过/4因Bash3条件跳过，实际Bash5/HTTP验证待冻结后记录。未执行完整上游或绕过专有工具许可。
 - 冻结2d08c61：Debian新增8项全部通过，实际回环HTTP旧/新默认对照、显式true、403/429/10秒超时/非JSON/缺字段及无陈旧百分位；整体104运行/103通过/1缺minisign跳过，80.001秒。实际256MiB/Swap0/Tasks64等读回，峰值70,348,800B/11pids、0OOM；结束无进程/挂载/cgroup，SSH406重启0/同boot/swap0。46输入不变，28仓库输入匹配冻结提交。
 - Rust/API19通过及Clippy/fmt/core/diff通过，专属PG55439已停止/PID不存在/端口关闭。本机140唯一用例最终131通过/9条件跳过，另保留旧报告逆变换断言首次1次失败；643522b仅补剥离ranking补丁，单项复测及未完成组通过，产品字节不变。详见[百分位上传独立验收](docs/acceptance/nodequality-ranking-upload.md)及JSON；#65继续保留其他上传缺口，未恢复CI、正式签署/部署或签收完整能力。
+
+### NodeQuality r13：未知 IP 评分与 IPQS JSON 修正（#117）
+
+- 已在专用 Debian 12 用固定原函数和无网络错误响应复现：Scamalytics、AbuseIPDB、IP2Location、IPQS 四源均将缺失评分解释为低风险；IPQS JSON还读取错误数组成员。新建 #117，归入整改 milestone。
+- 新增固定 ip-score-policy，先验证单一JSON、错误包络、类型/范围，再进入算术；ipapi字符串只接受固定格式，DB-IP只接受已知等级。真实零分和原阈值保留，文本显式未知，六源缺失JSON为null，IPQS改用自己的分数。原请求、完整来源许可证和所有full门禁保持。
+- 升r13并保留r12历史兼容，新增10项专项。初测修正正则末尾换行和测试提取边界；本机6通过/4 Bash3条件跳过。冻结后的组合、Debian实际执行和Rust/API验证待独立收据，不将此项视为全链验收。
