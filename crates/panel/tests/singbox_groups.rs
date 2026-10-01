@@ -3,6 +3,8 @@
 mod business_support;
 #[path = "singbox_groups/chains.rs"]
 mod chains;
+#[path = "singbox_groups/modern.rs"]
+mod modern;
 #[path = "singbox_groups/packages.rs"]
 mod packages;
 #[path = "singbox_groups/policies.rs"]

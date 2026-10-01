@@ -18,6 +18,7 @@ fn node(id: i64, users: Vec<Access>) -> Node {
         public_key: URL_SAFE_NO_PAD.encode([2; 32]),
         short_id: "1234abcd".into(),
         users,
+        protocol_config: Default::default(),
     }
 }
 fn relay(id: i64) -> Relay {
@@ -38,6 +39,7 @@ fn routes_entry_and_counts_only_real_users() {
     let entry = node(
         1,
         vec![Access {
+            credential: String::new(),
             user_id: 7,
             uuid: Uuid::from_u128(7),
         }],
@@ -87,6 +89,7 @@ fn shared_exit_keeps_direct_stats_and_is_deterministic() {
     let exit = node(
         2,
         vec![Access {
+            credential: String::new(),
             user_id: 9,
             uuid: Uuid::from_u128(9),
         }],
@@ -132,6 +135,7 @@ fn pinned_native_runtime_accepts_entry_exit_and_client_configs()
     let entry = node(
         1,
         vec![Access {
+            credential: String::new(),
             user_id: 7,
             uuid: Uuid::from_u128(7),
         }],

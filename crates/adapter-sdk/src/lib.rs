@@ -361,6 +361,10 @@ pub trait UsageSource: Send + Sync {
 
 pub trait Adapter: Send + Sync {
     fn describe(&self) -> Descriptor;
+    /// Optional startup budget; callers must impose their own upper bound.
+    fn health_timeout(&self, _target: &Prepared) -> std::time::Duration {
+        std::time::Duration::ZERO
+    }
     fn prepare<'a>(
         &'a self,
         runtime: RuntimeSpec,

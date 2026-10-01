@@ -229,3 +229,172 @@ async fn probes_preserve_missing_latency_deduplicate_and_acknowledge_deleted_tar
     assert_eq!(count, 1);
     Ok(())
 }
+
+#[sqlx::test]
+async fn probe_display_is_authenticated_target_bounded_and_preserves_full_day_history(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, ack) = panel.authenticated_device(&cookie, "quality").await?;
+    let (other, _other_socket, _) = panel.authenticated_device(&cookie, "other quality").await?;
+    let now = now_millis() - 1000;
+    let mut definitions = Vec::new();
+    for (owner, name) in [
+        (server, "回显"),
+        (server, "连接"),
+        (server, "历史"),
+        (other, "其他设备"),
+    ] {
+        let spec: ProbeSpec = panel.admin(Method::POST, &format!("/api/servers/{owner}/probes"), &cookie,
+            Some(json!({"id":Uuid::nil(),"name":name,"kind":"icmp","target":"127.0.0.1","port":null,"interval_secs":10,"carrier":"测试线路","enabled":true})))
+            .await?.error_for_status()?.json().await?;
+        definitions.push(spec);
+    }
+    let endpoint = format!("{}/api/probes/overview", panel.base);
+    assert_eq!(
+        panel.client.get(&endpoint).send().await?.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        panel
+            .client
+            .get(&endpoint)
+            .bearer_auth(&ack.session_token)
+            .send()
+            .await?
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let samples: Vec<_> = definitions[..2]
+        .iter()
+        .flat_map(|probe| {
+            (0..30).map(move |index| ProbeResult {
+                id: Uuid::new_v4(),
+                probe_id: probe.id,
+                sampled_at: now - index * 10_000,
+                latency_ms: if index == 0 { None } else { Some(0.0) },
+                loss_percent: if index == 0 { 100.0 } else { 0.0 },
+                error: (index == 1).then(|| "ICMP tool unavailable".into()),
+            })
+        })
+        .collect();
+    panel
+        .client
+        .post(format!("{}/api/agent/v1/probe-results", panel.base))
+        .bearer_auth(&ack.session_token)
+        .json(&ProbeBatch {
+            results: samples.clone(),
+        })
+        .send()
+        .await?
+        .error_for_status()?;
+    let overview: Vec<serde_json::Value> = panel
+        .admin(Method::GET, "/api/probes/overview", &cookie, None)
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(overview.len(), 4);
+    for spec in &definitions[..2] {
+        let entry = overview
+            .iter()
+            .find(|entry| entry["probe"]["id"] == spec.id.to_string())
+            .unwrap();
+        assert_eq!(entry["server_id"], server);
+        let results: Vec<ProbeResult> = serde_json::from_value(entry["results"].clone())?;
+        assert_eq!(
+            results,
+            samples
+                .iter()
+                .filter(|result| result.probe_id == spec.id)
+                .take(20)
+                .cloned()
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(results[0].latency_ms, None);
+        assert_eq!(results[0].loss_percent, 100.0);
+        assert!(results[1].error.is_some());
+    }
+    assert_eq!(
+        overview
+            .iter()
+            .find(|entry| entry["server_id"] == other)
+            .unwrap()["results"],
+        json!([])
+    );
+    // More than the legacy global limit, inserted as fixture history without network traffic.
+    sqlx::query("INSERT INTO probe_results(id,server_id,probe_id,sampled_at,result,digest)
+        SELECT id,$1,$2,at,jsonb_build_object('id',id,'probe_id',$2::uuid,'sampled_at',at,'latency_ms',0,'loss_percent',0,'error',null),'TEST_ONLY'
+        FROM (SELECT gen_random_uuid() AS id, $3::bigint - n*10000 AS at FROM generate_series(0,4999) n) samples")
+        .bind(server).bind(definitions[2].id).bind(now).execute(&panel.state.pool).await?;
+    let url = format!(
+        "/api/servers/{server}/probe-results?probe_id={}&hours=24",
+        definitions[2].id
+    );
+    let history: Vec<ProbeResult> = panel
+        .admin(Method::GET, &url, &cookie, None)
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(history.len(), 5000);
+    assert_eq!(history.last().unwrap().sampled_at, now - 4999 * 10_000);
+    assert!(
+        history
+            .iter()
+            .all(|result| result.probe_id == definitions[2].id)
+    );
+    let short: Vec<ProbeResult> = panel
+        .admin(
+            Method::GET,
+            &url.replace("hours=24", "hours=1"),
+            &cookie,
+            None,
+        )
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(short.len(), 360);
+    let scoped: Vec<ProbeResult> = panel
+        .admin(
+            Method::GET,
+            &format!(
+                "/api/servers/{other}/probe-results?probe_id={}",
+                definitions[2].id
+            ),
+            &cookie,
+            None,
+        )
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert!(scoped.is_empty());
+    assert_eq!(
+        panel
+            .admin(
+                Method::GET,
+                &url.replace("hours=24", "hours=25"),
+                &cookie,
+                None
+            )
+            .await?
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    sqlx::query("UPDATE servers SET deleted_at=$1 WHERE id=$2")
+        .bind(now_timestamp())
+        .bind(other)
+        .execute(&panel.state.pool)
+        .await?;
+    let overview: Vec<serde_json::Value> = panel
+        .admin(Method::GET, "/api/probes/overview", &cookie, None)
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert!(overview.iter().all(|entry| entry["server_id"] != other));
+    Ok(())
+}

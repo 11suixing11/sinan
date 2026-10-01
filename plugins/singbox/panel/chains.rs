@@ -21,7 +21,7 @@ pub struct Chain {
     pub exit_node_id: i64,
     pub available: bool,
 }
-const SELECT: &str = "SELECT c.id,c.name,c.entry_node_id,c.exit_node_id,(n.deleted_at IS NULL AND e.deleted_at IS NULL AND ns.deleted_at IS NULL AND es.deleted_at IS NULL) AS available FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id JOIN servers ns ON ns.id=n.server_id JOIN servers es ON es.id=e.server_id";
+const SELECT: &str = "SELECT c.id,c.name,c.entry_node_id,c.exit_node_id,(n.deleted_at IS NULL AND e.deleted_at IS NULL AND n.protocol='vless-reality' AND e.protocol='vless-reality' AND ns.deleted_at IS NULL AND es.deleted_at IS NULL) AS available FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id JOIN servers ns ON ns.id=n.server_id JOIN servers es ON es.id=e.server_id";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -60,11 +60,11 @@ pub async fn create(
     }
     let mut tx = state.pool.begin().await?;
     super::entitlements::lock(&mut tx).await?;
-    let servers: Vec<i64> = sqlx::query_scalar("SELECT DISTINCT n.server_id FROM nodes n JOIN servers s ON s.id=n.server_id WHERE n.id=ANY($1) AND n.deleted_at IS NULL AND s.deleted_at IS NULL ORDER BY n.server_id")
+    let servers: Vec<i64> = sqlx::query_scalar("SELECT DISTINCT n.server_id FROM nodes n JOIN servers s ON s.id=n.server_id WHERE n.id=ANY($1) AND n.protocol='vless-reality' AND n.deleted_at IS NULL AND s.deleted_at IS NULL ORDER BY n.server_id")
         .bind(vec![request.entry_node_id, request.exit_node_id]).fetch_all(&mut *tx).await?;
     if servers.len() != 2 {
         return Err(ApiError::BadRequest(
-            "入口和出口必须属于两台不同服务器，且节点与服务器均未删除".into(),
+            "入口和出口须为两台不同服务器上的 VLESS + Reality 节点，且节点与服务器均未删除".into(),
         ));
     }
     for server in &servers {
@@ -154,7 +154,7 @@ pub(crate) async fn load(
     server: i64,
     at: i64,
 ) -> anyhow::Result<Vec<Relay>> {
-    let rows = sqlx::query_as::<_, RelayRow>("SELECT c.id AS chain_id,c.entry_node_id,c.exit_node_id,c.relay_uuid AS uuid,e.public_host,e.port,e.sni,e.public_key,e.short_id FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id JOIN servers ns ON ns.id=n.server_id JOIN servers es ON es.id=e.server_id WHERE (n.server_id=$1 OR e.server_id=$1) AND n.deleted_at IS NULL AND e.deleted_at IS NULL AND ns.deleted_at IS NULL AND es.deleted_at IS NULL AND EXISTS(SELECT 1 FROM singbox_eligible_accesses($2) a WHERE a.node_id=n.id) ORDER BY c.id")
+    let rows = sqlx::query_as::<_, RelayRow>("SELECT c.id AS chain_id,c.entry_node_id,c.exit_node_id,c.relay_uuid AS uuid,e.public_host,e.port,e.sni,e.public_key,e.short_id FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id JOIN servers ns ON ns.id=n.server_id JOIN servers es ON es.id=e.server_id WHERE (n.server_id=$1 OR e.server_id=$1) AND n.deleted_at IS NULL AND e.deleted_at IS NULL AND n.protocol='vless-reality' AND e.protocol='vless-reality' AND ns.deleted_at IS NULL AND es.deleted_at IS NULL AND EXISTS(SELECT 1 FROM singbox_eligible_accesses($2) a WHERE a.node_id=n.id) ORDER BY c.id")
         .bind(server).bind(at).fetch_all(&mut **tx).await?;
     rows.into_iter()
         .map(|r| {

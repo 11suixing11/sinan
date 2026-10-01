@@ -176,9 +176,14 @@ pub struct FakeAdapter {
     pub fail_health: AtomicBool,
     pub fail_counters: AtomicBool,
     pub apply_delay_ms: AtomicU64,
+    pub next_health_delay_ms: AtomicU64,
+    pub health_budget_secs: AtomicU64,
 }
 
 impl Adapter for FakeAdapter {
+    fn health_timeout(&self, _target: &Prepared) -> Duration {
+        Duration::from_secs(self.health_budget_secs.load(Ordering::SeqCst))
+    }
     fn describe(&self) -> Descriptor {
         Descriptor {
             module: "demo".into(),
@@ -259,6 +264,10 @@ impl Adapter for FakeAdapter {
         services: &'a dyn ServiceManager,
     ) -> BoxFuture<'a, bool> {
         Box::pin(async move {
+            tokio::time::sleep(Duration::from_millis(
+                self.next_health_delay_ms.swap(0, Ordering::SeqCst),
+            ))
+            .await;
             if self.fail_health.swap(false, Ordering::SeqCst) {
                 return Ok(false);
             }

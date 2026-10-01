@@ -221,7 +221,7 @@ async fn group_migration_retains_legacy_identifiers_credentials_and_usage(
     use std::borrow::Cow;
     let all = sqlx::migrate!();
     let old = Migrator {
-        migrations: Cow::Owned(all.iter().filter(|m| m.version < 14).cloned().collect()),
+        migrations: Cow::Owned(all.iter().filter(|m| m.version < 16).cloned().collect()),
         ..Migrator::DEFAULT
     };
     old.run(&pool).await?;

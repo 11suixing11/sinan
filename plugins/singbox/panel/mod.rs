@@ -5,6 +5,7 @@ pub mod business;
 pub mod chains;
 pub mod deployments;
 pub mod entitlements;
+mod node_protocol;
 pub mod nodes;
 pub mod packages;
 pub mod policies;

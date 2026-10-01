@@ -1,14 +1,18 @@
+mod icmp;
+#[cfg(test)]
+mod scheduling_tests;
+
 use crate::{SharedState, artifacts::PanelClient};
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use sinan_adapter_sdk::Privileged;
 use sinan_protocol::{
     ProbeBatch, ProbeKind, ProbeResult, ProbeSpec, TaskAck, now_timestamp, telemetry::now_millis,
 };
-use std::{collections::HashMap, path::Path, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::{
     net::{TcpStream, lookup_host},
-    sync::{Semaphore, watch},
-    task::JoinSet,
+    sync::watch,
+    task::{AbortHandle, JoinSet},
     time::{Instant, timeout},
 };
 use uuid::Uuid;
@@ -78,61 +82,64 @@ async fn sample_loop(
     retirement: Arc<crate::retirement::Retirement>,
 ) -> Result<()> {
     let mut due = HashMap::<Uuid, Instant>::new();
-    let permits = Arc::new(Semaphore::new(4));
+    let mut configured = HashMap::<Uuid, ProbeSpec>::new();
+    let mut running = HashMap::<Uuid, (ProbeSpec, AbortHandle)>::new();
+    let mut tasks = JoinSet::<(ProbeSpec, Option<ProbeResult>)>::new();
+    let mut tick = tokio::time::interval(Duration::from_secs(1));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
-        {
-            let _guard = retirement.gate.read().await;
-            if !retirement.requested() {
-                let configuration = state
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                    .get_json::<(i64, Vec<ProbeSpec>)>("probes:configuration")?;
-                if let Some((fetched, specs)) = configuration
-                    && fetched > now_timestamp() - 86400
-                {
-                    due.retain(|id, _| specs.iter().any(|s| s.id == *id && s.enabled));
-                    let mut tasks = JoinSet::new();
-                    for spec in specs.into_iter().filter(|s| s.enabled) {
-                        if retirement.requested() {
-                            break;
-                        }
-                        if due.get(&spec.id).is_some_and(|next| *next > Instant::now()) {
+        tokio::select! {
+            completed = tasks.join_next(), if !tasks.is_empty() => {
+                let Some(completed) = completed else { continue };
+                match completed {
+                    Ok((spec, Some(mut result))) => {
+                        if running.get(&spec.id).is_some_and(|(current, _)| current == &spec) { running.remove(&spec.id); }
+                        let _guard = retirement.gate.read().await;
+                        if retirement.requested() { continue; }
+                        let mut state = state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+                        let configuration = state.get_json::<(i64, Vec<ProbeSpec>)>("probes:configuration")?;
+                        if !configuration.is_some_and(|(fetched, specs)| fetched > now_timestamp() - 86400 && specs.contains(&spec)) {
                             continue;
                         }
-                        due.insert(
-                            spec.id,
-                            Instant::now() + Duration::from_secs(u64::from(spec.interval_secs)),
-                        );
-                        let ops = ops.clone();
-                        let permits = permits.clone();
-                        let retirement = retirement.clone();
-                        tasks.spawn(async move {
-                            let _permit = permits.acquire_owned().await?;
-                            if retirement.requested() {
-                                return Ok::<_, anyhow::Error>(None);
-                            }
-                            Ok::<_, anyhow::Error>(Some(sample(&spec, ops.as_ref()).await))
-                        });
-                    }
-                    while let Some(result) = tasks.join_next().await {
-                        let Some(mut result) = result?? else {
-                            continue;
-                        };
-                        if retirement.requested() {
-                            continue;
-                        }
-                        let mut state = state
-                            .lock()
-                            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
-                        result.sampled_at += state.get_json::<i64>("clock_offset_ms")?.unwrap_or(0);
+                        result.sampled_at = result.sampled_at.saturating_add(state.get_json::<i64>("clock_offset_ms")?.unwrap_or(0));
                         state.save_probe_result(&result)?;
                     }
+                    Ok((spec, None)) => { running.remove(&spec.id); }
+                    Err(error) if error.is_cancelled() => {}
+                    Err(error) => return Err(error.into()),
                 }
-            } else {
-                due.clear();
+            }
+            _ = tick.tick() => {
+                let configuration = state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+                    .get_json::<(i64, Vec<ProbeSpec>)>("probes:configuration")?;
+                let specs = configuration.filter(|(fetched, _)| !retirement.requested() && *fetched > now_timestamp() - 86400)
+                    .map(|(_, specs)| specs).unwrap_or_default();
+                running.retain(|_, (spec, task)| {
+                    let keep = specs.iter().any(|current| current.enabled && current == spec);
+                    if !keep { task.abort(); }
+                    keep
+                });
+                due.retain(|id, _| specs.iter().any(|spec| spec.id == *id && spec.enabled && configured.get(id) == Some(spec)));
+                configured = specs.iter().map(|spec| (spec.id, spec.clone())).collect();
+                let now = Instant::now();
+                let mut ready: Vec<_> = specs.into_iter().filter(|spec| spec.enabled && !running.contains_key(&spec.id)
+                    && due.get(&spec.id).is_none_or(|next| *next <= now)).collect();
+                // Oldest due targets run first; slow targets do not block completed results.
+                ready.sort_by_key(|spec| (due.get(&spec.id).copied(), spec.id));
+                for spec in ready.into_iter().take(4usize.saturating_sub(tasks.len())) {
+                    due.insert(spec.id, now + Duration::from_secs(u64::from(spec.interval_secs)));
+                    let ops = ops.clone();
+                    let retirement = retirement.clone();
+                    let saved = spec.clone();
+                    let task = tasks.spawn(async move {
+                        let _guard = retirement.gate.read().await;
+                        let result = if retirement.requested() { None } else { Some(sample(&spec, ops.as_ref()).await) };
+                        (spec, result)
+                    });
+                    running.insert(saved.id, (saved, task));
+                }
             }
         }
-        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
 
@@ -172,25 +179,30 @@ async fn sample(spec: &ProbeSpec, ops: &dyn Privileged) -> ProbeResult {
         loss_percent: 100.0,
         error: None,
     };
-    match measure(spec, ops).await {
-        Ok(times) => {
-            result.loss_percent = (4 - times.len().min(4)) as f64 * 25.0;
-            if !times.is_empty() {
-                result.latency_ms = Some(times.iter().sum::<f64>() / times.len() as f64);
-            }
+    match timeout(Duration::from_secs(12), measure(spec, ops))
+        .await
+        .context("probe exceeded its deadline")
+        .and_then(|result| result)
+    {
+        Ok(measurement) => {
+            result.loss_percent = f64::from(4 - measurement.received) * 25.0;
+            result.latency_ms = measurement.latency_ms;
         }
-        Err(error) => result.error = Some(error.to_string().chars().take(512).collect()),
+        Err(error) => result.error = Some(format!("{error:#}").chars().take(256).collect()),
     }
+    result.sampled_at = now_millis();
     result
 }
 
-async fn measure(spec: &ProbeSpec, ops: &dyn Privileged) -> Result<Vec<f64>> {
+async fn measure(spec: &ProbeSpec, ops: &dyn Privileged) -> Result<icmp::Measurement> {
     ensure!(spec.valid(), "invalid probe configuration");
     let addresses = timeout(
         Duration::from_secs(2),
         lookup_host((spec.target.as_str(), spec.port.unwrap_or(0))),
     )
-    .await??;
+    .await
+    .context("probe DNS lookup timed out")?
+    .context("probe DNS lookup failed")?;
     let address = addresses
         .into_iter()
         .find(|a| !a.ip().is_unspecified() && !a.ip().is_multicast())
@@ -207,91 +219,29 @@ async fn measure(spec: &ProbeSpec, ops: &dyn Privileged) -> Result<Vec<f64>> {
                     times.push(started.elapsed().as_secs_f64() * 1000.0);
                 }
             }
-            Ok(times)
+            Ok(icmp::Measurement {
+                received: times.len() as u32,
+                latency_ms: (!times.is_empty())
+                    .then(|| times.iter().sum::<f64>() / times.len() as f64),
+            })
         }
-        ProbeKind::Icmp => {
-            #[cfg(target_os = "windows")]
-            let (program, mut args) = (
-                Path::new("ping.exe"),
-                vec!["-n".into(), "4".into(), "-w".into(), "1000".into()],
-            );
-            #[cfg(target_os = "linux")]
-            let (program, mut args) = (
-                Path::new("ping"),
-                vec![
-                    "-n".into(),
-                    "-c".into(),
-                    "4".into(),
-                    "-W".into(),
-                    "1".into(),
-                ],
-            );
-            #[cfg(any(target_os = "macos", target_os = "freebsd"))]
-            let (program, mut args) = if address.is_ipv6() {
-                (
-                    Path::new("ping6"),
-                    vec!["-n".into(), "-c".into(), "4".into()],
-                )
-            } else {
-                (
-                    Path::new("ping"),
-                    vec![
-                        "-n".into(),
-                        "-c".into(),
-                        "4".into(),
-                        "-W".into(),
-                        "1000".into(),
-                    ],
-                )
-            };
-            args.push(address.ip().to_string());
-            let output = ops.execute_bounded(program, &args, 8, 16 * 1024).await?;
-            ensure!(!output.timed_out, "ICMP probe timed out");
-            let times = parse_ping(&output.output.stdout);
-            if times.is_empty() && !output.output.success && !output.output.stderr.trim().is_empty()
-            {
-                anyhow::bail!(
-                    "ICMP probe failed: {}",
-                    output
-                        .output
-                        .stderr
-                        .trim()
-                        .chars()
-                        .take(256)
-                        .collect::<String>()
-                );
-            }
-            Ok(times)
-        }
+        ProbeKind::Icmp => icmp::measure(address.ip(), ops).await,
     }
-}
-
-fn parse_ping(text: &str) -> Vec<f64> {
-    text.lines()
-        .filter_map(|line| {
-            let tail = ["time=", "time<", "时间=", "时间<"]
-                .into_iter()
-                .find_map(|marker| line.split_once(marker).map(|(_, tail)| (marker, tail)))?;
-            let number: String = tail
-                .1
-                .chars()
-                .take_while(|c| c.is_ascii_digit() || matches!(c, '.' | ','))
-                .collect();
-            let value = number.replace(',', ".").parse::<f64>().ok()?;
-            let value = if tail.0.ends_with('<') {
-                value / 2.0
-            } else {
-                value
-            };
-            (value.is_finite() && (0.0..=60_000.0).contains(&value)).then_some(value)
-        })
-        .take(4)
-        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    #[ignore = "requires the platform ICMP tool and permission to send IPv4/IPv6 loopback echoes"]
+    async fn icmp_measures_real_ipv4_and_ipv6_loopback() -> Result<()> {
+        for address in ["127.0.0.1", "::1"] {
+            let measurement = icmp::measure(address.parse()?, &crate::system::SystemOps).await?;
+            assert_eq!(measurement.received, 4);
+            assert!(measurement.latency_ms.is_some());
+        }
+        Ok(())
+    }
     #[tokio::test]
     async fn tcp_probe_measures_a_real_listener_and_closed_port() -> Result<()> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -317,12 +267,20 @@ mod tests {
         assert_eq!(failed.latency_ms, None);
         Ok(())
     }
-    #[test]
-    fn ping_parser_handles_both_languages_and_missing_samples() {
-        assert_eq!(
-            parse_ping("64 bytes time=1.25 ms\nReply time<1ms\n字节=32 时间=2ms"),
-            vec![1.25, 0.5, 2.0]
-        );
-        assert!(parse_ping("100% packet loss").is_empty());
+    #[tokio::test]
+    async fn invalid_target_is_unavailable_instead_of_a_loss_measurement() {
+        let spec = ProbeSpec {
+            id: Uuid::new_v4(),
+            name: "fixture".into(),
+            kind: ProbeKind::Icmp,
+            target: "0.0.0.0".into(),
+            port: None,
+            interval_secs: 10,
+            carrier: String::new(),
+            enabled: true,
+        };
+        let result = sample(&spec, &crate::system::SystemOps).await;
+        assert!(result.error.is_some());
+        assert_eq!(result.latency_ms, None);
     }
 }
