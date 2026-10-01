@@ -8,7 +8,7 @@
 
 ## 修改与保留能力
 
-签名 runner 新增固定 swap-policy helper。构建先校验 canonical 入口再做三个精确替换：取消宿主 swapoff、取消旧 helper source、让硬件内存拒绝码 70 穿过 tee 中止后续章节。三处均保持原行数，post_cleanup 的原文及正常终止 exit 1 的第 455 行不变；现有正常/异常退出观察器继续区分两条路径。
+签名 runner 新增固定 swap-policy helper。构建先校验 canonical 入口再做三个精确替换：取消宿主 swapoff、取消旧 helper source、让硬件失败穿过 tee 中止后续章节。三处均保持原行数，post_cleanup 的原文及正常终止 exit 1 的第 455 行不变；现有正常/异常退出观察器继续区分两条路径。
 
 HardwareQuality 仍先经过 r7 公开报告策略，再去掉自动 swap 创建和清理块。原 MemAvailable <950 MiB 分支改为输出明确错误并退出 70；未知内存也拒绝，不再静默跳过硬件或依赖既有 swap。达到条件时保留原 Geekbench 调用、参数和解析代码；不添加 -p，不关闭 CPU/GPU。
 
@@ -44,8 +44,16 @@ python3 tools/test-nodequality-report-policy.py
 
 adapter全targets Clippy、workspace fmt、core分层、shell语法与diff检查通过。Rust五输入/Cargo/trust前后不变；专属PostgreSQL55439按PID和启动时刻归属停止，PID不存在、端口关闭。Rust收据 SHA：`c0ba55b1e305b2b26ed78fc77d34a610d0521af84496524f3991d7a09f459dea`。
 
-guest在独立单元运行并内部持久化限额读回：MemoryMax256MiB、Swap0、Tasks64、CPU/IOWeight10、OOMScoreAdjust500、PrivateNetwork/PrivateMounts/NoNewPrivileges=yes、KillMode=control-group。memory.peak为64,737,280字节，pids.peak为11，memory.events max/oom/oom_kill均0。实际journal起点后的内核无新OOM；自然完成后无进程/挂载/cgroup残留，SSH406重启0、同boot、swap0。29份输入前后不变，当前对应产品文件逐个匹配；没有执行实际swapon、上游bootstrap、Geekbench或外部网络探测。
+guest在独立单元运行并内部持久化限额读回：MemoryMax256MiB、Swap0、Tasks64、CPU/IOWeight10、OOMScoreAdjust500、PrivateNetwork/PrivateMounts/NoNewPrivileges=yes、KillMode=control-group。memory.peak为64,737,280字节，pids.peak为11，memory.events max/oom/oom_kill均0。实际journal起点后的内核无新OOM；自然完成后无进程/挂载/cgroup残留，SSH406重启0、同boot、swap0。29份输入前后不变，与该冻结快照对应的产品文件逐个匹配；没有执行实际swapon、上游bootstrap、Geekbench或外部网络探测。
 
 私有 `nodequality-r8-fd-20261001` 的 result/postcheck/receipt SHA 分别为 `f5d3c6cb978cb25c447fe0641185c4e78cca87be5d6581c54f6e1bf35510e544`、`76b95895319c6d610b83ed6eef838fbd906d2f57f5b29b1dcd9d56eb0b9f8565`、`841d30bb57d4f47deb06fb6c10e31cc9e33fbf5d5065e3991088ee80494413dc`。每条证据仅对应列明源码和有限场景，不把重复回归累计为新功能数。
 
 本项只修复已定位的脚本 swap 路径，不能证明所有上游工具的宿主副作用已消除。rootfs、二级工具、上传与许可、完整负载下的取消/重启/断连/部分报告及持续代理业务仍按总故障矩阵验收。没有正式签名、发布、部署或恢复 CI，#66 保持打开。
+
+## 合并审查补修：与真实退出观察器相容
+
+上述作者验收对应 `ebf7302`。合并审查在本机 Bash 3.2 发现，初版在 tee 后读取 `PIPESTATUS[0]`，但真实 `exit-observer.sh` 的 DEBUG trap 会先改写该数组。独立夹具保留固定入口的 post_cleanup/sig_cleanup 原文和第 455 行，启用产品实际观察器，把硬件、挂载、chroot 和删除全部替换为惰性桩；本机 Bash 3 的负对照确实在硬件拒绝 70 后继续下一章节，并写出正常完成标记；后来独立 Bash 5.2.15 矩阵中原 70 守卫会停止，但原逻辑在两版 Bash 都忽略其它失败码 7。回归选择 7 作为稳定负对照，修复分支仍必须在 70 和 7 下都停止，不能把解释器差异误作修复失败。
+
+补修将硬件执行和 tee 放在启用 pipefail 的子 shell 中，通过 `|| exit $?` 拒绝硬件或来源失败，避免依赖会被 DEBUG trap 改写的数组。成功分支仍保留正常完成标记；失败分支不启动后续章节、不写完成标记，退出时仍做原清理。原 sig_cleanup 的 post_cleanup 最终会把拒绝码 70 改为 1；这个结果保持失败，不能当作正常成功。
+
+补修 swap helper SHA 为 `1d6acda7821d013773b273d77db12973d7075631b0309614dadb9c5cfc09ff24`，执行入口 SHA 为 `a68a42e8f508fdc1ed5a7170fda4b114ab81afc184a9c035b48613407a1fdc93`，其余 canonical 与硬件输出不变。这份补修最先在 macOS Bash 3.2 的有限夹具中验证，随后在本任务独立构建的 GNU Bash 5.2.15（源码官方 HTTPS，SHA256 `13720965b5f4fc3a0d4b61dd37e7565c741da9a5be24edc2ae00182fc1b3588c`）重复同一十项专项，两版均全部通过/0跳过。GNU Bash 首轮因旧70负对照预期与Mac3不同而失败的日志保留，不计通过；选择两版都忽略的旧7作稳定负对照后再验，新守卫70/7均拒绝。这里只执行惰性桩与真实观察器/固定cleanup，未在Linux guest或实际chroot复演，也未跑完整负载，不把作者较早guest结果移作新补修证明。

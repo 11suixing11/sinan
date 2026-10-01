@@ -41,13 +41,31 @@
 | 方法与路径 | 请求或用途 |
 |---|---|
 | `GET /api/servers` | 服务器列表 |
-| `POST /api/servers` | `{"name":"服务器名称"}` |
+| `POST /api/servers` | `{"name":"服务器名称"}`；可选 `agent_settings`、`probes` 与 `asset_settings` 一起初始化 |
 | `GET /api/servers/{id}` | 服务器详情 |
-| `PATCH /api/servers/{id}` | `{"name":"新名称"}` |
+| `PATCH /api/servers/{id}` | `{"name":"新名称"}`；可选 `asset_settings` 完整替换资产配置，省略则保留 |
 | `DELETE /api/servers/{id}` | 在线时先退役并等待回执，离线时软删除；成功返回 204 |
 | `POST /api/servers/{id}/enrollment` | 签发一次性接入令牌，无请求体；可选查询 `agent_version=0.3.0` 指定已导入版本 |
 
-服务器对象：
+创建时 `agent_settings` 使用下文 Agent 设置的完整结构，省略时为 1 秒采样、3 秒批量上传、关闭自动更新、开启公网地址识别；上传间隔不能小于采样间隔，两者均须为 1–60 秒整数。`probes` 默认为空数组，结构与单条拨测创建一致，最多 32 条，传入的 `id` 由服务端重建。服务器、设置和初始拨测在同一事务中保存，任何配置无效或写入失败均不创建服务器。原仅包含 `name` 的请求保持兼容；重命名不会修改监控与拨测设置。接入命令单独签发，命令获取失败后可针对已创建的服务器重试。
+
+`asset_settings` 默认为空资产配置，字段如下。创建/编辑的名称与资产一起校验，任何字段无效均不保存；允许用完整默认对象清空资产信息。隐藏仅控制展示总览，不改变管理员权限或设备运行。
+
+```json
+{
+  "region": "JP", "group_name": "主力", "tags": ["线路:BGP"], "hidden": false,
+  "price": "12.50", "currency": "USD", "billing_cycle": 30,
+  "expires_at": null, "auto_renewal": false,
+  "traffic_limit": "107374182400", "traffic_limit_type": "sum",
+  "reset_day": 1, "network_interface": "eth*,!eth1"
+}
+```
+
+金额为最多两位小数的十进制字符串或 null（未填写），0 表示免费；上限为 1000000000，币种为三位字母。费用周期单位天，0 为一次性，最多 3650 天；自动顺延需要到期 Unix 秒和非零周期，只维护日期记录。地区/分组最长 16/40 字；标签最多 16 个，每个 1–32 字。额度为精确非负整数字节字符串，最大 2^64−1，0 表示不设额度；口径为 `sum|max|min|up|down`，月重置日为 UTC 1–31，短月取月末。网卡支持逗号分隔的 `*` 和 `!`，最多 16 项、每项 64 字，排除优先。
+
+列表、详情及编辑响应新增 `asset_settings` 与 `traffic`。`traffic={cycle_start,cycle_end,uploaded,downloaded,used,limit,remaining,percent,exceeded,observed_from,last_sample_at,incomplete,interfaces}`。周期边界为 Unix 秒，右端不含；观测时间为 Unix 毫秒。字节均为十进制字符串；无额度或尚无观测时 `remaining`、`percent` 为 null，不能将尚无 `observed_from` 的零值显示成真实计量。`incomplete` 标记断档、接口变化或计数重置，`exceeded` 仅提示状态。创建响应的 `traffic` 暂为 null。历史按原始网卡与 UTC 日保存，改变口径与账单日不会清空累计。测量语义与边界详见[服务器资产](server-assets.md)。
+
+服务器对象的既有字段：
 
 ```json
 {
