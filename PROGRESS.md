@@ -1131,3 +1131,7 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 
 本项只改前端与文档，不重跑Rust/PG，也不把先前442或42专项称作该看板实机验收。保留旧诊断full门禁、精确账本与签名生命周期；四workflow继续暂停，未正式签署/发布/部署或触发CI。
 
+
+
+- r9最终独立验收：冻结fc4e49f的host116运行/111通过/5条件跳过，其中新依赖11运行/10通过/1仅因Mac Bash3跳过完整语法；Debian12 Bash5同一新专项11全部通过。guest共80运行/79通过/1缺minisign跳过，45.658秒；真实限额256MiB/Swap0/Tasks64及各隔离属性读回，峰值76,435,456B/11pids，0OOM。结束无进程/挂载/cgroup，SSH406重启0/同boot/swap0；33输入前后相同，22仓库输入与整合后相同，收据5f320012…。
+- 正常整合主线8ffcc44为9d99b28，双方PROGRESS均保留，运行产品/测试/构建字节不变。4b35801只补显式queued r8历史门禁，再过Rust19（adapter15/gate3/HTTP-PG日常1）及Clippy/fmt/core/diff，最终收据9c7014087734…。专属PG55439已按归属停止，PID不存在/端口关闭；早期Rust收据与host语法失败日志保留。具体来源/计数/未验证范围见[独立验收](docs/acceptance/nodequality-no-runtime-install.md)，不把有限夹具、日常矩阵或旧收据签为完整NodeQuality负载。CI仍暂停，无正式签署/发布/部署。
