@@ -22,7 +22,7 @@ from unittest import mock
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / 'plugins/nodequality'
-VERSION = 'a92fca6c0067df29ddd03fdc2fee6f3000f64545-r9'
+VERSION = 'a92fca6c0067df29ddd03fdc2fee6f3000f64545-r10'
 
 
 def module(name, path):
@@ -148,7 +148,7 @@ class SourceTests(unittest.TestCase):
         for name, payload in [('NODEQUALITY_SOURCE', entry), ('NODEQUALITY_LICENSE', '# Synthetic license\n'),
                               ('PINNED_CHAIN', self.bundle_path.read_text())] + [
                               (name, (self.fixture_plugin / path).read_text()) for name, path in [
-                                  ('SOURCE_HELPER', 'source-helper.py'), ('REPORT_POLICY_HELPER', 'report-policy.py'), ('SWAP_POLICY_HELPER', 'swap-policy.py'), ('DEPENDENCY_POLICY_HELPER', 'dependency-policy.py'), ('REPORT_HELPER', 'report.py'),
+                                  ('SOURCE_HELPER', 'source-helper.py'), ('REPORT_POLICY_HELPER', 'report-policy.py'), ('SWAP_POLICY_HELPER', 'swap-policy.py'), ('DEPENDENCY_POLICY_HELPER', 'dependency-policy.py'), ('DATA_POLICY_HELPER', 'data-policy.py'), ('REPORT_HELPER', 'report.py'),
                                   ('EXIT_OBSERVER', 'exit-observer.sh'), ('DAILY_HELPER', 'daily.py'),
                                   ('CURL_SHIM', 'curl-shim.sh'), ('CHROOT_SHIM', 'chroot-shim.sh')]]:
             runner = runner.replace('@' + name + '@\n', payload)
@@ -170,7 +170,7 @@ class SourceTests(unittest.TestCase):
         result = subprocess.run([sys.executable, str(PLUGIN / 'source-helper.py'), 'downloads', str(self.lock_path)],
                                 capture_output=True, check=True, timeout=3)
         rows = result.stdout.decode().splitlines()
-        self.assertEqual(len(rows), 10)
+        self.assertEqual(len(rows), 17)
         for row in self.lock['files']:
             self.assertIn(row['name'] + '\thttps://raw.githubusercontent.com/' + row['repository']
                           + '/' + row['commit'] + '/' + row['path'], rows)
@@ -357,7 +357,7 @@ sys.stdout.buffer.write((pathlib.Path(os.environ['NQ_INPUTS']) / matching[0]['na
                 self.assertTrue(result.stdout)
             self.assertFalse(self.executed.exists())
         self.assertEqual((output / 'amd64').read_bytes(), (output / 'arm64').read_bytes())
-        self.assertEqual(len((self.root / 'downloads').read_text().splitlines()), 20)
+        self.assertEqual(len((self.root / 'downloads').read_text().splitlines()), 34)
         second_root = self.root / 'independent-artifacts'
         subprocess.run(['bash', str(tree / 'tools/build-nodequality.sh'), 'amd64', str(second_root)],
                        env=environment, capture_output=True, check=True, timeout=10)
@@ -452,6 +452,7 @@ sys.stdout.buffer.write((pathlib.Path(os.environ['NQ_INPUTS']) / matching[0]['na
         self.assertIn((tree / 'plugins/nodequality/report-policy.py').read_bytes(), content)
         self.assertIn((tree / 'plugins/nodequality/swap-policy.py').read_bytes(), content)
         self.assertIn((tree / 'plugins/nodequality/dependency-policy.py').read_bytes(), content)
+        self.assertIn((tree / 'plugins/nodequality/data-policy.py').read_bytes(), content)
         # Mutate an embedded license's base64 representation inside the runner.
         bundle_text = helper.pack(self.lock, self.sources)
         self.assertIn(bundle_text, content)

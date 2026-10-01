@@ -212,6 +212,7 @@ def script_recipe(name):
     result += 'fixture_record(){ ' + python + ' ' + tool + ' --record "$@"; }\n'
     result += source_tests.fixture.swap_anchors(name).decode()
     result += source_tests.fixture.dependency_anchors(name).decode()
+    result += source_tests.fixture.data_anchors(name).decode()
     result += 'fixture_record script ' + kind + ' "$@"\n'
     result += '''
 mode_privacy=${FIXTURE_PRIVACY:-0}
@@ -354,7 +355,8 @@ class PolicyTests(unittest.TestCase):
             private_policy = module('transform_fixture', plugin / 'report-policy.py')
             private_swap = module('swap_transform_fixture', plugin / 'swap-policy.py')
             for role in private_policy.SOURCES:
-                expected = source_tests.fixture.undo_dependencies(role, outputs[role], contents[role])
+                expected = source_tests.fixture.undo_data(role, outputs[role], contents)
+                expected = source_tests.fixture.undo_dependencies(role, expected, contents[role])
                 if role == 'hardware.sh':
                     expected = private_swap.replace_once(expected, private_swap.MEMORY_GUARD, private_swap.HARDWARE_PREFIX)
                     expected = private_swap.replace_once(expected, private_swap.NO_SWAP_CLEANUP, private_swap.SWAP_CLEANUP)

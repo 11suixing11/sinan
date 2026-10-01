@@ -53,3 +53,20 @@ integrity. This change does not resolve rootfs downloads, secondary data,
 browser impersonation, provider access rules or uploads initiated by third-party
 binaries. The full-start gate stays closed; r9 is not a signed release or an
 approval to execute the full upstream toolchain.
+
+Sinan r10 modifications (2026-10-01): source-lock.json additionally retains
+seven reference files from the same pinned IPQuality and NetQuality commits:
+IP iso3166/dnsbl and Net iso3166/province/AS_Mapping/iperf/speedtest_cn. Their
+repository LICENSE files remain in the bundle. Reference bytes are checked by
+size, SHA256 and fixed data-policy identities before serving. Seven exact curl
+expressions are replaced with a static-format shell builtin printf of safely
+single-quoted original bytes. These requests no longer download online main
+data or depend on chroot paths, external decoders or writable temporary files.
+All surrounding parsers, probe parameters and output remain byte-for-byte.
+
+The unused IATA_Database declaration is retained but its CSV is not fetched or
+bundled. Cookies, advertisements, sponsor data, provider HTTP traffic and tool
+uploads are not reference files covered by this change. Fixing a target list
+does not grant permission to probe those targets or establish provider access.
+The reference repository license record does not certify the entire toolchain
+or third-party services; all full-start gates and unresolved audits remain.

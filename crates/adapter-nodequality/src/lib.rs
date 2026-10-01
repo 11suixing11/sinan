@@ -8,7 +8,8 @@ use sinan_adapter_sdk::{
 use std::{path::Path, time::Duration};
 use tokio::{io::AsyncReadExt, time::timeout};
 
-pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r9";
+pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r10";
+const OFFLINE_DEPENDENCIES_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r9";
 const NO_SWAP_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r8";
 const PUBLIC_REPORT_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r7";
 const PINNED_SOURCES_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r6";
@@ -61,6 +62,7 @@ fn supports_modes(version: &str) -> bool {
     matches!(
         version,
         VERSION
+            | OFFLINE_DEPENDENCIES_VERSION
             | NO_SWAP_VERSION
             | PUBLIC_REPORT_VERSION
             | PINNED_SOURCES_VERSION
@@ -73,6 +75,7 @@ fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String, String)> {
     if !matches!(
         spec.version.as_str(),
         VERSION
+            | OFFLINE_DEPENDENCIES_VERSION
             | NO_SWAP_VERSION
             | PUBLIC_REPORT_VERSION
             | PINNED_SOURCES_VERSION

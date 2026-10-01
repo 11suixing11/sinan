@@ -2,7 +2,7 @@
 # Sinan runner for the original pinned NodeQuality script.
 set -euo pipefail
 umask 077
-version=a92fca6c0067df29ddd03fdc2fee6f3000f64545-r9
+version=a92fca6c0067df29ddd03fdc2fee6f3000f64545-r10
 usage() {
   cat <<'USAGE'
 Usage: nodequality --workspace <ABSOLUTE_DIRECTORY> --mode daily|full --ip-version both|ipv4|ipv6 --network-mode low|normal [--upload-report true|false]
@@ -128,6 +128,9 @@ SINAN_NODEQUALITY_SWAP_POLICY
 cat > "$runtime/dependency-policy.py" <<'SINAN_NODEQUALITY_DEPENDENCY_POLICY'
 @DEPENDENCY_POLICY_HELPER@
 SINAN_NODEQUALITY_DEPENDENCY_POLICY
+cat > "$runtime/data-policy.py" <<'SINAN_NODEQUALITY_DATA_POLICY'
+@DATA_POLICY_HELPER@
+SINAN_NODEQUALITY_DATA_POLICY
 cat > "$runtime/pinned-chain.json" <<'SINAN_NODEQUALITY_PINNED_CHAIN'
 @PINNED_CHAIN@
 SINAN_NODEQUALITY_PINNED_CHAIN

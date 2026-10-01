@@ -1142,3 +1142,19 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 刷新隔离树编译输入后，Rust/PostgreSQL 诊断专项 42 项、workspace 全 targets Clippy、fmt 与 core 边界通过；首次缓存结果由这次新执行证据覆盖，不用于最终证明。
 - 来源 16、swap 10、实际 Bash5 依赖 11、包装器 34、daily 7 与 release 28 通过（release 4 项既有条件跳过）。报告夹具每次记录重导入测试模块导致原 20 秒预算超时；仅提前分派相同记录函数，回调原字节及全部断言保持，真实固定源报告 6 项在原预算通过。生产源码、摘要和预算不变，失败日志单独保留。
 - 证据：本任务耐久目录 pr111-root-rust-fresh-local 和 pr111-113-review-20261001；CI 仍暂停，未执行不算通过，后续供给失败与其他上传问题由独立 PR 处理。
+
+## 2026-10-01：NodeQuality 七份二级静态数据固定（关联 #28 独立项）
+
+- 基于r9独立PR，r10把实际消费的IP国家表/DNSBL、Net国家表/省份表/ASN映射/iperf与speedtest目标表纳入固定提交、大小、SHA和完整源码包；Git blob身份与实际字节逐份核对。IATA变量在固定版本只有声明/赋值，未擅自加入无实际读取的CSV。
+- 新data-policy helper在真实serve通路把七个精确curl表达式替换为固定格式、单引号转义的Bash内建printf，保留每个原字节和原解析/探测代码。不需chroot路径、解码器或临时文件；含单引号、命令替换、反引号和百分号的数据不能执行命令。缺失、篡改、FIFO、符号链接或非法输入拒绝，不回退在线main。
+- 首轮新专项6全部通过；旧来源夹具中双架构下载计数仍写20，真实增加七文件后为34，已修正预期，保留失败日志。最终回归和Debian资源/清理收据另补。所有完整门禁保留；rootfs、二级工具、cookies/UA/广告、内层上传和目标授权仍待收敛，未发布/部署或启用CI。
+
+
+- r10冻结e95fa7b完成host122运行/117通过/5条件跳过；新数据专项6全部通过。Rust19（adapter15/gate3/HTTP-PG日常1）和Clippy/fmt/core/diff通过，专属PG55439已停止/PID消失/端口关闭，收据c027d01d…。Debian12共86运行/85通过/1缺minisign跳过，57.311秒；实际限额256MiB/Swap0/Tasks64等读回，峰值71,118,848B/11pids，0OOM；结束无进程/挂载/cgroup，SSH406重启0/同boot/swap0，42输入不变（24仓库输入匹配），收据74114ba4…。
+- 独立复现并开Issue #112：真实source-helper拒绝篡改数据，但固定加载器bash进程替换吞掉空输出失败，三个网络分支仍退出0。仅用固定函数体/Bash桩，无公网或上游基准；独立单元已回收。不能把供给拒绝等同整项任务正确失败，错误传递下一项单独修复。详见[静态数据独立验收](docs/acceptance/nodequality-pinned-data.md)及JSON索引，全部full门禁、rootfs/授权缺口与总故障矩阵保持；未正式签署/发布/部署/恢复CI。
+
+### PR #113 合并复核（2026-10-01）
+
+- 正常合入已验证 r9 主线并将 PR 改到 main，保存双方进度；产品输入逐字等同作者 r10，另继承同一报告记录回调优化，原 20 秒预算不变。
+- 隔离树刷新编译输入后 Rust/PostgreSQL 诊断专项 42 项、workspace 全 targets Clippy、fmt/core 通过。七份新增数据的官方完整提交、Git tree/blob、原大小及 SHA 全部核对；实际 Bash5 依赖 11、数据 6、swap 10 和真实固定源报告 6 通过。
+- 耐久证据 pr113-root-rust-fresh-local、pr111-113-review-20261001；作者 guest 不作为本聊天重演。供给失败吞码另由 #115 处理，完整验机门禁与 CI 暂停继续保持。

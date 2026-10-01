@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate canonical sources and serve the fixed public-report policy variant."""
+"""Validate canonical sources and serve fixed script and reference policies."""
 import argparse
 import base64
 import hashlib
@@ -12,6 +12,7 @@ import sys
 
 MAX_FILE = 2 * 1024 * 1024
 MAX_BUNDLE = 8 * 1024 * 1024
+DATA_POLICY_SHA256 = '0115f90f8ce521eab1472d8426b8f8dfbf1fefca427ae0fdfd557b346a8fdab3'
 DEPENDENCY_POLICY_SHA256 = '9424dded5fd6c74ff9888fa6e2e3d9482fe8db144fa4c572682fca3f8cf5b5de'
 REPORT_POLICY_SHA256 = '0c66e702084820e399a16b18b51ba331cd8edd406dd96ede7c2ee84f78c30245'
 REPORT_ROLES = frozenset({'hardware.sh', 'ip.sh', 'net.sh'})
@@ -27,6 +28,13 @@ FILES = {
     'LICENSE.hardware': ('xykt/HardwareQuality', 'LICENSE', None),
     'LICENSE.ip': ('xykt/IPQuality', 'LICENSE', None),
     'LICENSE.net': ('xykt/NetQuality', 'LICENSE', None),
+    'ip-iso3166.json': ('xykt/IPQuality', 'ref/iso3166.json', 'LICENSE.ip'),
+    'ip-dnsbl.list': ('xykt/IPQuality', 'ref/dnsbl.list', 'LICENSE.ip'),
+    'net-iso3166.json': ('xykt/NetQuality', 'ref/iso3166.json', 'LICENSE.net'),
+    'net-province.json': ('xykt/NetQuality', 'ref/province.json', 'LICENSE.net'),
+    'net-AS_Mapping.txt': ('xykt/NetQuality', 'ref/AS_Mapping.txt', 'LICENSE.net'),
+    'net-iperf.json': ('xykt/NetQuality', 'ref/iperf.json', 'LICENSE.net'),
+    'net-speedtest_cn.json': ('xykt/NetQuality', 'ref/speedtest_cn.json', 'LICENSE.net'),
 }
 ALIASES = {
     'https://raw.githubusercontent.com/LloydAsp/NodeQuality/refs/heads/main/part/header.sh': 'header.sh',
@@ -88,7 +96,7 @@ def validate(lock):
             raise ValueError('source size exceeds its byte limit')
         rows[row['name']] = row
     if set(rows) != set(FILES):
-        raise ValueError('source manifest lacks a script or full license')
+        raise ValueError('source manifest lacks a script, reference or full license')
     for row in rows.values():
         related = [other for other in rows.values() if other['repository'] == row['repository']]
         if len({other['commit'] for other in related}) != 1:
@@ -173,11 +181,35 @@ def entrypoint(bundle):
     return offline_dependencies('NodeQuality.sh', without_swap('NodeQuality.sh', original))
 
 
+def data_policy():
+    path = Path(__file__).with_name('data-policy.py')
+    content = ordinary(path, 65536)
+    if hashlib.sha256(content).hexdigest() != DATA_POLICY_SHA256:
+        raise ValueError('signed static data policy helper SHA256 mismatch')
+    namespace = {'__name__': 'sinan_data_policy', '__file__': str(path)}
+    exec(compile(content, str(path), 'exec'), namespace)
+    return namespace
+
+
+def static_references(name, content, directory, rows):
+    policy = data_policy()
+    if name not in policy['SOURCES']:
+        return content
+    files = {filename: verified(ordinary(directory / filename, MAX_FILE), rows[filename])
+             for filename in policy['REQUESTS'][name].values()}
+    result = policy['transform'](name, content, files)
+    if (not isinstance(result, bytes) or len(result) > MAX_FILE
+            or hashlib.sha256(result).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
+        raise ValueError('served static data output SHA256 or byte limit mismatch')
+    return result
+
+
 def pack(lock, directory):
     rows = validate(lock)
     report_policy()
     swap_policy()
     dependency_policy()
+    data_policy()
     files = {name: base64.b64encode(verified(ordinary(directory / name, MAX_FILE), row)).decode()
              for name, row in rows.items()}
     result = (json.dumps(dict(schema=1, lock=lock, files=files), sort_keys=True, separators=(',', ':')) + '\n').encode()
@@ -221,7 +253,7 @@ def serve(directory, arguments):
             or hashlib.sha256(patched).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
         raise ValueError('served report policy output SHA256 or byte limit mismatch')
     prior = without_swap(name, patched) if name == 'hardware.sh' else patched
-    return offline_dependencies(name, prior)
+    return static_references(name, offline_dependencies(name, prior), directory, rows)
 
 
 def main():
