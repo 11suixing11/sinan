@@ -520,3 +520,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 完整回归发现上游新增独占锁后，两项外部服务测试仍使用旧的权限夹具。更新夹具记录目录模式及所有者，验证 root/0700 锁目录与 `stat` 查询先于后端启动；不放宽产品权限检查。Reality 摘要回归同步新增参数，验证失败行号、公开注解和白名单摘要一致且不包含私有快照字段。
 - 合并后的 fmt、全 targets Clippy、完整 Rust/PostgreSQL 测试及 Agent 构建通过：260 项成功、0 失败，8 项需 root/systemd 或真实外部运行时的专项保持忽略。隔离 Alpine 的 81 项 Python 检查全部通过，真实 OpenRC 安装与恢复夹具通过；验收驱动 21 项、运行时缓存 3 项、构建脚本 5 项及环境初始化 3 项通过。Bun 前端构建与提交的 dist 一致，三份工作流 actionlint 和 core 门禁通过。
 - 本次完整合并源的非 Linux 原生服务、真实 systemd 五项专项与 Reality 全流程仍以随后远端 CI 为准；此前成功的独立运行记录不替代新提交的验收。
+
+### macOS 启动前复验与软链接读取权限
+
+- [5a8517e 的完整 CI](https://github.com/imengying/sinan/actions/runs/36767902951) 15/16 项通过：Windows 双架构、FreeBSD 双架构、四种 Linux Agent 与运行时、OpenRC、Compose、完整 Rust/PostgreSQL、真实 systemd 五项专项和 Reality 全流程均成功。唯一失败为 macOS 原生运行时启动，日志在启动前离线签名复验时报告 `Permission denied`。
+- macOS 的软链接创建继承 umask，读取链接目标需要链接自身的读取权限。launchd 使用 `umask 027`，root 创建的运行时 `current` 无法由普通运行账户读取。`SystemOps::atomic_symlink` 在 macOS 发布前对临时链接执行 `chmod -h 755`，失败则清理临时链接；目标文件权限、目录隔离、进程 umask 和签名验证保持原有约束。
+- 扩展现有原子写入回归，检查软链接可读、目标文件仍为 0640、替换为悬空链接和拒绝覆盖普通文件。自动与手动 macOS 工作流均用 `umask 077` 运行该回归，然后运行完整原生服务、缓存篡改拒绝和恢复验收。
+- 本地 fmt、全 targets Clippy、core 门禁、三份 workflow actionlint、构建脚本 5 项及 Agent/协议/编译器/适配器 Rust 回归通过（193 项成功，7 项实机专项忽略）。本轮本机重启后临时 PostgreSQL 环境已清除，面板没有代码变更；完整工作区、真实 systemd、macOS 权限语义与所有平台再次由新提交 CI 验证，尚不记为全部通过。
