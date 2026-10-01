@@ -91,7 +91,10 @@ impl Privileged for FakePrivileged {
         _: Option<&'a str>,
     ) -> BoxFuture<'a, ()> {
         Box::pin(async move {
-            assert_eq!(path.file_name().unwrap(), "daily-targets.json");
+            assert!(matches!(
+                path.file_name().unwrap().to_str(),
+                Some("daily-targets.json" | "node-ips.json")
+            ));
             assert_eq!(mode, 0o600);
             tokio::fs::write(path, bytes).await?;
             Ok(())
@@ -165,7 +168,8 @@ async fn daily_profile_is_bounded_and_persists_only_whitelisted_targets() {
         adapter.capabilities(),
         vec![
             sinan_adapter_nodequality::MODES_CAPABILITY,
-            sinan_adapter_nodequality::FULL_START_GATE_CAPABILITY
+            sinan_adapter_nodequality::FULL_START_GATE_CAPABILITY,
+            sinan_adapter_nodequality::NODE_QUERY_CAPABILITY
         ]
     );
     let service = adapter.prepare(&spec, &privileged).await.unwrap();

@@ -213,7 +213,7 @@ impl DiagnosticWorker {
             ensure!(!expired(&job), "diagnostic task has expired");
             let adapter = self.adapters.get(&job.plugin).context("diagnostic plugin is not registered")?;
             let descriptor = adapter.describe();
-            let auxiliary_files = adapter.auxiliary_files();
+            let auxiliary_files = adapter.auxiliary_files_for_version(&job.version);
             let signed_descriptor = Descriptor {
                 auxiliary_files: auxiliary_files.clone(),
                 module: "diagnostics".into(), plugin_name: descriptor.plugin_name.clone(),
