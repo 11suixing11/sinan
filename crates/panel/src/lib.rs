@@ -27,6 +27,8 @@ pub use plugins::singbox::{accesses, business, deployments, nodes, subscriptions
 pub mod publisher;
 pub mod releases;
 pub mod retirement;
+pub mod runtime_operations;
+pub mod runtime_validations;
 pub mod server_assets;
 pub mod server_traffic;
 pub mod servers;
@@ -135,6 +137,10 @@ pub fn router(state: AppState) -> Router {
             get(commands::list).post(commands::create),
         )
         .route(
+            "/api/servers/{id}/commands/{command}/cancel",
+            post(commands::cancel),
+        )
+        .route(
             "/api/servers/{id}/probes",
             get(probes::list).post(probes::create),
         )
@@ -197,11 +203,43 @@ pub fn router(state: AppState) -> Router {
             post(retirement::receipt),
         )
         .route("/api/agent/v1/manifest", get(agent_api::manifest))
+        .route(
+            "/api/agent/v1/runtime-validations",
+            get(runtime_validations::pending),
+        )
+        .route(
+            "/api/agent/v1/runtime-validations/{id}/result",
+            post(runtime_validations::complete),
+        )
+        .route(
+            "/api/agent/v1/runtime-operations",
+            get(runtime_operations::pending),
+        )
+        .route(
+            "/api/agent/v1/runtime-operations/{id}",
+            post(runtime_operations::complete),
+        )
         .route("/api/agent/v1/settings", get(telemetry::agent_settings))
         .route("/api/agent/v1/update", get(agent_updates::available))
         .route("/api/agent/v1/telemetry", post(telemetry::ingest))
         .route("/api/agent/v1/commands", get(commands::pending))
-        .route("/api/agent/v1/commands/{id}", post(commands::complete))
+        .route(
+            "/api/agent/v1/commands/lifecycle",
+            get(commands::pending_lifecycle),
+        )
+        .route("/api/agent/v1/commands/{id}/claim", post(commands::claim))
+        .route(
+            "/api/agent/v1/commands/{id}/control",
+            get(commands::control),
+        )
+        .route(
+            "/api/agent/v1/commands/{id}/started",
+            post(commands::started),
+        )
+        .route(
+            "/api/agent/v1/commands/{id}",
+            post(commands::complete).layer(axum::extract::DefaultBodyLimit::max(4 * 1024 * 1024)),
+        )
         .route("/api/agent/v1/probes", get(probes::agent_list))
         .route("/api/agent/v1/probe-results", post(probes::ingest))
         .route("/api/agent/v1/diagnostics", get(diagnostics::pending))

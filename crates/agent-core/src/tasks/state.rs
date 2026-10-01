@@ -1,10 +1,20 @@
 use crate::State;
 use anyhow::{Result, ensure};
 use rusqlite::{OptionalExtension, params};
+use sinan_adapter_sdk::CommandProcessIdentity;
 use sinan_protocol::{
-    CommandResult, CommandStatus, ProbeResult, RemoteCommand, now_timestamp, telemetry::now_millis,
+    CommandResult, CommandStarted, CommandStatus, ProbeResult, RemoteCommand, now_timestamp,
+    telemetry::now_millis,
 };
 use uuid::Uuid;
+
+pub(super) struct CommandRecord {
+    pub command: RemoteCommand,
+    pub claim_id: Uuid,
+    pub process: Option<CommandProcessIdentity>,
+    pub cancel_requested: bool,
+    pub recovering: bool,
+}
 
 impl State {
     pub fn begin_command(&mut self, command: &RemoteCommand) -> Result<bool> {
@@ -24,7 +34,7 @@ impl State {
             );
             return Ok(false);
         }
-        self.connection.execute("DELETE FROM command_journal WHERE acknowledged=1 AND CAST(json_extract(spec,'$.expires_at') AS INTEGER)<?1", [now_timestamp()-7*86400])?;
+        self.connection.execute("DELETE FROM command_journal WHERE acknowledged=1 AND CAST(json_extract(spec,'$.expires_at') AS INTEGER)<?1 AND id NOT IN (SELECT id FROM command_lifecycle WHERE started IS NOT NULL AND started_acknowledged=0)", [now_timestamp()-7*86400])?;
         let count: i64 =
             self.connection
                 .query_row("SELECT COUNT(*) FROM command_journal", [], |r| r.get(0))?;
@@ -37,19 +47,34 @@ impl State {
     }
 
     pub fn finish_command(&mut self, result: &CommandResult) -> Result<()> {
+        let started: Option<Option<String>> = self
+            .connection
+            .query_row(
+                "SELECT started FROM command_lifecycle WHERE id=?1",
+                [result.id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let mut result = result.clone();
+        if let Some(started) = started.flatten() {
+            result.finished_at = result
+                .finished_at
+                .max(serde_json::from_str::<CommandStarted>(&started)?.started_at);
+        }
         let updated = self.connection.execute(
             "UPDATE command_journal SET result=?2 WHERE id=?1 AND result IS NULL",
-            params![result.id.to_string(), serde_json::to_string(result)?],
+            params![result.id.to_string(), serde_json::to_string(&result)?],
         )?;
         ensure!(updated == 1, "command was not running or already finished");
         Ok(())
     }
 
     pub fn recover_commands(&mut self) -> Result<()> {
+        self.connection.execute("UPDATE command_lifecycle SET recovering=1 WHERE id IN (SELECT id FROM command_journal WHERE result IS NULL)", [])?;
         let ids = {
             let mut query = self
                 .connection
-                .prepare("SELECT id FROM command_journal WHERE result IS NULL")?;
+                .prepare("SELECT id FROM command_journal WHERE result IS NULL AND id NOT IN (SELECT id FROM command_lifecycle)")?;
             query
                 .query_map([], |r| r.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?
@@ -86,6 +111,116 @@ impl State {
             [id.to_string()],
         )?;
         Ok(())
+    }
+
+    pub(super) fn queue_command(&mut self, command: &RemoteCommand) -> Result<()> {
+        let tx = self.connection.transaction()?;
+        let previous: Option<String> = tx
+            .query_row(
+                "SELECT spec FROM command_journal WHERE id=?1",
+                [command.id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(previous) = previous {
+            ensure!(
+                serde_json::from_str::<RemoteCommand>(&previous)? == *command,
+                "command identifier changed content"
+            );
+            return Ok(());
+        }
+        ensure!(command.valid(), "invalid remote command");
+        tx.execute("DELETE FROM command_journal WHERE acknowledged=1 AND CAST(json_extract(spec,'$.expires_at') AS INTEGER)<?1 AND id NOT IN (SELECT id FROM command_lifecycle WHERE started IS NOT NULL AND started_acknowledged=0)", [now_timestamp()-7*86400])?;
+        let count: i64 = tx.query_row("SELECT COUNT(*) FROM command_journal", [], |r| r.get(0))?;
+        ensure!(count < 10_000, "command journal reached retention limit");
+        tx.execute(
+            "INSERT INTO command_journal(id,spec) VALUES(?1,?2)",
+            params![command.id.to_string(), serde_json::to_string(command)?],
+        )?;
+        tx.execute(
+            "INSERT INTO command_lifecycle(id,claim_id) VALUES(?1,?2)",
+            params![command.id.to_string(), Uuid::new_v4().to_string()],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub(super) fn pending_commands(&self) -> Result<Vec<CommandRecord>> {
+        let mut query = self.connection.prepare("SELECT j.spec,l.claim_id,l.process,l.cancel_requested,l.recovering FROM command_journal j JOIN command_lifecycle l USING(id) WHERE j.result IS NULL ORDER BY j.rowid LIMIT 64")?;
+        let rows = query
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, bool>(3)?,
+                    r.get::<_, bool>(4)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(|(spec, claim, process, cancel_requested, recovering)| {
+                Ok(CommandRecord {
+                    command: serde_json::from_str(&spec)?,
+                    claim_id: Uuid::parse_str(&claim)?,
+                    process: process
+                        .map(|value| serde_json::from_str(&value))
+                        .transpose()?,
+                    cancel_requested,
+                    recovering,
+                })
+            })
+            .collect()
+    }
+
+    pub(super) fn command_spawned(
+        &mut self,
+        id: Uuid,
+        process: &CommandProcessIdentity,
+    ) -> Result<()> {
+        let updated = self.connection.execute("UPDATE command_lifecycle SET process=?2 WHERE id=?1 AND process IS NULL AND recovering=0", params![id.to_string(), serde_json::to_string(process)?])?;
+        ensure!(updated == 1, "command is no longer allowed to start");
+        Ok(())
+    }
+
+    pub(super) fn command_started(&mut self, id: Uuid, started: &CommandStarted) -> Result<()> {
+        let updated = self.connection.execute("UPDATE command_lifecycle SET started=?2 WHERE id=?1 AND started IS NULL AND process IS NOT NULL AND claim_id=?3", params![id.to_string(),serde_json::to_string(started)?,started.claim_id.to_string()])?;
+        ensure!(
+            updated == 1,
+            "command start was already recorded or not claimed"
+        );
+        Ok(())
+    }
+
+    pub(super) fn command_starts(&self) -> Result<Vec<(Uuid, CommandStarted)>> {
+        let mut query = self.connection.prepare("SELECT id,started FROM command_lifecycle WHERE started IS NOT NULL AND started_acknowledged=0 ORDER BY rowid LIMIT 64")?;
+        let rows = query
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(|(id, started)| Ok((Uuid::parse_str(&id)?, serde_json::from_str(&started)?)))
+            .collect()
+    }
+
+    pub(super) fn acknowledge_command_start(&mut self, id: Uuid) -> Result<()> {
+        self.connection.execute("UPDATE command_lifecycle SET started_acknowledged=1 WHERE id=?1 AND started IS NOT NULL", [id.to_string()])?;
+        Ok(())
+    }
+
+    pub(super) fn request_command_cancel(&mut self, id: Uuid) -> Result<()> {
+        self.connection.execute(
+            "UPDATE command_lifecycle SET cancel_requested=1 WHERE id=?1",
+            [id.to_string()],
+        )?;
+        Ok(())
+    }
+
+    pub(super) fn defer_command_cleanup(&mut self, id: Uuid) -> Result<bool> {
+        let count = self.connection.execute(
+            "UPDATE command_lifecycle SET recovering=1 WHERE id=?1 AND process IS NOT NULL",
+            [id.to_string()],
+        )?;
+        Ok(count == 1)
     }
 
     pub fn save_probe_result(&mut self, result: &ProbeResult) -> Result<()> {
@@ -134,78 +269,4 @@ impl State {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn probes_survive_restart_and_partial_ack_with_panel_clock_offset() -> Result<()> {
-        let path = std::env::temp_dir().join(format!("sn-probes-{}.db", Uuid::new_v4()));
-        let offset = -6 * 3_600_000;
-        let result = ProbeResult {
-            id: Uuid::new_v4(),
-            probe_id: Uuid::new_v4(),
-            sampled_at: now_millis() + offset,
-            latency_ms: None,
-            loss_percent: 100.0,
-            address_family: None,
-            error: Some("ICMP tool unavailable".into()),
-        };
-        let next = ProbeResult {
-            id: Uuid::new_v4(),
-            latency_ms: Some(0.0),
-            loss_percent: 0.0,
-            address_family: None,
-            error: None,
-            ..result.clone()
-        };
-        {
-            let mut state = State::open(&path)?;
-            state.set_json("clock_offset_ms", &offset)?;
-            state.save_probe_result(&result)?;
-            state.save_probe_result(&next)?;
-            assert_eq!(state.probe_results()?, vec![result.clone(), next.clone()]);
-        }
-        let mut state = State::open(&path)?;
-        assert_eq!(state.probe_results()?, vec![result.clone(), next.clone()]);
-        state.acknowledge_probes(&[result.id])?;
-        assert_eq!(state.probe_results()?, vec![next.clone()]);
-        state.acknowledge_probes(&[result.id, next.id])?;
-        assert!(state.probe_results()?.is_empty());
-        let expired = ProbeResult {
-            id: Uuid::new_v4(),
-            sampled_at: now_millis() + offset - 3 * 3_600_000,
-            ..result
-        };
-        state.save_probe_result(&expired)?;
-        assert!(state.probe_results()?.is_empty());
-        drop(state);
-        std::fs::remove_file(path)?;
-        Ok(())
-    }
-    #[test]
-    fn command_recovery_never_reexecutes_and_results_survive_ack_loss() -> Result<()> {
-        let path = std::env::temp_dir().join(format!("sn-command-{}.db", Uuid::new_v4()));
-        let command = RemoteCommand {
-            id: Uuid::new_v4(),
-            command: "echo test".into(),
-            timeout_secs: 3,
-            expires_at: now_timestamp() + 30,
-        };
-        {
-            let mut state = State::open(&path)?;
-            assert!(state.begin_command(&command)?);
-        }
-        let mut state = State::open(&path)?;
-        state.recover_commands()?;
-        assert!(!state.begin_command(&command)?);
-        let results = state.command_results()?;
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].status, CommandStatus::Interrupted);
-        assert!(state.finish_command(&results[0]).is_err());
-        state.acknowledge_command(command.id)?;
-        assert!(state.command_results()?.is_empty());
-        assert!(!state.begin_command(&command)?);
-        drop(state);
-        std::fs::remove_file(path)?;
-        Ok(())
-    }
-}
+mod tests;

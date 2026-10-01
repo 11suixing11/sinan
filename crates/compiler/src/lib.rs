@@ -2,6 +2,8 @@
 
 mod relays;
 pub use relays::{Relay, compile_server_with_relays};
+pub mod external;
+pub mod paths;
 
 use base64::{
     Engine,

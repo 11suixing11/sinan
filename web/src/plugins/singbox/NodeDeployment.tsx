@@ -3,6 +3,7 @@ import { api } from '../../api'
 import { Badge, ErrorNotice, Loading, Modal, Refresh } from '../../components'
 import { useAction, useResource } from '../../hooks'
 import type { Deployment, PluginServer } from '../../types'
+import RuntimeOperations from './RuntimeOperations'
 
 type Progress = Deployment & { pending: boolean; enabled_nodes: number; authorized_nodes: number }
 type Readiness = { ready: boolean; checks: { name: string; passed: boolean; detail: string }[] }
@@ -29,6 +30,7 @@ export default function NodeDeployment({ serverId, server, onClose }: { serverId
       <div className="node-deployment-heading"><h3>部署条件检查</h3><button className="button button-secondary" disabled={action.busy} onClick={() => { setCheck(null); void action.run(() => api<Readiness>(`${path}/check`, 'POST'), setCheck) }}>{action.busy ? '正在检查…' : '检查部署条件'}</button></div>
       <p>检查设备接入、在线状态、插件能力和匹配的签名运行时。检查通过后仍以 Agent 的应用与健康回报为准。</p>
       {check && <ul className="node-checks">{check.checks.map(item => <li key={item.name}><Badge tone={item.passed ? 'good' : 'warm'}>{item.name}</Badge><span>{item.detail}</span></li>)}</ul>}
+      <RuntimeOperations serverId={serverId} status={status} />
       <div className="node-deployment-links"><a href={`#/servers/${serverId}`} onClick={onClose}>服务器接入与状态</a><a href="#/plugins/catalog" onClick={onClose}>运行时制品</a></div>
     </div><footer><button className="button button-secondary" onClick={onClose} disabled={action.busy}>关闭</button></footer>
   </Modal>

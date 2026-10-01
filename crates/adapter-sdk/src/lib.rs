@@ -93,6 +93,27 @@ pub struct Execution {
     pub truncated: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandProcessIdentity {
+    pub pid: u32,
+    pub started: String,
+}
+
+pub trait CommandObserver: Send + Sync {
+    /// Persist the process identity before releasing the command's start gate.
+    fn spawned(&self, process: &CommandProcessIdentity) -> anyhow::Result<()>;
+    /// Persist the start notification after the gated process acknowledges start.
+    fn started(&self) -> anyhow::Result<()>;
+    fn cancellation_requested(&self) -> bool;
+}
+
+#[derive(Clone, Debug)]
+pub struct ControlledExecution {
+    pub execution: Execution,
+    /// True only after the backend confirms that managed processes have stopped.
+    pub cancelled: bool,
+}
+
 pub trait ManagedProcess: Send {
     fn id(&self) -> u32;
     fn try_wait(&mut self) -> anyhow::Result<Option<bool>>;
@@ -103,6 +124,19 @@ pub trait ManagedProcess: Send {
 }
 
 pub trait Privileged: Send + Sync {
+    fn execute_controlled<'a>(
+        &'a self,
+        _program: &'a Path,
+        _args: &'a [String],
+        _timeout_secs: u32,
+        _maximum: usize,
+        _observer: &'a dyn CommandObserver,
+    ) -> BoxFuture<'a, ControlledExecution> {
+        Box::pin(async { anyhow::bail!("controlled command execution is not supported") })
+    }
+    fn recover_command<'a>(&'a self, _process: &'a CommandProcessIdentity) -> BoxFuture<'a, ()> {
+        Box::pin(async { anyhow::bail!("command cleanup confirmation is not supported") })
+    }
     fn diagnostic_memory(&self) -> BoxFuture<'_, DiagnosticMemory> {
         Box::pin(async { anyhow::bail!("diagnostic memory inspection is not supported") })
     }
@@ -241,7 +275,25 @@ pub trait Privileged: Send + Sync {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct ServiceLogLine {
+    pub timestamp: Option<i64>,
+    pub priority: Option<u8>,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ServiceLogs {
+    pub lines: Vec<ServiceLogLine>,
+    pub truncated: bool,
+    pub service_events: bool,
+}
+
 pub trait ServiceManager: Send + Sync {
+    /// Read a fixed, bounded recent log window for a registered service.
+    fn recent_logs<'a>(&'a self, _unit: &'a str) -> BoxFuture<'a, ServiceLogs> {
+        Box::pin(async { anyhow::bail!("service log reading is not supported") })
+    }
     fn supports_confirmed_cancellation(&self) -> bool {
         false
     }
@@ -360,6 +412,18 @@ pub trait UsageSource: Send + Sync {
 }
 
 pub trait Adapter: Send + Sync {
+    fn supports_dependency_validation(&self) -> bool {
+        false
+    }
+    /// Validate only an allowlisted dependency encoded in this prepared configuration.
+    fn validate_dependency<'a>(
+        &'a self,
+        _runtime: &'a Prepared,
+        _scope: &'a str,
+        _generation: u64,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async { anyhow::bail!("runtime dependency validation is not supported") })
+    }
     fn describe(&self) -> Descriptor;
     /// Optional startup budget; callers must impose their own upper bound.
     fn health_timeout(&self, _target: &Prepared) -> std::time::Duration {

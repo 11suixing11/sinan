@@ -1,16 +1,23 @@
 import { useState } from 'react'
 import { api } from '../../api'
-import { Badge, Confirm, Empty, ErrorNotice, Field, FormDialog, Icon, Loading, PageHeader, Refresh, Stat } from '../../components'
-import { bytes, totalBytes } from '../../format'
+import { Confirm, Empty, ErrorNotice, Field, FormDialog, Icon, Loading, PageHeader, Refresh, Stat } from '../../components'
+import { bytes } from '../../format'
 import { useAction, useResource } from '../../hooks'
 import type { Node, PluginServer, Usage } from '../../types'
-import ProtocolFields, { protocolNames, protocolRequest } from './ProtocolFields'
+import ProtocolFields, { protocolRequest } from './ProtocolFields'
 import { ConnectionFields, nodeSettingsRequest } from './NodeSettingsFields'
 import NodeDeployment from './NodeDeployment'
+import SubscriptionSources from './SubscriptionSources'
+import ChainEditor from './ChainEditor'
+import ProxyResourceDetail from './ProxyResourceDetail'
+import ProxyResourceTable from './ProxyResourceTable'
+import type { ProxyResource, ResourceKey } from './resourceTypes'
+import { resourceLink } from './resourceTypes'
 import './nodes.css'
 
 export default function Nodes({ serverId }: { serverId?: number }) {
   const nodes = useResource<Node[]>('/api/plugins/sing-box/nodes')
+  const resources = useResource<ProxyResource[]>('/api/plugins/sing-box/proxy-resources')
   const servers = useResource<PluginServer[]>('/api/plugins/sing-box/servers')
   const usage = useResource<Usage>('/api/plugins/sing-box/usage')
   const action = useAction()
@@ -31,7 +38,7 @@ export default function Nodes({ serverId }: { serverId?: number }) {
     const selectedPort = port ? { port: Number(port) } : {}
     const request = editor === 'new' ? { ...fields, ...selectedPort, server_id: Number(form.get('server_id')) } : { ...fields, ...selectedPort }
     const serverId = editor === 'new' ? Number(form.get('server_id')) : editor!.server_id
-    void action.run(() => api(editor === 'new' ? '/api/plugins/sing-box/nodes' : `/api/plugins/sing-box/nodes/${editor?.id}`, editor === 'new' ? 'POST' : 'PATCH', request), () => { setEditor(null); setSaved(serverId); nodes.reload() })
+    void action.run(() => api(editor === 'new' ? '/api/plugins/sing-box/nodes' : `/api/plugins/sing-box/nodes/${editor?.id}`, editor === 'new' ? 'POST' : 'PATCH', request), () => { setEditor(null); setSaved(serverId); refresh() })
   }
   return <div className="nodes-page">
     <PageHeader eyebrow="sing-box 插件" title="代理节点" description="管理代理协议、TLS 证书与授权，自动发布完整服务器配置。"><Refresh onClick={refresh} /><button className="button button-primary" disabled={!canCreate} onClick={() => edit('new')}><Icon name="plus" size={18} />创建节点</button></PageHeader>
@@ -45,6 +52,8 @@ export default function Nodes({ serverId }: { serverId?: number }) {
       })}</tbody></table></div>}
     </section>
     <div className="notice quiet-notice"><Icon name="check" size={18} /><div><strong>配置自动发布</strong><p>变更后等待 5 秒合并发布。未授权给任何用户的节点不会监听端口；订阅只包含设备已成功应用的配置。</p></div></div>
+    {!creatingChain && <SubscriptionSources onChange={resources.reload} />}
+    {selected && <ProxyResourceDetail key={`${selected.kind}-${selected.id}`} selected={selected} onClose={() => { window.location.hash = '/plugins/sing-box/nodes' }} onChanged={refresh} onEdit={node => { window.location.hash = '/plugins/sing-box/nodes'; edit(node) }} onDelete={resource => { window.location.hash = '/plugins/sing-box/nodes'; action.clearError(); setDeleting(resource) }} onDeployment={id => { window.location.hash = '/plugins/sing-box/nodes'; setDeployment(id) }} />}
     {editor && <FormDialog wide className="node-editor" title={editor === 'new' ? '创建节点' : '编辑节点'} onClose={() => setEditor(null)} onSubmit={submit} busy={action.busy} error={action.error} submitLabel={editor === 'new' ? '创建并自动发布' : '保存并自动发布'}>
       <h3>基本信息与连接地址</h3><div className="node-fields-grid">
       <Field label="节点名称"><input name="name" required maxLength={128} defaultValue={editor === 'new' ? '' : editor.name} placeholder="例如：香港 · 直连" autoComplete="off" /></Field>
@@ -56,6 +65,6 @@ export default function Nodes({ serverId }: { serverId?: number }) {
       <ProtocolFields key={editor === 'new' ? 'new' : editor.id} node={editor} />
     </FormDialog>}
     {deployment !== null && <NodeDeployment serverId={deployment} server={servers.data?.find(server => server.id === deployment)} onClose={() => setDeployment(null)} />}
-    {deleting && <Confirm title={`删除「${deleting.name}」？`} busy={action.busy} error={action.error} onClose={() => setDeleting(null)} onConfirm={() => void action.run(() => api(`/api/plugins/sing-box/nodes/${deleting.id}`, 'DELETE'), () => { setDeleting(null); refresh() })}>此节点及其授权将从订阅中移除，历史流量会保留。设备应用新配置后，代理入口停止监听。</Confirm>}
+    {deleting && <Confirm title={`删除「${deleting.name}」？`} busy={action.busy} error={action.error} onClose={() => setDeleting(null)} onConfirm={() => void action.run(() => api(deleting.kind === 'chain' ? `/api/plugins/sing-box/proxy-resources/chain/${deleting.id}` : `/api/plugins/sing-box/nodes/${deleting.id}`, 'DELETE'), () => { setDeleting(null); refresh() })}>{deleting.kind === 'chain' ? '请先从策略组移除此链路。删除会同时停用专用入口和内部连接，保留历史流量与版本证据；设备应用新配置后停止监听。' : '此节点及其授权将从订阅中移除，历史流量会保留。被链路引用的节点不能直接删除。设备应用新配置后，代理入口停止监听。'}</Confirm>}
   </div>
 }
