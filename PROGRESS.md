@@ -1363,3 +1363,12 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 保留作者 `ae9d6961`。实际定位允许的 HTTPS 镜像路径可含 PowerShell 智能单引号，原 ASCII-only 转义会在外层 payload 赋值时提前执行路径内容。按固定 PowerShell 词法源码将 ASCII 单引号及 U+2018/U+2019/U+201A/U+201B 在参数、外层 payload 两处全部倍写，保留路径原值及单行编码/UAC 后重新下载、Git blob/SHA-256 校验与完整发布验签流程。
 - 在本任务私有目录核对官方 PowerShell 7.5.3 macOS ARM64 归档 SHA-256 `f4fac5c72e8c09ba3b6fb8667f21b1d73556047819857fce7883268d02369cde`，与官方摘要文件及 API 一致；固定词法源码为 `b72c7ab1238c2d95b5c9004bca8399b8b3ca88ac`。真实 PowerShell 本地 11 项通过、0 失败、0 跳过；直接编译受验 Rust quote 函数的隔离小夹具，原转义负对照实际以 61 退出，新转义的五类引号/相邻引号/换行/中文/emoji 在六组双层 payload 中逐值恢复。其余用例覆盖真实 TEST_ONLY minisign、完整清单拒绝、历史身份/目录、回环下载预算与镜像匿名规则。
 - 另只读下载固定官方 bootstrap Git blob，精确核对嵌入入口原字节；Windows minisign 0.12 官方归档和两架构 PE 文件均实际读回并核对固定摘要，没有执行 Windows 二进制。以上是 macOS PowerShell 7 函数及词法夹具，不是 Windows PowerShell 5.1、UAC、Windows ACL/计划任务或真实 Agent 安装验收；本补修子任务未运行 Cargo/PostgreSQL，也未签署、发布、部署或恢复 CI。
+
+## 2026-10-01 PR #132 Unix 信任与旧 Agent 恢复复核
+
+- 保留作者 `f45ade0` 及普通合入的 `ae9d696`、`dd691656`；旧正式 0.3.0 的 install.sh 保持原字节，只作完整签名证据，实际 Linux 执行器来自独立固定官方 bootstrap 内嵌源码。缓存的正式公开根、真实 minisign 与四文件 proof 已重新核对，旧安装器任意改一字节在 Agent 下载/执行前拒绝；未执行正式二进制或原安装器。
+- 修复接入版本目录慢读可续期：仍保留原 30 秒预算，但各次底层读取共用绝对截止。私有回环负对照中，原源码在注入 0.15 秒预算后仍读取约 1.13 秒，新代码约 0.15 秒拒绝且错误不含令牌。原 Mac `/var` 与 `/private/var` 回滚夹具期望已改为精确解析后的路径；首次失败原日志保留。
+- 旧 `75cd846` 对本地 Preparing 只核签名，重启后可直接执行，故新增标准库恢复守卫：已有旧 Agent 服务及状态端点须明确停止，只读配置给出的 SQLite 路径（缺省为旧 `/var/lib/sinan/core/state.db`），读取真实 WAL、要求既有 SHM、限制 SQL 期限并检测读取期间变化。完整 Preparing、缺 plugin/mode 的旧完整任务及未知/损坏检查点拒绝，原 JSON 不写。Started 只对旧 Agent 确切支持的 r2/原参数继续回收，其他原版本保留给兼容新签名 Agent，拒绝不兼容降级；daily 门禁放行不等于旧 r2 适配器支持 daily。
+- bootstrap 与内嵌 Linux 执行器采用同源守卫，在接入前和激活前再次检查；最后门禁失败恢复原配置、不启动服务。入口不自行停止旧服务，不把单次快照宣称为整个迁移原子，也不保证其他特权操作者不能另行重启服务。已有旧配置严格 TOML 预检需 Python 3.11，SQLite 标准库仅在旧状态存在时使用；无法确认时明确拒绝。
+- 受验产品 `3c3d146`：12 个私有 SQLite/WAL、旧缺字段、Started/daily、未知 JSON、服务/Unix socket、并发写入及回滚专项通过；Bootstrap 23 执行中 21 通过/2 root 条件跳过，Release 36 执行中 29 通过/7 Linux root 条件跳过。生成同步、core/diff 检查通过。真实正式 proof 的完整主入口夹具在私有 Preparing 状态下确认零 Agent 下载、零执行器调用，原 DB/JSON 不变；root 归属与管理器状态仅为隔离替身，不冒称 Linux 服务验收。
+- 耐久证据 `pr132-review-20261001` 保存初始失败、源码摘要与原日志。此 Unix 分工未运行 Cargo/PostgreSQL、真实安装、外网通知或完整验机；最终前端、PowerShell 引用修复及 Rust 整合另行验证。CI 继续暂停，未签署、发布或部署；作者旧容器验收不替代这份新增恢复门禁的原生实机验收。
