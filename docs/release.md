@@ -10,6 +10,8 @@ CI 为两种架构构建 musl Agent、固定上游运行时和当前 NodeQuality
 
 `SHA256SUMS` 按 ASCII 路径排序，格式为小写 SHA-256、两个空格、规范路径、LF。制品路径为 `name/version/arch`，GitHub 平铺文件名由已签 metadata 的 `asset_name` 映射；另包含 `release.json` 与 `install.sh`。签名本身不在 SUMS 内，签名资产必须是完整四行 `SHA256SUMS.minisig`。
 
+官方在线部署可直接复制面板接入命令，无需手动预装 bootstrap；命令下载固定官方 GitHub 入口并核对摘要，入口内置正式公开根并自动准备验证工具，再独立验证已签 Release。本文的手动预置流程继续用于自建信任域、离线部署或独立审查方式；调整范围见 [ADR 0037](adr/0037-bootstrap-and-selective-import.md)。
+
 ## 生产根与离线签名
 
 用户在自己的设备上生成带口令的 minisign 密钥，只向项目提供 `.pub`。例如在仓库外的受保护目录执行以下命令，并在 minisign 的交互提示中设置口令：
@@ -68,7 +70,7 @@ sudo python3 /可信源码副本/tools/bootstrap.py \
   --trusted-keys /etc/sinan/trust/public-keys.json
 ```
 
-bootstrap 从固定官方 GitHub Release 取得完整 proof、静态安装器和 Agent 二进制，不使用环境代理。先验证完整 minisign、安装器摘要和 Agent 长度/摘要，再执行已签安装器。首次请求和每一跳重定向都要求 HTTPS、443、无 URL 凭据；默认只允许 `github.com`、`release-assets.githubusercontent.com`、`objects.githubusercontent.com`，最多五跳。可加 `--mirror https://mirror.example.com`，以镜像前缀加完整 GitHub URL 下载；只额外允许该镜像来源，不发送一次性令牌或设备凭据，失败不回退面板。
+bootstrap 从固定官方 GitHub Release 取得完整 proof、静态安装器和 Agent 二进制，不使用环境代理。完整 minisign 与安装器摘要通过后，先核对已签安装器内唯一的 `# SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1` 契约；缺失或重复时，在 Agent 下载及安装器执行前拒绝。当前公开的 `agent-v0.3.0` 安装器仍需要面板下载，不能用于这个新入口；必须由维护者另行完成验收并发布包含新契约的不可变签名 Release，不能修改或重签旧资产。Agent 长度/摘要再通过后才执行已签安装器。首次请求和每一跳重定向都要求 HTTPS、443、无 URL 凭据；默认只允许 `github.com`、`release-assets.githubusercontent.com`、`objects.githubusercontent.com`，最多五跳。每个文件共享 300 秒绝对下载期限，单次连接/读取最多 20 秒，接近期限时缩短读取超时；持续慢流不能刷新总期限。可加 `--mirror https://mirror.example.com`，以镜像前缀加完整 GitHub URL 下载；只额外允许该镜像来源，不发送一次性令牌或设备凭据，失败不回退面板。
 
 安装器仅使用 bootstrap 已下载的本地签名包，再次按已签长度和 SHA256 核对 Agent；缺失或损坏立即拒绝，完全不向面板下载二进制。检查使用 `python3 -I` 和显式拒绝逻辑，不依赖可被优化模式移除的 `assert`。`--release-dir` 离线目录必须同时包含签名、清单、安装器和对应 Agent 的 GitHub asset 文件。面板地址通常必须是 HTTPS，HTTP 只允许字面回环地址或 `localhost`，仅用于注册和后续配置通信。新 Agent 内置根进一步验证：
 

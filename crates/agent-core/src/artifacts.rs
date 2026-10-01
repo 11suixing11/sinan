@@ -138,9 +138,14 @@ impl PanelClient {
     }
     pub(crate) async fn get_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
         let url = self.panel.join(path)?;
-        Ok(serde_json::from_slice(
-            &self.download(url.as_str(), 1024 * 1024).await?,
-        )?)
+        // Only this fixed panel metadata request negotiates GitHub downloads.
+        // Artifact URLs retain the separate origin and query validation below.
+        let bytes = if path == "/api/agent/v1/update?download_source=github" {
+            self.download_panel_url(url, 1024 * 1024).await?
+        } else {
+            self.download(url.as_str(), 1024 * 1024).await?
+        };
+        Ok(serde_json::from_slice(&bytes)?)
     }
 
     pub(crate) async fn post_json<T: serde::de::DeserializeOwned>(
@@ -249,6 +254,10 @@ impl PanelClient {
 
     async fn download(&self, value: &str, maximum: usize) -> Result<Vec<u8>> {
         let url = self.validate_url(value)?;
+        self.download_panel_url(url, maximum).await
+    }
+
+    async fn download_panel_url(&self, url: Url, maximum: usize) -> Result<Vec<u8>> {
         let response = self
             .client
             .get(url)
