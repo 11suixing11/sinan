@@ -1,4 +1,5 @@
 """Prepare private synthetic policy identities; never change production files."""
+import ast
 import hashlib
 import importlib.util
 from pathlib import Path
@@ -24,7 +25,31 @@ def inert_source(name, policy):
         if name == 'net.sh':
             source += policy.NET_OUTPUT
         source += policy.SOURCES[name]['original_guard'] + b'}\n'
-    return source + swap_anchors(name) + dependency_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+
+
+def data_anchors(name):
+    policy = module('fixture_data_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/data-policy.py')
+    if name not in policy.REQUESTS:
+        return b''
+    return b'fixture_unused_data(){\n' + b'\n'.join(policy.REQUESTS[name]) + b'\n}\n'
+
+
+def undo_data(role, patched, contents):
+    policy = module('fixture_undo_data', Path(__file__).resolve().parents[1] / 'plugins/nodequality/data-policy.py')
+    for request, name in policy.REQUESTS.get(role, {}).items():
+        patched = replace_once(patched, policy.data_command(contents[name]), request)
+    return patched
+
+
+def assignment(content, name, value):
+    statements = [node for node in ast.parse(content).body if isinstance(node, ast.Assign)
+                  and any(isinstance(target, ast.Name) and target.id == name for target in node.targets)]
+    if len(statements) != 1:
+        raise ValueError('fixture policy assignment must be unique')
+    node = statements[0]
+    lines = content.splitlines(keepends=True)
+    return b''.join(lines[:node.lineno - 1]) + (name + ' = ' + repr(value) + '\n').encode() + b''.join(lines[node.end_lineno:])
 
 
 def dependency_anchors(name):
@@ -100,5 +125,20 @@ def prepare_policy(plugin, contents):
         content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
         outputs[role] = patched
     dependency_path.write_bytes(content)
+    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
+    data_path = Path(plugin) / 'data-policy.py'
+    data_policy = module('synthetic_data_policy_input', data_path)
+    content = data_path.read_bytes()
+    original_hash = hashlib.sha256(content).hexdigest().encode()
+    identities = {name: {'sha256': hashlib.sha256(contents[name]).hexdigest(), 'size': len(contents[name])}
+                  for name in data_policy.DATA}
+    content = assignment(content, 'DATA', identities)
+    for role, spec in data_policy.SOURCES.items():
+        canonical = outputs[role]
+        patched = data_policy.patch(role, canonical, {name: contents[name] for name in data_policy.REQUESTS[role].values()})
+        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
+        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
+        outputs[role] = patched
+    data_path.write_bytes(content)
     helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
     return outputs

@@ -1135,3 +1135,10 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 
 - r9最终独立验收：冻结fc4e49f的host116运行/111通过/5条件跳过，其中新依赖11运行/10通过/1仅因Mac Bash3跳过完整语法；Debian12 Bash5同一新专项11全部通过。guest共80运行/79通过/1缺minisign跳过，45.658秒；真实限额256MiB/Swap0/Tasks64及各隔离属性读回，峰值76,435,456B/11pids，0OOM。结束无进程/挂载/cgroup，SSH406重启0/同boot/swap0；33输入前后相同，22仓库输入与整合后相同，收据5f320012…。
 - 正常整合主线8ffcc44为9d99b28，双方PROGRESS均保留，运行产品/测试/构建字节不变。4b35801只补显式queued r8历史门禁，再过Rust19（adapter15/gate3/HTTP-PG日常1）及Clippy/fmt/core/diff，最终收据9c7014087734…。专属PG55439已按归属停止，PID不存在/端口关闭；早期Rust收据与host语法失败日志保留。具体来源/计数/未验证范围见[独立验收](docs/acceptance/nodequality-no-runtime-install.md)，不把有限夹具、日常矩阵或旧收据签为完整NodeQuality负载。CI仍暂停，无正式签署/发布/部署。
+
+
+## 2026-10-01：NodeQuality 七份二级静态数据固定（关联 #28 独立项）
+
+- 基于r9独立PR，r10把实际消费的IP国家表/DNSBL、Net国家表/省份表/ASN映射/iperf与speedtest目标表纳入固定提交、大小、SHA和完整源码包；Git blob身份与实际字节逐份核对。IATA变量在固定版本只有声明/赋值，未擅自加入无实际读取的CSV。
+- 新data-policy helper在真实serve通路把七个精确curl表达式替换为固定格式、单引号转义的Bash内建printf，保留每个原字节和原解析/探测代码。不需chroot路径、解码器或临时文件；含单引号、命令替换、反引号和百分号的数据不能执行命令。缺失、篡改、FIFO、符号链接或非法输入拒绝，不回退在线main。
+- 首轮新专项6全部通过；旧来源夹具中双架构下载计数仍写20，真实增加七文件后为34，已修正预期，保留失败日志。最终回归和Debian资源/清理收据另补。所有完整门禁保留；rootfs、二级工具、cookies/UA/广告、内层上传和目标授权仍待收敛，未发布/部署或启用CI。
