@@ -124,6 +124,7 @@ pub async fn create(
         }
     }
     let mut transaction = state.pool.begin().await?;
+    crate::latency_tasks::lock(&mut transaction).await?;
     let query = format!(
         "INSERT INTO servers (name, agent_settings, asset_settings) VALUES ($1, $2, $3) RETURNING {SERVER_COLUMNS}"
     );
@@ -141,6 +142,7 @@ pub async fn create(
             .execute(&mut *transaction)
             .await?;
     }
+    crate::latency_tasks::assign_defaults(&mut transaction, server.id).await?;
     transaction.commit().await?;
     Ok((StatusCode::CREATED, Json(server.with_online())))
 }

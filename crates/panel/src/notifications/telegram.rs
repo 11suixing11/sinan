@@ -16,12 +16,17 @@ impl Failure {
     }
 }
 
-pub(super) async fn send(token: &str, chat: &str, text: &str) -> Result<(), Failure> {
+pub(super) async fn send(
+    token: &str,
+    chat: &str,
+    thread: Option<i32>,
+    text: &str,
+) -> Result<(), Failure> {
     let url = format!("https://api.telegram.org/bot{token}/sendMessage");
-    deliver(&url, chat, text).await
+    deliver(&url, chat, thread, text).await
 }
 
-async fn deliver(url: &str, chat: &str, text: &str) -> Result<(), Failure> {
+async fn deliver(url: &str, chat: &str, thread: Option<i32>, text: &str) -> Result<(), Failure> {
     let client = Client::builder()
         .redirect(Policy::none())
         .no_proxy()
@@ -30,9 +35,14 @@ async fn deliver(url: &str, chat: &str, text: &str) -> Result<(), Failure> {
         .build()
         .map_err(|_| Failure::request())?;
     // Do not log reqwest errors or remote descriptions: either can contain the bot token.
+    let mut payload =
+        json!({"chat_id":chat,"text":text,"link_preview_options":{"is_disabled":true}});
+    if let Some(thread) = thread {
+        payload["message_thread_id"] = json!(thread);
+    }
     let mut response = client
         .post(url)
-        .json(&json!({"chat_id":chat,"text":text}))
+        .json(&payload)
         .send()
         .await
         .map_err(|_| Failure::request())?;
@@ -73,14 +83,40 @@ mod tests {
         );
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
-            let mut request = vec![0; 4096];
-            let count = stream.read(&mut request).await.unwrap();
-            assert!(count > 0);
+            let mut request = Vec::new();
+            let payload = loop {
+                let mut buffer = [0; 4096];
+                let count = stream.read(&mut buffer).await.unwrap();
+                assert!(count > 0 && request.len() + count <= 8192);
+                request.extend_from_slice(&buffer[..count]);
+                if let Some(end) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+                    let length: usize = headers
+                        .lines()
+                        .find_map(|line| line.strip_prefix("content-length:"))
+                        .unwrap()
+                        .trim()
+                        .parse()
+                        .unwrap();
+                    if request.len() >= end + 4 + length {
+                        break serde_json::from_slice::<Value>(&request[end + 4..end + 4 + length])
+                            .unwrap();
+                    }
+                }
+            };
+            assert_eq!(payload["message_thread_id"], 12);
+            assert_eq!(payload["chat_id"], "-100000");
+            assert_eq!(payload["text"], "测试通知");
+            assert_eq!(payload["link_preview_options"]["is_disabled"], true);
+            assert!(payload.get("parse_mode").is_none());
             let body =
                 r#"{"ok":false,"description":"TEST_SECRET","parameters":{"retry_after":123}}"#;
             stream.write_all(format!("HTTP/1.1 429 Too Many Requests\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
         });
-        let error = deliver(&url, "-100000", "测试通知").await.err().unwrap();
+        let error = deliver(&url, "-100000", Some(12), "测试通知")
+            .await
+            .err()
+            .unwrap();
         assert_eq!(error.retry_after, Some(123));
         assert!(!error.message.contains("TEST_SECRET"));
         server.await.unwrap();

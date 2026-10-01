@@ -63,9 +63,23 @@ pub async fn list(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(server): Path<i64>,
-) -> ApiResult<Json<Vec<ProbeSpec>>> {
+) -> ApiResult<Json<Vec<serde_json::Value>>> {
     auth::require_admin(&state, &headers).await?;
-    read(&state, server).await
+    let rows: Vec<(serde_json::Value, Option<Uuid>)> =
+        sqlx::query_as("SELECT spec,task_id FROM network_probes WHERE server_id=$1 ORDER BY id")
+            .bind(server)
+            .fetch_all(&state.pool)
+            .await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|(mut spec, task)| {
+                if let Some(task) = task {
+                    spec["task_id"] = serde_json::json!(task);
+                }
+                spec
+            })
+            .collect(),
+    ))
 }
 
 pub(crate) async fn read(state: &AppState, server: i64) -> ApiResult<Json<Vec<ProbeSpec>>> {
@@ -135,14 +149,19 @@ pub async fn update(
         return Err(ApiError::BadRequest("拨测配置无效".into()));
     }
     let mut tx = state.pool.begin().await?;
-    let previous: serde_json::Value = sqlx::query_scalar(
-        "SELECT spec FROM network_probes WHERE server_id=$1 AND id=$2 FOR UPDATE",
+    let (previous, task): (serde_json::Value, Option<Uuid>) = sqlx::query_as(
+        "SELECT spec,task_id FROM network_probes WHERE server_id=$1 AND id=$2 FOR UPDATE",
     )
     .bind(server)
     .bind(id)
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(ApiError::NotFound)?;
+    if task.is_some() {
+        return Err(ApiError::Conflict(
+            "此目标由统一延迟任务管理，请在延迟检测页面修改".into(),
+        ));
+    }
     let previous: ProbeSpec = serde_json::from_value(previous).map_err(anyhow::Error::from)?;
     // Samples and offline retries identify their destination only by this immutable ID.
     if spec.kind != previous.kind || spec.target != previous.target || spec.port != previous.port {
@@ -166,16 +185,31 @@ pub async fn remove(
     Path((server, id)): Path<(i64, Uuid)>,
 ) -> ApiResult<Json<serde_json::Value>> {
     auth::require_admin(&state, &headers).await?;
+    let mut tx = state.pool.begin().await?;
+    let (task,): (Option<Uuid>,) = sqlx::query_as(
+        "SELECT task_id FROM network_probes WHERE server_id=$1 AND id=$2 FOR UPDATE",
+    )
+    .bind(server)
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    if task.is_some() {
+        return Err(ApiError::Conflict(
+            "此目标由统一延迟任务管理，请在延迟检测页面取消分配".into(),
+        ));
+    }
     if sqlx::query("DELETE FROM network_probes WHERE server_id=$1 AND id=$2")
         .bind(server)
         .bind(id)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await?
         .rows_affected()
         == 0
     {
         return Err(ApiError::NotFound);
     }
+    tx.commit().await?;
     Ok(Json(serde_json::json!({"deleted":true})))
 }
 
