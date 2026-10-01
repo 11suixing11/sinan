@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, errorMessage } from './api'
+import { api, ApiError, errorMessage } from './api'
 
 export function useResource<T>(path: string | null, poll = 5000) {
   const [data, setData] = useState<T>()
@@ -24,7 +24,10 @@ export function useResource<T>(path: string | null, poll = 5000) {
         const result = await api<T>(path, 'GET', undefined, controller.signal)
         if (active && current === sequence) { setData(result); setError('') }
       } catch (error) {
-        if (active && current === sequence) setError(errorMessage(error))
+        if (active && current === sequence) {
+          setError(errorMessage(error))
+          if (path.startsWith('/api/dashboard/') && error instanceof ApiError && [401, 403, 404].includes(error.status)) setData(undefined)
+        }
       } finally { pending = false; if (active && current === sequence) setLoading(false) }
     }
     void load()

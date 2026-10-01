@@ -32,7 +32,7 @@ export function fresh(server: Server): boolean {
 export function status(server: Server, unavailable = false) {
   if (unavailable) return { label: '状态未知', tone: 'warning' }
   if (server.online) return { label: '在线', tone: 'good' }
-  return server.device_public_key ? { label: '离线', tone: 'danger' } : { label: '待接入', tone: 'muted' }
+  return (server.registered ?? Boolean(server.device_public_key)) ? { label: '离线', tone: 'danger' } : { label: '待接入', tone: 'muted' }
 }
 
 export function aggregate(servers: Server[], field: NetworkField, live = false) {
@@ -46,7 +46,7 @@ export function filterServers(servers: Server[], query: string, filter: string) 
   return servers.filter(server => {
     const matches = [server.name, server.static_info.hostname, server.static_info.system, server.static_info.arch, server.asset_settings?.region, server.asset_settings?.group_name, ...(server.asset_settings?.tags ?? [])]
       .filter(Boolean).join(' ').toLocaleLowerCase().includes(text)
-    return matches && (filter === 'all' || (filter === 'online' ? server.online : filter === 'offline' ? !server.online && Boolean(server.device_public_key) : !server.online && !server.device_public_key))
+    return matches && (filter === 'all' || (filter === 'online' ? server.online : filter === 'offline' ? !server.online && (server.registered ?? Boolean(server.device_public_key)) : !server.online && !(server.registered ?? Boolean(server.device_public_key))))
   })
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, errorMessage } from '../api'
+import { api, ApiError, errorMessage } from '../api'
 import type { Sample } from './data'
 
 export function useHistory(serverId: number, minutes: number) {
@@ -21,14 +21,14 @@ export function useHistory(serverId: number, minutes: number) {
       const fullRead = Date.now() - lastFullRead >= 60_000
       try {
         // Re-read the full window every minute to include older, delayed uploads.
-        const next = await api<Sample[]>(`/api/servers/${serverId}/metrics?since=${Math.max(since, !fullRead && newest ? newest - 120_000 : since)}`, 'GET', undefined, controller.signal)
+        const next = await api<Sample[]>(`/api/dashboard/servers/${serverId}/metrics?since=${Math.max(since, !fullRead && newest ? newest - 120_000 : since)}`, 'GET', undefined, controller.signal)
         if (!active) return
         const merged = new Map([...saved, ...next].map(sample => [sample.id, sample]))
         saved = [...merged.values()].filter(sample => sample.sampled_at >= since && sample.sampled_at <= Date.now() + 60_000)
           .sort((left, right) => left.sampled_at - right.sampled_at).slice(-7200)
         if (fullRead) lastFullRead = Date.now()
         setSamples(saved); setError('')
-      } catch (reason) { if (active) setError(errorMessage(reason)) }
+      } catch (reason) { if (active) { setError(errorMessage(reason)); if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) { saved = []; setSamples([]) } } }
       finally { pending = false; if (active) setLoading(false) }
     }
     void load()

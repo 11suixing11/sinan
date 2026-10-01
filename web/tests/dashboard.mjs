@@ -49,8 +49,9 @@ try {
       asset_settings: { region, group_name: group, tags: [], hidden: i === 5, price: null, currency: 'CNY', billing_cycle: 30, expires_at: null, auto_renewal: false, traffic_limit: '0', traffic_limit_type: 'sum', reset_day: 1, network_interface: '' },
     }))
     await page.route('**/api/**', async route => {
-      const request = route.request(), path = new URL(request.url()).pathname
+      const request = route.request(), path = new URL(request.url()).pathname.replace('/api/dashboard/', '/api/')
       if (request.method() !== 'GET') writes.push(path)
+      if (path === '/api/access') return route.fulfill({ json: { authenticated: signedIn, public_dashboard: false } })
       if (path === '/api/me') return route.fulfill({ status: signedIn ? 200 : 401, json: signedIn ? {} : { error: '登录已过期' } })
       if (path === '/api/servers') {
         serversRead++
@@ -63,7 +64,7 @@ try {
       throw new Error(`Unexpected API: ${path}`)
     })
     await page.goto(`${origin}/#/servers`)
-    await page.getByRole('link', { name: '打开服务器看板', exact: true }).click()
+    await page.getByRole('link', { name: '服务器看板', exact: true }).click()
     await page.getByRole('heading', { name: '服务器看板', exact: true }).waitFor()
     await page.locator('.d-card').first().waitFor()
     assert(page.url().endsWith('/#/dashboard'))

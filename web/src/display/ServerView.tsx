@@ -40,7 +40,7 @@ function ResourceCharts({ server, now }: { server: Server; now: number }) {
 }
 
 export default function ServerView({ id, now }: { id: number; now: number }) {
-  const resource = useResource<Server>(`/api/servers/${id}`)
+  const resource = useResource<Server>(`/api/dashboard/servers/${id}`)
   const server = resource.data
   if (!server) return <><a className="d-button d-back" href="#/dashboard"><Icon name="back" />返回看板</a>{resource.error ? <div className="d-notice d-error" role="alert"><span>{resource.error}</span><button onClick={resource.reload}>重试</button></div> : <div className="d-empty" role="status"><span className="spinner" />正在读取服务器…</div>}</>
   const info = server.static_info, metrics = server.latest_metrics, state = status(server, Boolean(resource.error))
@@ -55,7 +55,7 @@ export default function ServerView({ id, now }: { id: number; now: number }) {
         ['内存 / 磁盘', `${size(info.memory_total)} / ${size(info.disk_total)}`], ['虚拟化', info.virtualization],
       ]} />
       <InfoGroup title="系统信息" icon="server" items={[
-        ['主机名', info.hostname], ['运行时间', metrics.uptime_secs === undefined ? undefined : uptime(metrics.uptime_secs)],
+        ...(!server.public_view ? [['主机名', info.hostname] as [string, ReactNode]] : []), ['运行时间', metrics.uptime_secs === undefined ? undefined : uptime(metrics.uptime_secs)],
         ['内核版本', info.kernel], ['进程 / 连接', `${count(metrics.processes)} / ${count(number(metrics.tcp_connections) !== null && number(metrics.udp_connections) !== null ? metrics.tcp_connections! + metrics.udp_connections! : null)}`],
       ]} />
     </div>

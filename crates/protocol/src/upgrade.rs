@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 pub struct AgentRelease {
     pub version: String,
     pub artifact: Artifact,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub download_mirror: String,
 }
 
 pub fn release_version(value: &str) -> Option<(u64, u64, u64)> {

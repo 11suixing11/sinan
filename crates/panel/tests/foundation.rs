@@ -740,9 +740,7 @@ async fn websocket_challenges_are_connection_bound_and_sessions_expire(pool: PgP
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifacts(
-    pool: PgPool,
-) -> Result<()> {
+async fn panel_never_serves_agent_binaries_even_with_a_live_token(pool: PgPool) -> Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     let panel = TestPanel::start(pool).await?;
     let cookie = panel.admin_cookie().await?;
@@ -784,10 +782,8 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
         .get(&bootstrap_url)
         .query(&[("token", &token)])
         .send()
-        .await?
-        .error_for_status()?;
-    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
-    assert_eq!(response.bytes().await?.as_ref(), binary);
+        .await?;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
 
     let install = panel
         .client
@@ -807,7 +803,7 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
             .send()
             .await?
             .status(),
-        StatusCode::NOT_FOUND
+        StatusCode::CONFLICT
     );
     assert_eq!(
         panel
@@ -896,8 +892,7 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
         ))
         .bearer_auth(&ack.session_token)
         .send()
-        .await?
-        .error_for_status()?;
-    assert_eq!(response.bytes().await?.as_ref(), binary);
+        .await?;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
     Ok(())
 }

@@ -59,16 +59,23 @@ pub async fn download(
 ) -> ApiResult<Response> {
     let server_id = auth::require_agent(&state, &headers).await?;
     require_signed_agent(&state, server_id).await?;
+    if name == "agent" {
+        return Err(ApiError::Conflict(
+            "Agent 请从 GitHub Release 下载，面板不再提供二进制".into(),
+        ));
+    }
     bytes_response(&state, &name, &version, &arch).await
 }
 
 pub async fn bootstrap(
     State(state): State<AppState>,
     Query(query): Query<TokenQuery>,
-    Path((version, arch)): Path<(String, String)>,
+    Path((_version, _arch)): Path<(String, String)>,
 ) -> ApiResult<Response> {
     crate::servers::validate_enrollment(&state.pool, &query.token).await?;
-    bytes_response(&state, "agent", &version, &arch).await
+    Err(ApiError::Conflict(
+        "Agent 请使用从 GitHub 下载的可信安装器，面板不再提供二进制".into(),
+    ))
 }
 
 async fn bytes_response(

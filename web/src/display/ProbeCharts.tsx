@@ -7,7 +7,7 @@ import Chart from './Chart'
 import { Icon } from './Icon'
 
 function History({ id, probe, now, minutes, unavailable }: { id: number; probe: Probe; now: number; minutes: number; unavailable: boolean }) {
-  const results = useResource<ProbeResult[]>(`/api/servers/${id}/probe-results?probe_id=${encodeURIComponent(probe.id)}&hours=${minutes / 60}`, 15_000)
+  const results = useResource<ProbeResult[]>(`/api/dashboard/servers/${id}/probe-results?probe_id=${encodeURIComponent(probe.id)}&hours=${minutes / 60}`, 15_000)
   const points = (results.data ?? []).filter(result => result.probe_id === probe.id && result.sampled_at >= now - minutes * 60_000 && result.sampled_at <= now).sort((a, b) => a.sampled_at - b.sampled_at)
   const latest = points[points.length - 1]
   const state = probeState(probe, latest, now, unavailable || Boolean(results.error))
@@ -25,7 +25,7 @@ function History({ id, probe, now, minutes, unavailable }: { id: number; probe: 
 }
 
 export default function ProbeCharts({ id, now, unavailable }: { id: number; now: number; unavailable: boolean }) {
-  const definitions = useResource<Probe[]>(`/api/servers/${id}/probes`, 30_000)
+  const definitions = useResource<Probe[]>(`/api/dashboard/servers/${id}/probes`, 30_000)
   const [minutes, setMinutes] = useState(60)
   const [selected, setSelected] = useState('')
   const probes = definitions.data ?? []
