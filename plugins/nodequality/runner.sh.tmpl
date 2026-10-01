@@ -2,7 +2,7 @@
 # Sinan runner for the original pinned NodeQuality script.
 set -euo pipefail
 umask 077
-version=a92fca6c0067df29ddd03fdc2fee6f3000f64545-r16
+version=a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17
 usage() {
   cat <<'USAGE'
 Usage: nodequality --workspace <ABSOLUTE_DIRECTORY> --mode daily|full --ip-version both|ipv4|ipv6 --network-mode low|normal [--upload-report true|false]
@@ -149,6 +149,9 @@ SINAN_NODEQUALITY_QUERY_POLICY
 cat > "$runtime/access-policy.py" <<'SINAN_NODEQUALITY_ACCESS_POLICY'
 @ACCESS_POLICY_HELPER@
 SINAN_NODEQUALITY_ACCESS_POLICY
+cat > "$runtime/netflix-policy.py" <<'SINAN_NODEQUALITY_NETFLIX_POLICY'
+@NETFLIX_POLICY_HELPER@
+SINAN_NODEQUALITY_NETFLIX_POLICY
 cat > "$runtime/pinned-chain.json" <<'SINAN_NODEQUALITY_PINNED_CHAIN'
 @PINNED_CHAIN@
 SINAN_NODEQUALITY_PINNED_CHAIN

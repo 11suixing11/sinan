@@ -9,13 +9,21 @@ from unittest import mock
 class PolicyOutputs(dict):
     """Keep the r15 layer for the older isolated transformation regressions."""
     before_access = None
+    before_netflix = None
 
 
 def serve_before_access(helper, directory, arguments):
     # Older policy tests assert the identity of their own fixed layer. The new
     # access suite and final runner/packaging tests exercise the complete chain.
     # No production switch permits this bypass.
-    with mock.patch.object(helper, 'authorized_provider_access', side_effect=lambda role, data: data):
+    with mock.patch.object(helper, 'authorized_provider_access', side_effect=lambda role, data: data), mock.patch.object(helper, 'validated_netflix', side_effect=lambda role, data: data):
+        return helper.serve(directory, arguments)
+
+
+def serve_before_netflix(helper, directory, arguments):
+    # Isolated r16 assertions retain their exact source identity. The new
+    # Netflix suite and final signed runner tests exercise the complete chain.
+    with mock.patch.object(helper, 'validated_netflix', side_effect=lambda role, data: data):
         return helper.serve(directory, arguments)
 
 
@@ -42,7 +50,17 @@ def inert_source(name, policy):
         if name == 'net.sh':
             source += policy.NET_OUTPUT
         source += policy.SOURCES[name]['original_guard'] + b'}\n'
-    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ip_score_anchors(name) + browser_anchors(name) + query_anchors(name) + access_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ip_score_anchors(name) + browser_anchors(name) + query_anchors(name) + access_anchors(name) + netflix_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+
+
+def netflix_anchors(name):
+    if name != 'ip.sh':
+        return b''
+    policy = module('fixture_netflix_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/netflix-policy.py')
+    # The prior query layer already supplies FETCH. Only the original
+    # classifier anchors are needed in the inert packaging source.
+    extra = b''.join(before for before, _ in policy.REPLACEMENTS if before != policy.FETCH)
+    return b"fixture_unused_netflix_classification(){\ncat <<'SINAN_FIXTURE_NETFLIX'\n" + extra + b'SINAN_FIXTURE_NETFLIX\n}\n'
 
 
 def access_anchors(name):
@@ -323,5 +341,18 @@ def prepare_policy(plugin, contents):
         content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
         outputs[role] = patched
     access_path.write_bytes(content)
+    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
+    outputs.before_netflix = dict(outputs)
+    netflix_path = Path(plugin) / 'netflix-policy.py'
+    netflix = module('synthetic_netflix_policy_input', netflix_path)
+    content = netflix_path.read_bytes()
+    original_hash = hashlib.sha256(content).hexdigest().encode()
+    for role, spec in netflix.SOURCES.items():
+        canonical = outputs[role]
+        patched = netflix.patch(canonical)
+        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
+        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
+        outputs[role] = patched
+    netflix_path.write_bytes(content)
     helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
     return outputs

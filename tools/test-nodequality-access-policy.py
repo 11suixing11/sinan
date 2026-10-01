@@ -178,7 +178,7 @@ class AccessTests(unittest.TestCase):
             target = Path(name) / 'sources'
             bundle = helper.decode(helper.pack(helper.decode((PLUGIN / 'source-lock.json').read_bytes()), READONLY_SOURCES))
             helper.materialize(bundle, target)
-            result = helper.serve(target, ['-Ls', 'https://IP.Check.Place'])
+            result = browser.sources.fixture.serve_before_netflix(helper, target, ['-Ls', 'https://IP.Check.Place'])
             self.assertEqual(hashlib.sha256(result).hexdigest(), policy.SOURCES['ip.sh']['patched_sha256'])
             return result
 
@@ -366,7 +366,9 @@ class AccessTests(unittest.TestCase):
                 self.assertEqual(result['status'], 'succeeded')
                 self.assertEqual(result['Status'], expected)
                 self.assertEqual(result['Region'].strip(), region)
-                self.assertEqual(result['Type'], 'DIRECT' if expected == 'YES' else '')
+                # The original report represents an unavailable type with the
+                # literal legacy value "null"; retain that contract here.
+                self.assertEqual(result['Type'], 'DIRECT' if expected == 'YES' else 'null')
                 self.assertIsNone(result['Error'])
                 self.assertTrue(result['Attempted'])
                 self.assertEqual(result['Attempts'][0]['http_status'], 200)

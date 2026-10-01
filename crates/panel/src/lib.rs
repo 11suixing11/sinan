@@ -11,7 +11,9 @@ pub mod diagnostic_plugins;
 pub mod diagnostics;
 pub mod error;
 pub mod frontend;
+pub mod installation;
 pub mod ip_quality;
+pub mod latency_tasks;
 pub mod maintenance;
 pub mod notifications;
 pub mod plugins;
@@ -90,6 +92,18 @@ pub fn router(state: AppState) -> Router {
         .route("/api/settings", get(settings::get).patch(settings::update))
         .route("/api/notifications", get(notifications::list))
         .route(
+            "/api/notifications/telegram/test",
+            post(notifications::test_telegram),
+        )
+        .route(
+            "/api/alert-rules",
+            get(notifications::rules::list).post(notifications::rules::create),
+        )
+        .route(
+            "/api/alert-rules/{id}",
+            axum::routing::patch(notifications::rules::update).delete(notifications::rules::remove),
+        )
+        .route(
             "/api/servers/{id}/traffic-correction",
             post(traffic_correction::correct),
         )
@@ -128,6 +142,14 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/servers/{id}/probe-results", get(probes::history))
         .route("/api/probes/overview", get(probes::overview))
+        .route(
+            "/api/latency-tasks",
+            get(latency_tasks::list).post(latency_tasks::create),
+        )
+        .route(
+            "/api/latency-tasks/{id}",
+            axum::routing::patch(latency_tasks::update).delete(latency_tasks::remove),
+        )
         .route(
             "/api/servers/{id}/diagnostics",
             get(diagnostics::service::get),
@@ -200,6 +222,7 @@ pub fn router(state: AppState) -> Router {
             get(artifacts::download),
         )
         .route("/api/artifacts", get(artifacts::list))
+        .route("/api/artifacts/targets", get(releases::target_options))
         .route("/api/artifacts/import-release", post(releases::import))
         .route("/api/bootstrap/{version}/{arch}", get(artifacts::bootstrap))
         .route("/install.sh", get(artifacts::install_script))

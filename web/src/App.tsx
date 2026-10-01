@@ -10,16 +10,18 @@ import SingboxOverview from './plugins/singbox/Overview'
 import ProxyUsers from './plugins/singbox/ProxyUsers'
 import Groups from './plugins/singbox/Groups'
 import Plugins from './pages/Plugins'
-import Artifacts from './pages/Artifacts'
+import PluginCatalog from './pages/PluginCatalog'
+import { isCatalogPath } from './plugins/catalog'
 import Security from './pages/Security'
 import Settings from './pages/Settings'
 import Notifications from './pages/Notifications'
+import LatencyTasks from './pages/LatencyTasks'
 import ServerToolPage from './pages/ServerToolPage'
 import { dashboardRoute } from './display/dashboard'
 
 const ServerDisplay = lazy(() => import('./display/ServerDisplay'))
 
-const navigation = [{ path: '/dashboard', label: '服务器看板', icon: 'activity', group: '服务器' }, { path: '/servers', label: '服务器', icon: 'server', group: '服务器' }, { path: '/plugins/sing-box', label: '代理服务', icon: 'box', group: 'sing-box 插件' }, { path: '/plugins/sing-box/nodes', label: '代理节点', icon: 'nodes', group: 'sing-box 插件' }, { path: '/plugins/sing-box/users', label: '代理用户', icon: 'users', group: 'sing-box 插件' }, { path: '/plugins/sing-box/groups', label: '策略与套餐', icon: 'nodes', group: 'sing-box 插件' }, { path: '/system/plugins', label: '插件设置', icon: 'box', group: '系统' }, { path: '/artifacts', label: '制品', icon: 'box', group: '系统' }, { path: '/system/settings', label: '看板与通知', icon: 'activity', group: '系统' }, { path: '/system/notifications', label: '离线告警', icon: 'activity', group: '系统' }, { path: '/system/administrator', label: '系统管理员', icon: 'lock', group: '系统' }]
+const navigation = [{ path: '/dashboard', label: '服务器看板', icon: 'activity', group: '服务器' }, { path: '/servers', label: '服务器', icon: 'server', group: '服务器' }, { path: '/latency', label: '延迟检测', icon: 'activity', group: '服务器' }, { path: '/plugins/sing-box', label: '代理服务', icon: 'box', group: 'sing-box 插件' }, { path: '/plugins/sing-box/nodes', label: '代理节点', icon: 'nodes', group: 'sing-box 插件' }, { path: '/plugins/sing-box/users', label: '代理用户', icon: 'users', group: 'sing-box 插件' }, { path: '/plugins/sing-box/groups', label: '策略与套餐', icon: 'nodes', group: 'sing-box 插件' }, { path: '/plugins/catalog', label: '插件目录', icon: 'box', group: '系统' }, { path: '/system/plugins', label: '服务器插件', icon: 'server', group: '系统' }, { path: '/system/settings', label: '看板与通知', icon: 'activity', group: '系统' }, { path: '/system/notifications', label: '告警通知', icon: 'activity', group: '系统' }, { path: '/system/administrator', label: '系统管理员', icon: 'lock', group: '系统' }]
 function Login({ onLogin, notice }: { onLogin: () => void; notice: string }) {
   const action = useAction()
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -60,13 +62,29 @@ export default function App() {
   const selectedServer = Number(params.get('server'))
   const serverId = Number.isSafeInteger(selectedServer) && selectedServer > 0 ? selectedServer : undefined
   const kind = params.get('kind') === 'chains' ? 'chains' : 'direct'
-  const match = route.match(/^\/servers\/([1-9]\d*)(?:\/(ip-info|node-quality|tcp-quality))?$/)
+  const match = route.match(/^\/servers\/([1-9]\d*)(?:\/(ip-info|node-quality|tcp-quality|plugins))?$/)
   const display = dashboardRoute(route)
-  const current = navigation.find(item => route === item.path || (item.path === '/servers' && Boolean(match)))
+  const current = navigation.find(item => route === item.path || (item.path === '/servers' && Boolean(match)) || (item.path === '/plugins/catalog' && isCatalogPath(route)))
   const title = display ? '服务器看板' : current?.label ?? '控制面板'
   useEffect(() => { document.title = `${title} · 司南` }, [title])
   if (session === null) return <div className="boot"><Brand /><Loading /></div>
   if (!session && !(display && publicDashboard)) return <Login notice={notice} onLogin={() => { setNotice(''); setSession(true); setAccessRevision(value => value + 1) }} />
   if (display) return <Suspense fallback={<div className="boot"><Brand /><Loading /></div>}><ServerDisplay key={session ? 'admin' : 'public'} serverId={display.serverId} /></Suspense>
-  return <div className="app-shell"><aside className="sidebar"><a href="#/servers" className="brand-link" aria-label="司南首页"><Brand /></a><div className="nav-caption">控制面板</div><nav aria-label="主导航">{navigation.map((item, index) => <div className="nav-entry" key={item.path}>{navigation[index - 1]?.group !== item.group && <div className="nav-group-label">{item.group}</div>}<a href={`#${item.path}`} className={current?.path === item.path ? 'active' : ''} aria-current={current?.path === item.path ? 'page' : undefined}><Icon name={item.icon} size={20} /><span>{item.label}</span>{current?.path === item.path && <span className="nav-active-dot" />}</a></div>)}</nav><div className="sidebar-bottom"><div className="sidebar-note"><span className="status-dot" /><span>自托管控制面板</span></div><button className="logout-button" disabled={action.busy} onClick={() => void action.run(() => api('/api/logout', 'POST'), () => { setSession(false); setNotice(''); setPublicDashboard(false); setAccessRevision(value => value + 1) })}><span className="admin-avatar">管</span><span><strong>管理员</strong><small>退出登录</small></span><Icon name="logout" size={17} /></button></div></aside><div className="main-layout"><div className="topbar"><div>控制面板<span>/</span><strong>{current?.label ?? '页面不存在'}</strong></div><span className="topbar-status"><span className="status-dot" />管理员会话已登录</span></div><main className="content"><ErrorNotice message={action.error} />{match && Number.isSafeInteger(Number(match[1])) ? match[2] ? <ServerToolPage key={`${match[1]}/${match[2]}`} id={Number(match[1])} section={match[2] as 'ip-info' | 'node-quality' | 'tcp-quality'} /> : <ServerDetail key={match[1]} id={Number(match[1])} /> : route === '/servers' || route === '/' ? <Servers /> : route === '/plugins/sing-box' ? <SingboxOverview /> : route === '/plugins/sing-box/nodes' ? <Nodes key={`${serverId ?? 'all'}-${kind}`} serverId={serverId} initialKind={kind} /> : route === '/plugins/sing-box/users' ? <ProxyUsers /> : route === '/plugins/sing-box/groups' ? <Groups /> : route === '/system/plugins' ? <Plugins /> : route === '/artifacts' ? <Artifacts /> : route === '/system/settings' ? <Settings /> : route === '/system/notifications' ? <Notifications /> : route === '/system/administrator' ? <Security /> : <div className="not-found"><h1>这个页面不存在</h1><p>从左侧导航选择一个页面，或回到服务器列表。</p><a className="button button-primary" href="#/servers">返回服务器</a></div>}</main><footer className="app-footer"><span>司南</span><span>清晰掌握，自在连接。</span></footer></div></div>
+  const page = match && Number.isSafeInteger(Number(match[1]))
+    ? match[2] === 'plugins' ? <Plugins key={match[1]} serverId={Number(match[1])} />
+      : match[2] ? <ServerToolPage key={`${match[1]}/${match[2]}`} id={Number(match[1])} section={match[2] as 'ip-info' | 'node-quality' | 'tcp-quality'} />
+        : <ServerDetail key={match[1]} id={Number(match[1])} />
+    : route === '/servers' || route === '/' ? <Servers />
+      : route === '/latency' ? <LatencyTasks />
+      : route === '/plugins/sing-box' ? <SingboxOverview />
+        : route === '/plugins/sing-box/nodes' ? <Nodes key={`${serverId ?? 'all'}-${kind}`} serverId={serverId} initialKind={kind} />
+        : route === '/plugins/sing-box/users' ? <ProxyUsers />
+          : route === '/plugins/sing-box/groups' ? <Groups />
+            : route === '/system/plugins' ? <Plugins />
+              : isCatalogPath(route) ? <PluginCatalog />
+                : route === '/system/settings' ? <Settings />
+                  : route === '/system/notifications' ? <Notifications />
+                    : route === '/system/administrator' ? <Security />
+                      : <div className="not-found"><h1>这个页面不存在</h1><p>从左侧导航选择一个页面，或回到服务器列表。</p><a className="button button-primary" href="#/servers">返回服务器</a></div>
+  return <div className="app-shell"><aside className="sidebar"><a href="#/servers" className="brand-link" aria-label="司南首页"><Brand /></a><div className="nav-caption">控制面板</div><nav aria-label="主导航">{navigation.map((item, index) => <div className="nav-entry" key={item.path}>{navigation[index - 1]?.group !== item.group && <div className="nav-group-label">{item.group}</div>}<a href={`#${item.path}`} className={current?.path === item.path ? 'active' : ''} aria-current={current?.path === item.path ? 'page' : undefined}><Icon name={item.icon} size={20} /><span>{item.label}</span>{current?.path === item.path && <span className="nav-active-dot" />}</a></div>)}</nav><div className="sidebar-bottom"><div className="sidebar-note"><span className="status-dot" /><span>自托管控制面板</span></div><button className="logout-button" disabled={action.busy} onClick={() => void action.run(() => api('/api/logout', 'POST'), () => { setSession(false); setNotice(''); setPublicDashboard(false); setAccessRevision(value => value + 1) })}><span className="admin-avatar">管</span><span><strong>管理员</strong><small>退出登录</small></span><Icon name="logout" size={17} /></button></div></aside><div className="main-layout"><div className="topbar"><div>控制面板<span>/</span><strong>{current?.label ?? '页面不存在'}</strong></div><span className="topbar-status"><span className="status-dot" />管理员会话已登录</span></div><main className="content"><ErrorNotice message={action.error} />{page}</main><footer className="app-footer"><span>司南</span><span>清晰掌握，自在连接。</span></footer></div></div>
 }

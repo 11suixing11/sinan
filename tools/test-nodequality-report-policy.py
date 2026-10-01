@@ -220,6 +220,7 @@ def script_recipe(name):
     # These uncalled anchors keep the final signed access stage in packaging.
     # The callbacks below record the original orchestration without querying.
     result += source_tests.fixture.access_anchors(name).decode()
+    result += source_tests.fixture.netflix_anchors(name).decode()
     result += 'fixture_record script ' + kind + ' "$@"\n'
     result += '''
 mode_privacy=${FIXTURE_PRIVACY:-0}

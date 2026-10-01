@@ -12,6 +12,7 @@ import sys
 
 MAX_FILE = 2 * 1024 * 1024
 MAX_BUNDLE = 8 * 1024 * 1024
+NETFLIX_POLICY_SHA256 = 'b928c6d4ac92b26f72207914d269b5154f09441bad3ca9eb5f036654f20f5eb7'
 ACCESS_POLICY_SHA256 = '83db5e84f2c2c793eb4eff0d43ba0e439b196ab7a940a2a293d9b513860985b9'
 QUERY_POLICY_SHA256 = 'e4ec8e34c9264b25b64d5ec6252f419762493be9b928d96beaba7addffe3aa00'
 BROWSER_POLICY_SHA256 = '04de9983ccbe2a7651011e3b05b1092cd0a25af950ff3a97f583536f4c693ef1'
@@ -307,6 +308,27 @@ def validated_ip_scores(name, content):
     return result
 
 
+def netflix_policy():
+    path = Path(__file__).with_name('netflix-policy.py')
+    content = ordinary(path, 65536)
+    if hashlib.sha256(content).hexdigest() != NETFLIX_POLICY_SHA256:
+        raise ValueError('signed Netflix policy helper SHA256 mismatch')
+    namespace = {'__name__': 'sinan_netflix_policy', '__file__': str(path)}
+    exec(compile(content, str(path), 'exec'), namespace)
+    return namespace
+
+
+def validated_netflix(name, content):
+    if name != 'ip.sh':
+        return content
+    policy = netflix_policy()
+    result = policy['transform'](name, content)
+    if (not isinstance(result, bytes) or len(result) > MAX_FILE + 8192
+            or hashlib.sha256(result).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
+        raise ValueError('served Netflix policy output SHA256 or byte limit mismatch')
+    return result
+
+
 def percentile_policy(name, content):
     if name != 'hardware.sh':
         return content
@@ -343,6 +365,7 @@ def pack(lock, directory):
     browser_policy()
     query_policy()
     access_policy()
+    netflix_policy()
     files = {name: base64.b64encode(verified(ordinary(directory / name, MAX_FILE), row)).decode()
              for name, row in rows.items()}
     result = (json.dumps(dict(schema=1, lock=lock, files=files), sort_keys=True, separators=(',', ':')) + '\n').encode()
@@ -386,7 +409,8 @@ def serve(directory, arguments):
             or hashlib.sha256(patched).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
         raise ValueError('served report policy output SHA256 or byte limit mismatch')
     prior = without_swap(name, patched) if name == 'hardware.sh' else patched
-    return authorized_provider_access(name, validated_query_results(name, native_curl_identity(name, validated_ip_scores(name, percentile_policy(name, static_references(name, offline_dependencies(name, prior), directory, rows))))))
+    guarded = authorized_provider_access(name, validated_query_results(name, native_curl_identity(name, validated_ip_scores(name, percentile_policy(name, static_references(name, offline_dependencies(name, prior), directory, rows))))))
+    return validated_netflix(name, guarded)
 
 
 def main():

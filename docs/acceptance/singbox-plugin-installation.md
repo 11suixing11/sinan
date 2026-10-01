@@ -1,6 +1,6 @@
 # sing-box 双端插件与安装流程验收
 
-本次在统一分支 `remediation/all-diagnostics-20261001` 交付。面板插件管理节点、代理用户、链路、授权、订阅和套餐；设备上的普通 Agent/适配器负责签名下载、安装、配置对账及独立运行时健康确认。采用 Sinan 内的面板插件与设备插件，没有对接额外外部面板产品。操作说明见[安装与控制流程](../singbox-installation.md)，业务范围见 [ADR 0038](../adr/0038-singbox-plugin-lifecycle.md)。
+本次在统一分支 `remediation/all-diagnostics-20261001` 交付。面板插件管理节点、代理用户、链路、授权、订阅和套餐；设备上的普通 Agent/适配器负责签名下载、安装、配置对账及独立运行时健康确认。采用 Sinan 内的面板插件与设备插件，没有对接额外外部面板产品。操作说明见[安装与控制流程](../singbox-installation.md)，业务范围见 [ADR 0041](../adr/0041-singbox-plugin-lifecycle.md)。
 
 ## 实现与本地验证
 
@@ -13,6 +13,8 @@
 `fa030155` 仅修正测试的 Rust 格式、导航 link 定位和文档措辞；fmt/core 分层检查/diff 通过。真实 dist 的桌面/手机业务、授权草稿跨 5.6 秒等待、服务器接入及策略/套餐/链路创建测试通过。随后 `081d383` 补两端状态和筛选并重新构建；`fbfbeb3` 的业务及 groups 界面测试通过，dist 摘要单独记录。它们没有修改设备/面板 Rust 或迁移输入；不能把后来的前端构建冒称为 guest 中运行的二进制。
 
 原格式检查失败、旧 groups 按钮定位失败，以及新增双端成功状态的 strict locator 失败均保留；对应格式/link/双元素断言修正后补验通过，产品语义未为通过测试而放宽。
+
+后续统一分支整合保留主线 `0019_latency_tasks.sql`、`0020_notification_rules.sql`，把本支未正式发布的安装准备表迁移后移为 `0021_singbox_installation.sql`，SQL 原字节保持。上面与下方的冻结源码及专用节点收据实际执行的是旧 `0019_singbox_installation.sql`，没有执行新编号组合；新整合版本须另补全部迁移验证，历史结果和证据 JSON 不改写。
 
 ## 专用 Debian 12 的实际安装与恢复
 

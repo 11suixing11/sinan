@@ -19,7 +19,7 @@
 - `agent-core` 目录内任何文件不得出现 `singbox` 或 `sing-box` 字样；使用模块标识、能力和统一接口。
 - core 管服务器；sing-box 插件管代理用户、授权、订阅、用户流量、配额和周期，详见 [ADR 0023](docs/adr/0023-proxy-business-boundary.md) 与 [搬迁及启用兼容 ADR 0030](docs/adr/0030-singbox-plugin-business.md)。core 不得引用代理业务的 `user`、`subscription`、`quota`，含复数、蛇形和驼峰形式；CI 使用 `tools/check-core-boundary.py` 检查。系统账户与 SQLite 原生 API 仅允许检查器列出的具体表达式，不允许文件或整行豁免。
 - sing-box 面板业务实现物理位于根 `plugins/singbox/panel/`；面板只保留薄的 Rust path 嵌入桥，不得移回 `crates/panel/src/plugins/`。
-- 设备声明插件能力只表示支持，不自动启用新服务器的代理业务；管理员启用必须安排签名运行时安装，安装状态和设备应用确认分开，见 [ADR 0038](docs/adr/0038-singbox-plugin-lifecycle.md)。链路管理归代理节点，策略页面引用已有资源。
+- 设备声明插件能力只表示支持，不自动启用新服务器的代理业务；管理员启用必须安排签名运行时安装，安装状态和设备应用确认分开，见 [ADR 0041](docs/adr/0041-singbox-plugin-lifecycle.md)。链路管理归代理节点，策略页面引用已有资源。
 - 系统管理员与代理用户分别命名；服务器网卡总流量留在 core。计量 `epoch` 只标记计数器重置，不得用作套餐周期。业务搬迁保留用户 ID、令牌、旧订阅路径、节点凭据、授权和历史流量，数据库表先不改名。
 - 诊断任务生命周期、资源预算、持久化、取消及历史由共用服务管理；插件只转换参数、执行和解析报告，见 [ADR 0028](docs/adr/0028-shared-diagnostic-job-service.md)。后续插件登记代码可以经独立审查和相称验证后合入准备；NodeQuality 迁移及前置阶段的实机验收通过后，才能签收、正式发布或部署后续新增诊断能力。
 - 特权操作必须经过 `Privileged` trait，服务管理经过 `ServiceManager` trait；外部运行时是独立的系统服务（Linux systemd/OpenRC、macOS launchd、FreeBSD rc.d、Windows 计划任务）。
@@ -49,6 +49,10 @@
 
 2026-10-01 用户进一步授权 sing-box 插件的策略组、套餐组及可授权的两跳链路，覆盖上述对应排除项。按 [ADR 0035](docs/adr/0035-singbox-policy-package-groups.md) 实现：权限组与套餐分别分配，套餐使用不可变快照和原计量账本；独立入口到出口仅支持两台服务器，不扩大为任意拓扑或平台全局用户。不能把清空计量 epoch 当作重置套餐，也不能把订阅过滤当作运行时停用。保持旧用户/凭据兼容，不混跑新旧 publisher；生产迁移、发布与实机验收单独授权。
 
-2026-10-01 用户进一步授权服务器展示隐藏、可选公开看板、离线站内告警及 Telegram 通知、Agent 下载加速与服务器网卡流量矫正，并明确 Agent 二进制必须从 GitHub 下载，不能由面板提供。按 [ADR 0037](docs/adr/0037-server-operations-and-public-dashboard.md) 实现：安装和自更新保留独立验签，镜像请求不携带设备凭据；运行时与配置仍经面板；公开看板使用只读白名单及统一隐藏校验，流量矫正不改代理业务账本。覆盖旧 ADR 的 Agent 二进制面板同源下载限制，CI 暂停安排不变。
+2026-10-01 用户进一步授权服务器展示隐藏、可选公开看板、离线站内告警及 Telegram 通知、Agent 下载加速与服务器网卡流量矫正，并明确 Agent 二进制必须从 GitHub 下载，不能由面板提供。按 [ADR 0038](docs/adr/0038-server-operations-and-public-dashboard.md) 实现：安装和自更新保留独立验签，镜像请求不携带设备凭据；运行时与配置仍经面板；公开看板使用只读白名单及统一隐藏校验，流量矫正不改代理业务账本。覆盖旧 ADR 的 Agent 二进制面板同源下载限制，CI 暂停安排不变。
+
+2026-10-01 用户进一步确认统一延迟检测任务，以及资源超限、服务器到期、网卡流量和 Telegram 完整通知配置，见 [ADR 0039](docs/adr/0039-latency-tasks-and-notification-rules.md)。仍复用现有 Agent 拨测协议；通知仅提醒，不执行付款、停用或远程命令，诊断实机门禁和 CI 暂停安排不变。
+
+2026-10-01 用户明确链路在代理节点页统一创建/管理，且中间段可来自机场等订阅配置。按 [ADR 0040](docs/adr/0040-mixed-chains-and-subscriptions.md) 规划有序混合链路，覆盖此前仅两台受管服务器及外部出口的对应排除项；中间/最终段可为受管节点或订阅中的具体节点。保持单运行时、独立公开入口、线性无环路径、入口单次计量及内部秘密不进入用户订阅；不扩展自动出口池。当前交付为设计稿，源码、迁移及真实混合路径能力尚未实现/验收。
 
 详细架构约束见 `docs/adr/0001-declarative-snapshots.md` 至 `docs/adr/0011-loopback-local-api.md`。

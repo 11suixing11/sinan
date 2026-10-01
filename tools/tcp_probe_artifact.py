@@ -6,7 +6,6 @@ import json
 import re
 import struct
 import tarfile
-import tomllib
 
 TOOL_VERSION = "0.3.0"
 BINARY = "sinan-tcp-probe"
@@ -95,6 +94,8 @@ def source_files(data, commit):
 
 
 def validate_files(files, version, arch):
+    import tomllib
+
     ensure(set(files) == FILES, "TCP artifact must contain its exact complete provenance file set")
     ensure(all(0 < len(value) <= 256 * 1024 * 1024 for value in files.values()), "invalid TCP file size")
     info = json.loads(files["build-info.json"])
@@ -171,6 +172,8 @@ def bundled_musl(source, rustc_info):
 
 
 def validate_notices(encoded, lock_bytes, arch, source, rustc_info):
+    import tomllib
+
     ensure(0 < len(encoded) <= 8 * 1024 * 1024, "invalid third-party notice inventory size")
     data = json.loads(encoded)
     ensure(isinstance(data, dict) and set(data) == {"schema", "target", "lock_sha256", "dependencies", "toolchain"}

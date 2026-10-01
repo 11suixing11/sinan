@@ -103,7 +103,7 @@ try {
     await page.waitForTimeout(150)
     assert.equal(await page.locator('[data-plugin="sing-box"]').count(), 0)
     assert.equal(requests.slice(supportedStart).some(path => path.endsWith('/deployments') || path.endsWith('/nodes')), false)
-    await page.getByRole('link', { name: '插件设置', exact: true }).click()
+    await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '服务器插件', exact: true }).click()
     await page.getByText('设备支持 sing-box', { exact: true }).waitFor()
     await page.getByRole('button', { name: '启用并安装 sing-box', exact: true }).click()
     await page.getByText('管理员明确启用', { exact: true }).waitFor()
@@ -132,9 +132,20 @@ try {
     await page.getByText('安装状态待确认', { exact: true }).waitFor()
     assert.equal(await page.getByText('已安装并运行', { exact: true }).count(), 0)
     Object.assign(metadata, { source: 'agent_capability', read_only: true, agent_supported: true })
-    await page.getByRole('link', { name: '插件设置', exact: true }).click()
+    await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '服务器插件', exact: true }).click()
     await page.getByText('保留已有启用记录', { exact: true }).waitFor()
     assert.equal(await page.getByRole('button', { name: '启用并安装 sing-box', exact: true }).count(), 0)
+
+    // The server plugin route reads only this server and keeps conservative ACK semantics.
+    const scopedStart = requests.length
+    await page.goto(`${origin}/#/servers/1/plugins`)
+    await page.getByRole('heading', { name: '服务器插件', exact: true }).waitFor()
+    await page.getByText('安装状态待确认', { exact: true }).waitFor()
+    assert.equal(await page.getByRole('navigation', { name: '服务器导航' }).getByRole('link', { name: '服务器插件', exact: true }).getAttribute('aria-current'), 'page')
+    assert.equal(await page.getByRole('link', { name: '浏览插件目录', exact: true }).getAttribute('href'), '#/plugins/catalog')
+    assert.equal(requests.slice(scopedStart).includes('/api/plugins/sing-box/servers/1'), true)
+    assert.equal(requests.slice(scopedStart).includes('/api/plugins/sing-box/servers'), false)
+    assert.equal(await page.getByText('已安装并运行', { exact: true }).count(), 0)
 
     await page.getByRole('link', { name: '代理服务', exact: true }).click()
     await page.getByRole('heading', { name: '代理服务', exact: true }).waitFor()
