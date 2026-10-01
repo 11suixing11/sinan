@@ -29,7 +29,12 @@ fn batch(user: i64, node: i64, up: u64, down: u64) -> UsageBatch {
 
 async fn totals(panel: &TestPanel, cookie: &str, suffix: &str) -> Result<Value> {
     Ok(panel
-        .admin(Method::GET, &format!("/api/usage{suffix}"), cookie, None)
+        .admin(
+            Method::GET,
+            &format!("/api/plugins/sing-box/usage{suffix}"),
+            cookie,
+            None,
+        )
         .await?
         .error_for_status()?
         .json()
@@ -75,7 +80,7 @@ async fn websocket_acknowledges_committed_and_repeated_batches_once(pool: PgPool
     assert_eq!(
         panel
             .client
-            .get(format!("{}/api/usage", panel.base))
+            .get(format!("{}/api/plugins/sing-box/usage", panel.base))
             .send()
             .await?
             .status(),
@@ -145,7 +150,7 @@ async fn terminal_batches_remain_valid_after_revocation_and_deleted_users_keep_h
     panel
         .admin(
             Method::DELETE,
-            &format!("/api/users/{user}/accesses/{node}"),
+            &format!("/api/plugins/sing-box/users/{user}/accesses/{node}"),
             &cookie,
             None,
         )
@@ -154,7 +159,12 @@ async fn terminal_batches_remain_valid_after_revocation_and_deleted_users_keep_h
     panel.publish_now().await?;
     usage::ingest(&panel.state, server, batch(user, node, 7, 9)).await?;
     panel
-        .admin(Method::DELETE, &format!("/api/users/{user}"), &cookie, None)
+        .admin(
+            Method::DELETE,
+            &format!("/api/plugins/sing-box/users/{user}"),
+            &cookie,
+            None,
+        )
         .await?
         .error_for_status()?;
     usage::ingest(&panel.state, server, batch(user, node, 3, 1)).await?;

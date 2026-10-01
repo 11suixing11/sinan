@@ -1,6 +1,10 @@
 #![forbid(unsafe_code)]
 
 mod business_support;
+#[path = "diagnostics/chain_gate.rs"]
+mod chain_gate;
+#[path = "diagnostics/modes.rs"]
+mod modes;
 mod release_fixture;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
@@ -13,8 +17,15 @@ use sinan_panel::{agent_api, diagnostics, ip_quality};
 use sinan_protocol::{Hello, HelloAck, Message, PROTOCOL_VERSION};
 use sqlx::PgPool;
 use std::collections::BTreeMap;
+use uuid::Uuid;
 
 async fn capable(panel: &TestPanel, server_id: i64) -> Result<()> {
+    sqlx::query(
+        "UPDATE servers SET static_info=static_info || '{\"os\":\"linux\"}'::jsonb WHERE id=$1",
+    )
+    .bind(server_id)
+    .execute(&panel.state.pool)
+    .await?;
     agent_api::process_message(
         &panel.state,
         server_id,
@@ -23,6 +34,9 @@ async fn capable(panel: &TestPanel, server_id: i64) -> Result<()> {
             protocol_version: PROTOCOL_VERSION,
             capabilities: vec![
                 "diagnostic:nodequality".into(),
+                "diagnostic:nodequality-modes".into(),
+                sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY.into(),
+                sinan_protocol::DIAGNOSTIC_SERVICE_CAPABILITY.into(),
                 sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY.into(),
             ],
             applied: BTreeMap::new(),
@@ -72,8 +86,8 @@ async fn diagnostic_queue_is_durable_deduplicated_and_device_scoped(pool: PgPool
     fixture(&panel).await?;
     let path = format!("/api/servers/{server_id}/node-quality/reports");
     let (first, second) = tokio::join!(
-        panel.admin(Method::POST, &path, &cookie, Some(json!({}))),
-        panel.admin(Method::POST, &path, &cookie, Some(json!({})))
+        panel.admin(Method::POST, &path, &cookie, Some(json!({"mode":"daily"}))),
+        panel.admin(Method::POST, &path, &cookie, Some(json!({"mode":"daily"})))
     );
     let first = first?;
     let second = second?;
@@ -90,7 +104,7 @@ async fn diagnostic_queue_is_durable_deduplicated_and_device_scoped(pool: PgPool
     assert_eq!(record["status"], "queued");
     assert_eq!(
         record["job"]["options"],
-        json!({"ip_version":"both","network_mode":"low","upload_report":"false"})
+        json!({"mode":"daily","environment_section":"true","ip_version":"both","network_mode":"low","upload_report":"false","daily_targets":"[]"})
     );
     assert!(record["job"]["expires_at"].as_i64().is_some());
     let queue: Value = panel
@@ -195,7 +209,7 @@ async fn expiry_preserves_late_durable_reports_and_deleted_servers_cancel_work(
     fixture(&panel).await?;
     let path = format!("/api/servers/{server_id}/node-quality/reports");
     let record: Value = panel
-        .admin(Method::POST, &path, &cookie, Some(json!({})))
+        .admin(Method::POST, &path, &cookie, Some(json!({"mode":"daily"})))
         .await?
         .error_for_status()?
         .json()
@@ -250,13 +264,13 @@ async fn expiry_preserves_late_durable_reports_and_deleted_servers_cancel_work(
             Method::POST,
             &path,
             &cookie,
-            Some(json!({"ip_version":"ipv6","network_mode":"normal","upload_report":true})),
+            Some(json!({"mode":"daily","ip_version":"ipv6"})),
         )
         .await?
         .error_for_status()?
         .json()
         .await?;
-    assert_eq!(new["job"]["options"]["upload_report"], "true");
+    assert_eq!(new["job"]["options"]["upload_report"], "false");
     // This assertion exercises offline deletion; online deletion now requires retirement.
     socket.close(None).await?;
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
@@ -330,7 +344,7 @@ async fn report_readiness_and_quality_refresh_require_auth_and_preserve_unknown(
                 Method::POST,
                 &format!("{base}/reports"),
                 &cookie,
-                Some(json!({}))
+                Some(json!({"mode":"daily"}))
             )
             .await?
             .status(),
@@ -396,7 +410,7 @@ async fn report_readiness_and_quality_refresh_require_auth_and_preserve_unknown(
             Method::POST,
             &format!("{base}/reports"),
             &cookie,
-            Some(json!({})),
+            Some(json!({"mode":"daily"})),
         )
         .await?
         .error_for_status()?
@@ -435,6 +449,8 @@ async fn report_readiness_and_quality_refresh_require_auth_and_preserve_unknown(
     Ok(())
 }
 
+#[path = "diagnostics/cancellation.rs"]
+mod cancellation;
 #[sqlx::test(migrations = "./migrations")]
 async fn concurrent_quality_refresh_admits_one_request_and_keeps_unknown(
     pool: PgPool,
@@ -477,5 +493,144 @@ async fn concurrent_quality_refresh_admits_one_request_and_keeps_unknown(
             .iter()
             .all(|entry| entry.fields.is_empty() && !entry.historical)
     );
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn ip_and_nodequality_views_are_independent_and_legacy_routes_preserve_shape(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let server_id = panel.create_server(&cookie, "分离视图夹具").await?;
+    let ip_path = format!("/api/servers/{server_id}/ip-quality");
+    let legacy_path = format!("/api/servers/{server_id}/node-quality");
+    let report_path = format!("{legacy_path}/reports");
+    for (method, path) in [
+        (Method::GET, ip_path.clone()),
+        (Method::POST, format!("{ip_path}/refresh")),
+        (Method::GET, report_path.clone()),
+        (Method::GET, legacy_path.clone()),
+        (Method::POST, format!("{legacy_path}/refresh")),
+    ] {
+        assert_eq!(
+            panel
+                .client
+                .request(method, format!("{}{path}", panel.base))
+                .send()
+                .await?
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    sqlx::query("UPDATE servers SET static_info=$2 WHERE id=$1")
+        .bind(server_id)
+        .bind(json!({"ip_addresses":["192.0.2.1"]}))
+        .execute(&panel.state.pool)
+        .await?;
+    let report_id = Uuid::new_v4();
+    let now = sinan_protocol::now_timestamp();
+    let old_job = json!({"options":{"ip_version":"ipv4","network_mode":"low"}});
+    let old_report = json!({"text":"拆分前的历史报告","report_url":null});
+    sqlx::query("INSERT INTO diagnostic_jobs(id,server_id,job,status,report,created_at,updated_at,expires_at) VALUES($1,$2,$3,'succeeded',$4,$5,$5,$5+60)")
+        .bind(report_id).bind(server_id).bind(&old_job).bind(&old_report).bind(now).execute(&panel.state.pool).await?;
+    let refreshed: Value = panel
+        .admin(Method::POST, &format!("{ip_path}/refresh"), &cookie, None)
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(refreshed[0]["status"], "failed");
+    let ip: Value = panel
+        .admin(Method::GET, &ip_path, &cookie, None)
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(ip["ip_addresses"], json!(["192.0.2.1"]));
+    assert_eq!(ip["quality"], refreshed);
+    assert!(ip.get("reports").is_none() && ip.get("plugin_ready").is_none());
+    let node: Value = panel
+        .admin(Method::GET, &report_path, &cookie, None)
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(node["plugin_ready"], false);
+    assert_eq!(node["cancel_supported"], false);
+    assert!(node.get("quality").is_none() && node.get("ip_addresses").is_none());
+    assert_eq!(node["reports"][0]["id"], report_id.to_string());
+    assert_eq!(node["reports"][0]["job"], old_job);
+    assert_eq!(node["reports"][0]["report"], old_report);
+    let legacy: Value = panel
+        .admin(Method::GET, &legacy_path, &cookie, None)
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    for (key, value) in ip
+        .as_object()
+        .unwrap()
+        .iter()
+        .chain(node.as_object().unwrap())
+    {
+        if key == "proxy_activity" {
+            for field in ["state", "reason", "last_positive_at"] {
+                assert_eq!(legacy[key][field], value[field]);
+            }
+            assert!(
+                legacy[key]["checked_at"].as_i64().unwrap()
+                    >= value["checked_at"].as_i64().unwrap()
+            );
+        } else {
+            assert_eq!(&legacy[key], value);
+        }
+    }
+    assert_eq!(
+        panel
+            .admin(
+                Method::POST,
+                &format!("{legacy_path}/refresh"),
+                &cookie,
+                None
+            )
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    // A damaged IP cache must not prevent reading already completed reports.
+    sqlx::query("UPDATE server_ip_quality SET payload=$2 WHERE server_id=$1")
+        .bind(server_id)
+        .bind(json!("malformed fixture cache"))
+        .execute(&panel.state.pool)
+        .await?;
+    assert_eq!(
+        panel
+            .admin(Method::GET, &ip_path, &cookie, None)
+            .await?
+            .status(),
+        StatusCode::INTERNAL_SERVER_ERROR
+    );
+    let readable: Value = panel
+        .admin(Method::GET, &report_path, &cookie, None)
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(readable["reports"][0]["report"], old_report);
+    sqlx::query("UPDATE servers SET deleted_at=$2 WHERE id=$1")
+        .bind(server_id)
+        .bind(now)
+        .execute(&panel.state.pool)
+        .await?;
+    for path in [&ip_path, &report_path, &legacy_path] {
+        assert_eq!(
+            panel
+                .admin(Method::GET, path, &cookie, None)
+                .await?
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
     Ok(())
 }

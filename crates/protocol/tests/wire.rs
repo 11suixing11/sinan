@@ -332,6 +332,7 @@ fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
             sha256: "a".repeat(64),
         },
         timeout_secs: 1800,
+        resource_budget:None,
         expires_at: Some(1_790_003_600),
         options: BTreeMap::from([
             ("ip_version".into(), "both".into()),
@@ -339,6 +340,24 @@ fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
         ]),
     };
     roundtrip(job.clone());
+    assert!(
+        serde_json::to_value(&job)
+            .unwrap()
+            .get("resource_budget")
+            .is_none()
+    );
+    let mut budgeted = job.clone();
+    budgeted.resource_budget = Some(sinan_protocol::DiagnosticResourceBudget {
+        memory_max: 64 * 1024 * 1024,
+        tasks_max: 32,
+        cpu_weight: 10,
+        io_weight: 10,
+        oom_score_adjust: 500,
+    });
+    let mut unsafe_budget = serde_json::to_value(&budgeted).unwrap();
+    unsafe_budget["resource_budget"]["command"] = json!("arbitrary-command");
+    assert!(serde_json::from_value::<DiagnosticJob>(unsafe_budget).is_err());
+    roundtrip(budgeted);
     let mut wire = serde_json::to_value(&job).unwrap();
     wire["future_option"] = json!(true);
     assert_eq!(serde_json::from_value::<DiagnosticJob>(wire).unwrap(), job);
@@ -394,4 +413,57 @@ fn runtime_libc_preserves_absence_and_rejects_explicit_non_string_values() {
                 .is_err()
         );
     }
+}
+
+#[test]
+fn cancellation_messages_bind_known_tasks_and_require_explicit_confirmation() {
+    let job = DiagnosticJob {
+        resource_budget: None,
+        id: Uuid::from_u128(19),
+        plugin: "nodequality".into(),
+        version: "fixed-version".into(),
+        artifact: Artifact {
+            url: "https://panel.example.invalid/fixed-artifact".into(),
+            sha256: "a".repeat(64),
+            proof: None,
+        },
+        timeout_secs: 1800,
+        expires_at: Some(1_790_003_600),
+        options: BTreeMap::new(),
+    };
+    let request = DiagnosticCancelRequest {
+        server_id: 3,
+        job: job.clone(),
+    };
+    let result = DiagnosticCancelResult {
+        server_id: 3,
+        id: job.id,
+        plugin: job.plugin,
+        confirmed: true,
+        report: None,
+        error: None,
+    };
+    for message in [
+        Message::DiagnosticCancelRequest(request.clone()),
+        Message::DiagnosticCancelResult(result.clone()),
+    ] {
+        let envelope = message.clone().into_envelope().unwrap();
+        assert_eq!(envelope.decode().unwrap(), message);
+        assert_eq!(envelope.message_type, message.message_type());
+    }
+    let mut arbitrary_unit = serde_json::to_value(request).unwrap();
+    arbitrary_unit["unit"] = json!("unrelated.service");
+    assert!(serde_json::from_value::<DiagnosticCancelRequest>(arbitrary_unit).is_err());
+    let mut missing_confirmation = serde_json::to_value(result).unwrap();
+    missing_confirmation
+        .as_object_mut()
+        .unwrap()
+        .remove("confirmed");
+    assert!(serde_json::from_value::<DiagnosticCancelResult>(missing_confirmation).is_err());
+    assert!(
+        serde_json::from_value::<DiagnosticUpdate>(
+            json!({"id":Uuid::from_u128(19),"status":"cancelled"})
+        )
+        .is_err()
+    );
 }

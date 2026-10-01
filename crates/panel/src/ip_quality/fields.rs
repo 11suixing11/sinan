@@ -99,6 +99,21 @@ fn definitions(database: &str) -> &'static [(&'static str, &'static str, Quality
                 QualityFieldKind::Score,
             ),
         ],
+        "abuseipdb-v2" => &[
+            ("/data/usageType", "用途类型", QualityFieldKind::Text),
+            (
+                "/data/countryCode",
+                "国家代码",
+                QualityFieldKind::CountryCode,
+            ),
+            ("/data/isp", "ISP", QualityFieldKind::Text),
+            ("/data/isTor", "Tor", QualityFieldKind::Boolean),
+            (
+                "/data/abuseConfidenceScore",
+                "滥用置信度（0–100 原值）",
+                QualityFieldKind::Score,
+            ),
+        ],
         "ip2location" => &[
             (
                 "/fraud_score",
@@ -198,7 +213,10 @@ fn score(value: &Value) -> Option<f64> {
         .filter(|number| *number >= 0.0)
 }
 
-fn valid(kind: QualityFieldKind, value: &Value) -> bool {
+fn valid_field(database: &str, kind: QualityFieldKind, value: &Value) -> bool {
+    if database == "abuseipdb-v2" && matches!(kind, QualityFieldKind::Score) {
+        return value.as_u64().is_some_and(|number| number <= 100);
+    }
     match kind {
         QualityFieldKind::Text => value.as_str().is_some_and(meaningful_text),
         QualityFieldKind::CountryCode => value.as_str().is_some_and(|text| {
@@ -218,7 +236,7 @@ fn valid(kind: QualityFieldKind, value: &Value) -> bool {
     }
 }
 
-fn confirmed_response(value: &Value) -> bool {
+pub(super) fn confirmed_response(value: &Value) -> bool {
     if !value.is_object() {
         return false;
     }
@@ -255,7 +273,7 @@ pub(super) fn parse_fields(database: &str, value: &Value) -> Vec<QualityField> {
         .iter()
         .filter_map(|(path, label, kind)| {
             let value = value.pointer(path)?;
-            if !valid(*kind, value) {
+            if !valid_field(database, *kind, value) {
                 return None;
             }
             let value = match value {
@@ -283,7 +301,7 @@ pub(super) fn confirmed_cached_fields(
                 .find(|(_, label, _)| *label == field.label)
             {
                 field.kind = Some(*kind);
-                valid(*kind, &field.value).then_some(field)
+                valid_field(database, *kind, &field.value).then_some(field)
             } else {
                 // Legacy/custom labels retain valid scalars without guessing their semantics.
                 let valid = match &field.value {

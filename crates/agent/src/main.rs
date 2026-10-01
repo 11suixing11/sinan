@@ -6,6 +6,8 @@ use clap::{Parser, Subcommand};
 use sinan_adapter_nodequality::NodeQualityAdapter;
 use sinan_adapter_sdk::{Adapter, DiagnosticAdapter, Privileged, ServiceManager};
 use sinan_adapter_singbox::SingboxAdapter;
+#[cfg(target_os = "linux")]
+use sinan_adapter_tcpquality::TcpQualityAdapter;
 use sinan_agent_core::{
     Config, identity,
     system::{ServiceBackend, SystemOps, SystemServiceManager},
@@ -142,7 +144,10 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
             let diagnostics: Vec<Arc<dyn DiagnosticAdapter>> = if monitor_only {
                 Vec::new()
             } else {
-                vec![Arc::new(NodeQualityAdapter::new())]
+                vec![
+                    Arc::new(NodeQualityAdapter::new()),
+                    Arc::new(TcpQualityAdapter::new()),
+                ]
             };
             #[cfg(not(target_os = "linux"))]
             let diagnostics: Vec<Arc<dyn DiagnosticAdapter>> = Vec::new();

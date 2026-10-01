@@ -41,6 +41,7 @@ docker compose --project-name sinan --env-file .env \
 | `SINAN_BIND_ADDRESS` | 默认 `127.0.0.1`，宿主机监听地址 |
 | `SINAN_PORT` | 默认 `8080`，宿主机端口 |
 | `RUST_LOG` | 默认 `info` |
+| `SINAN_ABUSEIPDB_API_KEY` | 可选，仅保存在私有环境配置；为空/无效时官方查询入口未启用且信息未知 |
 
 接入远端 Agent **之前**，将 `SINAN_PUBLIC_URL` 改为远端可访问的地址，例如自己的 HTTPS 域名，再执行 `docker compose … up -d --build --wait` 重建面板容器以应用环境变量；仅执行 `restart` 不会更新容器环境。公网部署应通过 HTTPS 反向代理；代理需支持 `/api/agent/v1/ws` 的 WebSocket 升级和长连接。若反向代理位于同一宿主机，可继续只监听回环地址；确需直接暴露端口时显式设置 `SINAN_BIND_ADDRESS`。这里不配置防火墙，管理员自行保证面板和节点端口可达。
 
@@ -97,7 +98,7 @@ SQL
 
 正常部署无需在服务器编译运行时或 `docker cp` 制品。进入面板“制品”，输入官方仓库已发布的 `agent-v…` 标签，点击“导入制品”。只有已正式发布、签名通过且所有资产齐全的 Release 可导入；草稿、缺签名、错误版本、归档或摘要不一致均拒绝，现有集合保持不变。完整导入后才能用于设备接入和配置发布。
 
-正式发布工作流当前生成 Linux amd64/arm64 的 Agent、固定版本运行时、NodeQuality r2、固定安装器、`release.json`、`SHA256SUMS` 与 `SHA256SUMS.minisig`。Linux musl 静态 Agent 保留原制品目录。自动 CI 的 Agent 矩阵仅含 musl amd64/arm64；GNU、macOS、Windows、FreeBSD 与完整运行时矩阵保留在仅手动触发的 `platforms.yml`，详见 [设备平台与能力](platforms.md)。原生生产部署还需独立验证来源的已签平台 bundle，不能直接使用日常 CI 的 TEST_ONLY 制品。
+发布工作流从选定源码构建 Linux amd64/arm64 的 Agent、固定版本运行时、当前 NodeQuality 包装器、固定安装器、`release.json`、`SHA256SUMS` 与 `SHA256SUMS.minisig`；当前源码默认包装器为 r5，已冻结的旧草稿候选仍为 r2，只有独立验证并正式发布的新 Release 才能导入。Linux musl 静态 Agent 保留原制品目录。自动 CI 的 Agent 矩阵仅含 musl amd64/arm64；GNU、macOS、Windows、FreeBSD 与完整运行时矩阵保留在仅手动触发的 `platforms.yml`，详见 [设备平台与能力](platforms.md)。原生生产部署还需独立验证来源的已签平台 bundle，不能直接使用日常 CI 的 TEST_ONLY 制品。
 
 面板核对签名、仓库/tag、架构、版本、归档内容和安装后二进制摘要，完成后一次发布整个目录。相同组件版本不能用不同内容覆盖。Agent 下载后独立以自身内嵌公钥再次验证，运行时服务启动前也复验本地签名缓存。
 
@@ -205,20 +206,20 @@ public_ips = ["192.0.2.10", "2001:db8::10"]
 
 点击“刷新 IP 质量”时，由面板访问 NodeQuality 使用的 [IPQuality](https://github.com/xykt/IPQuality) 数据库接口，查询位置、ASN、用途、风险及代理等信息。各数据库独立展示，包含更新时间、原始字段和错误；第三方数据可能缺失或互相矛盾，不合成为一个无依据的总分。私网和回环地址不向外部接口查询。本次开发环境对该接口的实际请求返回 403，因此记录了服务错误；成功字段解析和失败处理通过受控 HTTP 夹具验证，不能据此宣称线上数据库服务当前可用。
 
-完整报告使用已导入签名 Release 中的 NodeQuality 外插，按前述流程导入即可；单独编译或拷贝未签名目录不能代替验签导入。外插固定 [NodeQuality 上游提交](https://github.com/LloydAsp/NodeQuality/tree/a92fca6c0067df29ddd03fdc2fee6f3000f64545)，保留原样源码和许可证，版本为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2`。旧制品不能覆盖；默认关闭公开上传需要面板、支持该选项的 Agent 与 `-r2` 外插共同支持，旧的已排队或运行任务继续使用创建时的选项。
+日常检查使用已导入签名 Release 中的 NodeQuality 外插；完整验机目前暂停新任务，原因在界面显示。单独编译或拷贝未签名目录不能代替验签导入。外插固定 [NodeQuality 上游提交](https://github.com/LloydAsp/NodeQuality/tree/a92fca6c0067df29ddd03fdc2fee6f3000f64545)，保留原样源码和许可证，版本为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5`。旧制品不能覆盖；历史顶层上传开关不能证明内层脚本零上传；旧排队完整任务保存明确失败原因，已有 Started 继续收集与取消，不重新执行。
 
 上游固定下载 amd64 版 NextTrace；包装器在 ARM64 节点仅将这条下载命令映射到官方 arm64 资产。外插工作路径不能包含空白或 shell 通配符，使用默认目录即可。
 
-目标服务器需要 Linux systemd、root、Bash、curl 和 Python 3，并能访问上游 BenchOS、测试和报告服务；最小 Debian 系统可先安装：
+日常目标服务器需要 Linux systemd、root、Bash、Python 3 与面板制品访问；已配置 TCP 目标决定实际探测范围。最小 Debian 系统可先安装：
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y bash curl python3 ca-certificates
 ```
 
-在服务器详情点击“一键获取报告”，选择双栈/IPv4/IPv6和低流量/普通网络测试。任务运行硬件、IP、网络和回程测试，会消耗真实 CPU、磁盘和带宽；默认关闭公开报告上传，并采用低流量网络模式。只有创建任务时勾选“上传报告并生成公开链接”，才允许上传到 NodeQuality；报告可能包含节点网络和硬件信息。任务在该节点的独立 systemd 服务运行，Agent 重启后继续观察，不重复执行；每台服务器同时只允许一个任务。
+服务器详情的“日常检查”只查询逐源 IP 缓存和已配置的有限 TCP 目标，不执行硬件、rootfs 或公开测速；固定 64MiB/32tasks，仍要求 256MiB 启动预留与 2GiB 磁盘。完整验机按钮禁用并显示离线受控工具链未就绪。新面板与 Agent 应一起升级；门禁前旧 Agent 已领取任务需升级或取得取消确认，面板不能撤回已返回的 HTTP。已有任务的章节、文本、原版本和签名身份保留，每台服务器仍只允许一个任务。
 
-界面显示排队、运行、成功或失败，并保留本地文本报告及可用的在线链接。在线上传失败时，本地报告仍可查看。任务有整体运行时限；未安装依赖、上游下载失败、报告缺失和超时均返回错误。上游 chroot 用于隔离测试文件，systemd 使用独立挂载命名空间处理清理，不提供针对不可信程序的安全沙箱。外插按用户选择运行，运行时外网访问是 [ADR 0016](adr/0016-nodequality-diagnostics.md) 明确记录的例外。
+界面显示排队、运行、成功或失败，并保留本地文本报告及可用的在线链接。在线上传失败时，本地报告仍可查看。固定上游在正常清理分支也返回 1；历史 r5 包装器仅在确认原入口 `main → post_cleanup` 的末尾退出分支且完整本地报告通过校验时将该特例记作成功，原返回值仍保存在 `upstream-exit.txt`。任意早退、信号清理、清理拒绝或缺报告不会因此成功；可选上传 HTTP 403 或传输失败单独显示告警。任务有整体运行时限；未安装依赖、上游下载失败、报告缺失和超时均返回错误。上游 chroot 用于隔离测试文件，systemd 使用独立挂载命名空间处理清理，不提供针对不可信程序的安全沙箱。[ADR0016](adr/0016-nodequality-diagnostics.md) 记录旧工具链的外网例外；新完整执行已由 [ADR0031](adr/0031-nodequality-full-start-gate.md) 暂停，不能以这一例外绕过门禁。
 
 面板报告文本最多 256 KiB，超过时显示截断说明；原始 `report.zip` 默认保存在节点的 `/var/lib/sinan/plugins/diagnostics/<任务 UUID>/`，可由管理员在节点本地读取。
 
@@ -243,3 +244,9 @@ sudo --preserve-env=SINAN_PANEL_URL,SINAN_USER_ID,SINAN_NODE_ID \
 Agent 在托管应用前读取终值，再打开新计量周期；外部强制重载或异常进程退出可能留下不可观测的短采样窗口，会记录告警。已经在本地 outbox 落盘的批次可重发，面板事务去重后确认；这不代表能恢复从未采集到的字节。脚本默认不修改 outbox 来伪造丢失确认，丢 ACK 重传由自动化集成测试覆盖。
 
 未包含配额、计费、链式代理、其他代理协议、多管理员或权限体系。订阅 URL 是用户访问凭据，应仅交给对应用户。
+
+## 正式 IP 查询来源
+
+IP 信息页区分一个 check-place 聚合入口和 AbuseIPDB 官方接口。要启用官方查询，在私有 `.env` 中填写自己账户的 `SINAN_ABUSEIPDB_API_KEY`，重建容器环境后生效；不要提交或粘贴密钥到面板/Issue/日志。没有密钥时不会访问该接口，页面提供不可用原因。凭据改变不删除既有快照；关闭入口后保存结果显示为历史。真实额度、授权和官方网络可达性需要单独验证，403/429 不会重试或更改 UA。
+
+官方接口固定只读 CHECK、30 天报告窗口，不请求 verbose，不包含报告人资料或上传/写入。评分保留官方原值，不等于“干净”。面板查询不能证明节点流媒体解锁，IPQuality 节点自查目前未启用，详情见 [ADR 0027](adr/0027-ip-provider-adapters.md)。

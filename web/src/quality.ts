@@ -9,6 +9,7 @@ const legacyKinds: Record<string, Record<string, FieldKind>> = {
   ipapi: { 'ASN 类型': 'text', 组织类型: 'text', '滥用评分（上游原值）': 'score', 国家代码: 'country_code', 代理: 'boolean', Tor: 'boolean', VPN: 'boolean', 数据中心: 'boolean', 滥用: 'boolean', 爬虫: 'boolean' },
   scamalytics: { '风险评分（上游原值）': 'score', VPN: 'boolean', 数据中心: 'boolean', 外部黑名单: 'boolean', 'FireHOL 代理': 'boolean', 'X4B Tor': 'boolean', 国家代码: 'country_code' },
   abuseipdb: { 用途类型: 'text', '滥用置信度（上游原值）': 'score' },
+  'abuseipdb-v2': { 用途类型: 'text', 国家代码: 'country_code', ISP: 'text', Tor: 'boolean', '滥用置信度（0–100 原值）': 'score' },
   ip2location: { '欺诈评分（上游原值）': 'score', 国家代码: 'country_code', 用途类型: 'text', 'ASN 用途': 'text', 代理: 'boolean', 公共代理: 'boolean', 网页代理: 'boolean', Tor: 'boolean', VPN: 'boolean', 数据中心: 'boolean', 垃圾邮件: 'boolean', 爬虫: 'boolean', 扫描器: 'boolean', 僵尸网络: 'boolean' },
   ipdata: { 国家代码: 'country_code', 代理: 'boolean', Tor: 'boolean', 数据中心: 'boolean', 威胁: 'boolean', 已知滥用: 'boolean', 已知攻击者: 'boolean' },
   ipqualityscore: { '欺诈评分（上游原值）': 'score', 国家代码: 'country_code', 代理: 'boolean', Tor: 'boolean', VPN: 'boolean', 近期滥用: 'boolean', 机器人: 'boolean' },
@@ -24,6 +25,7 @@ export function qualityValue(field: QualityField, database?: string): string | u
   if (kind != null && !kinds.includes(kind)) return undefined
   if (value == null || typeof value === 'object') return undefined
   if (typeof value === 'string' && !meaningfulText(value)) return undefined
+  if (database === 'abuseipdb-v2' && kind === 'score' && (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 100)) return undefined
   if (kind === 'boolean' && typeof value !== 'boolean') return undefined
   if (kind === 'text' && typeof value !== 'string') return undefined
   if (kind === 'country_code' && (typeof value !== 'string' || !/^[a-z]{2}$/i.test(value))) return undefined

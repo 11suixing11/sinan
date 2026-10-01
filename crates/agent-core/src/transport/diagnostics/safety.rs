@@ -7,7 +7,10 @@ const MAX_LOAD_PER_CPU: f64 = 1.5;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 impl DiagnosticWorker {
-    pub(super) async fn preflight(&self, service: &ServiceJob) -> Result<()> {
+    pub(super) async fn preflight(
+        &self,
+        service: &ServiceJob,
+    ) -> Result<sinan_adapter_sdk::DiagnosticResources> {
         let resources = tokio::time::timeout(
             PROBE_TIMEOUT,
             self.privileged
@@ -59,7 +62,7 @@ impl DiagnosticWorker {
                 .collect::<Vec<_>>()
                 .join("、")
         );
-        Ok(())
+        Ok(resources)
     }
 
     pub(super) async fn status_with_memory_protection(
