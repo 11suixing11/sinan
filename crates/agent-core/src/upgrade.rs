@@ -144,7 +144,11 @@ async fn check_guarded(
         return Ok(());
     }
     let bytes = client
-        .agent_binary(&release.artifact, &release.version)
+        .agent_binary(
+            &release.artifact,
+            &release.version,
+            &release.download_mirror,
+        )
         .await?;
     active()?;
     ensure!(

@@ -1,5 +1,6 @@
 mod cache;
 mod cancellation;
+mod github;
 use crate::config::validate_panel_url;
 mod preflight;
 #[cfg(test)]
@@ -44,6 +45,8 @@ pub struct PanelClient {
     panel: Url,
     session_token: String,
     keys: std::result::Result<TrustedKeys, ReleaseError>,
+    #[cfg(test)]
+    pub(crate) agent_download_test_origin: Option<Url>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -88,25 +91,47 @@ pub fn validate_bundle_files(bundle: &Bundle) -> Result<()> {
 }
 
 impl PanelClient {
-    pub(crate) async fn agent_binary(&self, artifact: &Artifact, version: &str) -> Result<Vec<u8>> {
+    pub(crate) async fn agent_binary(
+        &self,
+        artifact: &Artifact,
+        version: &str,
+        mirror: &str,
+    ) -> Result<Vec<u8>> {
         let proof = artifact
             .proof
             .as_ref()
             .context("Agent update has no signed release proof")?;
         let release = verification::signed_release(proof, self.keys()?)?;
         let verified = release.native_artifact("agent", version)?;
-        let url = self.validate_url(&artifact.url)?;
+        let expected = format!(
+            "https://github.com/{}/releases/download/{}/{}",
+            release.metadata().source_repo,
+            release.metadata().tag,
+            verified.metadata().asset_name
+        );
         ensure!(
             verified.metadata().format == "raw"
                 && verified.metadata().binary_name == crate::system::deploy::executable_name()
-                && url.path() == format!("/api/agent/v1/artifacts/{}", verified.path()),
+                && artifact.url == expected,
             "Agent update identity differs from signed release"
         );
         ensure!(
             normalized_hash(&artifact.sha256)? == verified.sha256(),
             "Agent update SHA256 differs from signed release"
         );
-        let bytes = self.download(&artifact.url, 128 * 1024 * 1024).await?;
+        let url = github::download_url(&expected, mirror, &self.panel)?;
+        #[cfg(test)]
+        let url = self
+            .agent_download_test_origin
+            .as_ref()
+            .map_or(url.clone(), |origin| origin.join(url.path()).unwrap());
+        let bytes = github::download(
+            url,
+            mirror,
+            &self.panel,
+            verified.metadata().archive_size as usize,
+        )
+        .await?;
         verified.verify_archive(&bytes)?;
         verified.verify_binary(&bytes)?;
         Ok(bytes)
@@ -169,6 +194,8 @@ impl PanelClient {
             panel: validate_panel_url(panel_url)?,
             session_token: session_token.to_owned(),
             keys: TrustedKeys::compiled(),
+            #[cfg(test)]
+            agent_download_test_origin: None,
         })
     }
 

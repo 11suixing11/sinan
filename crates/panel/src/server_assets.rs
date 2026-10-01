@@ -9,6 +9,8 @@ pub struct AssetSettings {
     pub group_name: String,
     pub tags: Vec<String>,
     pub hidden: bool,
+    pub offline_notify: bool,
+    pub agent_mirror: String,
     pub price: Option<String>,
     pub currency: String,
     pub billing_cycle: u16,
@@ -50,6 +52,8 @@ impl Default for AssetSettings {
             group_name: String::new(),
             tags: Vec::new(),
             hidden: false,
+            offline_notify: true,
+            agent_mirror: String::new(),
             price: None,
             currency: "CNY".into(),
             billing_cycle: 30,
@@ -69,6 +73,30 @@ fn text(value: &str, maximum: usize) -> bool {
 
 impl AssetSettings {
     pub fn normalized(mut self) -> ApiResult<Self> {
+        self.agent_mirror = self.agent_mirror.trim().trim_end_matches('/').into();
+        if !self.agent_mirror.is_empty() {
+            let valid = reqwest::Url::parse(&self.agent_mirror)
+                .ok()
+                .is_some_and(|url| {
+                    url.scheme() == "https"
+                        && url.port_or_known_default() == Some(443)
+                        && url.username().is_empty()
+                        && url.password().is_none()
+                        && url.query().is_none()
+                        && url.fragment().is_none()
+                        && url
+                            .host_str()
+                            .is_some_and(|host| host != "localhost" && url.domain().is_some())
+                });
+            if !valid
+                || self.agent_mirror.len() > 512
+                || self.agent_mirror.chars().any(char::is_control)
+            {
+                return Err(ApiError::BadRequest(
+                    "下载加速需为不含凭据、查询参数或片段的 HTTPS 镜像前缀".into(),
+                ));
+            }
+        }
         self.region = self.region.trim().to_uppercase();
         self.group_name = self.group_name.trim().into();
         if !text(&self.region, 16) || !text(&self.group_name, 40) || self.tags.len() > 16 {

@@ -69,9 +69,9 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' HUP TERM
 TOKEN=$(cat "$TOKEN_FILE")
-# Agent downloads remain same-origin panel bootstrap requests.
+# Bootstrap already downloaded this asset from GitHub and verified the signed proof.
 python3 -I - "$BUNDLE" "$VERSION" "$ARCH" "$DOWNLOAD/sinan-agent" "$PANEL" "$TOKEN_FILE" <<'PY'
-import hashlib, ipaddress, json, pathlib, re, sys, time, urllib.parse, urllib.request
+import hashlib, ipaddress, json, pathlib, re, sys, urllib.parse
 
 def ensure(condition, message):
     if not condition:
@@ -125,38 +125,12 @@ for line in ordinary(root / 'SHA256SUMS', 8192).decode('utf-8').splitlines():
     checksums[match[2]] = match[1]
 ensure(checksums.get('release.json') == hashlib.sha256(metadata_bytes).hexdigest(), '已签 metadata 摘要不匹配')
 ensure(checksums.get('agent/' + version + '/' + arch) == item['binary_sha256'], '已签 Agent 摘要不匹配')
-token = ordinary(token_file, 8192).decode('utf-8')
-url = (panel.rstrip('/') + '/api/bootstrap/' + urllib.parse.quote(version, safe='')
-       + '/' + arch + '?' + urllib.parse.urlencode({'token': token}))
-
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, request, response, code, message, headers, new_url):
-        raise ValueError('面板制品下载禁止重定向')
-
-opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-deadline = time.monotonic() + 300
-try:
-    with opener.open(url, timeout=20) as response:
-        ensure(response.status == 200 and response.url == url, '面板制品响应无效')
-        declared = response.headers.get('Content-Length')
-        ensure(declared is None or int(declared) == expected_size, '面板 Agent 长度不匹配')
-        total, digest = 0, hashlib.sha256()
-        with asset.open('xb') as output:
-            while True:
-                ensure(time.monotonic() < deadline, 'Agent 下载超时')
-                block = response.read1(min(65536, expected_size + 1 - total))
-                ensure(time.monotonic() < deadline, 'Agent 下载超时')
-                if not block:
-                    break
-                total += len(block)
-                ensure(total <= expected_size, '面板 Agent 超出已签大小上限')
-                output.write(block)
-                digest.update(block)
-        ensure(total == expected_size, '面板 Agent 长度不匹配')
-        ensure(digest.hexdigest() == item['binary_sha256'], '面板 Agent 摘要不匹配，拒绝执行')
-except BaseException:
-    asset.unlink(missing_ok=True)
-    raise
+source = root / expected_name
+payload = ordinary(source, expected_size)
+ensure(len(payload) == expected_size, 'Agent 长度不匹配')
+ensure(hashlib.sha256(payload).hexdigest() == item['binary_sha256'], 'Agent 摘要不匹配，拒绝执行')
+with asset.open('xb') as output:
+    output.write(payload)
 PY
 install -d -m 0755 -o root -g root /opt/sinan /opt/sinan/core
 STAGE=$(mktemp -d /opt/sinan/core/.bootstrap.XXXXXX)

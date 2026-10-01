@@ -27,8 +27,9 @@ try {
     const privateIps = ['10.0.0.2', '172.17.0.1', '192.168.0.1', 'fd00::1', 'fd12:3456:789a:abcd:1234:5678:9abc:def0']
     let mode = 'mixed', refreshes = 0
     await page.route('**/api/**', async route => {
-      const request = route.request(), path = new URL(request.url()).pathname
+      const request = route.request(), path = new URL(request.url()).pathname.replace('/api/dashboard/', '/api/')
       let data
+      if (path === '/api/access') return route.fulfill({ json: { authenticated: true, public_dashboard: false } })
       if (path === '/api/me') data = {}
       else if (path === '/api/servers/1') data = { id: 1, name: 'IP 分类验收夹具', online: true, static_info: {}, latest_metrics: {}, capabilities: [] }
       else if (path === '/api/servers/1/ip-quality') {

@@ -31,7 +31,8 @@ try {
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname
     let value
-    if (path === '/api/me') value = { authenticated: true }
+    if (path === '/api/dashboard/access') return route.fulfill({ json: { authenticated: true, public_dashboard: false } })
+      if (path === '/api/me') value = { authenticated: true }
     else if (path === '/api/servers/1') value = { id: 1, name: '取消验收夹具', online: true, device_public_key: 'test-only-key', static_info: {}, latest_metrics: {}, last_seen: now, manifest_rev: 0, capabilities: [] }
     else if (path === '/api/plugins/sing-box/servers/1') value = { id: 1, name: '取消验收夹具', enabled: true, source: 'administrator', read_only: false, online: true, agent_supported: true }
     else if (path === '/api/plugins/sing-box/servers/1/deployments') value = { status: null, history: [] }

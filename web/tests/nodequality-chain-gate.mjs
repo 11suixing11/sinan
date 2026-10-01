@@ -34,9 +34,10 @@ try {
   let records = [], dailyPosts = 0, fullPosts = 0, cancelPosts = 0, refreshPosts = 0
   let ready = true
   await page.route('**/api/**', async route => {
-    const request = route.request(), path = new URL(request.url()).pathname
+    const request = route.request(), path = new URL(request.url()).pathname.replace('/api/dashboard/', '/api/')
     let value
-    if (path === '/api/me') value = { authenticated: true }
+    if (path === '/api/access') return route.fulfill({ json: { authenticated: true, public_dashboard: false } })
+      if (path === '/api/me') value = { authenticated: true }
     else if (path === '/api/servers/1') value = { id: 1, name: '工具链门禁夹具', online: true, device_public_key: 'TEST_ONLY', static_info: {}, latest_metrics: {}, last_seen: now, manifest_rev: 0, capabilities: [] }
     else if (path === '/api/servers/1/deployments') value = { status: null, history: [] }
     else if (path === '/api/servers/1/agent-settings') value = { sample_interval_secs: 1, upload_interval_secs: 3, discover_public_ips: false, auto_update: false }

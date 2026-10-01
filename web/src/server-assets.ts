@@ -1,6 +1,6 @@
 import type { ServerAssets } from './types'
 
-export const defaultAssets: ServerAssets = { region: '', group_name: '', tags: [], hidden: false, price: null, currency: 'CNY', billing_cycle: 30, expires_at: null, auto_renewal: false, traffic_limit: '0', traffic_limit_type: 'sum', reset_day: 1, network_interface: '' }
+export const defaultAssets: ServerAssets = { region: '', group_name: '', tags: [], hidden: false, offline_notify: true, agent_mirror: '', price: null, currency: 'CNY', billing_cycle: 30, expires_at: null, auto_renewal: false, traffic_limit: '0', traffic_limit_type: 'sum', reset_day: 1, network_interface: '' }
 export const trafficModes = { sum: '上下行合计', max: '取较大值', min: '取较小值', up: '仅上行', down: '仅下行' }
 export const trafficUnits = { GB: 1_000_000_000n, TB: 1_000_000_000_000n, GiB: 1n << 30n, TiB: 1n << 40n, B: 1n }
 export type TrafficUnit = keyof typeof trafficUnits
@@ -31,7 +31,7 @@ export function parseTraffic(amount: string, unit: TrafficUnit): string {
 export function assetPayload(draft: AssetDraft): ServerAssets {
   const expires_at = draft.expiry ? Date.parse(`${draft.expiry}T00:00:00Z`) / 1000 : null
   if (expires_at !== null && !Number.isFinite(expires_at)) throw new Error('到期日期无效。')
-  return { region: draft.region.trim().toUpperCase(), group_name: draft.group_name.trim(), tags: [...new Set(draft.tags.split(/[,，]/).map(value => value.trim()).filter(Boolean))], hidden: draft.hidden, price: draft.price.trim() || null, currency: draft.currency, billing_cycle: Number(draft.billing_cycle), expires_at, auto_renewal: draft.auto_renewal, traffic_limit: parseTraffic(draft.amount, draft.unit), traffic_limit_type: draft.traffic_limit_type, reset_day: Number(draft.reset_day), network_interface: draft.network_interface.trim() }
+  return { region: draft.region.trim().toUpperCase(), group_name: draft.group_name.trim(), tags: [...new Set(draft.tags.split(/[,，]/).map(value => value.trim()).filter(Boolean))], hidden: draft.hidden, offline_notify: draft.offline_notify, agent_mirror: draft.agent_mirror.trim(), price: draft.price.trim() || null, currency: draft.currency, billing_cycle: Number(draft.billing_cycle), expires_at, auto_renewal: draft.auto_renewal, traffic_limit: parseTraffic(draft.amount, draft.unit), traffic_limit_type: draft.traffic_limit_type, reset_day: Number(draft.reset_day), network_interface: draft.network_interface.trim() }
 }
 
 export function trafficSize(value: string | null | undefined): string {
