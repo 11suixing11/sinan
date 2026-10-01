@@ -26,7 +26,23 @@ try {
     const node = { id: 2, name: '插件代理节点', server_id: 1, protocol: 'vless-reality', port: 443, public_host: 'proxy.example.com', sni: 'www.example.com', public_key: 'public-test', short_id: '0123abcd' }
     const exitNode = { ...node, id: 3, name: '另一台服务器的出口', server_id: 2, public_host: 'exit.example.com' }
     const chains = []
-    let chainsFailure = false
+    const additionalNodes = [
+      { ...node, id: 4, server_id: 3, name: '其他服务器入口' },
+      { ...node, id: 5, server_id: 4, name: '其他服务器出口' },
+      { ...node, id: 6, server_id: 5, name: '反向筛选入口' },
+      { ...node, id: 7, server_id: 1, name: '本服务器的链路出口' },
+    ]
+    const additionalChains = [
+      { id: 10, name: '无关服务器链路', entry_node_id: 4, exit_node_id: 5, available: true },
+      { id: 11, name: '本服务器作为出口', entry_node_id: 6, exit_node_id: 7, available: true },
+    ]
+    const exitMetadata = { id: 2, name: '出口验收服务器', enabled: true, source: 'administrator', read_only: false, online: true, agent_supported: true, installation: { state: 'pending', reason: '出口夹具正在等待目标配置应用。', target_rev: 3, applied_rev: 2 } }
+    const otherMetadata = [
+      { ...exitMetadata, id: 3, name: '缺少应用状态的服务器', installation: undefined },
+      { ...exitMetadata, id: 4, name: '版本不一致的服务器', installation: { state: 'ready', reason: '不一致夹具不能认证应用成功。', target_rev: 4, applied_rev: 3 } },
+      { ...exitMetadata, id: 5, name: '离线入口服务器', online: false, installation: { state: 'offline', reason: '入口夹具当前离线。', target_rev: 2, applied_rev: 1 } },
+    ]
+    let chainsFailure = false, chainFixtures = false, pluginServersFailure = false, nodesEmpty = false
     await page.route('**/api/**', async route => {
       const path = new URL(route.request().url()).pathname
       requests.push(path)
@@ -36,7 +52,10 @@ try {
       if (path === '/api/me') value = { authenticated: true }
       else if (path === '/api/servers/1') value = entry
       else if (path === '/api/plugins/sing-box/servers/1') value = metadata
-      else if (path === '/api/plugins/sing-box/servers') value = [metadata]
+      else if (path === '/api/plugins/sing-box/servers') {
+        if (pluginServersFailure) { await route.fulfill({ status: 500, json: { error: '服务器夹具读取失败' } }); return }
+        value = chainFixtures ? [metadata, exitMetadata, ...otherMetadata] : [metadata]
+      }
       else if (path === '/api/plugins/sing-box/servers/1/enable') {
         assert.equal(route.request().method(), 'POST')
         assert.deepEqual(route.request().postDataJSON(), {})
@@ -45,15 +64,16 @@ try {
         assert.equal(metadata.enabled, true)
         value = { status: metadata.installation?.state === 'ready' ? { module: 'singbox', target_rev: 1, applied_rev: 1, last_result_rev: 1, healthy: true, last_error: null, updated_at: now } : null, history: [] }
       } else if (path === '/api/plugins/sing-box/nodes') {
-        assert.equal(metadata.enabled, true); value = [node, exitNode]
+        assert.equal(metadata.enabled, true); value = nodesEmpty ? [] : chainFixtures ? [node, exitNode, ...additionalNodes] : [node, exitNode]
       } else if (path === '/api/plugins/sing-box/users') value = []
       else if (path === '/api/plugins/sing-box/chains') {
         if (route.request().method() === 'POST') {
           assert.deepEqual(route.request().postDataJSON(), { name: '未授权验收链路', entry_node_id: 2, exit_node_id: 3 })
           const chain = { id: 9, name: '未授权验收链路', entry_node_id: 2, exit_node_id: 3, available: true }
+          metadata.installation = { state: 'pending', reason: '新链路已保存，两端配置仍待设备应用。', target_rev: 2, applied_rev: 2 }
           chains.push(chain); value = chain
         } else if (chainsFailure) { await route.fulfill({ status: 500, json: { error: '链路夹具读取失败' } }); return }
-        else value = chains
+        else value = chainFixtures ? [...chains, ...additionalChains] : chains
       }
       else if (['/api/plugins/sing-box/policy-groups', '/api/plugins/sing-box/package-groups'].includes(path)) value = []
       else if (path === '/api/plugins/sing-box/usage') value = { uplink: '0', downlink: '0', total: '0', by_user: [], by_node: [] }
@@ -126,6 +146,8 @@ try {
     await page.getByRole('button', { name: '创建节点', exact: true }).click()
     assert.equal(await page.locator('select[name="server_id"]').inputValue(), '1')
     await page.getByRole('dialog').getByRole('button', { name: '取消', exact: true }).click()
+    metadata.installation = { state: 'ready', reason: '设备已确认目标配置，健康检查通过。', target_rev: 2, applied_rev: 2 }
+    chainFixtures = true
     await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '两跳链路', exact: true }).click()
     await page.getByRole('heading', { name: '代理节点', exact: true, level: 1 }).waitFor()
     await page.getByRole('heading', { name: '两跳链路', exact: true, level: 2 }).waitFor()
@@ -140,8 +162,80 @@ try {
     await chainDialog.getByRole('button', { name: '创建未授权链路', exact: true }).click()
     await page.getByText('未授权验收链路', { exact: true }).waitFor()
     assert.deepEqual(mutations.slice(chainMutationStart), [{ path: '/api/plugins/sing-box/chains', method: 'POST' }])
+    // The server query includes either endpoint and never shows unrelated chains.
+    assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=chains&server=1')
+    await page.getByText(`筛选范围：入口或出口属于「${metadata.name}」的链路。`, { exact: false }).waitFor()
+    await page.getByText('本服务器作为出口', { exact: true }).waitFor()
+    assert.equal(await page.getByText('无关服务器链路', { exact: true }).count(), 0)
+    let createdRow = page.getByRole('row').filter({ has: page.getByText('未授权验收链路', { exact: true }) })
+    assert.equal(await createdRow.getByRole('link', { name: metadata.name, exact: true }).getAttribute('href'), '#/servers/1')
+    assert.equal(await createdRow.getByRole('link', { name: exitMetadata.name, exact: true }).getAttribute('href'), '#/servers/2')
+    await createdRow.getByText(metadata.installation.reason, { exact: true }).waitFor()
+    assert.equal(await createdRow.getByText('目标配置已应用', { exact: true }).count(), 0)
+    metadata.installation = { state: 'ready', reason: '入口设备已确认目标配置，健康检查通过。', target_rev: 2, applied_rev: 2 }
+    await page.getByRole('button', { name: '刷新', exact: true }).click()
+    await createdRow.getByText('目标配置已应用', { exact: true }).waitFor()
+    await createdRow.getByText('等待应用配置', { exact: true }).waitFor()
+    await createdRow.getByText('目标版本 3 · 已应用版本 2', { exact: true }).waitFor()
+    assert.equal(await createdRow.getByText('目标配置已应用', { exact: true }).count(), 1)
+    assert.equal(await createdRow.getByText('资源存在', { exact: true }).count(), 1)
+    await page.getByText('两端状态仅表示设备应用与健康信息，尚未验证公网可达或链路连通。', { exact: false }).waitFor()
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+
+    await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '节点监听', exact: true }).click()
+    await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption('2')
+    await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '两跳链路', exact: true }).click()
+    await page.getByText('未授权验收链路', { exact: true }).waitFor()
+    assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=chains&server=2')
+    assert.equal(await page.getByRole('row').count(), 2)
+    assert.equal(await page.getByText('本服务器作为出口', { exact: true }).count(), 0)
+    assert.equal(await page.getByText('无关服务器链路', { exact: true }).count(), 0)
+    // Equal revisions alone cannot certify a still-pending dirty configuration.
+    exitMetadata.installation = { state: 'pending', reason: '新配置仍待发布确认，版本相等不足以确认应用。', target_rev: 3, applied_rev: 3 }
+    await page.reload()
+    await page.getByText(exitMetadata.installation.reason, { exact: true }).waitFor()
+    assert.equal(await page.getByText('目标配置已应用', { exact: true }).count(), 1)
+    exitMetadata.installation = { state: 'failed', reason: '出口夹具设备应用失败。', target_rev: 3, applied_rev: 2 }
+    await page.reload()
+    await page.getByText(exitMetadata.installation.reason, { exact: true }).waitFor()
+    await page.getByText('安装或部署失败', { exact: true }).waitFor()
+    assert.equal(await page.getByText('目标配置已应用', { exact: true }).count(), 1)
+    exitMetadata.installation = { state: 'ready', reason: '出口设备已确认目标配置，健康检查通过。', target_rev: 3, applied_rev: 3 }
+    await page.reload()
+    await page.getByText(exitMetadata.installation.reason, { exact: true }).waitFor()
+    assert.equal(await page.getByText('目标配置已应用', { exact: true }).count(), 2)
+
+    await page.goto(`${origin}/#/plugins/sing-box/nodes?kind=chains&server=3`)
+    await page.getByText('无关服务器链路', { exact: true }).waitFor()
+    await page.getByText('设备状态与目标版本尚未确认一致，请查看服务器详情。', { exact: true }).waitFor()
+    assert.equal(await page.getByText('应用状态待确认', { exact: true }).count(), 2)
+    assert.equal(await page.getByText('目标配置已应用', { exact: true }).count(), 0)
+    assert.equal(await page.getByText('未授权验收链路', { exact: true }).count(), 0)
+    await page.getByRole('link', { name: '查看全部链路', exact: true }).click()
+    await page.getByText('筛选范围：全部服务器的链路。', { exact: true }).waitFor()
+    await page.getByText('未授权验收链路', { exact: true }).waitFor()
+    assert.equal(await page.getByRole('row').count(), 4)
+    await page.goto(`${origin}/#/plugins/sing-box/nodes?kind=chains&server=999`)
+    await page.getByText('此服务器暂无已确认关联的链路', { exact: true }).waitFor()
+    assert.equal(await page.getByText('未授权验收链路', { exact: true }).count(), 0)
+
+    // A failed refresh must stop treating the previous successful snapshot as current.
+    await page.goto(`${origin}/#/plugins/sing-box/nodes?kind=chains&server=1`)
+    createdRow = page.getByRole('row').filter({ has: page.getByText('未授权验收链路', { exact: true }) })
+    await createdRow.getByText('目标配置已应用', { exact: true }).waitFor()
+    pluginServersFailure = true
+    await page.getByRole('button', { name: '刷新', exact: true }).click()
+    await page.getByText('服务器夹具读取失败', { exact: true }).waitFor()
+    assert.equal(await createdRow.getByText('应用状态待确认', { exact: true }).count(), 2)
+    assert.equal(await page.getByText('目标配置已应用', { exact: true }).count(), 0)
+    assert.equal(await createdRow.getByRole('link', { name: '服务器 #2', exact: true }).getAttribute('href'), '#/servers/2')
+    assert.deepEqual(mutations.slice(chainMutationStart), [{ path: '/api/plugins/sing-box/chains', method: 'POST' }])
+    pluginServersFailure = false
+    chainFixtures = false
     await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '节点监听', exact: true }).click()
     await page.getByText('链路专用入口', { exact: true }).waitFor()
+    await page.getByText('普通节点需为代理用户授权并等待设备成功应用配置', { exact: false }).waitFor()
+    await page.getByText('出口可使用内部连接凭据监听，无需为出口单独授权用户。', { exact: false }).waitFor()
     await page.goto(`${origin}/#/plugins/sing-box/nodes`)
     await page.getByText('链路出口', { exact: true }).waitFor()
     chainsFailure = true
@@ -151,6 +245,11 @@ try {
     assert.equal(await page.getByText('链路身份待确认', { exact: true }).count(), 2)
     assert.equal(await page.getByText('普通节点监听', { exact: true }).count(), 0)
     chainsFailure = false
+    nodesEmpty = true
+    await page.reload()
+    await page.getByText('填写端口或使用自动分配。为代理用户授权后，等待设备成功应用配置，再连接节点。', { exact: true }).waitFor()
+    assert.equal(await page.getByText('为代理用户授权后，节点会自动启用。', { exact: false }).count(), 0)
+    nodesEmpty = false
 
     await page.goto(`${origin}/#/servers/1`)
     await page.getByRole('button', { name: '接入 / 升级', exact: true }).click()
@@ -171,5 +270,5 @@ try {
     assert.equal(requests.some(path => ['/api/nodes', '/api/users', '/api/usage'].includes(path)), false)
     await page.close()
   }
-  console.log('PASS: dist desktop/mobile, support does not enable business, queued/failed/ready installation and conservative legacy fallback, overview/server-node selection/unified ungranted chain creation/listener roles/failure/enrollment navigation, administrator/proxy-user separation, canonical APIs')
+  console.log('PASS: dist desktop/mobile, support does not enable business, queued/failed/ready installation and conservative legacy fallback, overview/server-node selection/ungranted chain creation, either-endpoint server filtering/details/application states/unknown and stale-failure guards, listener/relay roles/enrollment navigation, administrator/proxy-user separation, canonical APIs')
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)) }
