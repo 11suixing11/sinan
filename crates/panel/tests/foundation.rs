@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use sinan_panel::{AppState, config::Config, router};
 use sinan_protocol::{
     AuthChallenge, AuthResponse, EnrollRequest, EnrollResponse, Envelope, Hello, HelloAck,
-    Manifest, PROTOCOL_VERSION, StaticInfo,
+    Manifest, PROTOCOL_VERSION, StaticInfo, now_timestamp,
 };
 use sqlx::PgPool;
 use std::{collections::BTreeMap, path::PathBuf, time::Duration};
@@ -593,11 +593,66 @@ async fn websocket_challenges_are_connection_bound_and_sessions_expire(pool: PgP
     .await?;
     expect_rejected(&mut unknown).await?;
 
+    let auth_started_at = now_timestamp();
+    // Hold only this isolated test database's session inserts. Observe the
+    // blocked INSERT before crossing a second, so scheduler timing cannot hide
+    // separate clock reads for the stored expiry and the hello.ack timestamp.
+    let mut blocker = pool.begin().await?;
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await?;
+    sqlx::query("SET LOCAL lock_timeout = '5s'")
+        .execute(&mut *blocker)
+        .await?;
+    sqlx::query("LOCK TABLE sessions IN SHARE MODE")
+        .execute(&mut *blocker)
+        .await?;
     send_envelope(&mut first, Envelope::new("auth.response", response)?).await?;
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='relation'
+                 AND database=(SELECT oid FROM pg_database WHERE datname=current_database())
+                 AND relation='sessions'::regclass AND mode='RowExclusiveLock' AND NOT granted
+                 AND $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(blocker_pid)
+            .fetch_one(&pool)
+            .await?;
+            if waiting {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("authentication INSERT did not wait on the test session lock")??;
+    let blocked_second = sinan_protocol::now_timestamp();
+    timeout(Duration::from_secs(3), async {
+        while sinan_protocol::now_timestamp() <= blocked_second {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("Unix clock did not advance while authentication was blocked")?;
+    blocker.commit().await?;
     let ack = receive_envelope(&mut first).await?;
+    let ack_received_at = now_timestamp();
     assert_eq!(ack.message_type, "hello.ack");
     let ack: HelloAck = ack.to_payload()?;
     assert_eq!(ack.session_expires_at - ack.server_time, 3600);
+    // Storage and acknowledgement share one issuance snapshot even across a second.
+    let issued_at = ack.session_expires_at - 3600;
+    assert!((auth_started_at..=ack_received_at).contains(&issued_at));
+    assert!((issued_at..=ack_received_at).contains(&ack.server_time));
+    let stored_expiry: i64 = sqlx::query_scalar(
+        "SELECT expires_at FROM sessions WHERE token_hash = $1 AND server_id = $2",
+    )
+    .bind(sinan_panel::auth::hash_token(&ack.session_token))
+    .bind(server_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(ack.session_expires_at, stored_expiry);
     assert_eq!(
         panel
             .client

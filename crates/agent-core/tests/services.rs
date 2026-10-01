@@ -19,6 +19,8 @@ struct RecordingOps {
     files: Mutex<Vec<(PathBuf, Vec<u8>)>>,
     directories: Mutex<Vec<(PathBuf, u32, Option<String>)>>,
     allow_files: bool,
+    allow_diagnostic_lock: bool,
+    lock_preparations: Mutex<usize>,
 }
 
 impl RecordingOps {
@@ -27,6 +29,18 @@ impl RecordingOps {
             output: Mutex::new(CommandOutput {
                 success: true,
                 stdout: "LoadState=loaded\nActiveState=active\nMainPID=123\nControlPID=0\n".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+    }
+
+    fn diagnostic(allow_files: bool) -> Arc<Self> {
+        Arc::new(Self {
+            allow_files,
+            allow_diagnostic_lock: true,
+            output: Mutex::new(CommandOutput {
+                success: true,
                 ..Default::default()
             }),
             ..Default::default()
@@ -255,14 +269,7 @@ async fn rejects_untrusted_service_names_before_any_privileged_command() {
 
 #[tokio::test]
 async fn openrc_starts_independent_diagnostic_jobs_without_invoking_systemd() -> Result<()> {
-    let ops = Arc::new(RecordingOps {
-        allow_files: true,
-        output: Mutex::new(CommandOutput {
-            success: true,
-            ..Default::default()
-        }),
-        ..Default::default()
-    });
+    let ops = RecordingOps::diagnostic(true);
     let services = SystemServiceManager::new(ops.clone(), ServiceBackend::OpenRc);
     let job = ServiceJob {
         unit: format!("sinan-diagnostic-{}.service", uuid::Uuid::new_v4()),
@@ -277,6 +284,7 @@ async fn openrc_starts_independent_diagnostic_jobs_without_invoking_systemd() ->
         oom_score_adjust: Default::default(),
     };
     services.start_job(&job).await?;
+    assert_eq!(*ops.lock_preparations.lock().unwrap(), 1);
     let calls = ops.calls.lock().unwrap();
     assert_eq!(calls.len(), 2);
     assert_eq!(calls[0].0, Path::new("stat"));
@@ -287,6 +295,7 @@ async fn openrc_starts_independent_diagnostic_jobs_without_invoking_systemd() ->
     assert_eq!(saved, job);
     let script = String::from_utf8(files[1].1.clone())?;
     assert!(script.contains("command_background=true"));
+    assert!(script.lines().any(|line| line == "umask=0077"));
     assert!(script.contains("run-job --spec"));
     assert!(!script.contains("respawn"));
     Ok(())
@@ -316,6 +325,7 @@ async fn systemd_diagnostic_jobs_keep_independent_supervision_and_status() -> Re
         oom_score_adjust: Default::default(),
     };
     services.start_job(&job).await?;
+    assert_eq!(*ops.lock_preparations.lock().unwrap(), 1);
     ops.output.lock().unwrap().stdout = "LoadState=loaded\nActiveState=active\nSubState=exited\nResult=success\nExecMainStatus=0\nExecMainCode=1\nExecMainStartTimestampMonotonic=1\n".into();
     assert_eq!(services.job_status(&job.unit).await?, JobStatus::Succeeded);
     let calls = ops.calls.lock().unwrap();

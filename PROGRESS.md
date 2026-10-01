@@ -1,10 +1,66 @@
 # 执行进度
 
+## 2026-10-01：按用户要求暂时关闭 CI
+
+- 暂停仓库四个 GitHub Actions 工作流并取消正在运行或排队的检查，避免分支 push、PR 和 main 整合反复构建。保留全部工作流文件及既有历史结果，代码与文档工作继续使用相称的本地验证。
+- 等所有进行中的任务完成后，再统一恢复工作流、验证最终整合提交；单个 PR 完成不提前恢复。此次被取消及尚未运行的最终提交 CI 保持未验证，不算通过。
+
+## 2026-10-01：Release 发布身份保留整合
+
+- 保留作者 `504bae9`，正常合入正式主线 `2fa405b`。最终发布 PATCH 显式携带已核对标签及完整构建提交，发布前后身份、完整签名、资产摘要和精确主线 CI 门禁保持；当前 TCP 可选模块必须双架构的规则保留。
+- 发布24、旧release28、原生来源/签名17、core6，共75项通过/0失败/4既有条件跳过。旧 draft-only 函数在同一标签漂移夹具确实失败，修复通过；五种发布后并发改变仍拒绝报告成功，不声称原子发布或自动回滚。
+- 原生三项失败实际来自旧作者对象缺13个TCP源码/配方路径；正常合入最新main后原归档门禁验证通过，旧对象仍拒绝，不放宽来源要求。仅Python测试与源码归档检查，无本机Linux原生构建、正式签名或发布；最终head的两套CI单独跟进。见 [独立验收](docs/acceptance/release-publication-identity.md)。
+
+## 2026-10-01：按前置阶段验收推进整改
+
+- 将 P0 保护服务器、P0 IP 查询、P1 sing-box 边界、P1 共用诊断框架、P2 TCP 接入的顺序写入 AGENTS 与[独立验收状态表](docs/acceptance/ordered-remediation.md)。本项只记录验收与推进条件，不修改菜单、API、Agent 或诊断工具。
+- P0 专用节点总验仍未通过。已有基线确认内核 OOM，最近记录的只读 SSH 检查仍在 banner 阶段超时；已记录的 447 MiB 物理内存不足以满足 512 MiB 完整任务预算和 256 MiB 启动预留，恢复后须重新读取实际资源。上游完整执行链的上传、宿主 swap 改动与制品授权仍待整改，继续维持完整任务门禁。
+- TCP 后端 #77 与报告页 #78 按独立源码审查及相称验证整合；代码可合入准备，实机能力签收与正式发布/部署仍受前置阶段门禁约束。已有独立 CI、真实 systemd、Reality 和浏览器结果保留；这些证据不替代 NodeQuality 在专用节点持续代理流量下的心跳与取消清理总验，也不证明登记后的原生 TCP 签名安装、实际启动、重连恢复和取消清理整链已实机通过。
+- 故障矩阵区分回环服务/数据库、真实 CI systemd、包装器替身和专用节点负载。未执行项不计通过，不以跳过项或恢复前的服务状态证明当前节点健康。恢复后按状态表先完成 P0 再推进后续验收。
+- 本轮 66 个文档链接、core 分层、`cargo fmt --check --all` 与差异检查通过；另核对引用的 #54/#55/#74 原 CI 日志，其 Rust 与真实 systemd 合计分别为 314、330、371 项通过、0 失败、9 条件忽略，与表中分开记录的数量一致。本项未编译或测试 Rust、启停服务或执行实机诊断，不把历史 CI 转记为最终整合提交的检查。
+- 本轮正常整合 #76 主线 `b152e2a`、#77 主线 `21d8e71` 与 #78 主线 `2bd017a`，保留三项的源码、签名来源验证、登记生命周期和最终 `index-hb4JwTbg.js` 报告页。相对 `2bd017a` 只更改 AGENTS、PROGRESS 与本项验收文档，运行代码、工具、测试和 dist 全部原字节保留；最终整合提交 CI 单独核对，源码合入不补签前置实机验收。
+
+## 2026-10-01：TCP 诊断面板登记（独立 PR）
+
+登记第二诊断插件并由 Linux Agent 加载无状态适配器，共用任务服务负责互斥、预算、上传、确认取消和历史。仅开放地区、IPv4/6、4/8 次连接和1/2并发，冻结已配置 TCP 目标及摘要，地区标签在插件独立表保存；空 PATCH 拒绝、显式 null 才清除。前端另一个独立 PR。
+
+3963c28 组合源码的 PostgreSQL/API 3项、面板参数/目标2项、适配器15项与原生17项全部通过，workspace全targets Clippy和Linux Agent构建通过，限额容器exit0/OOM=false。fe4ae60平铺后显式地区键/API3+unit2、Clippy和Agentbuild再次通过。已正常合入根sing-box插件主线8ef465f；工具版本pin改为版权补齐后公开且实际Bookworm/五aux签名验收通过的b562effcd90f8ae319665fb4ead1807b770ed4d5，1c640d3的新pin/API3+unit2/fmt/Clippy/Agentbuild再次通过，exit0/OOM=false；最终CI另核。没有以夹具替代真实测试机验收，aws-jp0仍待恢复，完整验机工具链仍被安全门禁暂停。见 docs/acceptance/tcpquality-panel-registration.md。
+
+
+## 2026-10-01：TCP 报告界面（独立 PR）
+
+服务器导航新增 TCP 连接诊断，四项小预设及配置目标地区，按本次冻结范围显示工具版本/时间/参数、连接成功统计和独立章节；未知不补零，取消确认前保留屏障，部分报告可看，不做跨参数排名。主线管理员与 sing-box 插件导航继续保留，NodeQuality 完整门禁不由本 PR 改动。
+
+012ca9f 的 Bun/TypeScript/Vite 与 Chromium1280/390px夹具验收通过，零页面错误、正确创建/地区请求和取消禁用均已核实；最终主线整合后重新构建与浏览器复验另补。验收范围与真实节点待办见 docs/acceptance/tcpquality-report-view.md。
+
+- 在面板 fe4ae60 与公开制品主线 9a41fe5 上重整源代码，NodeQuality门禁及管理员/插件导航保留；9dbff20 的 Bun frozen install、5项/711断言、TypeScript/Vite和最终dist Chromium1280/390px复验均通过，零页面错误、每宽度一条白名单创建/地区PATCH，未知/真实0/部分/旧报告过滤/取消屏障成立。实际dist index-D5k-FUiH.js，独立PR最终CI另跟。
+
+- fa8dca4保留完整主报告统计，部分章仅能补更完整/更多连接样本的结果；目标缺数据显式未知。持久化浏览器夹具在实际index-CkSqyBT0.js的1280/390px通过，完整报告不降级、目标403/离线禁止创建以及原部分/真实0/未知/互斥取消都成立，页面错误0。旧dist被完整结果反对照准确抓住，测试脚本ASI错误修复后实跑通过；没有把这些夹具称为真实节点验收。
+
+- 本轮在作者233840a上修复成功读取后诊断/目标轮询403仍复用旧能力与目标范围的问题：未知期间暂停创建并保留历史；旧dist被新增夹具抓住（exit1）。Bun5项/711断言、TypeScript/Vite52模块及最终实际index-hb4JwTbg.js的Chromium1280/390px全部通过，真实零耗时、冻结地区/参数、部分章不覆盖complete、省略插件的旧NQ报告过滤、确认取消、轮询403禁创建/范围未知、历史保留、读取恢复和离线均成立，报告说明明确为不向第三方上传。相同dist的NQ完整门禁及sing-box业务导航伴随验证通过，完整模式POST为零。复用匹配锁文件的已有依赖，无Cargo/PG/真实节点或生产接口；专用节点TCP登记整链仍未验，验收记录已保留边界。
+
+## 2026-10-01：会话签发时间跨秒修复
+
+- 对应 [Issue #47](https://github.com/theLucius7/sinan/issues/47)。[PR #45 的 CI](https://github.com/theLucius7/sinan/actions/runs/36767325898) 中服务夹具已通过，认证测试暴露两次取时跨秒：存储的会话过期时间与稍后 ACK 的服务器时间相差 3599 秒。会话签发和 ACK 现在使用同一时间快照，过期时间仍由数据库保存并供 HTTP/WebSocket 强制校验。
+- 在独立 PostgreSQL 测试库中先锁住会话表，确认认证 INSERT 实际等待，再跨秒并释放；旧生产代码稳定触发 3599 与 3600 不等，修复后 6 项 foundation 测试全部通过。保留严格的一小时断言，并核对数据库与 ACK 的过期时间一致。协议文档明确此时间是签发快照，客户端校时仍受握手延迟影响。
+- workspace fmt、全 targets Clippy 与分层检查通过。完整测试首轮因本机临时磁盘不足失败，空间恢复后的完整 Rust/PostgreSQL 重跑通过：261 项成功、8 项真实 systemd/运行时专项按条件忽略；新提交的 Linux CI 尚待验证。
+- main `13f2975` 的真实 Reality 安装/计量 job 已通过：443 流量首次为 3,146,275 字节，Agent 重启与运行时 HUP 后不变；第二批精确为 6,292,550 字节，重装不重复计量。4 项签名拒绝、在线退役和再次启动拒绝均通过；其主检查因旧服务夹具失败，不能把该结果视作 main 全绿。
+
+## 2026-10-01：诊断锁服务测试夹具同步
+
+- 对应 [Issue #43](https://github.com/theLucius7/sinan/issues/43)。main `13f2975` 的 [CI 36766239541](https://github.com/theLucius7/sinan/actions/runs/36766239541) 中两项服务集成测试失败：旧特权替身没有返回锁目录元数据，或完全拒绝新增目录操作。仅更新 `services.rs` 夹具，生产代码和锁权限校验不变。
+- 夹具显式允许固定目录、root/0700 和精确 stat 参数，其他文件操作继续拒绝；补齐 systemd 的 flock 完整参数、OpenRC 私有 umask 及调用顺序断言。6 项服务测试、workspace fmt、全 targets Clippy 和完整 Rust/PostgreSQL 回归通过：261 项成功、8 项真实 systemd/运行时专项按条件忽略；分层检查通过。新提交的真实 Linux CI 待完成。
+- 此前 ABI 修复 [PR #39](https://github.com/theLucius7/sinan/pull/39) 的 [五项 CI](https://github.com/theLucius7/sinan/actions/runs/36763913065) 全部通过：Reality 443 的首次 3,146,275 字节在 Agent 重启/HUP 后不变，第二批后精确为 6,292,550，重装不重复计量；4 项签名拒绝和 12 项在线退役断言通过。该证据属于 PR 提交 `d660db5`，不替代新增诊断改动后的 main 验证。
+
+- 本轮保留作者 `7317311` 的夹具修复并整合 main `07e8f58`（含旧运行时缓存 ABI 兼容），生产锁目录和服务逻辑未改动。合并源的 6 项 `services` 集成测试全部通过，专用 target Clippy（warnings 为错误）、workspace fmt、core 门禁及差异检查通过；该结果覆盖两份原失败夹具与已有命令/服务状态拒绝回归。没有重复运行完整 workspace 或实际 init 服务专项，前述贡献者完整回归属于其原提交，最终合并源的 Linux/systemd/OpenRC 与 Reality 验证由最终 CI 执行。
+
 ## 2026-10-01：修复静态 Agent 的宿主运行时选择
 
 - 对应 [Issue #37](https://github.com/theLucius7/sinan/issues/37)。`41000c8` 的 [CI 36757545068](https://github.com/theLucius7/sinan/actions/runs/36757545068) 中 check、Compose、双架构 musl 均通过，真实 systemd 队列/资源测试及实际 Rust OpenRC 诊断也通过；Reality 安装成功后等待配置应用超时，未进入流量验收。之后 main `e2d898c` 仍在相同步骤失败，不能沿用旧提交的绿色结论。
 - 使用真实 PostgreSQL/HTTP 回归复现：musl Agent 在 GNU 宿主只获得旧格式 GNU 运行时发布时，清单错误返回 404。新增 `runtime_libc` 区分宿主与 Agent 编译 ABI，仅读取有界 ELF 解释器信息；未知宿主保守沿用编译 ABI，旧设备缺字段兼容。Agent 自身更新仍按编译 ABI。
-- GNU 宿主上的 musl Agent 保留原 musl、legacy 架构键优先级，然后才尝试 GNU 完整标识；面板与 Agent 验签使用一致顺序，避免旧缓存同一 proof 中有多个 ABI 时换选摘要。真正 musl 宿主不由面板获得 GNU 运行时；已存在但校验失败的候选不降级。
+- GNU 宿主上的 musl Agent 保留原 musl、legacy 架构键优先级，然后才尝试 GNU 完整标识；面板与 Agent 验签使用一致顺序，避免旧缓存同一 proof 中有多个 ABI 时换选摘要。musl Agent 在 musl 宿主不由面板获得 GNU 运行时；已存在但校验失败的候选不降级。
+- 合并审查补充反向兼容：GNU Agent 已经通过兼容层运行在 musl 宿主时，旧 GNU 完整标识及 legacy 缓存仍排在新 musl 标识之前。纯 musl Agent/宿主路径继续拒绝 GNU；新增 signed-selection 和面板双 ABI/缺失首选内容回归，不把结构夹具作为 gcompat 实机支持证据。
+- 反向兼容补丁基于 main `13f2975` 验证：ABI 3 项、签名缓存 7 项、协议 18 项、真实 PostgreSQL 平台清单/Agent 更新 4 项全部通过，共 32 项且无忽略。验收驱动 21 项、CI helper 9 项及签名 CI 8 项 Python 检查通过；workspace 全 targets Clippy（warnings 为错误）、fmt、core 分层、shell 语法及差异空白检查通过。未运行本补丁的完整 workspace 测试、gcompat 实机或 Linux Reality 验收，其结果继续由对应提交的 CI/专用节点确认。
 - 超时只在私有文件保存最终原始状态，权限为 0600；公开失败诊断只输出有界配置修订号、就绪布尔值及固定 systemd 单元状态。新增包含令牌、主机名、IP 与自由文本的回归，验证这些内容不会进入公开摘要。
 - 在 main `e2d898c` 上整合后，完整 workspace fmt、全 targets Clippy（warnings 为错误）及 Rust/PostgreSQL 测试通过：245 项成功、6 项真实 systemd/运行时专项按条件忽略；原始 404 回归修复后通过。Python discovery 72 项通过、5 项既有条件忽略，验收驱动 21 项、缓存 3 项和签名 CI 8 项通过，分层与 shell 语法检查通过。修复后的真实 Linux 安装/Reality/计量仍须本次提交 CI 验证。
 
@@ -17,10 +73,14 @@
 - 独立步骤及验收边界见 [有界读取验收](docs/acceptance-bounded-usage.md)。旧超限批的历史账本恢复、小内存/小磁盘 Debian 12 实机、持续代理流量下完整验机仍待后续独立验收，不以回环通过替代。下一步：PR CI、专用节点验证，以及独立的心跳采集解耦 PR。
 - 与当前主分支 `a62968e` 集成时保留辅助表、退役门禁和跨平台共享 status；有界索引改为增量创建，保持 `user_version=1`，新增旧 Agent 迁移重新打开试运行账本的回滚兼容断言。集成后的 core、对账及账本专项共 88 项通过、2 项真实 systemd 专项在 macOS 跳过；core 全 targets Clippy 与 workspace fmt 通过。
 
-## 正式发布准备：生产公钥已提供，候选尚未签署
+## 正式发布：agent-v0.3.0 已公开，真实面板导入通过
 
-- 维护者在本机交互生成带口令的 minisign 密钥，私钥保存在仓库外；项目只取得公开根。`deploy/release-public-keys.json` 的 key ID 为 `44B019C8269669B8`，已通过生产根校验，并与 Actions 的 `SINAN_RELEASE_PUBLIC_KEYS` 变量一致。离线保管与正式签署仍需由维护者完成，不把公钥配置视为已发布。
-- main `be8b792` 合入部署条件检查后，[CI 36746601899](https://github.com/theLucius7/sinan/actions/runs/36746601899) 的构建、检查、Compose 和真实 Reality/计量部分通过，但末尾退役验收误把 systemd 条件跳过的零退出码当作失败。发布候选继续受完整 main CI 门禁约束；修复将同时核对条件结果、服务状态、进程与启动时间，避免把未执行运行时和启动成功混淆。
+- [agent-v0.3.0](https://github.com/theLucius7/sinan/releases/tag/agent-v0.3.0) 已正式发布，源码固定为 `75cd846f152f61d7b5daa913b31c74579eed3d22`。[该源码的 main CI](https://github.com/theLucius7/sinan/actions/runs/36770621157) 五项通过；[发布工作流 36802878940](https://github.com/theLucius7/sinan/actions/runs/36802878940) 完成生产签名校验及全资产校验。发布后匿名访问以及十项资产的身份、大小、摘要复核通过，原有九项产物未替换，仅追加维护者本机签出的 `SHA256SUMS.minisig`。
+- 生产公钥 ID `44B019C8269669B8` 与仓库、Actions 构建变量一致，已编译进发布二进制。使用冻结源码及同一生产根构建隔离面板，从真实公开 Release 完成两次 API 导入和一次浏览器按钮导入：Agent 0.3.0、sing-box 1.14.2、NodeQuality r2 的 amd64/arm64 六项齐全。独立 minisign、完整安装器/制品摘要、ELF 架构、无残留 staging、重复导入幂等、发布身份不变全部通过；实际页面显示六行与签名已验证，导入 POST 返回 200，后续库存读取和截图已核对，测试会话已退出。
+- 带口令私钥仍由维护者保存在 Mac 的仓库外，离线保管尚未完成；签署与发布成功不代表离线保管完成。项目与 CI 仅使用公钥和签名，私钥未上传到仓库、服务器及 CI。
+- 本次证据只覆盖冻结源码 `75cd846` 的发布和制品导入，不认证后续 main 新增能力，也不补签 P0 专用节点负载、心跳、取消清理或 TCP 整链实机验收。
+- [Issue #80](https://github.com/theLucius7/sinan/issues/80) 记录更新草稿正文时观察到的 tag 身份变化；发布器 PATCH 显式携带已验证的 tag 与构建提交，并继续核对发布前后全部身份和资产。发布工具回归 24 项通过，覆盖省略 tag 被重分配，以及 PATCH 后发布 ID、tag、构建提交、Git tag 和资产 ID 被并发修改时拒绝成功。Release 回归 28 项通过、4 项既有 Linux/root 条件跳过；已正常整合 main `2fa405b`，最终提交 CI 单独核对。
+- 历史记录：main `be8b792` 合入部署条件检查后，[CI 36746601899](https://github.com/theLucius7/sinan/actions/runs/36746601899) 的构建、检查、Compose 和真实 Reality/计量部分通过，但末尾退役验收误把 systemd 条件跳过的零退出码当作失败。后续修复同时核对条件结果、服务状态、进程与启动时间；本次发布采用上述 `75cd846` 的完整成功门禁。
 
 ## 新合入平台能力的整合修复
 
@@ -77,7 +137,7 @@
 - 验收边界：回环 CI 不覆盖外部 CDN、云 DNS、防火墙或公网超时，也不替代第 1 阶段 0.1.0→0.2.0 的跨版本升级证据。[版本选择 #3](https://github.com/theLucius7/sinan/issues/3)、[CDN 设备路径 #4](https://github.com/theLucius7/sinan/issues/4)、[手动端口 #5](https://github.com/theLucius7/sinan/issues/5)、[公网超时 #6](https://github.com/theLucius7/sinan/issues/6) 仍是后续处理范围。此阶段制品尚无签名，不能把 SHA-256 校验视为已建立发布信任链。
 - PR #7 已合入 main，合入提交为 `8a9ad2f`；[该提交 main CI 36724902150](https://github.com/theLucius7/sinan/actions/runs/36724902150) 实际全部 5 个 job 成功，包含真实 Reality 安装和精确计量。下一步：继续发布、离线签名与版本解耦阶段。
 
-## 交付加固第 3 阶段：实现已合入，正式发布待用户签署
+## 交付加固第 3 阶段：实现及正式发布完成，私钥离线保管待完成
 
 - 先采纳 ADR 0017，按用户决定使用 minisign-verify、构建时多个公钥和独立产品版本。Agent 为 0.3.0，面板仍为 0.2.0，协议范围为 1..=1；公钥不由面板或安装脚本向 Agent 下发，生产命令没有运行时换根开关。
 - protocol 的完整四行签名、canonical 清单和 metadata 绑定通过 14 项测试；包括正文与 trusted comment 篡改、多根与真实测试根轮换。core 下载、缓存、准备、应用、同 revision、回滚、未完成事务恢复及诊断启动验证实际二进制与签名证明；70 项单元测试通过，1 项真实 Linux/systemd 专项仍由 Linux CI 验证。CLI 和 systemd 预检绑定期望的制品角色及格式，不能用另一种已签制品替换执行目标。
@@ -88,7 +148,7 @@
 - 发布候选流程构建双架构 Agent、运行时及诊断制品，输出 metadata 和 SHA256SUMS，先创建 draft。用户在仓库外本机生成带口令私钥、只提供公钥、本地签署并上传 minisig；CI 不取得生产私钥。正式发布要求全资产验签和对应 main 必需 CI，已知测试根在正式流程中拒绝。本阶段实现时尚无正式公钥、正式签名或正式 Release；最新公钥及发布状态见本文顶部，测试根验收不替代生产签名。
 - 发布流程在缓存恢复或新构建后，以归档、ELF 和 Go metadata 检查两种架构、固定源码 revision、工具链及构建标签；检查不执行缓存二进制。此信息用于发现错误产物，不作为独立构建证明。12 项验收驱动、8 项签名 CI 契约、3 项既有缓存契约及 actionlint、Shell/Python 语法检查通过。
 - [PR #11](https://github.com/theLucius7/sinan/pull/11) 已合入 main（`20d09ca`）。[PR CI](https://github.com/theLucius7/sinan/actions/runs/36738530095) 的 5 项全部通过，包括真实签名安装、篡改二进制/证明/旧未签缓存拒绝、恢复 systemd 验签器、Reality 双向流量、重启、HUP、精确计量和同版重装。首轮上传/下载为 1,048,821/2,097,454 字节，重载后相同流量累积精确为两倍。使用 TEST_ONLY 根，不能替代正式发布签名。
-- [main CI](https://github.com/theLucius7/sinan/actions/runs/36740903057) 的全部 5 项也已通过。正式公钥与本地签署仍待用户完成，安全功能和链式 ADR 继续推进。
+- 历史记录：[main CI](https://github.com/theLucius7/sinan/actions/runs/36740903057) 的全部 5 项也已通过；当时正式公钥与本地签署仍待用户完成。现已完成正式签署、发布与真实导入，证据及尚未完成的私钥离线保管见上文正式发布记录。
 
 ## 交付加固第 4 阶段：实现与本地验收已完成
 
@@ -292,7 +352,6 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 本地完整 Rust 测试 136 项通过、4 项实机专项按原原因忽略；真实 PostgreSQL 覆盖压缩解码上限、重复批次、迟到样本、命令认证与不可变结果、拨测去重和删除目标后的确认。fmt、全 targets Clippy 和 TypeScript/Vite 生产构建通过。
 - 下一步：完成 macOS、FreeBSD、Windows 的注册、常驻服务和安装，以及默认关闭的 Agent 自动更新与启动失败回退。设置项已经提供，更新执行器将在下一阶段接入。
 
-
 ## Agent 对齐阶段 4–5：原生服务与更新恢复
 
 - macOS ARM64、FreeBSD 双架构与 Windows 双架构接入完整 Agent 运行。新增 launchd、rc.d/daemon 和 Windows 启动时计划任务；运行时使用独立普通账户/服务，Windows 状态通过 ACL 与带令牌的本地命名管道保护。Agent 安装目录独立配置，代理适配器保持无状态。
@@ -302,7 +361,6 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 本地真实 Agent 已通过注册、压缩上报、离线重启补报、命令去重、TCP 拨测、升级成功、启动失败回退、失败版本抑制及退出清理。隔离 Alpine/OpenRC 的安装、旧服务回退、default 启动和实际 Agent 一次性诊断全部通过。
 - 本地 fmt、Clippy、完整 Rust/PostgreSQL 测试通过（140 项成功、4 项原有实机专项忽略）；TypeScript/Vite 构建、五组构建脚本测试、actionlint、Python 语法与 core 分层边界检查通过。
 - 下一步：检查本提交远端 CI，修复原生系统执行差异。上一阶段 48728c8 的九平台 Agent、四平台运行时、Compose 和 OpenRC 已成功，主 check 失败；本轮修复了负进程组 kill 的参数歧义，但尚未取得旧任务完整日志，不能宣称已确认其唯一原因。macOS/Windows/FreeBSD 服务尚待本提交原生 CI；公网 Reality、GPU 负载和整机重启不属于已完成验收。
-
 
 ## 原生 CI 跟进：补充平台指标与失败摘要
 
@@ -438,7 +496,6 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 通过 Privileged/ServiceManager 检查资源和真实服务状态，固定 Linux flock 封住同时启动竞态，保留主线 systemd/OpenRC/非 Linux 服务能力。运行中每 5 秒检查 128 MiB 保留阈值；保护停止原因持久化，停止失败/未确认保留处理中，确认后才收已有报告并回传 Failed。面板离线、Agent 重启和 SQLite 写失败均不取消保护动作或重复执行任务。
 - 独立验收见 [诊断预检验收](docs/acceptance/diagnostic-preflight.md)。行为测试覆盖小内存/cgroup 限制、磁盘不足、负载/资源读取错误、同机冲突、停止失败、存储写失败及断连/重启后的报告恢复；新增真实 systemd 双单元独占夹具，和已有资源专项串行执行。
 - 最终源已整合主线 21e6a01，受限 Debian 12 构建容器（1.5 GiB 内存、2 CPU、禁止 swap）中的 fmt、Clippy --all-targets -D warnings、完整 cargo test --locked 通过：243 项通过、0 项失败、7 项忽略（4 项真实 systemd，3 项既有外部运行时专项）。独立 PostgreSQL/HTTP/WebSocket/面板完整 e2e 已运行，构建容器无 OOM。面板 HTTP 挂起仍在下一保护节拍停止的行为测试已通过。专用 Debian 12 小内存节点使用最终 Linux core 二进制（SHA256 283e657b26de1717bbe09dedf7032035d6a3e648dc0256b8ed4f3293c2ca50c8）串行通过 4 项真实 systemd 专项，0 失败，耗时 2.79 秒；覆盖预算 OOM/TasksMax、queued-start、重建超时和预检独占。NodeQuality 基线出现全局 OOM 杀 Geekbench，Agent/常驻运行时未重启；SSH 采集隧道断连造成 319.014 秒指标空窗，不能据此宣称完整心跳验收通过，详见独立验收文档。
-
 
 - 本次合并整合 main `e2d898c`，保留核心/代理业务门禁、IP 查询逐条错误分类、诊断制品签名与启动前复验、退役同步和流量账本保留语义。修复状态查询失败/挂起会跳过内存保护的问题：独立每 5 秒重读内存，已有保护停止原因直接重试停止；停止确认失败时保留 ACTIVE，不提前发终态。
 - 两个 Linux 后端改用 root 所有、0700 普通目录中的固定锁 inode，OpenRC job 使用 0077 umask；不替换或删除已持有锁。OpenRC run-job 在首次启动前注册 SIGTERM/SIGINT，收到停止信号时同步取消并清理独立诊断进程组，保留已有报告与持久任务状态；真实 OpenRC 夹具新增子进程清理、锁释放和停止后重放拒绝回归。

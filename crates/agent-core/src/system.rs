@@ -2,6 +2,7 @@ mod archive;
 mod execution;
 mod openrc_jobs;
 pub use openrc_jobs::run_job;
+mod cleanup;
 pub mod deploy;
 mod jobs;
 mod publication;

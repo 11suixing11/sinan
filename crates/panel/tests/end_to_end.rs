@@ -54,10 +54,17 @@ async fn published_configuration_usage_and_lost_ack_survive_agent_restart(
     })
     .await?;
 
+    panel
+        .api(
+            Method::POST,
+            &format!("/api/plugins/sing-box/servers/{server_id}/enable"),
+            json!({}),
+        )
+        .await?;
     let node = panel
         .api(
             Method::POST,
-            "/api/nodes",
+            "/api/plugins/sing-box/nodes",
             json!({
                 "name": "E2E node", "server_id": server_id,
                 "public_host": "node.example.invalid", "sni": "www.example.com"
@@ -66,13 +73,17 @@ async fn published_configuration_usage_and_lost_ack_survive_agent_restart(
         .await?;
     let node_id = node["id"].as_i64().context("node id")?;
     let user = panel
-        .api(Method::POST, "/api/users", json!({"name": "E2E user"}))
+        .api(
+            Method::POST,
+            "/api/plugins/sing-box/users",
+            json!({"name": "E2E user"}),
+        )
         .await?;
     let user_id = user["id"].as_i64().context("user id")?;
     let access = panel
         .api(
             Method::POST,
-            &format!("/api/users/{user_id}/accesses"),
+            &format!("/api/plugins/sing-box/users/{user_id}/accesses"),
             json!({"node_id": node_id}),
         )
         .await?;
@@ -185,7 +196,9 @@ async fn published_configuration_usage_and_lost_ack_survive_agent_restart(
         "periodic usage batch committed and acknowledged",
         48,
         || async {
-            let totals = panel.api(Method::GET, "/api/usage", Value::Null).await?;
+            let totals = panel
+                .api(Method::GET, "/api/plugins/sing-box/usage", Value::Null)
+                .await?;
             Ok(totals["uplink"] == "100"
                 && totals["downlink"] == "200"
                 && transport::status(&config.status_socket).await?["pending_batches"] == 0)
@@ -266,7 +279,9 @@ async fn published_configuration_usage_and_lost_ack_survive_agent_restart(
 }
 
 async fn assert_usage(panel: &Harness, user_id: i64, node_id: i64) -> Result<()> {
-    let usage = panel.api(Method::GET, "/api/usage", Value::Null).await?;
+    let usage = panel
+        .api(Method::GET, "/api/plugins/sing-box/usage", Value::Null)
+        .await?;
     assert_eq!(usage["uplink"], "100");
     assert_eq!(usage["downlink"], "200");
     assert_eq!(usage["total"], "300");

@@ -18,7 +18,7 @@ TEST_ONLY_PUBLIC_KEY = "RWS3NbDikg3VqWRlxJMUyaB1dTvErk0ptJ695xQ50Kyb+MmtynMhN/lq
 TEST_ONLY_ROTATION_PUBLIC_KEY = "RWRURVNUUk9UMjMuvo0ny3Mjs6QBwcE7XdZLzMDhDs2hwrXRGgN3moXl"
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 TEST_PUBLIC_KEY_DIRS = (SOURCE_ROOT / "fixtures", SOURCE_ROOT / "crates/protocol/tests/fixtures")
-NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2"
+NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5"
 SEGMENT = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}\Z")
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?\Z")
 MAX_BINARY = 256 * 1024 * 1024
@@ -40,7 +40,7 @@ def read_regular(path, limit=MAX_BINARY):
 
 
 def canonical_path(entry):
-    ensure(entry["name"] in ("agent", "sing-box", "nodequality"), "unsupported module")
+    ensure(entry["name"] in ("agent", "sing-box", "nodequality", "tcpquality"), "unsupported module")
     ensure(SEGMENT.fullmatch(entry["version"]), "invalid version segment")
     ensure(entry["arch"] in ("amd64", "arm64", "linux-gnu-amd64", "linux-gnu-arm64", "linux-musl-amd64", "linux-musl-arm64", "macos-arm64", "freebsd-amd64", "freebsd-arm64", "windows-amd64", "windows-arm64"), "unsupported architecture")
     return "/".join(entry[k] for k in ("name", "version", "arch"))
@@ -130,17 +130,28 @@ def assemble(args):
     architectures = getattr(args, "arch", None) or ("amd64", "arm64")
     ensure(len(set(architectures)) == len(architectures)
            and set(architectures) <= {"amd64", "arm64"}, "invalid or duplicate architecture")
-    for name, version, archive_format, binary_name in (
+    modules = [
         ("agent", args.agent_version, "raw", "sinan-agent"),
         ("sing-box", args.runtime_version, "tar.gz", "sing-box"),
         ("nodequality", getattr(args, "nodequality_version", NODEQUALITY_VERSION), "tar.gz", "nodequality"),
-    ):
+    ]
+    if getattr(args, "tcp_probe_version", None) is not None:
+        modules.append(("tcpquality", args.tcp_probe_version, "tar.gz", "sinan-tcp-probe"))
+    for name, version, archive_format, binary_name in modules:
         for arch in architectures:
             entry = {"name": name, "version": version, "arch": arch,
                      "format": archive_format, "binary_name": binary_name}
             path = canonical_path(entry)
             data = read_regular(source / path)
-            binary = binary_bytes(data, archive_format, binary_name)
+            auxiliary = {}
+            if name == "tcpquality":
+                from tcp_probe_artifact import archive_files, validate_files
+                files = archive_files(data)
+                validate_files(files, version, arch)
+                auxiliary = {name: {"sha256": digest(content), "size": len(content)}
+                             for name, content in files.items() if name != binary_name}
+                entry["auxiliary_files"] = auxiliary
+            binary = binary_bytes(data, archive_format, binary_name, auxiliary)
             entry.update(archive_size=len(data), binary_sha256=digest(binary),
                          binary_size=len(binary), asset_name=asset_name(entry))
             (output / entry["asset_name"]).write_bytes(data)
@@ -293,6 +304,13 @@ def validate_manifest(bundle, expected_tag=None):
         ensure(isinstance(entry["binary_name"], str) and SEGMENT.fullmatch(entry["binary_name"])
                and entry["binary_name"] not in (".", ".."), "invalid signed binary name")
         validate_auxiliary_files(entry.get("auxiliary_files", {}), entry["binary_name"], entry["format"])
+        if entry["name"] == "tcpquality":
+            from tcp_probe_artifact import BINARY, FILES, TOOL_VERSION
+            ensure(entry["format"] == "tar.gz" and entry["binary_name"] == BINARY
+                   and entry["arch"] in ("amd64", "arm64")
+                   and re.fullmatch(re.escape(TOOL_VERSION) + r"-[0-9a-f]{40}-r1", entry["version"])
+                   and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
+                   "wrong or incomplete native TCP artifact identity")
         if entry["name"] == "agent":
             binary_name = "sinan-agent.exe" if entry["arch"].startswith("windows-") else "sinan-agent"
             ensure(metadata["tag"] == "agent-v" + entry["version"] and entry["format"] == "raw"
@@ -316,6 +334,9 @@ def verify_bundle(bundle, roots, minisign, expected_tag=None, exact_assets=True)
         ensure(len(data) == entry["archive_size"] and rows.get(path) == digest(data), "archive mismatch")
         binary = binary_bytes(data, entry["format"], entry["binary_name"], entry.get("auxiliary_files", {}))
         ensure(len(binary) == entry["binary_size"] and digest(binary) == entry["binary_sha256"], "binary mismatch")
+        if entry["name"] == "tcpquality":
+            from tcp_probe_artifact import archive_files, validate_files
+            validate_files(archive_files(data), entry["version"], entry["arch"])
     if exact_assets:
         ensure({p.name for p in bundle.iterdir()} == expected_files, "missing or extra release assets")
     return metadata
@@ -328,6 +349,7 @@ def main():
     for argument in ("source", "output", "tag", "agent-version", "runtime-version", "installer"):
         build.add_argument("--" + argument, required=True)
     build.add_argument("--nodequality-version", default=NODEQUALITY_VERSION)
+    build.add_argument("--tcp-probe-version", help="opt-in native TCP version with its full source SHA")
     build.add_argument("--arch", action="append", choices=("amd64", "arm64"),
                        help="CI test bundle architectures; production requires both")
     render = commands.add_parser("render-installer")

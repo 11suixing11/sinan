@@ -15,6 +15,8 @@ from release import (MAX_BINARY, REPOSITORY, VERSION, digest, ensure, load_roots
 
 REQUIRED_JOBS = frozenset(("check", "compose-smoke", "Agent Linux musl (amd64)",
                           "Agent Linux musl (arm64)", "Reality installation and accounting"))
+RELEASES_PER_PAGE = 100
+MAX_RELEASE_PAGES = 10
 
 
 class Github:
@@ -98,12 +100,34 @@ def required_checks(github, commit):
 
 
 def release_snapshot(github, tag):
-    value = github.api(f"repos/{REPOSITORY}/releases/tags/{urllib.parse.quote(tag, safe='')}")
-    ensure(type(value["id"]) is int and value["id"] > 0 and value["tag_name"] == tag,
-           "wrong release identity")
-    ensure(isinstance(value["target_commitish"], str)
-           and re.fullmatch(r"[0-9a-f]{40}", value["target_commitish"]),
+    # The tag endpoint excludes drafts; scan the authenticated list to prove uniqueness.
+    selected, release_ids = None, set()
+    for page in range(1, MAX_RELEASE_PAGES + 1):
+        values = github.api(f"repos/{REPOSITORY}/releases?per_page={RELEASES_PER_PAGE}&page={page}")
+        ensure(isinstance(values, list) and len(values) <= RELEASES_PER_PAGE,
+               "invalid release listing page")
+        for value in values:
+            ensure(isinstance(value, dict) and type(value.get("id")) is int
+                   and value["id"] > 0 and value["id"] not in release_ids,
+                   "invalid or duplicate release ID in listing")
+            ensure(isinstance(value.get("tag_name"), str), "invalid release tag in listing")
+            release_ids.add(value["id"])
+            if value["tag_name"] == tag:
+                ensure(selected is None, "multiple releases match the exact tag")
+                selected = value
+        if len(values) < RELEASES_PER_PAGE:
+            break
+    else:
+        raise ValueError("release listing exceeds the page limit")
+    ensure(selected is not None, "no release matches the exact tag")
+    ensure(isinstance(selected.get("target_commitish"), str)
+           and re.fullmatch(r"[0-9a-f]{40}", selected["target_commitish"]),
            "release draft must record the exact build commit")
+    value = github.api(f"repos/{REPOSITORY}/releases/{selected['id']}")
+    ensure(isinstance(value, dict) and type(value.get("id")) is int
+           and value["id"] == selected["id"] and value.get("tag_name") == tag
+           and value.get("target_commitish") == selected["target_commitish"],
+           "release identity changed after listing")
     assets = github.api(f"repos/{REPOSITORY}/releases/{value['id']}/assets?per_page=100")
     ensure(isinstance(assets, list) and 0 < len(assets) <= 20, "invalid release asset count")
     normalized, names, identifiers = [], set(), set()
@@ -127,9 +151,12 @@ def release_snapshot(github, tag):
 
 def require_components(metadata):
     identities = {(entry["name"], entry["arch"]) for entry in metadata["artifacts"]}
-    ensure(len(metadata["artifacts"]) == 6 and identities == {
-        (name, arch) for name in ("agent", "sing-box", "nodequality")
-        for arch in ("amd64", "arm64")}, "release must contain every module on both architectures")
+    required = {(name, arch) for name in ("agent", "sing-box", "nodequality")
+                for arch in ("amd64", "arm64")}
+    if any(name == "tcpquality" for name, _ in identities):
+        required |= {("tcpquality", arch) for arch in ("amd64", "arm64")}
+    ensure(len(metadata["artifacts"]) == len(required) and identities == required,
+           "release must contain every selected module on both architectures")
 
 
 def checked_publication(github, tag, roots, minisign, publish=False):
@@ -156,7 +183,9 @@ def checked_publication(github, tag, roots, minisign, publish=False):
     evidence = {"tag": tag, "tag_identity": identity, "checks": checks, "release": before,
                 "published": False}
     if publish:
-        result = github.api(f"repos/{REPOSITORY}/releases/{before['id']}", "PATCH", ("draft=false",))
+        result = github.api(f"repos/{REPOSITORY}/releases/{before['id']}", "PATCH",
+                            ("draft=false", f"tag_name={before['tag']}",
+                             f"target_commitish={before['build_commit']}"))
         ensure(result["id"] == before["id"] and result["draft"] is False, "publication request failed")
         after = release_snapshot(github, tag)
         ensure(after == dict(before, draft=False) and tag_identity(github, tag) == identity,

@@ -48,6 +48,7 @@ impl Drop for Scratch {
 struct FakePrivileged {
     calls: Mutex<Vec<Vec<String>>>,
     invalid_version: bool,
+    artifact_version: Option<String>,
 }
 
 impl Privileged for FakePrivileged {
@@ -59,7 +60,10 @@ impl Privileged for FakePrivileged {
                 stdout: if self.invalid_version {
                     "another program".into()
                 } else {
-                    format!("nodequality {VERSION}\n")
+                    format!(
+                        "nodequality {}\n",
+                        self.artifact_version.as_deref().unwrap_or(VERSION)
+                    )
                 },
                 stderr: String::new(),
             })
@@ -81,12 +85,17 @@ impl Privileged for FakePrivileged {
 
     fn write_file<'a>(
         &'a self,
-        _: &'a Path,
-        _: &'a [u8],
-        _: u32,
+        path: &'a Path,
+        bytes: &'a [u8],
+        mode: u32,
         _: Option<&'a str>,
     ) -> BoxFuture<'a, ()> {
-        Box::pin(async { anyhow::bail!("unexpected write") })
+        Box::pin(async move {
+            assert_eq!(path.file_name().unwrap(), "daily-targets.json");
+            assert_eq!(mode, 0o600);
+            tokio::fs::write(path, bytes).await?;
+            Ok(())
+        })
     }
 
     fn atomic_symlink<'a>(&'a self, _: &'a Path, _: &'a Path) -> BoxFuture<'a, ()> {
@@ -103,40 +112,118 @@ impl Privileged for FakePrivileged {
 }
 
 #[tokio::test]
-async fn prepare_only_verifies_version_and_builds_a_fixed_service_command() {
+async fn all_full_versions_are_denied_before_executing_or_creating_anything() {
     let scratch = Scratch::new();
-    let spec = scratch.spec();
     let privileged = FakePrivileged::default();
-    let job = NodeQualityAdapter::new()
-        .prepare(&spec, &privileged)
-        .await
-        .unwrap();
-    assert_eq!(job.unit, format!("sinan-diagnostic-{}.service", spec.id));
-    assert_eq!(job.program, spec.binary_path);
-    assert_eq!(job.working_directory, spec.job_dir);
-    assert_eq!(job.timeout_secs, 1800);
-    assert_eq!(job.memory_max.get(), 512 * 1024 * 1024);
-    assert_eq!(job.tasks_max.get(), 128);
-    assert_eq!(job.cpu_weight.get(), 10);
-    assert_eq!(job.io_weight.get(), 10);
-    assert_eq!(job.oom_score_adjust.get(), 500);
+    for version in [
+        VERSION,
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4",
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2",
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3",
+    ] {
+        for upload in ["true", "false"] {
+            let mut spec = scratch.spec();
+            spec.version = version.into();
+            spec.options.insert("upload_report".into(), upload.into());
+            let error = NodeQualityAdapter::new()
+                .prepare(&spec, &privileged)
+                .await
+                .unwrap_err();
+            assert!(error.to_string().contains("离线受控工具链"));
+            assert!(!spec.job_dir.exists());
+            assert!(privileged.calls.lock().unwrap().is_empty());
+        }
+    }
+    let mut explicit = scratch.spec();
+    explicit.options.insert("mode".into(), "full".into());
+    assert!(
+        NodeQualityAdapter::new()
+            .prepare(&explicit, &privileged)
+            .await
+            .is_err()
+    );
+    assert!(!explicit.job_dir.exists());
+}
+
+#[tokio::test]
+async fn daily_profile_is_bounded_and_persists_only_whitelisted_targets() {
+    let scratch = Scratch::new();
+    let privileged = FakePrivileged::default();
+    let mut spec = scratch.spec();
+    spec.timeout_secs = 90;
+    spec.options = BTreeMap::from([
+        ("mode".into(), "daily".into()),
+        (
+            "daily_targets".into(),
+            r#"[{"name":"private","target":"127.0.0.1","port":443}]"#.into(),
+        ),
+        ("environment_section".into(), "true".into()),
+    ]);
+    let adapter = NodeQualityAdapter::new();
     assert_eq!(
-        job.args,
+        adapter.capabilities(),
         vec![
-            "--workspace",
-            spec.job_dir.to_str().unwrap(),
-            "--ip-version",
-            "both",
-            "--network-mode",
-            "low",
-            "--upload-report",
-            "false",
+            sinan_adapter_nodequality::MODES_CAPABILITY,
+            sinan_adapter_nodequality::FULL_START_GATE_CAPABILITY
         ]
     );
-    assert_eq!(
-        *privileged.calls.lock().unwrap(),
-        vec![vec!["--version".to_string()]]
+    let service = adapter.prepare(&spec, &privileged).await.unwrap();
+    assert_eq!(service.memory_max.get(), 64 * 1024 * 1024);
+    assert_eq!(service.tasks_max.get(), 32);
+    assert_eq!(service.timeout_secs, 90);
+    assert!(
+        service
+            .args
+            .windows(2)
+            .any(|args| args == ["--mode", "daily"])
     );
+    assert_eq!(
+        std::fs::read_to_string(spec.job_dir.join("daily-targets.json")).unwrap(),
+        spec.options["daily_targets"]
+    );
+    for (key, value) in [
+        ("network_mode", "normal"),
+        ("upload_report", "true"),
+        (
+            "daily_targets",
+            r#"[{"name":"bad","target":"$(id)","port":443}]"#,
+        ),
+    ] {
+        let mut invalid = spec.clone();
+        invalid.options.insert(key.into(), value.into());
+        assert!(adapter.prepare(&invalid, &privileged).await.is_err());
+    }
+    let mut legacy = spec.clone();
+    legacy.version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3".into();
+    assert!(adapter.prepare(&legacy, &privileged).await.is_err());
+}
+
+#[tokio::test]
+async fn legacy_signed_versions_still_collect_saved_reports_without_preparing_again() {
+    let scratch = Scratch::new();
+    let mut spec = scratch.spec();
+    std::fs::create_dir_all(&spec.job_dir).unwrap();
+    std::fs::write(spec.job_dir.join("result.txt"), "saved before restart").unwrap();
+    for version in [
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2",
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3",
+        VERSION,
+    ] {
+        spec.version = version.into();
+        let saved = NodeQualityAdapter::new()
+            .collect(&spec)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.text, "saved before restart");
+        assert!(
+            NodeQualityAdapter::new()
+                .collect_sections(&spec)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
 }
 
 #[tokio::test]
@@ -177,30 +264,20 @@ async fn prepare_rejects_unpinned_versions_unknown_options_and_expansion() {
 }
 
 #[tokio::test]
-async fn prepare_uploads_only_with_an_explicit_true_option() {
-    let scratch = Scratch::new();
-    let privileged = FakePrivileged::default();
-    for option in ["true", "false"] {
-        let mut spec = scratch.spec();
-        spec.options.insert("upload_report".into(), option.into());
-        let job = NodeQualityAdapter::new()
-            .prepare(&spec, &privileged)
-            .await
-            .unwrap();
-        assert_eq!(&job.args[job.args.len() - 2..], ["--upload-report", option]);
-    }
-}
-
-#[tokio::test]
 async fn prepare_rejects_an_artifact_that_does_not_match_its_version() {
     let scratch = Scratch::new();
     let privileged = FakePrivileged {
         invalid_version: true,
         ..Default::default()
     };
+    let mut spec = scratch.spec();
+    spec.options = BTreeMap::from([
+        ("mode".into(), "daily".into()),
+        ("daily_targets".into(), "[]".into()),
+    ]);
     assert!(
         NodeQualityAdapter::new()
-            .prepare(&scratch.spec(), &privileged)
+            .prepare(&spec, &privileged)
             .await
             .is_err()
     );
@@ -300,3 +377,61 @@ async fn collect_does_not_follow_output_symlinks() {
     std::os::unix::fs::symlink(secret, spec.job_dir.join("result.txt")).unwrap();
     assert!(NodeQualityAdapter::new().collect(&spec).await.is_err());
 }
+
+#[tokio::test]
+async fn chapters_remain_readable_when_the_final_report_is_missing_or_another_chapter_is_bad() {
+    let scratch = Scratch::new();
+    let spec = scratch.spec();
+    std::fs::create_dir(&spec.job_dir).unwrap();
+    let chapter = serde_json::json!({"name":"header_info","text":"saved header","complete":true,"revision":2,"collected_at":1700000000});
+    std::fs::write(
+        spec.job_dir.join("section-header_info.json"),
+        serde_json::to_vec(&chapter).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        spec.job_dir.join("section-hardware_quality.json"),
+        "invalid JSON",
+    )
+    .unwrap();
+    let adapter = NodeQualityAdapter::new();
+    assert!(adapter.collect(&spec).await.unwrap().is_none());
+    let chapters = adapter.collect_sections(&spec).await.unwrap();
+    assert_eq!(chapters.len(), 1);
+    assert_eq!(chapters[0].text, "saved header");
+    assert!(chapters[0].complete);
+    for revision in ["r2", "r3"] {
+        let mut legacy = spec.clone();
+        legacy.version = format!("a92fca6c0067df29ddd03fdc2fee6f3000f64545-{revision}");
+        std::fs::write(legacy.job_dir.join("result.txt"), "unchanged old report").unwrap();
+        assert_eq!(
+            adapter.collect(&legacy).await.unwrap().unwrap().text,
+            "unchanged old report"
+        );
+        let chapters = adapter.collect_sections(&legacy).await.unwrap();
+        assert_eq!(chapters.len(), 1);
+        assert_eq!(chapters[0].text, "saved header");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn chapter_collection_never_follows_symlinks_and_rejects_mismatched_names() {
+    let scratch = Scratch::new();
+    let spec = scratch.spec();
+    std::fs::create_dir(&spec.job_dir).unwrap();
+    let secret = scratch.0.join("private-file");
+    std::fs::write(&secret, serde_json::to_vec(&serde_json::json!({"name":"header_info","text":"private","complete":true,"revision":1,"collected_at":1700000000})).unwrap()).unwrap();
+    std::os::unix::fs::symlink(secret, spec.job_dir.join("section-header_info.json")).unwrap();
+    std::fs::write(spec.job_dir.join("section-ip_quality.json"), serde_json::to_vec(&serde_json::json!({"name":"hardware_quality","text":"wrong chapter","complete":true,"revision":1,"collected_at":1700000000})).unwrap()).unwrap();
+    assert!(
+        NodeQualityAdapter::new()
+            .collect_sections(&spec)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[path = "diagnostic/versions.rs"]
+mod versions;

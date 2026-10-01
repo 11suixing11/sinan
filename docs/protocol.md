@@ -2,7 +2,7 @@
 
 ## 传输与兼容
 
-生产环境必须通过 HTTPS/WSS 暴露面板；本地测试可使用回环 HTTP。Agent 原生传输只访问已配置面板的同源地址，拒绝外站制品、重定向及路径穿越。按需执行的 NodeQuality 外插需要访问上游测试服务，见 ADR 0016。WebSocket 入口为 `GET /api/agent/v1/ws`。全部业务消息为 UTF-8 JSON 文本；单条消息应小于 1 MiB。
+生产环境必须通过 HTTPS/WSS 暴露面板；本地测试可使用回环 HTTP。Agent 原生传输只访问已配置面板的同源地址，拒绝外站制品、重定向及路径穿越。NodeQuality 既有完整任务的上游执行链见 ADR 0016；新完整任务已按 ADR0031 暂停，日常探测只访问已配置目标。WebSocket 入口为 `GET /api/agent/v1/ws`。全部业务消息为 UTF-8 JSON 文本；单条消息应小于 1 MiB。
 
 Agent 与面板的产品版本独立；面板当前声明支持协议范围 `1..=1`，按协议版本和能力判断兼容，不要求产品版本相等。hello 和静态遥测报告 Agent 二进制自己的版本。
 
@@ -20,7 +20,7 @@ Agent 与面板的产品版本独立；面板当前声明支持协议范围 `1..
 
 1. 面板生成随机、连接专用、一次性的 nonce，发送 `auth.challenge`，内容 `{nonce,server_time}`。nonce 是无填充 Base64 URL-safe 文本。
 2. Agent 用 Ed25519 签名 **nonce 字符串的 UTF-8 字节**，发送 `auth.response`：`{server_id,signature}`，signature 同样使用无填充 Base64 URL-safe。
-3. 面板验证设备公钥和当前挑战，通过后发送 `hello.ack`：`{server_time,session_token,session_expires_at}`。HTTP Bearer token 有效 3600 秒，重新连接重新签发，绑定服务器身份。认证前不可获取清单或发送计量。
+3. 面板验证设备公钥和当前挑战，通过后发送 `hello.ack`：`{server_time,session_token,session_expires_at}`。`server_time` 是本次会话签发时的时间快照，过期时间由同一次取时加 3600 秒得到，并与数据库存储值一致。HTTP Bearer token 重新连接重新签发，绑定服务器身份。认证前不可获取清单或发送计量。
 4. Agent 发送 `hello`：`{agent_version,protocol_version,capabilities:[],applied:{"module":rev}}`，再发送静态遥测。
 
 一次挑战不能用于另一条连接。认证阶段有超时；超过 60 秒未收到任何消息判定离线。Agent 每 20 秒心跳，断线指数退避（上限 60 秒，另加 0–30% 抖动）重新认证。在会话过期前主动重连，避免 HTTP 凭证过期导致对账持续失败。
@@ -49,7 +49,7 @@ Linux 静态信息区分两种 ABI：`libc` 保留 Agent 自身的编译 ABI，`
 
 `runtime_libc` 为 Linux 可选新增字段，识别成功取 `gnu` 或 `musl`；新 Agent 无法可靠识别宿主时兼容沿用自身编译 ABI。面板接受 `glibc` 作为 `gnu` 别名，非 Linux 设备不发送此字段。旧设备缺少字段时保留原 `libc` 选择路径；显式 null 或非字符串在消息解析时拒绝，显式 `unknown`、空字符串或未支持值的运行时清单返回 400，不将这些值当作字段缺失。
 
-GNU 宿主上的 musl Agent 按 `linux-musl-{arch}`、旧 `{arch}`、`linux-gnu-{arch}` 依次选择运行时，保留旧版本在同一签名证明中选择 musl 或 legacy 的优先级；GNU Agent 则从 GNU 完整标识开始，再兼容旧目录。只有制品不存在时才尝试下一候选，校验失败不能降级。真正 musl 宿主不使用 GNU 完整标识或 GNU 兼容目录。Agent 自身升级继续只用编译 ABI，不随 `runtime_libc` 改变。
+Linux 宿主 ABI 与 Agent 编译 ABI 不同时，运行时先保留旧的编译 ABI 完整标识、旧 `{arch}` 选择顺序，再尝试宿主 ABI。GNU 宿主上的 musl Agent 因此依次选择 `linux-musl-{arch}`、旧 `{arch}`、`linux-gnu-{arch}`；已通过兼容层运行在 musl 宿主的 GNU Agent 依次选择 `linux-gnu-{arch}`、旧 `{arch}`、`linux-musl-{arch}`，保证此前签名缓存仍按原摘要复验。两种 ABI 相同时，GNU 路径兼容旧目录，musl Agent 在 musl 宿主不使用 GNU 完整标识或 GNU 兼容目录。只有制品不存在时才尝试下一候选，校验失败不能降级。Agent 自身升级继续只用编译 ABI，不随 `runtime_libc` 改变。
 
 ## HTTP 期望状态
 
@@ -84,7 +84,15 @@ GNU 宿主上的 musl Agent 按 `linux-musl-{arch}`、旧 `{arch}`、`linux-gnu-
 - `GET /api/agent/v1/diagnostics` 返回该设备尚未终止的任务数组，每个为 `{id,plugin,version,artifact:{url,sha256,proof},timeout_secs,expires_at?,options}`。
 - `POST /api/agent/v1/diagnostics/{id}` 提交 `{id,status,report?,error?}`。设备可提交的 status 是 `running`、`succeeded`、`failed`，最终报告为 `{text,report_url?}`。数据库持久化后返回 204；其他设备不能更新该任务，过期会话不能取回任务。
 
-NodeQuality 的 plugin 标识为 `nodequality`，version 为固定上游提交加包装器版本（当前为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2`），制品同源、校验后安装。options 仅允许 `ip_version=both|ipv4|ipv6`、`network_mode=low|normal` 和 `upload_report=true|false`。`upload_report` 在管理员创建任务的 HTTP 请求中为布尔值，缺省 `false`；在公共任务中为固定字符串，缺少时新 Agent 按关闭处理。旧 Agent 拒绝新版本和未知选项，不通过忽略隐私选项继续运行旧包。升级必须准备 r2 包；已排队或运行的旧任务不受新缺省值影响，应先结束旧任务再升级。任务不携带任意命令、程序地址或自由 shell 参数。
+确认式取消是独立扩展，能力为 `diagnostic:confirmed-cancel`。管理员取消接口先持久保存 `cancel_requested` 再发送 `diagnostic.cancel.request={server_id,job}`，其中 job 是该服务器已有任务；协议不接受任意单元名。设备先保存取消意图、停止绑定单元并核实进程与挂载都已清理，再发送 `diagnostic.cancel.result={server_id,id,plugin,confirmed,report?,error?}`。只有经设备身份认证的 `confirmed=true` 使任务进入 `cancelled`；普通 `DiagnosticUpdate` 不能提交取消状态。
+
+`GET /api/agent/v1/diagnostics/cancellations` 返回当前设备的待取消请求（最多 64 条），`POST /api/agent/v1/diagnostics/{id}/cancel-confirmation` 持久保存取消结果并返回 204。HTTP pending 与 Agent SQLite outbox 恢复断连和重启。确认前界面显示“等待设备确认取消”；负确认、过期或末尾自然报告不结束该状态，已有报告保留。重复请求和确认幂等，已自然完成任务拒绝新取消。缺少能力的旧 Agent / 服务后端明确不支持。具体清理证据与并发边界见 [ADR 0026](adr/0026-confirmed-diagnostic-cancellation.md)。
+
+NodeQuality 的 plugin 标识为 `nodequality`，version 为固定上游提交加包装器版本（当前为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5`），制品同源、校验后安装。新任务 options 允许 `mode=daily|full`、`ip_version=both|ipv4|ipv6`、`network_mode=low|normal`、`upload_report=true|false`、固定 `environment_section=true`，日常另带来自该服务器已启用 TCP 拨测的白名单 `daily_targets`（最多4个、8KiB）。日常只接受 low/false，不执行硬件或上游脚本。`upload_report` 在管理员创建任务的 HTTP 请求中为布尔值，缺省 `false`；在公共任务中为固定字符串，缺少时新 Agent 按关闭处理。旧 Agent 拒绝新版本和未知选项，不通过忽略隐私选项继续运行旧包。升级必须先准备 r5 包；新面板只向已识别 Linux、声明 `diagnostic:report-sections` 和 `diagnostic:nodequality-modes` 的 Agent 创建 r5 任务。新 Agent 保留 r2/r3/r4/r5 已有 Started checkpoint 的收集与取消，旧报告内容保留。任务不携带任意命令、程序地址或自由 shell 参数。
+
+
+临时安全门禁不修改上述任务序列化格式：新完整任务在两种创建入口都返回 409。NodeQuality 视图另返回 `full_ready=false` 与 `full_reason`；`plugin_ready` 只表示日常插件就绪。旧排队完整任务保存失败原因且保留 `agent_completed=false`，可接收迟到章节/报告及取消；旧运行任务仅向声明 `diagnostic:nodequality-full-start-gate` 的 Agent 重发，升级后的适配器拒绝 Preparing 完整任务的新执行，已有 Started 不重跑。门禁前已领取任务的旧 Agent 须升级或确认取消，面板不能撤回已返回的 HTTP。历史 `upload_report=false` 只关闭顶层公开上传，不能证明内层没有外发；见 [ADR0031](adr/0031-nodequality-full-start-gate.md)。
+
 
 任务 ID 同时用于设备持久 checkpoint、独立服务及面板去重。先记录启动意图再创建 systemd 服务；Agent 重启检查已有服务并继续观察，不自动重复运行。启动边界状态不明或服务消失时回报失败，管理员可另发新任务。结果确认前保存并重传；终态不能被晚到的 running 覆盖。每台设备最多一个活跃任务。代理配置版本与用户流量周期不会因诊断任务变化。
 
@@ -99,3 +107,15 @@ Agent 收到请求后持久阻止新的受管操作，停止运行时与诊断�
 回执为 `{server_id,request_id,signature}`；签名对象按顺序拼接 UTF-8 `sinan-retirement-v1`、一个零字节、8 字节大端有符号 server ID、16 字节请求 UUID。使用原设备 Ed25519 密钥，签名为 URL-safe base64，无填充。Agent 在删除私钥前持久保存回执，但只在清理完成后发送。面板使用保留的公钥和已存在请求验签。
 
 完成后的 Agent 也可向原绑定面板的 `POST /api/agent/v1/retirement/receipt` 发送该回执。此接口不需要 Bearer session；签名本身只授权对应退役确认，不能恢复设备会话。重复合法回执返回 204，错误回执拒绝。确认响应丢失时仍可恢复；未清理完成就被离线软删除的设备不具备此保证，需人工处理。详细崩溃与离线边界见 [ADR 0019](adr/0019-server-retirement.md)。
+
+
+诊断章节回报与执行状态独立。`POST /api/agent/v1/diagnostics/{id}/sections` 发送 `{id,name,text,complete,revision,collected_at}`，章节名须已登记在任务的 `expected_sections` 中，UTF-8 文本不超过 64 KiB、单任务不超过 512 KiB。`revision` 是此任务此章节的递增版本，采集时间使用秒；相同版本同内容可重复提交，同版本不同内容拒绝，迟到版本或已完成章节的未完成版本不会覆盖已保存内容。HTTP 204 只确认所提交版本持久化，Agent 用 SQLite 保存未确认章节和已确认版本，断连或重启后继续上传，不重新执行测试。
+
+任务历史在原 `report` 文本之外返回 `expected_sections`、`sections` 和 `report_completeness=empty|partial|complete|legacy`。执行 `status` 不用于推导完整度；失败、取消或截止后仍可接收已执行任务的迟到章节，独立显示已完成部分。旧文本保持原样，完整度标记为 `legacy`（未知），不补造章节结果。已删除设备不能上传章节。NodeQuality r3 包装器在每个阶段运行时保存私有目录内原子章节快照；同一固定上游的下一阶段日志或最终压缩包证明上一章节完成，缺失或无效 JSON 只能产生未完成预览。
+
+
+## 共用诊断任务服务
+
+管理员用 `GET /api/servers/{id}/diagnostics` 查看登记插件就绪状态及最近任务，`POST /api/servers/{id}/diagnostics/{plugin}` 提交插件参数。只允许已登记插件，所有创建入口共享服务器锁；旧 NodeQuality 路由保留。Agent 结果、章节、待取消及确认接口维持原设备范围认证。
+
+`DiagnosticJob` 增量字段 `resource_budget` 为对象，包含 `memory_max`（字节）、`tasks_max`、`cpu_weight`、`io_weight`、`oom_score_adjust`。新任务需 `diagnostic:job-service`；旧字段缺失代表适配器原预算。Agent 在预检前验证并应用，只可收紧适配器准备的限制。任务 JSON 与历史表不迁移，旧设备回报的历史任务及章节仍可接收。

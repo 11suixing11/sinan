@@ -38,11 +38,21 @@ struct Runtime {
     public_ips: Arc<Vec<String>>,
     agent_version: &'static str,
     retirement: Option<Arc<crate::retirement::Retirement>>,
+    cancellation: Option<Arc<diagnostics::cancellation::CancellationControl>>,
+    telemetry: watch::Receiver<Arc<crate::telemetry::cache::Snapshot>>,
 }
 
 impl Runtime {
-    fn static_info(&self) -> Result<sinan_protocol::StaticInfo> {
-        let mut info = crate::telemetry::Collector::new().static_info();
+    fn static_info(&self) -> Result<Option<sinan_protocol::StaticInfo>> {
+        let mut info = {
+            let snapshot = self.telemetry.borrow();
+            // Keep enrollment metadata until the collector has identified the host.
+            // Compiled ABI alone cannot identify the installed runtime's ABI.
+            if snapshot.sample.is_none() {
+                return Ok(None);
+            }
+            snapshot.static_info.clone()
+        };
         info.agent_version = Some(self.agent_version.into());
         info.ip_addresses = crate::telemetry::normalized_addresses(
             info.ip_addresses
@@ -72,7 +82,7 @@ impl Runtime {
                 break;
             }
         }
-        Ok(info)
+        Ok(Some(info))
     }
 
     fn applied(&self) -> Result<AppliedRevisions> {
@@ -169,11 +179,43 @@ pub async fn run_with_diagnostics(
     if config.allow_remote_commands {
         capabilities.push("command:execute".into());
     }
+    if !diagnostics.is_empty() {
+        capabilities.push(sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY.into());
+        capabilities.push(sinan_protocol::DIAGNOSTIC_SERVICE_CAPABILITY.into());
+    }
+    capabilities.extend(
+        diagnostics
+            .iter()
+            .flat_map(|adapter| adapter.capabilities()),
+    );
     capabilities.extend(
         diagnostics
             .iter()
             .map(|adapter| format!("diagnostic:{}", adapter.describe().plugin_name)),
     );
+    let (client_tx, client_rx) = watch::channel::<Option<Arc<PanelClient>>>(None);
+    let (trigger_tx, trigger_rx) = mpsc::channel(1);
+    let (outgoing_tx, mut outgoing_rx) = mpsc::channel(64);
+    let cancellation = if !diagnostics.is_empty() && services.supports_confirmed_cancellation() {
+        capabilities.push(sinan_protocol::DIAGNOSTIC_CANCEL_CAPABILITY.into());
+        Some(Arc::new(
+            diagnostics::cancellation::CancellationControl::new(
+                state.clone(),
+                identity.server_id,
+                diagnostics
+                    .iter()
+                    .map(|adapter| adapter.describe().plugin_name)
+                    .collect(),
+            )
+            .with_outgoing(outgoing_tx.clone()),
+        ))
+    } else {
+        None
+    };
+    let mut collection_control = crate::telemetry::worker::initial_control(&config, &state)?;
+    collection_control.enabled = !retirement.requested();
+    let sampling =
+        crate::telemetry::cache::Sampling::start(privileged.clone(), collection_control)?;
     let runtime = Runtime {
         state: state.clone(),
         modules: Arc::new(modules),
@@ -182,10 +224,9 @@ pub async fn run_with_diagnostics(
         public_ips: Arc::new(config.public_ips.clone()),
         agent_version,
         retirement: Some(retirement.clone()),
+        cancellation: cancellation.clone(),
+        telemetry: sampling.snapshots.clone(),
     };
-    let (client_tx, client_rx) = watch::channel::<Option<Arc<PanelClient>>>(None);
-    let (trigger_tx, trigger_rx) = mpsc::channel(1);
-    let (outgoing_tx, mut outgoing_rx) = mpsc::channel(64);
     let mut tasks = JoinSet::new();
     tasks.spawn(crate::upgrade::run(
         config.clone(),
@@ -211,20 +252,25 @@ pub async fn run_with_diagnostics(
     tasks.spawn(crate::telemetry::worker::run(
         config.clone(),
         state.clone(),
-        privileged.clone(),
+        sampling.snapshots.clone(),
+        sampling.control.clone(),
         client_rx.clone(),
         retirement.clone(),
     ));
-    tasks.spawn(
-        diagnostics::DiagnosticWorker::new(
-            config.clone(),
-            state,
-            diagnostics,
-            privileged,
-            services,
-        )?
-        .run_guarded(client_rx.clone(), retirement.clone()),
-    );
+    let diagnostic_worker = diagnostics::DiagnosticWorker::new(
+        config.clone(),
+        state,
+        diagnostics,
+        privileged,
+        services,
+    )?;
+    let diagnostic_worker = if let Some(control) = cancellation {
+        tasks.spawn(control.clone().run(client_rx.clone(), retirement.clone()));
+        diagnostic_worker.with_cancellations(control)
+    } else {
+        diagnostic_worker
+    };
+    tasks.spawn(diagnostic_worker.run_guarded(client_rx.clone(), retirement.clone()));
     tasks.spawn(worker::run(
         reconcilers,
         runtime.clone(),

@@ -9,3 +9,4 @@ rust-version.workspace = true
 sinan-adapter-sdk.workspace = true
 anyhow.workspace = true
 tokio.workspace = true
+serde_json.workspace = true

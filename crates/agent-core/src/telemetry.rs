@@ -1,3 +1,4 @@
+pub(crate) mod cache;
 mod hardware;
 mod outbox;
 pub mod worker;
