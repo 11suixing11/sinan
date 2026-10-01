@@ -1152,3 +1152,9 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 
 - r10冻结e95fa7b完成host122运行/117通过/5条件跳过；新数据专项6全部通过。Rust19（adapter15/gate3/HTTP-PG日常1）和Clippy/fmt/core/diff通过，专属PG55439已停止/PID消失/端口关闭，收据c027d01d…。Debian12共86运行/85通过/1缺minisign跳过，57.311秒；实际限额256MiB/Swap0/Tasks64等读回，峰值71,118,848B/11pids，0OOM；结束无进程/挂载/cgroup，SSH406重启0/同boot/swap0，42输入不变（24仓库输入匹配），收据74114ba4…。
 - 独立复现并开Issue #112：真实source-helper拒绝篡改数据，但固定加载器bash进程替换吞掉空输出失败，三个网络分支仍退出0。仅用固定函数体/Bash桩，无公网或上游基准；独立单元已回收。不能把供给拒绝等同整项任务正确失败，错误传递下一项单独修复。详见[静态数据独立验收](docs/acceptance/nodequality-pinned-data.md)及JSON索引，全部full门禁、rootfs/授权缺口与总故障矩阵保持；未正式签署/发布/部署/恢复CI。
+
+### PR #113 合并复核（2026-10-01）
+
+- 正常合入已验证 r9 主线并将 PR 改到 main，保存双方进度；产品输入逐字等同作者 r10，另继承同一报告记录回调优化，原 20 秒预算不变。
+- 隔离树刷新编译输入后 Rust/PostgreSQL 诊断专项 42 项、workspace 全 targets Clippy、fmt/core 通过。七份新增数据的官方完整提交、Git tree/blob、原大小及 SHA 全部核对；实际 Bash5 依赖 11、数据 6、swap 10 和真实固定源报告 6 通过。
+- 耐久证据 pr113-root-rust-fresh-local、pr111-113-review-20261001；作者 guest 不作为本聊天重演。供给失败吞码另由 #115 处理，完整验机门禁与 CI 暂停继续保持。
