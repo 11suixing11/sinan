@@ -146,7 +146,7 @@ for tool in $TOOLS; do
   command -v "$tool" >/dev/null || { echo "系统软件源未提供所需工具: $tool" >&2; exit 1; }
 done
 fi
-cat > "$STAGING/bootstrap.py" <<'SINAN_BOOTSTRAP_7415F3BDC30846B6CEC2230C27EC5FF57840ABA1FA0BC3BCA2E47C30DA90269B'
+cat > "$STAGING/bootstrap.py" <<'SINAN_BOOTSTRAP_0225530EE492EC59DF55A1A0E8C0D92B4A60164E1E46E4D901A4A6A794C98631'
 #!/usr/bin/env python3
 """Trusted, operator-provisioned bootstrap; never fetched from the panel and executed."""
 
@@ -574,7 +574,7 @@ def install_native(bundle, panel, token, item, actual, mirror="", release_dir=No
         previous_agent = previous_agent.resolve(strict=True)
         checked_agent(agent, ["verify-installed", "--binary", str(previous_agent), "--name", "agent", "--format", "raw"])
     try:
-        checked_agent(agent, ["--config", str(configuration), "enroll", "--panel", panel, "--token", token])
+        checked_agent(agent, ["--config", str(configuration), "enroll", "--panel", panel, f"--token={token}"])
         checked_agent(agent, ["--config", str(configuration), "install-service"])
     except (ValueError, OSError):
         if previous_configuration is not None:
@@ -702,7 +702,7 @@ if __name__ == "__main__":
         main()
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise SystemExit(f"Bootstrap refused: {error}") from error
-SINAN_BOOTSTRAP_7415F3BDC30846B6CEC2230C27EC5FF57840ABA1FA0BC3BCA2E47C30DA90269B
+SINAN_BOOTSTRAP_0225530EE492EC59DF55A1A0E8C0D92B4A60164E1E46E4D901A4A6A794C98631
 
 cat > "$STAGING/legacy_agent_checkpoint.py" <<'SINAN_BOOTSTRAP_3787069DD3526732BC6A95C780003451986974D878DB9DFA33BDE240E46770DB'
 #!/usr/bin/env python3
@@ -1770,7 +1770,7 @@ cat > "$STAGING/public-keys.json" <<'SINAN_BOOTSTRAP_51121348A57E37D339622582811
 ["RWS4aZYmyBmwROpGKjfADJqNedYCNRhlg0+UoIBjQHxXZxYL7XMlkGJN"]
 SINAN_BOOTSTRAP_51121348A57E37D3396225828114D19A3F62EDB0AAD0F6157E7FBCBEBF56B576
 
-cat > "$STAGING/trusted-install.sh" <<'SINAN_BOOTSTRAP_C6C95142E68A89AA786F475B3209016DAF80A8320F115DB3215FB7D94B62D439'
+cat > "$STAGING/trusted-install.sh" <<'SINAN_BOOTSTRAP_136B093488B3E286DC445F072C902BD4FFF8F6AAC7FBA6C473E4F913443D895E'
 #!/bin/sh
 # Static signed release installer. Invoke only after independent verification.
 # SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1
@@ -2321,7 +2321,7 @@ install -d -m 0700 /etc/sinan /etc/sinan/identity /var/lib/sinan/core
 install -d -m 2750 -o root -g sinan-singbox /var/lib/sinan/plugins /var/lib/sinan/plugins/sing-box@main /var/lib/sinan/plugins/sing-box@main/revisions
 install -d -m 0750 -o sinan-singbox -g sinan-singbox /var/lib/sinan/plugins/sing-box@main/data
 CONFIGURATION_CHANGED=1
-"/opt/sinan/core/$VERSION/sinan-agent" enroll --panel "$PANEL" --token "$TOKEN"
+"/opt/sinan/core/$VERSION/sinan-agent" enroll --panel "$PANEL" --token="$TOKEN"
 unset TOKEN
 python3 -I - "$VERSION" <<'PY'
 #!/usr/bin/env python3
@@ -2733,7 +2733,7 @@ done
 [ "$STARTED" = 1 ] || { echo 'Agent 未通过启动检查' >&2; exit 1; }
 COMPLETED=1
 printf '%s\n' '已验证并安装 Agent，可运行 sinan-agent status 查看状态。'
-SINAN_BOOTSTRAP_C6C95142E68A89AA786F475B3209016DAF80A8320F115DB3215FB7D94B62D439
+SINAN_BOOTSTRAP_136B093488B3E286DC445F072C902BD4FFF8F6AAC7FBA6C473E4F913443D895E
 
 
 if [ "$PLATFORM" = Linux ] && ! command -v minisign >/dev/null; then

@@ -147,6 +147,23 @@ class PowerShellBootstrapTests(unittest.TestCase):
         (identity / 'unexpected').write_bytes(b'unknown')
         self.assertNotEqual(self.run_ps(prelude + f'Assert-PartialIdentity {quote(identity)} https://panel.example.com').returncode, 0)
 
+    def test_native_enrollment_command_preserves_token_with_option_prefix(self):
+        template = (ROOT / 'deploy/bootstrap.ps1.tmpl').read_text()
+        command = next(line.strip() for line in template.splitlines()
+                       if 'Invoke-CheckedAgent' in line and "'enroll'" in line)
+        agent = self.directory / 'fixture-agent'
+        agent.write_text('#!' + sys.executable + '\n' +
+                         'import argparse, json\n'
+                         'parser = argparse.ArgumentParser()\n'
+                         'parser.add_argument("--config")\n'
+                         'parser.add_argument("command")\n'
+                         'parser.add_argument("--panel")\n'
+                         'parser.add_argument("--token")\n'
+                         'print(json.dumps(vars(parser.parse_args())))\n')
+        agent.chmod(0o755)
+        output = self.assert_ok(f'$agent={quote(agent)}; $configuration={quote(self.directory / "agent.toml")}; $Token="-TEST_ONLY_token"; ' + command)
+        self.assertEqual(json.loads(output)['token'], '-TEST_ONLY_token')
+
     def test_previous_windows_agent_reads_reference_file_and_rejects_path_escape(self):
         core = self.directory / 'core'
         binary = core / '0.2.0' / 'sinan-agent.exe'

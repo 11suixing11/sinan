@@ -425,7 +425,7 @@ def install_native(bundle, panel, token, item, actual, mirror="", release_dir=No
         previous_agent = previous_agent.resolve(strict=True)
         checked_agent(agent, ["verify-installed", "--binary", str(previous_agent), "--name", "agent", "--format", "raw"])
     try:
-        checked_agent(agent, ["--config", str(configuration), "enroll", "--panel", panel, "--token", token])
+        checked_agent(agent, ["--config", str(configuration), "enroll", "--panel", panel, f"--token={token}"])
         checked_agent(agent, ["--config", str(configuration), "install-service"])
     except (ValueError, OSError):
         if previous_configuration is not None:

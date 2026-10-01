@@ -106,7 +106,7 @@ SQL
 
 相同标签可重复导入以追加其他架构，或修复缺失、损坏的下载文件；不会覆写同一签名身份的不同内容。已有完整导入目录保持兼容。只下载所需架构不改变正式 Release 对完整资产集合的要求。此接口只准备分发数据，不执行安装；移除网页表单不等于删除验签、分发或运维 API。
 
-发布工作流从选定源码构建 Linux amd64/arm64 的 Agent、固定版本运行时、当前 NodeQuality 包装器、固定安装器、`release.json` 与 `SHA256SUMS`；维护者在本机签署清单，再上传 `SHA256SUMS.minisig`。已公开的 [agent-v0.3.0](https://github.com/theLucius7/sinan/releases/tag/agent-v0.3.0) 固定在源码 `75cd846`，包含 r2 包装器，正式签名与面板导入已验证。当前源码默认包装器为 r13，须完成对应能力验收后另行构建、签署和发布，不能覆盖已发布 r2，或借旧 Release 的验收宣称新能力已通过。
+发布工作流从选定源码构建 Linux amd64/arm64 的 Agent、固定版本运行时、当前 NodeQuality 包装器、固定安装器、`release.json` 与 `SHA256SUMS`；维护者在本机签署清单，再上传 `SHA256SUMS.minisig`。已公开的 [agent-v0.3.0](https://github.com/theLucius7/sinan/releases/tag/agent-v0.3.0) 固定在源码 `75cd846`，包含 r2 包装器，正式签名与面板导入已验证。当前源码默认包装器为 r14，须完成对应能力验收后另行构建、签署和发布，不能覆盖已发布 r2，或借旧 Release 的验收宣称新能力已通过。
 
 Linux musl 静态 Agent 保留原制品目录。GNU、macOS、Windows、FreeBSD 与完整运行时的实现和手动验证入口继续保留，详见 [设备平台与能力](platforms.md)。当前主线 `ci.yml` 也包含全平台检查定义，但所有工作流均按用户要求临时暂停；全部任务完成后统一确定恢复范围，见 [协作规则](../AGENTS.md#临时-ci-暂停2026-10-01-用户要求)。原生生产部署仍需独立验证来源的已签平台 bundle，不能直接使用日常 CI 的 TEST_ONLY 制品。
 
@@ -242,9 +242,9 @@ public_ips = ["192.0.2.10", "2001:db8::10"]
 
 点击“刷新 IP 质量”时，由面板访问 NodeQuality 使用的 [IPQuality](https://github.com/xykt/IPQuality) 数据库接口，查询位置、ASN、用途、风险及代理等信息。各数据库独立展示，包含更新时间、原始字段和错误；第三方数据可能缺失或互相矛盾，不合成为一个无依据的总分。私网和回环地址不向外部接口查询。本次开发环境对该接口的实际请求返回 403，因此记录了服务错误；成功字段解析和失败处理通过受控 HTTP 夹具验证，不能据此宣称线上数据库服务当前可用。
 
-日常检查使用已导入签名 Release 中的 NodeQuality 外插；完整验机目前暂停新任务，原因在界面显示。单独编译或拷贝未签名目录不能代替验签导入。外插固定 [NodeQuality 上游提交](https://github.com/LloydAsp/NodeQuality/tree/a92fca6c0067df29ddd03fdc2fee6f3000f64545)，保留原样源码和许可证，版本为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r13`。旧制品不能覆盖；历史顶层上传开关不能证明内层脚本零上传；旧排队完整任务保存明确失败原因，已有 Started 继续收集与取消，不重新执行。
+日常检查使用已导入签名 Release 中的 NodeQuality 外插；完整验机目前暂停新任务，原因在界面显示。单独编译或拷贝未签名目录不能代替验签导入。外插固定 [NodeQuality 上游提交](https://github.com/LloydAsp/NodeQuality/tree/a92fca6c0067df29ddd03fdc2fee6f3000f64545)，保留原样源码和许可证，版本为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14`。旧制品不能覆盖；历史顶层上传开关不能证明内层脚本零上传；旧排队完整任务保存明确失败原因，已有 Started 继续收集与取消，不重新执行。
 
-r13 保留固定上游来源与原文许可证，执行时不下载或安装 NextTrace 等工具；daily 所需工具须由维护者预置，缺失时明确拒绝对应执行。固定辅助脚本与静态数据须在整份源码校验完成后使用，不回退在线 main。外插工作路径不能包含空白或 shell 通配符，使用默认目录即可。
+r14 保留固定上游来源与原文许可证，执行时不下载或安装 NextTrace 等工具；daily 所需工具须由维护者预置，缺失时明确拒绝对应执行。固定辅助脚本与静态数据须在整份源码校验完成后使用，不回退在线 main。外插工作路径不能包含空白或 shell 通配符，使用默认目录即可。
 
 日常目标服务器需要 Linux systemd、root、Bash、Python 3 与面板制品访问；已配置 TCP 目标决定实际探测范围。最小 Debian 系统可先安装：
 

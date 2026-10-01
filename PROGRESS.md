@@ -1,6 +1,17 @@
 # 执行进度
 
-## 2026-10-01：四平台单行 Agent 接入最终整合
+## 2026-10-01：四平台接入整合 86e2ef4 与负号令牌回归
+
+- 普通整合主线 `86e2ef4`，保留 PR #127 的统一监控/通知与 PR #128 的 NodeQuality r14；跨平台决策重编号为 [ADR 0041](docs/adr/0041-cross-platform-enrollment.md)，主线 0039/0040 保持原意。相对主线 Core、旧 Agent 更新与监控逻辑不变；接入入口仍只从 GitHub/独立镜像下载 Agent。
+- 最终安装验证发现真实随机接入令牌可首字符为 `-`，分离的 `--token` 参数会被解析成选项。修正 Unix 外层、内嵌 Linux 执行器、Unix 原生及 Windows Agent CLI 为 `--token=值`，不调整令牌生成规则或既有正式制品。新增真实 argparse/CLI 边界回归；前次失败日志保留，不计为安装通过。
+- 冻结最终 505 份运行/构建/测试输入，收据 SHA-256 `ee1ee1b59e8eafabf87fadb606ede69c24aae9038e00bf63b942ef0795422419`；逐字核对不变。使用公开 TEST_ONLY 编译根与专属 PostgreSQL 重跑完整 Rust workspace/all-targets：482 通过、0 失败、15 项既有条件忽略，64 组；全 targets Clippy、fmt/core/diff 通过。
+- 最终 Unix root 29/29、Linux 上 PowerShell 函数/独立验签/清单/下载/恢复 11/11、root 发布工具 36/36 全部通过；模板/生成输出及 Shell 语法检查通过。Unix 固定 blob `05be468326df1c70afed2c23d4763243f8a0e990`，Windows 固定 blob `ec7bb81cbece50114f234e7d4dae96cfc0905433`，均已按 Git 对象与 SHA-256 核对。
+- 最终 UI 36 项 Bun 单测、TypeScript/Vite/dist 构建及接入、插件目录、监控、运营、代理业务、看板、服务器展示、NodeQuality、TCPQuality 九组桌面/手机浏览器回归通过；覆盖单行剪贴板、无签名版本不生成令牌和手机布局。受验 dist 逐字保持，另以正式公开根重编最终嵌入前端的面板成功；浏览器使用私有回环 API 替身。
+- 隔离 Linux ARM64/OpenRC 容器先移除 curl/minisign，正式公开根面板通过真实 API 生成首字符为 `-` 的令牌；直接执行返回的自动匹配单行命令，以普通用户完成提权、补依赖、独立验签正式 `agent-v0.3.0`、注册并上线。再用显式 `0.3.0/linux-musl-arm64` 命令重复安装，设备公钥与私钥摘要不变。实际受验入口为上列最终 Unix blob；面板只缓存 ARM 三个模块、完整签名目录仍提供 AMD/ARM，Agent 面板下载实际为 409。
+- 自有测试面板及两个专属容器已停止/移除；生产面板/PostgreSQL 容器健康且未部署。没有签署或发布新正式 Agent/诊断 Release；Windows/macOS/FreeBSD 对应正式签名制品与原生 ACL/UAC/launchd/rc.d/计划任务实机安装仍待独立发布和验收，macOS 现有 ABI 仅 ARM64。CI 继续按仓库约定暂停，未执行不算通过。下一步审阅后按部署流程升级面板，并由维护者准备对应平台签名发布。
+
+
+## 2026-10-01：四平台接入整合 33a/824 的阶段验证
 
 - 按本聊天补充要求完成 Shell（Linux/macOS/FreeBSD）与 PowerShell（Windows）入口；执行时检测 OS、CPU/libc，选择最新兼容稳定版，也可指定完整签名 proof 中的版本及 ABI。界面复制为一行，缺少本平台已签版本时禁用生成并说明原因。macOS 目前仅有 ARM64 ABI，Linux/Windows/FreeBSD 支持 AMD64/ARM64；32 位及未知平台拒绝。
 - 整合已合入原 PR #114 的主线 `33a3085`，完整保留 `download_source=github` 协商、旧 Agent 空候选保护、制品 URL 约束、镜像与服务器运营功能。Agent 始终从 GitHub/独立镜像匿名下载；面板 Agent 文件接口保持 409。旧正式 0.3.0 的 install.sh 仍校验签名摘要，但实际执行固定 blob 内嵌的受信 Linux 执行器；唯一预下载契约针对实际执行器，不修改既有正式资产。
