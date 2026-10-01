@@ -35,10 +35,11 @@ fn command(platform: &str, address: IpAddr) -> Result<(&'static str, Vec<String>
     }
     let mut args: Vec<String> = ["LC_ALL=C", "LANG=C"].map(String::from).to_vec();
     let flags: &[&str] = match platform {
-        "linux" => &["ping", "-n", "-q", "-c", "4", "-W", "1", "-w", "6"],
-        "freebsd" => &["ping", "-n", "-q", "-c", "4", "-W", "1000", "-t", "6"],
-        "macos" if address.is_ipv6() => &["ping6", "-n", "-q", "-c", "4", "-X", "6"],
-        "macos" => &["ping", "-n", "-q", "-c", "4", "-W", "1000", "-t", "6"],
+        // Quiet mode can hide local send failures while still counting them as transmitted.
+        "linux" => &["ping", "-n", "-c", "4", "-W", "1", "-w", "6"],
+        "freebsd" => &["ping", "-n", "-c", "4", "-W", "1000", "-t", "6"],
+        "macos" if address.is_ipv6() => &["ping6", "-n", "-c", "4", "-X", "6"],
+        "macos" => &["ping", "-n", "-c", "4", "-W", "1000", "-t", "6"],
         _ => anyhow::bail!("ICMP is not supported on this platform"),
     };
     args.extend(flags.iter().map(|value| (*value).into()));
@@ -54,6 +55,19 @@ fn decode(output: &Execution, windows: bool) -> Result<Measurement> {
         ensure!(output.output.success, "ICMP measurement unavailable");
         parse_windows(&output.output.stdout)
     } else {
+        // A full packet summary does not prove that every send succeeded. BSD ping
+        // also counts failed sends, and permission errors must remain unavailable.
+        ensure!(
+            output.output.stderr.trim().is_empty(),
+            "ICMP measurement unavailable: {}",
+            output
+                .output
+                .stderr
+                .trim()
+                .chars()
+                .take(256)
+                .collect::<String>()
+        );
         parse_ping(&output.output.stdout)
     };
     parsed.with_context(|| {
@@ -207,6 +221,49 @@ mod tests {
     }
 
     #[test]
+    fn unix_diagnostics_reject_complete_summaries_even_when_exit_succeeds() {
+        for success in [false, true] {
+            for summary in [
+                "4 packets transmitted, 0 received, 100% packet loss",
+                "4 packets transmitted, 3 packets received, 25% packet loss\nround-trip min/avg/max = 0.010/12.500/30.000 ms",
+            ] {
+                for diagnostic in [
+                    "ping: sendmsg: Operation not permitted\n",
+                    "ping: sendto: Permission denied\n",
+                    "ping: sendto: partial write\n",
+                    "ping: warning: socket could not be configured\n",
+                ] {
+                    let output = Execution {
+                        output: CommandOutput {
+                            success,
+                            stdout: summary.into(),
+                            stderr: diagnostic.into(),
+                        },
+                        ..Default::default()
+                    };
+                    let error = decode(&output, false).unwrap_err().to_string();
+                    assert!(error.contains("ICMP measurement unavailable"));
+                    assert!(error.contains(diagnostic.trim()));
+                }
+            }
+        }
+        let output = Execution {
+            output: CommandOutput {
+                success: false,
+                stdout: "4 packets transmitted, 0 received, 100% packet loss".into(),
+                stderr: format!(
+                    "ping: sendto: Permission denied {}UNBOUNDED_TAIL",
+                    "x".repeat(512)
+                ),
+            },
+            ..Default::default()
+        };
+        let error = decode(&output, false).unwrap_err().to_string();
+        assert!(error.contains("Permission denied"));
+        assert!(!error.contains("UNBOUNDED_TAIL"));
+    }
+
+    #[test]
     fn windows_json_preserves_zero_latency_and_rejects_partial_samples() -> Result<()> {
         assert_eq!(
             parse_windows(r#"{"sent":4,"times":[0,0,3]}"#)?,
@@ -243,6 +300,7 @@ mod tests {
                     assert_eq!(program, "env");
                     assert_eq!(args[0], "LC_ALL=C");
                     assert_eq!(args.last().unwrap(), address);
+                    assert!(!args.contains(&"-q".into()));
                     assert!(args.contains(&"6".into()));
                     if platform == "macos" && address == "::1" {
                         assert!(args.contains(&"-X".into()));

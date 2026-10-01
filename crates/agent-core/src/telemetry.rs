@@ -1,4 +1,5 @@
 pub(crate) mod cache;
+mod disks;
 mod hardware;
 mod outbox;
 pub mod worker;
@@ -9,17 +10,18 @@ use std::{
     net::IpAddr,
     time::Instant,
 };
-use sysinfo::{Disks, Networks, ProcessRefreshKind, ProcessesToUpdate, System};
+use sysinfo::{Disk, Networks, ProcessRefreshKind, ProcessesToUpdate, System};
 
 type NetworkTotals = BTreeMap<String, (u64, u64)>;
+type DiskTotals = BTreeMap<(String, String), (u64, u64)>;
 
 pub struct Collector {
     system: System,
-    disks: Disks,
+    disks: Vec<Disk>,
     networks: Networks,
     last_cpu: Option<Instant>,
     last_network: Option<(Instant, NetworkTotals)>,
-    last_disks: Option<(Instant, NetworkTotals)>,
+    last_disks: Option<(Instant, DiskTotals)>,
 }
 
 impl Default for Collector {
@@ -35,7 +37,7 @@ impl Collector {
         system.refresh_memory();
         Self {
             system,
-            disks: refreshed_disks(),
+            disks: disks::refresh(),
             networks: Networks::new_with_refreshed_list(),
             last_cpu: None,
             last_network: None,
@@ -72,7 +74,7 @@ impl Collector {
                 .ok()
                 .filter(|count| *count > 0),
             memory_total: positive(self.system.total_memory()),
-            disk_total: disk_totals(&self.disks).map(|(total, _)| total),
+            disk_total: disks::totals(&self.disks).map(|(total, _)| total),
             virtualization: virtualization(),
             hostname: System::host_name(),
             agent_version: None,
@@ -95,7 +97,7 @@ impl Collector {
             ProcessRefreshKind::nothing(),
         );
         // Fresh inventories do not retain measurements after a failed refresh.
-        self.disks = refreshed_disks();
+        self.disks = disks::refresh();
         self.networks = Networks::new_with_refreshed_list();
         let cpu = self
             .last_cpu
@@ -149,37 +151,40 @@ impl Collector {
             .collect();
         self.last_network = Some((now, totals));
         let mut disk_counts = BTreeMap::new();
-        let disks =
-            self.disks
-                .iter()
-                .map(|disk| {
-                    let name = disk.name().to_string_lossy().into_owned();
-                    let usage = disk.usage();
-                    let current = (usage.total_read_bytes, usage.total_written_bytes);
-                    let previous = self.last_disks.as_ref().and_then(|(time, values)| {
-                        values.get(&name).map(|counts| (*time, *counts))
-                    });
-                    let rates = previous.and_then(|(time, (read, written))| {
-                        let elapsed = now.duration_since(time).as_secs_f64();
-                        (elapsed > 0.0).then(|| {
-                            (
-                                current.0.checked_sub(read).map(|v| v as f64 / elapsed),
-                                current.1.checked_sub(written).map(|v| v as f64 / elapsed),
-                            )
-                        })
-                    });
-                    disk_counts.insert(name.clone(), current);
-                    DiskMetrics {
-                        name,
-                        mount_point: disk.mount_point().to_string_lossy().into_owned(),
-                        total_bytes: positive(disk.total_space()),
-                        used_bytes: disk.total_space().checked_sub(disk.available_space()),
-                        read_bytes_per_sec: rates.and_then(|v| v.0),
-                        write_bytes_per_sec: rates.and_then(|v| v.1),
-                        ..DiskMetrics::default()
-                    }
-                })
-                .collect();
+        let disks = self
+            .disks
+            .iter()
+            .map(|disk| {
+                let name = disk.name().to_string_lossy().into_owned();
+                let usage = disk.usage();
+                let current = (usage.total_read_bytes, usage.total_written_bytes);
+                let mount_point = disk.mount_point().to_string_lossy().into_owned();
+                let key = (name.clone(), mount_point.clone());
+                let previous = self
+                    .last_disks
+                    .as_ref()
+                    .and_then(|(time, values)| values.get(&key).map(|counts| (*time, *counts)));
+                let rates = previous.and_then(|(time, (read, written))| {
+                    let elapsed = now.duration_since(time).as_secs_f64();
+                    (elapsed > 0.0).then(|| {
+                        (
+                            current.0.checked_sub(read).map(|v| v as f64 / elapsed),
+                            current.1.checked_sub(written).map(|v| v as f64 / elapsed),
+                        )
+                    })
+                });
+                disk_counts.insert(key, current);
+                DiskMetrics {
+                    name,
+                    mount_point,
+                    total_bytes: positive(disk.total_space()),
+                    used_bytes: disk.total_space().checked_sub(disk.available_space()),
+                    read_bytes_per_sec: rates.and_then(|v| v.0),
+                    write_bytes_per_sec: rates.and_then(|v| v.1),
+                    ..DiskMetrics::default()
+                }
+            })
+            .collect();
         self.last_disks = Some((now, disk_counts));
         let load = load_average();
         Metrics {
@@ -192,7 +197,7 @@ impl Collector {
             load_1: load.map(|value| value.0),
             load_5: load.map(|value| value.1),
             load_15: load.map(|value| value.2),
-            disk_used: disk_totals(&self.disks).map(|(_, used)| used),
+            disk_used: disks::totals(&self.disks).map(|(_, used)| used),
             network_interfaces: interfaces,
             tcp_connections: connection_count("tcp"),
             udp_connections: connection_count("udp"),
@@ -200,16 +205,6 @@ impl Collector {
             ..Metrics::default()
         }
     }
-}
-
-fn refreshed_disks() -> Disks {
-    // FreeBSD getmntinfo and libgeom use process-global storage. Keep the lock
-    // until sysinfo has copied every mount and completed its I/O snapshot.
-    #[cfg(target_os = "freebsd")]
-    static DISKS: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    #[cfg(target_os = "freebsd")]
-    let _guard = DISKS.lock().unwrap_or_else(|error| error.into_inner());
-    Disks::new_with_refreshed_list()
 }
 
 pub(crate) fn normalized_addresses(addresses: impl IntoIterator<Item = IpAddr>) -> Vec<String> {
@@ -237,21 +232,6 @@ pub(crate) fn normalized_addresses(addresses: impl IntoIterator<Item = IpAddr>) 
 
 fn positive(value: u64) -> Option<u64> {
     (value > 0).then_some(value)
-}
-
-fn disk_totals(disks: &Disks) -> Option<(u64, u64)> {
-    let mut seen = std::collections::HashSet::new();
-    let mut total = 0_u64;
-    let mut used = 0_u64;
-    for disk in disks.list() {
-        if !seen.insert(disk.name()) {
-            continue;
-        }
-        positive(disk.total_space())?;
-        total = total.checked_add(disk.total_space())?;
-        used = used.checked_add(disk.total_space().checked_sub(disk.available_space())?)?;
-    }
-    positive(total).map(|total| (total, used))
 }
 
 fn load_average() -> Option<(f64, f64, f64)> {

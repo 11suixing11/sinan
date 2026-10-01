@@ -126,3 +126,64 @@ fn valid_raw_scores_remain_raw_and_missing_flags_are_not_false() {
         .is_empty()
     );
 }
+
+#[test]
+fn explicit_errors_and_failed_abuseipdb_envelopes_cannot_confirm_default_scores() {
+    for database in ["abuseipdb", "abuseipdb-v2"] {
+        for body in [
+            json!({"errors":[{"detail":"fixture denied"}],"data":{"abuseConfidenceScore":0}}),
+            json!({"errors":{"detail":"fixture denied"},"data":{"abuseConfidenceScore":0}}),
+            json!({"errors":"false","data":{"abuseConfidenceScore":0}}),
+            json!({"data":{"success":false,"abuseConfidenceScore":0}}),
+            json!({"data":{"success":null,"abuseConfidenceScore":0}}),
+            json!({"data":{"success":"false","abuseConfidenceScore":0}}),
+            json!({"data":{"success":"true","abuseConfidenceScore":0}}),
+            json!({"data":{"status":"failed","abuseConfidenceScore":0}}),
+            json!({"data":{"error":"fixture unavailable","abuseConfidenceScore":0}}),
+            json!({"data":{"errors":[{"detail":"fixture unavailable"}],"abuseConfidenceScore":0}}),
+        ] {
+            assert!(
+                parse_fields(database, &body).is_empty(),
+                "{database}: {body}"
+            );
+        }
+    }
+}
+
+#[test]
+fn absent_or_empty_errors_and_confirmed_zero_remain_compatible() {
+    for body in [
+        json!({"data":{"abuseConfidenceScore":0}}),
+        json!({"errors":null,"data":{"success":true,"abuseConfidenceScore":0}}),
+        json!({"errors":[],"data":{"status":"OK","errors":[],"abuseConfidenceScore":0}}),
+        json!({"errors":{},"data":{"status":"OK","errors":{},"abuseConfidenceScore":0}}),
+    ] {
+        let fields = parse_fields("abuseipdb", &body);
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].value, json!(0));
+    }
+    let fields = parse_fields(
+        "ipqualityscore",
+        &json!({"errors":[],"fraud_score":0,"proxy":false}),
+    );
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].value, json!(0));
+    assert_eq!(fields[1].value, json!(false));
+}
+
+#[test]
+fn unrelated_metadata_is_not_recursively_treated_as_query_failure() {
+    let fields = parse_fields(
+        "ipapi",
+        &json!({"company":{"abuser_score":0,"status":"registered","error":"metadata note"},"is_proxy":false}),
+    );
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].value, json!(0));
+    assert_eq!(fields[1].value, json!(false));
+    let fields = parse_fields(
+        "maxmind",
+        &json!({"ASN":{"AutonomousSystemNumber":64500,"status":"registered","errors":["metadata note"]}}),
+    );
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0].value, json!(64500));
+}

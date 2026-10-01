@@ -105,6 +105,50 @@ fn official_response_requires_identity_and_preserves_only_documented_fields() {
     assert_eq!(fields[0].value, json!(0));
 }
 
+#[test]
+fn official_response_accepts_empty_errors_and_rejects_failed_envelope_markers() {
+    let ip = "192.0.2.1";
+    for empty in [json!(null), json!([]), json!({})] {
+        let mut body = official_body(ip);
+        body["errors"] = empty.clone();
+        body["data"]["errors"] = empty;
+        let fields = official_fields(&body, ip).unwrap();
+        assert_eq!(fields.last().unwrap().value, json!(0));
+    }
+    for errors in [
+        json!([{"detail":"fixture denied"}]),
+        json!({"detail":"fixture denied"}),
+        json!("false"),
+        json!(false),
+    ] {
+        for nested in [false, true] {
+            let mut body = official_body(ip);
+            if nested {
+                body["data"]["errors"] = errors.clone();
+            } else {
+                body["errors"] = errors.clone();
+            }
+            assert_eq!(
+                official_fields(&body, ip).unwrap_err().kind,
+                QueryErrorKind::SchemaMismatch
+            );
+        }
+    }
+    for (field, value) in [
+        ("success", json!(null)),
+        ("success", json!("true")),
+        ("status", json!("pending")),
+        ("error", json!("fixture unavailable")),
+    ] {
+        let mut body = official_body(ip);
+        body["data"][field] = value;
+        assert_eq!(
+            official_fields(&body, ip).unwrap_err().kind,
+            QueryErrorKind::SchemaMismatch
+        );
+    }
+}
+
 async fn query(source: &Source, configured: bool, ips: &[String], at: i64) -> Vec<IpQuality> {
     let mut values = query_sources(
         &source.client(),

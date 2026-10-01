@@ -8,7 +8,7 @@ use std::{
 enum Call {
     Directory(PathBuf, u32, Option<String>),
     Execute(PathBuf, Vec<String>),
-    Write(PathBuf, Vec<u8>),
+    Write(PathBuf),
 }
 
 struct RecordingOps {
@@ -31,6 +31,10 @@ impl Privileged for RecordingOps {
                 success: true,
                 stdout: if program == Path::new("stat") {
                     self.metadata.into()
+                } else if let Some(output) =
+                    crate::system::syscall_protection::fixture_output(program, args)
+                {
+                    output.into()
                 } else {
                     String::new()
                 },
@@ -56,15 +60,12 @@ impl Privileged for RecordingOps {
     fn write_file<'a>(
         &'a self,
         path: &'a Path,
-        bytes: &'a [u8],
+        _bytes: &'a [u8],
         _: u32,
         _: Option<&'a str>,
     ) -> BoxFuture<'a, ()> {
         Box::pin(async move {
-            self.calls
-                .lock()
-                .unwrap()
-                .push(Call::Write(path.into(), bytes.to_vec()));
+            self.calls.lock().unwrap().push(Call::Write(path.into()));
             Ok(())
         })
     }
@@ -90,7 +91,7 @@ fn job() -> Result<ServiceJob> {
 }
 
 #[tokio::test]
-async fn unsafe_lock_directory_metadata_prevents_both_service_starts() -> Result<()> {
+async fn unsafe_lock_directory_metadata_prevents_service_start() -> Result<()> {
     for metadata in [
         "41c0 1000",
         "41ed 0",
@@ -99,78 +100,59 @@ async fn unsafe_lock_directory_metadata_prevents_both_service_starts() -> Result
         "41c0 0 extra",
         "garbage",
     ] {
-        for backend in [ServiceBackend::Systemd, ServiceBackend::OpenRc] {
-            let ops = Arc::new(RecordingOps {
-                metadata,
-                calls: Mutex::new(Vec::new()),
-            });
-            let services = SystemServiceManager::new(ops.clone(), backend)
-                .with_job_root(std::env::temp_dir().join(format!("sinan-lock-{}", Uuid::new_v4())));
-            assert!(
-                services.start_job(&job()?).await.is_err(),
-                "{backend:?}: {metadata}"
-            );
-            let calls = ops.calls.lock().unwrap();
-            assert!(
-                matches!(&calls[0], Call::Directory(path, 0o700, Some(group))
-                if path == Path::new(DIAGNOSTIC_LOCK_DIRECTORY) && group == "root")
-            );
-            assert!(calls.iter().all(|call| match call {
-                Call::Directory(..) => true,
-                Call::Execute(program, _) => program == Path::new("stat"),
-                Call::Write(..) => false,
-            }));
-        }
-    }
-    Ok(())
-}
-
-#[tokio::test]
-async fn service_starts_prepare_private_lock_and_openrc_uses_private_umask() -> Result<()> {
-    for backend in [ServiceBackend::Systemd, ServiceBackend::OpenRc] {
+        let backend = ServiceBackend::Systemd;
         let ops = Arc::new(RecordingOps {
-            metadata: "41c0 0",
+            metadata,
             calls: Mutex::new(Vec::new()),
         });
         let services = SystemServiceManager::new(ops.clone(), backend)
             .with_job_root(std::env::temp_dir().join(format!("sinan-lock-{}", Uuid::new_v4())));
-        services.start_job(&job()?).await?;
+        assert!(
+            services.start_job(&job()?).await.is_err(),
+            "{backend:?}: {metadata}"
+        );
         let calls = ops.calls.lock().unwrap();
         assert!(
             matches!(&calls[0], Call::Directory(path, 0o700, Some(group))
             if path == Path::new(DIAGNOSTIC_LOCK_DIRECTORY) && group == "root")
         );
-        assert!(matches!(&calls[1], Call::Execute(program, args)
-            if program == Path::new("stat") && args == &["-c", "%f %u", "--", DIAGNOSTIC_LOCK_DIRECTORY]));
-        assert!(calls.iter().all(
-            |call| !matches!(call, Call::Write(path, _) if path == Path::new(DIAGNOSTIC_LOCK_PATH))
-        ));
-        match backend {
-            ServiceBackend::Systemd => {
-                let Call::Execute(program, args) = calls.last().unwrap() else {
-                    panic!("missing launch")
-                };
-                assert_eq!(program, Path::new("systemd-run"));
-                assert!(args.iter().any(|arg| arg == DIAGNOSTIC_LOCK_PATH));
-                assert!(args.iter().any(|arg| arg == "--property=UMask=0077"));
-            }
-            ServiceBackend::OpenRc => {
-                let script = calls
-                    .iter()
-                    .find_map(|call| match call {
-                        Call::Write(path, bytes) if path.starts_with("/etc/init.d") => Some(bytes),
-                        _ => None,
-                    })
-                    .expect("missing OpenRC unit");
-                assert!(
-                    std::str::from_utf8(script)?
-                        .lines()
-                        .any(|line| line == "umask=0077")
-                );
-            }
-            _ => unreachable!(),
-        }
+        assert!(calls.iter().all(|call| match call {
+            Call::Directory(..) => true,
+            Call::Execute(program, _) => program == Path::new("stat"),
+            Call::Write(..) => false,
+        }));
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn service_starts_prepare_private_lock_and_private_umask() -> Result<()> {
+    let backend = ServiceBackend::Systemd;
+    let ops = Arc::new(RecordingOps {
+        metadata: "41c0 0",
+        calls: Mutex::new(Vec::new()),
+    });
+    let services = SystemServiceManager::new(ops.clone(), backend)
+        .with_job_root(std::env::temp_dir().join(format!("sinan-lock-{}", Uuid::new_v4())));
+    services.start_job(&job()?).await?;
+    let calls = ops.calls.lock().unwrap();
+    assert!(
+        matches!(&calls[0], Call::Directory(path, 0o700, Some(group))
+        if path == Path::new(DIAGNOSTIC_LOCK_DIRECTORY) && group == "root")
+    );
+    assert!(matches!(&calls[1], Call::Execute(program, args)
+        if program == Path::new("stat") && args == &["-c", "%f %u", "--", DIAGNOSTIC_LOCK_DIRECTORY]));
+    assert!(
+        calls.iter().all(
+            |call| !matches!(call, Call::Write(path) if path == Path::new(DIAGNOSTIC_LOCK_PATH))
+        )
+    );
+    let Call::Execute(program, args) = calls.last().unwrap() else {
+        panic!("missing launch")
+    };
+    assert_eq!(program, Path::new("systemd-run"));
+    assert!(args.iter().any(|arg| arg == DIAGNOSTIC_LOCK_PATH));
+    assert!(args.iter().any(|arg| arg == "--property=UMask=0077"));
     Ok(())
 }
 

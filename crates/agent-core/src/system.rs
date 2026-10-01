@@ -7,6 +7,7 @@ pub mod deploy;
 mod jobs;
 mod publication;
 mod resources;
+mod syscall_protection;
 
 pub use sinan_adapter_sdk::{Privileged, ServiceManager};
 
