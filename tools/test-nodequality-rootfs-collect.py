@@ -20,6 +20,7 @@ import types
 import unittest
 from unittest import mock
 import urllib.error
+import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +51,39 @@ def source(name='fixture', version='1'):
     sums = '\n'.join(identity(body)['sha256'] + ' ' + str(len(body)) + ' ' + filename
                      for filename in ('fixture.dsc', 'fixture.orig.tar.xz'))
     return {'Package': name, 'Version': version, 'Directory': 'pool/main/f/fixture', 'Checksums-Sha256': sums}
+
+
+def fixture_solver_capacity():
+    return {'reserved_expansion_bytes': 2 * BUILD.MAX_INDEX, 'derived_directories_removed': True,
+            'phase_observations': [
+                {'operation': 'update', 'lists_bytes': 1, 'archives_bytes': 0, 'mirrors_bytes': 2, 'solver_owned_bytes': 10},
+                {'operation': 'plan', 'lists_bytes': 3, 'archives_bytes': 0, 'mirrors_bytes': 2, 'solver_owned_bytes': 12}]}
+
+
+def capacity_fixture(root):
+    collector = COLLECT.Collector(root / 'output', 4 * 1024**2, BUILD.Deadline(30))
+    # This fixture's caller has created the owned output, as collect does.
+    (collector.cache / 'owned-metadata').write_bytes(b'owned metadata')
+    work = collector.output / 'solver'
+    work.mkdir(mode=0o700)
+    (work / 'selection.json').write_bytes(encoded({'fixture': True}))
+    packages = []
+    for name in sorted(set(BUILD.TOOL_PACKAGES.values()) | {'apt', 'base-files'}):
+        row = package(name)
+        packages.append({'repository': 'main', 'name': row['Package'], 'version': row['Version'],
+            'architecture': row['Architecture'], 'filename': row['Filename'], 'size': int(row['Size']),
+            'sha256': row['SHA256'], 'blob': row['SHA256'] + '.deb', 'source_name': 'fixture', 'source_version': '1'})
+    repositories = []
+    for requested in (MAIN, SECURITY):
+        repositories.append(dict(requested, inrelease=dict(identity(b'owned'), blob='owned-release'),
+            indices=[dict(identity(b'owned'), blob='owned-' + kind + '.xz', kind=kind, path=path)
+                     for kind, path in (('Packages', 'main/binary-amd64/Packages.xz'), ('Sources', 'main/source/Sources.xz'))]))
+    sources = COLLECT.source_closure(packages, repositories, {'main': {'Sources': [source()]}, 'security': {'Sources': []}})
+    for value in sources[0]['files']:
+        value['blob'] = value['sha256'] + '.source'
+    materials = dict(REQUEST, keyring=dict(identity(b'owned key'), blob='owned-key.gpg'),
+                     repositories=repositories, packages=packages, sources=sources)
+    return collector, materials, {'capacity': fixture_solver_capacity()}
 
 
 class CollectionContracts(unittest.TestCase):
@@ -126,6 +160,59 @@ class CollectionContracts(unittest.TestCase):
                 COLLECT.publish(output, b'x' * 11, 10)
             self.assertFalse(output.exists())
 
+    def test_capacity_plan_records_exact_references_unique_storage_and_phase_observations(self):
+        with tempfile.TemporaryDirectory() as name, mock.patch.object(COLLECT, 'free_disk'):
+            root = Path(name)
+            (root / 'output').mkdir(mode=0o700)
+            collector, materials, solver = capacity_fixture(root)
+            observed = COLLECT.owned_size(collector.output, collector.deadline)
+            receipt = COLLECT.write_capacity_plan(collector, materials, solver)
+            raw = (collector.output / receipt['path']).read_bytes()
+            plan = json.loads(raw)
+            self.assertEqual(receipt, dict(identity(raw), path='capacity-plan.json'))
+            self.assertEqual(plan['packages'], materials['packages'])
+            self.assertEqual(plan['sources'], materials['sources'])
+            count = len(materials['packages'])
+            self.assertEqual(plan['binary']['file_references'], count)
+            self.assertEqual(plan['binary']['reference_bytes'], 12 * count)
+            self.assertEqual(plan['binary']['unique_blobs'], 1)
+            self.assertEqual(plan['binary']['unique_blob_bytes'], 12)
+            self.assertEqual(plan['source']['name_version_pairs'], 1)
+            self.assertEqual(plan['source']['file_references'], 2)
+            self.assertEqual(plan['source']['reference_bytes'], 24)
+            self.assertEqual(plan['source']['unique_blobs'], 1)
+            self.assertEqual(plan['source']['unique_blob_bytes'], 12)
+            self.assertEqual(plan['unique_cache_payload_bytes'], 24)
+            self.assertEqual(plan['conservative_payload_admission_bytes'], 12 * count + 24)
+            self.assertEqual(plan['observed_owned_metadata_bytes_before_plan'], observed)
+            self.assertEqual(plan['plan_metadata_bytes'], len(raw))
+            self.assertEqual(plan['required_owned_bytes_before_payloads'], observed + len(raw) + 12 * count + 24)
+            self.assertEqual(plan['apt'], solver['capacity'])
+            self.assertIn('phase samples', plan['accounting_scope'])
+            self.assertIn('excluded', plan['future_overhead_scope'])
+            for key in ('complete', 'payload_authenticated', 'builder_approved', 'full_ready', 'reproducibility_verified'):
+                self.assertFalse(plan[key])
+
+    def test_capacity_plan_cannot_bypass_its_own_byte_or_disk_guards(self):
+        for reason in ('total', 'disk', 'metadata', 'conflicting_blob'):
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                (root / 'output').mkdir(mode=0o700)
+                collector, materials, solver = capacity_fixture(root)
+                with contextlib.ExitStack() as stack:
+                    if reason == 'total':
+                        collector.max_total = COLLECT.owned_size(collector.output, collector.deadline)
+                    elif reason == 'disk':
+                        stack.enter_context(mock.patch.object(os, 'statvfs', return_value=types.SimpleNamespace(
+                            f_bavail=COLLECT.MIN_FREE, f_frsize=1)))
+                    elif reason == 'metadata':
+                        stack.enter_context(mock.patch.object(COLLECT, 'MAX_RECEIPT', 16))
+                    else:
+                        materials['sources'][0]['files'][0]['size'] += 1
+                    with self.assertRaises(ValueError):
+                        COLLECT.write_capacity_plan(collector, materials, solver)
+                self.assertFalse((collector.output / 'capacity-plan.json').exists())
+
     def test_fetch_errors_preserve_http_dns_tls_and_timeout_categories(self):
         now = time.monotonic()
         for status in (403, 429):
@@ -136,7 +223,92 @@ class CollectionContracts(unittest.TestCase):
             self.assertFalse(result['complete'])
         result = COLLECT.fetch_error(urllib.error.URLError(socket.gaierror('owned DNS failure')), 'owned-url', now)
         self.assertEqual(result['category'], 'dns')
+        self.assertIsNone(result['http_status'])
+        self.assertFalse(result['response_received'])
+        self.assertIsNone(result['final_url'])
+        tls = COLLECT.fetch_error(urllib.error.URLError(COLLECT.ssl.SSLError('owned TLS failure')), 'owned-url', now)
+        self.assertEqual(tls['category'], 'tls')
+        self.assertIsNone(tls['http_status'])
+        self.assertFalse(tls['response_received'])
         self.assertEqual(COLLECT.fetch_error(TimeoutError(), 'owned-url', now)['category'], 'timeout')
+
+    def test_fetch_error_context_preserves_observations_without_credentials_or_unbounded_text(self):
+        url = 'https://user:owned-secret@snapshot.debian.org/archive/debian/fixture?token=owned-secret#owned-secret'
+        context = {'failure_stage': 'content_length_validation', 'response_received': True, 'http_status': 200,
+                   'final_url': url, 'response_content_length': 'invalid' + 'x' * 1024,
+                   'response_bytes_read': 3, 'response_bytes_written': 3}
+        error = ValueError('invalid response Content-Length\x00 ' + url + ' ' + 'x' * 4096)
+        result = COLLECT.fetch_error(error, url, time.monotonic(), context)
+        self.assertEqual(result['category'], 'response_invalid')
+        self.assertEqual(result['http_status'], 200)
+        self.assertTrue(result['response_received'])
+        self.assertEqual(result['error_type'], 'ValueError')
+        self.assertEqual(result['failure_stage'], 'content_length_validation')
+        self.assertLessEqual(len(result['error_message']), 1024)
+        self.assertLessEqual(len(result['response_content_length']), 128)
+        self.assertTrue(result['response_content_length_truncated'])
+        self.assertNotIn('owned-secret', json.dumps(result))
+        self.assertNotIn('\x00', result['error_message'])
+        self.assertEqual(result['final_url'], 'https://snapshot.debian.org/archive/debian/fixture')
+        response = urllib.error.HTTPError(url, 429, 'owned-secret response reason', {'Content-Length': '73'}, None)
+        actual = COLLECT.fetch_error(response, url, time.monotonic())
+        self.assertEqual(actual['category'], 'http_429')
+        self.assertEqual(actual['http_status'], 429)
+        self.assertTrue(actual['response_received'])
+        self.assertEqual(actual['response_content_length'], '73')
+        self.assertEqual(actual['error_message'], 'HTTP Error 429')
+        self.assertNotIn('owned-secret', json.dumps(actual))
+        response.close()
+        redirect_context = {}
+        redirect = COLLECT.OfficialRedirects(redirect_context)
+        request = urllib.request.Request('https://snapshot.debian.org/archive/debian/fixture')
+        with self.assertRaisesRegex(ValueError, 'non-official'):
+            redirect.redirect_request(request, None, 302, 'Found', {'Content-Length': '0'},
+                                      'https://user:owned-secret@evil.example/path?token=owned-secret')
+        rejected = COLLECT.fetch_error(ValueError('non-official collection URL'), request.full_url,
+                                       time.monotonic(), redirect_context)
+        self.assertEqual(rejected['category'], 'response_invalid')
+        self.assertEqual(rejected['http_status'], 302)
+        self.assertEqual(rejected['failure_stage'], 'redirect_url_validation')
+        self.assertEqual(rejected['redirect_target'], 'https://evil.example/path')
+        self.assertNotIn('owned-secret', json.dumps(rejected))
+
+    def test_missing_or_partial_worker_footer_preserves_bounded_evidence_and_unknown_status(self):
+        for partial in (False, True):
+            with self.subTest(partial=partial), tempfile.TemporaryDirectory() as name, \
+                 mock.patch.object(COLLECT, 'free_disk'):
+                root = Path(name)
+                output = root / 'output'
+                output.mkdir(mode=0o700)
+                collector = COLLECT.Collector(output, 1024**2, BUILD.Deadline(30))
+                work = output / 'download-owned'
+                work.mkdir(mode=0o700)
+                original = b'{"schema":1,"complete":false'
+                if partial:
+                    (work / 'receipt.json').write_bytes(original)
+                (work / 'body').write_bytes(b'owned body that must not be retained')
+                (work / 'headers').write_bytes(b'Content-Length: 12\r\nSet-Cookie: owned-secret\r\n\r\n')
+                report = collector.failed_download(work, 'https://snapshot.debian.org/archive/debian/fixture',
+                    ValueError('subprocess failed without a trustworthy footer'), 'producer_exit')
+                self.assertIsNone(report['http_status'])
+                self.assertIsNone(report['response_received'])
+                self.assertIsNone(report['error_type'])
+                self.assertIsNone(report['error_message'])
+                self.assertIsNone(report['final_url'])
+                self.assertEqual(report['failure_stage'], 'worker_receipt_unavailable')
+                self.assertEqual(report['category'], 'producer_failed_or_deadline')
+                evidence = report['failure_evidence']
+                self.assertTrue(evidence['complete'])
+                self.assertFalse(evidence['body_retained'])
+                headers = (output / evidence['response_headers']['path']).read_bytes()
+                self.assertNotIn(b'owned-secret', headers)
+                self.assertNotIn(b'Set-Cookie', headers)
+                self.assertEqual(json.loads(headers)['headers']['Content-Length'], ['12'])
+                if partial:
+                    self.assertEqual((output / evidence['worker_receipt']['path']).read_bytes(), original)
+                else:
+                    self.assertIsNone(evidence['worker_receipt'])
+                self.assertFalse((output / evidence['directory'] / 'body').exists())
 
     def test_apt_configuration_detaches_all_host_state_and_hooks(self):
         with tempfile.TemporaryDirectory() as name:
@@ -359,6 +531,7 @@ class CollectionContracts(unittest.TestCase):
             binary_rows[0]['Essential'] = 'yes'
             parsed = {'main': {'Packages': binary_rows, 'Sources': [source()]},
                       'security': {'Packages': [], 'Sources': []}}
+            payload_attempts = []
 
             def fake_obtain(collector, url, limit, expected=None, suffix=''):
                 if '/mr/timestamp/' in url:
@@ -366,6 +539,8 @@ class CollectionContracts(unittest.TestCase):
                     chosen = SECURITY['timestamp'] if archive == 'debian-security' else MAIN['timestamp']
                     body = encoded({'result': {archive: [chosen]}})
                 else:
+                    if suffix in ('.deb', '.source'):
+                        payload_attempts.append(url)
                     body = b'owned-binary' if suffix == '.deb' else b'owned-source'
                 value = dict(identity(body), blob=identity(body)['sha256'] + suffix)
                 path = collector.cache / value['blob']
@@ -385,9 +560,9 @@ class CollectionContracts(unittest.TestCase):
                     rows.append({'repository': 'main', 'name': row['Package'], 'version': row['Version'],
                         'architecture': row['Architecture'], 'filename': row['Filename'], 'size': int(row['Size']),
                         'sha256': row['SHA256'], 'source_name': 'fixture', 'source_version': '1'})
-                (collector.output / 'solver').mkdir()
+                (collector.output / 'solver').mkdir(mode=0o700)
                 (collector.output / 'solver/selection.json').write_bytes(encoded({'fixture': True}))
-                return rows, {'fixture': True}
+                return rows, {'fixture': True, 'capacity': fixture_solver_capacity()}
 
             with mock.patch.object(COLLECT, 'native_arch', return_value='amd64'), \
                  mock.patch.object(COLLECT.Collector, 'obtain', fake_obtain), \
@@ -398,6 +573,48 @@ class CollectionContracts(unittest.TestCase):
                  mock.patch.object(BUILD, 'verify_authenticated_sources', return_value=({}, [])) as verify, \
                  mock.patch.object(BUILD, 'prepare') as prepare, mock.patch.object(BUILD, 'build') as build:
                 result = COLLECT.collect(request, keyring, provenance, None, root / 'result', 4 * 1024**2, 30)
+                oversized = COLLECT.source_closure([{'source_name': 'fixture', 'source_version': '1'}], [MAIN, SECURITY], parsed)
+                oversized[0]['files'][0].update(size=4 * 1024**2, sha256=identity(b'owned oversized source declaration')['sha256'])
+                payload_attempts.clear()
+                with mock.patch.object(COLLECT, 'source_closure', return_value=oversized):
+                    with self.assertRaisesRegex(ValueError, 'factory byte budget exceeded'):
+                        COLLECT.collect(request, keyring, provenance, None, root / 'refused', 4 * 1024**2, 30)
+                self.assertEqual(payload_attempts, [])
+                refused = root / 'refused'
+                plan_raw = (refused / 'capacity-plan.json').read_bytes()
+                plan = json.loads(plan_raw)
+                failure = json.loads((refused / 'failure.json').read_bytes())
+                self.assertEqual(plan['source']['reference_bytes'], 4 * 1024**2 + 12)
+                self.assertEqual(plan['source']['file_references'], 2)
+                self.assertEqual(plan['source']['unique_blobs'], 2)
+                self.assertEqual(plan['admission_at_observation']['rejection_reasons'], ['factory_total_byte_admission'])
+                self.assertFalse(plan['admission_at_observation']['allowed'])
+                self.assertEqual(failure['failure_stage'], 'before_binary_and_source_payload_download')
+                self.assertEqual(failure['capacity_plan'], dict(identity(plan_raw), path='capacity-plan.json'))
+                self.assertFalse(failure['complete'])
+                for filename in ('materials.json', 'inputs-lock.json', 'collection.json', 'unbound-inputs.json'):
+                    self.assertFalse((refused / filename).exists())
+                failed_worker = COLLECT.fetch_error(ValueError('official download did not return HTTP 200'),
+                    'https://snapshot.debian.org/archive/debian/fixture', time.monotonic(),
+                    {'response_received': True, 'http_status': 206, 'failure_stage': 'response_status_validation',
+                     'final_url': 'https://snapshot.debian.org/archive/debian/fixture', 'response_content_length': '7'})
+
+                def fail_payload(collector, url, limit, expected=None, suffix=''):
+                    if suffix == '.deb':
+                        collector.downloads.append(failed_worker)
+                        raise ValueError('owned worker subprocess failed')
+                    return fake_obtain(collector, url, limit, expected, suffix)
+
+                with mock.patch.object(COLLECT.Collector, 'obtain', fail_payload):
+                    with self.assertRaisesRegex(ValueError, 'owned worker subprocess failed'):
+                        COLLECT.collect(request, keyring, provenance, None, root / 'worker-failed', 4 * 1024**2, 30)
+                failed = json.loads((root / 'worker-failed/failure.json').read_bytes())
+                self.assertEqual(failed['failed_download'], failed_worker)
+                self.assertIn(failed_worker, failed['received_objects'])
+                self.assertFalse(failed['complete'])
+                self.assertEqual(failed['failure_stage'], 'binary_and_source_payload_download')
+                self.assertFalse((root / 'worker-failed/materials.json').exists())
+                self.assertFalse((root / 'worker-failed/collection.json').exists())
             output = root / 'result'
             self.assertTrue((output / 'materials.json').is_file())
             self.assertTrue((output / 'unbound-inputs.json').is_file())
@@ -446,6 +663,21 @@ class OwnedWorkers(unittest.TestCase):
                 if self.path in ('/403', '/429'):
                     self.send_error(int(self.path[1:]))
                     return
+                fixed = {'/206': (206, '7', b'partial'), '/invalid-length': (200, 'not-a-number', b'owned'),
+                         '/short-length': (200, '10', b'abc'), '/empty': (200, '0', b''),
+                         '/identity-mismatch': (200, '12', b'owned-binary')}
+                if self.path in fixed:
+                    status, advertised, body = fixed[self.path]
+                    self.send_response(status)
+                    self.send_header('Content-Length', advertised)
+                    self.send_header('Set-Cookie', 'owned-secret')
+                    self.end_headers()
+                    try:
+                        self.wfile.write(body)
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                    return
                 self.send_response(200)
                 self.send_header('Transfer-Encoding', 'chunked')
                 self.end_headers()
@@ -486,7 +718,7 @@ class OwnedWorkers(unittest.TestCase):
         self.thread.join(5)
         self.temp.cleanup()
 
-    def run_owned(self, route, limit=1024, seconds=5):
+    def run_owned(self, route, limit=1024, seconds=5, expected=None):
         output = self.root / ('output-' + route.strip('/'))
         output.mkdir(mode=0o700)
         instance = COLLECT.Collector(output, 16 * 1024**2, BUILD.Deadline(seconds))
@@ -503,7 +735,7 @@ class OwnedWorkers(unittest.TestCase):
              mock.patch.object(COLLECT, 'free_disk'), \
              mock.patch.object(subprocess, 'Popen', side_effect=remember):
             with self.assertRaises(ValueError):
-                instance.obtain(self.url + route, limit)
+                instance.obtain(self.url + route, limit, expected)
         self.assertEqual(len(processes), 1)
         for process in processes:
             self.assertIsNotNone(process.returncode)
@@ -524,6 +756,71 @@ class OwnedWorkers(unittest.TestCase):
                 result = self.run_owned(route)
                 self.assertEqual(result['http_status'], int(route[1:]))
                 self.assertEqual(result['category'], 'http_' + route[1:])
+                self.assertTrue(result['response_received'])
+                self.assertEqual(result['error_type'], 'HTTPError')
+                self.assertEqual(result['failure_stage'], 'request_open')
+
+    def test_real_non200_response_keeps_status_before_validation(self):
+        result = self.run_owned('/206')
+        self.assertEqual(result['category'], 'response_invalid')
+        self.assertEqual(result['http_status'], 206)
+        self.assertTrue(result['response_received'])
+        self.assertEqual(result['response_content_length'], '7')
+        self.assertEqual(result['final_url'], self.url + '/206')
+        self.assertEqual(result['failure_stage'], 'response_status_validation')
+        self.assertEqual(result['error_type'], 'ValueError')
+        self.assertEqual(result['error_message'], 'official download did not return HTTP 200')
+        output = self.root / 'output-206'
+        evidence = result['failure_evidence']
+        self.assertTrue(evidence['complete'])
+        original = json.loads((output / evidence['worker_receipt']['path']).read_bytes())
+        self.assertEqual(original['http_status'], 206)
+        self.assertEqual(original['error_message'], result['error_message'])
+        headers = (output / evidence['response_headers']['path']).read_bytes()
+        self.assertNotIn(b'owned-secret', headers)
+
+    def test_real_invalid_short_content_length_and_empty_body_keep_context(self):
+        scenarios = (('/invalid-length', 'not-a-number', 'content_length_validation', 'advertised download exceeds budget'),
+                     ('/short-length', '10', 'content_length_verification', 'download differs from Content-Length'),
+                     ('/empty', '0', 'body_nonempty_validation', 'empty official download'))
+        for route, advertised, phase, message in scenarios:
+            with self.subTest(route=route):
+                result = self.run_owned(route)
+                self.assertEqual(result['category'], 'response_too_large' if route == '/invalid-length' else 'response_invalid')
+                self.assertEqual(result['http_status'], 200)
+                self.assertTrue(result['response_received'])
+                self.assertEqual(result['response_content_length'], advertised)
+                self.assertEqual(result['final_url'], self.url + route)
+                self.assertEqual(result['failure_stage'], phase)
+                self.assertEqual(result['error_type'], 'ValueError')
+                self.assertEqual(result['error_message'], message)
+                if route == '/invalid-length':
+                    self.assertEqual(result['content_length_validation_issue'], 'not_decimal')
+                elif route == '/short-length':
+                    self.assertEqual(result['content_length_validation_issue'], 'declared_length_mismatch')
+                self.assertFalse(result['complete'])
+                self.assertEqual(result['response_bytes_written'], 3 if route == '/short-length' else 0)
+
+    def test_real_signed_identity_mismatch_retains_diagnostics_without_caching_body(self):
+        expected = dict(identity(b'owned-binary'), sha256=identity(b'different fixture bytes')['sha256'])
+        result = self.run_owned('/identity-mismatch', expected=expected)
+        self.assertEqual(result['category'], 'signed_identity_mismatch')
+        self.assertEqual(result['failure_stage'], 'signed_payload_validation')
+        self.assertEqual(result['error_origin'], 'collector')
+        self.assertEqual(result['http_status'], 200)
+        self.assertEqual(result['expected_identity'], expected)
+        self.assertEqual(result['actual_identity'], identity(b'owned-binary'))
+        output = self.root / 'output-identity-mismatch'
+        evidence = result['failure_evidence']
+        self.assertTrue(evidence['complete'])
+        self.assertFalse(evidence['body_retained'])
+        original = json.loads((output / evidence['worker_receipt']['path']).read_bytes())
+        self.assertTrue(original['complete'])
+        self.assertEqual(original['size'], 12)
+        headers = (output / evidence['response_headers']['path']).read_bytes()
+        self.assertNotIn(b'owned-secret', headers)
+        self.assertFalse((output / evidence['directory'] / 'body').exists())
+        self.assertEqual(list((output / 'input-cache').iterdir()), [])
 
     def test_real_paused_body_hits_deadline_and_reaps_producer(self):
         result = self.run_owned('/pause', seconds=1)

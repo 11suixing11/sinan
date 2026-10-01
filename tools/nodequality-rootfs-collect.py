@@ -4,6 +4,7 @@
 import argparse
 import contextlib
 import datetime
+import email.parser
 import hashlib
 import importlib.util
 import json
@@ -130,8 +131,18 @@ def allowed_url(value):
 
 
 class OfficialRedirects(urllib.request.HTTPRedirectHandler):
+    def __init__(self, context=None):
+        super().__init__()
+        self.context = context
+
     def redirect_request(self, request, stream, code, message, headers, destination):
+        if self.context is not None:
+            self.context.update(response_received=True, http_status=code, final_url=request.full_url,
+                                response_content_length=headers.get('Content-Length'), response_headers=diagnostic_headers(headers),
+                                redirect_target=destination, failure_stage='redirect_url_validation')
         allowed_url(destination)
+        if self.context is not None:
+            self.context['failure_stage'] = 'redirect_followup_open'
         return super().redirect_request(request, stream, code, message, headers, destination)
 
 
@@ -146,49 +157,130 @@ def publish(path, content, limit):
     BUILD.write_new(path, content)
 
 
-def stream_response(response, output, limit, reserve=MIN_FREE):
+def diagnostic_text(value, limit):
+    if value is None:
+        return None
+    return re.sub(r'[\x00-\x1f\x7f]', ' ', str(value))[:limit]
+
+
+def diagnostic_url(value):
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+            return None
+        # Credentials, query arguments and fragments do not belong in receipts.
+        host = parsed.hostname
+        if ':' in host:
+            host = '[' + host + ']'
+        if parsed.port is not None:
+            host += ':' + str(parsed.port)
+        return diagnostic_text(urllib.parse.urlunsplit((parsed.scheme, host, parsed.path, '', '')), 2048)
+    except ValueError:
+        return None
+
+
+def diagnostic_headers(headers):
+    result = {}
+    for name in ('Content-Length', 'Content-Type', 'Content-Range', 'Content-Encoding',
+                 'Transfer-Encoding', 'Retry-After', 'Location'):
+        values = headers.get_all(name) if hasattr(headers, 'get_all') else [headers.get(name)]
+        if values:
+            safe = [diagnostic_url(value) if name == 'Location' else diagnostic_text(value, 256)
+                    for value in values[:4] if value is not None]
+            if safe:
+                result[name] = safe
+    return result
+
+
+def stream_response(response, output, limit, reserve=MIN_FREE, context=None):
     """The limit applies before every write, including chunked responses."""
     length = 0
     with open(output, 'xb') as target:
         os.fchmod(target.fileno(), 0o600)
         while True:
+            if context is not None:
+                context['failure_stage'] = 'body_read'
             chunk = response.read(min(65536, limit - length + 1))
             if not chunk:
                 break
+            if context is not None:
+                context['response_bytes_read'] += len(chunk)
+                context['failure_stage'] = 'body_byte_limit'
             require(length + len(chunk) <= limit, 'download exceeds its byte budget')
+            if context is not None:
+                context['failure_stage'] = 'body_disk_reserve'
             free_disk(Path(output).parent, reserve, len(chunk))
+            if context is not None:
+                context['failure_stage'] = 'body_write'
             target.write(chunk)
             length += len(chunk)
+            if context is not None:
+                context['response_bytes_written'] = length
+    if context is not None:
+        context['failure_stage'] = 'body_nonempty_validation'
     require(length > 0, 'empty official download')
     return length
 
 
-def fetch_worker(url, output, limit, header_output, reserve=MIN_FREE):
+def fetch_worker(url, output, limit, header_output, reserve=MIN_FREE, context=None):
+    context = context if context is not None else {}
+    context.update(failure_stage='url_validation', response_received=False, http_status=None,
+                   final_url=None, response_content_length=None, response_bytes_read=0, response_bytes_written=0,
+                   redirect_target=None, response_headers={}, content_length_validation_issue=None)
     allowed_url(url)
+    context['failure_stage'] = 'worker_preflight'
     require(type(limit) is int and 0 < limit <= BUILD.MAX_SOURCE, 'invalid worker byte limit')
     output = Path(output).absolute()
     BUILD.private_directory(output.parent)
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), OfficialRedirects())
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), OfficialRedirects(context))
     # The parent supervises DNS, TLS and every body read with an absolute deadline.
+    context['failure_stage'] = 'request_open'
     with opener.open(url, timeout=30) as response:
+        context.update(response_received=True, http_status=response.status, final_url=response.geturl(),
+                       response_content_length=response.headers.get('Content-Length'), response_headers=diagnostic_headers(response.headers),
+                       failure_stage='response_status_validation')
         require(response.status == 200, 'official download did not return HTTP 200')
+        context['failure_stage'] = 'response_url_validation'
         allowed_url(response.geturl())
         advertised = response.headers.get('Content-Length')
+        context['failure_stage'] = 'content_length_validation'
         if advertised is not None:
+            if not advertised.isdigit():
+                context['content_length_validation_issue'] = 'not_decimal'
+            elif int(advertised) > limit:
+                context['content_length_validation_issue'] = 'exceeds_worker_byte_limit'
             require(advertised.isdigit() and int(advertised) <= limit, 'advertised download exceeds budget')
+        context['failure_stage'] = 'response_header_validation'
         headers = response.headers.as_bytes()
         require(len(headers) <= 65536, 'oversized official response headers')
+        context['failure_stage'] = 'response_header_publication'
         BUILD.write_new(header_output, headers)
-        size = stream_response(response, output, limit, reserve)
+        size = stream_response(response, output, limit, reserve, context)
+        context['failure_stage'] = 'content_length_verification'
+        if advertised is not None and size != int(advertised):
+            context['content_length_validation_issue'] = 'declared_length_mismatch'
         require(advertised is None or size == int(advertised), 'download differs from Content-Length')
         return {'schema': 1, 'url': url, 'final_url': response.geturl(), 'http_status': 200,
-                'received_at': timestamp(), 'size': size, 'header_representation': 'parsed-http-headers'}
+                'received_at': timestamp(), 'size': size, 'header_representation': 'parsed-http-headers',
+                'response_received': True, 'response_headers': context['response_headers'],
+                'response_content_length': diagnostic_text(advertised, 128),
+                'response_content_length_truncated': isinstance(advertised, str) and len(advertised) > 128,
+                'response_bytes_read': context['response_bytes_read'], 'response_bytes_written': context['response_bytes_written']}
 
 
-def fetch_error(error, url, started):
-    status = error.code if isinstance(error, urllib.error.HTTPError) else None
+def fetch_error(error, url, started, context=None):
+    context = dict(context or {})
+    http_error = isinstance(error, urllib.error.HTTPError)
+    if http_error:
+        context.update(response_received=True, http_status=error.code, final_url=error.geturl(),
+                       response_content_length=error.headers.get('Content-Length') if error.headers is not None else None,
+                       response_headers=diagnostic_headers(error.headers) if error.headers is not None else {})
+    observed = context.get('http_status')
+    status = observed if type(observed) is int and 100 <= observed <= 599 else None
     reason = error.reason if isinstance(error, urllib.error.URLError) else error
-    if status is not None:
+    if http_error and status is not None:
         category = 'http_' + str(status)
     elif isinstance(reason, socket.gaierror):
         category = 'dns'
@@ -202,8 +294,26 @@ def fetch_error(error, url, started):
         category = 'response_invalid'
     else:
         category = 'connection'
-    return {'schema': 1, 'url': url, 'http_status': status, 'category': category,
-            'complete': False, 'received_at': timestamp(), 'elapsed_seconds': time.monotonic() - started}
+    message = 'HTTP Error ' + str(status) if http_error else str(reason)
+    message = re.sub(r'https?://[^\s]+', lambda match: diagnostic_url(match[0]) or '[redacted URL]', message)
+    advertised = context.get('response_content_length')
+    counters = {key: context.get(key, 0) for key in ('response_bytes_read', 'response_bytes_written')}
+    counters = {key: value if type(value) is int and 0 <= value <= BUILD.MAX_SOURCE + 1 else None
+                for key, value in counters.items()}
+    return {'schema': 1, 'url': diagnostic_url(url), 'http_status': status, 'category': category,
+            'complete': False, 'received_at': timestamp(), 'elapsed_seconds': time.monotonic() - started,
+            'error_type': diagnostic_text(type(error).__name__, 64), 'error_message': diagnostic_text(message, 1024),
+            'failure_stage': diagnostic_text(context.get('failure_stage', 'request_open'), 64),
+            'error_origin': 'download_worker',
+            'response_received': context.get('response_received', False) is True,
+            'final_url': diagnostic_url(context.get('final_url')),
+            'redirect_target': diagnostic_url(context.get('redirect_target')),
+            'http_status_observation_scope': 'latest_received_response' if context.get('response_received') is True else None,
+            'response_headers': context.get('response_headers', {}),
+            'response_content_length': diagnostic_text(advertised, 128),
+            'response_content_length_truncated': isinstance(advertised, str) and len(advertised) > 128,
+            'content_length_validation_issue': diagnostic_text(context.get('content_length_validation_issue'), 64),
+            **counters}
 
 
 def owned_size(root, deadline):
@@ -238,6 +348,64 @@ class Collector:
         require(owned_size(self.output, self.deadline) + additional <= self.max_total, 'factory byte budget exceeded')
         free_disk(self.output, self.reserve, additional)
 
+    def failed_download(self, work, url, error, phase, expected=None, actual=None, worker=None):
+        raw_receipt = None
+        receipt_error = None
+        if (work / 'receipt.json').exists():
+            try:
+                raw_receipt = BUILD.read_regular(work / 'receipt.json', 65536)
+                if worker is None:
+                    candidate = BUILD.decode(raw_receipt)
+                    if isinstance(candidate, dict) and candidate.get('complete') is False:
+                        worker = candidate
+            except (OSError, ValueError) as invalid:
+                receipt_error = diagnostic_text(str(invalid), 1024)
+        if worker is None:
+            report = {'schema': 1, 'url': diagnostic_url(url), 'complete': False,
+                'category': 'producer_failed_or_deadline', 'http_status': None, 'elapsed_seconds': None,
+                'response_received': None, 'failure_stage': 'worker_receipt_unavailable',
+                'error_type': None, 'error_message': None, 'error_origin': None,
+                'final_url': None, 'response_content_length': None, 'response_headers': {},
+                'redirect_target': None, 'http_status_observation_scope': None,
+                'response_bytes_read': None, 'response_bytes_written': None}
+        else:
+            report = dict(worker)
+            if worker.get('complete') is not False:
+                report.update(complete=False, category='signed_identity_mismatch' if phase == 'signed_payload_validation' else 'response_invalid',
+                    failure_stage=phase, error_type=diagnostic_text(type(error).__name__, 64),
+                    error_message=diagnostic_text(str(error), 1024), error_origin='collector')
+        report.update(parent_failure_stage=phase, expected_identity=expected, actual_identity=actual)
+        if receipt_error is not None:
+            report['worker_receipt_read_error'] = receipt_error
+        self.downloads.append(report)
+        evidence = {'complete': False, 'body_retained': False, 'worker_receipt': None, 'response_headers': None}
+        report['failure_evidence'] = evidence
+        try:
+            headers = None
+            if (work / 'headers').exists():
+                original = BUILD.read_regular(work / 'headers', 65536)
+                selected = diagnostic_headers(email.parser.BytesParser().parsebytes(original, headersonly=True))
+                headers = BUILD.canonical({'schema': 1, 'representation': 'selected-parsed-headers', 'headers': selected}) + b'\n'
+            elif report.get('response_headers'):
+                headers = BUILD.canonical({'schema': 1, 'representation': 'selected-parsed-headers',
+                                           'headers': report['response_headers']}) + b'\n'
+            require(headers is None or len(headers) <= 65536, 'failure headers exceed their reader limit')
+            self.budget((len(raw_receipt) if raw_receipt is not None else 0) + (len(headers) if headers is not None else 0))
+            with BUILD.deferred_signals():
+                directory = BUILD.reserve_output(self.output / ('failed-download-' + str(len(self.downloads) - 1).zfill(6)))
+            evidence['directory'] = directory.name
+            for name, content, field in (('worker-receipt.json', raw_receipt, 'worker_receipt'),
+                                         ('response-headers.json', headers, 'response_headers')):
+                if content is not None:
+                    publish(directory / name, content, 65536)
+                    evidence[field] = {'path': directory.name + '/' + name, 'sha256': hashlib.sha256(content).hexdigest(), 'size': len(content)}
+            evidence['complete'] = True
+        except Exception as retention_error:
+            evidence['error'] = diagnostic_text(str(retention_error), 1024)
+        if hasattr(error, 'add_note'):
+            error.add_note('Official download failed: ' + str(report.get('category')) + '; stage=' + str(report.get('failure_stage')))
+        return report
+
     def obtain(self, url, limit, expected=None, suffix=''):
         self.budget()
         available = self.max_total - owned_size(self.output, self.deadline)
@@ -252,20 +420,22 @@ class Collector:
             try:
                 raw = BUILD.run_bounded(argv, BUILD.Deadline(min(180, self.deadline.remaining())), 65536)
             except BaseException as error:
-                report = {'schema': 1, 'url': url, 'complete': False, 'category': 'producer_failed_or_deadline',
-                          'http_status': None, 'elapsed_seconds': None}
-                if receipt.exists():
-                    report = BUILD.decode(BUILD.read_regular(receipt, 65536))
-                self.downloads.append(report)
-                if hasattr(error, 'add_note'):
-                    error.add_note('Official download failed: ' + str(report.get('category')))
+                self.failed_download(work, url, error, 'producer_exit', expected)
                 raise
-            report = BUILD.decode(BUILD.read_regular(receipt, 65536, self.deadline))
-            require(BUILD.decode(raw) == report, 'worker output and receipt differ')
-            actual = BUILD.file_identity(body, bound, self.deadline)
-            require(report.get('size') == actual['size'] and report.get('http_status') == 200, 'download worker identity mismatch')
-            if expected is not None:
-                require(actual == expected, 'download differs from authenticated SHA256/size')
+            report, actual, phase = None, None, 'worker_receipt_validation'
+            try:
+                candidate = BUILD.decode(BUILD.read_regular(receipt, 65536, self.deadline))
+                require(isinstance(candidate, dict) and BUILD.decode(raw) == candidate, 'worker output and receipt differ')
+                report = candidate
+                phase = 'payload_identity_validation'
+                actual = BUILD.file_identity(body, bound, self.deadline)
+                require(report.get('size') == actual['size'] and report.get('http_status') == 200, 'download worker identity mismatch')
+                if expected is not None:
+                    phase = 'signed_payload_validation'
+                    require(actual == expected, 'download differs from authenticated SHA256/size')
+            except BaseException as error:
+                self.failed_download(work, url, error, phase, expected, actual, report)
+                raise
             blob = actual['sha256'] + suffix
             destination = self.cache / blob
             if destination.exists():
@@ -509,13 +679,114 @@ def source_closure(packages, repositories, indices, deadline=None):
     return result
 
 
+def payload_capacity(rows, suffix):
+    blobs = {}
+    total = 0
+    for row in rows:
+        value = {key: row[key] for key in ('sha256', 'size')}
+        blob = row['sha256'] + suffix
+        require(blob not in blobs or blobs[blob] == value, 'conflicting planned payload blob identity')
+        blobs[blob] = value
+        total += row['size']
+    return {'file_references': len(rows), 'reference_bytes': total,
+            'unique_blobs': len(blobs), 'unique_blob_bytes': sum(value['size'] for value in blobs.values()),
+            'cache_suffix': suffix}
+
+
+def capacity_bytes(plan, deadline):
+    chunks, total = [], 1
+    encoder = json.JSONEncoder(ensure_ascii=True, sort_keys=True, separators=(',', ':'))
+    for text in encoder.iterencode(plan):
+        deadline.check()
+        chunk = text.encode('ascii')
+        total += len(chunk)
+        require(total <= MAX_RECEIPT, 'capacity plan exceeds its reader limit')
+        chunks.append(chunk)
+    return b''.join(chunks) + b'\n'
+
+
+def write_capacity_plan(collector, materials, solver):
+    """Record signed-index identities before the existing conservative admission."""
+    BUILD.validate_materials(materials)
+    require(isinstance(solver, dict), 'APT capacity report is missing')
+    apt = solver.get('capacity')
+    require(isinstance(apt, dict) and set(apt) == {'reserved_expansion_bytes', 'phase_observations', 'derived_directories_removed'},
+            'APT capacity observations are missing')
+    require(type(apt['reserved_expansion_bytes']) is int and apt['reserved_expansion_bytes'] >= 0
+            and apt['derived_directories_removed'] is True, 'invalid APT capacity accounting')
+    observations = apt['phase_observations']
+    require(isinstance(observations, list) and len(observations) == 2, 'incomplete APT phase observations')
+    for operation, row in zip(('update', 'plan'), observations):
+        require(isinstance(row, dict) and set(row) == {'operation', 'lists_bytes', 'archives_bytes', 'mirrors_bytes', 'solver_owned_bytes'}
+                and row['operation'] == operation
+                and all(type(row[key]) is int and row[key] >= 0 for key in row if key != 'operation'),
+                'invalid APT phase observation')
+        require(sum(row[key] for key in ('lists_bytes', 'archives_bytes', 'mirrors_bytes')) <= row['solver_owned_bytes'],
+                'APT phase observation exceeds its owned workspace')
+    work = collector.output / 'solver'
+    require(all(not (work / name).exists() for name in ('lists', 'archives', 'mirrors')),
+            'APT derived files remain before payload admission')
+    binary = payload_capacity(materials['packages'], '.deb')
+    source_files = [value for row in materials['sources'] for value in row['files']]
+    sources = payload_capacity(source_files, '.source')
+    conservative = binary['reference_bytes'] + sources['reference_bytes']
+    observed_owned = owned_size(collector.output, collector.deadline)
+    disk = os.statvfs(collector.output)
+    available = disk.f_bavail * disk.f_frsize
+    plan = {'schema': 1, 'kind': COLLECTION_KIND + '-capacity-plan', 'arch': materials['arch'],
+            'source_epoch': materials['source_epoch'], 'keyring': materials['keyring'], 'repositories': materials['repositories'],
+            'observed_at': timestamp(), 'stage': 'before_binary_and_source_payload_download',
+            'complete': False, 'payload_authenticated': False, 'builder_approved': False,
+            'full_ready': False, 'reproducibility_verified': False,
+            'authentication_scope': 'identities selected from authenticated indices; payload bytes not yet authenticated',
+            'packages': materials['packages'], 'sources': materials['sources'],
+            'binary': binary, 'source': dict(sources, name_version_pairs=len(materials['sources'])),
+            'unique_cache_payload_bytes': binary['unique_blob_bytes'] + sources['unique_blob_bytes'],
+            'observed_owned_metadata_bytes_before_plan': observed_owned,
+            'observed_input_cache_metadata_bytes': owned_size(collector.cache, collector.deadline),
+            'observed_retained_solver_bytes': owned_size(work, collector.deadline),
+            'apt': apt, 'max_total_bytes': collector.max_total, 'reserve_free_bytes': collector.reserve,
+            'observed_available_disk_bytes_before_plan': available,
+            'conservative_payload_admission_bytes': conservative,
+            'plan_metadata_bytes': 0, 'required_owned_bytes_before_payloads': 0,
+            'required_available_disk_bytes_at_observation': 0,
+            'admission_at_observation': {'allowed': False, 'rejection_reasons': []},
+            'accounting_scope': 'ordinary-file logical bytes; APT observations are phase samples, not a continuous peak',
+            'future_overhead_scope': 'future HTTP headers, final inventories, tool records and receipts are excluded; phase budgets still apply'}
+    # Include the plan's own bounded bytes in the snapshot admission. Only decimal
+    # lengths and decision fields change; refuse a non-converging representation.
+    for _ in range(16):
+        raw = capacity_bytes(plan, collector.deadline)
+        required_owned = observed_owned + len(raw) + conservative
+        required_disk = collector.reserve + len(raw) + conservative
+        reasons = []
+        if required_owned > collector.max_total:
+            reasons.append('factory_total_byte_admission')
+        if available < required_disk:
+            reasons.append('factory_free_disk_reserve')
+        updated = dict(plan, plan_metadata_bytes=len(raw), required_owned_bytes_before_payloads=required_owned,
+                       required_available_disk_bytes_at_observation=required_disk,
+                       admission_at_observation={'allowed': not reasons, 'rejection_reasons': reasons})
+        if updated == plan:
+            break
+        plan = updated
+    else:
+        raise ValueError('capacity plan byte accounting did not converge')
+    require(len(raw) <= MAX_RECEIPT, 'capacity plan exceeds its reader limit')
+    # Planning evidence never bypasses the existing total or disk reserve guard.
+    collector.budget(len(raw))
+    publish(collector.output / 'capacity-plan.json', raw, MAX_RECEIPT)
+    return {'path': 'capacity-plan.json', 'sha256': hashlib.sha256(raw).hexdigest(), 'size': len(raw)}
+
+
 def solve(collector, repositories, indices, keyring):
     seeds, essentials = essential_seeds(repositories, indices, collector.deadline)
     work = collector.output / 'solver'
     work.mkdir(mode=0o700)
     # APT may write derived list copies. Admission reserves their maximum index
     # size, and the caller's filesystem quota remains the hard aggregate guard.
-    collector.budget(sum(BUILD.MAX_INDEX for repo in repositories for row in repo['indices'] if row['kind'] == 'Packages'))
+    reserved_expansion = sum(BUILD.MAX_INDEX for repo in repositories for row in repo['indices'] if row['kind'] == 'Packages')
+    collector.budget(reserved_expansion)
     mirrors = []
     for repo in repositories:
         mirror = work / 'mirrors' / repo['id']
@@ -531,7 +802,7 @@ def solve(collector, repositories, indices, keyring):
             os.chmod(target, 0o644)
         mirrors.append((repo, mirror))
     config = apt_config(work, mirrors, collector.arch)
-    outputs, commands = {}, []
+    outputs, commands, space_observations = {}, [], []
     baseline = os.stat('/proc/self/ns/net').st_ino
     for operation in ('update', 'plan'):
         evidence = work / (operation + '-namespace.json')
@@ -544,6 +815,11 @@ def solve(collector, repositories, indices, keyring):
         outputs[operation] = BUILD.run_bounded(argv, BUILD.Deadline(min(180, collector.deadline.remaining())), MAX_RECEIPT)
         BUILD.write_new(work / (operation + '.stdout'), outputs[operation])
         commands.append(argv)
+        space_observations.append({'operation': operation,
+            'lists_bytes': owned_size(work / 'lists', collector.deadline),
+            'archives_bytes': owned_size(work / 'archives', collector.deadline),
+            'mirrors_bytes': owned_size(work / 'mirrors', collector.deadline),
+            'solver_owned_bytes': owned_size(work, collector.deadline)})
         collector.budget()
     packages = map_print_uris(outputs['plan'], mirrors, indices, collector.arch, collector.deadline)
     require(set(seeds) <= {row['name'] for row in packages}, 'APT selection omitted required or essential packages')
@@ -552,11 +828,13 @@ def solve(collector, repositories, indices, keyring):
               'installation': False, 'binary_downloads_by_solver': False,
               'network_namespaces': [BUILD.decode(BUILD.read_regular(work / (op + '-namespace.json'), 65536))
                                      for op in ('update', 'plan')],
+              'capacity': {'reserved_expansion_bytes': reserved_expansion, 'phase_observations': space_observations,
+                           'derived_directories_removed': True},
               'factory_budget_scope': 'owned material checked between phases; external filesystem quota remains separate'}
-    publish(work / 'selection.json', BUILD.canonical(report) + b'\n', MAX_RECEIPT)
     # Keep the evidence/configuration, but not derived lists or duplicate mirrors.
     for name in ('lists', 'archives', 'mirrors'):
         shutil.rmtree(work / name)
+    publish(work / 'selection.json', BUILD.canonical(report) + b'\n', MAX_RECEIPT)
     collector.budget()
     return packages, report
 
@@ -578,7 +856,7 @@ def collect(request_path, keyring_path, provenance_path, candidate_path, output_
                     for field in ('source', 'reviewer', 'obtained_at'))
             and {key: provenance.get(key) for key in ('sha256', 'size')} == keyring_identity,
             'independent keyring acquisition/review record is missing or mismatched')
-    complete, output = False, None
+    complete, output, stage, capacity_identity = False, None, 'metadata_collection', None
     try:
         with BUILD.deferred_signals():
             output = BUILD.reserve_output(output_path)
@@ -604,8 +882,15 @@ def collect(request_path, keyring_path, provenance_path, candidate_path, output_
             indices[repo['id']] = parsed
         packages, solver = solve(collector, repositories, indices, collector.cache / keyring['blob'])
         sources = source_closure(packages, repositories, indices, deadline)
+        stage = 'capacity_plan_publication'
+        planned_materials = dict(request, keyring=keyring, repositories=repositories,
+            packages=[dict(row, blob=row['sha256'] + '.deb') for row in packages],
+            sources=[dict(row, files=[dict(value, blob=value['sha256'] + '.source') for value in row['files']]) for row in sources])
+        capacity_identity = write_capacity_plan(collector, planned_materials, solver)
+        stage = 'before_binary_and_source_payload_download'
         remaining = sum(row['size'] for row in packages) + sum(value['size'] for row in sources for value in row['files'])
         collector.budget(remaining)
+        stage = 'binary_and_source_payload_download'
         repos = {repo['id']: repo for repo in repositories}
         for package in packages:
             downloaded = collector.obtain(repository_url(repos[package['repository']], package['filename']),
@@ -617,6 +902,7 @@ def collect(request_path, keyring_path, provenance_path, candidate_path, output_
                         BUILD.MAX_SOURCE, {key: value[key] for key in ('sha256', 'size')}, '.source')
                 value['blob'] = downloaded['blob']
         materials = dict(request, keyring=keyring, repositories=repositories, packages=packages, sources=sources)
+        stage = 'final_source_authentication'
         BUILD.validate_materials(materials)
         inventory, final_signatures = BUILD.verify_authenticated_sources(materials, collector.cache, deadline)
         materials_bytes = BUILD.canonical(materials) + b'\n'
@@ -645,6 +931,7 @@ def collect(request_path, keyring_path, provenance_path, candidate_path, output_
             'keyring_acquisition_review_supplied': True, 'keyring_trust_independently_verified_by_collector': False,
             'source_authenticated': True, 'authentication_scope': 'Debian inputs under supplied independently reviewed keyring',
             'solver_selection_sha256': BUILD.file_identity(output / 'solver' / 'selection.json', MAX_RECEIPT, deadline)['sha256'],
+            'capacity_plan': capacity_identity,
             'full_ready': False, 'reproducibility_verified': False, 'max_total_bytes': max_total,
             'overall_timeout_seconds': seconds, 'reserve_free_bytes': reserve}
         raw_receipt = BUILD.canonical(receipt) + b'\n'
@@ -660,10 +947,13 @@ def collect(request_path, keyring_path, provenance_path, candidate_path, output_
             with contextlib.suppress(BaseException):
                 failure = {'schema': 1, 'kind': COLLECTION_KIND, 'complete': False,
                            'error_type': type(error).__name__, 'error': str(error)[:1024],
+                           'failure_stage': stage, 'capacity_plan': capacity_identity,
                            'notes': [str(note)[:1024] for note in getattr(error, '__notes__', [])[:4]],
                            'builder_approved': False,
                            'full_ready': False, 'reproducibility_verified': False,
                            'received_objects': getattr(locals().get('collector'), 'downloads', [])[-512:]}
+                failure['failed_download'] = next((row for row in reversed(failure['received_objects'])
+                                                   if row.get('complete') is False), None)
                 publish(output / 'failure.json', BUILD.canonical(failure) + b'\n', MAX_RECEIPT)
                 if hasattr(error, 'add_note'):
                     error.add_note('Incomplete collection evidence retained at ' + str(output))
@@ -757,10 +1047,11 @@ def main():
     args = parser.parse_args()
     if args.operation == '_fetch':
         started = time.monotonic()
+        context = {}
         try:
-            result = fetch_worker(args.url, args.output, args.limit, args.headers, args.reserve_free_bytes)
+            result = fetch_worker(args.url, args.output, args.limit, args.headers, args.reserve_free_bytes, context)
         except BaseException as error:
-            result = fetch_error(error, args.url, started)
+            result = fetch_error(error, args.url, started, context)
             BUILD.write_new(args.receipt, BUILD.canonical(result) + b'\n')
             if isinstance(error, urllib.error.HTTPError):
                 error.close()

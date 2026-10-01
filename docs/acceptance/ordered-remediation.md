@@ -102,3 +102,9 @@
 ## 实际输入收集与业务编辑保护补充
 
 2026-10-02 的[大步骤验收](debian-inputs-and-singbox-snapshots.md)补齐实际 Debian Snapshot 收集接口和 sing-box 相关读取失败/等待时的写入保护。当前 92 个不同 Linux 契约方法、Bun 40 项及受影响四套实际 dist 浏览器通过，冻结输入和原始失败有独立摘要。真实 ARM64 仅完成签名元数据与隔离 APT 求解，237 个二进制包/168 个源码版本的完整材料超过显式 900 MiB 预算，在正文下载前拒绝；没有完整输入锁、builder 审批或 rootfs。aws-jp0 仍不可 SSH。该步不签收前置 P0 完整负载或后续新增诊断能力，CI 与完整入口门禁保持。
+
+## 实际 ARM64 材料完成补充
+
+同日的[完整 Debian 材料大步骤](complete-debian-materials.md)保留旧拒绝与原 gzip worker 失败，新增容量计划和有界失败证据。最终冻结后 collector 33 个不同方法全部通过；新的单次实际收集取得 237 个 deb、168 个源码版本的 539 个源文件，独立复核全部 776 个正文的 Size/SHA256 匹配。实际内存限额触发过回收，无 OOM；11 项终态清理与身份检查通过。
+
+完成范围仅为未绑定的 Debian ARM64 材料，不包括 builder/镜像审批、AMD64 及双架构构建、Geekbench/Ookla 许可或完整 Agent/sing-box 业务负载矩阵。前置 P0 完整验收和整体目标仍未签收，CI 与完整入口门禁保持。静态复核另发现链路弹窗提交没有复核相关列表失败/pending，已归入同一 milestone 的 [#142](https://github.com/theLucius7/sinan/issues/142)，留给后续完整步骤；没有把静态缺口宣称为已复现的权限绕过。

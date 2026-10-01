@@ -1612,3 +1612,12 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 按用户节奏先集中完成代码，再冻结统一验收并记录实际失败；之后只补受修复影响的范围。当前 Linux 不同方法 92 通过/0 失败/0 跳过，macOS 重叠范围 53 通过/6 Linux 条件跳过且保留两个 ResourceWarning。一次前端构建、Bun 40/922、四套受影响实际 dist 浏览器通过；五次浏览器夹具失败及修复保留。最终 550 功能输入及 19 dist 与收据一致，342 Rust/Cargo/面板插件输入保持基线；未重复 Rust 全量测试。
 - 真实专用 Debian12 ARM64 收集的三次失败分别是完整 GPG 多签名 keyring、APT 可选展示校验和兼容及 900 MiB 总材料预算拒绝。最后一次 8 个元数据对象、签名索引及独立 APT 求解已通过，选择 237 个二进制包/168 个源码版本；正文下载前拒绝，源码总字节未知，无完整输入锁或 rootfs。每次独立单元均无 OOM/所属进程/挂载/cgroup 残留；宿主 ENOSPC 及尝试间未知 guest boot 变化分别保留，不伪称全程同一启动。
 - 详见[验收记录](docs/acceptance/debian-inputs-and-singbox-snapshots.md)、[机器证据](docs/acceptance/evidence/debian-inputs-and-singbox-snapshots.json)与 [ADR0046](docs/adr/0046-nodequality-input-collection.md)。#139 保留开放，aws-jp0 SSH 仍超时。下一步安排完整闭包的独立工厂容量、候选镜像身份和原生复建；Geekbench/Ookla 条件、完整联合负载及混合机场链路仍待。没有正式签署、发布、生产部署或恢复 CI，整体目标继续进行。
+
+## 2026-10-02：完整 Debian 输入闭包与失败证据
+
+- 原已认证索引/选择的只读盘点明确 237 个二进制包及 168 个源码版本的 539 个文件，正文共 932,517,930 字节；旧 900 MiB 预算缺 7,972,845 字节，旧失败收据保持。新增正文前有界容量计划与 APT 阶段空间观察；所有引用的保守准入、动态预算、磁盘预留及 builder 门禁保持。
+- 初始整步冻结 `af4d82…` 后 collector 28 项通过；首次真实收集容量准入通过，取得 8 个元数据/30 个摘要匹配的 deb，90.424 秒后 gzip worker 拒绝。只读取证确认具体错误、HTTP 状态及失败响应记录已丢失，不能恢复或猜测；已开 [#141](https://github.com/theLucius7/sinan/issues/141)。原材料与失败保持，无 OOM，终态清理全通过。
+- 完成集中修复后重新冻结 `84bf2b…`：实际观察的响应、阶段、有界错误和字节数、预期/实际签名身份分别记录，尽力保存有界 receipt/选定响应头，失败正文不入缓存；缺 footer 保持未知，无自动重试或来源放宽。最终 collector 33 个不同方法全部通过，0 失败/错误/跳过，内存峰值 63,971,328 字节、无 OOM且15项收尾全过；初始28与最终33不相加。
+- 唯一原 gzip 单源观察返回 HTTP 200、137,556 字节和签名索引摘要匹配，worker1.237秒、内存峰值26,136,576字节；11项收尾全过，不倒填首次原因。随后在全新目录仅执行一次完整收集，2444.594秒以0退出，784个HTTP对象完整取得，237个deb与539个源码文件的776个正文独立Size/SHA256全部匹配；实际签名指纹与精确main/security快照复核通过，未扩VM或删除旧缓存。
+- 实际所属目录954,536,198字节，满足1 GiB材料预算；guest终态余782,073,856字节，宿主482采样最低5,239,861,248字节。256 MiB限额触发max=100704次回收压力，实测峰值269,475,840字节，OOM三项均0、tasks峰值13；11项清理/身份检查全过，缓存仅在专用guest。材料完成不代表无资源争抢或完整诊断已验收。
+- 详见[本步记录](docs/acceptance/complete-debian-materials.md)与[机器证据](docs/acceptance/evidence/complete-debian-materials.json)。550功能输入仅collector及回归相对基线变化，19 dist保持；未重复Rust、前端、其他builder或CI。完成材料仍builder=null/lock_ready=false/full_ready=false；完整builder工具闭包/镜像来源审批与启动身份、原生/双架构复建、许可及完整Agent/sing-box联合负载仍待。链路列表失败/pending静态缺口已开[#142](https://github.com/theLucius7/sinan/issues/142)归原milestone，后续整步处理；真实aws-jp0不可达、混合订阅链路尚为设计，整体目标继续进行。

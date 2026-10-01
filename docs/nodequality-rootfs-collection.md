@@ -42,11 +42,20 @@ python3 tools/nodequality-rootfs-collect.py collect \
 | `input-cache/` | 原始实际导入响应、keyring、InRelease、压缩索引、全部已选 `.deb` 和对应源码文件 |
 | `http-*.headers` | HTTP 解析后的响应头；没有声称原始 TLS/HTTP 报文 |
 | `solver/` | 私有配置、两次独立网络命名空间证明、命令输出及选择清单；不留派生列表/重复镜像 |
+| `capacity-plan.json` | 正文下载前的完整包/源码预计容量、既有元数据与求解开销、显式预算及磁盘预留；是计划，不是取得完成证明 |
 | `materials.json` | 没有 builder 字段的实际输入材料，沿用原包和完整源码身份契约 |
 | `unbound-inputs.json` | `builder=null,lock_ready=false`；不能作为原构建器的输入锁 |
 | `collection.json` | 实际摘要、签名身份、工具字节及本地 dpkg 来源声明；`complete=true`，审批、完整能力与复建标志均 false |
 
 失败保留本次不完整材料及 `failure.json`，记录有限错误原因、目标和已收到对象，不能当作成功收集。不覆盖已有输出或旧缓存；无自动重试。部分材料仍可人工盘点，重新发起操作必须使用新的私有输出目录，不能修改失败收据伪装完成。
+
+`failure.json.failed_download` 关联失败对象的 worker 分类、错误类型和消息、执行阶段、实际观察到的响应状态、已读/已写字节及预期/实际签名身份。收到响应后在状态、重定向和正文校验前记录上下文；后续 TLS/连接失败时，先前重定向响应的状态仍只表示“最近收到的响应”。HTTP 200 本身不能表示正文或签名认证成功。
+
+在 worker 退出或父层正文校验失败后，尽力在 `failed-download-NNNNNN/` 保留有界 worker receipt 与选定响应头 JSON；各文件最多 64 KiB，仍受总预算、磁盘预留和期限限制。只保留 Content-Length/Type/Range/Encoding、Transfer-Encoding、Retry-After 和 Location，URL 去除凭据、查询和片段；失败正文不进入缓存或保留目录。保留失败写入 `failure_evidence.error`。如果 worker 被截止/信号终止且没有完整 receipt，响应状态、具体错误和字节数保持未知，不从父层通用错误或残余头片段推断；新记录也不能补写旧失败原因。
+
+`failure_evidence.complete` 只表示证据保存动作完成。原始 worker receipt 的 `complete=true` 也只表示网络正文接收完成；若父层发现签名 Size/SHA256 不匹配，最终下载记录仍为 `complete=false` 和 `signed_identity_mismatch`，不能将上述字段读成材料认证成功。
+
+在签名索引、隔离 APT 选择与对应源码闭包明确后，先记录 `capacity-plan.json`，再按原保守的所有文件预计总量检查正文容量。计划分别列出引用量和按内容摘要去重的量，不用去重数放宽 admission；现有缓存、求解派生空间、当前磁盘和保留量区分观察值与预计值。正文尚未取得，计划不能标记来源认证完成、批准 builder 或开放完整验机。后续 HTTP 头、日志与最终收据仍按阶段限额检查，计划不承诺并发外部磁盘消耗下容量必然足够。
 
 认证在取得时和最终材料发布前分别执行。实际 package closure 由空 dpkg 状态下的 APT 选择，包含固定 main 的 Essential 集合、APT、原工具库存及 hard dependencies；虚拟包、版本比较和替代依赖交给 APT。APT 的 URI 行可有三个必需字段和一个可选的显示校验和；显示字段不参与认证，身份始终绑定签名 Packages 中的路径、架构、Size 和 SHA256。包的 Source 可能来自另一签名仓库，按精确名称/版本寻找完整 Sources SHA256 清单。各索引逐段扫描，只保存已选包和对应源码，适用于小内存收集；实际峰值需由执行收据确认。
 
@@ -67,3 +76,7 @@ python3 tools/nodequality-rootfs-collect.py bind \
 `bind` 拒绝失败收集，重新认证精确导入时间对、全部缓存、签名链和当前候选工具字节，在新目录生成原 schema 1 的 `inputs-lock.json`。`binding.json` 给出原缓存路径，仍保留 `builder_approved=false`。之后才由已有 `prepare --lock --cache --output --approved-builder-image-sha256` 消费，独立 builder 审批不可省略。原生 build、export、双架构复建、256 MiB 外层预算、许可和完整负载条件都保持。
 
 这一步的源冻结、夹具结果及实际取得材料见[整步验收记录](acceptance/debian-inputs-and-singbox-snapshots.md)。未执行的架构、未完成的锁绑定或构建均明确待验。
+
+完整材料取得及容量记录的后续大步骤见[闭包记录](acceptance/complete-debian-materials.md)。前一步 900 MiB 拒绝属于其原始执行，后续盘点或较大明确预算不能改写旧失败结果。
+
+该后续大步骤已完成实际 ARM64 的 237 个二进制包及 539 个对应源码文件，776 个正文独立 Size/SHA256 全部匹配，签名链与精确导入时间分别保留。输出仍是 `builder=null,lock_ready=false` 的未绑定材料；AMD64 收集、builder 工具/完整镜像来源认证、原生构建、双架构复建及完整验机分别待验。容量计划或材料收集完成均不开放完整入口。
