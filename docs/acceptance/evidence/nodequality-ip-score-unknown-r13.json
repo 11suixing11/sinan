@@ -1,0 +1,612 @@
+{
+  "schema": 1,
+  "tested_product_source": "66ec04bdac9d006d9067775a2991ce0221852676",
+  "test_deadline_fix_source": "473d5920da6f06f16f04effc4791f579f6812679",
+  "test_only_change": [
+    "tools/test-nodequality-report-policy.py"
+  ],
+  "base_pull_request": 116,
+  "related_issue": 117,
+  "scope": "Fixed node-side IP score interpretation, display and serialization only; no full upstream execution or provider requests.",
+  "source_lock_sha256": "16bc414c7f9bf79514b36f9cc3d8b0376a1805ad58f24f8d8be81ddeb8542dd7",
+  "ip_score_policy_sha256": "f5ae90c823d6b6d993c9254369220f6128ac7169f41b557c603ab00f184f245f",
+  "ip_before_sha256": "e332b5405ca12fe03ad5f427789c38c92f04bb2b66df05d296060e4cd8483c1e",
+  "ip_after_sha256": "f434c87f920cc9594aca3978b58e28dcaf786c074d70d64475f567068d093c4d",
+  "ip_after_bytes": 182869,
+  "reproduction": {
+    "receipt_sha256": "81f0f27a93e239193747514494329905e3ed79afcb85e8e18eb792c70bf2d6fc",
+    "scope": "Canonical provider functions only; curl returns a local error object and progress is inert. No network or full script execution.",
+    "functions_sha256": "e74570a6015451af978285ba7c31c37a3fbc810ccd6ca4799c09e351d980713d",
+    "results": [
+      {
+        "function": "db_scamalytics",
+        "exit_code": 0,
+        "stdout": "null|LOW",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "db_abuseipdb",
+        "exit_code": 0,
+        "stdout": "null|LOW",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "db_ip2location",
+        "exit_code": 0,
+        "stdout": "null|LOW",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "db_ipqs",
+        "exit_code": 0,
+        "stdout": "null|LOW",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "pre_freeze_notes": "Initial regex accepted a trailing newline; test extraction included the following comment. Both corrected before frozen tests. A stale helper digest correctly blocked an intermediate rebuild. Initial logs retained separately.",
+  "pre_freeze_log_sha256": {
+    "score-first.log": "809fc7b3f61b8b2b42f5d18db7080c010d35c9e7ae9f865b57b421ee129b8e61",
+    "score-second.log": "a106e6e1b3d1b8091d3f221361224f022badb653f9c44b3e37c45d6abf8385ca",
+    "score-third.log": "870f5462b4f19463cea7a8f5d26e15529ca0845af671909d70ef2cc2c46440cf"
+  },
+  "host": {
+    "unique_cases": 150,
+    "finally_passed": 137,
+    "conditional_skips": 13,
+    "initial_failures": 3,
+    "total_executions": 153,
+    "first_receipt_sha256": "31939b023609c7e3ebfc8d3aacee6a05858ca4824abdf9a4a461da2d951769b1",
+    "first_checks": [
+      {
+        "name": "ip-score",
+        "exit_code": 0,
+        "tests": 10,
+        "skipped": 4,
+        "seconds": 3.012,
+        "log_sha256": "ddc31b5748bf7e1bf961483540f3b33c9a6a957072e0c734a87ef542a7810b71"
+      },
+      {
+        "name": "ranking",
+        "exit_code": 0,
+        "tests": 8,
+        "skipped": 4,
+        "seconds": 3.382,
+        "log_sha256": "76b519865a8d955e5cac1f4d7ed6b9f8087aa25af6c4f171a72ad4fd1c00ebe7"
+      },
+      {
+        "name": "loader",
+        "exit_code": 0,
+        "tests": 10,
+        "skipped": 0,
+        "seconds": 16.943,
+        "log_sha256": "654e4fb40f6c13c5c695a7a07f430e611358e90a45c746f9002f74265ee69415"
+      },
+      {
+        "name": "data",
+        "exit_code": 0,
+        "tests": 6,
+        "skipped": 0,
+        "seconds": 7.93,
+        "log_sha256": "d69c60d3eebb937ffc235142d49291a2bbd5042a0a8e8840fd8c1d1294f39162"
+      },
+      {
+        "name": "dependencies",
+        "exit_code": 0,
+        "tests": 11,
+        "skipped": 1,
+        "seconds": 3.867,
+        "log_sha256": "4869495b70256dda5ab3c451653511bb535aa7dba4b6083fd25dc39d8a216e98"
+      },
+      {
+        "name": "swap",
+        "exit_code": 0,
+        "tests": 10,
+        "skipped": 0,
+        "seconds": 3.038,
+        "log_sha256": "263408c83c7aabea5e6e1cac2eea289eca819569c9352bb3db69fa8404f43006"
+      },
+      {
+        "name": "sources",
+        "exit_code": 0,
+        "tests": 16,
+        "skipped": 0,
+        "seconds": 16.742,
+        "log_sha256": "f54d3e2c9be47e9a4743ffa60c65e2193f68281a931d89244ff63d11ae70e581"
+      },
+      {
+        "name": "report",
+        "exit_code": 1,
+        "tests": 6,
+        "skipped": 0,
+        "seconds": 93.435,
+        "log_sha256": "0f1db7ff7ed6077cf20aa00f1f37fd2c1018b6e269483d330d2d4acb0601608e"
+      }
+    ],
+    "unchanged_retry_receipt_sha256": "b7bb67a08a5563ab647ca620bd4b3ca36b97ae67eb1463d5986d261a1c607ef5",
+    "unchanged_retry_checks": [
+      {
+        "name": "report-timeout-retry",
+        "exit_code": 1,
+        "tests": 1,
+        "skipped": 0,
+        "seconds": 23.991,
+        "log_sha256": "305b25994c48509d9b6840b3cc57e15a700028d9a2a8903be8e1c11d0403e796"
+      }
+    ],
+    "instrumented_retry": {
+      "tests": 1,
+      "errors": 1,
+      "log_sha256": "0ab3ee76afb9b020ee74e6e04ddd16ad5559473d405e2c351f507206432c49d0",
+      "diagnostics_sha256": "77a4caff39dadf38d7a1ce6984eaa7eeffc1a82110fff4ff7177b09c9c61ed99",
+      "samples": [
+        {
+          "seconds": 1.0,
+          "records": 0,
+          "last_argv": []
+        },
+        {
+          "seconds": 2.01,
+          "records": 4,
+          "last_argv": [
+            "countRunTimes"
+          ]
+        },
+        {
+          "seconds": 3.01,
+          "records": 8,
+          "last_argv": [
+            "get_cpu"
+          ]
+        },
+        {
+          "seconds": 4.01,
+          "records": 12,
+          "last_argv": [
+            "show_head"
+          ]
+        },
+        {
+          "seconds": 5.02,
+          "records": 16,
+          "last_argv": [
+            "show_gpu"
+          ]
+        },
+        {
+          "seconds": 6.02,
+          "records": 20,
+          "last_argv": [
+            "save_json"
+          ]
+        },
+        {
+          "seconds": 7.02,
+          "records": 22,
+          "last_argv": [
+            "ip",
+            "-6",
+            "-E",
+            "-y",
+            "-o",
+            "/result/ip_quality.json"
+          ]
+        },
+        {
+          "seconds": 8.02,
+          "records": 24,
+          "last_argv": [
+            "countRunTimes"
+          ]
+        },
+        {
+          "seconds": 9.02,
+          "records": 28,
+          "last_argv": [
+            "db_ipregistry"
+          ]
+        },
+        {
+          "seconds": 10.02,
+          "records": 32,
+          "last_argv": [
+            "db_dbip"
+          ]
+        },
+        {
+          "seconds": 11.03,
+          "records": 37,
+          "last_argv": [
+            "MediaUnlockTest_Netflix"
+          ]
+        },
+        {
+          "seconds": 12.03,
+          "records": 42,
+          "last_argv": [
+            "check_mail"
+          ]
+        },
+        {
+          "seconds": 13.04,
+          "records": 47,
+          "last_argv": [
+            "show_factor"
+          ]
+        },
+        {
+          "seconds": 14.04,
+          "records": 51,
+          "last_argv": [
+            "save_json"
+          ]
+        },
+        {
+          "seconds": 15.05,
+          "records": 55,
+          "last_argv": [
+            "countRunTimes"
+          ]
+        },
+        {
+          "seconds": 16.05,
+          "records": 59,
+          "last_argv": [
+            "get_delay"
+          ]
+        },
+        {
+          "seconds": 17.06,
+          "records": 62,
+          "last_argv": [
+            "show_head"
+          ]
+        },
+        {
+          "seconds": 18.07,
+          "records": 65,
+          "last_argv": [
+            "show_conn"
+          ]
+        },
+        {
+          "seconds": 19.07,
+          "records": 68,
+          "last_argv": [
+            "show_iperf"
+          ]
+        },
+        {
+          "seconds": 20.07,
+          "records": 70,
+          "last_argv": [
+            "save_json"
+          ]
+        }
+      ]
+    },
+    "supplement_receipt_sha256": "986c2e44c97993516e8d29f20a5ce8e7d0ae0ab0a90a9457a44c55815aca23ce",
+    "supplement_checks": [
+      {
+        "name": "report-timeout-retry",
+        "exit_code": 0,
+        "tests": 1,
+        "skipped": 0,
+        "seconds": 64.981,
+        "log_sha256": "75e11e1b40b603147ad28544c5326f892962312f0471f3918f97d1b4bb257865"
+      },
+      {
+        "name": "wrapper",
+        "exit_code": 0,
+        "tests": 34,
+        "skipped": 0,
+        "seconds": 15.645,
+        "log_sha256": "c7ac8b3bff651cd5c7a00537ae9a2b86aef1b9e03f145347abc2b58afdc87fa0"
+      },
+      {
+        "name": "daily",
+        "exit_code": 0,
+        "tests": 7,
+        "skipped": 0,
+        "seconds": 6.792,
+        "log_sha256": "0630e578aed491ea538de90e4c2462ef0026a8bf08efff9aa5ac5332832b91ee"
+      },
+      {
+        "name": "release",
+        "exit_code": 0,
+        "tests": 32,
+        "skipped": 4,
+        "seconds": 0.546,
+        "log_sha256": "67aa1cce802b5622a577003335a76f3ca5f9c5c20befb1be5865633baffb47d9"
+      }
+    ],
+    "initial_failure": "Existing report wiring fixture exceeded its 20-second subprocess deadline. Unchanged retry reproduced; instrumented retry showed steady progress to 70 records at 20 seconds without stderr. Raised only fixture deadline to 60 seconds, retaining process-group cleanup and all assertions, then reran only the failed case and unfinished groups. Product bytes unchanged.",
+    "failed_fixture_cleanup": {
+      "failed_fixture_processes": [],
+      "checked_fixture_names": [
+        "sinan-pinned-sources-c032skpu",
+        "sinan-pinned-sources-rgf91mc3",
+        "sinan-pinned-sources-84oi_z6s"
+      ],
+      "receipt_sha256": "a9c300172050d57804803ab70fd49c78e4478ac02470bf212d4f1dcce615fece"
+    }
+  },
+  "rust": {
+    "receipt_sha256": "45d38ba9271198f888dfb50201f6df15e31079a285d79c7aebe50616adbe2717",
+    "checks": [
+      {
+        "name": "postgres-start",
+        "exit_code": 0,
+        "log_sha256": "66afd0411ccc09366e99fdd99b85f21899c8d2d064f5835126859618802153ad"
+      },
+      {
+        "name": "adapter-diagnostic",
+        "exit_code": 0,
+        "log_sha256": "7741d9ca4776fac67c43fa1650396f01cfcefa351e39d74dc5db8f66ac4d735e",
+        "tests": {
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "panel-chain-gate",
+        "exit_code": 0,
+        "log_sha256": "1e155ea4c8c78f34074fe4296033dd61561ad93d57e35b2028fc75a39faf695a",
+        "tests": {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "panel-daily-version",
+        "exit_code": 0,
+        "log_sha256": "d98eacef782970bf610f71b5881ce6568524b31cc2baa111490303d2e663b38f",
+        "tests": {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "adapter-clippy",
+        "exit_code": 0,
+        "log_sha256": "c1eb2431fd45121fe81b62d7b64f1b342712cc94d4d034d945643c81c11230aa"
+      },
+      {
+        "name": "workspace-fmt",
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "core-boundary",
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "diff-check",
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "postgres-stop",
+        "exit_code": 0,
+        "log_sha256": "ca19178a35ab4153b75b494963b66ce8243e1b94c173107c87b44d09db23652d"
+      }
+    ],
+    "frozen_inputs": {
+      "crates/adapter-nodequality/src/lib.rs": "31cc60a12def60aec00569eef110679bce5cf93c8e35118eba4811d379e71111",
+      "crates/adapter-nodequality/tests/diagnostic.rs": "61999f5b453659c744677c834badf3843b0014d5d90c2c84612d47170952d988",
+      "crates/adapter-nodequality/tests/diagnostic/versions.rs": "097e731d3f6096e3c6eb748c463536a1129f84bce668adb1abc1457ebd6a7b54",
+      "plugins/nodequality/panel/mod.rs": "0ec02bbaa729ef9f07167cc674cd1952983ba3a5a5d96b55582f6b8805efa874",
+      "crates/panel/tests/diagnostics/modes.rs": "55b8a7c27bcf4c07d06e0a7702b40fd492d0aa71e45a1f6a2da767f8055fa582",
+      "crates/panel/tests/diagnostics/chain_gate.rs": "cf0288d7a238658c1ef5c34759793123b41e74e873185e7095679f26b49bb756"
+    },
+    "cargo_lock_sha256": "02e3ac8f8a90c522b1267049cce2ed27fdd819bd0ab86e4d25c75581cb3bc948",
+    "postgres_stopped": true,
+    "postgres_pid_absent": true,
+    "postgres_port_closed": true,
+    "trust_kind": "public_TEST_ONLY"
+  },
+  "debian": {
+    "os": "Debian 12 arm64",
+    "bash": "5.2.15(1)-release",
+    "duration_seconds": 194.199,
+    "tests": 114,
+    "passed": 113,
+    "conditional_skips": 1,
+    "checks": [
+      {
+        "name": "ip-score",
+        "exit_code": 0,
+        "elapsed_seconds": 52.08812715000022,
+        "ran": 10,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "06a83c8ae207a00334d942e26b8f2ae42bc3b937185abfff7ff2dc53e3669cd9"
+      },
+      {
+        "name": "ranking",
+        "exit_code": 0,
+        "elapsed_seconds": 17.750596007997956,
+        "ran": 8,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "b489b7225ae9c50b29e5166d210a84049ce468037669e15248f2f32d715a5917"
+      },
+      {
+        "name": "loader",
+        "exit_code": 0,
+        "elapsed_seconds": 7.0091312949989515,
+        "ran": 10,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "c9ebd0fa10dd5e8ac90a6095736607a16e2133bef5f03ade763f64c3dbe8d27f"
+      },
+      {
+        "name": "source",
+        "exit_code": 0,
+        "elapsed_seconds": 7.068433295000432,
+        "ran": 16,
+        "skipped": 1,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "f5b4577311da429e06f07d5870b1cc7aaf19af2a72a7aa62a15e32f307865263"
+      },
+      {
+        "name": "data",
+        "exit_code": 0,
+        "elapsed_seconds": 3.321665875999315,
+        "ran": 6,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "8ae64ccfc2a202e98607424e3dbf2d6f8a0009ac0dae399b98c96a513c80a293"
+      },
+      {
+        "name": "dependencies",
+        "exit_code": 0,
+        "elapsed_seconds": 1.6394223339993914,
+        "ran": 11,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "64ccbf2bf19949d568fea061e2bcdb1acf5c0b5b275ef89e58b0906fc21a81ba"
+      },
+      {
+        "name": "swap",
+        "exit_code": 0,
+        "elapsed_seconds": 1.9660917509972933,
+        "ran": 10,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "bdfdddcdbde88f04ee499db3f8051813f622065d9d9469ef620f191bf9c724a2"
+      },
+      {
+        "name": "original-body-fd",
+        "exit_code": 0,
+        "elapsed_seconds": 96.93238358700182,
+        "ran": 2,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "80162a63caffacded0019b13c317034902ab2bce14a02e0bc4549369f04cd7b7"
+      },
+      {
+        "name": "wrapper",
+        "exit_code": 0,
+        "elapsed_seconds": 3.879461126998649,
+        "ran": 34,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "99694d2ef459b16c9515de393b73e6e38c65137504ae4af6352536edceb5ea70"
+      },
+      {
+        "name": "daily",
+        "exit_code": 0,
+        "elapsed_seconds": 2.5040796260000207,
+        "ran": 7,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "cb869f8974e4f37ac36b691740d703fac762d144614c6c8bce332230bec9b2cd"
+      }
+    ],
+    "runtime_properties": {
+      "MainPID": "31999",
+      "ControlGroup": "/system.slice/sinan-nodequality-r13-fd-v1.service",
+      "CPUWeight": "10",
+      "IOWeight": "10",
+      "MemoryMax": "268435456",
+      "MemorySwapMax": "0",
+      "TasksMax": "64",
+      "OOMScoreAdjust": "500",
+      "PrivateNetwork": "yes",
+      "PrivateMounts": "yes",
+      "NoNewPrivileges": "yes",
+      "KillMode": "control-group"
+    },
+    "cgroup_metrics": {
+      "memory.peak": "69853184",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "pids.peak": "11"
+    },
+    "test_tools": {
+      "jq": {
+        "sha256": "7783b0cb91736bb073d0cdeac6e3e05464abb0a5bddc235d03dd2cabad4aa080",
+        "package": "jq 1.6-2.1+deb12u2"
+      },
+      "bc": {
+        "sha256": "d83c892b35dcfe0dfa3a6b41e7f73f83e987658830facabbd3e56394ef1c4756",
+        "package": "bc 1.07.1-3"
+      }
+    },
+    "postcheck": {
+      "final_unit_properties": {
+        "MainPID": "0",
+        "ControlPID": "0",
+        "ControlGroup": "",
+        "LoadState": "not-found",
+        "ActiveState": "inactive",
+        "SubState": "dead"
+      },
+      "oom_since_actual_start": [],
+      "cgroup_exists": false,
+      "residual_fixture_pids": [],
+      "residual_fixture_mounts": [],
+      "ssh": {
+        "MainPID": "406",
+        "NRestarts": "0",
+        "ActiveState": "active"
+      },
+      "swap_entries": 0,
+      "source_files_unchanged": true,
+      "success": true
+    },
+    "files_sha256": {
+      "result.json": "f3757fa563980a5962647ba48fd583c14360c7c1b54dfd281d73732ae0eb7c15",
+      "postcheck.json": "93a8ce12d925f9db29ffa1d8b0f37a4ed29cdc6dec8478a9c358fc9166a137e4",
+      "receipt.json": "2d699dc3142735285a5240dd88bdd4f891346bf5d838cdea83171c3d152ce914",
+      "source-sha256.json": "c76458f83289642c38c9fa3622e226bcf4f6c011ae814307baff54c05ff2b7cc",
+      "source.tar": "ca559dd307dabd487c483425a95a05ed302c7a3a704f3467d4c34adcb9764120",
+      "fixture-driver.py": "8f19a8e9bdd607204086e85d1e98ffeed19e8df514559d5518f480192f67baa2"
+    },
+    "input_file_count": 48,
+    "repository_input_sha256": {
+      "plugins/nodequality/loader-policy.py": "189fda7f90cd91df37ddfecf206c15137d823128a75e7b22c850abb2e2a2fe92",
+      "plugins/nodequality/dependency-policy.py": "9424dded5fd6c74ff9888fa6e2e3d9482fe8db144fa4c572682fca3f8cf5b5de",
+      "plugins/nodequality/report-policy.py": "0c66e702084820e399a16b18b51ba331cd8edd406dd96ede7c2ee84f78c30245",
+      "plugins/nodequality/chroot-shim.sh": "6d12129f92b8869b9fd78ed5b73a2dff57c3fca82ccc7995fd777646e5ba79bc",
+      "plugins/nodequality/swap-policy.py": "1d6acda7821d013773b273d77db12973d7075631b0309614dadb9c5cfc09ff24",
+      "plugins/nodequality/runner.sh.tmpl": "294aae3433ba40c39c3704e1666eaddd8576e80afae34dfc3324e61337cfbc5d",
+      "plugins/nodequality/UPSTREAM.txt": "55d3948b9a31335055bcfea7e2bc3e63a4a5bfb576079c5ddd967df12e48b5ba",
+      "plugins/nodequality/source-helper.py": "24edec373fb15075a5697a25422fb6c3a6faca78e26e25930933541c19c48222",
+      "plugins/nodequality/curl-shim.sh": "307b56270d67a71d3af667f6e17351bd115676bd3eecb6686b7be26931d0cfce",
+      "plugins/nodequality/ip-score-policy.py": "f5ae90c823d6b6d993c9254369220f6128ac7169f41b557c603ab00f184f245f",
+      "plugins/nodequality/data-policy.py": "0115f90f8ce521eab1472d8426b8f8dfbf1fefca427ae0fdfd557b346a8fdab3",
+      "plugins/nodequality/daily.py": "8f376ca7ef0616fedcf981c6ba671401a2e8ffb0c5ac9e4308e9e12a07c38a26",
+      "plugins/nodequality/exit-observer.sh": "b1f68e376ff7e9ee23b03bcfc854aa54440b30370ce7aada2be34ea79b06b257",
+      "plugins/nodequality/report.py": "5118a7cbe5ddb5d317e56606904bd301c30ac28519e8dcda106ce1151afc0b38",
+      "plugins/nodequality/source-lock.json": "16bc414c7f9bf79514b36f9cc3d8b0376a1805ad58f24f8d8be81ddeb8542dd7",
+      "plugins/nodequality/ranking-policy.py": "6f46038c22267108b4572b1f1382a5deb779ecd51d90b0910c2a90f3ef122d59",
+      "tools/build-nodequality.sh": "b19170705aee34af6566e7721ac2c4e1fc3dd49298e2cc7ac1eeca6c29ebfac9",
+      "tools/test-nodequality-sources.py": "6c7feaf52a728cf217c5dd32c8d8bdfe8d42e363b46635d1db1a3f956f7b33dc",
+      "tools/test-nodequality-report-policy.py": "1d612aab3c6f5d04515fb9fa39bc5abec810ac74c61c23cb1c75b250369eff05",
+      "tools/nodequality-source-fixture.py": "60e9a4802ca7378b3f2c56e28acbbbadd8317c8d77e41812d557daee1306a15a",
+      "tools/test-nodequality-swap-policy.py": "9bb638f1b3a8c0bb98356b24d23db6df1a89f0cd1d0478b14961e4466cbbe170",
+      "tools/test-nodequality-dependency-policy.py": "e177a7463fd402a2ca321c775e4541557273b34b439111068aa24d35b3cf0eb6",
+      "tools/test-nodequality-data-policy.py": "9d74147e7205afd12255a38b71561b37dabfd3aad72e1b9f61c885e8069afad0",
+      "tools/test-nodequality-loader-policy.py": "c9e491c05aee0f9be630c81aa564a37db45050370b686ac215f0fd852988100c",
+      "tools/test-nodequality-ranking-policy.py": "089139ce482736fadec4d982fb12870e5ed0de8e7c4bc6b42a169eb3e5a5d87f",
+      "tools/test-nodequality-ip-score-policy.py": "49ae34f0503598e9736ba3f791ae099c93ad284628ecb560ae226988fe892940",
+      "tools/test-nodequality.py": "355763ebe1e21bb8d9c815b9f512a2997668ec6fdd2f96b963bec7db2dd3ecdf",
+      "tools/test-diagnostic-modes.py": "00522348739ef4adca56964d263c1951dfca798aacc12092f2de5240b73331c3",
+      "crates/protocol/tests/fixtures/TEST_ONLY.key": "21c747afcd9c2932cd2f10fc356028b46730d76eb57e0c820ea90fa44753c07c",
+      "crates/protocol/tests/fixtures/TEST_ONLY.pub": "1883353600a9b2869b72be791a44d6d86e17566042e1ee8becfdca1b3f7a24d1"
+    }
+  },
+  "not_verified": [
+    "Complete upstream bootstrap, rootfs or benchmark execution",
+    "Live provider HTTP error classification or API availability",
+    "Other non-score fields, browser impersonation, cookies, credential acquisition, retries and remaining uploads",
+    "Rootfs and secondary tool provenance, integrity, licensing and bounded packaging",
+    "Full NodeQuality under continuous proxy load and the entire fault matrix",
+    "Formal signing, release, deployment or paused CI"
+  ]
+}
