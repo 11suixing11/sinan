@@ -18,6 +18,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import types
 import unittest
 from unittest import mock
 
@@ -38,6 +39,14 @@ class RootfsBuildTests(unittest.TestCase):
         self.lock = self.make_lock()
         self.lock_path = self.root / 'lock.json'
         self.lock_path.write_bytes(BUILD.canonical(self.lock) + b'\n')
+        # This suite tests authentication/export/signals, not host capacity.
+        # Keep synthetic operation admission independent of the test machine;
+        # the dedicated capacity suite owns low-space/inode boundary evidence.
+        observed = types.SimpleNamespace(f_frsize=4096, f_bavail=16 * 1024**3 // 4096,
+                                         f_favail=1000000)
+        self.capacity_disk = mock.patch.object(BUILD.os, 'statvfs', return_value=observed)
+        self.capacity_disk.start()
+        self.addCleanup(self.capacity_disk.stop)
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -60,7 +69,9 @@ class RootfsBuildTests(unittest.TestCase):
         source = {'repository': 'main', 'name': 'fixture', 'version': '1.0', 'directory': 'pool/main/f/fixture', 'files': source_files}
         lock['sources'].append(source)
         binary_records = []
-        for index, name in enumerate(sorted(set(BUILD.TOOL_PACKAGES.values()))):
+        # The inert export's owned executable/copyright belongs to fixture.
+        # Keep it in the signed synthetic closure before the new preflight.
+        for index, name in enumerate(sorted(set(BUILD.TOOL_PACKAGES.values()) | {'fixture'})):
             descriptor = self.blob('packages/' + name + '.deb', ('owned ' + name).encode())
             row = {'repository': 'main', 'name': name, 'version': '1.0', 'architecture': 'amd64',
                    'filename': 'pool/main/f/fixture/' + name + '_1.0_amd64.deb', **descriptor,
@@ -134,7 +145,9 @@ class RootfsBuildTests(unittest.TestCase):
         prepared = self.prepare_fixture()
         tree, prepared = self.inert_tree(prepared)
         destination = self.root / 'exported'
-        with mock.patch.object(BUILD, 'verify_prepared', return_value=prepared), mock.patch.object(BUILD, 'TOOL_PACKAGES', {'bash': 'fixture'}):
+        with mock.patch.object(BUILD, 'verify_prepared', return_value=prepared), \
+                mock.patch.object(BUILD, 'verify_tools'), \
+                mock.patch.object(BUILD, 'TOOL_PACKAGES', {'bash': 'fixture'}):
             receipt = BUILD.export(tree, self.root / 'prepared', destination, APPROVED, 10240)
         return destination, prepared, receipt
 
@@ -306,7 +319,7 @@ class RootfsBuildTests(unittest.TestCase):
         self.assertEqual(prepared['arch'], 'amd64')
         self.assertEqual(prepared['source_inventory']['sources'][0]['files'][0]['url'],
                          'https://snapshot.debian.org/archive/debian/20231115T000000Z/pool/main/f/fixture/fixture_1.0.dsc')
-        self.assertEqual(set(BUILD.TOOL_PACKAGES.values()), {row['name'] for row in prepared['source_inventory']['packages']})
+        self.assertEqual(set(BUILD.TOOL_PACKAGES.values()) | {'fixture'}, {row['name'] for row in prepared['source_inventory']['packages']})
 
     def test_wrong_signed_release_checksum_cannot_prepare(self):
         key = str(self.cache / 'main.InRelease')
@@ -439,7 +452,9 @@ class RootfsBuildTests(unittest.TestCase):
         prepared = self.prepare_fixture()
         tree, prepared = self.inert_tree(prepared)
         (tree / 'usr/bin/bash').write_bytes(b'changed owned executable')
-        with mock.patch.object(BUILD, 'verify_prepared', return_value=prepared), mock.patch.object(BUILD, 'TOOL_PACKAGES', {'bash': 'fixture'}), self.assertRaises(ValueError):
+        with mock.patch.object(BUILD, 'verify_prepared', return_value=prepared), \
+                mock.patch.object(BUILD, 'verify_tools'), \
+                mock.patch.object(BUILD, 'TOOL_PACKAGES', {'bash': 'fixture'}), self.assertRaises(ValueError):
             BUILD.export(tree, self.root / 'prepared', self.root / 'exported', APPROVED, 10240)
         entries = BUILD.tree_entries(tree, BUILD.Deadline(10))
         (tree / 'usr/share/doc/fixture/copyright').unlink()

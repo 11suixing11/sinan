@@ -1631,3 +1631,14 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 完整r4十包/69目标566通过、0失败、18条件忽略，最终恢复缺口仅两文件修复并r5对账21项补验；20项重复不累加，最终567不同用例通过。格式、Clippy、分层和diff均过，自有PG清理完成。一次前端构建取得19dist，Bun48/1024零跳过、四套受影响活跃Chromium及旧groups入口均通过；未重复15套未受影响浏览器或已验Python材料流程。
 - 预检旧dist清单、字段可见性和collapsible_if失败各自保留，最终审查的实际实例失效/明确新部署恢复路径集中修复后只补受影响范围；621功能输入及19dist与最后收据一致。见 [本步验收](docs/acceptance/runtime-checkpoints-and-chain-guards.md)、[机器证据](docs/acceptance/evidence/runtime-checkpoints-and-chain-guards.json)和 [ADR0047](docs/adr/0047-runtime-checkpoints-and-recovery-barriers.md)。
 - 实际Linux systemd确认、真实持续Agent/sing-box联合负载、完整NodeQuality许可/工厂身份/双架构复建与混合机场路径仍待；基础收据不冒称端到端探测或完整签收。四源码CI只读核对仍disabled_manually，无新PR、正式签署、发布、生产迁移/部署或恢复CI，整体目标继续进行。
+
+
+## 2026-10-02：离线工厂容量与失败证据大步骤
+
+- 先集中完成 prepare/build/export 整体容量准入、块/目录/临时空间预算、逻辑/实际块/inode 动态保护和失败原输出留存；修改期间未测试，冻结后统一验收。本阶段默认输出4 GiB，管理预留512 MiB/1024 inode；既有缓存/前阶段占用按实时剩余量分别准入，轮询不冒称零超调硬配额。
+- 验签scratch归本次输出，安全单FD复制拒绝增长/替换FIFO阻塞，目录FD/创建身份/挂载保护遍历与清理，gzip尾部写入也守预算。原命令错误类型/已观察状态/有界日志与cleanup分别留存，记录也保留管理预留；不足时note未知，清理成功后只能保存原内存日志，不能重跑构建。原制品字段、来源/镜像条件与full门禁保持。
+- 最终622功能输入与冻结一致；Linux110个不同方法最终通过、0未覆盖/条件跳过，macOS110通过/12平台条件跳过，跨平台去重122方法通过。fmt、全workspace/all-targets Clippy、core及diff检查通过，未重复未变Rust完整测试/前端构建/浏览器；四源码CI继续暂停。
+- 两个真实600 MiB ext4场景分别触发磁盘512 MiB与inode1024预留，停止并回收自有生产者，旧sentinel保持；PID、挂载、loop backing、镜像、临时目录/单元/cgroup读回清理，SSH/启动身份保持，无OOM，最高峰值235,753,472B与6个进程。目标余量跌过阈值的超调如实保留，backing仍守管理预留；不是实际完整mmdebstrap或诊断联合负载。
+- 实际ARM64材料metadata实时plan只读保持原摘要，prepare副本正文1,069,414,018B、含块与临时余量新增1,143,840,768B；guest观测675,377,152B，prepare/build/export加预留均拒绝。未删除旧材料、扩VM或换生产节点，未伪造builder绑定/审批，也未启动完整构建。
+- 冻结驱动字段/cargo PATH预检、r1旧synthetic closure的5方法/7子场景错误、r2错误的detached loop空数组断言及后续inode条件跳过均保留；夹具修正后只补受影响/未执行范围。收尾审阅补日志EOF后仍运行的容量检查，Linux4项（3重复）及mac新增1项通过。见[本步验收](docs/acceptance/nodequality-factory-capacity.md)、[机器证据](docs/acceptance/evidence/nodequality-factory-capacity.json)、[ADR0048](docs/adr/0048-nodequality-factory-capacity.md)。
+- 完整builder镜像/provisioning身份、原生双架构构建/复建、Geekbench/Ookla等许可与全部工具、Agent/常驻代理完整联合负载和混合订阅路径仍待；没有正式签署、发布、生产部署或恢复CI，整体目标继续进行。

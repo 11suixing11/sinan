@@ -1,0 +1,401 @@
+{
+  "schema": 1,
+  "scope": "Factory operation safety and Python artifact contracts only",
+  "baseline": "87efe43d511b9ed2e2736738df3c048e42970188",
+  "final_freeze_sha256": "4ba4dea71e21e8fb89c60aabacb87cc6474e975225170954719799fa265af6c4",
+  "functional_input_count": 622,
+  "functional_inputs_unchanged": true,
+  "production_source_sha256": "5b7f6ec663f60fceb1fd0d6f9345bd84f9befcf6598859c07d19c4336cbb26d4",
+  "changed_during_acceptance": [
+    "tools/nodequality-rootfs-build.py",
+    "tools/test-nodequality-rootfs-build.py",
+    "tools/test-nodequality-rootfs-capacity.py"
+  ],
+  "linux_unique_methods_final_passed": 110,
+  "linux_unique_methods_final_failed": 0,
+  "linux_unique_methods_final_skipped": 0,
+  "mac_unique_methods_final_passed": 110,
+  "mac_unique_methods_condition_skipped": 12,
+  "combined_unique_methods_passed": 122,
+  "linux_attempts": {
+    "r1": {
+      "receipt_success": false,
+      "totals": {
+        "ran": 34,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 7
+      },
+      "not_run": [
+        "factory-capacity",
+        "rootfs-collect"
+      ],
+      "cgroup": {
+        "memory.peak": "49274880",
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "pids.peak": "5"
+      },
+      "cleanup_checks": {
+        "single_start": true,
+        "unit_collected": true,
+        "no_oom": true,
+        "no_processes": true,
+        "no_mounts": true,
+        "no_cgroup": true,
+        "tmp_removed": true,
+        "ssh_unchanged": true,
+        "boot_unchanged": true,
+        "swap_zero": true,
+        "disk_reserve": true,
+        "manifest_matches_frozen_host": true,
+        "source_unchanged": true,
+        "driver_success": false
+      },
+      "raw_receipt_sha256": "30a96363753491a059f9ef124bc2139939ca71a4986a9ed571a9bfe3f81560c2"
+    },
+    "r2": {
+      "receipt_success": false,
+      "totals": {
+        "ran": 76,
+        "skipped": 1,
+        "failures": 1,
+        "errors": 0
+      },
+      "not_run": [
+        "rootfs-collect"
+      ],
+      "cgroup": {
+        "memory.peak": "223158272",
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "pids.peak": "5"
+      },
+      "cleanup_checks": {
+        "single_start": true,
+        "unit_collected": true,
+        "no_oom": true,
+        "no_processes": true,
+        "no_mounts": true,
+        "no_cgroup": true,
+        "tmp_removed": true,
+        "ssh_unchanged": true,
+        "boot_unchanged": true,
+        "swap_zero": true,
+        "disk_reserve": true,
+        "manifest_matches_frozen_host": true,
+        "source_unchanged": true,
+        "driver_success": false
+      },
+      "raw_receipt_sha256": "9c087345d4eb638b910fc0348bf449df322696ef0ed3f523772d2b3aa8dedcee"
+    },
+    "r3": {
+      "receipt_success": true,
+      "totals": {
+        "ran": 35,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "not_run": [],
+      "cgroup": {
+        "memory.peak": "235753472",
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "pids.peak": "6"
+      },
+      "cleanup_checks": {
+        "single_start": true,
+        "unit_collected": true,
+        "no_oom": true,
+        "no_processes": true,
+        "no_mounts": true,
+        "no_loops": true,
+        "no_cgroup": true,
+        "tmp_removed": true,
+        "ssh_unchanged": true,
+        "boot_unchanged": true,
+        "swap_zero": true,
+        "disk_reserve": true,
+        "manifest_matches_frozen_host": true,
+        "source_unchanged": true,
+        "driver_success": true
+      },
+      "raw_receipt_sha256": "64c1c96a484c80cc5d20b730632813726f1726899afabba1a30ad96493d3163a"
+    },
+    "r4": {
+      "receipt_success": true,
+      "totals": {
+        "ran": 4,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "not_run": [],
+      "cgroup": {
+        "memory.peak": "54972416",
+        "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "pids.peak": "5"
+      },
+      "cleanup_checks": {
+        "single_start": true,
+        "unit_collected": true,
+        "no_oom": true,
+        "no_processes": true,
+        "no_mounts": true,
+        "no_loops": true,
+        "no_cgroup": true,
+        "tmp_removed": true,
+        "ssh_unchanged": true,
+        "boot_unchanged": true,
+        "swap_zero": true,
+        "disk_reserve": true,
+        "manifest_matches_frozen_host": true,
+        "source_unchanged": true,
+        "driver_success": true
+      },
+      "raw_receipt_sha256": "868ab8007c581429622e12d78d10e6cec820436ab2cc19f6033f73035f5f8289"
+    }
+  },
+  "real_filesystems": [
+    {
+      "case": "disk",
+      "baseline": {
+        "backing_free_bytes": 674041856,
+        "block_size": 4096,
+        "free_bytes": 615018496,
+        "free_inodes": 2066,
+        "total_inodes": 2080
+      },
+      "trigger": {
+        "backing_free_bytes": 578613248,
+        "block_size": 4096,
+        "free_bytes": 518623232,
+        "free_inodes": 2064,
+        "total_inodes": 2080
+      },
+      "guard_observation": {
+        "free_bytes": 518774784,
+        "free_inodes": 2064,
+        "output_bytes": 96194560,
+        "output_inodes": 3,
+        "peak_output_bytes": 96194560,
+        "peak_output_inodes": 3
+      },
+      "child_returncode": -9,
+      "command_cleanup_returncode": -9,
+      "old_sentinel_preserved": true,
+      "cleanup": {
+        "complete": true,
+        "image_removed": true,
+        "loop_detached": true,
+        "mount_absent": true,
+        "private_directory_removed": true
+      }
+    },
+    {
+      "case": "inodes",
+      "baseline": {
+        "backing_free_bytes": 674037760,
+        "block_size": 4096,
+        "free_bytes": 615018496,
+        "free_inodes": 2066,
+        "total_inodes": 2080
+      },
+      "trigger": {
+        "backing_free_bytes": 669315072,
+        "block_size": 4096,
+        "free_bytes": 610578432,
+        "free_inodes": 990,
+        "total_inodes": 2080
+      },
+      "guard_observation": {
+        "free_bytes": 610578432,
+        "free_inodes": 990,
+        "output_bytes": 4444160,
+        "output_inodes": 1077,
+        "peak_output_bytes": 4444160,
+        "peak_output_inodes": 1077
+      },
+      "child_returncode": -9,
+      "command_cleanup_returncode": -9,
+      "old_sentinel_preserved": true,
+      "cleanup": {
+        "complete": true,
+        "image_removed": true,
+        "loop_detached": true,
+        "mount_absent": true,
+        "private_directory_removed": true
+      }
+    }
+  ],
+  "actual_material_planning": {
+    "materials_sha256": "e5faa499e780e99b1c0dcd2c5c631f61a5379f320eff90f2cb2cc010bf696771",
+    "materials_unchanged": true,
+    "scope": "Schema-only planning against retained actual Debian material metadata and live guest filesystem; no reauthentication, input copying, approval or build.",
+    "plans": {
+      "prepare": {
+        "operation": "prepare",
+        "payload_bytes": 1069414018,
+        "required_bytes": 1143840768,
+        "required_inodes": 1303,
+        "observed_free_bytes": 675377152,
+        "observed_free_inodes": 441792,
+        "max_output_bytes": 4294967296,
+        "reserve_free_bytes": 536870912,
+        "reserve_free_inodes": 1024,
+        "admitted": false,
+        "reasons": [
+          "free_disk_reserve"
+        ],
+        "source_authenticated": false,
+        "builder_approved": false,
+        "full_ready": false
+      },
+      "build": {
+        "operation": "build",
+        "payload_bytes": 2147483648,
+        "required_bytes": 3264552960,
+        "required_inodes": 100365,
+        "observed_free_bytes": 675377152,
+        "observed_free_inodes": 441792,
+        "max_output_bytes": 4294967296,
+        "reserve_free_bytes": 536870912,
+        "reserve_free_inodes": 1024,
+        "admitted": false,
+        "reasons": [
+          "free_disk_reserve"
+        ],
+        "source_authenticated": false,
+        "builder_approved": false,
+        "full_ready": false
+      },
+      "export": {
+        "operation": "export",
+        "payload_bytes": 281018368,
+        "required_bytes": 318832640,
+        "required_inodes": 48,
+        "observed_free_bytes": 675377152,
+        "observed_free_inodes": 441792,
+        "max_output_bytes": 4294967296,
+        "reserve_free_bytes": 536870912,
+        "reserve_free_inodes": 1024,
+        "admitted": false,
+        "reasons": [
+          "free_disk_reserve"
+        ],
+        "source_authenticated": false,
+        "builder_approved": false,
+        "full_ready": false
+      }
+    }
+  },
+  "static_checks": {
+    "fmt": "passed",
+    "clippy_workspace_all_targets_warnings_denied": "passed",
+    "core_boundary": "passed",
+    "diff_check": "passed"
+  },
+  "historical_failures_retained": [
+    {
+      "phase": "freeze preflight",
+      "cause": "old private freeze mapping key mismatch",
+      "product_execution_started": false
+    },
+    {
+      "phase": "static command",
+      "cause": "cargo missing in initial shell PATH; explicit installed path succeeded"
+    },
+    {
+      "phase": "r1",
+      "cause": "signed synthetic closure omitted inert fixture package; 5 methods had 7 subcase errors",
+      "repair": "add package to fixture signed index/lock, no production validation relaxation"
+    },
+    {
+      "phase": "r2",
+      "cause": "util-linux detached loop row retains device NAME with back-file=null; erroneous empty-array cleanup assertion",
+      "repair": "verify absent backing association, preserve source error; r3 owned loop/mount checks"
+    },
+    {
+      "phase": "final source review",
+      "cause": "explicit capacity callback omitted after log EOF while child remained active",
+      "repair": "continue monitoring wait loop; 4 affected Linux processes and 1 new mac regression passed"
+    }
+  ],
+  "not_verified": [
+    "independent native builder image/provisioning identity approval",
+    "actual mmdebstrap prepare/build/export with complete real closure",
+    "both native architectures and independent reproducible rebuilds",
+    "Geekbench/Ookla licensing and complete tools",
+    "complete Agent/managed proxy continuous hardware load and fault matrix",
+    "production migration/deployment or formal release",
+    "remote CI paused"
+  ],
+  "full_ready": false,
+  "builder_approved": false,
+  "artifact_signing_or_publication": false,
+  "raw_evidence_sha256": {
+    "freeze-r2.json": "ec5b73cca86267a3d236fbf7734fc0ca6baa86c5c9dcd90818c95a6e4abd97f9",
+    "freeze-r3.json": "edab26d135f303b5297ec289688b89d9f19aff2db340d714a89a900cc3aa00db",
+    "freeze-r4.json": "4ba4dea71e21e8fb89c60aabacb87cc6474e975225170954719799fa265af6c4",
+    "freeze-r1.json": "7d6ded497fd439baecbac75cdf6be445e8408153a7e2f0ba1420066b0e8bd6ec",
+    "actual-plan.json": "13c486df64616a82cf0e79ee824d0b204c04885b9b917ea17fadd7c5c96720fc",
+    "clippy.stderr": "a22277217b8f95af924c0e3a8a6f0cdd3714a98fd63cd9d96cd134b2267d066c",
+    "linux/runs/r1/plan.json": "f7034b891068ca8f998b8193ba17d291ba178832697def2a1100e2689940097c",
+    "linux/runs/r1/result.json": "c11a5d05846690985bd3a9acf53f5f4673ec817e53dc29d3b54f9b0585ed75af",
+    "linux/runs/r1/prepared.json": "0bbddcab0bd5a08402526b81d2fe440e327ac0bf952bfa3e86abd24918469193",
+    "linux/runs/r1/input.json": "b431075dc8200c6a001bbf42196f1970f57b8007047f5336e69ed45b7ab6a4fa",
+    "linux/runs/r1/postcheck.json": "643b7d18ebaf3cbe205172bccad9a470c0f2400f6b76dd2306608b0309f5a6fe",
+    "linux/runs/r1/source-sha256.json": "0174c26d7971293af47f739824cd24426378be792622763c2c9aac29773fb236",
+    "linux/runs/r1/start.json": "35e6f26a1c4ad8b03aa9b790bd862b4c3e93c47c31ded5d0475f7d1c2b55e07c",
+    "linux/runs/r1/host-postcheck.json": "a3c2504270019ec00f14f17d52743feecae6d8e2d704c6e5b46c89c6138e2414",
+    "linux/runs/r1/rootfs-build.summary.json": "67bf0e7ebe5f0364384444026ae588f3b7633b081462621533d3437faf913ab6",
+    "linux/runs/r1/receipt.json": "30a96363753491a059f9ef124bc2139939ca71a4986a9ed571a9bfe3f81560c2",
+    "linux/runs/r1/rootfs-build.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "linux/runs/r1/rootfs-build.stderr": "612c69d29d6f414eb15b756de20225caaf7abb7cbc3e841f1399d7cfa88ded26",
+    "linux/runs/r2/plan.json": "3d33d0435c5622831369d6719dbe42ae2888ee7340f836b54f49fa69f00d8acc",
+    "linux/runs/r2/result.json": "6a4bab274ac5a9e2158c46a604351dd561e6f2f42d1077c5cd74adece8af8932",
+    "linux/runs/r2/prepared.json": "960e5d0f13c4acec2d307a6be9332ef21d099e4e74d57bf73d0774e7382e34e3",
+    "linux/runs/r2/input.json": "c3cc4b2abd2534c230d012979df7407df73549afdeee398144b9ac015147d299",
+    "linux/runs/r2/postcheck.json": "877d29b5711b12a15fa51ef7226040419f191e8430921c12a98d9f9f1f279d2d",
+    "linux/runs/r2/source-sha256.json": "209e047ecd96d122f1cbcec494e8120ce5e0779466adf3dff7a0db0a77bad253",
+    "linux/runs/r2/start.json": "446de8cc44fec2a612f1fad7fb2252191d22f61308621aa5aa6650c7d8ce9493",
+    "linux/runs/r2/host-postcheck.json": "9de2792dd92b398daa3e78f45ea3e1bd1f4fe7ee4249dc71165d6c418a51c10f",
+    "linux/runs/r2/factory-capacity.summary.json": "d7d7b7698d3e8cf2571d1c9d39df772cfdf631b59f7b93ff99a8f8169b254eec",
+    "linux/runs/r2/rootfs-build.summary.json": "b841e06b31129124e5b160de106dcb56ed80e1d9f9e764ddd3120d6ab30c878c",
+    "linux/runs/r2/receipt.json": "9c087345d4eb638b910fc0348bf449df322696ef0ed3f523772d2b3aa8dedcee",
+    "linux/runs/r2/factory-capacity.stdout": "882418132891ef6dbf805e392c605f92b64ae189a6a34cffe21571d5fe4d524d",
+    "linux/runs/r2/rootfs-build.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "linux/runs/r2/rootfs-build.stderr": "00d7c9cea6f1689b23d4288cc4cac2244797e11e40dac42d0c132bd6ee2579f6",
+    "linux/runs/r2/factory-capacity.stderr": "22f71750e00e3366f488790b566533baf8742176806a5dc965aa9a78b4768b95",
+    "linux/runs/r3/plan.json": "949e21d61e6e5e26dcc9864932ecb282181dff56361537791fb05b14302f28cd",
+    "linux/runs/r3/result.json": "3b32074f08900e87a9534a7e14a9d87a192e073ad94391cc831b6353a2954444",
+    "linux/runs/r3/prepared.json": "b54dd48eaac8167dba1376f4ec282c952f6603682cfd892772aa2674d423fb9c",
+    "linux/runs/r3/input.json": "79f72372b1c81e31c93f4a90bb3385621053365725257dc9e271f4ff8c92c6f0",
+    "linux/runs/r3/postcheck.json": "093348ce7771ca7936ed5190c5b24050ceff7b63413c371802061828dcadd672",
+    "linux/runs/r3/source-sha256.json": "be814618e10189b43fd3d80e413bccf206e1e277e502ffbfce6b9307f866a96d",
+    "linux/runs/r3/start.json": "c30707bde18fefc63d923df234f3543a80aef0329b70fc0f68732de5a93676f6",
+    "linux/runs/r3/host-postcheck.json": "7671a50233729f6f3a355278afc20f5189a6bcae62d06ae590e2935119d5a2b2",
+    "linux/runs/r3/factory-filesystems.summary.json": "9503bd53fbfb8359896a26ed603a1e035b01aad2677b47c70c4b94e6fdf24059",
+    "linux/runs/r3/rootfs-collect.summary.json": "2bf0bfbaeb49972cbfd92181032bea84f351ca1981c3fd2aa69bfc24687ac330",
+    "linux/runs/r3/receipt.json": "64c1c96a484c80cc5d20b730632813726f1726899afabba1a30ad96493d3163a",
+    "linux/runs/r3/rootfs-collect.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "linux/runs/r3/factory-filesystems.stdout": "b6a8ebe94f7ccf81fb7ff00fef59bf9bc020b820e1682fe68c39d6724b5eb191",
+    "linux/runs/r3/factory-filesystems.stderr": "b7b54fa5aa31943cfb8597e10103c817f8c78bdfcb7b63b6c07926eef47ea13a",
+    "linux/runs/r3/rootfs-collect.stderr": "ff7bedb3feb34521a822c150de4a91e7c74d5bb6b0073a2af9f3f1080ff89a29",
+    "linux/runs/r4/plan.json": "5c56c128656a784d5c893cf9235b3ae73d3bc5281dcc30ebd980b5552555b5af",
+    "linux/runs/r4/result.json": "ece52b744d0a6d227e2fadc6b053adad7fe17ce6aa97ad03b3ad319318d9c748",
+    "linux/runs/r4/prepared.json": "97e77b3f3358846e7ed9dd3a298a39cc5a832616e5ab46584a5daaa958ce818e",
+    "linux/runs/r4/input.json": "f4f7055b3277b3b293007467f512f040b67c12f19ed47451ade8f17728ea029c",
+    "linux/runs/r4/postcheck.json": "960695d1612b68f5688bd8af0cc2cca217c52aea50386e9eb7d3920aad1e8621",
+    "linux/runs/r4/source-sha256.json": "19c9eb2f520d54f6256be0b0a66f7a7706a8c31fec2f55998ded273e28f4afd9",
+    "linux/runs/r4/start.json": "21257535dd56f957d2bafccce5d255cecd05ee60d09c0b3a8ba83e55103a702a",
+    "linux/runs/r4/host-postcheck.json": "5374a5b6ff53c30e595303cd485e0c69e8b18d41972cfb80b88c3dd4c0387fc2",
+    "linux/runs/r4/factory-processes.summary.json": "609f45fce6cea3a8d6d9ea9c3899871dd78889b4eec8de344901106bde18330d",
+    "linux/runs/r4/receipt.json": "868ab8007c581429622e12d78d10e6cec820436ab2cc19f6033f73035f5f8289",
+    "linux/runs/r4/factory-processes.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "linux/runs/r4/factory-processes.stderr": "1e43ac462bb2a70d6c91032d5989f60ece30b420eb3e12581026d743b9af8538",
+    "mac/r2/build.json": "bddd4b5a95612bac840d1dfe9dc48ac07a0d088507df7269dd8dd020a3e3183b",
+    "mac/r1/capacity.json": "0afd66cf37c874808baa0207d95fee60015cdcb072c810089ebd1438952a9826",
+    "mac/r1/collect.json": "a9ca806ece998909a54af428320df22dde9e483b1e27cc4a592cfe6e83e61361",
+    "mac/downstream-r1/artifact.json": "224d4efb7d948384699becd54ca9b80999e7bfcdb7b5488682440ffdc21f528f",
+    "mac/process-r3/summary.json": "b4eb26661ccf9ca43bbbf6a531f2bf8fd6836f9292d648896c5c7a4f60f1028d"
+  }
+}
