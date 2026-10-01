@@ -69,6 +69,7 @@ jobs:
           python3 tools/test-nodequality-loader-policy.py
           python3 tools/test-nodequality-ranking-policy.py
           python3 tools/test-nodequality-ip-score-policy.py
+          python3 tools/test-nodequality-browser-policy.py
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - name: Run Rust and PostgreSQL tests

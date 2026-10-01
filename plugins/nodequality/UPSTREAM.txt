@@ -118,3 +118,24 @@ embedded credentials or retries, or certify unrelated boolean classifications.
 Those provider-access audits and the full-toolchain license/provenance work
 remain open. All full-start gates remain closed; this is not a full run or a
 formal signed release.
+
+Sinan r14 modifications (2026-10-01): browser-policy.py injects a curl function
+inside the fixed IPQuality and NetQuality shells and exports it to child Bash.
+It resolves the native executable before shadowing curl, rejects a missing
+binary, and disables calls to the random browser identity generator. The
+wrapper removes explicit User-Agent, Sec-CH-UA and Sec-Fetch headers/options,
+then calls native curl with -q first so a curlrc cannot reintroduce them.
+Missing option values, header files and additional curl configuration fail
+before a request. Supported fixed-source option forms and child inheritance
+are independently tested; this is not a general sandbox for arbitrary scripts.
+
+Request methods, bodies, other headers, stdout/stderr and exit codes remain.
+The wrapper adds no retry. Existing provider loops, cookies, credentials and
+response interpretations are outside this change. In particular the pinned
+Netflix parser can misread curl error text as unlocked; this separate defect
+remains gated and tracked. The original generator definition and request
+expressions are retained, but generated/explicit browser identity cannot reach
+the native curl calls covered here. Original sources/licenses remain embedded.
+The helper and transformed input/output identities are fixed. Other binaries,
+rootfs provenance/licenses and full execution remain unresolved; full-start
+stays closed and no formal release or complete-toolchain approval is implied.

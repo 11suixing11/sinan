@@ -113,7 +113,7 @@ class ScoreTests(unittest.TestCase):
     def test_original_failure_is_low_but_patched_numeric_sources_are_unknown(self):
         self.runtime()
         new = self.production()
-        old = sources.fixture.undo_ip_scores('ip.sh', new)
+        old = sources.fixture.undo_ip_scores('ip.sh', sources.fixture.undo_browser('ip.sh', new))
         for name in policy.NUMERIC:
             self.assertEqual(self.query(old, name, '{"error":"source unavailable"}'), 'null|LOW')
             for response in ('{}', '{"error":"source unavailable"}', '<html>403</html>', '', '{"success":false}'):
@@ -123,7 +123,7 @@ class ScoreTests(unittest.TestCase):
     def test_actual_numeric_parsers_preserve_thresholds_and_real_zero(self):
         self.runtime()
         new = self.production()
-        old = sources.fixture.undo_ip_scores('ip.sh', new)
+        old = sources.fixture.undo_ip_scores('ip.sh', sources.fixture.undo_browser('ip.sh', new))
         for name, (path, _) in policy.NUMERIC.items():
             for score in (0, 19, 20, 24, 25, 32, 33, 59, 60, 65, 66, 74, 75, 84, 85, 89, 90, 100):
                 data = score
@@ -184,7 +184,7 @@ class ScoreTests(unittest.TestCase):
             self.assertEqual(json.loads(run.stdout), {'Score': expected, 'Other': 'kept'})
 
     def test_production_identity_preserves_requests_and_other_functions(self):
-        new = self.production()
+        new = sources.fixture.undo_browser('ip.sh', self.production())
         old = sources.fixture.undo_ip_scores('ip.sh', new)
         self.assertEqual(hashlib.sha256(old).hexdigest(), policy.SOURCES['ip.sh']['source_sha256'])
         self.assertEqual(policy.transform('ip.sh', old), new)

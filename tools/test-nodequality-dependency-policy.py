@@ -180,6 +180,7 @@ L(){ printf cleanup; }
                     patched = helper.serve(directory, ['-Ls', url])
                     start, stop = policy.installer_span(role, prior)
                     self.assertGreater(stop-start, len(policy.checks(role)))
+                patched = sources.fixture.undo_browser(role, patched)
                 patched = sources.fixture.undo_ip_scores(role, patched)
                 patched = sources.fixture.undo_ranking(role, patched)
                 patched = sources.fixture.undo_loader(role, patched)
