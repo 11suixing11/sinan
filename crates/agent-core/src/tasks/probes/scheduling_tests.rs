@@ -100,7 +100,9 @@ async fn slow_probes_do_not_delay_results_and_configuration_changes_cancel_work(
             enabled: true,
         })
         .collect();
-    for spec in &mut specs { authorize_fixture(spec); }
+    for spec in &mut specs {
+        authorize_fixture(spec);
+    }
     state
         .lock()
         .unwrap()
@@ -140,24 +142,49 @@ async fn cached_legacy_targets_are_inert_and_revocation_aborts_active_measuremen
     let state = Arc::new(Mutex::new(crate::State::open(Path::new(":memory:"))?));
     let ops = Arc::new(ControlledOps::default());
     let retirement = Arc::new(crate::retirement::Retirement::new(
-        crate::Config::default(), state.clone(), vec![], ops.clone(),
+        crate::Config::default(),
+        state.clone(),
+        vec![],
+        ops.clone(),
         Arc::new(crate::fake::FakeServiceManager::default()),
     )?);
     let mut spec = ProbeSpec {
-        id: Uuid::new_v4(), name: "cached legacy fixture".into(), kind: ProbeKind::Icmp,
-        target: "127.0.0.2".into(), port: None, interval_secs: 3600,
-        carrier: String::new(), enabled: true, monitor: None, execution_authorized: Some(true),
+        id: Uuid::new_v4(),
+        name: "cached legacy fixture".into(),
+        kind: ProbeKind::Icmp,
+        target: "127.0.0.2".into(),
+        port: None,
+        interval_secs: 3600,
+        carrier: String::new(),
+        enabled: true,
+        monitor: None,
+        execution_authorized: Some(true),
     };
-    state.lock().unwrap().set_json("probes:configuration", &(now_timestamp(), vec![spec.clone()]))?;
+    state.lock().unwrap().set_json(
+        "probes:configuration",
+        &(now_timestamp(), vec![spec.clone()]),
+    )?;
     let worker = tokio::spawn(sample_loop(state.clone(), ops.clone(), retirement.clone()));
     tokio::time::sleep(Duration::from_millis(250)).await;
     assert_eq!(ops.active.load(Ordering::SeqCst), 0);
     assert!(state.lock().unwrap().probe_results()?.is_empty());
     authorize_fixture(&mut spec);
-    state.lock().unwrap().set_json("probes:configuration", &(now_timestamp(), vec![spec.clone()]))?;
+    state.lock().unwrap().set_json(
+        "probes:configuration",
+        &(now_timestamp(), vec![spec.clone()]),
+    )?;
     until(|| ops.active.load(Ordering::SeqCst) == 1).await?;
-    spec.monitor.as_mut().unwrap().authorization.as_mut().unwrap().enabled = false;
-    state.lock().unwrap().set_json("probes:configuration", &(now_timestamp(), vec![spec]))?;
+    spec.monitor
+        .as_mut()
+        .unwrap()
+        .authorization
+        .as_mut()
+        .unwrap()
+        .enabled = false;
+    state
+        .lock()
+        .unwrap()
+        .set_json("probes:configuration", &(now_timestamp(), vec![spec]))?;
     until(|| ops.active.load(Ordering::SeqCst) == 0).await?;
     assert!(state.lock().unwrap().probe_results()?.is_empty());
     let guard = timeout(Duration::from_secs(1), retirement.gate.write()).await?;
@@ -172,17 +199,36 @@ async fn authorization_expiry_cancels_a_cached_measurement_without_panel_refresh
     let state = Arc::new(Mutex::new(crate::State::open(Path::new(":memory:"))?));
     let ops = Arc::new(ControlledOps::default());
     let retirement = Arc::new(crate::retirement::Retirement::new(
-        crate::Config::default(), state.clone(), vec![], ops.clone(),
+        crate::Config::default(),
+        state.clone(),
+        vec![],
+        ops.clone(),
         Arc::new(crate::fake::FakeServiceManager::default()),
     )?);
     let mut spec = ProbeSpec {
-        id: Uuid::new_v4(), name: "expiring fixture".into(), kind: ProbeKind::Icmp,
-        target: "127.0.0.2".into(), port: None, interval_secs: 3600,
-        carrier: String::new(), enabled: true, monitor: None, execution_authorized: None,
+        id: Uuid::new_v4(),
+        name: "expiring fixture".into(),
+        kind: ProbeKind::Icmp,
+        target: "127.0.0.2".into(),
+        port: None,
+        interval_secs: 3600,
+        carrier: String::new(),
+        enabled: true,
+        monitor: None,
+        execution_authorized: None,
     };
     authorize_fixture(&mut spec);
-    spec.monitor.as_mut().unwrap().authorization.as_mut().unwrap().expires_at = Some(now_timestamp() + 3);
-    state.lock().unwrap().set_json("probes:configuration", &(now_timestamp(), vec![spec]))?;
+    spec.monitor
+        .as_mut()
+        .unwrap()
+        .authorization
+        .as_mut()
+        .unwrap()
+        .expires_at = Some(now_timestamp() + 3);
+    state
+        .lock()
+        .unwrap()
+        .set_json("probes:configuration", &(now_timestamp(), vec![spec]))?;
     let worker = tokio::spawn(sample_loop(state.clone(), ops.clone(), retirement.clone()));
     until(|| ops.active.load(Ordering::SeqCst) == 1).await?;
     until(|| ops.active.load(Ordering::SeqCst) == 0).await?;

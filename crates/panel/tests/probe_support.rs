@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 
 use serde_json::{Value, json};
-use sinan_protocol::{ProbeAddressFamily, ProbeAuthorization, ProbeAuthorizationKind, ProbeMonitor, ProbeSpec};
+use sinan_protocol::{
+    ProbeAddressFamily, ProbeAuthorization, ProbeAuthorizationKind, ProbeMonitor, ProbeSpec,
+};
 
 #[allow(dead_code)]
 pub fn authorize(spec: &mut ProbeSpec) {

@@ -109,7 +109,10 @@ async fn targets(connection: &mut sqlx::PgConnection, server: i64) -> ApiResult<
             }
             if !spec.runnable_at(now_timestamp())
                 || spec.address_family() != sinan_protocol::ProbeAddressFamily::Any
-                || spec.monitor.as_ref().and_then(|monitor| monitor.authorization.as_ref())
+                || spec
+                    .monitor
+                    .as_ref()
+                    .and_then(|monitor| monitor.authorization.as_ref())
                     .is_none_or(|authorization| authorization.expires_at.is_some())
             {
                 return Ok(None);

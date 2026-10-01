@@ -11,7 +11,9 @@ use sinan_protocol::ProbeSpec;
 use sqlx::PgPool;
 
 fn spec() -> Value {
-    probe_support::authorized(json!({"id":uuid::Uuid::nil(),"name":"统一线路","kind":"tcp","target":"probe.example.com","port":443,"interval_secs":30,"carrier":"测试线路","enabled":true}))
+    probe_support::authorized(
+        json!({"id":uuid::Uuid::nil(),"name":"统一线路","kind":"tcp","target":"probe.example.com","port":443,"interval_secs":30,"carrier":"测试线路","enabled":true}),
+    )
 }
 
 #[sqlx::test]
@@ -42,7 +44,10 @@ async fn assignment_defaults_keep_wire_compatibility_and_preserve_measurement_id
     let path = format!("/api/latency-tasks/{}", task["id"].as_str().unwrap());
     let probes: Vec<ProbeSpec> = panel
         .client
-        .get(format!("{}/api/agent/v1/probes?authorization=1", panel.base))
+        .get(format!(
+            "{}/api/agent/v1/probes?authorization=1",
+            panel.base
+        ))
         .bearer_auth(&ack.session_token)
         .send()
         .await?
@@ -97,7 +102,10 @@ async fn assignment_defaults_keep_wire_compatibility_and_preserve_measurement_id
         .error_for_status()?;
     let changed: Vec<ProbeSpec> = panel
         .client
-        .get(format!("{}/api/agent/v1/probes?authorization=1", panel.base))
+        .get(format!(
+            "{}/api/agent/v1/probes?authorization=1",
+            panel.base
+        ))
         .bearer_auth(&ack.session_token)
         .send()
         .await?

@@ -192,3 +192,10 @@ operator permission, and no full-chain/license approval is claimed. Helper,
 input and output hashes are fixed; this new identity never replaces a signed
 historical artifact. Full starts remain gated; old report collection, cancel
 and daily modes retain compatibility with the supported r14/r15/r16/r17 jobs.
+
+Sinan r19 daily node-IP helper: optional operator-owned credentials are read
+from a root-owned private local file only. Ipregistry and DB-IP use their fixed
+official HTTPS self endpoints, family validation, bounded requests and explicit
+source/error records. No public cookies, temporary web keys or panel credential
+forwarding is used; missing configured media adapters remain NotAttempted.
+Local fixture acceptance is not official-account, billing or media permission.

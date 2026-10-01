@@ -76,12 +76,22 @@ pub(super) async fn recover(state: &SharedState, ops: &dyn Privileged) -> Result
 
 // The caller owns the retirement gate. This path never contacts the panel,
 // releases a start gate, claims a command, or executes a stored shell payload.
-pub(super) async fn recover_for_retirement(state: &SharedState, ops: &dyn Privileged) -> Result<()> {
-    state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?.recover_commands()?;
+pub(super) async fn recover_for_retirement(
+    state: &SharedState,
+    ops: &dyn Privileged,
+) -> Result<()> {
+    state
+        .lock()
+        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+        .recover_commands()?;
     loop {
-        let records = state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+        let records = state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
             .pending_command_cleanup()?;
-        if records.is_empty() { return Ok(()); }
+        if records.is_empty() {
+            return Ok(());
+        }
         for record in records {
             cleanup_record(state, ops, record, true).await?;
         }
@@ -94,7 +104,9 @@ async fn cleanup_record(
     record: crate::tasks::state::CommandRecord,
     retiring: bool,
 ) -> Result<()> {
-    let Some(process) = record.process else { return Ok(()); };
+    let Some(process) = record.process else {
+        return Ok(());
+    };
     ops.recover_command(&process).await?;
     let status = if record.cancel_requested && cfg!(unix) {
         CommandStatus::Cancelled
@@ -102,13 +114,24 @@ async fn cleanup_record(
         CommandStatus::Interrupted
     };
     let message = match (retiring, cfg!(unix)) {
-        (true, true) => "Device retirement; the managed process group was cleaned up and the command was not executed again",
-        (true, false) => "Device retirement; the command was not executed again; detached descendant cleanup is not confirmed on this platform",
-        (false, true) => "Agent restarted; the managed process group was cleaned up and the command was not executed again",
-        (false, false) => "Agent restarted; the command was not executed again; detached descendant cleanup is not confirmed on this platform",
+        (true, true) => {
+            "Device retirement; the managed process group was cleaned up and the command was not executed again"
+        }
+        (true, false) => {
+            "Device retirement; the command was not executed again; detached descendant cleanup is not confirmed on this platform"
+        }
+        (false, true) => {
+            "Agent restarted; the managed process group was cleaned up and the command was not executed again"
+        }
+        (false, false) => {
+            "Agent restarted; the command was not executed again; detached descendant cleanup is not confirmed on this platform"
+        }
     };
     let result = terminal(record.command.id, status, clock_offset(state)?, message);
-    state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?.finish_command(&result)?;
+    state
+        .lock()
+        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+        .finish_command(&result)?;
     Ok(())
 }
 

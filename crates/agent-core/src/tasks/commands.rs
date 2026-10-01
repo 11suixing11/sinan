@@ -382,6 +382,9 @@ mod tests {
 #[cfg(all(test, unix))]
 mod retirement_tests;
 
-pub(super) async fn cleanup_for_retirement(state: &SharedState, ops: &dyn Privileged) -> Result<()> {
+pub(super) async fn cleanup_for_retirement(
+    state: &SharedState,
+    ops: &dyn Privileged,
+) -> Result<()> {
     worker::recover_for_retirement(state, ops).await
 }

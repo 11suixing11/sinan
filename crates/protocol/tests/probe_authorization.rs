@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 
 use serde_json::json;
-use sinan_protocol::{ProbeAddressFamily, ProbeAuthorization, ProbeAuthorizationKind, ProbeMonitor, ProbeSpec};
+use sinan_protocol::{
+    ProbeAddressFamily, ProbeAuthorization, ProbeAuthorizationKind, ProbeMonitor, ProbeSpec,
+};
 
 fn legacy() -> ProbeSpec {
     serde_json::from_value(json!({"id":uuid::Uuid::nil(),"name":"owned endpoint","kind":"tcp","target":"probe.example.com","port":443,"interval_secs":30,"carrier":"telecom","enabled":true})).unwrap()
@@ -62,14 +64,35 @@ fn revocation_and_invalid_provenance_fail_closed() {
     let spec = granted();
     for value in ["", "\nsource", " source "] {
         let mut changed = spec.clone();
-        changed.monitor.as_mut().unwrap().authorization.as_mut().unwrap().source = value.into();
+        changed
+            .monitor
+            .as_mut()
+            .unwrap()
+            .authorization
+            .as_mut()
+            .unwrap()
+            .source = value.into();
         assert!(!changed.runnable_at(100));
     }
     let mut revoked = spec.clone();
-    revoked.monitor.as_mut().unwrap().authorization.as_mut().unwrap().enabled = false;
+    revoked
+        .monitor
+        .as_mut()
+        .unwrap()
+        .authorization
+        .as_mut()
+        .unwrap()
+        .enabled = false;
     assert!(!revoked.runnable_at(100));
     let mut malformed = spec;
-    malformed.monitor.as_mut().unwrap().authorization.as_mut().unwrap().expires_at = Some(i64::MAX);
+    malformed
+        .monitor
+        .as_mut()
+        .unwrap()
+        .authorization
+        .as_mut()
+        .unwrap()
+        .expires_at = Some(i64::MAX);
     assert!(!malformed.valid());
 }
 

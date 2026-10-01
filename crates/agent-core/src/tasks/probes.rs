@@ -189,10 +189,19 @@ async fn sample(spec: &ProbeSpec, ops: &dyn Privileged, clock_offset_ms: i64) ->
         error: None,
         address_family: None,
     };
-    let deadline = spec.monitor.as_ref()
+    let deadline = spec
+        .monitor
+        .as_ref()
         .and_then(|monitor| monitor.authorization.as_ref())
         .and_then(|authorization| authorization.expires_at)
-        .map(|expires| Duration::from_millis(expires.saturating_mul(1000).saturating_sub(panel_now_millis(clock_offset_ms)).max(0) as u64))
+        .map(|expires| {
+            Duration::from_millis(
+                expires
+                    .saturating_mul(1000)
+                    .saturating_sub(panel_now_millis(clock_offset_ms))
+                    .max(0) as u64,
+            )
+        })
         .unwrap_or(Duration::from_secs(12))
         .min(Duration::from_secs(12));
     match timeout(deadline, measure(spec, ops, clock_offset_ms, &mut result))
@@ -210,8 +219,16 @@ async fn sample(spec: &ProbeSpec, ops: &dyn Privileged, clock_offset_ms: i64) ->
     result
 }
 
-async fn measure(spec: &ProbeSpec, ops: &dyn Privileged, clock_offset_ms: i64, result: &mut ProbeResult) -> Result<icmp::Measurement> {
-    ensure!(spec.runnable_at(panel_now_millis(clock_offset_ms).div_euclid(1000)), "probe target is not authorized or enabled");
+async fn measure(
+    spec: &ProbeSpec,
+    ops: &dyn Privileged,
+    clock_offset_ms: i64,
+    result: &mut ProbeResult,
+) -> Result<icmp::Measurement> {
+    ensure!(
+        spec.runnable_at(panel_now_millis(clock_offset_ms).div_euclid(1000)),
+        "probe target is not authorized or enabled"
+    );
     let addresses = timeout(
         Duration::from_secs(2),
         lookup_host((spec.target.as_str(), spec.port.unwrap_or(0))),
@@ -219,10 +236,17 @@ async fn measure(spec: &ProbeSpec, ops: &dyn Privileged, clock_offset_ms: i64, r
     .await
     .context("probe DNS lookup timed out")?
     .context("probe DNS lookup failed")?;
-    ensure!(spec.runnable_at(panel_now_millis(clock_offset_ms).div_euclid(1000)), "probe authorization expired during DNS lookup");
+    ensure!(
+        spec.runnable_at(panel_now_millis(clock_offset_ms).div_euclid(1000)),
+        "probe authorization expired during DNS lookup"
+    );
     let address = addresses
         .into_iter()
-        .find(|a| spec.address_family().allows(a.ip()) && !a.ip().is_unspecified() && !a.ip().is_multicast())
+        .find(|a| {
+            spec.address_family().allows(a.ip())
+                && !a.ip().is_unspecified()
+                && !a.ip().is_multicast()
+        })
         .ok_or_else(|| anyhow::anyhow!("probe resolved no authorized-family unicast address"))?;
     result.address_family = Some(if address.is_ipv4() {
         sinan_protocol::ProbeAddressFamily::Ipv4
@@ -233,7 +257,10 @@ async fn measure(spec: &ProbeSpec, ops: &dyn Privileged, clock_offset_ms: i64, r
         ProbeKind::Tcp => {
             let mut times = Vec::new();
             for _ in 0..4 {
-                ensure!(spec.runnable_at(panel_now_millis(clock_offset_ms).div_euclid(1000)), "probe authorization expired");
+                ensure!(
+                    spec.runnable_at(panel_now_millis(clock_offset_ms).div_euclid(1000)),
+                    "probe authorization expired"
+                );
                 let started = Instant::now();
                 if matches!(
                     timeout(Duration::from_secs(1), TcpStream::connect(address)).await,
@@ -242,7 +269,10 @@ async fn measure(spec: &ProbeSpec, ops: &dyn Privileged, clock_offset_ms: i64, r
                     times.push(started.elapsed().as_secs_f64() * 1000.0);
                 }
             }
-            ensure!(!times.is_empty(), "all four TCP connection attempts failed or timed out");
+            ensure!(
+                !times.is_empty(),
+                "all four TCP connection attempts failed or timed out"
+            );
             Ok(icmp::Measurement {
                 received: times.len() as u32,
                 latency_ms: (!times.is_empty())
@@ -250,9 +280,12 @@ async fn measure(spec: &ProbeSpec, ops: &dyn Privileged, clock_offset_ms: i64, r
             })
         }
         ProbeKind::Icmp => {
-            ensure!(spec.runnable_at(panel_now_millis(clock_offset_ms).div_euclid(1000)), "probe authorization expired before ICMP execution");
+            ensure!(
+                spec.runnable_at(panel_now_millis(clock_offset_ms).div_euclid(1000)),
+                "probe authorization expired before ICMP execution"
+            );
             icmp::measure(address.ip(), ops).await
-        },
+        }
     }
 }
 
@@ -338,39 +371,71 @@ mod tests {
     async fn ipv6_only_permission_never_connects_to_ipv4_listener() -> Result<()> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let mut spec = ProbeSpec {
-            id: Uuid::new_v4(), name: "family-bound fixture".into(), kind: ProbeKind::Tcp,
-            target: "127.0.0.1".into(), port: Some(listener.local_addr()?.port()),
-            interval_secs: 10, carrier: String::new(), enabled: true,
-            monitor: None, execution_authorized: None,
+            id: Uuid::new_v4(),
+            name: "family-bound fixture".into(),
+            kind: ProbeKind::Tcp,
+            target: "127.0.0.1".into(),
+            port: Some(listener.local_addr()?.port()),
+            interval_secs: 10,
+            carrier: String::new(),
+            enabled: true,
+            monitor: None,
+            execution_authorized: None,
         };
         authorize_fixture(&mut spec);
         spec.monitor.as_mut().unwrap().address_family = sinan_protocol::ProbeAddressFamily::Ipv6;
         let identity = spec.identity();
-        spec.monitor.as_mut().unwrap().authorization.as_mut().unwrap().identity = identity;
+        spec.monitor
+            .as_mut()
+            .unwrap()
+            .authorization
+            .as_mut()
+            .unwrap()
+            .identity = identity;
         let result = sample(&spec, &crate::system::SystemOps, 0).await;
         assert!(result.error.is_some());
         assert_eq!(result.latency_ms, None);
         assert_eq!(result.address_family, None);
-        assert!(timeout(Duration::from_millis(50), listener.accept()).await.is_err());
+        assert!(
+            timeout(Duration::from_millis(50), listener.accept())
+                .await
+                .is_err()
+        );
         Ok(())
     }
 
     #[tokio::test]
-    async fn trusted_panel_clock_offset_enforces_authorization_expiry_before_any_connection() -> Result<()> {
+    async fn trusted_panel_clock_offset_enforces_authorization_expiry_before_any_connection()
+    -> Result<()> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let mut spec = ProbeSpec {
-            id: Uuid::new_v4(), name: "clock-bound fixture".into(), kind: ProbeKind::Tcp,
-            target: "127.0.0.1".into(), port: Some(listener.local_addr()?.port()),
-            interval_secs: 10, carrier: String::new(), enabled: true,
-            monitor: None, execution_authorized: None,
+            id: Uuid::new_v4(),
+            name: "clock-bound fixture".into(),
+            kind: ProbeKind::Tcp,
+            target: "127.0.0.1".into(),
+            port: Some(listener.local_addr()?.port()),
+            interval_secs: 10,
+            carrier: String::new(),
+            enabled: true,
+            monitor: None,
+            execution_authorized: None,
         };
         authorize_fixture(&mut spec);
-        spec.monitor.as_mut().unwrap().authorization.as_mut().unwrap().expires_at = Some(now_timestamp() + 30);
+        spec.monitor
+            .as_mut()
+            .unwrap()
+            .authorization
+            .as_mut()
+            .unwrap()
+            .expires_at = Some(now_timestamp() + 30);
         let result = sample(&spec, &crate::system::SystemOps, 60_000).await;
         assert!(result.error.is_some());
         assert_eq!(result.latency_ms, None);
-        assert!(timeout(Duration::from_millis(50), listener.accept()).await.is_err());
+        assert!(
+            timeout(Duration::from_millis(50), listener.accept())
+                .await
+                .is_err()
+        );
         Ok(())
     }
-
 }

@@ -8,7 +8,9 @@ use axum::{
     http::HeaderMap,
 };
 use sha2::{Digest, Sha256};
-use sinan_protocol::{ProbeBatch, ProbeResult, ProbeSpec, TaskAck, now_timestamp, telemetry::now_millis};
+use sinan_protocol::{
+    ProbeBatch, ProbeResult, ProbeSpec, TaskAck, now_timestamp, telemetry::now_millis,
+};
 use uuid::Uuid;
 
 #[derive(serde::Serialize)]
@@ -73,7 +75,10 @@ pub async fn list(
     Ok(Json(
         rows.into_iter()
             .map(|(mut spec, task)| {
-                spec["execution_authorized"] = serde_json::json!(serde_json::from_value::<ProbeSpec>(spec.clone()).is_ok_and(|spec| spec.authorized_at(now_timestamp())));
+                spec["execution_authorized"] = serde_json::json!(
+                    serde_json::from_value::<ProbeSpec>(spec.clone())
+                        .is_ok_and(|spec| spec.authorized_at(now_timestamp()))
+                );
                 if let Some(task) = task {
                     spec["task_id"] = serde_json::json!(task);
                 }
@@ -210,7 +215,8 @@ pub async fn update(
     // Samples and offline retries identify their destination only by this immutable ID.
     if !spec.same_measurement_identity(&previous) {
         return Err(ApiError::Conflict(
-            "拨测方式、目标、端口、网络版本、运营商和地区创建后不可修改；请新建目标以保留历史归属".into(),
+            "拨测方式、目标、端口、网络版本、运营商和地区创建后不可修改；请新建目标以保留历史归属"
+                .into(),
         ));
     }
     prepare_write(&mut spec)?;
@@ -347,13 +353,12 @@ pub async fn ingest(
                 return Err(ApiError::Conflict("拨测结果标识已存在不同内容".into()));
             }
         } else {
-            let configured: Option<serde_json::Value> = sqlx::query_scalar(
-                "SELECT spec FROM network_probes WHERE id=$1 AND server_id=$2",
-            )
-            .bind(result.probe_id)
-            .bind(server)
-            .fetch_optional(&mut *tx)
-            .await?;
+            let configured: Option<serde_json::Value> =
+                sqlx::query_scalar("SELECT spec FROM network_probes WHERE id=$1 AND server_id=$2")
+                    .bind(result.probe_id)
+                    .bind(server)
+                    .fetch_optional(&mut *tx)
+                    .await?;
             // Removed or revoked targets discard late samples; prior accepted history remains.
             let authorized = configured
                 .and_then(|value| serde_json::from_value::<ProbeSpec>(value).ok())

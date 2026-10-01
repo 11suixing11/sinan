@@ -1,11 +1,11 @@
 #![forbid(unsafe_code)]
 
 mod business_support;
-mod probe_support;
 #[path = "diagnostics/chain_gate.rs"]
 mod chain_gate;
 #[path = "diagnostics/modes.rs"]
 mod modes;
+mod probe_support;
 mod release_fixture;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;

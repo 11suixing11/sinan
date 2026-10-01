@@ -124,14 +124,14 @@ fn probes_survive_restart_and_partial_ack_with_panel_clock_offset() -> Result<()
         sampled_at: now_millis() + offset,
         latency_ms: None,
         loss_percent: 100.0,
-            address_family: None,
+        address_family: None,
         error: Some("ICMP tool unavailable".into()),
     };
     let next = ProbeResult {
         id: Uuid::new_v4(),
         latency_ms: Some(0.0),
         loss_percent: 0.0,
-            address_family: None,
+        address_family: None,
         error: None,
         ..result.clone()
     };

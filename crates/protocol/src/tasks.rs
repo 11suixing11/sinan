@@ -145,7 +145,9 @@ impl ProbeAuthorization {
     fn valid(&self) -> bool {
         valid_note(&self.source, 256, false)
             && valid_note(&self.scope, 512, false)
-            && self.expires_at.is_none_or(|expires| (1..=253_402_300_799).contains(&expires))
+            && self
+                .expires_at
+                .is_none_or(|expires| (1..=253_402_300_799).contains(&expires))
     }
 }
 
@@ -210,7 +212,10 @@ impl ProbeSpec {
     }
 
     pub fn address_family(&self) -> ProbeAddressFamily {
-        self.monitor.as_ref().map(|monitor| monitor.address_family).unwrap_or_default()
+        self.monitor
+            .as_ref()
+            .map(|monitor| monitor.address_family)
+            .unwrap_or_default()
     }
 
     pub fn identity(&self) -> ProbeIdentity {
@@ -224,9 +229,16 @@ impl ProbeSpec {
 
     pub fn authorized_at(&self, timestamp: i64) -> bool {
         self.valid()
-            && self.monitor.as_ref().and_then(|monitor| monitor.authorization.as_ref())
-                .is_some_and(|authorization| authorization.enabled
-                    && authorization.expires_at.is_none_or(|expires| timestamp < expires))
+            && self
+                .monitor
+                .as_ref()
+                .and_then(|monitor| monitor.authorization.as_ref())
+                .is_some_and(|authorization| {
+                    authorization.enabled
+                        && authorization
+                            .expires_at
+                            .is_none_or(|expires| timestamp < expires)
+                })
     }
 
     pub fn runnable_at(&self, timestamp: i64) -> bool {
@@ -236,8 +248,16 @@ impl ProbeSpec {
     pub fn same_measurement_identity(&self, previous: &Self) -> bool {
         self.identity() == previous.identity()
             && self.carrier == previous.carrier
-            && self.monitor.as_ref().map(|monitor| monitor.region.as_str()).unwrap_or("")
-                == previous.monitor.as_ref().map(|monitor| monitor.region.as_str()).unwrap_or("")
+            && self
+                .monitor
+                .as_ref()
+                .map(|monitor| monitor.region.as_str())
+                .unwrap_or("")
+                == previous
+                    .monitor
+                    .as_ref()
+                    .map(|monitor| monitor.region.as_str())
+                    .unwrap_or("")
     }
 }
 

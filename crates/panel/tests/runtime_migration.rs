@@ -12,12 +12,20 @@ async fn runtime_extensions_upgrade_the_existing_installation_schema_without_rep
 ) -> Result<()> {
     let migrations = sqlx::migrate!();
     let old = Migrator {
-        migrations: Cow::Owned(migrations.iter().filter(|m| m.version <= 23).cloned().collect()),
+        migrations: Cow::Owned(
+            migrations
+                .iter()
+                .filter(|m| m.version <= 23)
+                .cloned()
+                .collect(),
+        ),
         ..Migrator::DEFAULT
     };
     old.run(&pool).await?;
-    let server: i64 = sqlx::query_scalar("INSERT INTO servers(name) VALUES('TEST_ONLY upgrade') RETURNING id")
-        .fetch_one(&pool).await?;
+    let server: i64 =
+        sqlx::query_scalar("INSERT INTO servers(name) VALUES('TEST_ONLY upgrade') RETURNING id")
+            .fetch_one(&pool)
+            .await?;
     sqlx::query("INSERT INTO singbox_installation(server_id,target_rev,error,checked_at) VALUES($1,7,'TEST_ONLY retained failure',123)")
         .bind(server).execute(&pool).await?;
     let pending = Uuid::new_v4();
@@ -32,18 +40,39 @@ async fn runtime_extensions_upgrade_the_existing_installation_schema_without_rep
     }
     migrations.run(&pool).await?;
     migrations.run(&pool).await?;
-    assert_eq!(sqlx::query_scalar::<_, String>("SELECT state FROM remote_commands WHERE id=$1")
-        .bind(pending).fetch_one(&pool).await?, "claimed");
-    let preserved: (String, Value, String) = sqlx::query_as("SELECT state,result,result_digest FROM remote_commands WHERE id=$1")
-        .bind(completed).fetch_one(&pool).await?;
-    assert_eq!(preserved, ("succeeded".into(), result, "original-digest".into()));
-    let versions: Vec<i64> = sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
-        .fetch_all(&pool).await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT state FROM remote_commands WHERE id=$1")
+            .bind(pending)
+            .fetch_one(&pool)
+            .await?,
+        "claimed"
+    );
+    let preserved: (String, Value, String) =
+        sqlx::query_as("SELECT state,result,result_digest FROM remote_commands WHERE id=$1")
+            .bind(completed)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(
+        preserved,
+        ("succeeded".into(), result, "original-digest".into())
+    );
+    let versions: Vec<i64> =
+        sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(&pool)
+            .await?;
     assert_eq!(versions, (1..=28).collect::<Vec<_>>());
-    assert_eq!(sqlx::query_scalar::<_, String>("SELECT to_regclass('singbox_installation')::text")
-        .fetch_one(&pool).await?, "singbox_installation");
-    let installation: (i64, String, i64) = sqlx::query_as("SELECT target_rev,error,checked_at FROM singbox_installation WHERE server_id=$1")
-        .bind(server).fetch_one(&pool).await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT to_regclass('singbox_installation')::text")
+            .fetch_one(&pool)
+            .await?,
+        "singbox_installation"
+    );
+    let installation: (i64, String, i64) = sqlx::query_as(
+        "SELECT target_rev,error,checked_at FROM singbox_installation WHERE server_id=$1",
+    )
+    .bind(server)
+    .fetch_one(&pool)
+    .await?;
     assert_eq!(installation, (7, "TEST_ONLY retained failure".into(), 123));
     Ok(())
 }

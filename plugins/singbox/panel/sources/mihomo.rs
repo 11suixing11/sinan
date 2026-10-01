@@ -210,6 +210,23 @@ fn transport(input: &mut Map<String, Value>, output: &mut Value) -> Result<(), I
         "httpupgrade" => ("httpupgrade", "http-upgrade-opts"),
         _ => return Err(ImportError("unsupported_proxy_transport")),
     };
+    // The fixed sing-box HTTP transport chooses H1 without TLS and H2 with
+    // TLS. Mihomo keeps its HTTP and H2 transports distinct in both cases.
+    let tls_enabled = output.pointer("/tls/enabled").and_then(Value::as_bool) == Some(true);
+    if network == "h2" && !tls_enabled {
+        return Err(ImportError("unsupported_h2_without_tls"));
+    }
+    if network == "http" && tls_enabled {
+        return Err(ImportError("unsupported_http_with_tls"));
+    }
+    if network == "h2" {
+        // Mihomo's H2 branch overrides any configured ALPN before TLS dialing.
+        // Reject malformed source parameters before replacing an ignored value.
+        ExternalOutbound(output.clone())
+            .validate()
+            .map_err(|_| ImportError("unsupported_or_invalid_proxy_parameter"))?;
+        output["tls"]["alpn"] = json!(["h2"]);
+    }
     let value = input.remove(key).unwrap_or(json!({}));
     let mut params = value
         .as_object()
@@ -224,8 +241,55 @@ fn transport(input: &mut Map<String, Value>, output: &mut Value) -> Result<(), I
             "service_name",
         );
     } else {
-        for key in ["path", "host", "headers", "method"] {
+        if network == "http"
+            && params.contains_key("host")
+            && params
+                .get("headers")
+                .and_then(Value::as_object)
+                .is_some_and(|headers| headers.keys().any(|key| key.eq_ignore_ascii_case("Host")))
+        {
+            return Err(ImportError("duplicate_http_host_parameter"));
+        }
+        let keys: &[&str] = match network {
+            "h2" => &["path", "host"],
+            "http" => &["path", "headers", "method"],
+            _ => &["path", "host", "headers", "method"],
+        };
+        for key in keys {
             transfer(&mut params, key, &mut transport, key);
+        }
+        if network == "http" && transport.get("method").is_none_or(|value| value == "") {
+            // Mihomo's HTTP camouflage defaults to GET; sing-box defaults to PUT.
+            transport["method"] = json!("GET");
+        }
+        if network == "http"
+            && let Some(mut headers) = transport.as_object_mut().expect("object").remove("headers")
+        {
+            let map = headers
+                .as_object_mut()
+                .ok_or(ImportError("invalid_http_headers"))?;
+            let host_keys: Vec<_> = map
+                .keys()
+                .filter(|key| key.eq_ignore_ascii_case("Host"))
+                .cloned()
+                .collect();
+            if host_keys.len() > 1 {
+                return Err(ImportError("duplicate_http_host_parameter"));
+            }
+            if host_keys.first().is_some_and(|key| key != "Host") {
+                return Err(ImportError("unsupported_http_host_header"));
+            }
+            if let Some(host) = map.remove("Host") {
+                // Request.Host is separate from Header["Host"] in sing-box.
+                transport["host"] = host;
+            }
+            if map
+                .values()
+                .any(|value| value.as_array().is_some_and(|values| values.len() > 1))
+            {
+                return Err(ImportError("unsupported_random_http_headers"));
+            }
+            transport["headers"] = headers;
         }
         if network == "http"
             && let Some(value) = transport.get("path").and_then(Value::as_array)

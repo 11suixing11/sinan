@@ -210,3 +210,245 @@ fn sip002_distinguishes_ss2022_and_ipv6_percent_encoded_passwords() {
         "ss2022_requires_plain_userinfo"
     );
 }
+
+#[test]
+fn mihomo_http_transports_reject_tls_combinations_that_change_the_wire_protocol() {
+    for (network, tls, reason) in [
+        ("h2", None, "unsupported_h2_without_tls"),
+        ("h2", Some(false), "unsupported_h2_without_tls"),
+        ("http", Some(true), "unsupported_http_with_tls"),
+    ] {
+        let mut node = json!({
+            "name":"transport fixture","type":"vmess","server":"proxy.example.com",
+            "port":443,"uuid":"00000000-0000-0000-0000-000000000001",
+            "cipher":"auto","network":network
+        });
+        if let Some(tls) = tls {
+            node["tls"] = json!(tls);
+        }
+        let parsed = parse(json!({"proxies":[node]}).to_string().as_bytes()).unwrap();
+        assert!(parsed.nodes.is_empty());
+        assert_eq!(parsed.rejected.len(), 1);
+        assert_eq!(parsed.rejected[0].reason, reason);
+    }
+}
+
+#[test]
+fn mihomo_equivalent_http_transports_preserve_the_source_method_and_tls() {
+    for (network, tls, method, expected_method) in [
+        ("http", false, None, Some("GET")),
+        ("http", false, Some(""), Some("GET")),
+        ("http", false, Some("POST"), Some("POST")),
+        ("h2", true, None, None),
+    ] {
+        let mut options = json!({"path":"/fixture"});
+        if let Some(method) = method {
+            options["method"] = json!(method);
+        }
+        let mut node = json!({
+            "type":"vmess","server":"proxy.example.com","port":443,
+            "uuid":"00000000-0000-0000-0000-000000000001",
+            "cipher":"auto","network":network,"tls":tls
+        });
+        node[if network == "h2" {
+            "h2-opts"
+        } else {
+            "http-opts"
+        }] = options;
+        let parsed = parse(json!({"payload":[node]}).to_string().as_bytes()).unwrap();
+        assert!(parsed.rejected.is_empty());
+        assert_eq!(parsed.nodes.len(), 1);
+        let outbound = &parsed.nodes[0].outbound.0;
+        assert_eq!(outbound.pointer("/transport/type"), Some(&json!("http")));
+        assert_eq!(
+            outbound.pointer("/transport/path"),
+            Some(&json!("/fixture"))
+        );
+        assert_eq!(
+            outbound
+                .pointer("/transport/method")
+                .and_then(serde_json::Value::as_str),
+            expected_method
+        );
+        assert_eq!(
+            outbound
+                .pointer("/tls/enabled")
+                .and_then(serde_json::Value::as_bool),
+            tls.then_some(true)
+        );
+    }
+}
+
+#[test]
+fn uri_and_base64_lists_do_not_silently_change_h2_to_plain_http_or_http_to_h2() {
+    let uuid = "00000000-0000-0000-0000-000000000001";
+    for (params, reason) in [
+        ("type=h2", "unsupported_h2_without_tls"),
+        ("type=h2&security=none", "unsupported_h2_without_tls"),
+        ("type=http&security=tls", "unsupported_http_with_tls"),
+    ] {
+        let uri = format!("vless://{uuid}@proxy.example.com:443?{params}#fixture");
+        for text in [uri.clone(), STANDARD.encode(&uri)] {
+            let parsed = parse(text.as_bytes()).unwrap();
+            assert!(parsed.nodes.is_empty());
+            assert_eq!(parsed.rejected.len(), 1);
+            assert_eq!(parsed.rejected[0].reason, reason);
+        }
+    }
+    for (network, tls, reason) in [
+        ("h2", "", "unsupported_h2_without_tls"),
+        ("h2", "none", "unsupported_h2_without_tls"),
+        ("http", "tls", "unsupported_http_with_tls"),
+    ] {
+        let config = json!({
+            "v":"2","add":"proxy.example.com","port":"443","id":uuid,
+            "aid":"0","net":network,"tls":tls,"type":"none"
+        });
+        let uri = format!("vmess://{}", STANDARD.encode(config.to_string()));
+        let parsed = parse(uri.as_bytes()).unwrap();
+        assert!(parsed.nodes.is_empty());
+        assert_eq!(parsed.rejected[0].reason, reason);
+    }
+}
+
+#[test]
+fn equivalent_uri_transports_and_native_http_json_keep_their_declared_semantics() {
+    let uuid = "00000000-0000-0000-0000-000000000001";
+    for (params, tls) in [
+        ("type=h2&security=tls", true),
+        ("type=http&security=none", false),
+    ] {
+        let uri = format!("vless://{uuid}@proxy.example.com:443?{params}&path=%2Ffixture");
+        let parsed = parse(uri.as_bytes()).unwrap();
+        assert!(parsed.rejected.is_empty());
+        assert_eq!(parsed.nodes.len(), 1);
+        let outbound = &parsed.nodes[0].outbound.0;
+        assert_eq!(outbound.pointer("/transport/type"), Some(&json!("http")));
+        assert_eq!(
+            outbound.pointer("/transport/path"),
+            Some(&json!("/fixture"))
+        );
+        assert_eq!(
+            outbound
+                .pointer("/tls/enabled")
+                .and_then(serde_json::Value::as_bool),
+            tls.then_some(true)
+        );
+    }
+    for tls in [false, true] {
+        let node = json!({
+            "type":"vmess","server":"proxy.example.com","server_port":443,
+            "uuid":uuid,"security":"auto","tls":{"enabled":tls},
+            "transport":{"type":"http","path":"/fixture"}
+        });
+        let parsed = parse(json!({"outbounds":[node.clone()]}).to_string().as_bytes()).unwrap();
+        assert!(parsed.rejected.is_empty());
+        assert_eq!(parsed.nodes.len(), 1);
+        assert_eq!(parsed.nodes[0].outbound.0, node);
+    }
+}
+
+#[test]
+fn mihomo_http_host_headers_preserve_the_wire_host_and_single_header_values() {
+    let node = json!({
+        "type":"vmess","server":"proxy.example.com","port":443,
+        "uuid":"00000000-0000-0000-0000-000000000001","cipher":"auto",
+        "network":"http","http-opts":{
+            "headers":{
+                "Host":["cover.example.com","cover2.example.com"],
+                "X-Fixture":["one-value"]
+            },"path":["/fixture"]
+        }
+    });
+    let parsed = parse(json!({"proxies":[node]}).to_string().as_bytes()).unwrap();
+    assert!(parsed.rejected.is_empty());
+    assert_eq!(parsed.nodes.len(), 1);
+    let outbound = &parsed.nodes[0].outbound.0;
+    assert_eq!(
+        outbound.pointer("/transport/host"),
+        Some(&json!(["cover.example.com", "cover2.example.com"]))
+    );
+    assert!(outbound.pointer("/transport/headers/Host").is_none());
+    assert_eq!(
+        outbound.pointer("/transport/headers/X-Fixture"),
+        Some(&json!(["one-value"]))
+    );
+    assert_eq!(
+        outbound.pointer("/transport/path"),
+        Some(&json!("/fixture"))
+    );
+    assert_eq!(outbound.pointer("/transport/method"), Some(&json!("GET")));
+}
+
+#[test]
+fn mihomo_http_rejects_random_headers_and_ambiguous_host_fields() {
+    for (options, reason) in [
+        (
+            json!({"headers":{"X-Fixture":["secret-one","secret-two"]}}),
+            "unsupported_random_http_headers",
+        ),
+        (
+            json!({"headers":{"Host":["cover.example.com"],"host":["other.example.com"]}}),
+            "duplicate_http_host_parameter",
+        ),
+        (
+            json!({"host":["other.example.com"],"headers":{"Host":["cover.example.com"]}}),
+            "duplicate_http_host_parameter",
+        ),
+        (
+            json!({"headers":{"host":["cover.example.com"]}}),
+            "unsupported_http_host_header",
+        ),
+    ] {
+        let node = json!({
+            "type":"vmess","server":"proxy.example.com","port":443,
+            "uuid":"00000000-0000-0000-0000-000000000001","cipher":"auto",
+            "network":"http","http-opts":options
+        });
+        let parsed = parse(json!({"proxies":[node]}).to_string().as_bytes()).unwrap();
+        assert!(parsed.nodes.is_empty());
+        assert_eq!(parsed.rejected[0].reason, reason);
+        assert!(
+            !serde_json::to_string(&parsed.rejected)
+                .unwrap()
+                .contains("secret-")
+        );
+    }
+}
+
+#[test]
+fn mihomo_h2_forces_source_alpn_and_rejects_foreign_transport_options() {
+    let mut node = json!({
+        "type":"vmess","server":"proxy.example.com","port":443,
+        "uuid":"00000000-0000-0000-0000-000000000001","cipher":"auto",
+        "network":"h2","tls":true,"alpn":["http/1.1"],
+        "h2-opts":{"host":["cover.example.com"],"path":"/fixture"}
+    });
+    let parsed = parse(json!({"proxies":[node.clone()]}).to_string().as_bytes()).unwrap();
+    assert!(parsed.rejected.is_empty());
+    assert_eq!(parsed.nodes.len(), 1);
+    assert_eq!(
+        parsed.nodes[0].outbound.0.pointer("/tls/alpn"),
+        Some(&json!(["h2"]))
+    );
+    for (key, value) in [
+        ("headers", json!({"X-Fixture":"secret-value"})),
+        ("method", json!("POST")),
+    ] {
+        node["h2-opts"][key] = value;
+        let rejected = parse(json!({"proxies":[node.clone()]}).to_string().as_bytes()).unwrap();
+        assert!(rejected.nodes.is_empty());
+        assert_eq!(
+            rejected.rejected[0].reason,
+            "unsupported_transport_parameter"
+        );
+        node["h2-opts"].as_object_mut().unwrap().remove(key);
+    }
+    node["alpn"] = json!(42);
+    let rejected = parse(json!({"proxies":[node]}).to_string().as_bytes()).unwrap();
+    assert!(rejected.nodes.is_empty());
+    assert_eq!(
+        rejected.rejected[0].reason,
+        "unsupported_or_invalid_proxy_parameter"
+    );
+}
