@@ -71,7 +71,7 @@ CONTROLLER = '''function run_HardwareQuality(){
     [[ "$run_hardware_quality_test" =~ ^[Vv]$ ]] && params=" -V"
     pre_fetch_info
     payload=$(declare -p osinfo meminfo diskinfo)
-    curl -Ls https://Hardware.Check.Place | chroot_run "env NQENV=$(printf '%q' "$payload") bash -s -- $opt_lang $params -y -o /result/$hardware_quality_json_filename"
+    curl -Ls https://Hardware.Check.Place | chroot_run "env NQENV=$(printf '%q' "$payload") bash -s -- $opt_lang $params -y -o /result/$hardware_quality_json_filename" # HQ预处理
 }
 function run_ip_quality(){
     chroot_run bash <(curl -Ls https://IP.Check.Place) $opt_ipv $opt_lang -y -o /result/$ip_quality_json_filename
@@ -304,7 +304,7 @@ run_net_trace > "$FIXTURE_OUTPUT_DIRECTORY/backroute_trace.log"
     result += python + ' ' + tool + ' --assemble\n'
     result += 'python3 "$SINAN_REPORT_HELPER" capture "$SINAN_REPORT_WORKSPACE" < "$FIXTURE_OUTPUT_DIRECTORY/archive.base64"\n'
     result += '[[ $SINAN_UPLOAD_REPORT == true ]] || printf disabled > "$SINAN_REPORT_WORKSPACE/upload-disabled.txt"\nexit 0\n'
-    return result.encode()
+    return result.encode() + source_tests.fixture.loader_anchors('NodeQuality.sh', result.encode())
 
 
 def assemble():
