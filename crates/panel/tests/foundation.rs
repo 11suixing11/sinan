@@ -795,7 +795,62 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
         .query(&[("token", &token)])
         .send()
         .await?;
-    assert_eq!(install.status(), StatusCode::CONFLICT);
+    assert_eq!(install.status(), StatusCode::OK);
+    assert_eq!(install.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(install.headers()[header::CONTENT_TYPE], "application/json");
+    let installation: Value = install.json().await?;
+    assert_eq!(installation["version"], version);
+    assert_eq!(
+        installation["bootstrap_url"],
+        sinan_panel::installation::bootstrap_url()
+    );
+    let install_command = installation["install_command"].as_str().unwrap();
+    assert!(install_command.contains("https://api.github.com/repos/theLucius7/sinan/git/blobs/"));
+    assert!(install_command.contains("sha256sum -c"));
+    assert!(!install_command.contains("sudo sinan-bootstrap"));
+    assert_eq!(
+        panel
+            .client
+            .get(format!("{}/install.sh", panel.base))
+            .query(&[("token", token.as_str()), ("agent_version", "99.0.0")])
+            .send()
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let enrollment: Value = panel
+        .admin(
+            reqwest::Method::POST,
+            &format!("/api/servers/{server_id}/enrollment"),
+            &cookie,
+            None,
+        )
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert!(
+        enrollment["install_command"].as_str().unwrap().contains(
+            enrollment["installation"]["bootstrap_url"]
+                .as_str()
+                .unwrap()
+        )
+    );
+    assert_eq!(
+        enrollment["install_command"],
+        enrollment["installation"]["install_command"]
+    );
+    let missing = panel
+        .client
+        .get(format!("{}/api/bootstrap/99.0.0/arm64", panel.base))
+        .query(&[("token", &token)])
+        .send()
+        .await?;
+    assert_eq!(missing.status(), StatusCode::CONFLICT);
+    let missing: Value = missing.json().await?;
+    let message = missing["error"].as_str().unwrap();
+    assert!(message.contains("arm64"));
+    assert!(message.contains("制品页导入"));
     assert_eq!(
         panel
             .client

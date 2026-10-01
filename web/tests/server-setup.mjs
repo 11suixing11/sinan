@@ -20,6 +20,7 @@ const browser = await chromium.launch({ headless: true, ...(process.env.SINAN_CH
 const screenshots = process.env.SINAN_UI_SCREENSHOT_DIR
 if (screenshots) await mkdir(screenshots, { recursive: true })
 const results = []
+const installCommand = version => `sh -c 'set -eu; d=$(mktemp -d); curl --fail --silent --show-error --proto "=https" --tlsv1.2 -H "Accept: application/vnd.github.raw+json" "$1" -o "$d/bootstrap.sh"; printf "%s  %s\\n" "$2" "$d/bootstrap.sh" | sha256sum -c -; /bin/sh "$d/bootstrap.sh" --tag "$3" --panel "$4" --token "$5"' sinan-bootstrap 'https://api.github.com/repos/theLucius7/sinan/git/blobs/${'1'.repeat(40)}' '${'a'.repeat(64)}' 'agent-v${version}' 'https://panel.example.com' 'TEST_ONLY'`
 
 try {
   for (const width of [1440, 390]) {
@@ -46,7 +47,7 @@ try {
         enrollments.push(url.searchParams.get('agent_version'))
         if (enrollmentMode === 'failure') return fulfill({ error: '测试：命令接口暂不可用' }, 503)
         const version = url.searchParams.get('agent_version') ?? '0.3.0'
-        return fulfill({ token: 'TEST_ONLY', expires_at: Math.floor(Date.now() / 1000) + (enrollmentMode === 'expired' ? -1 : 86400), installation: enrollmentMode === 'missing' ? null : { version, tag: `agent-v${version}` }, install_command: enrollmentMode === 'missing' ? null : `sudo sinan-bootstrap --tag 'agent-v${version}' --panel 'https://panel.example.com' --token 'TEST_ONLY'`, warning: enrollmentMode === 'missing' ? '测试：请先导入兼容的签名制品' : null })
+        return fulfill({ token: 'TEST_ONLY', expires_at: Math.floor(Date.now() / 1000) + (enrollmentMode === 'expired' ? -1 : 86400), installation: enrollmentMode === 'missing' ? null : { version, tag: `agent-v${version}` }, install_command: enrollmentMode === 'missing' ? null : installCommand(version), warning: enrollmentMode === 'missing' ? '测试：请先导入兼容的签名制品' : null })
       }
       if (path === '/api/servers/1/agent-settings') return fulfill(settings)
       if (path === '/api/servers/1/probes') return fulfill(probes)
@@ -112,6 +113,8 @@ try {
     await dialog.getByRole('button', { name: '复制安装命令' }).waitFor()
     await dialog.getByRole('button', { name: '复制安装命令' }).click()
     await dialog.getByRole('button', { name: '已复制' }).waitFor()
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), installCommand('0.3.0'), 'Copy preserves the complete URL command and its shell quoting')
+    assert.equal(await dialog.evaluate(element => element.scrollWidth > element.clientWidth + 1), false, `The URL command overflows the dialog at ${width}px`)
     assert.equal(creates.length, 2, 'Retrying enrollment must not recreate the server')
     await dialog.getByLabel('Agent 版本', { exact: false }).fill('0.2.9')
     assert.equal(await dialog.getByRole('button', { name: '复制安装命令' }).count(), 0, 'Changing the version hides the old command')

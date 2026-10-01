@@ -78,7 +78,7 @@
 .server-enrollment-command>div>span{display:flex;align-items:center;gap:6px;font-size:10px;color:#658255}
 .server-enrollment-command>div>small{font-size:9px;color:#91a082}
 .server-enrollment-command .copy-field{border:0;background:none;margin:0;padding:15px;align-items:flex-start}
-.server-enrollment-command .copy-field code{font-size:11px;line-height:2;color:#476540}
+.server-enrollment-command .copy-field code{font-size:11px;line-height:2;color:#476540;max-height:240px;overflow:auto}
 .server-enrollment-command>p{font-size:9px;line-height:1.8;padding:0 15px 13px;margin:0;color:#8a9a7c}
 .server-enrollment-trust{display:flex;gap:9px;color:#7d8f6c;margin-top:16px}
 .server-enrollment-trust>svg{flex:none;margin-top:2px}
@@ -130,6 +130,7 @@
   .server-enrollment-version>.button{margin:0;min-height:35px}
   .server-enrollment-command>div:first-child{flex-wrap:wrap;gap:5px}
   .server-enrollment-command .copy-field{padding:12px}
-  .server-enrollment-command .copy-field code{font-size:10px}
+  .server-enrollment-command .copy-field .copy-control{order:-1}
+  .server-enrollment-command .copy-field code{font-size:10px;align-self:stretch}
   .server-enrollment-checks{gap:9px 13px}
 }

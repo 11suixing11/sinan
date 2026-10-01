@@ -2,8 +2,12 @@
 """Bootstrap network boundaries and independently provisioned trust file tests."""
 
 import io
+import importlib.util
+import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -18,6 +22,10 @@ sys.path.insert(0, str(ROOT / "tools"))
 import bootstrap
 import release
 
+RENDER_SPEC = importlib.util.spec_from_file_location("render_bootstrap", ROOT / "tools/render-bootstrap.py")
+RENDER = importlib.util.module_from_spec(RENDER_SPEC)
+RENDER_SPEC.loader.exec_module(RENDER)
+
 
 class Response(io.BytesIO):
     def __init__(self, data, url):
@@ -26,6 +34,11 @@ class Response(io.BytesIO):
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_official_standalone_bootstrap_matches_all_sources_and_refuses_test_root(self):
+        self.assertEqual((ROOT / "deploy/bootstrap.sh").read_text(), RENDER.render())
+        with self.assertRaises(ValueError):
+            RENDER.render(trusted_keys=FIXTURES / "public-keys.json")
+
     def test_http_panel_is_only_allowed_for_loopback(self):
         for value in ("http://127.0.0.1:8000", "http://[::1]:8000", "http://localhost:8000",
                       "http://[::ffff:127.0.0.1]:8000", "https://panel.example.com"):
@@ -97,6 +110,75 @@ class BootstrapTests(unittest.TestCase):
             link.symlink_to(path)
             with self.assertRaises(ValueError):
                 release.load_roots(link, require_protected=True)
+
+
+@unittest.skipUnless(shutil.which("minisign"), "standalone signed bootstrap requires minisign")
+class StandaloneBootstrapTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.root_command = [] if os.getuid() == 0 else ["sudo", "-n"]
+        if cls.root_command:
+            result = subprocess.run(cls.root_command + ["true"], capture_output=True, check=False)
+            if result.returncode:
+                raise unittest.SkipTest("standalone bootstrap needs root or passwordless sudo")
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="sinan-standalone-bootstrap-test-")
+        self.directory = Path(self.temporary.name)
+        self.bundle = self.directory / "release"
+        self.bundle.mkdir()
+        installer = b"#!/bin/sh\nset -eu\nprintf '%s\\n' INSTALLER_VERIFIED\n"
+        (self.bundle / "install.sh").write_bytes(installer)
+        binary = b"TEST ONLY Agent never executed"
+        metadata = dict(schema=1, source_repo=release.REPOSITORY, tag="agent-v0.3.0",
+                        protocol_min=1, protocol_max=1, artifacts=[dict(
+                            name="agent", version="0.3.0", arch="arm64", format="raw",
+                            binary_name="sinan-agent", archive_size=len(binary),
+                            binary_size=len(binary), binary_sha256=release.digest(binary),
+                            asset_name="agent-0.3.0-linux-musl-arm64")])
+        encoded = (json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        (self.bundle / "release.json").write_bytes(encoded)
+        checksums = {"agent/0.3.0/arm64": release.digest(binary),
+                     "install.sh": release.digest(installer), "release.json": release.digest(encoded)}
+        (self.bundle / "SHA256SUMS").write_text("".join(
+            f"{checksums[name]}  {name}\n" for name in sorted(checksums)))
+        result = subprocess.run(["minisign", "-S", "-m", str(self.bundle / "SHA256SUMS"),
+                                 "-s", str(FIXTURES / "TEST_ONLY.key"), "-x",
+                                 str(self.bundle / "SHA256SUMS.minisig"), "-t",
+                                 "Sinan TEST ONLY standalone fixture"], capture_output=True)
+        self.assertEqual(result.returncode, 0, "fixture signing failed")
+        self.script = self.directory / "bootstrap.sh"
+        self.script.write_text(RENDER.render(trusted_keys=FIXTURES / "public-keys.json", publication=False))
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def run_bootstrap(self, script=None):
+        return subprocess.run(self.root_command + ["/bin/sh", str(script or self.script),
+                              "--tag", "agent-v0.3.0", "--panel", "http://127.0.0.1:8000",
+                              "--token", "TEST_ONLY_token", "--release-dir", str(self.bundle)],
+                              capture_output=True, check=False, timeout=30)
+
+    def test_standalone_bootstrap_provisions_its_own_trust_and_verifies_before_execution(self):
+        result = self.run_bootstrap()
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertIn(b"INSTALLER_VERIFIED", result.stdout)
+
+    def test_tampered_installer_or_metadata_never_executes(self):
+        for filename in ("install.sh", "release.json"):
+            path = self.bundle / filename
+            original = path.read_bytes()
+            path.write_bytes(original + b" ")
+            result = self.run_bootstrap()
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn(b"INSTALLER_VERIFIED", result.stdout)
+            path.write_bytes(original)
+
+    def test_official_roots_reject_a_release_signed_by_test_root(self):
+        result = self.run_bootstrap(ROOT / "deploy/bootstrap.sh")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn(b"INSTALLER_VERIFIED", result.stdout)
+        self.assertIn(b"no trusted key verifies", result.stderr)
 
 
 if __name__ == "__main__":

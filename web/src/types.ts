@@ -23,6 +23,7 @@ export type Enrollment = { token: string; expires_at: number; install_command: s
 export type Deployment = { status: { module: string; target_rev: number; applied_rev: number; last_result_rev: number; healthy: boolean; last_error: string | null; updated_at: number } | null; history: { module: string; rev: number; bundle_sha256: string; created_at: number }[] }
 export type Usage = { uplink: string; downlink: string; total: string; by_user: { user_id: number; name: string; deleted: boolean; uplink: string; downlink: string }[]; by_node: { node_id: number; name: string; deleted: boolean; uplink: string; downlink: string }[] }
 export type Artifact = { name: string; version: string; arch: string; sha256: string; bytes: number }
+export type ArtifactTargets = { default_targets: string[]; supported_targets: string[] }
 export type QualityErrorKind = 'dns' | 'connect' | 'tls' | 'timeout' | 'http_403' | 'http_429' | 'http_other' | 'non_json' | 'schema_mismatch' | 'body_error' | 'response_limit' | 'request_error' | 'not_public' | 'not_attempted' | 'invalid_origin'
 export type QualityFailure = { kind: QualityErrorKind | null; message: string; http_status: number | null; attempted_at: number | null; elapsed_ms: number | null }
 export type QualityField = { label: string; value: unknown; kind?: 'text' | 'country_code' | 'boolean' | 'score' | 'asn' | 'latitude' | 'longitude' | null }

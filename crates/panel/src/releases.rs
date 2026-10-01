@@ -1,4 +1,6 @@
 mod network;
+mod selection;
+mod storage;
 
 use crate::{
     AppState, auth,
@@ -33,6 +35,7 @@ struct StoredRelease {
     directory: PathBuf,
     proof: ReleaseProof,
     verified: VerifiedRelease,
+    paths: BTreeSet<String>,
 }
 
 pub fn valid_tag(tag: &str) -> bool {
@@ -225,10 +228,14 @@ async fn released(state: &AppState) -> ApiResult<Vec<StoredRelease>> {
             verified.metadata().tag == tag,
             "release directory and signed tag differ",
         )?;
+        let paths = storage::stored_paths(&directory.path(), &verified)
+            .await
+            .map_err(invalid)?;
         releases.push(StoredRelease {
             directory: directory.path(),
             proof,
             verified,
+            paths,
         });
     }
     releases.sort_by(|a, b| a.directory.cmp(&b.directory));
@@ -272,6 +279,31 @@ fn inventory(releases: &[StoredRelease]) -> Result<BTreeMap<Identity, (usize, Ve
     Ok(result)
 }
 
+fn available_inventory(
+    releases: &[StoredRelease],
+) -> Result<BTreeMap<Identity, (usize, VerifiedArtifact)>> {
+    // An absent payload still reserves its immutable identity in the signed proof.
+    inventory(releases)?;
+    let mut result = BTreeMap::new();
+    for (index, release) in releases.iter().enumerate() {
+        for entry in &release.verified.metadata().artifacts {
+            let artifact = release
+                .verified
+                .artifact(&entry.name, &entry.version, &entry.arch)?;
+            if release.paths.contains(artifact.path()) {
+                result
+                    .entry((
+                        entry.name.clone(),
+                        entry.version.clone(),
+                        entry.arch.clone(),
+                    ))
+                    .or_insert((index, artifact));
+            }
+        }
+    }
+    Ok(result)
+}
+
 async fn stored_bytes(release: &StoredRelease, artifact: &VerifiedArtifact) -> Result<Vec<u8>> {
     let bytes = ordinary_bytes(&release.directory.join(artifact.path()), MAX_ARTIFACT).await?;
     verify_payload(artifact, &bytes)?;
@@ -286,7 +318,7 @@ pub async fn artifact(
 ) -> ApiResult<(Vec<u8>, String, ReleaseProof)> {
     canonical_path(name, version, arch).map_err(|_| ApiError::NotFound)?;
     let releases = released(state).await?;
-    let inventory = inventory(&releases).map_err(invalid)?;
+    let inventory = available_inventory(&releases).map_err(invalid)?;
     let key = (name.to_owned(), version.to_owned(), arch.to_owned());
     let (index, artifact) = inventory.get(&key).ok_or(ApiError::NotFound)?;
     let release = &releases[*index];
@@ -298,7 +330,7 @@ pub async fn entries(state: &AppState) -> ApiResult<Vec<crate::artifacts::Artifa
     // Scan and verify proofs once; each unique payload is validated once per listing.
     let releases = released(state).await?;
     let mut values = Vec::new();
-    for (_, (index, artifact)) in inventory(&releases).map_err(invalid)? {
+    for (_, (index, artifact)) in available_inventory(&releases).map_err(invalid)? {
         stored_bytes(&releases[index], &artifact)
             .await
             .map_err(invalid)?;
@@ -325,6 +357,14 @@ pub async fn select_agent(state: &AppState, version: Option<&str>) -> ApiResult<
             if entry.name != "agent" || version.is_some_and(|v| v != entry.version) {
                 continue;
             }
+            let artifact = release
+                .verified
+                .artifact(&entry.name, &entry.version, &entry.arch)
+                .map_err(invalid)?;
+            if !release.paths.contains(artifact.path()) {
+                continue;
+            }
+            stored_bytes(&release, &artifact).await.map_err(invalid)?;
             let numbers: Option<Vec<u64>> =
                 entry.version.split('.').map(|v| v.parse().ok()).collect();
             if let Some(numbers) = numbers.filter(|v| v.len() == 3) {
@@ -346,7 +386,7 @@ pub async fn newer_agent(
     current: (u64, u64, u64),
 ) -> ApiResult<Option<sinan_protocol::AgentRelease>> {
     let releases = released(state).await?;
-    let inventory = inventory(&releases).map_err(invalid)?;
+    let inventory = available_inventory(&releases).map_err(invalid)?;
     let mut candidates = Vec::new();
     for ((name, version, target), (index, artifact)) in inventory {
         let metadata = releases[index].verified.metadata();
@@ -395,6 +435,7 @@ pub async fn newer_agent(
 #[serde(deny_unknown_fields)]
 pub struct ImportRequest {
     pub tag: String,
+    pub targets: Option<Vec<String>>,
 }
 
 async fn synced_write(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -430,6 +471,21 @@ where
     F: FnMut(String, usize) -> Fut,
     Fut: Future<Output = Result<Vec<u8>>>,
 {
+    let targets = vec![sinan_protocol::release::native_target().map_err(invalid)?];
+    import_bundle_for_targets(state, tag, proof, &targets, asset_bytes).await
+}
+
+pub async fn import_bundle_for_targets<F, Fut>(
+    state: &AppState,
+    tag: &str,
+    proof: ReleaseProof,
+    targets: &[String],
+    asset_bytes: F,
+) -> ApiResult<usize>
+where
+    F: FnMut(String, usize) -> Fut,
+    Fut: Future<Output = Result<Vec<u8>>>,
+{
     if !valid_tag(tag) {
         return Err(ApiError::BadRequest(
             "请输入 agent-v 开头的规范发布标签".into(),
@@ -440,14 +496,16 @@ where
         .clone()
         .try_acquire_owned()
         .map_err(|_| ApiError::Busy)?;
-    store_bundle(state, tag, proof, asset_bytes).await
+    selection::validate_targets(targets)?;
+    store_bundle(state, tag, proof, targets, asset_bytes).await
 }
 
 async fn store_bundle<F, Fut>(
     state: &AppState,
     tag: &str,
     proof: ReleaseProof,
-    mut asset_bytes: F,
+    targets: &[String],
+    asset_bytes: F,
 ) -> ApiResult<usize>
 where
     F: FnMut(String, usize) -> Fut,
@@ -455,6 +513,7 @@ where
 {
     let verified = verify_release(&proof, keys(state)?).map_err(invalid)?;
     checked(verified.metadata().tag == tag, "signed tag differs")?;
+    let paths = selection::selected_paths(&verified, targets)?;
     let releases = released(state).await?;
     let existing = inventory(&releases).map_err(invalid)?;
     for entry in &verified.metadata().artifacts {
@@ -472,99 +531,27 @@ where
             )?;
         }
     }
-    if let Some(old) = releases
+    let old = releases
         .iter()
-        .find(|release| release.verified.metadata().tag == tag)
-    {
+        .find(|release| release.verified.metadata().tag == tag);
+    if let Some(old) = old {
         checked(
             old.proof.checksums == proof.checksums,
             "immutable release already differs",
         )?;
-        let installer = ordinary_bytes(&old.directory.join("install.sh"), MAX_INSTALLER)
-            .await
-            .map_err(invalid)?;
-        checked(
-            verified.checksum("install.sh")
-                == Some(format!("{:x}", Sha256::digest(&installer)).as_str()),
-            "installer digest differs",
-        )?;
-        for entry in &verified.metadata().artifacts {
-            let artifact = verified
-                .artifact(&entry.name, &entry.version, &entry.arch)
-                .map_err(invalid)?;
-            stored_bytes(old, &artifact).await.map_err(invalid)?;
-        }
-        return Ok(verified.metadata().artifacts.len());
     }
-    let root = state.config.data_dir.join("artifacts/releases");
-    ordinary_directory(&root, true).await.map_err(invalid)?;
-    let directory = root.join(format!(".staging-{}", Uuid::new_v4()));
-    tokio::fs::create_dir(&directory)
-        .await
-        .map_err(anyhow::Error::from)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        tokio::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
-            .await
-            .map_err(anyhow::Error::from)?;
-    }
-    let result = async {
-        synced_write(
-            &directory.join("release.json"),
-            proof.metadata_json.as_bytes(),
-        )
-        .await?;
-        synced_write(&directory.join("SHA256SUMS"), proof.checksums.as_bytes()).await?;
-        synced_write(
-            &directory.join("SHA256SUMS.minisig"),
-            proof.signature.as_bytes(),
-        )
-        .await?;
-        let installer = asset_bytes("install.sh".into(), MAX_INSTALLER).await?;
-        ensure!(
-            installer.len() <= MAX_INSTALLER
-                && verified.checksum("install.sh")
-                    == Some(format!("{:x}", Sha256::digest(&installer)).as_str()),
-            "installer digest differs"
-        );
-        synced_write(&directory.join("install.sh"), &installer).await?;
-        let mut parents = BTreeSet::new();
-        for entry in &verified.metadata().artifacts {
-            let artifact = verified.artifact(&entry.name, &entry.version, &entry.arch)?;
-            let bytes =
-                asset_bytes(entry.asset_name.clone(), entry.archive_size.try_into()?).await?;
-            verify_payload(&artifact, &bytes)?;
-            let output = directory.join(artifact.path());
-            let parent = output.parent().context("artifact parent")?;
-            ordinary_directory(parent, true).await?;
-            synced_write(&output, &bytes).await?;
-            parents.insert(parent.to_owned());
-            parents.insert(parent.parent().context("component parent")?.to_owned());
-        }
-        for parent in parents.iter().rev() {
-            sync_directory(parent).await?;
-        }
-        sync_directory(&directory).await?;
-        ensure!(
-            ordinary_directory(&root, false).await?,
-            "release root disappeared"
-        );
-        let output = root.join(tag);
-        match tokio::fs::symlink_metadata(&output).await {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-            _ => anyhow::bail!("release destination appeared during import"),
-        }
-        tokio::fs::rename(&directory, &output).await?;
-        sync_directory(&root).await?;
-        Ok::<(), anyhow::Error>(())
-    }
-    .await;
-    if result.is_err() {
-        let _ = tokio::fs::remove_dir_all(&directory).await;
-    }
-    result.map_err(invalid)?;
-    Ok(verified.metadata().artifacts.len())
+    storage::store(state, tag, proof, verified, paths, old, asset_bytes).await
+}
+
+pub async fn target_options(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    auth::require_admin(&state, &headers).await?;
+    Ok(Json(json!({
+        "default_targets": selection::default_targets(&state).await?,
+        "supported_targets": sinan_protocol::platform::ARTIFACT_TARGETS,
+    })))
 }
 
 pub async fn import(
@@ -578,6 +565,11 @@ pub async fn import(
             "请输入 agent-v 开头的规范发布标签".into(),
         ));
     }
+    let targets = match request.targets {
+        Some(targets) => targets,
+        None => selection::default_targets(&state).await?,
+    };
+    selection::validate_targets(&targets)?;
     let _permit = state
         .release_permits
         .clone()
@@ -587,12 +579,18 @@ pub async fn import(
         .await
         .map_err(invalid)?;
     let tag = request.tag.clone();
-    let count = store_bundle(&state, &request.tag, proof, move |asset, maximum| {
-        let tag = tag.clone();
-        async move { network::asset(&tag, &asset, maximum).await }
-    })
+    let count = store_bundle(
+        &state,
+        &request.tag,
+        proof,
+        &targets,
+        move |asset, maximum| {
+            let tag = tag.clone();
+            async move { network::asset(&tag, &asset, maximum).await }
+        },
+    )
     .await?;
     Ok(Json(
-        json!({"tag": request.tag, "artifacts": count, "signature_verified": true}),
+        json!({"tag": request.tag, "targets": targets, "artifacts": count, "signature_verified": true}),
     ))
 }

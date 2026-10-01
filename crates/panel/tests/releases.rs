@@ -3,6 +3,8 @@
 mod release_fixture;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
+#[path = "releases/targets.rs"]
+mod targets;
 
 use anyhow::{Context, Result, bail};
 use release_support as signing;
@@ -222,7 +224,7 @@ async fn interrupted_and_tampered_imports_keep_previous_release_unchanged() -> R
 }
 
 #[tokio::test]
-async fn idempotence_checks_existing_bytes_without_redownloading_or_overwriting() -> Result<()> {
+async fn idempotence_reuses_valid_bytes_and_repairs_damaged_signed_payloads() -> Result<()> {
     let fixture = Fixture::new()?;
     let bundle = bundle("0.3.0", (1, 1), b"agent", Some(b"runtime"))?;
     assert_eq!(import(&fixture.state, bundle.clone()).await?, 2);
@@ -243,15 +245,14 @@ async fn idempotence_checks_existing_bytes_without_redownloading_or_overwriting(
         .join("agent/0.3.0")
         .join(native_arch()?);
     std::fs::write(&path, b"changed bytes")?;
-    assert!(matches!(
-        import(&fixture.state, bundle).await,
-        Err(ApiError::Conflict(_))
-    ));
-    assert_eq!(std::fs::read(&path)?, b"changed bytes");
-    assert!(matches!(
-        releases::artifact(&fixture.state, "agent", "0.3.0", native_arch()?).await,
-        Err(ApiError::Conflict(_))
-    ));
+    assert_eq!(import(&fixture.state, bundle).await?, 2);
+    assert_eq!(std::fs::read(&path)?, b"agent");
+    assert_eq!(
+        releases::artifact(&fixture.state, "agent", "0.3.0", native_arch()?)
+            .await?
+            .0,
+        b"agent"
+    );
     Ok(())
 }
 

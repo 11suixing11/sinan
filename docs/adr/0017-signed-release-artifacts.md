@@ -63,6 +63,8 @@ Agent CLI 提供无网络 `verify-installed --binary <path> --name <expected-nam
 
 ## bootstrap 信任起点
 
+2026-10-01 官方在线安装与本地架构下载的调整见 [ADR 0037](0037-bootstrap-and-selective-import.md)：普通部署改为复制固定官方 GitHub 自包含入口命令，免手动预置 bootstrap；完整 proof 和 Agent 编译根验签不变。下述手工预置步骤继续用于独立审查、自建根与离线安装。
+
 面板的 `curl <panel>/install.sh | sh` 可被篡改，不能作为信任起点。公钥跟脚本从同一面板下载，也不能修复这一问题。
 
 首次安装必须先从面板以外的可信来源核对公钥和获得可信 minisign 验证器，验证官方 Release 的 SUMS 和固定 install.sh 摘要之后再执行安装器。根不由面板自动提供；安装器获得的注册 token、panel origin、Agent 版本都是参数数据，不是生成的新 shell 程序。

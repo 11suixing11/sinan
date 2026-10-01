@@ -244,16 +244,12 @@ pub async fn issue_enrollment(
     .execute(&mut *transaction)
     .await?;
     transaction.commit().await?;
-    let selection = crate::releases::select_agent(&state, query.agent_version.as_deref()).await;
+    let selection =
+        crate::installation::select(&state, query.agent_version.as_deref(), &token).await;
     let (install_command, installation, warning) = match selection {
-        Ok((version, tag)) => (
-            Some(format!(
-                "sudo sinan-bootstrap --tag {} --panel {} --token {}",
-                shell_quote(&tag),
-                shell_quote(&state.config.public_url),
-                shell_quote(&token)
-            )),
-            Some(json!({"version": version, "tag": tag})),
+        Ok(installation) => (
+            Some(installation.install_command.clone()),
+            Some(json!(installation)),
             None,
         ),
         Err(_) => (
@@ -334,8 +330,4 @@ fn validate_public_key(value: &str) -> ApiResult<()> {
         return Err(error());
     }
     Ok(())
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }

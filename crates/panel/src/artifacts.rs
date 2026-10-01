@@ -14,6 +14,7 @@ use sinan_protocol::Artifact;
 #[derive(Deserialize)]
 pub struct TokenQuery {
     pub token: String,
+    pub agent_version: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -68,7 +69,14 @@ pub async fn bootstrap(
     Path((version, arch)): Path<(String, String)>,
 ) -> ApiResult<Response> {
     crate::servers::validate_enrollment(&state.pool, &query.token).await?;
-    bytes_response(&state, "agent", &version, &arch).await
+    sinan_protocol::release::canonical_path("agent", &version, &arch)
+        .map_err(|_| ApiError::NotFound)?;
+    match bytes_response(&state, "agent", &version, &arch).await {
+        Err(ApiError::NotFound) => Err(ApiError::Conflict(format!(
+            "尚未下载 Agent {version} 的 {arch} 制品，请在制品页导入该服务器架构后重试"
+        ))),
+        result => result,
+    }
 }
 
 async fn bytes_response(
@@ -121,7 +129,9 @@ pub async fn install_script(
     Query(query): Query<TokenQuery>,
 ) -> ApiResult<Response> {
     crate::servers::validate_enrollment(&state.pool, &query.token).await?;
-    Err(ApiError::Conflict("安装入口已迁移至独立验证的 sinan-bootstrap，请查看部署文档；不得执行面板提供的未签名安装脚本".into()))
+    let installation =
+        crate::installation::select(&state, query.agent_version.as_deref(), &query.token).await?;
+    Ok(([(header::CACHE_CONTROL, "no-store")], Json(installation)).into_response())
 }
 
 pub async fn install_powershell(
