@@ -308,6 +308,28 @@ class SignedTcpTests(unittest.TestCase):
         self.assertEqual({entry["name"] for entry in self.fixture.verify()["artifacts"]},
                          {"agent", "sing-box", "nodequality"})
 
+    def test_even_resigned_unknown_or_ambiguous_rustc_commits_are_rejected(self):
+        known = tcp.BUNDLED_MUSL_IDENTITY["rustc_commit"]
+        for commits in [["unknown"], [known, "unknown"], ["unknown", known], [known, known]]:
+            with self.subTest(commits=commits):
+                self.setUp_payload_from_fixture()
+                self.fixture.verify()
+                def mutate(files):
+                    rustc_info = "rustc 1.98.1 TEST_ONLY fixture\n" + "".join(
+                        f"commit-hash: {commit}\n" for commit in commits)
+                    notices = json.loads(files["THIRD_PARTY_NOTICES.txt"])
+                    standard = next(item for item in notices["toolchain"]
+                                    if item["name"] == "Rust standard library and bundled native libraries")
+                    standard["version"] = rustc_info
+                    files["THIRD_PARTY_NOTICES.txt"] = json.dumps(notices).encode()
+                    info = json.loads(files["build-info.json"])
+                    info["rustc"] = rustc_info
+                    info["notices_sha256"] = tcp.digest(files["THIRD_PARTY_NOTICES.txt"])
+                    files["build-info.json"] = json.dumps(info).encode()
+                self.rewrite_asset_and_resign(mutate)
+                with self.assertRaisesRegex(ValueError, "rustc commit"):
+                    self.fixture.verify()
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -338,6 +360,17 @@ class NoticeInventoryTests(unittest.TestCase):
 class BundledMuslTests(unittest.TestCase):
     setUp = FixedSourceTests.setUp
     tearDown = FixedSourceTests.tearDown
+
+    def test_ambiguous_rustc_identity_is_rejected_before_cargo(self):
+        known = tcp.BUNDLED_MUSL_IDENTITY["rustc_commit"]
+        for commits in [[known, "unknown"], ["unknown", known], [known, known]]:
+            rustc_info = "rustc 1.98.1 TEST_ONLY\n" + "".join(
+                f"commit-hash: {commit}\n" for commit in commits)
+            with self.subTest(commits=commits), patch.object(
+                    collector, "capture", return_value=rustc_info.encode()) as calls:
+                with self.assertRaisesRegex(ValueError, "rustc commit"):
+                    collector.collect(self.repo, "amd64")
+                calls.assert_called_once_with(["rustc", "-vV"])
 
     def test_missing_or_changed_originals_and_unknown_toolchains_fail_before_cargo(self):
         source = {name: (self.repo / name).read_bytes() for name in tcp.BUNDLED_MUSL_FILES}
