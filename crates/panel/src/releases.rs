@@ -3,6 +3,7 @@ mod network;
 mod selection;
 mod storage;
 
+pub(crate) use agents::selection_error;
 pub use agents::{
     AgentVersion, AgentVersions, agent_versions, bootstrap_agent_versions, list_agent_versions,
     select_agent_for_target,
