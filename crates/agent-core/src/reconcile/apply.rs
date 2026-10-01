@@ -91,7 +91,6 @@ impl Reconciler {
         target: Prepared,
         op_id: Uuid,
     ) -> Result<()> {
-        let descriptor = self.adapter.describe();
         self.verify_runtime(&target).await?;
         if let Some(previous) = &previous {
             self.verify_applied_runtime(previous).await?;
@@ -99,6 +98,21 @@ impl Reconciler {
         let plan = self
             .bounded(self.adapter.plan(previous.as_ref(), &target))
             .await?;
+        self.apply_plan_locked(previous, target, plan, op_id).await
+    }
+
+    pub(super) async fn apply_plan_locked(
+        &self,
+        previous: Option<Prepared>,
+        target: Prepared,
+        plan: Plan,
+        op_id: Uuid,
+    ) -> Result<()> {
+        let descriptor = self.adapter.describe();
+        self.verify_runtime(&target).await?;
+        if let Some(previous) = &previous {
+            self.verify_applied_runtime(previous).await?;
+        }
         let intent = ApplyIntent {
             previous,
             target,

@@ -1,4 +1,6 @@
 pub use sinan_adapter_sdk::{Privileged, ServiceManager};
+#[path = "command_process.rs"]
+mod command_process;
 #[path = "execution.rs"]
 mod execution;
 #[path = "publication.rs"]
@@ -124,6 +126,24 @@ pub fn check_private(path: &Path) -> Result<()> {
 }
 
 impl Privileged for SystemOps {
+    fn execute_controlled<'a>(
+        &'a self,
+        program: &'a Path,
+        args: &'a [String],
+        seconds: u32,
+        maximum: usize,
+        observer: &'a dyn sinan_adapter_sdk::CommandObserver,
+    ) -> BoxFuture<'a, sinan_adapter_sdk::ControlledExecution> {
+        Box::pin(command_process::execute(
+            program, args, seconds, maximum, observer,
+        ))
+    }
+    fn recover_command<'a>(
+        &'a self,
+        process: &'a sinan_adapter_sdk::CommandProcessIdentity,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(command_process::recover(process))
+    }
     fn spawn_managed<'a>(
         &'a self,
         program: &'a Path,

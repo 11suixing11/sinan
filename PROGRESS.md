@@ -1400,3 +1400,15 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 
 - 上述前端冻结结果之后，继续普通保留 Unix `e8fb3de`（产品 `3c3d146`）与 PowerShell `6cbcf23` 两份独立补修。最终旧状态守卫只放行旧 0.3.0 实际兼容的 r2 Started，其他精确原版本留给兼容 Agent 回收；Preparing full/缺 plugin/mode/损坏状态拒绝，JSON 零写。PowerShell 修复五种引号和真实 spawn 失败后的旧 `$LASTEXITCODE=0` 绕过，签名与 Agent 调用都核对本次调用成功。两分工的 12 项旧状态及 14 项真实 macOS PowerShell7 结果分别记于其冻结证据，不冒称本聊天重复执行或 Windows 原生验收。
 - 最终 Linux r14 自包含入口和 PowerShell 正式公开根入口从组合源码重新生成并核对同步；全部前端输入仍与上述 `1313a29` 逐字相同，因此不重复浏览器。最终完整 Rust/PostgreSQL 与组合 Python/PowerShell 回归由主整合任务继续执行；未执行不记通过，CI 仍暂停。
+
+## 2026-10-01 Agent 运维、命令生命周期与机场混合链路
+
+- 按用户授权在 main 完成三部分实现。新增服务器 sing-box 运维入口：读取状态与有界脱敏日志、确认重启、重试当前失败部署；操作使用通用持久队列并与配置对账、退役串行，保留签名、末次采样、健康和恢复检查。旧 Agent 能力不足时明确提示升级，固定运维不依赖任意远程命令开关。
+- 命令增加领取、开始、取消请求和终态，开始与结果均先持久化再确认；排队取消与领取互斥，退役行锁阻止新任务下发。Unix 清理受管进程组及回收后才确认取消，清理失败保持恢复状态；Windows 支持生命周期和排队取消，不承诺运行中确认取消。结果保留时钟下界；最坏 JSON 转义使用 4 MiB 请求限额，解码输出各限 256 KiB；旧 Agent 的 NUL 转为有界展示文本，幂等摘要仍绑定原结果。
+- 来源支持 URL、粘贴/上传、URI/Base64、sing-box JSON、Mihomo YAML，在本地 Rust 解析；仅面板新增固定 `saphyr-parser 0.1.0`。有界下载、同源重定向、DNS 地址固定、解压/结构/别名预算和固定错误分类防止来源秘密泄漏及无界展开；持久刷新任务、设置修订、身份代次、唯一身份及不可变版本保留失败时的历史快照。参考 Sub-Store、Mihomo 和固定 sing-box 官方语义，见[来源实现记录](docs/subscription-source-implementation-notes.md)。
+- 代理节点页统一管理直连与链路，策略组只引用资源。新链路拥有独立 Reality 入口，可顺序选择 1–8 个受管或来源节点，一批原子创建 1–32 条；支持稳定请求 UUID、跟随或固定版本、明确应用更新、失败重试、深链详情、名称及全路径删除保护。端点和拓扑修改使用替代链路；管理名称与订阅名分别保存。迁移 0023–0027 保留原 ID、凭据、旧订阅路径、授权、旧两跳原生字节、部署源快照及流量账本，不混跑新旧 publisher。
+- 混合路径按内部依赖、入口候选探测、切换、复验、持久恢复下界和旧代清理推进。通用验证绑定设备、配置版本/摘要及请求身份，适配器只访问已签配置指定的回环 Clash API；每设备最多四个有效验证请求、每项五分钟。能力丢失不删除已准备身份；部分设备确认恢复下界后不猜测可以回滚，明确撤销覆盖全部已发代数。来源失败或缺失不换节点、不绕路直连。引用上限与过期处理均有明确错误及记录。
+- 最终本地 Rust/PostgreSQL `cargo test --workspace`：562 通过、0 失败、20 条件忽略。随后统一资源列表补为同一只读快照，重新编译并运行混合链路 PostgreSQL 七项全通过；最终 workspace/all-targets Clippy、fmt、core 边界及 diff 检查通过。独立 PostgreSQL 18.6 仅监听本任务回环端口，全部检查后已停止。562 为全量唯一测试通过数，后续七项复验不重复累加。
+- Bun 43 项、939 断言通过，最终 TypeScript/Vite 构建及嵌入页面测试通过并同步 dist。六套相关 Chromium 回归通过：mixed-chains（1440/390/320）、command-lifecycle、runtime-operations、node-settings、singbox-business、subscription；均使用私有回环 API 夹具。包含批量创建重试、来源选点、名称明确同步、候选更新、取消确认及旧业务兼容，截图已检查。
+- 默认忽略项中的三个原生测试另行显式执行通过：12 份官方 1.14.2 配置 check；三/四段真实 TCP/UDP、每跳字节与指定出口、停止外部中间段后无旁路；真实认证 Clash 探测的正向与故障结果。原版缺计量扩展的夹具明确移除该扩展，不将编译断言当作实际入口扣量，详见[网络夹具](docs/acceptance/mixed-path-local-fixtures.md)、[面板状态机](docs/acceptance/mixed-path-panel.md)、[运维](docs/acceptance/runtime-operations.md)与[恢复下界](docs/acceptance/runtime-validations.md)记录。
+- 未验证范围与下一步：专用设备上的完整签名 Agent 分布式应用、切换期间断线/重启及部分恢复屏障故障，真实入口单次计量、第三方机场和各原生服务平台。正式发布、生产迁移及部署未执行；诊断门禁保持。四个 GitHub 工作流继续暂停，没有触发、重跑或恢复 CI，也不据本地结果宣称远端 main 全绿。使用说明见 [Agent 运维与混合链路](docs/agent-runtime-and-chains.md)。

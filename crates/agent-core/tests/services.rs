@@ -381,3 +381,32 @@ async fn systemd_diagnostic_jobs_keep_independent_supervision_and_status() -> Re
     assert_eq!(calls[5].1.last(), Some(&job.unit));
     Ok(())
 }
+
+#[tokio::test]
+async fn recent_runtime_logs_are_unit_scoped_bounded_and_do_not_accept_paths() -> Result<()> {
+    let ops = RecordingOps::successful();
+    ops.output.lock().unwrap().stdout = concat!(
+        "{\"MESSAGE\":\"newest secret\",\"PRIORITY\":\"3\",\"__REALTIME_TIMESTAMP\":\"2000000\"}\n",
+        "{\"MESSAGE\":\"older\",\"PRIORITY\":\"6\",\"__REALTIME_TIMESTAMP\":\"1000000\"}\n"
+    )
+    .into();
+    let services = SystemServiceManager::new(ops.clone(), ServiceBackend::Systemd);
+    let logs = services.recent_logs("demo@main.service").await?;
+    assert_eq!(logs.lines.len(), 2);
+    assert_eq!(logs.lines[0].timestamp, Some(1));
+    assert_eq!(logs.lines[1].priority, Some(3));
+    assert!(!logs.truncated);
+    assert!(services.recent_logs("../../private").await.is_err());
+    let calls = ops.calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, Path::new("journalctl"));
+    for argument in [
+        "--unit=demo@main.service",
+        "--lines=100",
+        "--since=-1h",
+        "--reverse",
+    ] {
+        assert!(calls[0].1.iter().any(|value| value == argument));
+    }
+    Ok(())
+}

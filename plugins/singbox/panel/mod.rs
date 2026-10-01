@@ -5,6 +5,7 @@ pub mod business;
 pub mod chains;
 pub mod deployments;
 pub mod entitlements;
+pub mod mixed_paths;
 mod node_protocol;
 mod node_settings;
 pub mod nodes;
@@ -12,7 +13,9 @@ pub mod packages;
 pub mod policies;
 pub mod proxy_users;
 pub mod publisher;
+pub mod runtime_operations;
 pub mod settings;
+pub mod sources;
 pub mod statistics;
 pub mod subscriptions;
 pub mod usage;
@@ -54,6 +57,10 @@ pub fn router() -> Router<AppState> {
         .route("/servers/{id}/enable", post(settings::enable))
         .route("/servers/{id}/deployments", get(deployments::get))
         .route("/servers/{id}/deployments/check", post(deployments::check))
+        .route(
+            "/servers/{id}/runtime-operations",
+            get(runtime_operations::list).post(runtime_operations::create),
+        )
         .route("/nodes", get(nodes::list).post(nodes::create))
         .route(
             "/nodes/{id}",
@@ -79,7 +86,9 @@ pub fn router() -> Router<AppState> {
             "/users/{user_id}/accesses/{node_id}",
             delete(accesses::revoke),
         )
-        .route("/usage", get(usage::summary));
+        .route("/usage", get(usage::summary))
+        .merge(sources::router())
+        .merge(mixed_paths::router());
     Router::new()
         .nest("/api/plugins/sing-box", management)
         .route("/sub/{token}", get(subscriptions::get))

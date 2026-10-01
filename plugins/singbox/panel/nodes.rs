@@ -221,6 +221,23 @@ pub async fn update(
     }
     business::validate_node(&node)?;
     validate_server_config(&mut transaction, &node).await?;
+    let path_references:Vec<i64>=sqlx::query_scalar("SELECT DISTINCT c.id FROM singbox_live_chains c LEFT JOIN singbox_chain_hops h ON h.chain_id=c.id WHERE c.path_kind='mixed' AND (c.entry_node_id=$1 OR h.managed_node_id=$1) ORDER BY c.id").bind(id).fetch_all(&mut *transaction).await?;
+    if !path_references.is_empty()
+        && (previous.1 != node.settings
+            || previous.3 != node.public_host
+            || previous.4 != node.sni
+            || previous.5 != node.port
+            || previous.6 != node.protocol_config)
+    {
+        return Err(ApiError::Conflict(format!(
+            "节点正在被混合链路引用（编号：{}），只能修改名称或启用状态；更换端点请创建新节点与链路",
+            path_references
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("、")
+        )));
+    }
     sqlx::query(
         "UPDATE nodes SET name=$2,public_host=$3,sni=$4,port=$5,protocol_config=$6,enabled=$7,settings=$8 WHERE id=$1",
     )
@@ -267,6 +284,17 @@ pub async fn remove(
             .await?
             .ok_or(ApiError::NotFound)?;
     business::lock_server(&mut transaction, server_id).await?;
+    let references:Vec<i64>=sqlx::query_scalar("SELECT DISTINCT c.id FROM singbox_live_chains c LEFT JOIN singbox_chain_hops h ON h.chain_id=c.id WHERE c.path_kind='mixed' AND (c.entry_node_id=$1 OR h.managed_node_id=$1) ORDER BY c.id").bind(id).fetch_all(&mut *transaction).await?;
+    if !references.is_empty() {
+        return Err(ApiError::Conflict(format!(
+            "请先删除引用此节点的链路（编号：{}）；链路入口请从链路详情删除",
+            references
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("、")
+        )));
+    }
     let result = sqlx::query("UPDATE nodes SET deleted_at=$2 WHERE id=$1 AND deleted_at IS NULL")
         .bind(id)
         .bind(now_timestamp())
@@ -290,9 +318,9 @@ fn validate_port(port: i64) -> ApiResult<i32> {
             "节点端口必须为 1 至 65535 的整数".into(),
         ));
     }
-    if port == 18085 {
+    if matches!(port, 18085 | 18086) {
         return Err(ApiError::BadRequest(
-            "端口 18085 已保留给本地流量统计接口".into(),
+            "端口 18085 和 18086 已保留给本地统计与路径验证接口".into(),
         ));
     }
     Ok(port as i32)
@@ -326,7 +354,7 @@ fn port_database_error(error: sqlx::Error) -> ApiError {
     }
 }
 
-async fn validate_server_config(
+pub(crate) async fn validate_server_config(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     node: &NodeRow,
 ) -> ApiResult<()> {

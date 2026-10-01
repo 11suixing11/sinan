@@ -37,6 +37,7 @@ try {
       if (path === '/api/dashboard/access') return respond({ authenticated: true, public_dashboard: false })
       if (path === '/api/plugins/sing-box/users') return respond([user])
       if (path === '/api/plugins/sing-box/nodes') return respond(nodes)
+      if (path === '/api/plugins/sing-box/proxy-resources') return respond(nodes.map(node => ({...node,kind:'direct',entry_node_id:null})))
       if (path === '/api/plugins/sing-box/chains' || path.endsWith('/accesses') || path.endsWith('/policy-groups') && !path.includes('/users/') || path.endsWith('/package-groups')) return respond([])
       if (path === '/api/plugins/sing-box/usage') return respond({ uplink: '0', downlink: '0', total: '0', by_user: [], by_node: [] })
       if (path === '/api/plugins/sing-box/users/1/policy-groups') return respond({ group_ids: [] })

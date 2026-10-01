@@ -145,6 +145,9 @@ pub async fn run_with_diagnostics(
     retirement.recover_completion().await?;
     let identity = identity::load(&config)?;
     let mut modules = Vec::new();
+    let supports_validation = adapters
+        .iter()
+        .any(|adapter| adapter.supports_dependency_validation());
     let mut reconcilers = Vec::new();
     for adapter in adapters {
         let module = adapter.describe().module;
@@ -163,6 +166,12 @@ pub async fn run_with_diagnostics(
         reconcilers.push((module, reconciler));
     }
     let mut capabilities = modules.clone();
+    if supports_validation {
+        capabilities.push(sinan_protocol::RUNTIME_VALIDATION_CAPABILITY.into());
+    }
+    if !modules.is_empty() {
+        capabilities.push(sinan_protocol::RUNTIME_OPERATIONS_CAPABILITY.into());
+    }
     capabilities.push(sinan_protocol::RETIREMENT_CAPABILITY.into());
     capabilities.push(sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY.into());
     capabilities.extend(
@@ -178,6 +187,10 @@ pub async fn run_with_diagnostics(
     );
     if config.allow_remote_commands {
         capabilities.push("command:execute".into());
+        capabilities.push("command:lifecycle:v1".into());
+        if cfg!(unix) {
+            capabilities.push("command:cancel:v1".into());
+        }
     }
     if !diagnostics.is_empty() {
         capabilities.push(sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY.into());

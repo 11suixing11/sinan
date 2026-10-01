@@ -39,7 +39,9 @@ try {
         Object.assign(metadata, { enabled: true, source: 'administrator' }); value = metadata
       } else if (path === '/api/plugins/sing-box/servers/1/deployments') {
         assert.equal(metadata.enabled, true); value = { status: null, history: [] }
-      } else if (path === '/api/plugins/sing-box/nodes') {
+      } else if (path === '/api/plugins/sing-box/proxy-resources') value = [{...node,kind:'direct',server_name:metadata.name,role:'direct',entry_node_id:null,tcp:true,udp:true,available:true,enabled:true,stage:'direct',reference_count:0}]
+      else if (path === '/api/plugins/sing-box/subscription-sources') value = []
+      else if (path === '/api/plugins/sing-box/nodes') {
         assert.equal(metadata.enabled, true); value = [node]
       } else if (path === '/api/plugins/sing-box/users') value = []
       else if (path === '/api/plugins/sing-box/chains') value = []
@@ -48,6 +50,7 @@ try {
       else if (path === '/api/servers/1/node-quality') value = { ip_addresses: [], quality: [], plugin_ready: false, plugin_reason: '夹具未启用诊断', reports: [] }
       else if (['/api/servers/1/probes', '/api/servers/1/probe-results', '/api/servers/1/commands'].includes(path)) value = []
       else if (path === '/api/security/totp') value = { enabled: false }
+      else if (path.endsWith('/runtime-operations')) value = { supported:false,online:false,retiring:false,operations:[] }
       else { errors.push(`Unexpected API: ${path}`); await route.fulfill({ status: 404, json: {} }); return }
       await route.fulfill({ json: value })
     })

@@ -1,0 +1,69 @@
+import { useRef, useState } from 'react'
+import { api } from '../../api'
+import { ErrorNotice, Field } from '../../components'
+import { useAction } from '../../hooks'
+import type { Node, PluginServer } from '../../types'
+import { assignmentRequestId } from './groupTypes'
+import SubscriptionSources from './SubscriptionSources'
+import type { ExternalNodePreview, SubscriptionHopReference } from './sourceTypes'
+import type { ChainInput, ChainReceipt, HopInput, ProxyResource } from './resourceTypes'
+import { endpoint } from './resourceTypes'
+
+type ChosenHop = { input: HopInput; name: string; address: string; serverId: number | null }
+type Draft = { key: string; name: string; mode: 'new' | 'existing'; serverId: number; nodeId: number; host: string; sni: string; port: string; hops: ChosenHop[] }
+const empty = (serverId: number): Draft => ({ key: assignmentRequestId(), name: '', mode: 'new', serverId, nodeId: 0, host: '', sni: '', port: '', hops: [] })
+
+export default function ChainEditor({ nodes, resources, servers, onClose, onSaved }: { nodes: Node[]; resources: ProxyResource[]; servers: PluginServer[]; onClose: () => void; onSaved: (receipt: ChainReceipt) => void }) {
+  const [drafts, setDrafts] = useState<Draft[]>([empty(servers[0]?.id ?? 0)])
+  const [selectingSource, setSelectingSource] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const receipt = useRef<{ signature: string; id: string } | null>(null)
+  const action = useAction()
+  const entryNodes = nodes.filter(node => node.protocol === 'vless-reality' && node.enabled !== false && resources.some(resource => resource.kind === 'direct' && resource.id === node.id && resource.reference_count === 0))
+  const update = (key: string, change: Partial<Draft>) => { receipt.current = null; setError(''); setDrafts(previous => previous.map(draft => draft.key === key ? { ...draft, ...change } : draft)) }
+  const addSource = (reference: SubscriptionHopReference, node: ExternalNodePreview) => {
+    const draft = drafts.find(draft => draft.key === selectingSource)
+    if (!draft || draft.hops.length >= 8) return
+    if (draft.hops.some(hop => hop.input.kind === 'subscription' && hop.input.source_id === reference.source_id && hop.input.external_node_id === reference.external_node_id)) { setError('同一条链路不能重复使用同一个订阅节点。'); return }
+    update(draft.key, { hops: [...draft.hops, { input: reference, name: node.name, address: endpoint(node.server ?? '', node.port ?? 0), serverId: null }] })
+    setSelectingSource(null)
+  }
+  const submit = () => void action.run(async () => {
+    const items: ChainInput[] = drafts.map((draft, index) => {
+      if (!draft.name.trim()) throw new Error(`请填写第 ${index + 1} 条链路的名称。`)
+      if (!draft.hops.length || draft.hops.length > 8) throw new Error(`第 ${index + 1} 条链路需要选择 1 至 8 个有序代理段。`)
+      const entryServer = draft.mode === 'new' ? draft.serverId : nodes.find(node => node.id === draft.nodeId)?.server_id
+      if (!entryServer) throw new Error(`请为第 ${index + 1} 条链路选择入口。`)
+      const hosts = [entryServer, ...draft.hops.flatMap(hop => hop.serverId === null ? [] : [hop.serverId])]
+      if (new Set(hosts).size !== hosts.length) throw new Error(`第 ${index + 1} 条链路重复使用了同一台受管服务器，请调整代理段。`)
+      return { name: draft.name.trim(), entry: draft.mode === 'new' ? { mode: 'new', server_id: draft.serverId, public_host: draft.host.trim(), sni: draft.sni.trim(), port: draft.port ? Number(draft.port) : null } : { mode: 'existing', node_id: draft.nodeId }, hops: draft.hops.map(hop => hop.input) }
+    })
+    const signature = JSON.stringify(items)
+    if (receipt.current?.signature !== signature) receipt.current = { signature, id: assignmentRequestId() }
+    return api<ChainReceipt>('/api/plugins/sing-box/chains/batch', 'POST', { request_id: receipt.current.id, items })
+  }, onSaved)
+  return <section className="panel chain-editor" aria-label="创建链路">
+    <div className="panel-heading"><h2>创建链路</h2><button type="button" className="text-button" disabled={action.busy} onClick={onClose}>收起编辑器</button></div>
+    <form onSubmit={event => { event.preventDefault(); submit() }}><div className="panel-body">
+      <ErrorNotice message={error || action.error} />
+      <p className="helper">每条链路拥有独立公开入口；按入口之后的实际顺序添加受管节点或订阅节点，最后一段作为出口。一次可创建 1 至 32 条链路，全部校验通过后一起保存。</p>
+      <fieldset disabled={action.busy}>{drafts.map((draft, index) => {
+        const entryServer = draft.mode === 'new' ? draft.serverId : nodes.find(node => node.id === draft.nodeId)?.server_id
+        const eligible = nodes.filter(node => node.enabled !== false && node.protocol === 'vless-reality' && node.server_id !== entryServer && !draft.hops.some(hop => hop.serverId === node.server_id) && resources.some(resource => resource.kind === 'direct' && resource.id === node.id))
+        const move = (position: number, delta: number) => { const hops = [...draft.hops]; [hops[position], hops[position + delta]] = [hops[position + delta], hops[position]]; update(draft.key, { hops }) }
+        return <fieldset className="chain-draft" key={draft.key}><legend>链路 {index + 1}</legend>
+          <div className="node-fields-grid"><Field label="链路名称"><input required maxLength={128} value={draft.name} onChange={event => update(draft.key, { name: event.target.value })} /></Field>
+            <Field label="入口方式"><select aria-label="入口方式" value={draft.mode} onChange={event => update(draft.key, { mode: event.target.value as Draft['mode'] })}><option value="new">新建独立入口</option><option value="existing">使用未授权的已有入口</option></select></Field>
+            {draft.mode === 'new' ? <><Field label="入口服务器"><select aria-label="入口服务器" required value={draft.serverId || ''} onChange={event => update(draft.key, { serverId: Number(event.target.value) })}><option value="" disabled>选择服务器</option>{servers.map(server => <option key={server.id} value={server.id}>{server.name}{server.online ? '' : ' · 离线'}</option>)}</select></Field><Field label="入口端口" hint="留空自动分配；每条链路使用不同监听端口。"><input type="number" min={1} max={65535} step={1} value={draft.port} placeholder="自动分配" onChange={event => update(draft.key, { port: event.target.value })} /></Field><Field label="入口公开地址"><input required maxLength={253} value={draft.host} placeholder="entry.example.com" onChange={event => update(draft.key, { host: event.target.value })} /></Field><Field label="入口握手域名"><input required maxLength={253} value={draft.sni} placeholder="www.example.com" onChange={event => update(draft.key, { sni: event.target.value })} /></Field></> : <Field label="已有入口" hint="须为已启用、未授权且未被链路引用的 Reality 节点；保存时再次校验。"><select aria-label="已有入口" required value={draft.nodeId || ''} onChange={event => update(draft.key, { nodeId: Number(event.target.value) })}><option value="" disabled>选择已有入口</option>{entryNodes.map(node => <option key={node.id} value={node.id}>{node.name} · {endpoint(node.public_host, node.port)}</option>)}</select></Field>}
+          </div>
+          <ol className="chain-hop-list"><li className="chain-entry"><strong>公开入口</strong><span>{draft.mode === 'new' ? draft.port ? endpoint(draft.host || '待填写地址', Number(draft.port)) : `${draft.host || '待填写地址'}（自动端口）` : nodes.find(node => node.id === draft.nodeId)?.name ?? '尚未选择'}</span></li>{draft.hops.map((hop, position) => <li key={`${hop.input.kind}-${hop.input.kind === 'managed' ? hop.input.node_id : `${hop.input.source_id}-${hop.input.external_node_id}`}`}><div><strong>第 {position + 1} 段{position === draft.hops.length - 1 ? ' · 最终出口' : ''}：{hop.name}</strong><small>{hop.input.kind === 'managed' ? '受管节点' : '订阅节点'} · {hop.address}</small>{hop.input.kind === 'subscription' && <label className="chain-mode">更新方式<select value={hop.input.update_mode} onChange={event => update(draft.key, { hops: draft.hops.map((item, at) => at === position && item.input.kind === 'subscription' ? { ...item, input: { ...item.input, update_mode: event.target.value as SubscriptionHopReference['update_mode'] } } : item) })}><option value="follow_node">跟随所选节点更新</option><option value="pinned">固定所选版本</option></select></label>}</div><div className="row-actions"><button type="button" className="text-button" aria-label={`第 ${position + 1} 段上移`} disabled={position === 0} onClick={() => move(position, -1)}>上移</button><button type="button" className="text-button" aria-label={`第 ${position + 1} 段下移`} disabled={position === draft.hops.length - 1} onClick={() => move(position, 1)}>下移</button><button type="button" className="text-button danger-text" onClick={() => update(draft.key, { hops: draft.hops.filter((_, at) => at !== position) })}>移除此段</button></div></li>)}</ol>
+          <div className="chain-add-hop"><Field label="添加受管代理段"><select aria-label="添加受管代理段" value="" disabled={draft.hops.length >= 8} onChange={event => { const node = nodes.find(node => node.id === Number(event.target.value)); if (node) update(draft.key, { hops: [...draft.hops, { input: { kind: 'managed', node_id: node.id }, name: node.name, address: endpoint(node.public_host, node.port), serverId: node.server_id }] }) }}><option value="">选择其他服务器的节点</option>{eligible.map(node => <option key={node.id} value={node.id}>{node.name} · {servers.find(server => server.id === node.server_id)?.name ?? `服务器 #${node.server_id}`}</option>)}</select></Field><button className="button button-secondary" type="button" disabled={draft.hops.length >= 8} onClick={() => { setError(''); setSelectingSource(draft.key) }}>从订阅来源添加一段</button></div>
+          {drafts.length > 1 && <button className="text-button danger-text" type="button" onClick={() => { receipt.current = null; setDrafts(previous => previous.filter(item => item.key !== draft.key)); if (selectingSource === draft.key) setSelectingSource(null) }}>移除此链路</button>}
+        </fieldset>
+      })}</fieldset>
+      <p className="helper">订阅的原始路由不会导入。节点顺序与传输承载会在保存时校验；验证路径和切换完成后，链路才可进入用户订阅。只有公开入口计算用户流量。</p>
+      <div className="row-actions"><button type="button" className="button button-secondary" disabled={action.busy || drafts.length >= 32} onClick={() => { receipt.current = null; setDrafts(previous => [...previous, empty(servers[0]?.id ?? 0)]) }}>添加一条独立链路</button><button className="button button-primary" disabled={action.busy}>{action.busy ? '正在保存…' : `保存 ${drafts.length} 条链路`}</button></div>
+    </div></form>
+    {selectingSource && !action.busy && <div className="panel-body chain-source-picker"><div className="panel-heading"><h3>选择要添加到链路 {drafts.findIndex(draft => draft.key === selectingSource) + 1} 的订阅节点</h3><button type="button" className="text-button" onClick={() => setSelectingSource(null)}>关闭选点</button></div><ErrorNotice message={error} /><SubscriptionSources onSelect={addSource} /></div>}
+  </section>
+}

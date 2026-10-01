@@ -16,6 +16,8 @@ python3 scripts/panel.py install --public-url https://panel.example.com
 
 后台“统计仪表盘”（`/#/statistics`）提供服务器状态、近 7/30 天网卡与代理流量趋势和排行，仅管理员可见。节点可配置监听/公开端点、启停与各协议高级参数；代理用户的订阅窗口支持可用状态、配置预览、复制与下载。面板管理工具提供状态、日志、自检和私有备份，升级会先备份，保留凭据与数据卷。
 
+sing-box 运维入口提供状态、脱敏日志、重启和失败部署重试；服务器任务页展示命令执行过程并支持按设备能力取消。代理节点页统一管理直连与有序混合链路，可导入机场订阅并选择具体节点作为中间段或出口，支持固定版本及跟随同一节点更新。使用方法与平台限制见 [Agent 运维与混合链路](docs/agent-runtime-and-chains.md)。
+
 「延迟检测」可统一分配 TCP/ICMP 任务；「看板与通知」可配置离线、资源、到期、流量提醒和 Telegram 渠道。操作见[延迟检测与通知](docs/monitoring.md)。检测与通知均需管理员配置，不执行付款、停用或远程命令。
 
 远端接入需要可达的 HTTPS 地址。维护者先按[部署维护流程](docs/deploy.md#导入签名-release)使用管理员运维接口准备对应服务器架构的签名 Release，再到服务器接入页复制一次性安装命令，在目标服务器执行。选择 Shell（Linux、macOS、FreeBSD）或 PowerShell（Windows）入口，自动匹配本机系统、CPU/ABI 与最新兼容的已签稳定版本，也可指定已签版本。一行命令自动下载官方独立安装入口，核对固定入口摘要、准备验证工具并核验制品签名，无需预装 `sinan-bootstrap`。
@@ -31,8 +33,9 @@ Agent 从 GitHub Release 或配置的独立 HTTPS 镜像下载，面板不提供
 - [开发、测试和 CI](docs/dev.md)
 - [离线签署、发布与公钥轮换](docs/release.md)
 - [真实 Reality 验收与阶段证据](docs/e2e.md)
-- [sing-box 策略组、套餐周期与两跳链路](docs/singbox-groups.md)
-- [代理节点内的多条混合链路与机场订阅来源设计（待实现）](docs/node-chain-design.md)
+- [sing-box 策略组与套餐周期](docs/singbox-groups.md)
+- [Agent 运维、命令状态与机场混合链路](docs/agent-runtime-and-chains.md)
+- [混合链路与机场订阅来源的设计和验收边界](docs/node-chain-design.md)
 - [HTTP API](docs/api.md) / [设备协议](docs/protocol.md)
 - [架构决策](docs/adr/0001-declarative-snapshots.md) / [问题与选择](docs/open-questions.md)
 - [执行计划](docs/PLAN.md) / [验证进度](PROGRESS.md)

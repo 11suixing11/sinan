@@ -1,6 +1,10 @@
 #![forbid(unsafe_code)]
 
 pub mod platform;
+pub mod runtime_operations;
+pub use runtime_operations::*;
+pub mod runtime_validations;
+pub use runtime_validations::*;
 pub mod tasks;
 pub mod upgrade;
 pub use upgrade::{AgentRelease, release_version};

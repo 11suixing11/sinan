@@ -127,7 +127,7 @@ impl Drop for CommandGuard {
     }
 }
 
-async fn drain(
+pub(super) async fn drain(
     mut reader: impl tokio::io::AsyncRead + Unpin,
     maximum: usize,
 ) -> Result<(String, bool)> {
@@ -143,7 +143,9 @@ async fn drain(
         saved.extend_from_slice(&buffer[..keep]);
         truncated |= keep != length;
     }
-    let mut text = String::from_utf8_lossy(&saved).into_owned();
+    // Normalize NUL like invalid UTF-8 for a displayable, persistable report,
+    // then bound the resulting UTF-8 bytes.
+    let mut text = String::from_utf8_lossy(&saved).replace('\0', "\u{fffd}");
     let mut limit = text.len().min(maximum);
     while !text.is_char_boundary(limit) {
         limit -= 1;
@@ -219,6 +221,15 @@ pub(super) async fn execute(
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn command_output_normalizes_nul_before_enforcing_utf8_byte_limit() -> Result<()> {
+        let (text, truncated) = drain(&b"a\0b\0c"[..], 8).await?;
+        assert_eq!(text, "a\u{fffd}b\u{fffd}");
+        assert_eq!(text.len(), 8);
+        assert!(truncated);
+        assert!(!text.contains('\0'));
+        Ok(())
+    }
     #[tokio::test]
     async fn managed_process_preserves_terminal_retirement_exit_code() -> Result<()> {
         let mut child = spawn(Path::new("sh"), &["-c".into(), "exit 78".into()])?;

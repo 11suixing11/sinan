@@ -1,6 +1,5 @@
 export type PolicyGroup = { id: number; name: string; node_ids: number[]; chain_ids: number[]; member_count: number }
 export type PackageGroup = { id: number; name: string; monthly_bytes: string | null; reset_day: number; reset_hour: number; reset_minute: number; timezone: string; duration_days: number }
-export type Chain = { id: number; name: string; entry_node_id: number; exit_node_id: number; available: boolean }
 export type UserPolicies = { group_ids: number[] }
 export type Entitlement = {
   user_id: number; package_group_id: number | null; package_name: string | null; monthly_bytes: string | null;
