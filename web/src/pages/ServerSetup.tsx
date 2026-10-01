@@ -5,6 +5,7 @@ import { useAction } from '../hooks'
 import type { Probe } from '../probes'
 import type { AgentSettings, Server } from '../types'
 import './server-setup.css'
+import ServerOperationsFields from './ServerOperationsFields'
 import { assetDraft, assetPayload } from '../server-assets'
 import ServerAssetFields, { SetupNavigation } from './ServerAssetFields'
 
@@ -53,6 +54,7 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
             <Field label="服务器名称" hint="系统、架构和硬件信息会在 Agent 接入后自动获取。"><input name="name" required pattern=".*\S.*" maxLength={128} value={name} onChange={event => setName(event.target.value)} placeholder="例如：东京 · 主节点" autoComplete="off" /></Field>
           </section>
           <ServerAssetFields value={asset} onChange={setAsset} />
+      <ServerOperationsFields asset={asset} onChange={setAsset} />
           <section className="server-setup-section" aria-labelledby="setup-monitoring">
             <div className="server-setup-heading"><div><h3 id="setup-monitoring">监控与采集</h3><p>采样决定数据精度，批量上传决定展示更新频率。</p></div><Icon name="activity" size={20} /></div>
             <div className="server-setup-presets" role="group" aria-label="监控频率预设">{frequencies.map(frequency => <button key={frequency.label} type="button" aria-pressed={sample === frequency.sample && upload === frequency.upload} onClick={() => { setSample(frequency.sample); setUpload(frequency.upload) }}><strong>{frequency.label}</strong><span>{frequency.sample} 秒采样 · {frequency.upload} 秒上传</span><small>{frequency.note}</small></button>)}</div>
@@ -62,7 +64,7 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
             </div>
             <div className="server-setup-toggles">
               <label className="server-setup-toggle"><span><strong>自动识别公网地址</strong><small>识别 IPv4 / IPv6；设备本地关闭时，以本地设置为准。</small></span><input type="checkbox" role="switch" name="discover_public_ips" checked={discover} onChange={event => setDiscover(event.target.checked)} /><span className="server-setup-switch" aria-hidden="true" /></label>
-              <label className="server-setup-toggle"><span><strong>自动更新 Agent</strong><small>使用面板中匹配平台的兼容签名版本，保留设备身份与本地状态。</small></span><input type="checkbox" role="switch" name="auto_update" checked={autoUpdate} onChange={event => setAutoUpdate(event.target.checked)} /><span className="server-setup-switch" aria-hidden="true" /></label>
+              <label className="server-setup-toggle"><span><strong>自动更新 Agent</strong><small>从 GitHub 下载面板选定的兼容签名版本，保留设备身份与本地状态。</small></span><input type="checkbox" role="switch" name="auto_update" checked={autoUpdate} onChange={event => setAutoUpdate(event.target.checked)} /><span className="server-setup-switch" aria-hidden="true" /></label>
             </div>
           </section>
           <section className="server-setup-section" aria-labelledby="setup-probes">

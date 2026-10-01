@@ -32,6 +32,7 @@ try {
       requests.push(path)
       if (route.request().method() !== 'GET') mutations.push({ path, method: route.request().method() })
       let value
+      if (path === '/api/dashboard/access') return route.fulfill({ json: { authenticated: true, public_dashboard: false } })
       if (path === '/api/me') value = { authenticated: true }
       else if (path === '/api/servers/1') value = entry
       else if (path === '/api/plugins/sing-box/servers/1') value = metadata

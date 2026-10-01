@@ -45,9 +45,10 @@ try {
     const probeResults = definition => Array.from({ length: 20 }, (_, index) => ({ id: `result-${definition.id}-${index}`, probe_id: definition.id, sampled_at: now - index * 10_000, latency_ms: definition.id === 'probe-2' && index === 0 ? null : index === 0 ? 0 : 20 + index, loss_percent: definition.id === 'probe-1' ? 0 : 100, error: definition.id === 'probe-3' ? 'permission denied' : null }))
     let failure = 0, signedIn = true, historyFailure = false, probeFailure = false, missing = false, reads = 0
     await page.route('**/api/**', async route => {
-      const request = route.request(), url = new URL(request.url()), path = url.pathname
+      const request = route.request(), url = new URL(request.url()), path = url.pathname.replace('/api/dashboard/', '/api/')
       requests.push(path + url.search)
       if (request.method() !== 'GET') writes.push(path)
+      if (path === '/api/access') return route.fulfill({ json: { authenticated: signedIn && failure !== 401, public_dashboard: false } })
       if (path === '/api/me') { await route.fulfill({ status: signedIn ? 200 : 401, json: signedIn ? {} : { error: '登录已过期' } }); return }
       if (path === '/api/servers') {
         reads++
@@ -143,7 +144,7 @@ try {
     assert.equal(await page.locator('.server-display').count(), 0)
     assert.equal(await page.evaluate(() => document.body.classList.contains('has-server-display')), false)
     assert.equal(await page.locator('.sidebar').evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(251, 252, 249)')
-    await page.getByRole('link', { name: '打开服务器看板', exact: true }).click()
+    await page.getByRole('link', { name: '服务器看板', exact: true }).click()
     await page.locator('.d-card').first().waitFor()
     probeFailure = true
     await page.getByRole('button', { name: '刷新服务器', exact: true }).click()
@@ -155,9 +156,8 @@ try {
     failure = 403
     await page.getByRole('button', { name: '刷新服务器', exact: true }).click()
     await page.getByRole('alert').waitFor()
-    assert.equal(await page.locator('.d-card').count(), 6)
+    assert.equal(await page.locator('.d-card').count(), 0)
     assert.equal(await stats.nth(2).locator('.d-overview-value').innerText(), '—')
-    assert.match(await page.locator('.d-card').first().innerText(), /状态未知/)
     failure = 0
     await page.getByRole('button', { name: '重试', exact: true }).click()
     await page.getByRole('alert').waitFor({ state: 'hidden' })

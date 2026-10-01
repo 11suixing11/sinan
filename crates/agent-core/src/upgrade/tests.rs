@@ -27,15 +27,17 @@ impl Drop for Fixture {
 }
 
 impl Fixture {
-    fn artifact(origin: &str, version: &str, bytes: &[u8]) -> Artifact {
+    fn artifact(_origin: &str, version: &str, bytes: &[u8]) -> Artifact {
         let proof = signed_release(vec![(
             entry("agent", version, executable_name(), "raw", bytes, bytes),
             bytes.to_vec(),
         )]);
+        let metadata: sinan_protocol::release::ReleaseMetadata =
+            serde_json::from_str(&proof.metadata_json).unwrap();
         Artifact {
             url: format!(
-                "{origin}/api/agent/v1/artifacts/agent/{version}/{}",
-                sinan_protocol::release::native_arch().unwrap()
+                "https://github.com/{}/releases/download/{}/{}",
+                metadata.source_repo, metadata.tag, metadata.artifacts[0].asset_name
             ),
             sha256: hash(bytes),
             proof: Some(proof),
@@ -126,13 +128,14 @@ fn main() {
         let origin = format!("http://{}", listener.local_addr()?);
         let release = Arc::new(Mutex::new(AgentRelease {
             version: version.into(),
+            download_mirror: String::new(),
             artifact: Self::artifact(&origin, version, &bytes),
         }));
         let bytes = Arc::new(Mutex::new(bytes));
         let response_bytes = bytes.clone();
         let binary_path = format!(
-            "GET /api/agent/v1/artifacts/agent/{version}/{} ",
-            sinan_protocol::release::native_arch()?
+            "GET {} ",
+            reqwest::Url::parse(&release.lock().unwrap().artifact.url)?.path()
         );
         let response_release = release.clone();
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -182,8 +185,9 @@ async fn independent_agent_version_can_upgrade_below_the_core_version() -> Resul
     assert!(release_version(candidate) < release_version(env!("CARGO_PKG_VERSION")));
     let fixture = Fixture::with_version(candidate).await?;
     let config = fixture.config_for_version(current).await?;
-    let client = PanelClient::new(&fixture.origin, "update-fixture-session")?
+    let mut client = PanelClient::new(&fixture.origin, "update-fixture-session")?
         .with_trusted_keys(trusted_keys());
+    client.agent_download_test_origin = Some(reqwest::Url::parse(&fixture.origin)?);
     check_guarded(&config, &SystemOps, &client, current, None).await?;
     let pending: PendingUpgrade = read_json(&config.agent_root.join("pending-update.json"))?;
     assert_eq!(pending.version, candidate);
@@ -204,8 +208,9 @@ async fn independent_agent_version_rejects_equal_or_older_candidate_above_core()
     let candidate = "99.0.0";
     assert!(release_version(candidate) > release_version(env!("CARGO_PKG_VERSION")));
     let fixture = Fixture::new().await?;
-    let client = PanelClient::new(&fixture.origin, "update-fixture-session")?
+    let mut client = PanelClient::new(&fixture.origin, "update-fixture-session")?
         .with_trusted_keys(trusted_keys());
+    client.agent_download_test_origin = Some(reqwest::Url::parse(&fixture.origin)?);
     for current in [candidate, "99.0.1"] {
         let config = fixture.config_for_version(current).await?;
         fixture.requests.lock().unwrap().clear();
@@ -226,8 +231,9 @@ async fn stages_signed_updates_only_after_identity_digest_format_and_version_che
     let fixture = Fixture::new().await?;
     let config = fixture.config().await?;
     let ops = SystemOps;
-    let client = PanelClient::new(&fixture.origin, "update-fixture-session")?
+    let mut client = PanelClient::new(&fixture.origin, "update-fixture-session")?
         .with_trusted_keys(trusted_keys());
+    client.agent_download_test_origin = Some(reqwest::Url::parse(&fixture.origin)?);
     let original = fixture.release.lock().unwrap().clone();
     let pending = config.agent_root.join("pending-update.json");
 
@@ -262,7 +268,7 @@ async fn stages_signed_updates_only_after_identity_digest_format_and_version_che
             .await
             .unwrap_err()
             .to_string()
-            .contains("configured panel origin")
+            .contains("identity differs")
     );
     assert!(!pending.exists());
 
@@ -287,6 +293,16 @@ async fn stages_signed_updates_only_after_identity_digest_format_and_version_che
 
     *fixture.release.lock().unwrap() = original.clone();
     check(&config, &ops, &client).await?;
+    for request in fixture
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|request| !request.starts_with("GET /api/agent/v1/update "))
+    {
+        assert!(!request.to_lowercase().contains("authorization:"));
+        assert!(!request.contains("update-fixture-session"));
+    }
     let staged: PendingUpgrade = read_json(&pending)?;
     assert_eq!(staged.version, original.version);
     assert_eq!(staged.sha256, original.artifact.sha256);
@@ -361,8 +377,9 @@ async fn stages_signed_updates_only_after_identity_digest_format_and_version_che
 async fn rejects_unsigned_or_corrupt_updates_before_download_or_execution() -> Result<()> {
     let fixture = Fixture::new().await?;
     let config = fixture.config().await?;
-    let client = PanelClient::new(&fixture.origin, "update-fixture-session")?
+    let mut client = PanelClient::new(&fixture.origin, "update-fixture-session")?
         .with_trusted_keys(trusted_keys());
+    client.agent_download_test_origin = Some(reqwest::Url::parse(&fixture.origin)?);
     let original = fixture.release.lock().unwrap().clone();
     let mut rejected = Vec::new();
     let mut unsigned = original.clone();
@@ -409,8 +426,9 @@ async fn candidate_cache_preflight_uses_the_actual_configuration_and_rejects_fai
 {
     let fixture = Fixture::new().await?;
     let config = fixture.config().await?;
-    let client = PanelClient::new(&fixture.origin, "update-fixture-session")?
+    let mut client = PanelClient::new(&fixture.origin, "update-fixture-session")?
         .with_trusted_keys(trusted_keys());
+    client.agent_download_test_origin = Some(reqwest::Url::parse(&fixture.origin)?);
     check(&config, &SystemOps, &client).await?;
     let candidate = config.agent_root.join("99.0.0").join(executable_name());
     let path = fixture.root.join("custom Agent configuration.toml");

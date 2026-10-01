@@ -31,6 +31,7 @@ impl Fixture {
         let data = root.join("data");
         std::fs::create_dir(&data)?;
         let state = AppState {
+            started_at: sinan_protocol::now_timestamp(),
             device_lifecycle: Default::default(),
             pool: PgPoolOptions::new().connect_lazy("postgres://fixture@127.0.0.1/unused")?,
             login_permits: Arc::new(Semaphore::new(4)),

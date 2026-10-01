@@ -28,6 +28,8 @@ struct Daily {
 
 #[derive(Default, Serialize)]
 pub struct TrafficSummary {
+    pub correction_id: Option<i64>,
+    pub corrected: bool,
     pub cycle_start: i64,
     pub cycle_end: i64,
     pub uploaded: String,
@@ -219,9 +221,22 @@ pub async fn attach(pool: &PgPool, servers: &mut [Server], now: i64) -> anyhow::
     for total in totals {
         grouped.entry(total.id).or_default().push(total);
     }
+    let corrections: BTreeMap<_, _> = crate::traffic_correction::current(pool, servers, now)
+        .await?
+        .into_iter()
+        .map(|row| (row.server_id, row))
+        .collect();
     for server in servers {
         if let Some(rows) = grouped.remove(&server.id) {
-            server.traffic = Some(summarize(&server.asset_settings, rows)?);
+            let mut summary = summarize(&server.asset_settings, rows)?;
+            if let Some(correction) = corrections.get(&server.id) {
+                let up = corrected_total(&summary.uploaded, &correction.uploaded_offset)?;
+                let down = corrected_total(&summary.downloaded, &correction.downloaded_offset)?;
+                summary.correction_id = Some(correction.id);
+                summary.corrected = true;
+                summarize_totals(&mut summary, &server.asset_settings, up, down)?;
+            }
+            server.traffic = Some(summary);
         }
     }
     Ok(())
@@ -254,15 +269,35 @@ fn summarize(asset: &AssetSettings, rows: Vec<Total>) -> anyhow::Result<TrafficS
         }
         summary.incomplete |= row.incomplete.unwrap_or(false);
     }
+    summarize_totals(&mut summary, asset, up, down)?;
+    Ok(summary)
+}
+
+fn corrected_total(value: &str, offset: &str) -> anyhow::Result<u128> {
+    let value: u128 = value.parse()?;
+    let offset: i128 = offset.parse()?;
+    Ok(if offset < 0 {
+        value.saturating_sub(offset.unsigned_abs())
+    } else {
+        value.saturating_add(offset as u128)
+    })
+}
+
+fn summarize_totals(
+    summary: &mut TrafficSummary,
+    asset: &AssetSettings,
+    up: u128,
+    down: u128,
+) -> anyhow::Result<()> {
     let used = asset.traffic_limit_type.used(up, down);
     let limit: u128 = asset.traffic_limit.parse()?;
     summary.uploaded = up.to_string();
     summary.downloaded = down.to_string();
     summary.used = used.to_string();
-    if limit > 0 && summary.observed_from.is_some() {
+    if limit > 0 && (summary.observed_from.is_some() || summary.corrected) {
         summary.remaining = Some(limit.saturating_sub(used).to_string());
         summary.percent = Some(used as f64 / limit as f64 * 100.0);
         summary.exceeded = used >= limit;
     }
-    Ok(summary)
+    Ok(())
 }

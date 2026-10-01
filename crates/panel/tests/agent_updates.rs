@@ -109,7 +109,24 @@ async fn updates_require_opt_in_matching_platform_and_newer_verified_stable_rele
         release_root.join("agent/0.10.0/linux-musl-amd64"),
         b"tampered",
     )?;
-    assert_eq!(fetch().await?.status(), StatusCode::CONFLICT);
+    // The panel supplies a signed descriptor; binaries are fetched from GitHub.
+    let release: Value = fetch().await?.error_for_status()?.json().await?;
+    assert!(
+        release["artifact"]["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://github.com/theLucius7/sinan/releases/download/")
+    );
+    assert!(
+        !release["artifact"]["url"]
+            .as_str()
+            .unwrap()
+            .contains(&panel.base)
+    );
+    sqlx::query("UPDATE servers SET asset_settings=jsonb_set(asset_settings,'{agent_mirror}',to_jsonb($2::text)) WHERE id=$1")
+        .bind(server).bind("https://mirror.example.com").execute(&panel.state.pool).await?;
+    let release: Value = fetch().await?.error_for_status()?.json().await?;
+    assert_eq!(release["download_mirror"], "https://mirror.example.com");
     Ok(())
 }
 

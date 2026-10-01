@@ -26,6 +26,26 @@ class Response(io.BytesIO):
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_mirror_is_explicit_https_prefix_without_panel_credentials(self):
+        base = "https://github.com/theLucius7/sinan/releases/download/agent-v0.3.1"
+        mirror = "https://mirror.example.com"
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "agent"
+            with patch.object(bootstrap, "github_opener") as opener:
+                opener.return_value.open.return_value = Response(b"signed", mirror + "/" + base + "/agent")
+                bootstrap.download(base, "agent", target, 1024, mirror)
+                self.assertEqual(opener.call_args.args, (mirror,))
+                self.assertEqual(opener.return_value.open.call_args.args, (mirror + "/" + base + "/agent",))
+                self.assertEqual(target.read_bytes(), b"signed")
+        for prefix in ("http://mirror.example.com", "https://secret@mirror.example.com", "https://127.0.0.1",
+                       "https://[::1]", "https://mirror.example.com?token=secret", "https://mirror.example.com/#fragment",
+                       "https://panel.example.com:443"):
+            with self.subTest(prefix=prefix), self.assertRaises(ValueError):
+                bootstrap.validate_mirror(prefix,"https://panel.example.com")
+        request = urllib.request.Request(mirror + "/" + base + "/agent")
+        with self.assertRaises(ValueError):
+            bootstrap.GithubRedirect(mirror).redirect_request(request,None,302,"Found",{},"https://panel.example.com/agent")
+
     def test_http_panel_is_only_allowed_for_loopback(self):
         for value in ("http://127.0.0.1:8000", "http://[::1]:8000", "http://localhost:8000",
                       "http://[::ffff:127.0.0.1]:8000", "https://panel.example.com"):
