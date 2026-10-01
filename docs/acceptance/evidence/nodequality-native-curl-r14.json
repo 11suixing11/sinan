@@ -1,0 +1,58 @@
+{
+  "scope": "Native curl identity only, with owned loopback and inert pinned source fixtures. No full NodeQuality, rootfs or external provider execution.",
+  "product_source": "dbb37f85de92d8ae1f7ae216433389d4e1eea7fa",
+  "supplement_source": "60e9650f0c264baeefa6ceb0787f477259ce85ce",
+  "host_unique": {
+    "ran": 158,
+    "passed": 141,
+    "skipped": 17,
+    "retained_initial_failures": 2
+  },
+  "debian_unique": {
+    "ran": 122,
+    "passed": 121,
+    "skipped": 1,
+    "retained_initial_failures": 2
+  },
+  "rust": {
+    "passed": 19,
+    "failed": 0,
+    "ignored": 0
+  },
+  "receipts": {
+    "host_first": "1d399982be19bcb9fffc06fb7934739c4a58f5c797fabe8a1f02b3f772686131",
+    "host_supplement": "4882e8e737497d12db12d280b5b8594147d7aed197ce0082f17523f6d1b195c1",
+    "rust": "1fc498e4d7a11d84c21d379f22598ba5c2bc8120ed9eb5707ea8d5362b56b689",
+    "debian_first_input": "dd23a8bf6d22f294c61d2c08c573ad794b569f020e8aa149290bc23e18f13506",
+    "debian_first_result": "856d5c28195cfe24d85580aa04a61445214228ae59cf5fd04133911896c5c2c8",
+    "debian_first_postcheck": "6bd187ab0b63145e9a3f4eb9879155028b8b2112ce9e78bb8a91203df74f9a11",
+    "debian_first_receipt": "cd808a465e8244782ab9a229b6b7c19491a5d508c921179905edbcc22acc750f",
+    "debian_supplement_input": "d89c13bbbbb157110c7371e7e180f73a000328e2915eac7b324f9095d202d9ba",
+    "debian_supplement_result": "a58331e9480dce79a7a526ed42dbcfeb7ff8c21c563efb38b023d98a5e023e18",
+    "debian_supplement_postcheck": "5604d0db9a662f8f3ee374dadb8c9a17370cbb9cab8d9522685998f069a6e786",
+    "debian_supplement_receipt": "9645bb319c9f0e99d7f704ca60a393f8a91cbd032cf1ab3a83dff67ce232b664"
+  },
+  "limits": {
+    "memory_max": 268435456,
+    "memory_swap_max": 0,
+    "tasks_max": 64,
+    "cpu_weight": 10,
+    "io_weight": 10,
+    "oom_score_adjust": 500,
+    "private_network": true,
+    "private_mounts": true,
+    "kill_mode": "control-group"
+  },
+  "first_peak_bytes": 69791744,
+  "supplement_peak_bytes": 65359872,
+  "cleanup": "Both units collected, no fixture processes, mounts or cgroups; no new kernel OOM; SSH PID406 NRestarts0, same boot, swap0. Private PG55439 stopped and port closed.",
+  "not_accepted": [
+    "full hardware diagnostics with sustained proxy traffic",
+    "node public provider success",
+    "cookies and public credentials",
+    "Netflix failure parsing",
+    "third-party tool/rootfs license and provenance",
+    "formal release or production deployment",
+    "paused CI"
+  ]
+}

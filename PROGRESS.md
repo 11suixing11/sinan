@@ -1192,3 +1192,5 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 正常合入已验证 r9 主线并将 PR 改到 main，保存双方进度；产品输入逐字等同作者 r10，另继承同一报告记录回调优化，原 20 秒预算不变。
 - 隔离树刷新编译输入后 Rust/PostgreSQL 诊断专项 42 项、workspace 全 targets Clippy、fmt/core 通过。七份新增数据的官方完整提交、Git tree/blob、原大小及 SHA 全部核对；实际 Bash5 依赖 11、数据 6、swap 10 和真实固定源报告 6 通过。
 - 耐久证据 pr113-root-rust-fresh-local、pr111-113-review-20261001；作者 guest 不作为本聊天重演。供给失败吞码另由 #115 处理，完整验机门禁与 CI 暂停继续保持。
+
+- 整体分支r14回归已完成：本机158个唯一用例最终141通过/17条件跳过，Debian122个唯一用例最终121通过/1缺minisign跳过，Rust/API19通过。两端各两项旧r13版本测试失败已修正并保留原证据；主线回调优化、相关报告和未完成套件已补验。两套限额单元无OOM/残留，SSH未重启。详见[原生curl验收](docs/acceptance/nodequality-native-curl.md)，不替代完整执行链和阶段总验。
