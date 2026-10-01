@@ -818,27 +818,25 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
             .status(),
         StatusCode::CONFLICT
     );
-    let enrollment: Value = panel
-        .admin(
-            reqwest::Method::POST,
-            &format!("/api/servers/{server_id}/enrollment"),
-            &cookie,
-            None,
-        )
+    let issued: Value = panel
+        .client
+        .post(format!("{}/api/servers/{server_id}/enrollment", panel.base))
+        .header(header::COOKIE, &cookie)
+        .header(header::ORIGIN, &panel.base)
+        .send()
         .await?
         .error_for_status()?
         .json()
         .await?;
     assert!(
-        enrollment["install_command"].as_str().unwrap().contains(
-            enrollment["installation"]["bootstrap_url"]
-                .as_str()
-                .unwrap()
-        )
+        issued["install_command"]
+            .as_str()
+            .unwrap()
+            .contains(issued["installation"]["bootstrap_url"].as_str().unwrap())
     );
     assert_eq!(
-        enrollment["install_command"],
-        enrollment["installation"]["install_command"]
+        issued["install_command"],
+        issued["installation"]["install_command"]
     );
     let missing = panel
         .client

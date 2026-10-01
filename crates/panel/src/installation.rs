@@ -216,7 +216,7 @@ mod tests {
                     fs::write(&path, content).unwrap();
                     fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
                 }
-                for tool in ["env", "mktemp", "rm", "sha256sum"] {
+                for tool in ["sh", "env", "mktemp", "rm", "sha256sum"] {
                     std::os::unix::fs::symlink(format!("/usr/bin/{tool}"), directory.join(tool))
                         .unwrap();
                 }

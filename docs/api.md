@@ -85,7 +85,7 @@
 
 `last_seen` 为 Unix 秒，表示最近设备消息，距最后消息不超过 60 秒视为在线。`last_heartbeat_at` 为 Unix 秒，仅 heartbeat 消息更新，旧数据或尚无心跳时为 null。`metrics_sampled_at` 是既有遥测采样时间，单位毫秒；尚无指标或旧 telemetry.metrics 不含采样时间时为 null。`metrics_stale` 按 Agent 采样和上传设置计算；过期不清空最近指标，在线也可能指标过期。静态信息和指标字段见 [协议文档](protocol.md)。未采集到的指标缺省，前端显示“暂无数据”；不得把缺失值显示为测得的零。
 
-接入令牌响应为 `{token,expires_at,install_command,installation,warning}`。有兼容的签名 Agent 时，`installation={version,tag,bootstrap_url,install_command}`、`install_command` 为可信 `sinan-bootstrap` 的接入命令；缺少制品或指定版本不可用时，命令与版本为 null，并返回中文 warning。未指定版本时按已签 metadata 选择最新协议兼容版本，不使用面板产品版本。令牌 24 小时有效、成功注册后只能消费一次。复制完整命令到目标 Linux 服务器执行即可；命令下载固定官方 GitHub 入口并核对摘要，入口自动准备验证工具和验证已签发布。重新签发令牌可用于原设备升级，已经注册的服务器只接受同一设备公钥。设备注册、WebSocket、制品下载的鉴权方式见协议文档。`GET /install.sh?token=…&agent_version=…` 验证有效令牌后返回 JSON `{version,tag,bootstrap_url,install_command}`，不返回可执行面板脚本；可选版本与接入接口相同。
+接入令牌响应为 `{token,expires_at,install_command,installation,warning}`。有兼容的签名 Agent 时，`installation={version,tag,bootstrap_url,install_command}`、`install_command` 为下载并验证官方独立入口的完整接入命令；缺少制品或指定版本不可用时，命令与版本为 null，并返回中文 warning。未指定版本时按已签 metadata 选择最新协议兼容版本，不使用面板产品版本。令牌 24 小时有效、成功注册后只能消费一次。复制完整命令到目标 Linux 服务器执行即可；命令下载固定官方 GitHub 入口并核对摘要，入口自动准备验证工具和验证已签发布。重新签发令牌可用于原设备升级，已经注册的服务器只接受同一设备公钥。设备注册、WebSocket、制品下载的鉴权方式见协议文档。`GET /install.sh?token=…&agent_version=…` 验证有效令牌后返回 JSON `{version,tag,bootstrap_url,install_command}`，不返回可执行面板脚本；可选版本与接入接口相同。
 
 删除服务器使用面板实际持有的 WebSocket 连接判定在线，与列表按最近 60 秒消息显示的 `online` 不同：
 
