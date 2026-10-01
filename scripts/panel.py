@@ -169,8 +169,8 @@ class Panel:
             if self.compose("ps", "-aq", "postgres", quiet=True):
                 self.backup()
             elif self.execute(["docker", "volume", "ls", "--filter", f"label=com.docker.compose.project={self.args.project}",
-                               "--filter", "label=com.docker.compose.volume=postgres-data", "--quiet"], quiet=True):
-                raise Failure("已有数据库卷但缺少服务容器。请使用原镜像恢复服务并备份，再运行 upgrade。")
+                               "--quiet"], quiet=True):
+                raise Failure("已有数据卷但缺少数据库服务容器。请使用原镜像恢复服务并备份，再运行 upgrade。")
             self.compose("build", "--pull", "panel")
             self.up()
         elif action == "upgrade":

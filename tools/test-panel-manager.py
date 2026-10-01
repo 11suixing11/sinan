@@ -26,7 +26,7 @@ elif args[:2] == ["ps", "-aq"]:
 elif "ps" in args and "-aq" in args:
     print("existing" if os.environ.get("PANEL_TEST_EXISTING") else "")
 elif "volume" in args:
-    print("existing-volume" if os.environ.get("PANEL_TEST_VOLUME") else "")
+    print("existing-volume" if os.environ.get("PANEL_TEST_VOLUME") or os.environ.get("PANEL_TEST_PANEL_VOLUME") and "label=com.docker.compose.volume=postgres-data" not in args else "")
 elif "pg_dump" in args:
     if os.environ.get("PANEL_TEST_FAIL"):
         print("private-database-password", file=sys.stderr)
@@ -146,6 +146,13 @@ class ManagerTests(unittest.TestCase):
         self.assertIn("label=com.docker.compose.project=sinan", volumes)
         self.assertFalse(any("com.docker.compose.volume=" in argument for argument in volumes))
         self.assertEqual(self.env_file.stat().st_mode & 0o777, 0o600)
+
+    def test_orphan_panel_data_with_preserved_environment_requires_recovery(self):
+        content = self.init()
+        result = self.run_cli("install", PANEL_TEST_PANEL_VOLUME="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.env_file.read_bytes(), content)
+        self.assertFalse(any("build" in command or "up" in command for command in self.commands()))
 
     def test_failed_stop_still_attempts_to_restore_original_service(self):
         self.init()
