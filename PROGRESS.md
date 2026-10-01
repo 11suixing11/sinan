@@ -584,3 +584,11 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - macOS 的软链接创建继承 umask，读取链接目标需要链接自身的读取权限。launchd 使用 `umask 027`，root 创建的运行时 `current` 无法由普通运行账户读取。`SystemOps::atomic_symlink` 在 macOS 发布前对临时链接执行 `chmod -h 755`，失败则清理临时链接；目标文件权限、目录隔离、进程 umask 和签名验证保持原有约束。
 - 扩展现有原子写入回归，检查软链接可读、目标文件仍为 0640、替换为悬空链接和拒绝覆盖普通文件。自动与手动 macOS 工作流均用 `umask 077` 运行该回归，然后运行完整原生服务、缓存篡改拒绝和恢复验收。
 - 本地 fmt、全 targets Clippy、core 门禁、三份 workflow actionlint、构建脚本 5 项及 Agent/协议/编译器/适配器 Rust 回归通过（193 项成功，7 项实机专项忽略）。本轮本机重启后临时 PostgreSQL 环境已清除，面板没有代码变更；完整工作区、真实 systemd、macOS 权限语义与所有平台再次由新提交 CI 验证，尚不记为全部通过。
+
+
+## 2026-10-01：P0 IP 显式错误响应确认（Issue #42 独立窄项 PR）
+
+- 根非空/畸形 errors 与 AbuseIPDB 实际 data 响应容器的明确失败或不确定标志不再采纳默认 0 分；沿用字段不匹配分类和已有历史缓存语义。空 errors、真实 0/false 及旧无标志成功兼容；不递归解释 ASN/company 元数据，不增加查询来源、请求或数据库 schema。正式接口仍严格校验目标 IP、公网、版本及已知字段。
+- 独立验收见 [IP 响应确认](docs/acceptance/ip-response-confirmation.md)。专属回环 HTTP 与临时 PostgreSQL 先保存 73 分，再分别返回根 errors、data.success=false、data.errors；失败后换池读取仍保留历史 73、成功时间和有效期，其余六库继续成功，新 IP 未知。30 项 IP 专项全部通过、无失败/忽略；workspace fmt、panel 全 targets Clippy（warnings 为错误）与差异检查通过。临时 PostgreSQL 已停止。
+- 原解析器字段负对照实际 4 通过/2 预期失败，证明两个错误响应均误返回当前 0；真实 HTTP/PostgreSQL 新历史回归在原解析器下预期失败，恢复修复后通过。源身份与负对照步骤分别记录，不把负例失败当作修复失败或累加场景数。
+- 四个远端 workflow 仍 disabled_manually，未触发、重跑或恢复 CI；未重复完整 workspace、浏览器、平台、正式外部源或节点实机总验，不关闭 Issue #42 剩余验收，也不签收、发布或部署新增诊断能力。下一步按整改顺序继续独立实机验收。

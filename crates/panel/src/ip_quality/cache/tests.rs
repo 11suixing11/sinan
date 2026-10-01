@@ -60,11 +60,22 @@ impl Source {
                                 "threat":{"is_proxy":null}
                             }))
                             .into_response(),
+                            9 => Json(json!({"errors":[{"detail":"fixture denied"}],"data":{"abuseConfidenceScore":0},"fraud_score":0,"proxy":false}))
+                                .into_response(),
+                            13 if query.get("db").is_some_and(|database| database == "abuseipdb") => {
+                                Json(json!({"errors":[{"detail":"fixture denied"}],"data":{"abuseConfidenceScore":0}}))
+                                    .into_response()
+                            }
                             mode => Json(json!({
                                 "ASN":{"AutonomousSystemNumber":64500},
                                 "company":{"abuser_score":if mode==4 {7} else {0}},
                                 "scamalytics":{"scamalytics_score":0},
-                                "data":{"abuseConfidenceScore":0},
+                                "data":match mode {
+                                    10 => json!({"success":false,"abuseConfidenceScore":0}),
+                                    11 => json!({"errors":[{"detail":"fixture unavailable"}],"abuseConfidenceScore":0}),
+                                    12 => json!({"abuseConfidenceScore":73}),
+                                    _ => json!({"abuseConfidenceScore":0}),
+                                },
                                 "fraud_score":0,"proxy":false,"is_proxy":false,
                                 "threat":{"is_proxy":false}
                             }))
@@ -347,7 +358,7 @@ async fn uncertain_payloads_never_replace_valid_zero_false_or_become_current_suc
     let at = now_timestamp() - 120;
     persist(&pool, id, &source.query(&ips, at).await).await?;
     let initial = read(&pool, id, &ips).await?.remove(0);
-    for (index, mode) in [5, 6, 7, 8, 1, 2, 3].into_iter().enumerate() {
+    for (index, mode) in [5, 6, 7, 8, 9, 1, 2, 3].into_iter().enumerate() {
         source.mode.store(mode, Ordering::SeqCst);
         let queried = source.query(&ips, at + index as i64 + 20).await;
         assert_eq!(queried[0].status, "failed");
@@ -373,7 +384,7 @@ async fn uncertain_payloads_never_replace_valid_zero_false_or_become_current_suc
         assert_eq!(history.databases[6].fields[1].value, json!(false));
     }
     let fresh_ips = ["192.0.2.2".into()];
-    for (index, mode) in [5, 6, 7, 8].into_iter().enumerate() {
+    for (index, mode) in [5, 6, 7, 8, 9].into_iter().enumerate() {
         source.mode.store(mode, Ordering::SeqCst);
         persist(
             &pool,
@@ -404,5 +415,61 @@ async fn uncertain_payloads_never_replace_valid_zero_false_or_become_current_suc
     assert!(!unknown.databases[6].historical);
     let untouched:Value=sqlx::query_scalar("SELECT success_payload FROM server_ip_quality_datasets WHERE server_id=$1 AND database='ipqualityscore'").bind(id).fetch_one(&pool).await?;
     assert_eq!(untouched, invalid);
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn failed_abuseipdb_envelope_preserves_history_without_hiding_other_views(
+    pool: PgPool,
+) -> Result<()> {
+    let id = server(&pool).await?;
+    let source = Source::start().await?;
+    let ips = ["192.0.2.1".into()];
+    let at = now_timestamp() - 120;
+    source.mode.store(12, Ordering::SeqCst);
+    persist(&pool, id, &source.query(&ips, at).await).await?;
+    let initial = read(&pool, id, &ips).await?.remove(0);
+    let saved = &initial.databases[3];
+    assert_eq!(saved.database, "abuseipdb");
+    assert_eq!(saved.fields[0].value, json!(73));
+    for (index, mode) in [13, 10, 11].into_iter().enumerate() {
+        source.mode.store(mode, Ordering::SeqCst);
+        let queried = source.query(&ips, at + index as i64 + 20).await;
+        assert_eq!(queried[0].status, "partial");
+        assert_eq!(queried[0].databases[3].status, "failed");
+        assert_eq!(
+            queried[0].databases[3].error_kind,
+            Some(QueryErrorKind::SchemaMismatch)
+        );
+        assert!(queried[0].databases[3].fields.is_empty());
+        persist(&pool, id, &queried).await?;
+        let reopened = PgPool::connect_with((*pool.connect_options()).clone()).await?;
+        let history = read(&reopened, id, &ips).await?.remove(0);
+        reopened.close().await;
+        let failed = &history.databases[3];
+        assert_eq!(failed.status, "failed");
+        assert!(failed.historical);
+        assert_eq!(failed.fields[0].value, json!(73));
+        assert_eq!(failed.last_success_at, saved.last_success_at);
+        assert_eq!(failed.fresh_until, saved.fresh_until);
+        assert_eq!(
+            failed.last_error.as_ref().unwrap().kind,
+            Some(QueryErrorKind::SchemaMismatch)
+        );
+        assert!(history.databases.iter().enumerate().all(|(i, dataset)| {
+            i == 3 || (dataset.status == "succeeded" && !dataset.historical)
+        }));
+        let unknown_ips = ["192.0.2.2".into()];
+        persist(
+            &pool,
+            id,
+            &source.query(&unknown_ips, at + index as i64 + 30).await,
+        )
+        .await?;
+        let unknown = read(&pool, id, &unknown_ips).await?.remove(0);
+        assert!(unknown.databases[3].fields.is_empty());
+        assert_eq!(unknown.databases[3].last_success_at, None);
+        assert!(!unknown.databases[3].historical);
+    }
     Ok(())
 }
