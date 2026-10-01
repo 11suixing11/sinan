@@ -190,6 +190,18 @@ def transfer_guard(port):
                     payload_bytes=PAYLOAD_BYTES)
 
 
+def traffic_worker(ledger, stop, port):
+    while not stop.is_set():
+        try:
+            measurement = transfer_guard(port)
+        except Exception as error:
+            # A failed process launch is a failed measurement, not a missing row.
+            measurement = dict(ok=False, error_type=type(error).__name__,
+                               payload_bytes=PAYLOAD_BYTES)
+        ledger.record(ledger.traffic, **measurement)
+        stop.wait(PERIOD)
+
+
 def agent_status(binary, config):
     try:
         return json.loads(command([str(binary), '--config', str(config), 'status'], timeout=2))
@@ -464,10 +476,6 @@ def main():
         for unit in units:
             assert initial[unit]['MainPID'] != '0' and initial[unit]['NRestarts'] == '0'
             assert initial[unit]['CPUWeight'] == '1000' and initial[unit]['OOMScoreAdjust'] == '-500'
-        def traffic():
-            while not stop.is_set():
-                ledger.record(ledger.traffic, **transfer_guard(port))
-                stop.wait(PERIOD)
         def observe():
             while not stop.is_set():
                 try:
@@ -484,7 +492,7 @@ def main():
                 except Exception as error:
                     ledger.record(ledger.events, observer_error=type(error).__name__)
                 stop.wait(0.1)
-        traffic_thread = threading.Thread(target=traffic, daemon=True); traffic_thread.start()
+        traffic_thread = threading.Thread(target=traffic_worker, args=(ledger, stop, port), daemon=True); traffic_thread.start()
         observer = threading.Thread(target=observe, daemon=True); observer.start()
         ledger.change('baseline')
         await_condition(lambda: len([b for b in ledger.heartbeats if b['phase'] == 'baseline']) >= 3, 70, 'three actual baseline heartbeats')
@@ -534,6 +542,8 @@ def main():
         raise
     finally:
         original_error = sys.exc_info()[0] is not None
+        result['worker_threads_live_before_stop'] = all(thread is not None and thread.is_alive()
+                                                       for thread in [traffic_thread, observer])
         stop.set()
         cleanup_errors = []
         for thread in [traffic_thread, observer]:
@@ -541,6 +551,15 @@ def main():
                 try: thread.join(timeout=5)
                 except Exception as error: cleanup_errors.append(type(error).__name__)
         result['worker_threads_stopped'] = all(thread is None or not thread.is_alive() for thread in [traffic_thread, observer])
+        if result['success'] and result['worker_threads_stopped']:
+            try:
+                # Include a transfer that completed while the workers were stopping.
+                result.update(evaluate(ledger))
+                verify_sampling_attempts(ledger)
+            except Exception as error:
+                result['success'] = False
+                result['failure_type'] = type(error).__name__
+                result['failure_reason'] = str(error)[:1000]
         cleanup = [cleanup_unit(unit) for unit in units + sorted(observed)]
         if panel:
             for close in [panel.disconnect, panel.shutdown, panel.server_close]:
@@ -577,7 +596,7 @@ def main():
         (args.output / 'kernel-difference.log').write_text(kernel)
         oom = classify_oom(kernel)
         result['kernel_oom_lines'], result['oom_classification'], result['only_diagnostic_memcg_oom'] = oom['lines'], oom['status'], oom['allowed']
-        result['cleanup_passed'] = (not cleanup_errors and not result['observer_errors'] and result['worker_threads_stopped'] and all(item['clean'] for item in cleanup)
+        result['cleanup_passed'] = (not cleanup_errors and not result['observer_errors'] and result['worker_threads_live_before_stop'] and result['worker_threads_stopped'] and all(item['clean'] for item in cleanup)
                                     and result['remaining_diagnostic_units'] == [] and result['remaining_fixture_mounts'] == []
                                     and not result['remaining_observed_fixture_pids'] and result['runtime_fixture_directory_removed'])
         result['success'] = result['success'] and result['cleanup_passed'] and result['only_diagnostic_memcg_oom']

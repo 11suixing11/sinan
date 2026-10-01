@@ -7,6 +7,7 @@ from pathlib import Path
 import runpy
 import subprocess
 import sys
+import threading
 import unittest
 from unittest import mock
 import urllib.error
@@ -54,6 +55,42 @@ class JointAcceptanceTests(unittest.TestCase):
     def test_proxy_failure_is_preserved(self):
         value = ledger()
         value.traffic[2]['ok'] = False
+        with self.assertRaisesRegex(AssertionError, 'proxy echo failed'):
+            MODULE['evaluate'](value)
+
+    def test_worker_launch_failure_cannot_hide_after_successful_recovery(self):
+        value = ledger()
+        value.change('recovery')
+        stop = mock.Mock()
+        stop.is_set.side_effect = [False, True]
+        with mock.patch.object(subprocess, 'run', side_effect=OSError('bounded launch failure')):
+            MODULE['traffic_worker'](value, stop, 2080)
+        self.assertFalse(value.traffic[-1]['ok'])
+        self.assertEqual(value.traffic[-1]['error_type'], 'OSError')
+        self.assertEqual(value.traffic[-1]['phase'], 'recovery')
+        with self.assertRaisesRegex(AssertionError, 'proxy echo failed'):
+            MODULE['evaluate'](value)
+
+    def test_inflight_failure_during_stop_is_in_final_evaluation(self):
+        value = ledger()
+        value.change('recovery')
+        stop, entered = threading.Event(), threading.Event()
+        def last_transfer(port):
+            entered.set()
+            if not stop.wait(2):
+                raise TimeoutError('test worker was not stopped')
+            return dict(ok=False, exit_code=1)
+        function = MODULE['traffic_worker']
+        with mock.patch.dict(function.__globals__, transfer_guard=last_transfer):
+            worker = threading.Thread(target=function, args=(value, stop, 2080))
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(2))
+                MODULE['evaluate'](value)  # The pre-stop snapshot still passes.
+            finally:
+                stop.set()
+                worker.join(timeout=3)
+            self.assertFalse(worker.is_alive())
         with self.assertRaisesRegex(AssertionError, 'proxy echo failed'):
             MODULE['evaluate'](value)
 

@@ -939,3 +939,4 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 实际 Agent PID 767→1951 手动重启，3 个旧未 ACK ID 重放；v1 未另存这些旧 ID 的原时间值，因此保留原事实，单独 7.349 秒 restart/replay-only 补验记录真实 POST/503 前后时间，三个旧 ID 与 sampled_at 逐值相同，不重复代理/core 负载。WS/HTTP 明确断连 10 秒后恢复，完整原始全局间隔保存；原证据另经固定恢复 session 两次心跳/周期判据核证。运行时 PID 765 全程保留、NRestarts=0，SSH PID 406/NRestarts=0。内核五条提示完整归属诊断 64MiB MEMCG OOM；新判据拒绝未归属提示，驻服务/全局无 OOM。
 - 清理后无本次 PID/cgroup 子进程、诊断单元、挂载、临时运行时目录或编译进程，根分区可用约 3.716GiB，swap 仍空。最终清理判据拒绝 PID=0 但 cgroup 读取失败的未确认结果。独立脚本的 14 个行为回归、Python 语法、core 分层与差异检查通过；四个 Actions workflow 仍 disabled_manually，没有触发 CI。两次原脚本/结果分别保存，未改写 v1 结果。
 - 该证据只证明有限联合负载：monitor-only 不注册诊断/代理适配器，六夹具不能代替管理员取消协议、Agent 诊断 checkpoint/outbox、真实 Panel/PG/UI、生产 Reality 或完整 NodeQuality。全文保留冻结输入、运行时正式验签边界、双 boot 区别、实际统计与缺口，见 [独立验收文档](docs/acceptance/p0-joint-load.md)。P0 总验仍未签收。
+- 合并前补修流量 worker 启动异常漏记和停止期间最后一次失败漏判：异常保存明确失败行，停止前必须存活，等待线程后重新核对最终流量及重放记录。本聊天本地行为回归 16 通过；原作者 14 项与私有脚本/结果/receipt 保留原归属，未在 guest 重演，不以新判据追认旧联合验收。正式签名/发布/部署及 CI 均未执行。

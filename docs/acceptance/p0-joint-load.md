@@ -1,6 +1,6 @@
 # P0 有限联合负载验收
 
-本项补验真实 Agent 心跳、遥测、持续回环代理流量与有限 systemd 诊断夹具的同时运行。它是独立验收项，不解除完整 NodeQuality 门禁，不签收全部 P0，也不发布或部署后续 TCP 能力。执行器为 [tools/p0-joint-load.py](../../tools/p0-joint-load.py)，所有身份都是公开 TEST_ONLY 编译信任根下的私有夹具身份。
+本项补验真实 Agent 心跳、遥测、持续回环代理流量与有限 systemd 诊断夹具的同时运行。它是独立验收项，不解除完整 NodeQuality 门禁，不签收全部 P0，也不发布或部署后续 TCP 能力。执行器为 [tools/p0-joint-load.py](../../tools/p0-joint-load.py)，本次 Agent 使用公开 TEST_ONLY 编译信任根，面板身份为私有夹具；运行时复用正式公开信任根验签的原字节。
 
 ## 受测输入和边界
 
@@ -67,8 +67,14 @@ sudo systemd-run --unit=sinan-p0-joint-controller-<本次唯一名> --wait --pip
 
 窄补验执行脚本 SHA-256 `d27d3acf777c37d7b7e24644aa0b5d96d00711a22dc44f13ae0b5375fef9ca40`，结果 SHA-256 `e9a797a014c4702bfd4bdc8ba0ac7e99af3057834b8a78d5b8e62ad8e4d36f42`；之后增加恢复心跳跨度下限，并修复清理确认读取异常必须返回未确认：即使两个 PID=0，只要 cgroup 进程读取失败也拒绝 clean。两项修改以行为负例和原证据复核验证，未重跑。两次原结果与原脚本分别保留，最终判据对 v1 原证据复核另存 receipt。
 
-最终提交脚本 SHA-256 `28383c62556c203279a11ee947b788e2b127da462691010c6cd657e6e971c235`；其对 v1 证据的只读复核 receipt SHA-256 `a2d015dd09117712862e9779cdc1bd4d0ac828e35dcdf1183b1e93ba8ee7c8b7`。原 v1 联合执行、窄 v2 重放执行与最终静态判据验证分别记录，不把后续脚本修改称作已重新执行完整联合场景。
+作者输入 `7a77246` 的脚本 SHA-256 `28383c62556c203279a11ee947b788e2b127da462691010c6cd657e6e971c235`；其对 v1 证据的只读复核 receipt SHA-256 `a2d015dd09117712862e9779cdc1bd4d0ac828e35dcdf1183b1e93ba8ee7c8b7`。原 v1 联合执行、窄 v2 重放执行与作者静态判据验证分别记录，不把后续脚本修改称作已重新执行完整联合场景。
 
 行为回归 `python3 tools/test-p0-joint-load.py` 共 14 项通过：实际心跳跨度、遥测不能替代心跳、显式故障全局间断保留、代理失败保留、意外重连拒绝、优化 worker 拒绝、采样重放时间不变、端口隔离 receipt 对应当前 boot、恢复 session 两次心跳与实际周期、真实 POST/503 后改值重放负例、未知/全局 OOM、完整事件/PID 归属、清理失败继续检查下一单元、PID=0 不能掩盖 cgroup 读取失败。Python 语法、core 分层与差异检查通过。本项没有修改 Rust 产品代码，不重复 Rust/PG 编译、正式签名或 GitHub CI；四个 workflow 保持 disabled_manually。
 
 私有证据保留在 guest `/home/l7.guest/sinan-joint-load/evidence/` 与 host 本任务私有 evidence 目录。状态数据库、身份、配置与原始日志不提交仓库；公开文档只保存摘要、数字和明确的证据边界。
+
+## 合并前的流量失败判据补修
+
+审查发现 worker 启动异常可能让流量线程提前退出，之前成功的 recovery 行仍使旧快照通过；最后一次请求也可能在初次判定后、停止线程期间才返回失败。补修将普通启动异常记为明确失败行，要求停止前两个 worker 仍存活，停止并等待线程后重新核对全部流量及重放时间。提前退出、未停线程或最后一次失败均不能成为成功结果。
+
+补修脚本 SHA-256 `aae0182e07c559c9462abcf84afdb5220eab206aae07aa857a48ad930413932c`。本聊天本地 16 个行为回归通过，新增实际 subprocess 启动 OSError 和停止期间最后一次请求失败的负例；Python 语法、core 分层和差异检查通过。未启动 guest/Agent/systemd，未重新执行联合场景，也未以新判据追认旧 v1 私有结果；原脚本、结果和 receipt 摘要保持上述历史归属。CI 仍暂停。
