@@ -4,6 +4,8 @@ mod business_support;
 mod migration_recovery;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
+#[path = "plugin_business/runtime.rs"]
+mod runtime;
 
 use anyhow::{Context, Result};
 use business_support::{TestPanel, id};
@@ -171,6 +173,29 @@ async fn current_capability_enables_business_but_a_stale_capability_flag_does_no
 async fn migration_preserves_imported_subscription_credentials_access_and_accounting(
     pool: PgPool,
 ) -> Result<()> {
+    migration_case(pool, None).await
+}
+
+#[sqlx::test(migrations = false)]
+#[ignore = "Requires pinned real sing-box 1.14.2 and openssl on a dedicated test node; set SINAN_TEST_SINGBOX"]
+async fn imported_subscription_keeps_real_connection_authorization_and_counters_after_migration(
+    pool: PgPool,
+) -> Result<()> {
+    let binary = std::env::var_os("SINAN_TEST_SINGBOX").context("set SINAN_TEST_SINGBOX")?;
+    migration_case(pool, Some(binary.into())).await
+}
+
+async fn migration_case(pool: PgPool, binary: Option<std::path::PathBuf>) -> Result<()> {
+    let port = if binary.is_some() {
+        runtime::port().await?
+    } else {
+        443
+    };
+    let host = if binary.is_some() {
+        "127.0.0.1"
+    } else {
+        "imported.example.com"
+    };
     let all = sqlx::migrate!();
     let old = Migrator {
         migrations: Cow::Owned(all.iter().filter(|m| m.version < 12).cloned().collect()),
@@ -188,7 +213,7 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
             .await?;
     let (private_key, public_key) =
         sinan_panel::plugins::singbox::business::generate_reality_keypair();
-    let node_id: i64 = sqlx::query_scalar("INSERT INTO nodes(name,server_id,port,public_host,sni,private_key,public_key,short_id) VALUES('Imported node',$1,443,'imported.example.com','www.example.com',$2,$3,'0123abcd') RETURNING id").bind(server).bind(&private_key).bind(&public_key).fetch_one(&pool).await?;
+    let node_id: i64 = sqlx::query_scalar("INSERT INTO nodes(name,server_id,port,public_host,sni,private_key,public_key,short_id) VALUES('Imported node',$1,$2,$3,'www.example.com',$4,$5,'0123abcd') RETURNING id").bind(server).bind(i32::from(port)).bind(host).bind(&private_key).bind(&public_key).fetch_one(&pool).await?;
     let token = "imported-permanent-subscription-token";
     let user_id: i64 = sqlx::query_scalar(
         "INSERT INTO users(name,subscription_token) VALUES('Imported proxy user',$1) RETURNING id",
@@ -209,8 +234,8 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
     let node = Node {
         id: node_id,
         name: "Imported node".into(),
-        port: 443,
-        public_host: "imported.example.com".into(),
+        port,
+        public_host: host.into(),
         sni: "www.example.com".into(),
         private_key: private_key.clone(),
         public_key: public_key.clone(),
@@ -223,10 +248,26 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
         }],
     };
     let expected_links = sinan_compiler::subscription_links(std::slice::from_ref(&node), user_id)?;
-    let expected_client: Value = serde_json::from_str(&sinan_compiler::compile_client(
-        std::slice::from_ref(&node),
-        user_id,
-    )?)?;
+    let expected_client = runtime::legacy_client(&node, user_id);
+    assert_eq!(
+        expected_client,
+        serde_json::from_str::<Value>(&sinan_compiler::compile_client(
+            std::slice::from_ref(&node),
+            user_id,
+        )?)?
+    );
+    let mut live = if let Some(binary) = binary {
+        Some(runtime::Runtime::start(binary, &node, &expected_client).await?)
+    } else {
+        None
+    };
+    let (uplink, downlink) = if let Some(runtime) = live.as_mut() {
+        let before = runtime.traffic().await?;
+        assert_eq!(before.stat_name, stat_name);
+        (before.uplink, before.downlink)
+    } else {
+        (123, 456)
+    };
     sqlx::query("INSERT INTO deployments(server_id,module,rev,bundle,bundle_sha256,source_json,created_at) VALUES($1,'singbox',7,'imported-bundle','imported-hash',$2,1234)").bind(server).bind(json!([node])).execute(&pool).await?;
     sqlx::query("INSERT INTO deployments(server_id,module,rev,bundle,bundle_sha256,created_at) VALUES($1,'singbox',1,'legacy','legacy',1234)").bind(deploy_only).execute(&pool).await?;
     sqlx::query("INSERT INTO server_module_status(server_id,module,target_rev,applied_rev,healthy) VALUES($1,'singbox',7,7,TRUE)").bind(server).execute(&pool).await?;
@@ -237,8 +278,8 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
         period_end: 20,
         records: vec![UsageRecord {
             stat_name: stat_name.clone(),
-            uplink: 123,
-            downlink: 456,
+            uplink,
+            downlink,
         }],
     };
     let payload_hash = sinan_panel::auth::hash_token(&serde_json::to_string(&batch)?);
@@ -248,7 +289,7 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
         .bind(&payload_hash)
         .execute(&pool)
         .await?;
-    sqlx::query("INSERT INTO usage_records(server_id,epoch,seq,stat_name,user_id,node_id,uplink,downlink,period_start,period_end) VALUES($1,$2,1,$3,$4,$5,123,456,10,20)").bind(server).bind(epoch).bind(&stat_name).bind(user_id).bind(node_id).execute(&pool).await?;
+    sqlx::query("INSERT INTO usage_records(server_id,epoch,seq,stat_name,user_id,node_id,uplink,downlink,period_start,period_end) VALUES($1,$2,1,$3,$4,$5,$6,$7,10,20)").bind(server).bind(epoch).bind(&stat_name).bind(user_id).bind(node_id).bind(i64::try_from(uplink)?).bind(i64::try_from(downlink)?).execute(&pool).await?;
     sqlx::query("INSERT INTO sessions(token_hash,server_id,expires_at) VALUES('TEST_ONLY-imported-device-session',$1,4099680000)")
         .bind(server).execute(&pool).await?;
     sqlx::query("INSERT INTO enrollment_tokens(token_hash,server_id,expires_at,consumed_at) VALUES('TEST_ONLY-imported-enrollment',$1,4099680000,1234)")
@@ -373,7 +414,7 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
         .error_for_status()?
         .json()
         .await?;
-    assert_eq!(usage["total"], "579");
+    assert_eq!(usage["total"], (uplink + downlink).to_string());
     assert_eq!(
         sqlx::query_scalar::<_, Uuid>("SELECT epoch FROM usage_records WHERE user_id=$1")
             .bind(user_id)
@@ -387,5 +428,46 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
             .await?,
         1
     );
+    if let Some(mut runtime) = live.take() {
+        assert_eq!(runtime.cached_client(), &expected_client);
+        let after = runtime.traffic().await?;
+        assert_eq!(after.stat_name, stat_name);
+        let delta_up = after
+            .uplink
+            .checked_sub(uplink)
+            .context("uplink counter went backwards")?;
+        let delta_down = after
+            .downlink
+            .checked_sub(downlink)
+            .context("downlink counter went backwards")?;
+        assert!(delta_up >= 8192 && delta_down >= 8192);
+        let actual = UsageBatch {
+            epoch,
+            seq: 2,
+            period_start: 20,
+            period_end: 30,
+            records: vec![UsageRecord {
+                stat_name,
+                uplink: delta_up,
+                downlink: delta_down,
+            }],
+        };
+        sinan_panel::plugins::singbox::usage::ingest(&panel.state, server, actual.clone()).await?;
+        sinan_panel::plugins::singbox::usage::ingest(&panel.state, server, actual).await?;
+        let totals: (i64, i64, i64) = sqlx::query_as("SELECT SUM(uplink)::bigint,SUM(downlink)::bigint,COUNT(*) FROM usage_records WHERE user_id=$1 AND node_id=$2 AND epoch=$3")
+            .bind(user_id).bind(node_id).bind(epoch).fetch_one(&pool).await?;
+        assert_eq!(
+            totals,
+            (
+                i64::try_from(after.uplink)?,
+                i64::try_from(after.downlink)?,
+                2
+            )
+        );
+        runtime.stop().await?;
+        eprintln!(
+            "imported-client Reality traffic and exact counters survived migration; replay stayed deduplicated"
+        );
+    }
     Ok(())
 }
