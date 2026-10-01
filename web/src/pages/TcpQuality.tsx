@@ -20,7 +20,11 @@ function targetResults(record: DiagnosticRecord) {
   const results = new Map<string, Record<string, unknown>>()
   const add = (value: unknown) => {
     const entry = object(value); const target = object(entry.target)
-    if (typeof target.id === 'string') results.set(target.id, entry)
+    const attempted = object(entry.summary).attempted
+    if (typeof target.id !== 'string' || !target.id || typeof entry.complete !== 'boolean' || typeof attempted !== 'number' || !Number.isSafeInteger(attempted) || attempted < 0) return
+    const existing = results.get(target.id)
+    const existingAttempted = object(existing?.summary).attempted
+    if (!existing || (entry.complete && !existing.complete) || (entry.complete === existing.complete && typeof existingAttempted === 'number' && attempted > existingAttempted)) results.set(target.id, entry)
   }
   const report = parsed(record.report?.text)
   if (Array.isArray(report.targets)) report.targets.forEach(add)
@@ -86,9 +90,9 @@ export default function TcpQuality({ serverId }: { serverId: number }) {
         <label>最大并发<select aria-label="最大并发" value={concurrency} onChange={event => setConcurrency(Number(event.target.value))} disabled={run.busy || active}><option value={1}>1</option><option value={2}>2</option></select></label>
         <button className="button button-primary" disabled={!readiness?.ready || run.busy || active || configure.busy || targets.loading || !!targets.error || !selected?.length || selected.length > 8} onClick={submit}>{run.busy ? '创建任务…' : '开始 TCP 诊断'}</button>
       </div>
-      <p className="helper">本次将冻结 {selected?.length ?? 0} 个目标；单次允许 1 至 8 个。IPv4/IPv6 不可解析或连接失败会保留原因。不同目标、地区或参数的结果不做横向排名。</p>
+      <p className="helper">{selected ? `本次将冻结 ${selected.length} 个目标` : '尚未取得目标列表，本次目标数未知'}；单次允许 1 至 8 个。IPv4/IPv6 不可解析或连接失败会保留原因。不同目标、地区或参数的结果不做横向排名。</p>
       <details><summary>配置目标地区</summary><p className="helper">地区由管理员标注，不根据 IP 推断。仅使用自有或获准使用的目标；在服务器概况的拨测配置中添加、停用或修改目标。</p>
-        {!targets.data?.length ? <p className="helper">没有已启用的 TCP 拨测目标。</p> : <div className="table-wrap"><table><thead><tr><th>目标</th><th>运营商</th><th>地区</th></tr></thead><tbody>{targets.data.map(target => <tr key={target.id}><td>{target.name}<small className="helper break-all">{target.target}:{target.port}</small></td><td>{target.carrier || '未知'}</td><td><select aria-label={`${target.name}地区`} value={target.region ?? ''} disabled={configure.busy} onChange={event => void configure.run(() => api(`/api/plugins/tcpquality/servers/${serverId}/targets/${target.id}`, 'PATCH', { region: event.target.value || null }), targets.reload)}><option value="">地区未知</option>{regions.filter(region => region.value !== 'configured').map(region => <option key={region.value} value={region.value}>{region.label}</option>)}</select></td></tr>)}</tbody></table></div>}
+        {!targets.data ? <p className="helper">尚未取得已启用的 TCP 拨测目标，当前目标配置未知。</p> : !targets.data.length ? <p className="helper">没有已启用的 TCP 拨测目标。</p> : <div className="table-wrap"><table><thead><tr><th>目标</th><th>运营商</th><th>地区</th></tr></thead><tbody>{targets.data.map(target => <tr key={target.id}><td>{target.name}<small className="helper break-all">{target.target}:{target.port}</small></td><td>{target.carrier || '未知'}</td><td><select aria-label={`${target.name}地区`} value={target.region ?? ''} disabled={configure.busy} onChange={event => void configure.run(() => api(`/api/plugins/tcpquality/servers/${serverId}/targets/${target.id}`, 'PATCH', { region: event.target.value || null }), targets.reload)}><option value="">地区未知</option>{regions.filter(region => region.value !== 'configured').map(region => <option key={region.value} value={region.value}>{region.label}</option>)}</select></td></tr>)}</tbody></table></div>}
       </details>
       <div className="quality-history"><h3>最近 TCP 报告</h3>{reports.length ? reports.map(record => <Report key={record.id} record={record} serverId={serverId} cancelSupported={data.cancel_supported} reload={diagnostics.reload} />) : <p className="helper">尚无 TCP 诊断报告。</p>}</div>
     </>}
