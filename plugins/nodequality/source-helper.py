@@ -12,6 +12,8 @@ import sys
 
 MAX_FILE = 2 * 1024 * 1024
 MAX_BUNDLE = 8 * 1024 * 1024
+RANKING_POLICY_SHA256 = '6f46038c22267108b4572b1f1382a5deb779ecd51d90b0910c2a90f3ef122d59'
+LOADER_POLICY_SHA256 = '189fda7f90cd91df37ddfecf206c15137d823128a75e7b22c850abb2e2a2fe92'
 DATA_POLICY_SHA256 = '0115f90f8ce521eab1472d8426b8f8dfbf1fefca427ae0fdfd557b346a8fdab3'
 DEPENDENCY_POLICY_SHA256 = '9424dded5fd6c74ff9888fa6e2e3d9482fe8db144fa4c572682fca3f8cf5b5de'
 REPORT_POLICY_SHA256 = '0c66e702084820e399a16b18b51ba331cd8edd406dd96ede7c2ee84f78c30245'
@@ -178,7 +180,23 @@ def offline_dependencies(name, content):
 def entrypoint(bundle):
     rows = validate(bundle['lock'])
     original = verified(base64.b64decode(bundle['files']['NodeQuality.sh'], validate=True), rows['NodeQuality.sh'])
-    return offline_dependencies('NodeQuality.sh', without_swap('NodeQuality.sh', original))
+    prior = offline_dependencies('NodeQuality.sh', without_swap('NodeQuality.sh', original))
+    policy = loader_policy()
+    result = policy['transform']('NodeQuality.sh', prior)
+    if (not isinstance(result, bytes) or len(result) > MAX_FILE + 4096
+            or hashlib.sha256(result).hexdigest() != policy['SOURCES']['NodeQuality.sh']['patched_sha256']):
+        raise ValueError('entrypoint loader output SHA256 or byte limit mismatch')
+    return result
+
+
+def loader_policy():
+    path = Path(__file__).with_name('loader-policy.py')
+    content = ordinary(path, 65536)
+    if hashlib.sha256(content).hexdigest() != LOADER_POLICY_SHA256:
+        raise ValueError('signed loader policy helper SHA256 mismatch')
+    namespace = {'__name__': 'sinan_loader_policy', '__file__': str(path)}
+    exec(compile(content, str(path), 'exec'), namespace)
+    return namespace
 
 
 def data_policy():
@@ -189,6 +207,27 @@ def data_policy():
     namespace = {'__name__': 'sinan_data_policy', '__file__': str(path)}
     exec(compile(content, str(path), 'exec'), namespace)
     return namespace
+
+
+def ranking_policy():
+    path = Path(__file__).with_name('ranking-policy.py')
+    content = ordinary(path, 65536)
+    if hashlib.sha256(content).hexdigest() != RANKING_POLICY_SHA256:
+        raise ValueError('signed ranking policy helper SHA256 mismatch')
+    namespace = {'__name__': 'sinan_ranking_policy', '__file__': str(path)}
+    exec(compile(content, str(path), 'exec'), namespace)
+    return namespace
+
+
+def percentile_policy(name, content):
+    if name != 'hardware.sh':
+        return content
+    policy = ranking_policy()
+    result = policy['transform'](name, content)
+    if (not isinstance(result, bytes) or len(result) > MAX_FILE + 4096
+            or hashlib.sha256(result).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
+        raise ValueError('served ranking policy output SHA256 or byte limit mismatch')
+    return result
 
 
 def static_references(name, content, directory, rows):
@@ -210,6 +249,8 @@ def pack(lock, directory):
     swap_policy()
     dependency_policy()
     data_policy()
+    loader_policy()
+    ranking_policy()
     files = {name: base64.b64encode(verified(ordinary(directory / name, MAX_FILE), row)).decode()
              for name, row in rows.items()}
     result = (json.dumps(dict(schema=1, lock=lock, files=files), sort_keys=True, separators=(',', ':')) + '\n').encode()
@@ -253,7 +294,7 @@ def serve(directory, arguments):
             or hashlib.sha256(patched).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
         raise ValueError('served report policy output SHA256 or byte limit mismatch')
     prior = without_swap(name, patched) if name == 'hardware.sh' else patched
-    return static_references(name, offline_dependencies(name, prior), directory, rows)
+    return percentile_policy(name, static_references(name, offline_dependencies(name, prior), directory, rows))
 
 
 def main():

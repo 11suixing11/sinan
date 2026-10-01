@@ -70,3 +70,34 @@ uploads are not reference files covered by this change. Fixing a target list
 does not grant permission to probe those targets or establish provider access.
 The reference repository license record does not certify the entire toolchain
 or third-party services; all full-start gates and unresolved audits remain.
+
+Sinan r11 modifications (2026-10-01): loader-policy.py changes the five exact
+header/hardware/IP/network/route loading calls to collect the entire bounded
+source first and require a successful producer exit. Empty successful output
+also fails. A trailing sentinel preserves all original trailing newlines in
+the local shell variable. Only the completed source is passed to the original
+consumer, with its existing arguments, NQENV and stdin/file-descriptor shape.
+No temporary script is created. A failed header now stops main explicitly;
+the existing chapter failure guards handle the other four consumers.
+
+All six substitutions preserve line counts, including the original cleanup
+and its observed line 455. The fixed helper, input and output have SHA256
+checks. The original bundle is retained unmodified. These changes address
+source failures hidden by process substitution or partial streamed execution;
+they do not complete the separate full-toolchain audit or open full-start.
+
+Sinan r12 modifications (2026-10-01): ranking-policy.py gates HardwareQuality's
+mark.check.place score submission with the existing validated upload setting.
+The default/false path retains all local score computations and then returns
+before constructing or sending a percentile request. The true path preserves
+the existing request, timeout, payload and response parsing. Both paths clear
+old percentile values before each calculation, so failed requests cannot reuse
+previous percentiles. No benchmark or scoring formula is removed or replaced.
+
+The report explains why percentiles are unavailable with uploads disabled.
+Its JSON retains numeric local scores and null missing percentiles, and adds
+Benchmark.percentile_upload_allowed to record permission, not query success.
+The new helper is embedded and identity-checked like the existing policies;
+canonical sources/licenses remain intact. Geekbench and other tool traffic,
+rootfs provenance/licenses and full execution remain unresolved. This is not
+an approval to execute the complete toolchain or a claim of zero total upload.

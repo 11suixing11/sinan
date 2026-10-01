@@ -71,7 +71,7 @@ CONTROLLER = '''function run_HardwareQuality(){
     [[ "$run_hardware_quality_test" =~ ^[Vv]$ ]] && params=" -V"
     pre_fetch_info
     payload=$(declare -p osinfo meminfo diskinfo)
-    curl -Ls https://Hardware.Check.Place | chroot_run "env NQENV=$(printf '%q' "$payload") bash -s -- $opt_lang $params -y -o /result/$hardware_quality_json_filename"
+    curl -Ls https://Hardware.Check.Place | chroot_run "env NQENV=$(printf '%q' "$payload") bash -s -- $opt_lang $params -y -o /result/$hardware_quality_json_filename" # HQ预处理
 }
 function run_ip_quality(){
     chroot_run bash <(curl -Ls https://IP.Check.Place) $opt_ipv $opt_lang -y -o /result/$ip_quality_json_filename
@@ -213,6 +213,7 @@ def script_recipe(name):
     result += source_tests.fixture.swap_anchors(name).decode()
     result += source_tests.fixture.dependency_anchors(name).decode()
     result += source_tests.fixture.data_anchors(name).decode()
+    result += source_tests.fixture.ranking_anchors(name).decode()
     result += 'fixture_record script ' + kind + ' "$@"\n'
     result += '''
 mode_privacy=${FIXTURE_PRIVACY:-0}
@@ -304,7 +305,7 @@ run_net_trace > "$FIXTURE_OUTPUT_DIRECTORY/backroute_trace.log"
     result += python + ' ' + tool + ' --assemble\n'
     result += 'python3 "$SINAN_REPORT_HELPER" capture "$SINAN_REPORT_WORKSPACE" < "$FIXTURE_OUTPUT_DIRECTORY/archive.base64"\n'
     result += '[[ $SINAN_UPLOAD_REPORT == true ]] || printf disabled > "$SINAN_REPORT_WORKSPACE/upload-disabled.txt"\nexit 0\n'
-    return result.encode()
+    return result.encode() + source_tests.fixture.loader_anchors('NodeQuality.sh', result.encode())
 
 
 def assemble():
@@ -355,7 +356,8 @@ class PolicyTests(unittest.TestCase):
             private_policy = module('transform_fixture', plugin / 'report-policy.py')
             private_swap = module('swap_transform_fixture', plugin / 'swap-policy.py')
             for role in private_policy.SOURCES:
-                expected = source_tests.fixture.undo_data(role, outputs[role], contents)
+                expected = source_tests.fixture.undo_ranking(role, outputs[role])
+                expected = source_tests.fixture.undo_data(role, expected, contents)
                 expected = source_tests.fixture.undo_dependencies(role, expected, contents[role])
                 if role == 'hardware.sh':
                     expected = private_swap.replace_once(expected, private_swap.MEMORY_GUARD, private_swap.HARDWARE_PREFIX)
