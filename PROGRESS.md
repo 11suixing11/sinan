@@ -1136,6 +1136,12 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - r9最终独立验收：冻结fc4e49f的host116运行/111通过/5条件跳过，其中新依赖11运行/10通过/1仅因Mac Bash3跳过完整语法；Debian12 Bash5同一新专项11全部通过。guest共80运行/79通过/1缺minisign跳过，45.658秒；真实限额256MiB/Swap0/Tasks64及各隔离属性读回，峰值76,435,456B/11pids，0OOM。结束无进程/挂载/cgroup，SSH406重启0/同boot/swap0；33输入前后相同，22仓库输入与整合后相同，收据5f320012…。
 - 正常整合主线8ffcc44为9d99b28，双方PROGRESS均保留，运行产品/测试/构建字节不变。4b35801只补显式queued r8历史门禁，再过Rust19（adapter15/gate3/HTTP-PG日常1）及Clippy/fmt/core/diff，最终收据9c7014087734…。专属PG55439已按归属停止，PID不存在/端口关闭；早期Rust收据与host语法失败日志保留。具体来源/计数/未验证范围见[独立验收](docs/acceptance/nodequality-no-runtime-install.md)，不把有限夹具、日常矩阵或旧收据签为完整NodeQuality负载。CI仍暂停，无正式签署/发布/部署。
 
+### PR #111 合并复核（2026-10-01）
+
+- 保留作者 r9 提交、完整验机门禁与 r2–r8 历史兼容；本聊天未复演作者 Debian guest 或诊断完整执行。
+- 刷新隔离树编译输入后，Rust/PostgreSQL 诊断专项 42 项、workspace 全 targets Clippy、fmt 与 core 边界通过；首次缓存结果由这次新执行证据覆盖，不用于最终证明。
+- 来源 16、swap 10、实际 Bash5 依赖 11、包装器 34、daily 7 与 release 28 通过（release 4 项既有条件跳过）。报告夹具每次记录重导入测试模块导致原 20 秒预算超时；仅提前分派相同记录函数，回调原字节及全部断言保持，真实固定源报告 6 项在原预算通过。生产源码、摘要和预算不变，失败日志单独保留。
+- 证据：本任务耐久目录 pr111-root-rust-fresh-local 和 pr111-113-review-20261001；CI 仍暂停，未执行不算通过，后续供给失败与其他上传问题由独立 PR 处理。
 
 ## 2026-10-01：NodeQuality 七份二级静态数据固定（关联 #28 独立项）
 
@@ -1147,6 +1153,12 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - r10冻结e95fa7b完成host122运行/117通过/5条件跳过；新数据专项6全部通过。Rust19（adapter15/gate3/HTTP-PG日常1）和Clippy/fmt/core/diff通过，专属PG55439已停止/PID消失/端口关闭，收据c027d01d…。Debian12共86运行/85通过/1缺minisign跳过，57.311秒；实际限额256MiB/Swap0/Tasks64等读回，峰值71,118,848B/11pids，0OOM；结束无进程/挂载/cgroup，SSH406重启0/同boot/swap0，42输入不变（24仓库输入匹配），收据74114ba4…。
 - 独立复现并开Issue #112：真实source-helper拒绝篡改数据，但固定加载器bash进程替换吞掉空输出失败，三个网络分支仍退出0。仅用固定函数体/Bash桩，无公网或上游基准；独立单元已回收。不能把供给拒绝等同整项任务正确失败，错误传递下一项单独修复。详见[静态数据独立验收](docs/acceptance/nodequality-pinned-data.md)及JSON索引，全部full门禁、rootfs/授权缺口与总故障矩阵保持；未正式签署/发布/部署/恢复CI。
 
+### PR #113 合并复核（2026-10-01）
+
+- 正常合入已验证 r9 主线并将 PR 改到 main，保存双方进度；产品输入逐字等同作者 r10，另继承同一报告记录回调优化，原 20 秒预算不变。
+- 隔离树刷新编译输入后 Rust/PostgreSQL 诊断专项 42 项、workspace 全 targets Clippy、fmt/core 通过。七份新增数据的官方完整提交、Git tree/blob、原大小及 SHA 全部核对；实际 Bash5 依赖 11、数据 6、swap 10 和真实固定源报告 6 通过。
+- 耐久证据 pr113-root-rust-fresh-local、pr111-113-review-20261001；作者 guest 不作为本聊天重演。供给失败吞码另由 #115 处理，完整验机门禁与 CI 暂停继续保持。
+
 ### NodeQuality r11：脚本供给失败传播（独立修复 #112）
 
 - 五个加载入口先完整取得有界脚本并等待供给器成功，空结果也拒绝；尾部哨兵保留末尾换行，再按原参数及FD/stdin形状执行。报告头主调用增加失败退出，其余章节沿用既有失败保护，原清理第455行保持。
@@ -1154,6 +1166,12 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 本机初检10项通过，含旧/新负对照、空/部分失败、成功恰好执行一次、供给中取消、真实source-helper校验拒绝、原始主调用/清理/观察器与既有章节保留。首轮测试调用参数拼写错误已修正，日志保留；冻结后的本机、Rust和专用Debian证据另记，尚未以初检签收完整能力。
 - 冻结6decf87后，本机132运行/127通过/5条件跳过，Rust/API19通过且Clippy/fmt/core/diff通过；专属PG55439停止、PID不存在、端口关闭。Debian有限组合96运行/95通过/1缺minisign跳过，另有原始chroot_run+生产shim+真实最小chroot30个旧/新对照全部通过。
 - 两套单元实际读回256MiB/Swap0/Tasks64等限制，峰值71,622,656B/11pids和21,327,872B/5pids，max/oom/oom_kill均0；结束无遗留进程、挂载和cgroup，SSH406重启0/同boot/swap0。各44份输入不变，26份仓库输入匹配冻结提交。详见[供给失败独立验收](docs/acceptance/nodequality-source-failure.md)和JSON索引；未执行完整上游，全部full门禁和总验收缺口保持，未恢复CI或正式发布部署。
+
+### PR #115 合并复核（2026-10-01）
+
+- 正常保留 r10 主线、作者 r11 以及报告夹具原预算修复，PR base 为 main。供给完成并确认成功后才消费脚本；失败或部分失败不会运行部分正文，成功参数与字节保持。
+- 刷新编译输入后的 Rust/PostgreSQL 诊断专项 42 项、workspace 全 targets Clippy、fmt/core 通过。真实固定函数的供给/取消/DEBUG 观察器专项 10 项分别在 Bash3 和实际 Bash5 通过，旧不安全分支为明确负对照，清理失败码与正常标记分别检查。
+- 耐久证据 pr115-root-rust-fresh-local、pr115-116-review-20261001；本聊天没有执行作者 guest、上游完整负载或公网上传。CI 暂停、full 门禁及其他待验边界保持。
 
 ### NodeQuality r12：硬件百分位上传独立保护（关联 #65）
 
