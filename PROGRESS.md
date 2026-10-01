@@ -1532,3 +1532,7 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - Reality 白名单补本地 DNS/预传输/观察进度，不重试或加预算；原地升级驱动校验双端真实版本/新 Agent PID、旧配置版本/独立运行时不变；安装失败直接保存私有证据，不把待发布当健康。公网根因、真实签名升级/安装、完整诊断权利与实机联合负载仍独立待验。
 - 同期作者正常合入 PR #136（main 4b4ee6e），本分支普通保存全部作者祖先及运维/命令取消/机场订阅/混合链路。保留原迁移0001–0023原字节，新五项迁移顺延0024–0028；补旧schema真实PG升级/重复执行及历史保留回归。命令退役补已登记进程清理屏障，失败不清身份，Requested/Stopped/Clearing恢复只清理不重执行；源补修239f072普通合入。订阅传输等价与解析器缓存补修一并收尾。
 - 四个源码工作流继续 disabled_manually，未恢复/触发 CI，不作正式签署、发布或部署，不以源码合入关闭缺外部证明的 issue。详细范围与最终证据见 [统一验收](docs/acceptance/issues-integration-20261001.md)。
+
+- 统一最终验证已完成：冻结d50ca445完整Rust/PostgreSQL599通过/0失败/20明确条件忽略，80结果组；umask077专项1、全targetsClippy/fmt/core通过。自己PG55432已停止，未动其他实例。首次runtime运维两例因夹具仅声明能力却未显式启用被正确409拒绝，补真实管理员启用和拒绝负例后完整复验通过，未放宽产品门禁。
+- 最终web2cdb7ce的45Bun/970断言、两次TypeScript/Vite115模块、19dist逐字复现及22套实际Chromium全过；修正同期主线App/Nodes资源路由/统一直连链路页和概况运维入口。脚本去重308唯一方法中299通过/9方法skip，另1class skip；实际PS7 15/15和正式IP helper12/12包含其中，TLS/API仍为替身。真实双Bash166执行含150完整方法通过/15方法skip/1含10子例skip，不叠加唯一总数，Bash5 90/90；canonical17原文件687969B保持。
+- 原失败证据与补验分目录保存：新库存元组/driver循环快照为fixture补正，Unixbootstrap内嵌r18已按r19重生；PS字节保持且actionlint过。耐久证据issues-final-rust-repair1-20261002、issues-final-web-20261002、issues-final-python-summary-20261002按源SHA映射。本轮只创建一个组合PR；仍缺正式API/权利/公网Reality根因/跨平台与实机安装升级/新TCP整链证明的11个issue保持开放，不以本地通过代替签收或恢复CI。
