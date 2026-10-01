@@ -1350,3 +1350,10 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 正常保留 fork 作者 `b98fa5f` 和已合 #126/#128/#129，冻结 `addcdbe` 运行输入：本地完整 Rust/PostgreSQL workspace/all-targets 473 通过、0 失败、15 既有实机条件忽略；macOS umask077 原子链接、workspace all-targets Clippy/fmt/core 通过。自己的 PostgreSQL 127.0.0.1:55432 已停止。
 - 已受验监控产品与私有前端输入逐字保持 `3dea5d9`：Bun 33/894、TS/Vite、19 dist 重复复现、12 套仓库与两套独立 Chromium 负例通过；仍未真实 Telegram/多平台/Agent 联合负载，未将本地当作 GitHub CI 或实机签收。
 - fork 现有四个工作流 active，逐一固定原 YAML核对仅 push/pull_request/manual 与 agent-v* tag，无 pull_request_target 等额外自动事件；普通 push 最后提交带 [skip ci]，不改变 fork 状态。主仓库四源码工作流继续 disabled_manually，不重跑、恢复或把跳过记为通过。
+
+## 2026-10-01：PR #132 四平台接入与主线前端整合核对
+
+- 本聊天在独立工作树正常保留作者 `dd691656`，普通合入已验证的主线 `86e2ef40`、插件目录/监控任务与通知、ADR 0040 混合链路规划、NodeQuality r14 和脚本截止补修 `f871091`；跨平台接入决策编号调整为 ADR 0041，保留原作者与主线进度记录。
+- 前端按 `1313a29` 的实际源码执行：36 个 Bun 用例、901 个断言、TypeScript/Vite 93 模块构建、19 份产物逐字复现，12 套仓库真实 Chromium 和两套独立浏览器负例全部通过。覆盖自动与精确版本、Unix/Windows 系统和 ABI 筛选、缺少兼容制品、失败后清除旧命令、一次性令牌提示、匿名只读、401 清除秘密、目录选择服务器与监控/旧业务入口；全部请求只用私有回环 API 替身，1440/390 布局与可滚动复制动作已检查。
+- 普通整合后的前端源码、产物和活跃浏览器脚本仍与上述受验输入逐字相同。相对 `86e2ef40`，332 份既有 Rust/插件/Cargo.lock 输入逐字保留；13 个 Rust 例外仅为面板安装入口、已签版本选择、服务器接入路由及对应测试，Agent/core、协议、compiler、SDK、适配器和所有插件没有例外。66 个本地文档链接、core 边界及差异检查通过。
+- Linux 旧 Preparing/full 检查点守卫与 PowerShell Unicode 引号修复由独立脚本审查继续整合，以上前端结果不认证其最终实现；原作者容器与正式根记录没有在本聊天重演。没有运行 Cargo/PostgreSQL 或远端 CI，没有原生平台常驻安装、完整诊断、上传、swap、正式签署/发布或生产部署。CI 继续暂停，NodeQuality full 门禁保留；Windows/macOS/FreeBSD 正式制品和实机验收仍独立待办。
