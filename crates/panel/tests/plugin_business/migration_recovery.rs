@@ -49,7 +49,7 @@ async fn failed_enablement_backfill_rolls_back_and_can_be_retried_idempotently(
         .fetch_one(&pool).await?;
     sqlx::query("INSERT INTO deployments(server_id,module,rev,bundle,bundle_sha256,created_at) VALUES($1,'singbox',7,'preserved-bundle','preserved-hash',1234)")
         .bind(server).execute(&pool).await?;
-    let before = legacy_snapshot(&pool).await?;
+    let mut before = legacy_snapshot(&pool).await?;
     let migration = all
         .iter()
         .find(|m| m.version == 12)
@@ -94,6 +94,10 @@ async fn failed_enablement_backfill_rolls_back_and_can_be_retried_idempotently(
     assert_eq!(legacy_snapshot(&pool).await?, before);
 
     all.run(&pool).await?;
+    // The later asset migration adds only its empty legacy default.
+    for server in before.get_mut("servers").unwrap().as_array_mut().unwrap() {
+        server["asset_settings"] = serde_json::json!({});
+    }
     let enabled: (i64, String, bool) = sqlx::query_as(
         "SELECT server_id,source,enabled FROM server_plugins WHERE plugin='sing-box'",
     )

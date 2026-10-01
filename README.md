@@ -17,6 +17,7 @@ docker compose --project-name sinan --env-file .env \
 
 - [部署、制品导入、节点接入与升级](docs/deploy.md)
 - [服务器状态展示页](docs/server-display.md)
+- [服务器资产、续费记录与流量额度](docs/server-assets.md)
 - [开发、测试和 CI](docs/dev.md)
 - [离线签署、发布与公钥轮换](docs/release.md)
 - [真实 Reality 验收与阶段证据](docs/e2e.md)

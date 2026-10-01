@@ -9,5 +9,10 @@ pub async fn run(state: AppState) {
         if let Err(error) = crate::diagnostics::expire(&state).await {
             tracing::error!(%error, "diagnostic expiry cleanup failed");
         }
+        if let Err(error) =
+            crate::server_assets::renew_due(&state.pool, sinan_protocol::now_timestamp()).await
+        {
+            tracing::error!(%error, "server expiry renewal failed");
+        }
     }
 }

@@ -30,7 +30,7 @@ export function Loading() { return <div className="loading" role="status"><span 
 export function Refresh({ onClick }: { onClick: () => void }) { return <button className="button button-secondary" onClick={onClick}><Icon name="refresh" size={16} /><span>刷新</span></button> }
 export function Stat({ label, value, note, icon }: { label: string; value: ReactNode; note?: ReactNode; icon: string }) { return <div className="stat"><div className="stat-label">{label}<span><Icon name={icon} size={18} /></span></div><strong>{value}</strong>{note && <small>{note}</small>}</div> }
 export function Meter({ value }: { value?: number }) { return <span className="meter"><span style={{ width: `${Math.min(100, Math.max(0, value ?? 0))}%` }} /></span> }
-export function Modal({ title, children, onClose, busy = false, wide = false }: { title: string; children: ReactNode; onClose: () => void; busy?: boolean; wide?: boolean }) {
+export function Modal({ title, children, onClose, busy = false, wide = false, className = '' }: { title: string; children: ReactNode; onClose: () => void; busy?: boolean; wide?: boolean; className?: string }) {
   const dialog = useRef<HTMLDivElement>(null)
   const close = useRef(onClose); close.current = onClose
   const pending = useRef(busy); pending.current = busy
@@ -51,7 +51,7 @@ export function Modal({ title, children, onClose, busy = false, wide = false }: 
     const overflow = document.body.style.overflow; document.body.style.overflow = 'hidden'
     return () => { document.removeEventListener('keydown', key); document.body.style.overflow = overflow; previous?.focus() }
   }, [])
-  return <div className="modal-shade" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose() }}><div ref={dialog} className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title"><header><h2 id="modal-title">{title}</h2><button className="icon-button" aria-label="关闭对话框" disabled={busy} onClick={onClose}><Icon name="close" /></button></header>{children}</div></div>
+  return <div className="modal-shade" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose() }}><div ref={dialog} className={`modal ${wide ? 'modal-wide' : ''} ${className}`} role="dialog" aria-modal="true" aria-labelledby="modal-title"><header><h2 id="modal-title">{title}</h2><button className="icon-button" aria-label="关闭对话框" disabled={busy} onClick={onClose}><Icon name="close" /></button></header>{children}</div></div>
 }
 export function FormDialog({ title, children, onClose, onSubmit, busy, error, submitLabel = '保存' }: { title: string; children: ReactNode; onClose: () => void; onSubmit: (data: FormData) => void; busy: boolean; error?: string; submitLabel?: string }) {
   const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)) }
