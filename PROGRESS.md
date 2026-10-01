@@ -1286,3 +1286,8 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 本聊天发现打包漏校验新 Netflix helper：保留换行的合法 Python 篡改仍能生成制品，原无换行夹具只被嵌入格式拒绝。补 `pack()` 的精确 helper 验证与真实回归后，同一负对照以 SHA 不匹配失败且无制品/清单。Netflix helper/变换输入输出摘要保持，补修 source-helper 使用新摘要；作者 Debian 收据单独保留，未由本聊天重演。
 - 真实 Bash5 下 Netflix14、来源16、数据6、评分10、报告编排6、包装器34、依赖11、swap10共107项通过；报告保持主线提前分派与原20秒。Bash3 依赖/swap 21项中20通过、1完整上游语法条件跳过。Bootstrap11通过/2条件跳过、Release28通过/4条件跳过；不把跳过记为通过。17固定官方缓存687969B与八helper摘要、r13输入182869B/r14输出186099B精确匹配。
 - r2–r14 历史与所有 full 门禁保留，追加旧r13排队门禁夹具，r14 `deploy/bootstrap.sh` 精确再生成并检查通过；core/diff/脚本语法通过。Rust/PostgreSQL由主任务后续验证，本分工没有执行；四源码工作流仍暂停。耐久证据 `pr128-review-20261001`；未运行公网Netflix、上游完整链、真实swap/安装、公网上传、正式签署、发布或部署。
+
+## 2026-10-01 PR #128 最新主线整合验证
+
+- 保留作者 `072edf9e` 与补修 `6c64fae`，普通整合已合 #126/#129 的 main `82493264`。r14 打包前验证 Netflix helper 的精确摘要，合法 Python/末尾换行篡改负对照从产出制品变为明确 SHA mismatch 且零制品；旧真实报告夹具的 early --record 与原 20 秒预算保持。旧 r13 排队 full 显式拒绝，所有 full 门禁及精确已 Started 历史恢复保持。
+- 冻结整合 `9040f2c`：本地诊断 Rust/PostgreSQL 专项 42 通过、0 失败、0 忽略；workspace all-targets Clippy、fmt、core、diff 与生成入口同步通过。自己的 PostgreSQL 127.0.0.1:55432 已停止。Python 与双 Bash 专项对应 `6c64fae` 固定源码及耐久证明，未取公网 Netflix、没有完整验机/播放实测或重演作者容器；没有把专项当作工作区全量。四源码 CI 继续暂停，未签署、发布或部署。
