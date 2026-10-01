@@ -175,6 +175,11 @@ class ReportTests(unittest.TestCase):
 
 
 class ChapterTests(unittest.TestCase):
+    def stage(self, directory, data):
+        root = pathlib.Path(directory)
+        (root / "upload.base64").write_bytes(base64.encodebytes(data))
+        return root
+
     def test_concurrent_atomic_writes_publish_whole_private_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)

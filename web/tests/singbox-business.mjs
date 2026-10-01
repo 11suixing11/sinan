@@ -21,7 +21,7 @@ try {
     const page = await browser.newPage({ viewport: { width, height: 900 } })
     const errors = [], requests = [], now = Math.floor(Date.now() / 1000)
     page.on('pageerror', error => errors.push(error.message))
-    const metadata = { id: 1, name: '纯监控验收服务器', enabled: false, source: null, read_only: false, online: true, agent_supported: false }
+    const metadata = { id: 1, name: '纯监控验收服务器', enabled: false, source: null, read_only: false, online: true, agent_supported: false, installation: { state: 'not_enabled', reason: '尚未启用插件；设备支持此插件不代表已安装', target_rev: 0, applied_rev: 0 } }
     const entry = { id: 1, name: metadata.name, online: true, device_public_key: 'test-only-key', static_info: { runtime_version: 'test-only-runtime' }, latest_metrics: { network_interfaces: { eth0: { received_bytes: 1024, transmitted_bytes: 2048 } } }, last_seen: now, manifest_rev: 0, capabilities: [] }
     const node = { id: 2, name: '插件代理节点', server_id: 1, protocol: 'vless-reality', port: 443, public_host: 'proxy.example.com', sni: 'www.example.com', public_key: 'public-test', short_id: '0123abcd' }
     await page.route('**/api/**', async route => {
@@ -36,7 +36,7 @@ try {
       else if (path === '/api/plugins/sing-box/servers/1/enable') {
         assert.equal(route.request().method(), 'POST')
         assert.deepEqual(route.request().postDataJSON(), {})
-        Object.assign(metadata, { enabled: true, source: 'administrator' }); value = metadata
+        Object.assign(metadata, { enabled: true, source: 'administrator', installation: { state: 'queued', reason: '启用请求已保存，正在生成初始运行配置', target_rev: 0, applied_rev: 0 } }); value = metadata
       } else if (path === '/api/plugins/sing-box/servers/1/deployments') {
         assert.equal(metadata.enabled, true); value = { status: null, history: [] }
       } else if (path === '/api/plugins/sing-box/nodes') {
@@ -60,17 +60,18 @@ try {
     assert.equal(await page.getByText('test-only-runtime', { exact: true }).count(), 0)
     assert.equal(requests.some(path => path.endsWith('/deployments') || path.endsWith('/nodes')), false)
     await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '服务器插件', exact: true }).click()
-    await page.getByRole('button', { name: '启用 sing-box', exact: true }).click()
+    await page.getByRole('button', { name: '启用并安装 sing-box', exact: true }).click()
     await page.getByText('管理员明确启用', { exact: true }).waitFor()
     assert.equal(metadata.enabled, true)
     await page.goto(`${origin}/#/servers/1`)
     await page.getByRole('heading', { name: '配置部署', exact: true }).waitFor()
     await page.getByText('插件代理节点', { exact: true }).waitFor()
     assert.equal(await page.locator('[data-plugin="sing-box"]').count(), 1)
-    Object.assign(metadata, { source: 'agent_capability', read_only: true, agent_supported: true })
+    Object.assign(metadata, { source: 'legacy_nodes', read_only: true, agent_supported: true })
     await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '服务器插件', exact: true }).click()
-    await page.getByText('由设备声明或既有配置识别，来源只读', { exact: true }).waitFor()
-    assert.equal(await page.getByRole('button', { name: '启用 sing-box', exact: true }).count(), 0)
+    await page.getByText('兼容已有代理节点', { exact: true }).waitFor()
+    await page.getByText('保留已有启用记录', { exact: true }).waitFor()
+    assert.equal(await page.getByRole('button', { name: '启用并安装 sing-box', exact: true }).count(), 0)
     await page.getByRole('link', { name: '代理用户', exact: true }).click()
     await page.getByRole('heading', { name: '代理用户', exact: true }).waitFor()
     assert.equal(await page.getByRole('button', { name: '创建代理用户', exact: true }).count(), 2)

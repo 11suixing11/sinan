@@ -91,7 +91,13 @@ async fn musl_agent_on_gnu_host_receives_legacy_gnu_runtime(pool: PgPool) -> Res
             .bearer_auth(&ack.session_token)
             .send()
             .await?;
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert!(
+            response
+                .text()
+                .await?
+                .contains("缺少此平台的已验签 sing-box 1.14.2 制品")
+        );
     }
     // A GNU Agent already running through a musl compatibility layer keeps its
     // previous GNU identity ahead of the legacy and newly detected host target.

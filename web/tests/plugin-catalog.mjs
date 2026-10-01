@@ -32,7 +32,7 @@ try {
     const page = await browser.newPage({ viewport: { width, height: 1000 } })
     const errors = [], mutations = [], reads = []
     let inventory = packages, artifactFailure = false, serverFailure = false, noServers = false, metadataFailure = false
-    const metadata = { id: 2, name: '所选服务器', enabled: false, online: true, agent_supported: true, read_only: false, source: null }
+    const metadata = { id: 2, name: '所选服务器', enabled: false, online: true, agent_supported: true, read_only: false, source: null, installation: { state: 'not_enabled', reason: '尚未启用插件；设备支持此插件不代表已安装', target_rev: 0, applied_rev: 0 } }
     const servers = [
       { id: 1, name: '另一台服务器', online: false, device_public_key: null, static_info: {} },
       { id: 2, name: metadata.name, online: true, device_public_key: 'TEST_ONLY', static_info: {} },
@@ -46,7 +46,7 @@ try {
         if (path !== '/api/plugins/sing-box/servers/2/enable' || request.method() !== 'POST') {
           errors.push(`Unexpected mutation: ${path}`); await route.fulfill({ status: 400, json: { error: 'UNEXPECTED_MUTATION' } }); return
         }
-        Object.assign(metadata, { enabled: true, source: 'administrator' }); value = metadata
+        Object.assign(metadata, { enabled: true, source: 'administrator', installation: { state: 'queued', reason: '启用请求已保存，正在生成初始运行配置', target_rev: 0, applied_rev: 0 } }); value = metadata
       } else {
         reads.push(path)
         if (path === '/api/dashboard/access') value = { authenticated: true, public_dashboard: false }
@@ -142,7 +142,7 @@ try {
       await dialog.getByRole('button', { name: '前往服务器管理' }).click()
       await page.waitForURL(`${origin}/#/servers/2${destination}`)
       if (plugin === 'sing-box') {
-        await page.getByRole('button', { name: '启用 sing-box', exact: true }).waitFor()
+        await page.getByRole('button', { name: '启用并安装 sing-box', exact: true }).waitFor()
         assert.equal(await page.locator('tbody tr').count(), 1)
         assert.equal(await page.getByRole('link', { name: metadata.name, exact: true }).count(), 1)
       } else {
@@ -158,14 +158,15 @@ try {
     metadataFailure = true
     await page.getByRole('button', { name: '刷新', exact: true }).click()
     await page.getByText('PLUGIN_STATE_UNKNOWN', { exact: true }).waitFor()
-    assert.equal(await page.getByRole('button', { name: '启用 sing-box' }).isDisabled(), true)
+    assert.equal(await page.getByRole('button', { name: '启用并安装 sing-box', exact: true }).isDisabled(), true)
     metadataFailure = false
     await page.getByRole('button', { name: '重试', exact: true }).click()
     await page.getByText('PLUGIN_STATE_UNKNOWN', { exact: true }).waitFor({ state: 'hidden' })
-    await page.getByRole('button', { name: '启用 sing-box', exact: true }).click()
+    await page.getByRole('button', { name: '启用并安装 sing-box', exact: true }).click()
     await page.getByText('管理员明确启用', { exact: true }).waitFor()
     assert.deepEqual(mutations, [{ path: '/api/plugins/sing-box/servers/2/enable', method: 'POST', body: {} }])
-    assert.equal(await page.getByText('已安装', { exact: true }).count(), 0)
+    await page.getByText('安装已安排', { exact: true }).waitFor()
+    assert.equal(await page.getByText('已安装并运行', { exact: true }).count(), 0)
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
     assert.deepEqual(errors, [])
     await page.close()

@@ -11,3 +11,5 @@
 | #58 | 原生 `crates/tcp-probe` 与 `adapter-tcpquality`，构建/签名采用 `tools/build-tcp-probe.py`、`tcp_probe_artifact.py`；没有引入未获许可的上游脚本/rootfs | 已登记原生 TCP 的签名安装、真实启动、断连恢复及取消整链；不把单元测试或来源审计当作此项完成 |
 
 源码已覆盖和开放 issue 的完整验收是不同状态。不得仅因本表或常规测试通过而关闭尚有实机条件的 issue，也不解除完整 NodeQuality 门禁。
+
+最终整合后的本地测试与剩余条件见[统一验证记录](issues-batches-validation.md)；本文件未测试的描述保留为批次提交时点的状态。

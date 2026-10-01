@@ -17,3 +17,5 @@
 #28/#65/#66/#82 的剩余内容需要操作者提供适配实际版本和集成方式的工具来源/权利证明，以及专用环境中的网络、命令、取消与资源故障证据。当前仓库材料不能据此推断上游违法，也无法替操作者取得许可。本批不下载 rootfs、不执行或接受专有工具条款、不修改全局 swap、不部署。`full_ready=false`、Agent 拒绝新的 full 与 CI 暂停保持。
 
 已有静态证据分别见 [amd64 库存](nodequality-rootfs-inventory.md)、[arm64 库存](nodequality-rootfs-arm-inventory.md)、[报告上传](nodequality-public-report-policy.md)、[swap 变换](nodequality-no-swap.md) 与 [执行链审计](nodequality-chain-audit.md)。本批新增浏览器身份回归入口为 `tools/test-nodequality-browser-policy.py`；统一测试必须覆盖实际固定源、子 Bash、curlrc、原请求内容和 403/429/超时不换身份重试，当前未执行。
+
+最终整合后的本地测试与剩余条件见[统一验证记录](issues-batches-validation.md)；本文件未测试的描述保留为批次提交时点的状态。

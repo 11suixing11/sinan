@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 use anyhow::{Context, ensure};
-use sinan_tcp_probe::{Command, Journal, SOURCE_COMMIT, VERSION, parse, run};
+use sinan_tcp_probe::{Command, Journal, SOURCE_COMMIT, VERSION, parse, run_until};
 use std::time::Duration;
 use tokio::{
     io::AsyncWriteExt,
@@ -37,7 +37,10 @@ fn main() {
             let result = runtime.block_on(async {
                 timeout_at(deadline, async {
                     let mut journal = Journal::open(&options).await?;
-                    let report = run(&options, &mut journal).await?;
+                    // Keep bounded stdout publication inside the original process deadline.
+                    let report =
+                        run_until(&options, &mut journal, deadline - Duration::from_secs(2))
+                            .await?;
                     let mut bytes = serde_json::to_vec(&report)?;
                     ensure!(
                         bytes.len() <= sinan_tcp_probe::OUTPUT_LIMIT,

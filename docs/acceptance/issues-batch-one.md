@@ -17,3 +17,5 @@
 Python 部分统一运行 `scripts/test-e2e-driver.py` 和 `scripts/test-e2e-traffic-evidence.py`，生成一致性使用 `tools/render-bootstrap.py --check` 及既有发布工具测试。源码预算真实属性与常驻优先级按[诊断资源预算](diagnostic-resource-budget.md)和[常驻服务优先级](resident-service-priority.md)在专用 Linux/systemd 节点验证；当前 macOS 上条件忽略不能作真实 systemd 通过证据。
 
 完整 NodeQuality 仍受[整改次序及完整执行门禁](ordered-remediation.md)约束。既有有限联合负载、真实日常链路和原 CI 只认证各自记录的提交/场景；本批没有运行完整上游负载、公网压测、真实旧客户端迁移或修改生产配置。#6 根因及这些明确实机边界继续保留待完成。
+
+最终整合后的本地测试与剩余条件见[统一验证记录](issues-batches-validation.md)；本文件未测试的描述保留为批次提交时点的状态。

@@ -1,5 +1,5 @@
 use crate::{
-    engine::{Limits, Network, NetworkFuture, resolved_addresses, run_with},
+    engine::{Limits, Network, NetworkFuture, resolved_addresses, run_with, run_with_deadline},
     *,
 };
 use sha2::{Digest, Sha256};
@@ -316,11 +316,53 @@ async fn dns_failure_timeout_and_no_matching_family_preserve_unknown_results() {
     }
 }
 
+async fn publish_across_deadline(
+    options: Options,
+    mut journal: Journal,
+    network: Arc<FakeNetwork>,
+    limits: Limits,
+    outer_deadline: Option<tokio::time::Instant>,
+) -> Report {
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    // Initial scope, targets and two progress updates each write three files.
+    // Hold the first sample's real atomic write before sync/rename.
+    let targets = journal.snapshot(&options).unwrap().targets.len();
+    let actual_deadline =
+        journal.gate_publication_after(3 * (1 + targets + 2), entered.clone(), release.clone());
+    let started = std::time::Instant::now();
+    let handle = tokio::spawn({
+        let network = network.clone();
+        async move { run_with_deadline(&options, &mut journal, network, limits, outer_deadline).await }
+    });
+    tokio::time::timeout(Duration::from_secs(2), entered.notified())
+        .await
+        .unwrap();
+    let probe_deadline = actual_deadline
+        .lock()
+        .unwrap()
+        .expect("engine's actual probe deadline");
+    if let Some(outer_deadline) = outer_deadline {
+        assert_eq!(probe_deadline, outer_deadline - limits.publication);
+    }
+    tokio::time::sleep_until(probe_deadline + Duration::from_millis(20)).await;
+    assert_eq!(network.active.load(Ordering::SeqCst), 0);
+    assert!(
+        !handle.is_finished(),
+        "publication must retain its reserved budget"
+    );
+    release.notify_one();
+    let report = handle.await.unwrap().unwrap();
+    assert!(started.elapsed() < Duration::from_secs(4));
+    assert!(!report.targets[0].samples.is_empty());
+    report
+}
+
 #[tokio::test]
 async fn deadline_includes_queued_targets_and_preserves_atomic_partial_sections() {
     let directory = Directory::new();
     let network = FakeNetwork::new(Dns::Error, true);
-    let (options, mut journal) = directory
+    let (options, journal) = directory
         .prepare(
             (1..=8).map(|id| target(id, "127.0.0.1", 12345)).collect(),
             IpVersion::V4,
@@ -332,11 +374,9 @@ async fn deadline_includes_queued_targets_and_preserves_atomic_partial_sections(
     limits.total = Duration::from_secs(3);
     limits.publication = Duration::from_secs(2);
     limits.connect = Duration::from_millis(250);
-    let started = std::time::Instant::now();
-    let report = run_with(&options, &mut journal, network.clone(), limits)
-        .await
-        .unwrap();
-    assert!(started.elapsed() < Duration::from_secs(4));
+    let report = publish_across_deadline(options, journal, network.clone(), limits, None).await;
+    assert_eq!(report.targets[0].status, "partial");
+    assert!(!report.targets[0].complete);
     assert!(!report.complete && report.deadline_exceeded);
     assert_eq!(network.active.load(Ordering::SeqCst), 0);
     assert!(network.connections.lock().unwrap().len() <= 4);
@@ -354,6 +394,73 @@ async fn deadline_includes_queued_targets_and_preserves_atomic_partial_sections(
                 && target.samples.is_empty()
                 && target.summary.connection_success_percent.is_none())
     );
+    directory.assert_reports(&report);
+}
+
+#[tokio::test]
+async fn caller_deadline_includes_prior_inspection_without_restarting_the_budget() {
+    let caller_deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    let directory = Directory::new();
+    let network = FakeNetwork::new(Dns::Error, true);
+    let (options, journal) = directory
+        .prepare(vec![target(1, "127.0.0.1", 12345)], IpVersion::V4)
+        .await;
+    // Model time already spent by the caller before entering the probe engine.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let mut limits = fast_limits();
+    limits.total = Duration::from_secs(3);
+    limits.publication = Duration::from_secs(2);
+    limits.connect = Duration::from_millis(250);
+    let report =
+        publish_across_deadline(options, journal, network, limits, Some(caller_deadline)).await;
+    assert!(!report.complete && report.deadline_exceeded);
+    assert_eq!(report.targets[0].status, "partial");
+    assert!(tokio::time::Instant::now() < caller_deadline);
+    directory.assert_reports(&report);
+}
+
+#[tokio::test]
+async fn buffered_attempts_during_publication_remain_known_after_deadline() {
+    let directory = Directory::new();
+    let network = FakeNetwork::new(Dns::Error, false);
+    let (options, journal) = directory
+        .prepare(
+            (1..=8)
+                .map(|id| target(id, "127.0.0.1", 12345 + id as u16))
+                .collect(),
+            IpVersion::V4,
+        )
+        .await;
+    let mut limits = fast_limits();
+    limits.total = Duration::from_secs(3);
+    limits.publication = Duration::from_secs(2);
+    let report = publish_across_deadline(options, journal, network.clone(), limits, None).await;
+    assert!(!report.complete && report.deadline_exceeded);
+    assert!(report.targets[0].complete);
+    assert!(report.targets[1].complete);
+    for address in network.connections.lock().unwrap().iter() {
+        let target = report
+            .targets
+            .iter()
+            .find(|target| target.target.port == address.port())
+            .unwrap();
+        assert_ne!(target.status, "not_attempted");
+        assert_eq!(
+            target.address.as_deref(),
+            Some(address.to_string().as_str())
+        );
+    }
+    for target in &report.targets {
+        let name = format!("tcp_target_{}", target.target.id.replace('-', ""));
+        let section: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(directory.path.join("sections").join(format!("{name}.json"))).unwrap(),
+        )
+        .unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_str(section["text"].as_str().unwrap()).unwrap();
+        assert_eq!(saved["status"], target.status);
+        assert_eq!(section["complete"], target.complete);
+    }
     directory.assert_reports(&report);
 }
 
