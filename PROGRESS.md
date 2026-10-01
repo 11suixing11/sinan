@@ -1624,3 +1624,10 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 主线 0001–0032 SQL 原字节保持；新增授权收敛迁移由作者分支 0029 按原字节顺延 0033。旧schema重复迁移回归保留授权、历史样本和凭据断言并扩到33，不改旧迁移摘要。新offline/node-query/carrier ADR顺延0049–0051，已有0047监控和0048DDNS保留。
 - 遥测冲突保留1秒采样、独立3秒live/60秒持久确认、旧面板fallback及全部确认屏障，同时整合可恢复SQLite错误。旧NQr19生产者及精确历史/Started/full门禁、17固定来源和所有既有插件/业务/安装保护保持。
 - 作者625/20、503 testsRun、25浏览器及私有Debian/native制品收据保留各自来源，本聊天没有重演、累计或将其当成新的主线组合通过。当前最终验证待完成；CI继续暂停，不签署正式制品、发布或部署，不代作者评论/关闭issue。
+
+## 2026-10-02 PR #140：当前主线最终验证
+
+- 最终冻结 `557cccf` 完整 Rust/PostgreSQL 680 通过、0 失败、20 条件忽略，86 结果组；umask077 1、全 targets Clippy/fmt/core 通过，真实 macOS IPv4/IPv6 回环 ICMP 1 另计。首 `8aa207b` 的 679/1/20 失败原日志保留，只补既有恢复夹具 watch/计数器竞态的明确 Notify，同样2秒等待与产品5秒预算，完整复验通过。
+- Bun54/1265、双强制 TS/Vite129模块、21dist逐字复现；当前30 Chromium覆盖为29首轮通过+display-data精确线路备注断言补修后1通过。全部私有API，新资源快照22场景、40次陈旧强制写零请求与20次恢复单写，不宣称首轮全绿、31项或作者全部真实设备矩阵复演。`557cccf` 实际编译内嵌 handler 的21文件 HTTP GET/HEAD字节/SHA/长度/MIME/cache/nosniff及根index相同，frontend1通过。
+- 9相关Python132完整方法通过/19方法skip/1 classskip/0子例skip/0失败；17固定来源687969B逐锁SHA、两个FIFO负例、20 Python AST/bootstrap/actionlint/88links通过。首actionlint PATH环境失败保留，只补静态；旧canonical/PS按blob/mode保持，不重复旧299或声称新Windows验收。
+- 旧32条SQL原字节保留，新唯一0033与作者原授权SQL一致，ADR0047/0048保留、新49–51唯一；全部作者/main祖先普通保留。收尾只有文档追加，精确输入映射与失败修正见[当前主线验收](docs/acceptance/pr140-current-main-validation.md)。PG55432及临时HTTP已停；CI继续暂停，20忽略及正式提供商/rootfs/生产迁移/设备/TCP整链仍单列待验，没有正式签名发布部署或代其他任务关闭issue。
