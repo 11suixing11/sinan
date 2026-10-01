@@ -139,7 +139,7 @@ try {
     await page.getByText('每 2 秒 聚合', { exact: false }).waitFor()
     const probes = page.locator('.d-probes'), probeSummary = probes.locator('.d-probe-summary')
     await probeSummary.getByText(/最近采样/).waitFor()
-    assert.match(await probeSummary.innerText(), /测试地区 · IPv4 · TCP 连接 · private-probe\.example\.invalid:443/)
+    assert.match(await probeSummary.innerText(), /电信 · 测试地区 · IPv4 · telecom · TCP 连接 · private-probe\.example\.invalid:443/)
     assert.match(await probeSummary.locator('strong').innerText(), /0\.0 ms · 连接失败率 0\.0%/, 'A real zero remains a successful measurement')
     assert.equal(await probes.locator('svg[role="img"]').count(), 2)
     probeAuthorized = false

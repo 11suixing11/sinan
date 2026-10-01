@@ -2,6 +2,7 @@ use super::*;
 
 struct RecoveringSource {
     calls: Arc<AtomicUsize>,
+    started: Arc<tokio::sync::Notify>,
     resume: mpsc::Receiver<()>,
 }
 
@@ -9,7 +10,10 @@ impl Source for RecoveringSource {
     fn collect(&mut self) -> Result<(StaticInfo, Metrics)> {
         match self.calls.fetch_add(1, Ordering::SeqCst) {
             1 => anyhow::bail!("TEST_ONLY transient sampling failure"),
-            2 => self.resume.recv()?,
+            2 => {
+                self.started.notify_one();
+                self.resume.recv()?;
+            }
             _ => {}
         }
         Ok((
@@ -26,11 +30,14 @@ impl Source for RecoveringSource {
 async fn failed_and_slow_sampling_retains_identity_until_fresh_recovery() -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
     let count = calls.clone();
+    let started = Arc::new(tokio::sync::Notify::new());
+    let collecting = started.clone();
     let (release, resume) = mpsc::channel();
     let sampling = Sampling::start_with(
         move || {
             Ok(Box::new(RecoveringSource {
                 calls: count,
+                started: collecting,
                 resume,
             }))
         },
@@ -42,16 +49,16 @@ async fn failed_and_slow_sampling_retains_identity_until_fresh_recovery() -> Res
         },
     )?;
     let mut snapshots = sampling.snapshots.clone();
-    let before = tokio::time::timeout(Duration::from_secs(2), async {
-        loop {
-            snapshots.changed().await?;
-            let snapshot = snapshots.borrow().clone();
-            if calls.load(Ordering::SeqCst) >= 3 && snapshot.error.is_some() {
-                break Ok::<_, anyhow::Error>(snapshot.sample.clone().unwrap());
-            }
-        }
-    })
-    .await??;
+    // Starting collect publishes the retained snapshot before incrementing the
+    // source call counter. Wait for the actual blocked collection, not a race
+    // between two independently observed watch/counter updates.
+    tokio::time::timeout(Duration::from_secs(2), started.notified()).await?;
+    let before = {
+        let snapshot = snapshots.borrow().clone();
+        assert!(snapshot.error.is_some());
+        assert!(calls.load(Ordering::SeqCst) >= 3);
+        snapshot.sample.clone().unwrap()
+    };
     tokio::time::sleep(COLLECTION_TIMEOUT + Duration::from_millis(100)).await;
     assert!(snapshots.borrow().timed_out());
     assert_eq!(snapshots.borrow().sample.as_ref(), Some(&before));
