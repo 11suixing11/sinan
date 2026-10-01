@@ -84,6 +84,15 @@ class Panel:
         self.execute(["docker", "info"], quiet=True)
         self.compose("config", "--quiet", quiet=True)
 
+    def require_fresh_project(self):
+        if not shutil.which("docker"):
+            raise Failure("未找到 Docker；无法确认是否已有面板数据，尚未生成新凭据。")
+        project = f"label=com.docker.compose.project={self.args.project}"
+        containers = self.execute(["docker", "ps", "-aq", "--filter", project], quiet=True)
+        volumes = self.execute(["docker", "volume", "ls", "--filter", project, "--quiet"], quiet=True)
+        if containers or volumes:
+            raise Failure("已有此项目的容器或数据卷，但环境文件缺失。请找回原环境文件与凭据后继续；尚未生成新凭据。")
+
     def backup(self):
         services = self.compose("ps", "--status", "running", "--services", quiet=True).splitlines()
         if "postgres" not in services:
@@ -146,6 +155,10 @@ class Panel:
 
     def run(self):
         action = self.args.action
+        if action == "install" and not self.env_file.exists() and not self.env_file.is_symlink():
+            # Existing containers or either data volume can outlive the file.
+            # Never create unrelated credentials before discovering that state.
+            self.require_fresh_project()
         if action in ("init", "install"):
             self.initialize()
         if action == "init":
