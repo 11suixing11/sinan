@@ -1,5 +1,13 @@
 # 执行进度
 
+## 2026-10-01：拨测历史归属与工具失败补修
+
+- 审查 #99 时发现同 UUID 修改类型/地址/端口会把旧样本误标为新方向。创建后固定三字段，PATCH 在锁定原行的事务内拒绝变化并提示新建目标；名称、备注、间隔与启用状态仍可改。旧结果、摘要和离线样本身份保留，不清历史；前端编辑锁定三字段。
+- Unix ping 完整收发汇总也可能包含本地发送失败。移除隐藏发送错误的 quiet 参数，stderr 工具诊断返回不可用并保留有界原因；真实无响应、无工具诊断的 100% 丢包仍支持。新增权限/发送失败与历史/离线重传回归，保留 TCP 创建任务的冻结原字节判据。
+- 受验源码 `d308aee` 在本聊天 macOS ARM64/独立 PostgreSQL 16 完整 Rust 回归 404 通过、0 失败、14 项既有条件忽略；macOS umask077 原子链接专项、workspace 全 targets Clippy（warnings 为错误）、fmt/core 门禁通过。TEST_ONLY 编译根不用于生产发布。
+- Bun 1.4.2 冻结安装、17 项/771 断言与 TypeScript/Vite 构建通过，重建 dist。实际 Chromium 展示页 1440/390/320 与深浅主题、原 TCP/NodeQuality/full 门禁、业务与确认取消伴随夹具全部通过；展示读取无写请求/页面错误，目视核对桌面和320px截图。首次 Bun 子命令 PATH 与 Playwright 预设浏览器版本不匹配只属本地环境失败，显式选用已有 runtime/browser 后通过，原失败日志保留。
+- #99 作者推进到 `98fd54f` 并先行合并，本项保留其祖先及 #97/#98，另建补修 PR。四个 workflow 保持暂停；未执行跨平台/公网 ICMP、真实现代协议或 ACME 运行时、生产部署与远端 CI，不把作者历史实机结果当作本聊天复演。
+
 ## 2026-10-01：补齐 NodeQuality ARM rootfs 静态证据（Issue #82 独立文档 PR）
 
 - [ARM 独立验收](docs/acceptance/nodequality-rootfs-arm-inventory.md)：先刷新固定 asset 345687500，单次取得 BenchOs-arm.tar.gz，实读 359,657,375 字节及 SHA256 与固定元数据一致，无下载重试。禁网、nonroot、只读、512 MiB/1 CPU 容器仅流式分析，保留读取边界并增加外层 120 秒硬截止和 finally 清理；不解压执行或读取原始配置。
