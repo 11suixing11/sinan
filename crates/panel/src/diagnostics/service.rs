@@ -327,8 +327,7 @@ pub(super) fn validate_plugin_report(job: &Value, report: &DiagnosticReport) -> 
         return Ok(());
     };
     // Before registration, every diagnostic belonged to the original plugin.
-    let id = job["plugin"].as_str().unwrap_or("nodequality");
-    let plugin = diagnostic_plugins::find(id)
+    let plugin = diagnostic_plugins::for_job(job)
         .ok_or_else(|| ApiError::Conflict("任务的诊断插件已不可用".into()))?;
     if !plugin.report_url_allowed(url) {
         return Err(ApiError::BadRequest(

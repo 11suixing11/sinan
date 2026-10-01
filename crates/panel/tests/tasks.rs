@@ -140,6 +140,16 @@ async fn probes_preserve_missing_latency_deduplicate_and_acknowledge_deleted_tar
         interval_secs: 10,
         carrier: String::new(),
         enabled: true,
+        monitoring: sinan_protocol::ProbeMonitoring {
+            authorization: sinan_protocol::ProbeAuthorization {
+                basis: sinan_protocol::ProbeAuthorizationBasis::Owned,
+                confirmed: true,
+                source: "TEST_ONLY owned loopback fixture".into(),
+                scope: "TEST_ONLY four loopback attempts at the configured interval".into(),
+                expires_at: None,
+            },
+            ..Default::default()
+        },
     };
     let spec: ProbeSpec = panel
         .admin(
@@ -159,6 +169,8 @@ async fn probes_preserve_missing_latency_deduplicate_and_acknowledge_deleted_tar
         latency_ms: None,
         loss_percent: 100.0,
         error: None,
+        ip_version: None,
+        attempts: None,
     };
     let endpoint = format!("{}/api/agent/v1/probe-results", panel.base);
     for _ in 0..2 {
@@ -257,6 +269,8 @@ async fn probe_destination_is_immutable_and_metadata_edits_preserve_offline_hist
         latency_ms: Some(0.0),
         loss_percent: 0.0,
         error: None,
+        ip_version: None,
+        attempts: None,
     };
     let endpoint = format!("{}/api/agent/v1/probe-results", panel.base);
     panel
@@ -426,6 +440,8 @@ async fn probe_display_is_authenticated_target_bounded_and_preserves_full_day_hi
                 latency_ms: if index == 0 { None } else { Some(0.0) },
                 loss_percent: if index == 0 { 100.0 } else { 0.0 },
                 error: (index == 1).then(|| "ICMP tool unavailable".into()),
+                ip_version: None,
+                attempts: None,
             })
         })
         .collect();

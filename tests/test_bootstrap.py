@@ -89,6 +89,22 @@ class BootstrapTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             bootstrap.select_artifact(metadata, "0.4.0", "macos-arm64")
 
+    def test_newly_signed_historical_bytes_do_not_gain_missing_installation_commands(self):
+        for version in ("0.1.0", "0.2.0"):
+            metadata = {"tag":"agent-v" + version, "protocol_min":1, "protocol_max":1,
+                        "artifacts":[{"name":"agent", "version":version, "arch":"amd64", "format":"raw",
+                                      "binary_name":"sinan-agent", "archive_size":1, "binary_size":1}]}
+            with self.subTest(version=version), patch.object(bootstrap.subprocess, 'run') as execute, \
+                    self.assertRaisesRegex(bootstrap.IncompatibleRelease, "历史 Agent 不支持当前标准安装与服务合同"):
+                bootstrap.select_artifact(metadata, version, "linux-gnu-amd64")
+            execute.assert_not_called()
+        # An independent supported version remains selectable regardless of the
+        # panel package version. Execution still requires normal proof/CLI checks.
+        metadata = {"tag":"agent-v0.4.0", "protocol_min":1, "protocol_max":1,
+                    "artifacts":[{"name":"agent", "version":"0.4.0", "arch":"amd64", "format":"raw",
+                                  "binary_name":"sinan-agent", "archive_size":1, "binary_size":1}]}
+        self.assertEqual(bootstrap.select_artifact(metadata, "0.4.0", "linux-gnu-amd64")["version"], "0.4.0")
+
     def test_latest_catalog_is_data_only_and_uses_numeric_stable_order(self):
         versions = [{"version": v, "tag": "agent-v" + v, "targets": ["arm64"],
                      "protocol_min": 9, "protocol_max": 9}

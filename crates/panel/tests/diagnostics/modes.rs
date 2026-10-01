@@ -2,6 +2,60 @@ use super::*;
 use uuid::Uuid;
 
 #[sqlx::test(migrations = "./migrations")]
+async fn daily_targets_exclude_unconfirmed_revoked_and_expired_monitoring_scope(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, _ack) = panel
+        .authenticated_device(&cookie, "日常授权范围夹具")
+        .await?;
+    capable(&panel, server).await?;
+    fixture(&panel).await?;
+    for (name, confirmed, enabled, expires_at) in [
+        ("TEST_ONLY owned", true, true, None),
+        ("TEST_ONLY unconfirmed", false, true, None),
+        ("TEST_ONLY revoked", true, false, None),
+        (
+            "TEST_ONLY expired",
+            true,
+            true,
+            Some(sinan_protocol::now_timestamp() - 1),
+        ),
+    ] {
+        let id = Uuid::new_v4();
+        let spec = json!({"id":id,"name":name,"kind":"tcp","target":"127.0.0.1","port":443,
+            "interval_secs":60,"carrier":"","enabled":enabled,"monitoring":{"network":"other","region":"",
+            "ip_version":"auto","authorization":{"basis":"owned","confirmed":confirmed,"source":"TEST_ONLY self-owned loopback",
+            "scope":"TEST_ONLY 4 attempts per diagnostic","expires_at":expires_at}}});
+        sqlx::query("INSERT INTO network_probes(id,server_id,spec) VALUES($1,$2,$3)")
+            .bind(id)
+            .bind(server)
+            .bind(spec)
+            .execute(&panel.state.pool)
+            .await?;
+    }
+    let record: Value = panel
+        .admin(
+            Method::POST,
+            &format!("/api/servers/{server}/node-quality/reports"),
+            &cookie,
+            Some(json!({"mode":"daily"})),
+        )
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let targets: Value =
+        serde_json::from_str(record["job"]["options"]["daily_targets"].as_str().unwrap())?;
+    assert_eq!(
+        targets,
+        json!([{"name":"TEST_ONLY owned","target":"127.0.0.1","port":443}])
+    );
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn modes_require_admin_confirmation_gate_capability_and_bound_daily_targets(
     pool: PgPool,
 ) -> Result<()> {
@@ -70,6 +124,16 @@ async fn modes_require_admin_confirmation_gate_capability_and_bound_daily_target
             interval_secs: 60,
             carrier: String::new(),
             enabled: index != 0,
+            monitoring: sinan_protocol::ProbeMonitoring {
+                authorization: sinan_protocol::ProbeAuthorization {
+                    basis: sinan_protocol::ProbeAuthorizationBasis::Owned,
+                    confirmed: true,
+                    source: "TEST_ONLY owned loopback fixture".into(),
+                    scope: "TEST_ONLY four loopback attempts at the configured interval".into(),
+                    expires_at: None,
+                },
+                ..Default::default()
+            },
         };
         sqlx::query("INSERT INTO network_probes(id,server_id,spec) VALUES($1,$2,$3)")
             .bind(spec.id)

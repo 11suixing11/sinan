@@ -99,6 +99,20 @@ pub(crate) async fn read(state: &AppState, server: i64) -> ApiResult<Json<Vec<Pr
 pub async fn agent_list(
     State(state): State<AppState>,
     headers: HeaderMap,
+) -> ApiResult<Json<Vec<serde_json::Value>>> {
+    let server = auth::require_agent(&state, &headers).await?;
+    let specs = read(&state, server).await?.0;
+    // Legacy decoders reject unknown fields and cannot enforce authorization leases.
+    // Keep their wire shape, explicitly stopping their cached targets on refresh.
+    Ok(Json(specs.into_iter().map(|spec| serde_json::json!({
+        "id":spec.id,"name":spec.name,"kind":spec.kind,"target":spec.target,
+        "port":spec.port,"interval_secs":spec.interval_secs,"carrier":spec.carrier,"enabled":false,
+    })).collect()))
+}
+
+pub async fn agent_authorized_list(
+    State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> ApiResult<Json<Vec<ProbeSpec>>> {
     let server = auth::require_agent(&state, &headers).await?;
     read(&state, server).await
@@ -112,6 +126,7 @@ pub async fn create(
 ) -> ApiResult<Json<ProbeSpec>> {
     auth::require_admin(&state, &headers).await?;
     spec.id = Uuid::new_v4();
+    spec.normalize();
     if !spec.valid() {
         return Err(ApiError::BadRequest("拨测配置无效".into()));
     }
@@ -142,9 +157,10 @@ pub async fn update(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path((server, id)): Path<(i64, Uuid)>,
-    Json(spec): Json<ProbeSpec>,
+    Json(mut spec): Json<ProbeSpec>,
 ) -> ApiResult<Json<ProbeSpec>> {
     auth::require_admin(&state, &headers).await?;
+    spec.normalize();
     if spec.id != id || !spec.valid() {
         return Err(ApiError::BadRequest("拨测配置无效".into()));
     }
@@ -164,9 +180,9 @@ pub async fn update(
     }
     let previous: ProbeSpec = serde_json::from_value(previous).map_err(anyhow::Error::from)?;
     // Samples and offline retries identify their destination only by this immutable ID.
-    if spec.kind != previous.kind || spec.target != previous.target || spec.port != previous.port {
+    if !spec.same_measurement(&previous) {
         return Err(ApiError::Conflict(
-            "拨测方式、目标地址和端口创建后不可修改；请新建拨测目标以保留历史归属".into(),
+            "拨测方式、目标、端口、运营商、地区和网络版本创建后不可修改；请新建拨测目标以保留历史归属".into(),
         ));
     }
     sqlx::query("UPDATE network_probes SET spec=$3 WHERE server_id=$1 AND id=$2")
@@ -276,6 +292,9 @@ pub async fn ingest(
                 || r.latency_ms
                     .is_some_and(|v| !v.is_finite() || !(0.0..=60_000.0).contains(&v))
                 || r.error.as_ref().is_some_and(|v| v.len() > 1024)
+                || r.ip_version
+                    .is_some_and(|version| !matches!(version, 4 | 6))
+                || r.attempts.is_some_and(|attempts| attempts != 4)
         })
     {
         return Err(ApiError::BadRequest("拨测结果格式无效".into()));

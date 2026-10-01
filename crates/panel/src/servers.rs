@@ -118,6 +118,7 @@ pub async fn create(
         return Err(ApiError::BadRequest("每台服务器最多配置 32 个拨测".into()));
     }
     for spec in &mut request.probes {
+        spec.normalize();
         spec.id = Uuid::new_v4();
         if !spec.valid() {
             return Err(ApiError::BadRequest("拨测配置无效".into()));

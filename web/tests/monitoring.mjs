@@ -37,6 +37,7 @@ try {
       const respond = (json, status = 200) => route.fulfill({ status, json })
       if (path === '/api/dashboard/access') return respond({ authenticated: true, public_dashboard: false })
       if (path === '/api/servers') return respond(servers)
+      if (path === '/api/probes/overview') return respond([])
       if (method !== 'GET') writes.push({ path, method, body: request.postDataJSON() })
       if (path === '/api/latency-tasks') {
         if (method === 'POST') {

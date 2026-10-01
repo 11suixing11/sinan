@@ -86,6 +86,12 @@ pub struct QualityDatabase {
     pub available: Option<bool>,
     #[serde(default)]
     pub unavailable_reason: Option<String>,
+    #[serde(default = "panel_execution")]
+    pub execution: String,
+    #[serde(default)]
+    pub observed_ip: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -99,6 +105,10 @@ pub struct QueryFailure {
 
 fn provider_name() -> String {
     "check-place".into()
+}
+
+fn panel_execution() -> String {
+    "panel".into()
 }
 
 #[derive(Clone, Copy)]
@@ -150,6 +160,8 @@ pub struct ServerIpInfoView {
     pub private_ip_addresses: Vec<String>,
     pub quality: Vec<IpQuality>,
     pub providers: Vec<ProviderDescription>,
+    pub node_query_ready: bool,
+    pub node_query_reason: Option<String>,
 }
 
 pub async fn view(state: &AppState, server_id: i64) -> ApiResult<ServerIpInfoView> {
@@ -164,12 +176,17 @@ pub async fn view(state: &AppState, server_id: i64) -> ApiResult<ServerIpInfoVie
         .iter()
         .cloned()
         .partition(|ip| ip.parse::<IpAddr>().is_ok_and(public_ip));
+    let quality = cached(state, server_id, &ips).await?;
+    let node_query_reason =
+        crate::diagnostic_plugins::nodequality::node_queries::readiness(state, server_id).await?;
     Ok(ServerIpInfoView {
-        quality: cached(state, server_id, &ips).await?,
+        providers: state.quality_providers.descriptions_for(&quality),
+        quality,
         ip_addresses: ips,
         public_ip_addresses,
         private_ip_addresses,
-        providers: state.quality_providers.descriptions(),
+        node_query_ready: node_query_reason.is_none(),
+        node_query_reason,
     })
 }
 
@@ -224,6 +241,18 @@ pub async fn cached(state: &AppState, server_id: i64, ips: &[String]) -> ApiResu
     let mut quality = cache::read(&state.pool, server_id, ips).await?;
     state.quality_providers.mark_availability(&mut quality);
     Ok(quality)
+}
+
+pub async fn persist_node_results(
+    state: &AppState,
+    server_id: i64,
+    quality: &[IpQuality],
+) -> ApiResult<()> {
+    cache::persist(&state.pool, server_id, quality).await
+}
+
+pub fn confirmed_node_fields(database: &str, value: &Value) -> Vec<QualityField> {
+    fields::parse_fields(database, value)
 }
 
 pub async fn refresh(
@@ -349,6 +378,9 @@ fn database_result(
         historical: false,
         available: Some(true),
         unavailable_reason: None,
+        execution: "panel".into(),
+        observed_ip: None,
+        source: None,
     }
 }
 

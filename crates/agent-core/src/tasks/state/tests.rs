@@ -125,6 +125,8 @@ fn probes_survive_restart_and_partial_ack_with_panel_clock_offset() -> Result<()
         latency_ms: None,
         loss_percent: 100.0,
         error: Some("ICMP tool unavailable".into()),
+        ip_version: None,
+        attempts: None,
     };
     let next = ProbeResult {
         id: Uuid::new_v4(),

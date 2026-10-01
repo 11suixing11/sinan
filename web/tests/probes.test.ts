@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test'
-import { lossLabel, probeSlots, probeState, probeTone, probeValue } from '../src/probes'
+import { emptyMonitoring, familyLabel, lossLabel, probeSlots, probeState, probeTone, probeValue } from '../src/probes'
 import type { Probe, ProbeResult } from '../src/probes'
 
-const probe: Probe = { id: 'probe', name: '回环', kind: 'icmp', target: '127.0.0.1', port: null, interval_secs: 10, carrier: '', enabled: true }
+const probe: Probe = { id: 'probe', name: '回环', kind: 'icmp', target: '127.0.0.1', port: null, interval_secs: 10, carrier: '', enabled: true, monitoring: { ...emptyMonitoring(), authorization: { basis: 'owned', confirmed: true, source: 'TEST_ONLY owned loopback fixture', scope: 'TEST_ONLY loopback measurement fixture', expires_at: null } } }
 const point: ProbeResult = { id: 'point', probe_id: probe.id, sampled_at: 100_000, latency_ms: 0, loss_percent: 0, error: null }
 
 test('probes distinguish zero, total loss and unavailable legacy measurements', () => {
@@ -33,4 +33,20 @@ test('quality bars keep time gaps and unavailable samples instead of carrying fo
   expect(slots.map(value => value?.sampled_at)).toEqual([80_000, undefined, 105_000, undefined, undefined])
   expect(probeValue(slots[0], 'loss_percent')).toBeNull()
   expect(probeValue(slots[2], 'loss_percent')).toBe(100)
+})
+
+
+test('missing, revoked and expired authorizations cannot expose historical values as current', () => {
+  expect(probeState({ ...probe, monitoring: undefined }, point, 101_000)).toBe('目标未授权')
+  expect(probeState({ ...probe, monitoring: emptyMonitoring() }, point, 101_000)).toBe('目标未授权')
+  expect(probeState({ ...probe, monitoring: { ...probe.monitoring!, authorization: { ...probe.monitoring!.authorization, expires_at: 101 } } }, point, 101_000)).toBe('目标授权已到期')
+})
+
+test('actual failed attempts retain failure ratios while tool and DNS failures remain unknown', () => {
+  const refused: ProbeResult = { ...point, latency_ms: null, loss_percent: 100, error: 'TEST_ONLY connection refused', attempts: 4, ip_version: 6 }
+  expect(probeValue(refused, 'latency_ms')).toBeNull()
+  expect(probeValue(refused, 'loss_percent')).toBe(100)
+  expect(probeState(probe, refused, 101_000)).toBe('最近采样')
+  expect(familyLabel(probe, refused)).toBe('IPv6')
+  expect(probeValue({ ...refused, attempts: undefined }, 'loss_percent')).toBeNull()
 })

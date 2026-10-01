@@ -5,6 +5,8 @@ const rawNumber = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i
 type FieldKind = NonNullable<QualityField['kind']>
 const kinds: FieldKind[] = ['text', 'country_code', 'boolean', 'score', 'asn', 'latitude', 'longitude']
 const legacyKinds: Record<string, Record<string, FieldKind>> = {
+  'ipregistry-v1': { ASN: 'asn', 网络组织: 'text', 连接类型: 'text', 国家代码: 'country_code', 代理: 'boolean', Tor: 'boolean', VPN: 'boolean', 滥用: 'boolean', 攻击来源: 'boolean', 云服务商: 'boolean' },
+  'dbip-v2': { 国家代码: 'country_code', 国家或地区: 'text', ASN: 'asn', 网络组织: 'text', ISP: 'text', 用途类型: 'text', 代理: 'boolean', 爬虫: 'boolean', 纬度: 'latitude', 经度: 'longitude' },
   maxmind: { ASN: 'asn', 网络组织: 'text', 国家或地区: 'text', 国家代码: 'country_code', 城市: 'text', 纬度: 'latitude', 经度: 'longitude', 时区: 'text' },
   ipapi: { 'ASN 类型': 'text', 组织类型: 'text', '滥用评分（上游原值）': 'score', 国家代码: 'country_code', 代理: 'boolean', Tor: 'boolean', VPN: 'boolean', 数据中心: 'boolean', 滥用: 'boolean', 爬虫: 'boolean' },
   scamalytics: { '风险评分（上游原值）': 'score', VPN: 'boolean', 数据中心: 'boolean', 外部黑名单: 'boolean', 'FireHOL 代理': 'boolean', 'X4B Tor': 'boolean', 国家代码: 'country_code' },

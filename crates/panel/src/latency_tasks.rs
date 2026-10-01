@@ -84,9 +84,7 @@ pub async fn update(
 
 async fn save(state: &AppState, id: Uuid, mut input: Input, editing: bool) -> ApiResult<Task> {
     input.spec.id = id;
-    input.spec.name = input.spec.name.trim().into();
-    input.spec.target = input.spec.target.trim().into();
-    input.spec.carrier = input.spec.carrier.trim().into();
+    input.spec.normalize();
     input.server_ids.sort_unstable();
     if !input.spec.valid()
         || input.server_ids.len() > 4096
@@ -110,12 +108,9 @@ async fn save(state: &AppState, id: Uuid, mut input: Input, editing: bool) -> Ap
             return Err(ApiError::Conflict("任务已被修改，请刷新后重试".into()));
         }
         let previous: ProbeSpec = serde_json::from_value(previous).map_err(anyhow::Error::from)?;
-        if previous.kind != input.spec.kind
-            || previous.target != input.spec.target
-            || previous.port != input.spec.port
-        {
+        if !input.spec.same_measurement(&previous) {
             return Err(ApiError::Conflict(
-                "检测方式、目标和端口创建后不可修改，请新建任务以保留历史归属".into(),
+                "检测方式、目标、端口、运营商、地区和网络版本创建后不可修改，请新建任务以保留历史归属".into(),
             ));
         }
         revision + 1

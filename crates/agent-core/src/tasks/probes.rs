@@ -6,7 +6,8 @@ use crate::{SharedState, artifacts::PanelClient};
 use anyhow::{Context, Result, ensure};
 use sinan_adapter_sdk::Privileged;
 use sinan_protocol::{
-    ProbeBatch, ProbeKind, ProbeResult, ProbeSpec, TaskAck, now_timestamp, telemetry::now_millis,
+    ProbeBatch, ProbeIpVersion, ProbeKind, ProbeResult, ProbeSpec, TaskAck, now_timestamp,
+    telemetry::now_millis,
 };
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::{
@@ -16,6 +17,8 @@ use tokio::{
     time::{Instant, timeout},
 };
 use uuid::Uuid;
+
+const CONFIGURATION_LEASE_SECS: i64 = 120;
 
 pub(super) async fn run(
     state: SharedState,
@@ -36,6 +39,8 @@ async fn synchronize(
     retirement: Arc<crate::retirement::Retirement>,
 ) -> Result<()> {
     let mut refreshed = Instant::now() - Duration::from_secs(31);
+    let mut configuration_storage = crate::state::StorageRetry::default();
+    let mut acknowledgment_storage = crate::state::StorageRetry::default();
     loop {
         {
             let _guard = retirement.gate.read().await;
@@ -45,7 +50,7 @@ async fn synchronize(
                     if refreshed.elapsed() >= Duration::from_secs(30) {
                         refreshed = Instant::now();
                         match client
-                            .get_json::<Vec<ProbeSpec>>("/api/agent/v1/probes")
+                            .get_json::<Vec<ProbeSpec>>("/api/agent/v1/probes/authorized")
                             .await
                         {
                             Ok(specs)
@@ -53,10 +58,16 @@ async fn synchronize(
                                     && specs.len() <= 32
                                     && specs.iter().all(ProbeSpec::valid) =>
                             {
-                                state
+                                let mut state = state
                                     .lock()
-                                    .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                                    .set_json("probes:configuration", &(now_timestamp(), specs))?;
+                                    .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+                                configuration_storage.finish(
+                                    "persist probe configuration",
+                                    state.set_json(
+                                        "probes:configuration",
+                                        &(now_timestamp(), specs),
+                                    ),
+                                )?;
                             }
                             Ok(_) => tracing::warn!("panel provided invalid probes"),
                             Err(error) => {
@@ -65,7 +76,8 @@ async fn synchronize(
                         }
                     }
                     if !retirement.requested()
-                        && let Err(error) = upload(&state, &client).await
+                        && let Err(error) =
+                            upload(&state, &client, &mut acknowledgment_storage).await
                     {
                         tracing::warn!(%error,"probe results retained for retry");
                     }
@@ -81,6 +93,7 @@ async fn sample_loop(
     ops: Arc<dyn Privileged>,
     retirement: Arc<crate::retirement::Retirement>,
 ) -> Result<()> {
+    let mut storage = crate::state::StorageRetry::default();
     let mut due = HashMap::<Uuid, Instant>::new();
     let mut configured = HashMap::<Uuid, ProbeSpec>::new();
     let mut running = HashMap::<Uuid, (ProbeSpec, AbortHandle)>::new();
@@ -97,12 +110,9 @@ async fn sample_loop(
                         let _guard = retirement.gate.read().await;
                         if retirement.requested() { continue; }
                         let mut state = state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
-                        let configuration = state.get_json::<(i64, Vec<ProbeSpec>)>("probes:configuration")?;
-                        if !configuration.is_some_and(|(fetched, specs)| fetched > now_timestamp() - 86400 && specs.contains(&spec)) {
-                            continue;
-                        }
+                        if !leased_configuration(&state).contains(&spec) { continue; }
                         result.sampled_at = result.sampled_at.saturating_add(state.get_json::<i64>("clock_offset_ms")?.unwrap_or(0));
-                        state.save_probe_result(&result)?;
+                        storage.finish("persist probe sample", state.save_probe_result(&result))?;
                     }
                     Ok((spec, None)) => { running.remove(&spec.id); }
                     Err(error) if error.is_cancelled() => {}
@@ -110,19 +120,18 @@ async fn sample_loop(
                 }
             }
             _ = tick.tick() => {
-                let configuration = state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                    .get_json::<(i64, Vec<ProbeSpec>)>("probes:configuration")?;
-                let specs = configuration.filter(|(fetched, _)| !retirement.requested() && *fetched > now_timestamp() - 86400)
-                    .map(|(_, specs)| specs).unwrap_or_default();
+                let specs = if retirement.requested() { Vec::new() } else {
+                    leased_configuration(&state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?)
+                };
                 running.retain(|_, (spec, task)| {
-                    let keep = specs.iter().any(|current| current.enabled && current == spec);
+                    let keep = specs.iter().any(|current| current == spec);
                     if !keep { task.abort(); }
                     keep
                 });
-                due.retain(|id, _| specs.iter().any(|spec| spec.id == *id && spec.enabled && configured.get(id) == Some(spec)));
+                due.retain(|id, _| specs.iter().any(|spec| spec.id == *id && configured.get(id) == Some(spec)));
                 configured = specs.iter().map(|spec| (spec.id, spec.clone())).collect();
                 let now = Instant::now();
-                let mut ready: Vec<_> = specs.into_iter().filter(|spec| spec.enabled && !running.contains_key(&spec.id)
+                let mut ready: Vec<_> = specs.into_iter().filter(|spec| !running.contains_key(&spec.id)
                     && due.get(&spec.id).is_none_or(|next| *next <= now)).collect();
                 // Oldest due targets run first; slow targets do not block completed results.
                 ready.sort_by_key(|spec| (due.get(&spec.id).copied(), spec.id));
@@ -143,7 +152,11 @@ async fn sample_loop(
     }
 }
 
-async fn upload(state: &SharedState, client: &PanelClient) -> Result<()> {
+async fn upload(
+    state: &SharedState,
+    client: &PanelClient,
+    storage: &mut crate::state::StorageRetry,
+) -> Result<()> {
     let results = state
         .lock()
         .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
@@ -163,11 +176,50 @@ async fn upload(state: &SharedState, client: &PanelClient) -> Result<()> {
                 .all(|id| batch.results.iter().any(|v| v.id == *id)),
         "invalid probe acknowledgment"
     );
-    state
+    let mut state = state
         .lock()
-        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-        .acknowledge_probes(&ack.ids)?;
+        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+    storage.finish(
+        "persist probe acknowledgment",
+        state.acknowledge_probes(&ack.ids),
+    )?;
     Ok(())
+}
+
+fn leased_configuration(state: &crate::State) -> Vec<ProbeSpec> {
+    let now = now_timestamp();
+    let read = (|| -> Result<Vec<ProbeSpec>> {
+        let panel_now =
+            now.saturating_add(state.get_json::<i64>("clock_offset_ms")?.unwrap_or(0) / 1000);
+        let configuration = state.get_json::<(i64, Vec<ProbeSpec>)>("probes:configuration")?;
+        Ok(configuration
+            .filter(|(fetched, specs)| {
+                *fetched <= now
+                    && now.saturating_sub(*fetched) < CONFIGURATION_LEASE_SECS
+                    && specs.len() <= 32
+            })
+            .map(|(_, specs)| {
+                specs
+                    .into_iter()
+                    .filter(|spec| spec.runnable(panel_now))
+                    .collect()
+            })
+            .unwrap_or_default())
+    })();
+    match read {
+        Ok(specs) => specs,
+        Err(error) => {
+            tracing::warn!(%error, "probe configuration unavailable; scheduling paused");
+            Vec::new()
+        }
+    }
+}
+
+struct Measurement {
+    received: u32,
+    latency_ms: Option<f64>,
+    ip_version: u8,
+    error: Option<String>,
 }
 
 async fn sample(spec: &ProbeSpec, ops: &dyn Privileged) -> ProbeResult {
@@ -178,6 +230,8 @@ async fn sample(spec: &ProbeSpec, ops: &dyn Privileged) -> ProbeResult {
         latency_ms: None,
         loss_percent: 100.0,
         error: None,
+        ip_version: None,
+        attempts: None,
     };
     match timeout(Duration::from_secs(12), measure(spec, ops))
         .await
@@ -187,6 +241,9 @@ async fn sample(spec: &ProbeSpec, ops: &dyn Privileged) -> ProbeResult {
         Ok(measurement) => {
             result.loss_percent = f64::from(4 - measurement.received) * 25.0;
             result.latency_ms = measurement.latency_ms;
+            result.ip_version = Some(measurement.ip_version);
+            result.attempts = Some(4);
+            result.error = measurement.error;
         }
         Err(error) => result.error = Some(format!("{error:#}").chars().take(256).collect()),
     }
@@ -194,8 +251,11 @@ async fn sample(spec: &ProbeSpec, ops: &dyn Privileged) -> ProbeResult {
     result
 }
 
-async fn measure(spec: &ProbeSpec, ops: &dyn Privileged) -> Result<icmp::Measurement> {
-    ensure!(spec.valid(), "invalid probe configuration");
+async fn measure(spec: &ProbeSpec, ops: &dyn Privileged) -> Result<Measurement> {
+    ensure!(
+        spec.valid() && spec.monitoring.authorization.confirmed_at(now_timestamp()),
+        "probe target is not authorized"
+    );
     let addresses = timeout(
         Duration::from_secs(2),
         lookup_host((spec.target.as_str(), spec.port.unwrap_or(0))),
@@ -205,27 +265,55 @@ async fn measure(spec: &ProbeSpec, ops: &dyn Privileged) -> Result<icmp::Measure
     .context("probe DNS lookup failed")?;
     let address = addresses
         .into_iter()
-        .find(|a| !a.ip().is_unspecified() && !a.ip().is_multicast())
-        .ok_or_else(|| anyhow::anyhow!("probe resolved no unicast address"))?;
+        .find(|address| {
+            !address.ip().is_unspecified()
+                && !address.ip().is_multicast()
+                && match spec.monitoring.ip_version {
+                    ProbeIpVersion::Auto => true,
+                    ProbeIpVersion::Ipv4 => address.is_ipv4(),
+                    ProbeIpVersion::Ipv6 => address.is_ipv6(),
+                }
+        })
+        .ok_or_else(|| {
+            anyhow::anyhow!("probe resolved no unicast address in the selected IP version")
+        })?;
+    let ip_version = if address.is_ipv4() { 4 } else { 6 };
     match spec.kind {
         ProbeKind::Tcp => {
             let mut times = Vec::new();
+            let mut error = None;
             for _ in 0..4 {
                 let started = Instant::now();
-                if matches!(
-                    timeout(Duration::from_secs(1), TcpStream::connect(address)).await,
-                    Ok(Ok(_))
-                ) {
-                    times.push(started.elapsed().as_secs_f64() * 1000.0);
+                match timeout(Duration::from_secs(1), TcpStream::connect(address)).await {
+                    Ok(Ok(_)) => times.push(started.elapsed().as_secs_f64() * 1000.0),
+                    Ok(Err(failure)) => {
+                        error = Some(
+                            format!("TCP connection failed: {failure}")
+                                .chars()
+                                .take(256)
+                                .collect(),
+                        )
+                    }
+                    Err(_) => error = Some("TCP connection timed out after 1 second".into()),
                 }
             }
-            Ok(icmp::Measurement {
+            Ok(Measurement {
                 received: times.len() as u32,
                 latency_ms: (!times.is_empty())
                     .then(|| times.iter().sum::<f64>() / times.len() as f64),
+                ip_version,
+                error,
             })
         }
-        ProbeKind::Icmp => icmp::measure(address.ip(), ops).await,
+        ProbeKind::Icmp => {
+            let measured = icmp::measure(address.ip(), ops).await?;
+            Ok(Measurement {
+                received: measured.received,
+                latency_ms: measured.latency_ms,
+                ip_version,
+                error: None,
+            })
+        }
     }
 }
 
@@ -254,6 +342,16 @@ mod tests {
             interval_secs: 10,
             carrier: String::new(),
             enabled: true,
+            monitoring: sinan_protocol::ProbeMonitoring {
+                authorization: sinan_protocol::ProbeAuthorization {
+                    basis: sinan_protocol::ProbeAuthorizationBasis::Owned,
+                    confirmed: true,
+                    source: "TEST_ONLY owned loopback fixture".into(),
+                    scope: "TEST_ONLY four loopback attempts at the configured interval".into(),
+                    expires_at: None,
+                },
+                ..Default::default()
+            },
         };
         let result = sample(&spec, &crate::system::SystemOps).await;
         assert_eq!(result.loss_percent, 0.0);
@@ -265,6 +363,35 @@ mod tests {
         let failed = sample(&spec, &crate::system::SystemOps).await;
         assert_eq!(failed.loss_percent, 100.0);
         assert_eq!(failed.latency_ms, None);
+        assert_eq!(failed.attempts, Some(4));
+        assert_eq!(failed.ip_version, Some(4));
+        assert!(
+            failed
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("TCP connection failed"))
+        );
+        spec.monitoring.ip_version = ProbeIpVersion::Ipv6;
+        let wrong_family = sample(&spec, &crate::system::SystemOps).await;
+        assert_eq!(wrong_family.attempts, None);
+        assert_eq!(wrong_family.ip_version, None);
+        assert!(
+            wrong_family
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("selected IP version"))
+        );
+        spec.monitoring.ip_version = ProbeIpVersion::Auto;
+        spec.monitoring.authorization.confirmed = false;
+        let unauthorized = sample(&spec, &crate::system::SystemOps).await;
+        assert_eq!(unauthorized.attempts, None);
+        assert_eq!(unauthorized.latency_ms, None);
+        assert!(
+            unauthorized
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("not authorized"))
+        );
         Ok(())
     }
     #[tokio::test]
@@ -278,9 +405,38 @@ mod tests {
             interval_secs: 10,
             carrier: String::new(),
             enabled: true,
+            monitoring: sinan_protocol::ProbeMonitoring {
+                authorization: sinan_protocol::ProbeAuthorization {
+                    basis: sinan_protocol::ProbeAuthorizationBasis::Owned,
+                    confirmed: true,
+                    source: "TEST_ONLY owned loopback fixture".into(),
+                    scope: "TEST_ONLY four loopback attempts at the configured interval".into(),
+                    expires_at: None,
+                },
+                ..Default::default()
+            },
         };
         let result = sample(&spec, &crate::system::SystemOps).await;
         assert!(result.error.is_some());
         assert_eq!(result.latency_ms, None);
+    }
+
+    #[tokio::test]
+    async fn selected_ipv6_measures_an_owned_loopback_listener() -> Result<()> {
+        let listener = tokio::net::TcpListener::bind("[::1]:0").await?;
+        let spec: ProbeSpec = serde_json::from_value(serde_json::json!({
+            "id":Uuid::new_v4(),"name":"TEST_ONLY IPv6","kind":"tcp","target":"::1",
+            "port":listener.local_addr()?.port(),"interval_secs":30,"carrier":"","enabled":true,
+            "monitoring":{"network":"unicom","region":"TEST_ONLY loopback","ip_version":"ipv6",
+                "authorization":{"basis":"owned","confirmed":true,"source":"TEST_ONLY fixture owner",
+                    "scope":"TEST_ONLY four TCP attempts to the owned loopback listener","expires_at":null}}
+        }))?;
+        let result = sample(&spec, &crate::system::SystemOps).await;
+        assert_eq!(result.ip_version, Some(6));
+        assert_eq!(result.attempts, Some(4));
+        assert_eq!(result.loss_percent, 0.0);
+        assert!(result.latency_ms.is_some());
+        assert!(result.error.is_none());
+        Ok(())
     }
 }

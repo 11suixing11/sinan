@@ -8,6 +8,7 @@ use tokio_tungstenite::accept_async;
 use uuid::Uuid;
 
 mod readiness;
+mod storage;
 
 type Peer = WebSocketStream<TcpStream>;
 

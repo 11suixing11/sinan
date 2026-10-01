@@ -168,6 +168,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/servers/{id}/ip-quality", get(ip_quality::get))
         .route(
+            "/api/servers/{id}/ip-quality/node-query",
+            post(diagnostic_plugins::nodequality::node_queries::create),
+        )
+        .route(
             "/api/servers/{id}/ip-quality/refresh",
             post(ip_quality::refresh),
         )
@@ -241,6 +245,10 @@ pub fn router(state: AppState) -> Router {
             post(commands::complete).layer(axum::extract::DefaultBodyLimit::max(4 * 1024 * 1024)),
         )
         .route("/api/agent/v1/probes", get(probes::agent_list))
+        .route(
+            "/api/agent/v1/probes/authorized",
+            get(probes::agent_authorized_list),
+        )
         .route("/api/agent/v1/probe-results", post(probes::ingest))
         .route("/api/agent/v1/diagnostics", get(diagnostics::pending))
         .route(

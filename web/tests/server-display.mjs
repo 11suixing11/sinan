@@ -37,10 +37,11 @@ try {
       ['等待接入的服务器', undefined, undefined, false, false, null, null],
     ].map(([name, system, arch, online, metrics_stale, metrics_sampled_at, device_public_key], index) => ({ id: index + 1, name, device_public_key, static_info: { hostname: `fixture-${index + 1}`, system, arch, kernel: 'TEST_ONLY', cpu_model: '测试处理器', cpu_cores: 4, memory_total: GiB * 4, disk_total: GiB * 64, virtualization: 'KVM', agent_version: '0.3.0' }, online, metrics_stale, metrics_sampled_at, last_seen: Math.floor((metrics_sampled_at ?? now) / 1000), last_heartbeat_at: Math.floor(now / 1000), manifest_rev: 0, latest_metrics: index === 5 ? {} : metrics(index === 0 ? 0 : index * 12.5, (index < 2 ? index + 1 : 100) * 1024 ** 2) }))
     const samples = Array.from({ length: 120 }, (_, index) => ({ id: `sample-${index}`, sampled_at: now - (120 - index) * 5000, metrics: metrics(index === 44 ? 96 : 15 + Math.sin(index / 6) * 10, (1 + Math.sin(index / 4) * .5) * 1024 ** 2) })).filter((_, index) => index < 55 || index > 68)
+    const monitoring = { network: 'other', region: '', ip_version: 'auto', authorization: { basis: 'owned', confirmed: true, source: 'TEST_ONLY owned loopback fixture', scope: 'TEST_ONLY loopback measurement display fixture', expires_at: null } }
     const definitions = [
-      { id: 'probe-1', name: '测试目标', kind: 'tcp', target: '127.0.0.1', port: 443, interval_secs: 10, carrier: '测试线路', enabled: true },
-      { id: 'probe-2', name: '回显目标', kind: 'icmp', target: '::1', port: null, interval_secs: 10, carrier: '', enabled: true },
-      { id: 'probe-3', name: '不可用目标', kind: 'icmp', target: '127.0.0.1', port: null, interval_secs: 10, carrier: '', enabled: true },
+      { id: 'probe-1', name: '测试目标', kind: 'tcp', target: '127.0.0.1', port: 443, interval_secs: 10, carrier: '测试线路', enabled: true, monitoring },
+      { id: 'probe-2', name: '回显目标', kind: 'icmp', target: '::1', port: null, interval_secs: 10, carrier: '', enabled: true, monitoring },
+      { id: 'probe-3', name: '不可用目标', kind: 'icmp', target: '127.0.0.1', port: null, interval_secs: 10, carrier: '', enabled: true, monitoring },
     ]
     const probeResults = definition => Array.from({ length: 20 }, (_, index) => ({ id: `result-${definition.id}-${index}`, probe_id: definition.id, sampled_at: now - index * 10_000, latency_ms: definition.id === 'probe-2' && index === 0 ? null : index === 0 ? 0 : 20 + index, loss_percent: definition.id === 'probe-1' ? 0 : 100, error: definition.id === 'probe-3' ? 'permission denied' : null }))
     let failure = 0, signedIn = true, historyFailure = false, probeFailure = false, missing = false, reads = 0
@@ -118,7 +119,7 @@ try {
     await probe.locator('svg[role="img"]').last().focus(); await page.keyboard.press('End')
     assert.match(await probe.locator('.d-chart-legend').last().innerText(), /100\.0%/)
     await page.getByLabel('拨测目标', { exact: true }).selectOption('probe-3')
-    await page.getByText('最近一次检测未完成，请在后台查看工具或权限错误。该次结果以空缺显示。', { exact: true }).waitFor()
+    await page.getByText('最近一次检测不可用：permission denied。该次结果以空缺显示。', { exact: true }).waitFor()
     assert(!/100\.0%/.test(await probe.locator('.d-probe-summary').innerText()))
     await probe.getByRole('group', { name: '拨测时间范围' }).getByRole('button', { name: '24 小时' }).click()
     await page.getByText('正在读取拨测结果…', { exact: true }).waitFor({ state: 'hidden' })

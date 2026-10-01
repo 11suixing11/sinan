@@ -53,7 +53,7 @@ pub async fn daily_targets(connection: &mut sqlx::PgConnection, server: i64) -> 
     let targets: Vec<_> = values
         .into_iter()
         .filter_map(|value| serde_json::from_value::<ProbeSpec>(value).ok())
-        .filter(|spec| spec.valid() && spec.enabled && spec.kind == ProbeKind::Tcp)
+        .filter(|spec| spec.runnable(now_timestamp()) && spec.kind == ProbeKind::Tcp)
         .take(4)
         .map(|spec| serde_json::json!({"name":spec.name,"target":spec.target,"port":spec.port}))
         .collect();

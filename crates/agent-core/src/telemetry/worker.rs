@@ -1,5 +1,5 @@
 use super::cache::{Control, Snapshot};
-use crate::{Config, SharedState};
+use crate::{Config, SharedState, state::StorageRetry};
 use anyhow::{Result, ensure};
 use sinan_protocol::AgentSettings;
 use std::{
@@ -7,6 +7,9 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::watch;
+
+#[cfg(test)]
+mod tests;
 
 pub(crate) fn initial_control(config: &Config, state: &SharedState) -> Result<Control> {
     let state = state
@@ -37,6 +40,7 @@ pub(crate) async fn run(
     let persist = async {
         let mut saved = None;
         let mut stale = false;
+        let mut storage = StorageRetry::default();
         let mut poll = tokio::time::interval(Duration::from_secs(1));
         poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
@@ -56,16 +60,20 @@ pub(crate) async fn run(
                     .as_ref()
                     .filter(|sample| !retirement.requested() && Some(sample.id) != saved)
                 {
-                    let mut state = state
-                        .lock()
-                        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
-                    let dropped = state.save_telemetry(sample)?;
-                    saved = Some(sample.id);
-                    if dropped > 0 {
-                        tracing::warn!(
-                            dropped,
-                            "oldest telemetry samples removed by offline retention limit"
-                        );
+                    let persisted = {
+                        let mut state = state
+                            .lock()
+                            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+                        storage.finish("persist telemetry", state.save_telemetry(sample))?
+                    };
+                    if let Some(dropped) = persisted {
+                        saved = Some(sample.id);
+                        if dropped > 0 {
+                            tracing::warn!(
+                                dropped,
+                                "oldest telemetry samples removed by offline retention limit"
+                            );
+                        }
                     }
                 }
             }
@@ -79,6 +87,8 @@ pub(crate) async fn run(
     };
     let upload = async {
         let mut last_settings: Option<Instant> = None;
+        let mut settings_storage = StorageRetry::default();
+        let mut acknowledgment_storage = StorageRetry::default();
         loop {
             let interval = {
                 let _guard = retirement.gate.read().await;
@@ -90,10 +100,21 @@ pub(crate) async fn run(
                         if last_settings.is_none_or(|v| v.elapsed() >= Duration::from_secs(60)) {
                             last_settings = Some(Instant::now());
                             match active.agent_settings().await {
-                                Ok(settings) => state
-                                    .lock()
-                                    .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                                    .set_json("agent_settings", &settings)?,
+                                Ok(settings) => {
+                                    let mut state = state
+                                        .lock()
+                                        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+                                    if settings_storage
+                                        .finish(
+                                            "persist Agent settings",
+                                            state.set_json("agent_settings", &settings),
+                                        )?
+                                        .is_none()
+                                    {
+                                        // Keep the last durable settings. The next upload cycle retries.
+                                        last_settings = None;
+                                    }
+                                }
                                 Err(error) => {
                                     tracing::warn!(%error, "Agent settings refresh failed")
                                 }
@@ -108,10 +129,15 @@ pub(crate) async fn run(
                                 .telemetry(&sinan_protocol::TelemetryBatch { samples })
                                 .await
                             {
-                                Ok(ack) => state
-                                    .lock()
-                                    .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                                    .acknowledge_telemetry(&ack)?,
+                                Ok(ack) => {
+                                    let mut state = state
+                                        .lock()
+                                        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+                                    acknowledgment_storage.finish(
+                                        "persist telemetry acknowledgment",
+                                        state.acknowledge_telemetry(&ack),
+                                    )?;
+                                }
                                 Err(error) => {
                                     tracing::warn!(%error, "telemetry upload failed; samples retained for retry")
                                 }

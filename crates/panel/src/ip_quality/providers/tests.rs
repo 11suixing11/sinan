@@ -13,7 +13,7 @@ fn registry_has_real_origins_and_credentials_never_enter_descriptions() {
     for key in [None, Some(""), Some(" "), Some("bad\nkey"), Some("bad key")] {
         let registry = ProviderRegistry::configured(key);
         let descriptions = registry.descriptions();
-        assert_eq!(descriptions.len(), 3);
+        assert_eq!(descriptions.len(), 5);
         assert_eq!(descriptions[0].provider, "check-place");
         assert_eq!(descriptions[0].kind, "aggregator");
         assert_eq!(descriptions[0].databases.len(), 7);
@@ -22,6 +22,13 @@ fn registry_has_real_origins_and_credentials_never_enter_descriptions() {
         assert!(descriptions[1].reason.is_some());
         assert!(!descriptions[2].enabled);
         assert_eq!(descriptions[2].execution, "node");
+        assert_eq!(descriptions[3].provider, "ipregistry-node");
+        assert_eq!(descriptions[4].provider, "dbip-node");
+        for description in &descriptions[3..] {
+            assert!(!description.enabled);
+            assert_eq!(description.execution, "node");
+            assert_eq!(description.databases.len(), 1);
+        }
     }
     let registry = ProviderRegistry::configured(Some(FIXTURE_KEY));
     assert_eq!(registry.enabled().count(), 2);
