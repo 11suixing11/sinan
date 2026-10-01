@@ -18,7 +18,7 @@ use sinan_protocol::{AgentSettings, EnrollRequest, EnrollResponse, ProbeSpec, no
 use sqlx::{FromRow, PgPool, Row};
 use uuid::Uuid;
 
-const SERVER_COLUMNS: &str = "id, name, device_public_key, static_info, last_seen, last_heartbeat_at, NULLIF(metrics_sampled_at,0) AS metrics_sampled_at, latest_metrics, agent_settings, asset_settings, manifest_rev, capabilities";
+pub(crate) const SERVER_COLUMNS: &str = "id, name, device_public_key, static_info, last_seen, last_heartbeat_at, NULLIF(metrics_sampled_at,0) AS metrics_sampled_at, latest_metrics, agent_settings, asset_settings, manifest_rev, capabilities";
 
 #[derive(Serialize, FromRow)]
 pub struct Server {
@@ -29,8 +29,7 @@ pub struct Server {
     pub last_seen: Option<i64>,
     pub last_heartbeat_at: Option<i64>,
     pub metrics_sampled_at: Option<i64>,
-    #[serde(skip)]
-    agent_settings: Value,
+    pub agent_settings: Value,
     #[sqlx(json)]
     pub asset_settings: AssetSettings,
     #[sqlx(skip)]
@@ -45,7 +44,7 @@ pub struct Server {
 }
 
 impl Server {
-    fn with_online(mut self) -> Self {
+    pub(crate) fn with_online(mut self) -> Self {
         let now = now_timestamp();
         self.asset_settings.renew(now);
         self.online = self
@@ -71,6 +70,7 @@ impl Server {
 pub struct ServerRequest {
     pub name: String,
     pub asset_settings: Option<AssetSettings>,
+    pub auto_update: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -107,6 +107,7 @@ pub async fn create(
     require_admin(&state, &headers).await?;
     let name = valid_name(&request.name)?;
     let mut asset = request.asset_settings.normalized()?;
+    validate_mirror(&asset, &state.config.public_url)?;
     asset.renew(now_timestamp());
     if !request.agent_settings.valid() {
         return Err(ApiError::BadRequest(
@@ -179,20 +180,43 @@ pub async fn update(
         .asset_settings
         .map(|asset| {
             let mut asset = asset.normalized()?;
+            validate_mirror(&asset, &state.config.public_url)?;
             asset.renew(now_timestamp());
             Ok::<_, ApiError>(json!(asset))
         })
         .transpose()?;
+    let mut transaction = state.pool.begin().await?;
+    let previous: Value = sqlx::query_scalar(
+        "SELECT asset_settings FROM servers WHERE id=$1 AND deleted_at IS NULL FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *transaction)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    if let Some(asset) = &asset {
+        let previous: AssetSettings =
+            serde_json::from_value(previous).map_err(anyhow::Error::from)?;
+        if asset["reset_day"] != json!(previous.reset_day)
+            || asset["network_interface"] != json!(previous.network_interface)
+        {
+            sqlx::query("UPDATE server_traffic_corrections SET invalidated_at=$2 WHERE server_id=$1 AND invalidated_at IS NULL")
+                .bind(id).bind(now_timestamp()).execute(&mut *transaction).await?;
+        }
+    }
     let query = format!(
-        "UPDATE servers SET name = $2, asset_settings=COALESCE($3,asset_settings) WHERE id = $1 AND deleted_at IS NULL RETURNING {SERVER_COLUMNS}"
+        "UPDATE servers SET name = $2, asset_settings=COALESCE($3,asset_settings),
+         agent_settings=CASE WHEN $4::boolean IS NULL THEN agent_settings ELSE agent_settings || jsonb_build_object('auto_update',$4::boolean) END
+         WHERE id = $1 AND deleted_at IS NULL RETURNING {SERVER_COLUMNS}"
     );
     let server = sqlx::query_as::<_, Server>(&query)
         .bind(id)
         .bind(name)
         .bind(asset)
-        .fetch_optional(&state.pool)
+        .bind(request.auto_update)
+        .fetch_optional(&mut *transaction)
         .await?
         .ok_or(ApiError::NotFound)?;
+    transaction.commit().await?;
     let mut server = server.with_online();
     server_traffic::attach(
         &state.pool,
@@ -227,14 +251,22 @@ pub async fn issue_enrollment(
     let token = random_token();
     let expires_at = now_timestamp() + 86_400;
     let mut transaction = state.pool.begin().await?;
-    let exists =
-        sqlx::query("SELECT id FROM servers WHERE id = $1 AND deleted_at IS NULL FOR UPDATE")
-            .bind(id)
-            .fetch_optional(&mut *transaction)
-            .await?;
+    let exists = sqlx::query(
+        "SELECT id, asset_settings FROM servers WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *transaction)
+    .await?;
     if exists.is_none() {
         return Err(ApiError::NotFound);
     }
+    let asset: AssetSettings = serde_json::from_value(exists.unwrap().get("asset_settings"))
+        .map_err(anyhow::Error::from)?;
+    let mirror = if asset.agent_mirror.is_empty() {
+        String::new()
+    } else {
+        format!(" --mirror {}", shell_quote(&asset.agent_mirror))
+    };
     sqlx::query(
         "INSERT INTO enrollment_tokens (token_hash, server_id, expires_at) VALUES ($1, $2, $3)",
     )
@@ -248,10 +280,11 @@ pub async fn issue_enrollment(
     let (install_command, installation, warning) = match selection {
         Ok((version, tag)) => (
             Some(format!(
-                "sudo sinan-bootstrap --tag {} --panel {} --token {}",
+                "sudo sinan-bootstrap --tag {} --panel {} --token {}{}",
                 shell_quote(&tag),
                 shell_quote(&state.config.public_url),
-                shell_quote(&token)
+                shell_quote(&token),
+                mirror
             )),
             Some(json!({"version": version, "tag": tag})),
             None,
@@ -338,4 +371,17 @@ fn validate_public_key(value: &str) -> ApiResult<()> {
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn validate_mirror(asset: &AssetSettings, panel: &str) -> ApiResult<()> {
+    if let (Ok(mirror), Ok(panel)) = (
+        reqwest::Url::parse(&asset.agent_mirror),
+        reqwest::Url::parse(panel),
+    ) && mirror.origin() == panel.origin()
+    {
+        return Err(ApiError::BadRequest(
+            "Agent 下载加速不能使用面板地址，请填写独立的 GitHub 镜像".into(),
+        ));
+    }
+    Ok(())
 }

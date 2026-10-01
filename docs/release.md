@@ -68,9 +68,9 @@ sudo python3 /可信源码副本/tools/bootstrap.py \
   --trusted-keys /etc/sinan/trust/public-keys.json
 ```
 
-bootstrap 只从固定的官方 GitHub 仓库取得完整 proof 和静态安装器，不使用环境代理。首次请求和每一跳重定向都要求 HTTPS、443、无 URL 凭据，并精确限制为 `github.com`、`release-assets.githubusercontent.com`、`objects.githubusercontent.com`，最多五跳；禁止降级和跳转到任意其他主机。先验完整 minisign 签名及安装器摘要，再执行已签安装器。
+bootstrap 从固定官方 GitHub Release 取得完整 proof、静态安装器和 Agent 二进制，不使用环境代理。先验证完整 minisign、安装器摘要和 Agent 长度/摘要，再执行已签安装器。首次请求和每一跳重定向都要求 HTTPS、443、无 URL 凭据；默认只允许 `github.com`、`release-assets.githubusercontent.com`、`objects.githubusercontent.com`，最多五跳。可加 `--mirror https://mirror.example.com`，以镜像前缀加完整 GitHub URL 下载；只额外允许该镜像来源，不发送一次性令牌或设备凭据，失败不回退面板。
 
-安装器从面板同源 bootstrap 路由下载 Agent，不接受下载重定向或环境代理。面板地址通常必须是 HTTPS；HTTP 只允许字面的回环 IP 或 `localhost`，不接受通过 DNS 声称是回环地址的其他主机名。下载按照已签长度设置硬上限，并检查实际长度和 SHA256；这些检查使用 `python3 -I` 和显式拒绝逻辑，不依赖可被 Python 优化模式移除的 `assert`。只有独立检查通过后，才允许执行下载物，用新 Agent 内置根进一步验证：
+安装器仅使用 bootstrap 已下载的本地签名包，再次按已签长度和 SHA256 核对 Agent；缺失或损坏立即拒绝，完全不向面板下载二进制。检查使用 `python3 -I` 和显式拒绝逻辑，不依赖可被优化模式移除的 `assert`。`--release-dir` 离线目录必须同时包含签名、清单、安装器和对应 Agent 的 GitHub asset 文件。面板地址通常必须是 HTTPS，HTTP 只允许字面回环地址或 `localhost`，仅用于注册和后续配置通信。新 Agent 内置根进一步验证：
 
 ```sh
 /暂存/0.3.0/sinan-agent verify-installed \
@@ -111,3 +111,9 @@ CI 可使用 `--release-dir <本地已签测试发布目录>` 代替 GitHub proo
 ## 验证与发布状态
 
 本地和 PR 验证使用明确标识的测试公钥、测试私钥与隔离环境；验收要求包括完整 minisign、错误或篡改资产、轮换、安装前缓存预检、systemd 重启和 Release 导入。测试成功不能替代生产信任根配置、用户本地签署及正式发布验证。当前阶段的实测结果和仍未验证范围以 [PROGRESS.md](../PROGRESS.md) 为准；正式发布证据来自 `Signed release draft` workflow 的验证产物和最终 Release 状态。
+
+## Agent 自动更新与旧版本衔接
+
+面板仍通过导入并验证 Release 来选择协议和平台兼容的版本，但更新描述中的 URL 指向固定 GitHub Release，Agent 根据已签仓库、标签和资产名称重建地址后比较，使用独立匿名客户端下载。可在服务器新增或编辑窗口设置「Agent 下载加速」；镜像只改变传输路径，不改变发布信任根、版本和 ABI 检查。自更新下载还逐跳检查公网 DNS 并固定解析地址，拒绝面板来源、非公网目标、凭据和不受支持的重定向。运行时与配置仍从绑定面板下载。
+
+旧 `/api/bootstrap/{version}/{arch}` 及 Agent 专用面板二进制路由已关闭，持有有效令牌也不会返回二进制。依赖这些接口的旧安装器需升级到本次源码生成并签名的新安装器；旧 Agent 若只接受面板同源更新 URL，需用独立验证的新 Release 手动升级一次。不要修改既有签名或覆盖旧 Release 来兼容。原生平台继续从 GitHub 获取已签发布目录，独立验签后运行 `install-service`；已弃用的面板模板已移除。

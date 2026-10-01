@@ -14,7 +14,7 @@ pub async fn available(
 ) -> ApiResult<Json<Option<AgentRelease>>> {
     let server = auth::require_agent(&state, &headers).await?;
     let row = sqlx::query(
-        "SELECT agent_settings,static_info FROM servers WHERE id=$1 AND deleted_at IS NULL",
+        "SELECT agent_settings,static_info,asset_settings FROM servers WHERE id=$1 AND deleted_at IS NULL",
     )
     .bind(server)
     .fetch_optional(&state.pool)
@@ -51,7 +51,11 @@ pub async fn available(
         };
         targets.push(arch.into());
     }
-    Ok(Json(
-        crate::releases::newer_agent(&state, &targets, current).await?,
-    ))
+    let mut release = crate::releases::newer_agent(&state, &targets, current).await?;
+    if let Some(release) = &mut release {
+        let asset: crate::server_assets::AssetSettings =
+            serde_json::from_value(row.get("asset_settings")).map_err(anyhow::Error::from)?;
+        release.download_mirror = asset.agent_mirror;
+    }
+    Ok(Json(release))
 }

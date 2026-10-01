@@ -1,8 +1,8 @@
 # ADR 0010：Agent 只从面板下载
 
-- 状态：已确定，MVP 不得更改。
+- 状态：Agent 二进制部分已被用户 2026-10-01 的要求和 [ADR 0037](0037-server-operations-and-public-dashboard.md) 替代。以下保留历史决策；运行时与配置的面板同源约束继续适用。
 - 对应任务说明：第 4 节第 10 条。
-- 用户后续明确要求的 NodeQuality 节点测试例外见 [ADR 0016](0016-nodequality-diagnostics.md)；Agent 原生制品下载约束继续适用。
+- 用户后续明确要求的 NodeQuality 节点测试例外见 [ADR 0016](0016-nodequality-diagnostics.md)；Agent 二进制后续改从 GitHub 下载，见 ADR 0037。
 
 ## 背景
 

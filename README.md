@@ -13,7 +13,7 @@ docker compose --project-name sinan --env-file .env \
   -f deploy/docker-compose.yml up -d --build --wait
 ```
 
-面板默认在 `http://127.0.0.1:8080`。登录后可在 `/#/dashboard` 查看独立服务器看板，或从后台侧栏“服务器看板”、服务器管理页“打开服务器看板”跳转；看板右上角可返回后台，旧 `/#/overview` 链接继续可用。远端接入需要可达的 HTTPS 地址；在制品页导入已签名的 Release，按部署文档准备独立可信 bootstrap 后，通过面板生成一次性安装命令。Agent 与面板版本独立，设备只应用内嵌公钥认可的制品。
+面板默认在 `http://127.0.0.1:8080`。登录后可在 `/#/dashboard` 查看独立服务器看板，或从后台侧栏“服务器看板”跳转；看板右上角可返回后台，旧 `/#/overview` 链接继续可用。「看板与通知」可配置是否公开及 Telegram 离线通知，默认仍需登录。远端接入需要可达的 HTTPS 地址；在制品页导入已签名的 Release，按部署文档准备独立可信 bootstrap 后，通过面板生成一次性安装命令。Agent 与面板版本独立，设备只应用内嵌公钥认可的制品；Agent 安装和自更新从 GitHub Release 下载，可选独立 HTTPS 镜像，面板不再提供 Agent 二进制。
 
 - [部署、制品导入、节点接入与升级](docs/deploy.md)
 - [服务器看板、表格视图与历史曲线](docs/server-display.md)
