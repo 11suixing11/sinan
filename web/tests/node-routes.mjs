@@ -69,5 +69,5 @@ try {
     assert.deepEqual(errors, [])
     await page.close()
   }
-  console.log('PASS: selected-server node route and create default, live route change, existing chain editor, invalid/duplicate routes refuse without writes')
+  console.log('PASS: selected-server node route and create default, live route change, legacy chain route opens unified resources and ordered editor, invalid/duplicate routes refuse without writes')
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)) }

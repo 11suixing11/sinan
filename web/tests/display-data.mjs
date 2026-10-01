@@ -33,6 +33,7 @@ try {
     await page.clock.install()
     let now = Date.now(), signedIn = true, publicDashboard = true, refreshFailure = true, historyDenied = false
     let holdWindow = '', heldHistory, holdLive = false, heldLive, holdDetail = false, heldDetail
+    let probeAuthorized = true, probeError = false, probesDenied = false, probeHistoryDenied = false
     const visible = new Set([1, 2, 3]), GiB = 1024 ** 3
     const rates = { base: 'CNY', rates: { CNY: 1, USD: .125, EUR: .1 }, rate_dates: { USD: '2026-09-30', EUR: '2026-09-29' }, rate_date: '2026-09-29', source: 'frankfurter', source_url: 'https://frankfurter.dev/', fetched_at: Math.floor(now / 1000) - 86400, attempted_at: Math.floor(now / 1000), next_refresh_at: Math.floor(now / 1000) + 3600, stale: true, status: 'stale', error_code: 'fetch_failed' }
     const metrics = id => ({ cpu_percent: id === 1 ? 0 : 72, memory_used: GiB, disk_used: 8 * GiB, swap_used: 0, swap_total: 0, load_1: .5, load_5: .3, load_15: .2, uptime_secs: 86400, network_interfaces: { eth0: { transmitted_bytes: 123456, received_bytes: 654321, transmit_bytes_per_sec: id === 1 ? 0 : 1024, receive_bytes_per_sec: 2048 } }, disks: [{ name: 'vda', mount_point: '/', read_bytes_per_sec: 4096, write_bytes_per_sec: 2048 }] })
@@ -47,6 +48,11 @@ try {
       const row = entry(id)
       return Object.fromEntries(['id', 'online', 'last_seen', 'last_heartbeat_at', 'metrics_stale', 'metrics_sampled_at', 'metrics_received_at', 'metrics_persisted_at', 'latest_metrics'].map(key => [key, row[key]]))
     }) })
+    const probe = () => ({ id: 'fixture-probe', name: '授权拨测夹具', kind: 'tcp', target: signedIn ? 'private-probe.example.invalid' : '', port: signedIn ? 443 : null, interval_secs: 15, carrier: 'telecom', enabled: true,
+      execution_authorized: probeAuthorized, monitor: { region: '测试地区', address_family: 'ipv4', authorization: signedIn ? { kind: 'owned', source: 'TEST_ONLY_PRIVATE_AUTH_SOURCE', scope: 'TEST_ONLY_PRIVATE_AUTH_SCOPE', enabled: probeAuthorized, expires_at: null,
+        identity: { kind: 'tcp', target: 'private-probe.example.invalid', port: 443, address_family: 'ipv4' } } : null } })
+    const probeResults = () => [{ id: 'fixture-old', probe_id: 'fixture-probe', sampled_at: now - 11_000, latency_ms: 12, loss_percent: 25, error: null, address_family: 'ipv4' },
+      { id: 'fixture-latest', probe_id: 'fixture-probe', sampled_at: now - 1000, latency_ms: probeError ? null : 0, loss_percent: probeError ? 100 : 0, error: probeError ? 'TEST_ONLY_UNAVAILABLE' : null, address_family: 'ipv4' }]
     const history = (id, window) => {
       const durations = { '15m': 900000, '1h': 3600000, '2h': 7200000, '24h': 86400000, '7d': 604800000, '30d': 2592000000 }
       const bucketMs = { '15m': 2000, '1h': 5000, '2h': 10000, '24h': 120000, '7d': 900000, '30d': 3600000 }[window]
@@ -86,7 +92,8 @@ try {
           if (holdDetail) { holdDetail = false; await new Promise(done => { heldDetail = done }) }
           return respond(value)
         }
-        if (endpoint === '/probes' || endpoint === '/probe-results') return respond([])
+        if (endpoint === '/probes') return probesDenied ? respond({ error: '拨测配置权限已撤销' }, 403) : respond(id !== 3 ? [probe()] : [])
+        if (endpoint === '/probe-results') return probeHistoryDenied ? respond({ error: '拨测历史权限已撤销' }, 403) : respond(id !== 3 ? probeResults() : [])
         if (endpoint === '/history') {
           if (historyDenied) return respond({ error: '历史读取权限已撤销' }, 403)
           const window = url.searchParams.get('window'), value = history(id, window)
@@ -130,6 +137,39 @@ try {
     await page.locator('.d-card').first().click()
     await page.getByRole('heading', { name: /^东京 · 测试入口/ }).waitFor()
     await page.getByText('每 2 秒 聚合', { exact: false }).waitFor()
+    const probes = page.locator('.d-probes'), probeSummary = probes.locator('.d-probe-summary')
+    await probeSummary.getByText(/最近采样/).waitFor()
+    assert.match(await probeSummary.innerText(), /测试地区 · IPv4 · TCP 连接 · private-probe\.example\.invalid:443/)
+    assert.match(await probeSummary.locator('strong').innerText(), /0\.0 ms · 连接失败率 0\.0%/, 'A real zero remains a successful measurement')
+    assert.equal(await probes.locator('svg[role="img"]').count(), 2)
+    probeAuthorized = false
+    await advance(30_000)
+    await probeSummary.getByText(/授权已撤销/).waitFor()
+    assert.equal(await probeSummary.locator('strong').innerText(), '— · 连接失败率 —')
+    assert.equal(await probes.locator('svg[role="img"]').count(), 2, 'Revocation preserves previously authorized history without presenting it as current')
+    probeAuthorized = true
+    await advance(30_000)
+    await probeSummary.getByText(/最近采样/).waitFor()
+    probeError = true
+    await advance(15_000)
+    await probeSummary.getByText(/检测不可用/).waitFor()
+    assert.equal(await probeSummary.locator('strong').innerText(), '— · 连接失败率 —', 'An error loss placeholder cannot masquerade as a measured 100%')
+    probeHistoryDenied = true
+    await advance(15_000)
+    await probes.getByText('拨测结果读取权限不可用，已清除历史数据。', { exact: true }).waitFor()
+    assert.equal(await probes.locator('svg[role="img"]').count(), 0, 'Permission denial clears the historical curves')
+    assert.match(await probeSummary.innerText(), /状态未知/)
+    probeHistoryDenied = false; probeError = false
+    await probes.getByRole('button', { name: '重试', exact: true }).click()
+    await probeSummary.getByText(/最近采样/).waitFor()
+    probesDenied = true
+    await advance(30_000)
+    await probes.getByText('暂时无法读取拨测配置', { exact: true }).waitFor()
+    assert.equal(await probes.locator('svg[role="img"]').count(), 0)
+    assert.equal(await probes.getByText(/private-probe\.example\.invalid/).count(), 0, 'A denied definition read cannot retain a private target')
+    probesDenied = false
+    await probes.getByRole('button', { name: '重试', exact: true }).click()
+    await probeSummary.getByText(/最近采样/).waitFor()
     assert.match(await page.locator('.d-info-groups').last().innerText(), /采集 \/ 状态上报[\s\S]*1 秒 \/ 3 秒/)
     assert.match(await page.locator('.d-info-groups').last().innerText(), /最近已存采样/)
     const chart = page.getByRole('region', { name: '处理器图表', exact: true })
@@ -142,6 +182,9 @@ try {
     assert.match(await chart.locator('.d-chart-details').innerText(), /实时采样/)
     assert.match(await chart.locator('.d-chart-legend').innerText(), /0\.0%/)
     const windows = page.getByRole('group', { name: '资源时间范围' })
+    assert.equal(await windows.getByRole('button').count(), 6)
+    await windows.getByRole('button', { name: '2 小时', exact: true }).click()
+    await page.getByText('每 10 秒 聚合', { exact: false }).waitFor()
     await windows.getByRole('button', { name: '24 小时', exact: true }).click()
     await page.getByText('每 2 分钟 聚合', { exact: false }).waitFor()
     holdWindow = '7d'
@@ -205,13 +248,14 @@ try {
     assert.equal(await page.getByLabel('显示币种', { exact: true }).count(), 0)
     assert.equal(await page.getByRole('button', { name: '更新汇率', exact: true }).count(), 0)
     assert(!/EUR|CNY|本周期剩余/.test(await page.locator('.d-detail').innerText()), 'Public fallback clears private asset metadata')
+    assert(!/private-probe\.example\.invalid|TEST_ONLY_PRIVATE_AUTH_SOURCE|TEST_ONLY_PRIVATE_AUTH_SCOPE/.test(await page.locator('.d-detail').innerText()), 'Public fallback cannot retain target or authorization provenance')
     assert.equal(writes.length, 2, 'Only the two explicitly requested admin FX refreshes write')
     publicDashboard = false
     await advance(3000)
     await page.getByRole('heading', { name: '欢迎回来', exact: true }).waitFor()
     assert.equal(await page.locator('.server-display').count(), 0)
     assert.deepEqual(errors, [])
-    results.push({ width, live_reads: count('/api/dashboard/live'), aggregate_reads: calls.filter(path => path.includes('/history?')).length, scope_cleanup: true, hidden_abort: true, overflow: false })
+    results.push({ width, live_reads: count('/api/dashboard/live'), aggregate_reads: calls.filter(path => path.includes('/history?')).length, scope_cleanup: true, hidden_abort: true, probe_zero_unknown_revocation: true, overflow: false })
     await context.close()
   }
   console.log(JSON.stringify({ ok: true, results }, null, 2))

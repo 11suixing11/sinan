@@ -3,6 +3,7 @@ mod evaluation;
 mod events;
 mod outbox;
 mod resources;
+mod retry;
 pub mod rules;
 mod telegram;
 mod template;

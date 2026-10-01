@@ -188,3 +188,95 @@ async fn live_receipt_is_not_persistence_and_public_scope_is_rechecked_for_each_
     );
     Ok(())
 }
+
+#[sqlx::test]
+async fn capacity_extensions_are_numeric_and_legacy_public_rows_cannot_expose_nested_values(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (id, _socket, ack) = panel
+        .authenticated_device(&cookie, "capacity boundary")
+        .await?;
+    let live = format!("{}/api/agent/v1/telemetry/live", panel.base);
+    let durable = format!("{}/api/agent/v1/telemetry", panel.base);
+    for key in ["memory_total", "disk_total"] {
+        for value in [
+            json!({"PRIVATE_CAPACITY":"secret"}),
+            json!("PRIVATE_CAPACITY"),
+            json!(-1),
+            json!(1.5),
+        ] {
+            let sample = TelemetrySample {
+                id: Uuid::new_v4(),
+                sampled_at: now_millis(),
+                metrics: Metrics {
+                    extra: [(key.into(), value)].into(),
+                    ..Default::default()
+                },
+            };
+            for (endpoint, body) in [
+                (&live, json!(&sample)),
+                (
+                    &durable,
+                    json!(TelemetryBatch {
+                        samples: vec![sample.clone()]
+                    }),
+                ),
+            ] {
+                assert_eq!(
+                    panel
+                        .client
+                        .post(endpoint)
+                        .bearer_auth(&ack.session_token)
+                        .json(&body)
+                        .send()
+                        .await?
+                        .status(),
+                    StatusCode::BAD_REQUEST
+                );
+            }
+        }
+    }
+    let receipts: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM telemetry_receipts WHERE server_id=$1")
+            .bind(id)
+            .fetch_one(&panel.state.pool)
+            .await?;
+    assert_eq!(receipts, 0);
+    // Old optional extension fields may already contain arbitrary JSON. Keep
+    // that administrator evidence while filtering every anonymous projection.
+    sqlx::query("UPDATE servers SET latest_metrics=$2,metrics_sampled_at=$3 WHERE id=$1")
+        .bind(id).bind(json!({"cpu_percent":0,"memory_used":0,"memory_total":{"PRIVATE_CAPACITY":"secret"},"disk_total":"PRIVATE_CAPACITY","network_interfaces":{"PRIVATE_INTERFACE":{"received_bytes":0,"receive_bytes_per_sec":{"PRIVATE_RATE":"secret"}}}})).bind(now_millis()).execute(&panel.state.pool).await?;
+    sqlx::query("UPDATE panel_settings SET settings=settings || '{\"public_dashboard\":true}'::jsonb WHERE singleton").execute(&panel.state.pool).await?;
+    for route in [
+        "/api/dashboard/live".to_owned(),
+        format!("/api/dashboard/servers/{id}"),
+    ] {
+        let response = panel
+            .client
+            .get(format!("{}{route}", panel.base))
+            .send()
+            .await?
+            .error_for_status()?;
+        let body = response.text().await?;
+        assert!(!body.contains("PRIVATE"), "{route}: {body}");
+        let value: Value = serde_json::from_str(&body)?;
+        let metrics = if route.ends_with("/live") {
+            &value["servers"][0]["latest_metrics"]
+        } else {
+            &value["latest_metrics"]
+        };
+        assert_eq!(metrics["cpu_percent"], 0);
+        assert_eq!(metrics["memory_used"], 0);
+        assert_eq!(metrics["network_interfaces"]["网卡 1"]["received_bytes"], 0);
+    }
+    let private = panel
+        .admin(Method::GET, &format!("/api/servers/{id}"), &cookie, None)
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    assert!(private.contains("PRIVATE_CAPACITY"));
+    Ok(())
+}

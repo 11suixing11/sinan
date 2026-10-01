@@ -15,7 +15,7 @@ import type { ProxyResource, ResourceKey } from './resourceTypes'
 import { resourceLink } from './resourceTypes'
 import './nodes.css'
 
-export default function Nodes({ serverId, chains = false, selected }: { serverId?: number; chains?: boolean; selected?: ResourceKey }) {
+export default function Nodes({ serverId, chainsOnly = false, selected }: { serverId?: number; chainsOnly?: boolean; selected?: ResourceKey }) {
   const nodes = useResource<Node[]>('/api/plugins/sing-box/nodes')
   const resources = useResource<ProxyResource[]>('/api/plugins/sing-box/proxy-resources')
   const servers = useResource<PluginServer[]>('/api/plugins/sing-box/servers')
@@ -24,7 +24,7 @@ export default function Nodes({ serverId, chains = false, selected }: { serverId
   const [editor, setEditor] = useState<Node | 'new' | null>(null)
   const [deleting, setDeleting] = useState<ProxyResource | null>(null)
   const [filter, setFilter] = useState(serverId === undefined ? '' : String(serverId))
-  const [kind, setKind] = useState(chains ? 'chain' : ''), [role, setRole] = useState(''), [search, setSearch] = useState('')
+  const [kind, setKind] = useState(chainsOnly ? 'chain' : ''), [role, setRole] = useState(''), [search, setSearch] = useState('')
   const [creatingChain, setCreatingChain] = useState(false)
   const [createdChains, setCreatedChains] = useState<number[]>([])
   const [deployment, setDeployment] = useState<number | null>(null)
@@ -33,6 +33,7 @@ export default function Nodes({ serverId, chains = false, selected }: { serverId
   const canCreate = !servers.error && enabledServers.length > 0 && (!filter || enabledServers.some(server => server.id === Number(filter)))
   const all = resources.data ?? []
   const visible = all.filter(resource => (!filter || resource.server_id === Number(filter)) && (!kind || resource.kind === kind) && (!role || resource.role === role) && (!search || `${resource.name} ${resource.public_host}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())))
+  const canCreateChain = canCreate && Boolean(nodes.data && resources.data && !nodes.error && !resources.error)
   const refresh = () => { nodes.reload(); resources.reload(); servers.reload(); usage.reload() }
   const edit = (node: Node | 'new') => { action.clearError(); setEditor(node) }
   const submit = (form: FormData) => {
@@ -44,14 +45,14 @@ export default function Nodes({ serverId, chains = false, selected }: { serverId
     void action.run(() => api(editor === 'new' ? '/api/plugins/sing-box/nodes' : `/api/plugins/sing-box/nodes/${editor?.id}`, editor === 'new' ? 'POST' : 'PATCH', request), () => { setEditor(null); setSaved(serverId); refresh() })
   }
   return <div className="nodes-page">
-    <PageHeader eyebrow="sing-box 插件" title="代理节点" description="统一管理直连节点与有序链路；从受管节点或订阅来源选择中间段和最终出口。"><Refresh onClick={refresh} /><button className="button button-primary" disabled={!canCreate} onClick={() => edit('new')}><Icon name="plus" size={18} />创建节点</button><button className="button button-secondary" disabled={!canCreate || !resources.data || !nodes.data || !!resources.error || !!nodes.error} onClick={() => { setCreatingChain(true); setCreatedChains([]) }}>创建链路</button></PageHeader>
+    <PageHeader eyebrow="sing-box 插件" title="代理节点" description="统一管理直连节点与有序链路；从受管节点或订阅来源选择中间段和最终出口。"><Refresh onClick={refresh} /><button className="button button-primary" disabled={!canCreate} onClick={() => edit('new')}><Icon name="plus" size={18} />创建节点</button><button className="button button-secondary" disabled={!canCreateChain || creatingChain} onClick={() => { action.clearError(); setCreatingChain(true); setCreatedChains([]) }}>创建链路</button></PageHeader>
     <div className="stats-grid"><Stat icon="nodes" label="代理资源" value={resources.data ? all.length : '—'} note="直连节点与独立链路入口" /><Stat icon="server" label="所在服务器" value={resources.data ? new Set(all.map(node => node.server_id)).size : '—'} note="每台服务器运行一份完整配置" /><Stat icon="activity" label="累计代理流量" value={usage.data ? bytes(usage.data.total) : '—'} note="含已删除节点的历史用量" /></div>
     <ErrorNotice message={resources.error || nodes.error || servers.error || usage.error} retry={refresh} />
     {saved !== null && <div className="notice" role="status"><span>资源已保存，正在等待自动发布与设备应用。</span><button className="text-button" onClick={() => setDeployment(saved)}>查看部署进度</button></div>}
     {!!createdChains.length && <div className="notice" role="status"><span>已保存 {createdChains.length} 条链路，正在等待依赖与路径验证。</span><a href={resourceLink({ kind: 'chain', id: createdChains[0] })}>查看链路详情</a></div>}
-    {creatingChain && <ChainEditor nodes={nodes.data ?? []} resources={all} servers={enabledServers} onClose={() => setCreatingChain(false)} onSaved={receipt => { setCreatingChain(false); setCreatedChains(receipt.chain_ids); refresh() }} />}
+    {creatingChain && <ChainEditor nodes={nodes.data ?? []} resources={all} servers={enabledServers.filter(server => !filter || server.id === Number(filter))} onClose={() => setCreatingChain(false)} onSaved={receipt => { setCreatingChain(false); setCreatedChains(receipt.chain_ids); refresh() }} />}
     <section className="panel"><div className="panel-heading resource-list-heading"><h2>全部代理资源 <span className="count">{all.length}</span></h2><div className="resource-filters"><div className="search-box resource-search"><input aria-label="搜索代理资源" placeholder="搜索名称或公开地址" value={search} onChange={event => setSearch(event.target.value)} /></div><select className="filter-select" aria-label="按服务器筛选" value={filter} onChange={event => setFilter(event.target.value)}><option value="">全部服务器</option>{filter && !enabledServers.some(server => server.id === Number(filter)) && <option value={filter}>指定服务器尚未启用或不存在</option>}{enabledServers.map(server => <option key={server.id} value={server.id}>{server.name}</option>)}</select><select className="filter-select" aria-label="按类型筛选" value={kind} onChange={event => setKind(event.target.value)}><option value="">全部类型</option><option value="direct">直连节点</option><option value="chain">链路</option></select><select className="filter-select" aria-label="按角色筛选" value={role} onChange={event => setRole(event.target.value)}><option value="">全部角色</option><option value="direct">仅作直连</option><option value="managed_hop">受管内部段</option><option value="chain_entry">独立链路入口</option></select></div></div>
-      {resources.loading && !resources.data ? <Loading /> : !visible.length ? <Empty icon="nodes" title={filter || kind || role || search ? '没有符合条件的代理资源' : '创建你的第一个节点'} description={enabledServers.length ? '创建直连节点，或使用独立入口与有序代理段创建链路。' : '先在系统的插件设置中为服务器启用 sing-box，再创建代理节点。'}>{enabledServers.length ? <button className="button button-primary" disabled={!canCreate} onClick={() => edit('new')}><Icon name="plus" size={17} />创建节点</button> : <a className="button button-primary" href="#/system/plugins">插件设置</a>}</Empty> : <ProxyResourceTable resources={visible} nodes={nodes.data ?? []} usage={usage.data} onEdit={edit} onDelete={resource => { action.clearError(); setDeleting(resource) }} onDeployment={setDeployment} />}
+      {resources.loading && !resources.data ? <Loading /> : !visible.length ? <Empty icon="nodes" title={filter || kind || role || search ? '没有符合条件的代理资源' : '创建你的第一个节点'} description={enabledServers.length ? '创建直连节点，或使用独立入口与有序代理段创建链路。' : '先在系统的插件设置中为服务器启用 sing-box，再创建代理节点。'}>{enabledServers.length ? <button className="button button-primary" disabled={!canCreate} onClick={() => edit('new')}><Icon name="plus" size={17} />创建节点</button> : <a className="button button-primary" href="#/system/plugins">插件设置</a>}</Empty> : <ProxyResourceTable resources={visible} nodes={nodes.data ?? []} usage={usage.data ?? undefined} onEdit={edit} onDelete={resource => { action.clearError(); setDeleting(resource) }} onDeployment={setDeployment} />}
     </section>
     <div className="notice quiet-notice"><Icon name="check" size={18} /><div><strong>配置自动发布</strong><p>变更后等待 5 秒合并发布。未授权给任何用户的节点不会监听端口；订阅只包含设备已成功应用的配置。</p></div></div>
     {!creatingChain && <SubscriptionSources onChange={resources.reload} />}

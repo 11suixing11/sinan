@@ -12,7 +12,7 @@ pub const MAX_BODY: usize = 2 * 1024 * 1024;
 pub const MAX_NODES: usize = 5000;
 pub const MAX_DEPTH: usize = 64;
 pub const MAX_SCALAR: usize = 64 * 1024;
-pub const PARSER_VERSION: &str = "sinan-subscriptions-1";
+pub const PARSER_VERSION: &str = "sinan-subscriptions-2";
 
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{0}")]

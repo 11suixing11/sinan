@@ -71,6 +71,13 @@ fn valid_sample(sample: &TelemetrySample, now: i64) -> bool {
         && sample.metrics.network_interfaces.len() <= 256
         && sample.metrics.disks.len() <= 256
         && sample.metrics.gpus.len() <= 32
+        && ["memory_total", "disk_total"].into_iter().all(|key| {
+            sample
+                .metrics
+                .extra
+                .get(key)
+                .is_none_or(|value| value.is_null() || value.as_u64().is_some())
+        })
         && sample
             .metrics
             .cpu_percent

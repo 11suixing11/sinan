@@ -76,7 +76,7 @@ export default function App() {
     : path === '/servers' || path === '/' ? <Servers />
       : path === '/statistics' ? <Statistics />
       : path === '/latency' ? <LatencyTasks />
-      : nodePage || proxyResource ? <Nodes key={nodePage?.chains ? 'chains' : nodePage?.serverId ?? 'all-nodes'} serverId={nodePage?.serverId} chains={nodePage?.chains} selected={proxyResource ?? undefined} />
+      : nodePage || proxyResource ? <Nodes key={nodePage?.serverId ?? (nodePage?.chains ? 'node-chains' : 'all-nodes')} serverId={nodePage?.serverId} chainsOnly={nodePage?.chains} selected={proxyResource ?? undefined} />
         : path === '/plugins/sing-box/users' ? <ProxyUsers />
           : path === '/plugins/sing-box/groups' ? <Groups />
             : path === '/system/plugins' ? <Plugins />

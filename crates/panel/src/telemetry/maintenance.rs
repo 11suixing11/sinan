@@ -41,17 +41,12 @@ async fn bounded_transaction(pool: &PgPool) -> ApiResult<sqlx::Transaction<'_, s
 
 async fn bootstrap(pool: &PgPool) -> ApiResult<()> {
     // Each pass is bounded and uses the same server lock order as ingestion.
-    let servers:Vec<i64>=sqlx::query_scalar("SELECT id FROM servers WHERE NOT EXISTS(SELECT 1 FROM telemetry_history_initialized h WHERE h.server_id=servers.id) ORDER BY id LIMIT 8").fetch_all(pool).await?;
-    for server in servers {
+    for _ in 0..8 {
         let mut tx = bounded_transaction(pool).await?;
-        if sqlx::query("SELECT id FROM servers WHERE id=$1 FOR UPDATE SKIP LOCKED")
-            .bind(server)
+        let server: Option<i64> = sqlx::query_scalar("SELECT id FROM servers WHERE NOT EXISTS(SELECT 1 FROM telemetry_history_initialized h WHERE h.server_id=servers.id) ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED")
             .fetch_optional(&mut *tx)
-            .await?
-            .is_none()
-        {
-            continue;
-        }
+            .await?;
+        let Some(server) = server else { break };
         persistence::initialized(&mut tx, server).await?;
         tx.commit().await?;
     }

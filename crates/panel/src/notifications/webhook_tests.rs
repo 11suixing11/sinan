@@ -88,6 +88,60 @@ fn targets_and_headers_are_validated_without_echoing_credentials() {
     }
 }
 
+#[test]
+fn every_preset_requires_its_own_acknowledgement_and_rejects_ambiguous_success() {
+    for (preset, response, body, accepted) in [
+        (Preset::Custom, "", "{}", true),
+        (Preset::Slack, "ok\n", "{}", true),
+        (Preset::Slack, "invalid_payload", "{}", false),
+        (Preset::Slack, r#"{"ok":true}"#, "{}", false),
+        (Preset::Discord, r#"{"id":"123456789"}"#, "{}", true),
+        (Preset::Discord, "", "{}", false),
+        (
+            Preset::Discord,
+            r#"{"code":500,"message":"TEST_ONLY_SECRET"}"#,
+            "{}",
+            false,
+        ),
+        (Preset::Discord, r#"{"id":"0"}"#, "{}", false),
+        (Preset::Bark, r#"{"code":200}"#, "{}", true),
+        (Preset::Bark, r#"{"code":500}"#, "{}", false),
+        (Preset::Wecom, r#"{"errcode":0}"#, "{}", true),
+        (Preset::Dingtalk, r#"{"errcode":"0"}"#, "{}", false),
+        (Preset::Feishu, r#"{"code":0}"#, "{}", true),
+        (Preset::Feishu, r#"{"StatusCode":0}"#, "{}", true),
+        (Preset::Feishu, r#"{"code":0,"StatusCode":1}"#, "{}", false),
+        (Preset::Gotify, r#"{"id":1}"#, "{}", true),
+        (
+            Preset::Gotify,
+            r#"{"error":"TEST_ONLY_SECRET"}"#,
+            "{}",
+            false,
+        ),
+        (Preset::Gotify, r#"{"id":"1"}"#, "{}", false),
+        (
+            Preset::Ntfy,
+            r#"{"id":"fixture123","event":"message","topic":"fixture"}"#,
+            r#"{"topic":"fixture"}"#,
+            true,
+        ),
+        (
+            Preset::Ntfy,
+            r#"{"id":"fixture123","event":"message","topic":"other"}"#,
+            r#"{"topic":"fixture"}"#,
+            false,
+        ),
+        (
+            Preset::Ntfy,
+            r#"{"error":"TEST_ONLY_SECRET"}"#,
+            r#"{"topic":"fixture"}"#,
+            false,
+        ),
+    ] {
+        assert_eq!(acknowledged(preset, response.as_bytes(), body), accepted);
+    }
+}
+
 async fn receiver(
     status: u16,
     extra: &str,
@@ -184,4 +238,26 @@ async fn rate_limits_redirects_business_errors_and_success_are_bounded_and_priva
     let (url, worker) = receiver(200, "", &"X".repeat(65 * 1024)).await;
     assert!(send(&Config { url, ..config() }, "{}").await.is_err());
     worker.await.unwrap();
+}
+
+#[tokio::test]
+async fn discord_wait_is_forced_once_and_an_empty_response_is_not_an_acknowledgement() {
+    for (status, body, accepted) in [(200, r#"{"id":"123456789"}"#, true), (204, "", false)] {
+        let (url, worker) = receiver(status, "", body).await;
+        let result = send(
+            &Config {
+                url: format!("{url}?wait=false&thread_id=42&wait=false"),
+                preset: Preset::Discord,
+                ..config()
+            },
+            "{}",
+        )
+        .await;
+        assert_eq!(result.is_ok(), accepted);
+        let (request, _) = worker.await.unwrap();
+        let target = request.lines().next().unwrap();
+        assert!(target.contains("thread_id=42"));
+        assert_eq!(target.matches("wait=true").count(), 1);
+        assert!(!target.contains("wait=false"));
+    }
 }

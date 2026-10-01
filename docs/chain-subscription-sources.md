@@ -27,6 +27,8 @@ Mihomo 的节点集合形式见其 [官方 provider 说明](https://wiki.metacub
 
 解析后保留所需的认证、加密、TLS/SNI、transport、network、UoT/mux 等参数，在受限类型中校验。不能静默删掉未知必要参数后宣布兼容。原全局路由及选择组明确不导入；必要的代理插件、依赖或安全语义无法表达时，该节点不可选。SS URI 按官方 [SIP002](https://shadowsocks.org/doc/sip002.html) 区分一般 AEAD 与 AEAD-2022 的编码规则，不能把所有 `ss://` 都用同一种 Base64 拆法。
 
+HTTP/H2 转换还须核对原格式与固定运行时的 TLS 行为。无法等价的 `h2` 无 TLS、`http` 有 TLS 明确不可选，Mihomo 明文 HTTP 缺省方法保留为 `GET`；原生 sing-box JSON 保持原参数。解析器升级为 `sinan-subscriptions-2`，旧条件请求缓存不能免除新正文解析，已有冻结历史不回写。本次补修的固定一手源码与待验证范围见 [转换记录](acceptance/subscription-transport-conversion.md)。
+
 链路位置可用性依据每一段实际配置计算，包含最终用户网络与下层承载需求。导入一个 Hysteria2 节点成功，不表示它能放在仅支持 TCP 的前一段之后。格式解析、协议转换、整条路径承载校验和实际连通分别记录结果。
 
 ## 来源、节点与版本

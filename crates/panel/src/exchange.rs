@@ -43,12 +43,14 @@ async fn current_at(pool: &PgPool, now: i64) -> ApiResult<ExchangeView> {
     let source: Option<String> = row.get("source");
     let error_code: Option<String> = row.get("last_error");
     let rate_date: Option<String> = row.get("rate_date");
-    let stale = fetched_at.is_none_or(|at| now.saturating_sub(at) >= DAY)
+    let stale = fetched_at.is_none_or(|at| at > now || now.saturating_sub(at) >= DAY)
         || error_code.is_some()
         || rate_date
             .as_deref()
             .and_then(fetch::date_day)
-            .is_none_or(|day| now.div_euclid(DAY).saturating_sub(day) > 7);
+            .is_none_or(|day| {
+                day > now.div_euclid(DAY) || now.div_euclid(DAY).saturating_sub(day) > 7
+            });
     Ok(ExchangeView {
         base: "CNY",
         rates: serde_json::from_value(row.get("rates")).map_err(anyhow::Error::from)?,

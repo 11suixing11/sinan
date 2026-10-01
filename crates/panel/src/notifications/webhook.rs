@@ -177,7 +177,67 @@ fn failure(message: &str) -> Failure {
     }
 }
 
+fn acknowledged(preset: Preset, bytes: &[u8], body: &str) -> bool {
+    let value = serde_json::from_slice::<Value>(bytes).unwrap_or(Value::Null);
+    match preset {
+        Preset::Custom => true,
+        Preset::Slack => std::str::from_utf8(bytes).is_ok_and(|text| text.trim() == "ok"),
+        Preset::Discord => value.get("id").and_then(Value::as_str).is_some_and(|id| {
+            !id.is_empty()
+                && id.len() <= 32
+                && id.bytes().all(|byte| byte.is_ascii_digit())
+                && id.bytes().any(|byte| byte != b'0')
+        }),
+        Preset::Bark => value.get("code").and_then(Value::as_i64) == Some(200),
+        Preset::Wecom | Preset::Dingtalk => value.get("errcode").and_then(Value::as_i64) == Some(0),
+        Preset::Feishu => {
+            let code = value.get("code");
+            let legacy = value.get("StatusCode");
+            (code.is_some() || legacy.is_some())
+                && code.is_none_or(|code| code.as_i64() == Some(0))
+                && legacy.is_none_or(|code| code.as_i64() == Some(0))
+        }
+        Preset::Gotify => value
+            .get("id")
+            .and_then(Value::as_i64)
+            .is_some_and(|id| id > 0),
+        Preset::Ntfy => {
+            let sent = serde_json::from_str::<Value>(body).unwrap_or(Value::Null);
+            value.get("event").and_then(Value::as_str) == Some("message")
+                && value.get("id").and_then(Value::as_str).is_some_and(|id| {
+                    !id.is_empty()
+                        && id.len() <= 128
+                        && id.bytes().all(|byte| byte.is_ascii_alphanumeric())
+                })
+                && value
+                    .get("topic")
+                    .and_then(Value::as_str)
+                    .is_some_and(|topic| {
+                        !topic.is_empty()
+                            && sent.get("topic").and_then(Value::as_str) == Some(topic)
+                    })
+        }
+    }
+}
+
 pub(super) async fn send(config: &Config, body: &str) -> Result<(), Failure> {
+    if body.len() > 64 * 1024 {
+        return Err(failure("Webhook 替换后的消息超过 64 KiB"));
+    }
+    let mut target = Url::parse(&config.url).map_err(|_| failure("Webhook 地址无效"))?;
+    if config.preset == Preset::Discord {
+        // Without confirmation Discord can return success even when no message was saved.
+        let parameters: Vec<_> = target
+            .query_pairs()
+            .filter(|(name, _)| name != "wait")
+            .map(|(name, value)| (name.into_owned(), value.into_owned()))
+            .collect();
+        target.set_query(None);
+        target
+            .query_pairs_mut()
+            .extend_pairs(parameters)
+            .append_pair("wait", "true");
+    }
     let client = Client::builder()
         .no_proxy()
         .redirect(Policy::none())
@@ -187,7 +247,7 @@ pub(super) async fn send(config: &Config, body: &str) -> Result<(), Failure> {
         .map_err(|_| failure("Webhook 客户端初始化失败"))?;
     let headers = headers(&config.headers).map_err(failure)?;
     let mut response = client
-        .post(&config.url)
+        .post(target)
         .headers(headers)
         .body(body.to_owned())
         .send()
@@ -198,8 +258,7 @@ pub(super) async fn send(config: &Config, body: &str) -> Result<(), Failure> {
         .headers()
         .get(reqwest::header::RETRY_AFTER)
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<i64>().ok())
-        .map(|value| value.clamp(1, 86400));
+        .and_then(|value| super::retry::after(value, std::time::SystemTime::now()));
     if !status.is_success() {
         return Err(Failure {
             message: format!(
@@ -220,20 +279,7 @@ pub(super) async fn send(config: &Config, body: &str) -> Result<(), Failure> {
         }
         bytes.extend_from_slice(&chunk);
     }
-    let value = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
-    let accepted = match config.preset {
-        Preset::Bark => value.get("code").and_then(Value::as_i64) == Some(200),
-        Preset::Wecom | Preset::Dingtalk => value.get("errcode").and_then(Value::as_i64) == Some(0),
-        Preset::Feishu => {
-            value
-                .get("code")
-                .or_else(|| value.get("StatusCode"))
-                .and_then(Value::as_i64)
-                == Some(0)
-        }
-        _ => true,
-    };
-    if accepted {
+    if acknowledged(config.preset, &bytes, body) {
         Ok(())
     } else {
         Err(failure(

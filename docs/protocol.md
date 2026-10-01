@@ -71,7 +71,7 @@ Linux 宿主 ABI 与 Agent 编译 ABI 不同时，运行时先保留旧的编译
 
 `POST /api/agent/v1/telemetry/live` 接受单个 `TelemetrySample`，返回仅表示实时缓存收到请求，不是历史 ACK；Agent 不能据此删除 SQLite outbox。原 `POST /api/agent/v1/telemetry` 仍提交最多 64 条的 `TelemetryBatch`，面板将去重收据、历史汇总、最新持久化样本和服务器网卡增量事务提交后才返回 `TelemetryAck`。时间戳始终为真实采样的毫秒值，实时重试或心跳不得将旧指标改为新采样。
 
-实时缓存丢失不影响已有历史和账本；历史压缩不删除七天重放窗口内的去重身份，不将聚合速率反推为流量。每个设备只访问自身的配置与上报端点。详见 [ADR 0046](adr/0046-monitoring-refresh-history-and-channels.md)。
+实时缓存丢失不影响已有历史和账本；历史压缩不删除七天重放窗口内的去重身份，不将聚合速率反推为流量。每个设备只访问自身的配置与上报端点。详见 [ADR 0047](adr/0047-monitoring-refresh-history-and-channels.md)。
 
 `apply.result` 中 op_id 对应本地意图。只有校验、原子切换、服务动作、健康检查都成功后才能报告 applied；失败应回滚并提供错误。面板只接受已经为该服务器发布的版本，不接受未来版本，旧回报不能覆盖较新已应用状态。
 

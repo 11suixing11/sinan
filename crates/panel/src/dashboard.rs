@@ -94,21 +94,33 @@ pub(crate) fn public_metrics(value: &Value) -> Value {
             "load_15",
         ],
     );
+    // Capacities are optional extension fields, including in older stored JSON.
+    // A whitelisted name must never make an object or secret string public.
+    result.as_object_mut().unwrap().retain(|_, value| {
+        value.is_null()
+            || value
+                .as_f64()
+                .is_some_and(|number| number.is_finite() && number >= 0.0)
+    });
     let mut networks = serde_json::Map::new();
     if let Some(interfaces) = value.get("network_interfaces").and_then(Value::as_object) {
         for (index, metric) in interfaces.values().enumerate() {
-            networks.insert(
-                format!("网卡 {}", index + 1),
-                select(
-                    metric,
-                    &[
-                        "received_bytes",
-                        "transmitted_bytes",
-                        "receive_bytes_per_sec",
-                        "transmit_bytes_per_sec",
-                    ],
-                ),
+            let mut metric = select(
+                metric,
+                &[
+                    "received_bytes",
+                    "transmitted_bytes",
+                    "receive_bytes_per_sec",
+                    "transmit_bytes_per_sec",
+                ],
             );
+            metric.as_object_mut().unwrap().retain(|_, value| {
+                value.is_null()
+                    || value
+                        .as_f64()
+                        .is_some_and(|number| number.is_finite() && number >= 0.0)
+            });
+            networks.insert(format!("网卡 {}", index + 1), metric);
         }
     }
     result["network_interfaces"] = Value::Object(networks);
@@ -309,6 +321,9 @@ async fn metrics(
 fn sanitize_probe(probe: &mut ProbeSpec) {
     probe.target.clear();
     probe.port = None;
+    if let Some(monitor) = &mut probe.monitor {
+        monitor.authorization = None;
+    }
 }
 fn sanitize_results(results: &mut [ProbeResult]) {
     for result in results {

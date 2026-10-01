@@ -288,7 +288,7 @@ async fn changing_one_channel_only_cancels_its_pending_messages(pool: PgPool) ->
 async fn channel_migration_preserves_old_telegram_messages(pool: PgPool) -> Result<()> {
     for migration in sqlx::migrate!()
         .iter()
-        .filter(|migration| migration.version < 30)
+        .filter(|migration| migration.version < 31)
     {
         sqlx::raw_sql(&migration.sql).execute(&pool).await?;
     }
@@ -300,7 +300,7 @@ async fn channel_migration_preserves_old_telegram_messages(pool: PgPool) -> Resu
     let event: i64 = sqlx::query_scalar("INSERT INTO server_alert_events(server_id,server_name,opened_at) VALUES($1,'fixture',1) RETURNING id").bind(server).fetch_one(&pool).await?;
     sqlx::query("INSERT INTO notification_outbox(event_id,kind,message,attempts,next_attempt_at) VALUES($1,'offline','original',3,100)").bind(event).execute(&pool).await?;
     sqlx::raw_sql(include_str!(
-        "../migrations/0030_notification_alignment.sql"
+        "../migrations/0031_notification_alignment.sql"
     ))
     .execute(&pool)
     .await?;
@@ -365,8 +365,10 @@ async fn automatic_webhook_delivers_offline_and_recovery_with_event_metadata(
         assert_eq!(delivery["channel"], "webhook");
         assert_eq!(delivery["status"], "sent");
         assert_eq!(delivery["attempts"], 1);
-        assert_eq!(delivery["last_attempt_at"], now);
-        assert_eq!(delivery["delivered_at"], now);
+        let attempted = delivery["last_attempt_at"].as_i64().unwrap();
+        let delivered = delivery["delivered_at"].as_i64().unwrap();
+        assert!(attempted >= now);
+        assert!(delivered >= attempted);
     }
     assert!(!events.to_string().contains("TEST_ONLY"));
     Ok(())

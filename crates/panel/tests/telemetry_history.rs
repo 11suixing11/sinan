@@ -335,3 +335,46 @@ async fn independent_telemetry_settings_validate_create_and_keep_legacy_settings
     }
     Ok(())
 }
+
+#[sqlx::test]
+async fn locked_bootstrap_prefix_does_not_starve_other_servers(pool: PgPool) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let at = now_millis() - 3 * 3_600_000;
+    let mut ids = Vec::new();
+    for index in 0..10 {
+        let id = panel
+            .create_server(&cookie, &format!("bootstrap queue {index}"))
+            .await?;
+        let sample = sample(at, Some(30.0), 100);
+        sqlx::query("INSERT INTO telemetry_samples(server_id,id,sampled_at,digest,metrics) VALUES($1,$2,$3,'TEST_ONLY',$4)").bind(id).bind(sample.id).bind(at).bind(json!(sample.metrics)).execute(&panel.state.pool).await?;
+        ids.push(id);
+    }
+    let mut locked = panel.state.pool.begin().await?;
+    sqlx::query("SELECT id FROM servers WHERE id=ANY($1) ORDER BY id FOR UPDATE")
+        .bind(&ids[..8])
+        .fetch_all(&mut *locked)
+        .await?;
+    sinan_panel::telemetry::maintain_at(&panel.state.pool, now_millis(), Duration::from_secs(6))
+        .await?;
+    let initialized: Vec<i64> = sqlx::query_scalar(
+        "SELECT server_id FROM telemetry_history_initialized ORDER BY server_id",
+    )
+    .fetch_all(&panel.state.pool)
+    .await?;
+    assert_eq!(initialized, ids[8..].to_vec());
+    let summaries: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM telemetry_history WHERE server_id=ANY($1)")
+            .bind(&ids[8..])
+            .fetch_one(&panel.state.pool)
+            .await?;
+    assert_eq!(summaries, 2);
+    let retained: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM telemetry_samples WHERE server_id=ANY($1)")
+            .bind(&ids[..8])
+            .fetch_one(&panel.state.pool)
+            .await?;
+    assert_eq!(retained, 8);
+    locked.rollback().await?;
+    Ok(())
+}

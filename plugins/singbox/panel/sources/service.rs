@@ -31,8 +31,8 @@ pub(super) async fn queue_on(connection: &mut PgConnection, source_id: i64) -> A
         return Err(ApiError::Conflict("来源已归档，请先恢复来源".into()));
     }
     let now = sinan_protocol::now_timestamp();
-    sqlx::query("UPDATE singbox_source_jobs SET state='superseded',phase='finished',finished_at=$2 WHERE source_id=$1 AND state IN ('queued','running') AND (settings_revision<>$3 OR identity_epoch<>$4)")
-        .bind(source_id).bind(now).bind(revision).bind(epoch).execute(&mut *connection).await?;
+    sqlx::query("UPDATE singbox_source_jobs SET state='superseded',phase='finished',finished_at=$2 WHERE source_id=$1 AND state IN ('queued','running') AND (settings_revision<>$3 OR identity_epoch<>$4 OR parser_version<>$5)")
+        .bind(source_id).bind(now).bind(revision).bind(epoch).bind(PARSER_VERSION).execute(&mut *connection).await?;
     if let Some(job) = sqlx::query_as::<_, Job>(&format!("SELECT {JOB_COLUMNS} FROM singbox_source_jobs WHERE source_id=$1 AND state IN ('queued','running')"))
         .bind(source_id).fetch_optional(&mut *connection).await? {
         return Ok(job);
@@ -488,6 +488,128 @@ mod tests {
             commit(&pool, &changed_settings, None, None, None).await,
             Err(WorkerError::Import(ImportError("unexpected_not_modified")))
         ));
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_parser_upgrade_supersedes_old_jobs_without_reusing_their_work(
+        pool: PgPool,
+    ) -> Result<()> {
+        for state in ["queued", "running"] {
+            let source = fixture(&pool).await?;
+            let old_job = Uuid::new_v4();
+            sqlx::query("INSERT INTO singbox_source_jobs(id,source_id,settings_revision,identity_epoch,parser_version,state,phase,created_at) VALUES($1,$2,1,1,'sinan-subscriptions-1',$3,'parsing',0)")
+                .bind(old_job).bind(source).bind(state).execute(&pool).await?;
+            let new_job = queue(&pool, source).await?;
+            ensure!(new_job.id != old_job);
+            let old: (String, String, Option<i64>) = sqlx::query_as(
+                "SELECT state,phase,finished_at FROM singbox_source_jobs WHERE id=$1",
+            )
+            .bind(old_job)
+            .fetch_one(&pool)
+            .await?;
+            ensure!(old.0 == "superseded" && old.1 == "finished" && old.2.is_some());
+            let input = claim(&pool).await?.context("new parser claim")?;
+            ensure!(input.id == new_job.id && !input.cache_valid);
+            ensure!(queue(&pool, source).await?.id == new_job.id);
+            sqlx::query("UPDATE singbox_source_jobs SET state='cancelled' WHERE id=$1")
+                .bind(new_job.id)
+                .execute(&pool)
+                .await?;
+        }
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_parser_upgrade_requires_new_content_and_preserves_immutable_history(
+        pool: PgPool,
+    ) -> Result<()> {
+        let source: i64 = sqlx::query_scalar("INSERT INTO singbox_subscription_sources(name,kind,secret_url,source_host,created_at) VALUES('fixture','url','https://source.example.com/subscription','source.example.com',0) RETURNING id").fetch_one(&pool).await?;
+        let body = b"proxies: [{name: fixture, type: vmess, server: proxy.example.com, port: 443, uuid: 00000000-0000-0000-0000-000000000001, cipher: auto, network: h2}]";
+        // Seed an actual legacy normalization, rather than rewriting an immutable
+        // current revision to pretend that it came from the old parser.
+        let config = serde_json::json!({
+            "type":"vmess","server":"proxy.example.com","server_port":443,
+            "uuid":"00000000-0000-0000-0000-000000000001","security":"auto",
+            "transport":{"type":"http"}
+        });
+        let hash = parse::digest(&serde_json::to_vec(&config)?);
+        let outbound = sinan_compiler::external::ExternalOutbound(config.clone());
+        let capabilities = serde_json::to_value(outbound.capabilities()?)?;
+        let identity = format!(
+            "endpoint:{}",
+            parse::digest(&serde_json::to_vec(&outbound.identity_value())?)
+        );
+        let revision: i64 = sqlx::query_scalar("INSERT INTO singbox_source_revisions(source_id,settings_revision,identity_epoch,parser_version,body_sha256,format,supported_count,unsupported_count,fetched_at) VALUES($1,1,1,'sinan-subscriptions-1',$2,'clash_yaml',1,0,12) RETURNING id")
+            .bind(source).bind(parse::digest(body)).fetch_one(&pool).await?;
+        let node: i64 = sqlx::query_scalar("INSERT INTO singbox_external_nodes(source_id,identity_epoch,identity_key,name,last_seen_revision_id) VALUES($1,1,$2,'fixture',$3) RETURNING id")
+            .bind(source).bind(identity).bind(revision).fetch_one(&pool).await?;
+        let version: i64 = sqlx::query_scalar("INSERT INTO singbox_external_node_versions(external_node_id,source_id,source_revision_id,identity_epoch,parser_version,name,config_json,config_sha256,capabilities_json,created_at) VALUES($1,$2,$3,1,'sinan-subscriptions-1','fixture',$4,$5,$6,12) RETURNING id")
+            .bind(node).bind(source).bind(revision).bind(&config).bind(&hash).bind(capabilities).fetch_one(&pool).await?;
+        sqlx::query("UPDATE singbox_external_nodes SET current_version_id=$2 WHERE id=$1")
+            .bind(node)
+            .bind(version)
+            .execute(&pool)
+            .await?;
+        sqlx::query("UPDATE singbox_subscription_sources SET current_revision_id=$2,last_success_at=12,etag='\"legacy\"',last_modified='Wed, 01 Jan 2025 00:00:00 GMT',cache_settings_revision=1,cache_identity_epoch=1 WHERE id=$1")
+            .bind(source).bind(revision).execute(&pool).await?;
+
+        queue(&pool, source).await?;
+        let stale = claim(&pool).await?.context("parser upgrade claim")?;
+        ensure!(stale.current_revision_id == Some(revision));
+        ensure!(stale.etag.is_some() && stale.last_modified.is_some() && !stale.cache_valid);
+        ensure!(matches!(
+            commit(&pool, &stale, None, None, None).await,
+            Err(WorkerError::Import(ImportError("unexpected_not_modified")))
+        ));
+        fail(&pool, &stale, "unexpected_not_modified").await?;
+        let unchanged: (Option<i64>, Option<i64>, Option<String>) = sqlx::query_as("SELECT current_revision_id,last_success_at,last_error FROM singbox_subscription_sources WHERE id=$1")
+            .bind(source).fetch_one(&pool).await?;
+        ensure!(
+            unchanged
+                == (
+                    Some(revision),
+                    Some(12),
+                    Some("unexpected_not_modified".into())
+                )
+        );
+
+        queue(&pool, source).await?;
+        let fresh = claim(&pool).await?.context("fresh content claim")?;
+        let parsed = parse::parse(body)?;
+        ensure!(parsed.nodes.is_empty() && parsed.rejected.len() == 1);
+        ensure!(parsed.rejected[0].reason == "unsupported_h2_without_tls");
+        commit(
+            &pool,
+            &fresh,
+            Some((parse::digest(body), parsed)),
+            None,
+            None,
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("fresh parser commit"))?;
+        let old: (Value, String, String) = sqlx::query_as("SELECT config_json,config_sha256,parser_version FROM singbox_external_node_versions WHERE id=$1")
+            .bind(version).fetch_one(&pool).await?;
+        ensure!(old == (config, hash, "sinan-subscriptions-1".into()));
+        let old_revision: (String, i32) = sqlx::query_as(
+            "SELECT parser_version,supported_count FROM singbox_source_revisions WHERE id=$1",
+        )
+        .bind(revision)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(old_revision == ("sinan-subscriptions-1".into(), 1));
+        let latest: (i64, String, i32, i32) = sqlx::query_as("SELECT r.id,r.parser_version,r.supported_count,r.unsupported_count FROM singbox_source_revisions r JOIN singbox_subscription_sources s ON s.current_revision_id=r.id WHERE s.id=$1")
+            .bind(source).fetch_one(&pool).await?;
+        ensure!(
+            latest.0 != revision && latest.1 == PARSER_VERSION && latest.2 == 0 && latest.3 == 1
+        );
+        let missing: (bool, Option<i64>) = sqlx::query_as(
+            "SELECT present,current_version_id FROM singbox_external_nodes WHERE id=$1",
+        )
+        .bind(node)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(missing == (false, Some(version)));
         Ok(())
     }
 }

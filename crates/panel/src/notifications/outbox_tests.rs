@@ -4,6 +4,58 @@ use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+
+#[sqlx::test]
+async fn retry_delay_starts_after_delivery_finishes_instead_of_the_maintenance_tick(
+    pool: PgPool,
+) -> anyhow::Result<()> {
+    use std::sync::atomic::AtomicI64;
+    let settings = Settings {
+        telegram_enabled: true,
+        telegram_chat_id: "-100000".into(),
+        telegram_token: "123:TEST_ONLY_SECRET_00000000000".into(),
+        ..Default::default()
+    };
+    sqlx::query("UPDATE panel_settings SET settings=$1")
+        .bind(serde_json::to_value(&settings)?)
+        .execute(&pool)
+        .await?;
+    let server: i64 =
+        sqlx::query_scalar("INSERT INTO servers(name) VALUES('retry time fixture') RETURNING id")
+            .fetch_one(&pool)
+            .await?;
+    let event: i64 = sqlx::query_scalar("INSERT INTO server_alert_events(server_id,server_name,opened_at) VALUES($1,'fixture',1) RETURNING id")
+        .bind(server).fetch_one(&pool).await?;
+    let mut tx = pool.begin().await?;
+    events::enqueue(&mut tx, &settings, event, "offline", 100).await?;
+    tx.commit().await?;
+    let timestamp = Arc::new(AtomicI64::new(100));
+    let clock = {
+        let timestamp = timestamp.clone();
+        move || timestamp.load(Ordering::SeqCst)
+    };
+    dispatch_with_clock(
+        &pool,
+        |_, _, _| {
+            let timestamp = timestamp.clone();
+            async move {
+                timestamp.store(108, Ordering::SeqCst);
+                Err(telegram::Failure {
+                    message: "limited".into(),
+                    retry_after: Some(123),
+                })
+            }
+        },
+        clock,
+    )
+    .await?;
+    let row: (i64, i64, i32) =
+        sqlx::query_as("SELECT last_attempt_at,next_attempt_at,attempts FROM notification_outbox")
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(row, (100, 231, 1));
+    Ok(())
+}
 #[sqlx::test]
 async fn outbox_retries_in_order_and_concurrent_workers_do_not_duplicate(
     pool: PgPool,

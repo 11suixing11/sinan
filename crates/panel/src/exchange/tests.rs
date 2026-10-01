@@ -97,6 +97,25 @@ async fn manual_refresh_is_throttled_and_background_reads_do_not_download(
     Ok(())
 }
 
+#[sqlx::test]
+async fn wall_clock_rollback_never_labels_future_fetches_or_dates_as_fresh(
+    pool: PgPool,
+) -> anyhow::Result<()> {
+    let now = now();
+    let lease = claim(&pool, now, false).await?.unwrap();
+    complete(&pool, lease, now, Ok(snapshot())).await?;
+    let rolled_back = current_at(&pool, now - 1).await?;
+    assert_eq!(rolled_back.status, "stale");
+    assert_eq!(rolled_back.fetched_at, Some(now));
+    assert_eq!(rolled_back.rates["USD"], 0.2);
+    sqlx::query("UPDATE exchange_rates SET fetched_at=$1,rate_date='2026-10-03' WHERE singleton")
+        .bind(now)
+        .execute(&pool)
+        .await?;
+    assert_eq!(current_at(&pool, now).await?.status, "stale");
+    Ok(())
+}
+
 #[test]
 fn rates_use_a_coherent_base_real_dates_and_no_invented_currency_defaults() {
     let value = json!([

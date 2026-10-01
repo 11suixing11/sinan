@@ -211,12 +211,15 @@ def usage_totals(view):
 def snapshot(panel, state, command=None):
     server = panel.request(f"/api/servers/{state['server_id']}")
     ensure(server["name"] == state["prefix"] + "-server", "服务器不再属于本次验收")
-    deployment = panel.request(f"/api/plugins/sing-box/servers/{state['server_id']}/deployments")["status"]
+    plugin = panel.request(f"/api/plugins/sing-box/servers/{state['server_id']}")
+    deployment_view = panel.request(f"/api/plugins/sing-box/servers/{state['server_id']}/deployments")
+    deployment = deployment_view["status"]
     query = urllib.parse.urlencode({"user_id": state["user_id"], "node_id": state["node_id"]})
     usage = panel.request("/api/plugins/sing-box/usage?" + query)
     usage_totals(usage)
     result = {
         "observed_at": int(time.time()), "usage": usage, "deployment": deployment,
+        "installation": plugin.get("installation"), "publication_pending": deployment_view.get("pending"),
         "server": {"id": server["id"], "online": server["online"],
                    "device_public_key": server["device_public_key"],
                    "agent_version": server["static_info"].get("agent_version"),
@@ -237,7 +240,8 @@ def healthy(view):
     status = view["deployment"]
     return (view["server"]["online"] and status is not None and status["target_rev"] > 0
             and status["target_rev"] == status["applied_rev"] and status["healthy"]
-            and not status["last_error"])
+            and not status["last_error"] and view.get("publication_pending") is not True
+            and (view.get("installation") is None or view["installation"].get("state") == "ready"))
 
 
 def readiness_status(view, expected_version):
@@ -257,7 +261,7 @@ def readiness_status(view, expected_version):
 
     target, applied = revision("target_rev"), revision("applied_rev")
     version_required = bool(expected_version)
-    return {
+    result = {
         "online": boolean(server.get("online")),
         "deployment_present": present,
         "target_rev": target,
@@ -269,6 +273,14 @@ def readiness_status(view, expected_version):
         "version_required": version_required,
         "version_matches": server.get("agent_version") == expected_version if version_required else None,
     }
+    installation = view.get("installation")
+    if isinstance(installation, dict):
+        stage = installation.get("state")
+        if isinstance(stage, str) and stage in ("not_enabled", "queued", "waiting_agent", "offline", "pending", "ready", "failed"):
+            result["installation_state"] = stage
+    if type(view.get("publication_pending")) is bool:
+        result["publication_pending"] = view["publication_pending"]
+    return result
 
 
 def systemd_status(output, query_succeeded):
@@ -320,6 +332,10 @@ def ready(panel, state, args):
     deadline = time.monotonic() + args.timeout
     while True:
         view = snapshot(panel, state)
+        if isinstance(view.get("installation"), dict) and view["installation"].get("state") == "failed":
+            save(last_snapshot, {"snapshot": view, "expected_agent_version": args.agent_version})
+            raise AcceptanceError("安装已明确失败；请在私有面板检查缺制品或应用原因；状态="
+                                  + json.dumps(readiness_status(view, args.agent_version), ensure_ascii=False, separators=(",", ":")))
         if healthy(view) and (not args.agent_version
                              or view["server"]["agent_version"] == args.agent_version):
             break
@@ -382,8 +398,24 @@ def verify(panel, state, args):
             ensure(totals == expected, "暂停期间确认用量变化：可能仍有流量、重复入账或历史丢失")
             ensure(view["server"]["device_public_key"] == baseline["server"]["device_public_key"],
                    "设备身份发生变化")
+            ensure(view["server"].get("id") == baseline["server"].get("id"), "服务器编号发生变化")
+            ensure(all(view["deployment"].get(key) == baseline["deployment"].get(key)
+                       for key in ("target_rev", "applied_rev")),
+                   "已应用配置版本发生变化；不能作为原地升级连续性证据")
+            ensure(view["server"].get("runtime_version") == baseline["server"].get("runtime_version"),
+                   "独立运行时版本发生变化")
         agent = view["agent"]
         status = view["deployment"]
+        required_version = getattr(args, "agent_version", None)
+        if required_version:
+            ensure(view["server"].get("agent_version") == required_version
+                   and agent.get("agent_version") == required_version,
+                   "面板与设备本次上报的 Agent 版本不符")
+        if getattr(args, "agent_restarted", False):
+            ensure(baseline is not None and type(baseline.get("agent", {}).get("pid")) is int
+                   and baseline["agent"]["pid"] > 0 and type(agent.get("pid")) is int and agent["pid"] > 0,
+                   "升级重启检查需要前后真实 Agent PID")
+            ensure(agent["pid"] != baseline["agent"]["pid"], "Agent 进程未替换，不能证明升级成功")
         drained = (healthy(view) and agent.get("connected") is True
                    and agent.get("pending_batches") == 0
                    and agent.get("applied", {}).get("singbox") == status["applied_rev"]
@@ -430,6 +462,8 @@ def parser():
     stable.add_argument("--label", required=True)
     stable.add_argument("--unchanged-from", help="必须保持原封不动的稳定基线标签")
     stable.add_argument("--status-command", help="只读命令，按 shlex 分词执行；不经过本机 shell")
+    stable.add_argument("--agent-version", help="同时核对面板与设备 status 的实际 Agent 版本")
+    stable.add_argument("--agent-restarted", action="store_true", help="要求 --unchanged-from 的设备 PID 已替换")
     stable.add_argument("--interval", type=int, default=35)
     stable.add_argument("--timeout", type=int, default=240)
     return result
@@ -457,6 +491,9 @@ def main():
         ensure(args.min_uplink > 0 and args.min_downlink > 0, "上下行验收增量必须为正数")
     if getattr(args, "client_port", None) is not None:
         ensure(1 <= args.client_port <= 65535, "客户端目标端口需为 1–65535")
+    if getattr(args, "agent_restarted", False):
+        ensure(args.unchanged_from and args.agent_version,
+               "升级重启检查需同时指定 --unchanged-from 与 --agent-version")
     lock_descriptor = os.open(str(args.state) + ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     with os.fdopen(lock_descriptor, "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
