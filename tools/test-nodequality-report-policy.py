@@ -201,6 +201,7 @@ def script_recipe(name):
     result = '#!/bin/bash\nscript_version="synthetic-fixture"\ncheck_bash(){\n:; }\ncheck_bash\n'
     result += 'fixture_record(){ ' + python + ' ' + tool + ' --record "$@"; }\n'
     result += source_tests.fixture.swap_anchors(name).decode()
+    result += source_tests.fixture.dependency_anchors(name).decode()
     result += 'fixture_record script ' + kind + ' "$@"\n'
     result += '''
 mode_privacy=${FIXTURE_PRIVACY:-0}
@@ -259,6 +260,7 @@ save_json(){ record save_json; hwjson=$FIXTURE_JSON; ipjson=$FIXTURE_JSON; netda
 def entry_recipe():
     python, tool = shlex.quote(sys.executable), shlex.quote(str(Path(__file__).resolve()))
     result = '#!/usr/bin/env bash\nset -e\n' + source_tests.fixture.swap_anchors('NodeQuality.sh').decode()
+    result += source_tests.fixture.dependency_anchors('NodeQuality.sh').decode()
     result += 'chroot_run(){\n'
     # macOS Bash 3 closes process-substitution descriptors in bash -c. The
     # substitute opens them as stdin before exec, retaining the original argv
@@ -342,7 +344,7 @@ class PolicyTests(unittest.TestCase):
             private_policy = module('transform_fixture', plugin / 'report-policy.py')
             private_swap = module('swap_transform_fixture', plugin / 'swap-policy.py')
             for role in private_policy.SOURCES:
-                expected = outputs[role]
+                expected = source_tests.fixture.undo_dependencies(role, outputs[role], contents[role])
                 if role == 'hardware.sh':
                     expected = private_swap.replace_once(expected, private_swap.MEMORY_GUARD, private_swap.HARDWARE_PREFIX)
                     expected = private_swap.replace_once(expected, private_swap.NO_SWAP_CLEANUP, private_swap.SWAP_CLEANUP)

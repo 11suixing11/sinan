@@ -25,8 +25,9 @@ The first-level host curl calls receive only the five locally verified scripts.
 Unknown source URLs fail without an online main-branch fallback. The exact
 existing BenchOS v0.0.2 download and report-upload call remain separate paths.
 The runner and its bounded report collector are maintained by Sinan.
-The chroot command shim maps the pinned loader's fixed AMD64 trace download to
-the corresponding upstream ARM64 asset on ARM64 hosts; source bytes stay intact.
+The legacy chroot command shim retains the fixed AMD64-to-ARM64 trace download
+mapping. The r9 served entrypoint replaces that download with an executable
+presence check, so that mapping is no longer used by this entrypoint.
 Rootfs provenance/licensing, secondary tools and data, and all external upload
 paths are still pending independent audits. The panel and adapter full-start
 gate remains closed for all supported versions. This r6 change alone neither
@@ -34,3 +35,21 @@ enables nor certifies a complete NodeQuality diagnostic. Daily checks do not
 execute the embedded upstream sources.
 Linux runtime prerequisites: Bash >= 4, Python 3, curl, tar, base64, mount,
 umount, chroot, coreutils, and systemd with private mount namespaces.
+
+Sinan r9 modifications (2026-10-01): dependency-policy.py replaces the exact
+dependency installer functions in HardwareQuality, IPQuality and NetQuality
+with prerequisite checks. Explicit installer calls fail with exit code 70;
+the upstream -n option cannot bypass checks. Missing tools are named without
+executing them. NextTrace must already exist in the prepared rootfs; the loader
+does not download or chmod it. IP, network and route pipeline failures cannot
+be masked by tee. Tests, flags, serialization and the hardware locale function
+outside these documented boundaries are retained byte-for-byte after the
+earlier report and swap policies. Original sources and complete licenses remain
+in the embedded bundle, alongside these signed-in-artifact transformations.
+The helper, every input and every transformed output have fixed SHA256 checks.
+
+Presence checks alone do not verify tool provenance, versions, licensing or
+integrity. This change does not resolve rootfs downloads, secondary data,
+browser impersonation, provider access rules or uploads initiated by third-party
+binaries. The full-start gate stays closed; r9 is not a signed release or an
+approval to execute the full upstream toolchain.
