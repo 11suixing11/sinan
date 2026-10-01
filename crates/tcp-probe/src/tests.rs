@@ -101,6 +101,7 @@ async fn refusal_and_missing_family_do_not_fabricate_latency() {
 
 enum Dns {
     Addresses(Vec<SocketAddr>),
+    ReadyLate(Vec<SocketAddr>, Duration),
     Error,
     Pending,
 }
@@ -111,6 +112,7 @@ struct FakeNetwork {
     peak: AtomicUsize,
     connections: Mutex<Vec<SocketAddr>>,
     pending: bool,
+    ready_connect_delay: Duration,
 }
 impl FakeNetwork {
     fn new(dns: Dns, pending: bool) -> Arc<Self> {
@@ -121,6 +123,7 @@ impl FakeNetwork {
             peak: AtomicUsize::new(0),
             connections: Mutex::new(Vec::new()),
             pending,
+            ready_connect_delay: Duration::ZERO,
         })
     }
 }
@@ -136,6 +139,11 @@ impl Network for FakeNetwork {
         Box::pin(async move {
             match &self.dns {
                 Dns::Addresses(addresses) => Ok(addresses.clone()),
+                Dns::ReadyLate(addresses, delay) => {
+                    // Model a ready resolver result whose polling was delayed past its deadline.
+                    std::thread::sleep(*delay);
+                    Ok(addresses.clone())
+                }
                 Dns::Error => Err(std::io::Error::other("fixture DNS failure")),
                 Dns::Pending => std::future::pending().await,
             }
@@ -147,6 +155,10 @@ impl Network for FakeNetwork {
             let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
             self.peak.fetch_max(active, Ordering::SeqCst);
             let _guard = Active(self.active.clone());
+            if !self.ready_connect_delay.is_zero() {
+                std::thread::sleep(self.ready_connect_delay);
+                return Ok(());
+            }
             if self.pending {
                 std::future::pending::<()>().await;
             }
@@ -314,6 +326,74 @@ async fn dns_failure_timeout_and_no_matching_family_preserve_unknown_results() {
         assert_eq!(network.dns_calls.load(Ordering::SeqCst), 1);
         directory.assert_reports(&report);
     }
+}
+
+#[tokio::test]
+async fn ready_dns_result_after_probe_cutoff_cannot_start_a_connection() {
+    let directory = Directory::new();
+    let address = "127.0.0.1:12345".parse().unwrap();
+    let network = FakeNetwork::new(
+        Dns::ReadyLate(vec![address], Duration::from_millis(1250)),
+        false,
+    );
+    let (options, mut journal) = directory
+        .prepare(vec![target(1, "late.example.test", 12345)], IpVersion::V4)
+        .await;
+    let mut limits = fast_limits();
+    limits.total = Duration::from_secs(3);
+    limits.publication = Duration::from_secs(2);
+    limits.dns = Duration::from_secs(2);
+    let report = run_with(&options, &mut journal, network.clone(), limits)
+        .await
+        .unwrap();
+    assert_eq!(network.dns_calls.load(Ordering::SeqCst), 1);
+    assert!(network.connections.lock().unwrap().is_empty());
+    assert!(!report.complete && report.deadline_exceeded);
+    assert_eq!(report.targets[0].status, "partial");
+    assert!(report.targets[0].samples.is_empty());
+    assert_eq!(report.targets[0].error.as_deref(), Some("total_timeout"));
+    assert_eq!(report.targets[0].summary.connection_success_percent, None);
+    directory.assert_reports(&report);
+}
+
+#[tokio::test]
+async fn ready_dns_and_connect_results_after_local_timeouts_do_not_fabricate_success() {
+    let directory = Directory::new();
+    let address = "127.0.0.1:12345".parse().unwrap();
+    let network = FakeNetwork::new(
+        Dns::ReadyLate(vec![address], Duration::from_millis(50)),
+        false,
+    );
+    let (options, mut journal) = directory
+        .prepare(vec![target(1, "late.example.test", 12345)], IpVersion::V4)
+        .await;
+    let report = run_with(&options, &mut journal, network.clone(), fast_limits())
+        .await
+        .unwrap();
+    assert!(report.complete && !report.deadline_exceeded);
+    assert_eq!(report.targets[0].error.as_deref(), Some("dns_timeout"));
+    assert!(network.connections.lock().unwrap().is_empty());
+    directory.assert_reports(&report);
+
+    let directory = Directory::new();
+    let mut network = FakeNetwork::new(Dns::Error, false);
+    Arc::get_mut(&mut network).unwrap().ready_connect_delay = Duration::from_millis(90);
+    let (options, mut journal) = directory
+        .prepare(vec![target(1, "127.0.0.1", 12345)], IpVersion::V4)
+        .await;
+    let report = run_with(&options, &mut journal, network.clone(), fast_limits())
+        .await
+        .unwrap();
+    assert!(report.complete && !report.deadline_exceeded);
+    assert_eq!(network.connections.lock().unwrap().len(), 4);
+    assert_eq!(
+        report.targets[0].summary.connection_success_percent,
+        Some(0.0)
+    );
+    assert!(report.targets[0].samples.iter().all(|sample| {
+        sample.error.as_deref() == Some("connect_timeout") && sample.latency_ms.is_none()
+    }));
+    directory.assert_reports(&report);
 }
 
 async fn publish_across_deadline(

@@ -15,7 +15,7 @@ use tokio::{
     net::{TcpStream, lookup_host},
     sync::{Semaphore, mpsc},
     task::JoinSet,
-    time::{Instant, sleep, timeout, timeout_at},
+    time::{Instant, sleep, timeout_at},
 };
 
 pub(crate) type NetworkFuture<'a, T> = Pin<Box<dyn Future<Output = io::Result<T>> + Send + 'a>>;
@@ -164,7 +164,15 @@ pub(crate) async fn run_with_deadline(
                 // Stop connections independently of any in-flight report I/O.
                 let _ = timeout_at(
                     probe_deadline,
-                    probe(index, target, &options, network.as_ref(), limits, &updates),
+                    probe(
+                        index,
+                        target,
+                        &options,
+                        network.as_ref(),
+                        limits,
+                        &updates,
+                        probe_deadline,
+                    ),
                 )
                 .await;
             }
@@ -235,6 +243,7 @@ async fn probe(
     network: &dyn Network,
     limits: Limits,
     updates: &mpsc::Sender<(usize, TargetResult)>,
+    deadline: Instant,
 ) {
     target.status = "resolving".into();
     if !publish(index, &target, updates).await {
@@ -250,20 +259,32 @@ async fn probe(
         if !publish(index, &target, updates).await {
             return;
         }
-        match timeout(
-            limits.dns,
+        let started = Instant::now();
+        if started >= deadline {
+            return;
+        }
+        let dns_deadline = deadline.min(started + limits.dns);
+        let outcome = timeout_at(
+            dns_deadline,
             network.resolve(&target.target.target, target.target.port),
         )
-        .await
-        {
-            Ok(Ok(addresses)) => addresses.into_iter().find(|address| {
-                options.ip_version.matches(address.ip())
-                    && unicast(address.ip())
-                    && address.port() == target.target.port
-            }),
+        .await;
+        // A ready future can be polled before timeout_at checks its elapsed timer.
+        // Do not advance to a connection from a result received after the cutoff.
+        if Instant::now() >= deadline {
+            return;
+        }
+        match outcome {
+            Ok(Ok(addresses)) if Instant::now() < dns_deadline => {
+                addresses.into_iter().find(|address| {
+                    options.ip_version.matches(address.ip())
+                        && unicast(address.ip())
+                        && address.port() == target.target.port
+                })
+            }
             result => {
                 target.error = Some(
-                    if result.is_err() {
+                    if result.is_err() || Instant::now() >= dns_deadline {
                         "dns_timeout"
                     } else {
                         "dns_error"
@@ -300,9 +321,15 @@ async fn probe(
             return;
         };
         let started = Instant::now();
-        let outcome = timeout(limits.connect, network.connect(address)).await;
+        if started >= deadline {
+            return;
+        }
+        let connect_deadline = deadline.min(started + limits.connect);
+        let outcome = timeout_at(connect_deadline, network.connect(address)).await;
+        let finished = Instant::now();
         let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
         let error = match outcome {
+            _ if finished >= connect_deadline => Some("connect_timeout".into()),
             Ok(Ok(())) => None,
             Err(_) => Some("connect_timeout".into()),
             Ok(Err(error)) if error.kind() == io::ErrorKind::ConnectionRefused => {
@@ -317,6 +344,10 @@ async fn probe(
             error,
         });
         target.summarize();
+        if finished >= deadline {
+            publish(index, &target, updates).await;
+            return;
+        }
         if iteration + 1 == options.count {
             target.complete = true;
             target.status = "completed".into();
