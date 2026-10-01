@@ -17,6 +17,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from legacy_agent_checkpoint import preflight as legacy_checkpoint_preflight
+
 from release import (REPOSITORY, VERSION, digest, ensure, load_roots, read_regular,
                      require_protected_file, validate_manifest, verify_manifest)
 
@@ -33,6 +35,7 @@ PROOF_FILES = (("SHA256SUMS", 8192), ("SHA256SUMS.minisig", 16384),
 PRELOADED_INSTALLER_MARKER = b"# SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1"
 DOWNLOAD_BUDGET_SECONDS = 300
 DOWNLOAD_SOCKET_TIMEOUT = 20
+CATALOG_BUDGET_SECONDS = 30
 
 
 class IncompatibleRelease(ValueError):
@@ -46,9 +49,9 @@ def require_preloaded_installer(installer):
            "trusted Linux installer requires the preloaded-GitHub Agent contract")
 
 
-def bounded_read(response, size, deadline):
+def bounded_read(response, size, deadline, message="GitHub download exceeded total time budget"):
     remaining = deadline - time.monotonic()
-    ensure(remaining > 0, "GitHub download exceeded total time budget")
+    ensure(remaining > 0, message)
     # urllib otherwise renews its timeout for every socket read. Bound each
     # active HTTP(S) read by this file's remaining total budget as well.
     sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
@@ -56,7 +59,7 @@ def bounded_read(response, size, deadline):
         sock.settimeout(min(DOWNLOAD_SOCKET_TIMEOUT, remaining))
     read = getattr(response, "read1", response.read)
     block = read(size)
-    ensure(time.monotonic() < deadline, "GitHub download exceeded total time budget")
+    ensure(time.monotonic() < deadline, message)
     return block
 
 
@@ -232,10 +235,20 @@ def catalog(panel, token, target, version):
     if version != "latest":
         parameters["agent_version"] = version
     url = panel.rstrip("/") + "/api/bootstrap/versions?" + urllib.parse.urlencode(parameters)
+    deadline = time.monotonic() + CATALOG_BUDGET_SECONDS
     try:
-        with panel_opener().open(url, timeout=30) as response:
+        with panel_opener().open(url, timeout=CATALOG_BUDGET_SECONDS) as response:
             ensure(response.status == 200 and response.url == url, "接入版本目录响应无效")
-            encoded = response.read(131073)
+            blocks, total = [], 0
+            while True:
+                block = bounded_read(response, min(65536, 131073 - total), deadline,
+                                     "panel catalog download exceeded total time budget")
+                if not block:
+                    break
+                total += len(block)
+                ensure(total <= 131072, "接入版本目录超出大小限制")
+                blocks.append(block)
+            encoded = b"".join(blocks)
     except urllib.error.HTTPError as error:
         raise ValueError("无法获取接入版本，请检查令牌是否有效以及面板是否已导入签名 Release") from error
     ensure(0 < len(encoded) <= 131072, "接入版本目录超出大小限制")
@@ -515,6 +528,8 @@ def main():
         if not actual.startswith("linux-"):
             install_native(bundle, args.panel, token, item, actual, mirror, args.release_dir)
             return
+
+        legacy_checkpoint_preflight(version)
 
         installer = Path(args.trusted_installer) if args.trusted_installer else Path(__file__).with_name("trusted-install.sh")
         require_protected_file(installer)

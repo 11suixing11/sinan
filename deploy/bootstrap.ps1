@@ -153,8 +153,13 @@ function Test-ReleaseSignature([string]$Directory, [string]$Minisign) {
         $preference = $ErrorActionPreference
         try {
             $ErrorActionPreference = 'Continue'
+            # A failed launch can leave a previous native exit code untouched.
+            $global:LASTEXITCODE = $null
             & $Minisign -V -H -q -m (Join-Path $Directory 'SHA256SUMS') -x (Join-Path $Directory 'SHA256SUMS.minisig') -P $key >$null 2>$null
-            if ($LASTEXITCODE -eq 0) { return }
+            $succeeded = $?
+            $exitCode = $global:LASTEXITCODE
+            Assert-Sinan ($null -ne $exitCode -and ($exitCode -ne 0 -or $succeeded)) '无法运行验签工具，拒绝执行 Agent'
+            if ($succeeded -and $exitCode -eq 0) { return }
         } finally { $ErrorActionPreference = $preference }
     }
     throw '正式信任根无法验证发布签名，拒绝执行 Agent'
@@ -232,8 +237,12 @@ function Get-ReleaseCandidates([string]$Directory, [string]$Origin, [string]$Enr
     return @($candidates | Sort-Object -Descending { [Version](($_ -split '[-+]')[0]) })
 }
 function Invoke-CheckedAgent([string]$Agent, [string[]]$Arguments) {
+    # Require this invocation to start and complete successfully, not an older exit code.
+    $global:LASTEXITCODE = $null
     & $Agent @Arguments
-    Assert-Sinan ($LASTEXITCODE -eq 0) 'Agent 验证、接入或服务安装失败，请检查输出'
+    $succeeded = $?
+    $exitCode = $global:LASTEXITCODE
+    Assert-Sinan ($succeeded -and $null -ne $exitCode -and $exitCode -eq 0) 'Agent 验证、接入或服务安装失败，请检查输出'
 }
 function Assert-ProtectedPath([string]$Path) {
     $item = Get-Item -LiteralPath $Path -Force

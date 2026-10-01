@@ -1,18 +1,12 @@
 # 执行进度
 
-## 2026-10-01：节点配置、部署管理、统计仪表盘与完整订阅
+## 2026-10-01：四平台接入后续守卫与并发提交整合
 
-- 基于 `bb9638b`，按用户要求对照 3X-UI、S-UI 完善节点表单；增加节点启停、监听地址、公开端口、TCP Fast Open、ALPN，以及 Reality 握手/指纹、HY2 带宽/混淆、TUIC 拥塞/心跳/0-RTT、AnyTLS 闲置会话选项。参数由面板和编译器校验，混淆秘密不在管理列表回显；旧 API、快照、凭据与订阅路径保持兼容。决策见 [ADR 0042](docs/adr/0042-node-settings-and-panel-operations.md)。
-- 迁移 `0021` 保存设置与启停状态。停用保留授权和账本、移除订阅资格并发布完整配置；链路出口停用同时撤销入口资格，不能回退直连。节点页展示待发布、目标/应用版本、失败原因与签名运行时准备检查，保存成功不代替设备应用成功。
-- HY2 混淆和自定义 QUIC ALPN 同步接入适配器的真实 TLS/QUIC 健康探测；临时回环桥在成功、失败、取消或超时后销毁，复用已有 `blake2`/`rand`，不修改 Agent core 或增加外部依赖。使用这些设置前需要升级含本次适配器的 Agent；Naive 客户端不下发其原生实现拒绝的 ALPN 字段。
-- 新增 `scripts/panel.py`，统一 Compose 安装、启动停止、升级、备份、状态、日志和自检。初始化保留现有凭据、使用仓库正式公开根；重复安装和升级先备份数据库、制品与环境文件，失败阻止升级并尽力恢复原容器。备份包含私有权限、摘要及实际镜像 ID；不自动降级数据库，恢复须在隔离环境演练。见[部署说明](docs/deploy.md)。
-- 用户授权的子代理完成后台 `/#/statistics`：服务器数量、7/30 天网卡流量、代理账本流量和服务器/节点/用户排行；保持管理员权限、不同统计口径、未知与零值、大整数精度和已删除代理对象历史。迁移 `0022` 增加查询索引，读取采用一致性事务和语句期限；见[统计说明](docs/statistics.md)。
-- 按用户选择完善完整 sing-box 订阅：管理员状态、套餐/额度、可用节点、显式预览、复制和下载；每次操作重新读取当前授权与已应用快照，失败清除旧内容，重置后取得最新地址。公开下载与后台预览共用生成路径，现代协议的分享链接明确提示切换 JSON，不提供不完整配置；旧 Reality token URL 兼容。
-- 使用独立临时 PostgreSQL 和公开 TEST_ONLY 编译根，最终 `cargo test --locked --workspace --all-targets` 共 67 组、492 通过、0 失败、17 项条件忽略。首次整库回归发现旧迁移断言未包含新增字段，补齐缺省值后仍严格核对原凭据、授权和账本，再完整重跑通过；原失败不计作成功。
-- 另显式执行两个运行时条件用例通过：官方 sing-box 1.14.2 接受新增服务端/客户端字段；真实 HY2 Salamander 与自定义 ALPN 握手成功，错误密码和错误证书域名拒绝。官方构建未带统计 API，字段检查明确移除该统计扩展；这不代替项目签名运行时的完整代理传输与计量验收。
-- Bun 40 项测试、922 个断言，TypeScript/Vite 构建及最终 `web/dist` 同步通过。节点配置、代理业务、统计、订阅、服务器运营五组 Chromium 回归通过，覆盖桌面和手机（新页面含 320px）、下载内容、失败恢复、令牌重置及鉴权；浏览器使用私有回环 API 夹具，截图已目视核对。面板管理 7 项和环境初始化 3 项 Python 测试通过，包含备份/停止失败恢复、凭据保留和重复安装保护。
-- 最终全 targets Clippy（warnings 为错误）、fmt、core 分层、文档本地链接与差异检查通过。专属临时 PostgreSQL 已停止，运行时握手夹具自行回收进程；没有修改生产服务。
-- 未验证范围：真实 Docker 安装/升级/备份恢复（本机无 Docker）、大规模生产统计性能、七种协议完整传输/计量与 ACME 续期复演、各平台 Agent 实机升级、生产部署及远端 CI。CI 继续暂停，本次没有签名、发布或部署新 Agent/诊断能力。下一步审阅后，在专用环境验证 Compose 恢复与新 Agent，再按既有门禁安排发布。
+- PR #132 作者同期合入 `dd13a6c` 后，通过独立后续 PR 普通整合实际 main `bb9638b`，完整保留作者负号令牌兼容及原运行输入。补旧正式 0.3 的静止服务/SQLite WAL 只读检查，Preparing 的完整验机及不兼容 Started 降级被拒绝，原状态不改；Started 只接受精确原 r2 与原三个参数。安装器不自动停止现有服务，失败保护旧配置。
+- 补目录共享 30 秒绝对截止、PowerShell 五种单引号的双层转义，以及每次验签/Agent 原生调用的实际启动结果。旧退出码为 0 而工具无法执行的真实负例在新实现被拒绝；生成入口与源码一致。
+- 冻结运行输入 `0683dd9`：本聊天完整 Rust/PostgreSQL workspace/all-targets 482 通过、0 失败、15 项既有实机条件忽略；macOS umask077 原子文件/链接专项、全 targets Clippy、fmt/core 通过。自己的 PostgreSQL 127.0.0.1:55432 已停止。
+- 同份输入的 Python/实际 PowerShell 7.5.3：旧检查点 12 通过、bootstrap 21 通过/3 条件跳过、PowerShell 15 通过/0 跳过、release 29 通过/7 条件跳过，生成一致与 Shell 语法通过。UI/web/dist 与前次本聊天 36 Bun、14 Chromium 所受验输入逐字相同，不把私有 API 替身当作新原生安装。
+- 作者的隔离 OpenRC 真实接入证据仍归作者；本聊天未复演原生 Windows PS5.1/UAC/ACL、macOS/FreeBSD 服务安装，也未正式签署、发布、部署。所有 full 门禁保持；CI 继续暂停，未执行不算通过。
 
 ## 2026-10-01：四平台接入整合 86e2ef4 与负号令牌回归
 
@@ -1375,3 +1369,34 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 正常保留 fork 作者 `b98fa5f` 和已合 #126/#128/#129，冻结 `addcdbe` 运行输入：本地完整 Rust/PostgreSQL workspace/all-targets 473 通过、0 失败、15 既有实机条件忽略；macOS umask077 原子链接、workspace all-targets Clippy/fmt/core 通过。自己的 PostgreSQL 127.0.0.1:55432 已停止。
 - 已受验监控产品与私有前端输入逐字保持 `3dea5d9`：Bun 33/894、TS/Vite、19 dist 重复复现、12 套仓库与两套独立 Chromium 负例通过；仍未真实 Telegram/多平台/Agent 联合负载，未将本地当作 GitHub CI 或实机签收。
 - fork 现有四个工作流 active，逐一固定原 YAML核对仅 push/pull_request/manual 与 agent-v* tag，无 pull_request_target 等额外自动事件；普通 push 最后提交带 [skip ci]，不改变 fork 状态。主仓库四源码工作流继续 disabled_manually，不重跑、恢复或把跳过记为通过。
+
+## 2026-10-01：PR #132 四平台接入与主线前端整合核对
+
+- 本聊天在独立工作树正常保留作者 `dd691656`，普通合入已验证的主线 `86e2ef40`、插件目录/监控任务与通知、ADR 0040 混合链路规划、NodeQuality r14 和脚本截止补修 `f871091`；跨平台接入决策编号调整为 ADR 0041，保留原作者与主线进度记录。
+- 前端按 `1313a29` 的实际源码执行：36 个 Bun 用例、901 个断言、TypeScript/Vite 93 模块构建、19 份产物逐字复现，12 套仓库真实 Chromium 和两套独立浏览器负例全部通过。覆盖自动与精确版本、Unix/Windows 系统和 ABI 筛选、缺少兼容制品、失败后清除旧命令、一次性令牌提示、匿名只读、401 清除秘密、目录选择服务器与监控/旧业务入口；全部请求只用私有回环 API 替身，1440/390 布局与可滚动复制动作已检查。
+- 普通整合后的前端源码、产物和活跃浏览器脚本仍与上述受验输入逐字相同。相对 `86e2ef40`，332 份既有 Rust/插件/Cargo.lock 输入逐字保留；13 个 Rust 例外仅为面板安装入口、已签版本选择、服务器接入路由及对应测试，Agent/core、协议、compiler、SDK、适配器和所有插件没有例外。66 个本地文档链接、core 边界及差异检查通过。
+- Linux 旧 Preparing/full 检查点守卫与 PowerShell Unicode 引号修复由独立脚本审查继续整合，以上前端结果不认证其最终实现；原作者容器与正式根记录没有在本聊天重演。没有运行 Cargo/PostgreSQL 或远端 CI，没有原生平台常驻安装、完整诊断、上传、swap、正式签署/发布或生产部署。CI 继续暂停，NodeQuality full 门禁保留；Windows/macOS/FreeBSD 正式制品和实机验收仍独立待办。
+
+## 2026-10-01 PR #132 PowerShell 字面参数整合补修
+
+- 保留作者 `ae9d6961`。实际定位允许的 HTTPS 镜像路径可含 PowerShell 智能单引号，原 ASCII-only 转义会在外层 payload 赋值时提前执行路径内容。按固定 PowerShell 词法源码将 ASCII 单引号及 U+2018/U+2019/U+201A/U+201B 在参数、外层 payload 两处全部倍写，保留路径原值及单行编码/UAC 后重新下载、Git blob/SHA-256 校验与完整发布验签流程。
+- 在本任务私有目录核对官方 PowerShell 7.5.3 macOS ARM64 归档 SHA-256 `f4fac5c72e8c09ba3b6fb8667f21b1d73556047819857fce7883268d02369cde`，与官方摘要文件及 API 一致；固定词法源码为 `b72c7ab1238c2d95b5c9004bca8399b8b3ca88ac`。真实 PowerShell 本地 11 项通过、0 失败、0 跳过；直接编译受验 Rust quote 函数的隔离小夹具，原转义负对照实际以 61 退出，新转义的五类引号/相邻引号/换行/中文/emoji 在六组双层 payload 中逐值恢复。其余用例覆盖真实 TEST_ONLY minisign、完整清单拒绝、历史身份/目录、回环下载预算与镜像匿名规则。
+- 另只读下载固定官方 bootstrap Git blob，精确核对嵌入入口原字节；Windows minisign 0.12 官方归档和两架构 PE 文件均实际读回并核对固定摘要，没有执行 Windows 二进制。以上是 macOS PowerShell 7 函数及词法夹具，不是 Windows PowerShell 5.1、UAC、Windows ACL/计划任务或真实 Agent 安装验收；本补修子任务未运行 Cargo/PostgreSQL，也未签署、发布、部署或恢复 CI。
+
+## 2026-10-01 PR #132 Unix 信任与旧 Agent 恢复复核
+
+- 保留作者 `f45ade0` 及普通合入的 `ae9d696`、`dd691656`；旧正式 0.3.0 的 install.sh 保持原字节，只作完整签名证据，实际 Linux 执行器来自独立固定官方 bootstrap 内嵌源码。缓存的正式公开根、真实 minisign 与四文件 proof 已重新核对，旧安装器任意改一字节在 Agent 下载/执行前拒绝；未执行正式二进制或原安装器。
+- 修复接入版本目录慢读可续期：仍保留原 30 秒预算，但各次底层读取共用绝对截止。私有回环负对照中，原源码在注入 0.15 秒预算后仍读取约 1.13 秒，新代码约 0.15 秒拒绝且错误不含令牌。原 Mac `/var` 与 `/private/var` 回滚夹具期望已改为精确解析后的路径；首次失败原日志保留。
+- 旧 `75cd846` 对本地 Preparing 只核签名，重启后可直接执行，故新增标准库恢复守卫：已有旧 Agent 服务及状态端点须明确停止，只读配置给出的 SQLite 路径（缺省为旧 `/var/lib/sinan/core/state.db`），读取真实 WAL、要求既有 SHM、限制 SQL 期限并检测读取期间变化。完整 Preparing、缺 plugin/mode 的旧完整任务及未知/损坏检查点拒绝，原 JSON 不写。Started 只对旧 Agent 确切支持的 r2/原参数继续回收，其他原版本保留给兼容新签名 Agent，拒绝不兼容降级；daily 门禁放行不等于旧 r2 适配器支持 daily。
+- bootstrap 与内嵌 Linux 执行器采用同源守卫，在接入前和激活前再次检查；最后门禁失败恢复原配置、不启动服务。入口不自行停止旧服务，不把单次快照宣称为整个迁移原子，也不保证其他特权操作者不能另行重启服务。已有旧配置严格 TOML 预检需 Python 3.11，SQLite 标准库仅在旧状态存在时使用；无法确认时明确拒绝。
+- 受验产品 `3c3d146`：12 个私有 SQLite/WAL、旧缺字段、Started/daily、未知 JSON、服务/Unix socket、并发写入及回滚专项通过；Bootstrap 23 执行中 21 通过/2 root 条件跳过，Release 36 执行中 29 通过/7 Linux root 条件跳过。生成同步、core/diff 检查通过。真实正式 proof 的完整主入口夹具在私有 Preparing 状态下确认零 Agent 下载、零执行器调用，原 DB/JSON 不变；root 归属与管理器状态仅为隔离替身，不冒称 Linux 服务验收。
+- 耐久证据 `pr132-review-20261001` 保存初始失败、源码摘要与原日志。此 Unix 分工未运行 Cargo/PostgreSQL、真实安装、外网通知或完整验机；最终前端、PowerShell 引用修复及 Rust 整合另行验证。CI 继续暂停，未签署、发布或部署；作者旧容器验收不替代这份新增恢复门禁的原生实机验收。
+
+## 2026-10-01 PR #132 原生调用退出状态补修
+
+- 实际复现不可执行的 minisign/Agent 文件配合历史 `LASTEXITCODE=0` 会被旧函数当作成功；四行 ED 结构的假签名因验证器未启动而绕过。每次原生调用先清空全局退出码，立即捕获本次 `$?` 和退出码，只接受本次调用确实成功且返回 0；验签工具未启动直接拒绝，真实返回非零的签名拒绝仍可尝试下一个可信根。
+- 官方私有 macOS ARM64 PowerShell 7.5.3 的最终完整函数夹具 14 项通过、0 失败、0 跳过。另用补修前精确 `fdc60b8` 入口和新入口作真实双负对照：同一不可执行文件在旧验签与 Agent 函数均被接受，在新函数均拒绝且退出码为 null；同时实际运行坏签名/正确签名、错误根后正确根，以及原生子进程返回 0/7，保留智能单引号回归。
+- 同步重生 UTF-8 BOM 入口，新本地 bootstrap SHA-256 为 `425fccaba9de63a4def8a27d95c468338da24a44c29734573bf378a97264acb0`；此前匿名 Git blob 下载核对只对应补修前入口，不能认证这个尚未由本子任务推送的新对象。Windows PS5.1/UAC/ACL/原生服务安装仍待实机验证；本子任务没有 Cargo/PostgreSQL、CI、正式签署、发布或部署操作。
+
+- 上述前端冻结结果之后，继续普通保留 Unix `e8fb3de`（产品 `3c3d146`）与 PowerShell `6cbcf23` 两份独立补修。最终旧状态守卫只放行旧 0.3.0 实际兼容的 r2 Started，其他精确原版本留给兼容 Agent 回收；Preparing full/缺 plugin/mode/损坏状态拒绝，JSON 零写。PowerShell 修复五种引号和真实 spawn 失败后的旧 `$LASTEXITCODE=0` 绕过，签名与 Agent 调用都核对本次调用成功。两分工的 12 项旧状态及 14 项真实 macOS PowerShell7 结果分别记于其冻结证据，不冒称本聊天重复执行或 Windows 原生验收。
+- 最终 Linux r14 自包含入口和 PowerShell 正式公开根入口从组合源码重新生成并核对同步；全部前端输入仍与上述 `1313a29` 逐字相同，因此不重复浏览器。最终完整 Rust/PostgreSQL 与组合 Python/PowerShell 回归由主整合任务继续执行；未执行不记通过，CI 仍暂停。
