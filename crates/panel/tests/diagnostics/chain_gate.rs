@@ -5,7 +5,9 @@ async fn saved_full(panel: &TestPanel, server: i64, version: &str, status: &str)
         &panel.state,
         "nodequality",
         "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14",
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r15",
         "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r16",
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17",
         diagnostics::PLUGIN_VERSION,
         "amd64",
     )

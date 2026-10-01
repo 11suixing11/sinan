@@ -12,6 +12,7 @@ import sys
 
 MAX_FILE = 2 * 1024 * 1024
 MAX_BUNDLE = 8 * 1024 * 1024
+PUBLIC_ACCESS_POLICY_SHA256 = 'f53a16603bb070a13f67b056ae8124b31a62a00e411a41b1934135a937cb25db'
 BROWSER_POLICY_SHA256 = 'bda6f986d0f1dc1680989cb148dfd4214f7018bebb4413acf8474d11605fc771'
 NETFLIX_POLICY_SHA256 = '4c1f7c584ac3e0bc71f2aa37b2b739ec1383e60a0e554eb645db6bec95f89751'
 IP_SCORE_POLICY_SHA256 = 'f5ae90c823d6b6d993c9254369220f6128ac7169f41b557c603ab00f184f245f'
@@ -285,6 +286,27 @@ def native_curl_identity(name, content):
     return result
 
 
+def public_access_policy():
+    path = Path(__file__).with_name('public-access-policy.py')
+    content = ordinary(path, 65536)
+    if hashlib.sha256(content).hexdigest() != PUBLIC_ACCESS_POLICY_SHA256:
+        raise ValueError('signed public access policy helper SHA256 mismatch')
+    namespace = {'__name__': 'sinan_public_access_policy', '__file__': str(path)}
+    exec(compile(content, str(path), 'exec'), namespace)
+    return namespace
+
+
+def authorized_access(name, content):
+    if name != 'ip.sh':
+        return content
+    policy = public_access_policy()
+    result = policy['transform'](name, content)
+    if (not isinstance(result, bytes) or len(result) > MAX_FILE + 16384
+            or hashlib.sha256(result).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
+        raise ValueError('served public access policy output SHA256 or byte limit mismatch')
+    return result
+
+
 def percentile_policy(name, content):
     if name != 'hardware.sh':
         return content
@@ -320,6 +342,7 @@ def pack(lock, directory):
     ip_score_policy()
     netflix_policy()
     browser_policy()
+    public_access_policy()
     files = {name: base64.b64encode(verified(ordinary(directory / name, MAX_FILE), row)).decode()
              for name, row in rows.items()}
     result = (json.dumps(dict(schema=1, lock=lock, files=files), sort_keys=True, separators=(',', ':')) + '\n').encode()
@@ -364,7 +387,7 @@ def serve(directory, arguments):
         raise ValueError('served report policy output SHA256 or byte limit mismatch')
     prior = without_swap(name, patched) if name == 'hardware.sh' else patched
     scored = validated_ip_scores(name, percentile_policy(name, static_references(name, offline_dependencies(name, prior), directory, rows)))
-    return native_curl_identity(name, validated_netflix(name, scored))
+    return authorized_access(name, native_curl_identity(name, validated_netflix(name, scored)))
 
 
 def main():

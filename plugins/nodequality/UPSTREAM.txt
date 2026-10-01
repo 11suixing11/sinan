@@ -155,3 +155,23 @@ Daily checks and old report recovery remain; full-start remains closed. The
 operator must supply auditable tool rights and the missing execution evidence
 before the complete toolchain can be restored. Source preparation is not that
 approval or acceptance.
+
+Sinan r18 modifications (2026-10-01): public-access-policy.py adds explicit
+unconfigured-access returns to the fixed IP source after r17 native curl.
+read_ref clears inherited Cookie data and returns before downloading/retrying
+public cookies. ipregistry/DB-IP and Disney+/YouTube Premium/ChatGPT keep their
+entrypoints and original source but return before borrowed keys/cookies are
+read or sent. Current arrays are reset; text and per-source ProviderAccess JSON
+record not_attempted/credential_not_configured, node_self execution, false
+Attempted and concrete reasons. Unavailable media region/type and ipregistry
+usage/company serialize as null. Other sources, the existing Netflix policy,
+original source/license bundle and panel's configured AbuseIPDB API remain.
+
+This is the unconfigured path, not a new licensed provider integration. Each
+of those node sources still requires an explicit authorized official adapter
+and independent acceptance to restore its authenticated capability. No panel
+credential is forwarded to nodes, no public access material is treated as
+operator permission, and no full-chain/license approval is claimed. Helper,
+input and output hashes are fixed; this new identity never replaces a signed
+historical artifact. Full starts remain gated; old report collection, cancel
+and daily modes retain compatibility with the supported r14/r15/r16/r17 jobs.

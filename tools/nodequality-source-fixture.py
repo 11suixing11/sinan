@@ -28,7 +28,23 @@ def inert_source(name, policy):
         if name == 'net.sh':
             source += policy.NET_OUTPUT
         source += policy.SOURCES[name]['original_guard'] + b'}\n'
-    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ip_score_anchors(name) + netflix_anchors(name) + browser_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ip_score_anchors(name) + netflix_anchors(name) + browser_anchors(name) + public_access_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+
+
+def public_access_anchors(name):
+    if name != 'ip.sh':
+        return b''
+    policy = module('fixture_public_access_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/public-access-policy.py')
+    return b"fixture_unused_public_access(){\ncat <<'SINAN_FIXTURE_PUBLIC_ACCESS'\n" + b''.join(a for a, _ in policy.REPLACEMENTS) + b'SINAN_FIXTURE_PUBLIC_ACCESS\n}\n'
+
+
+def undo_access(role, patched):
+    if role != 'ip.sh':
+        return patched
+    policy = module('fixture_undo_public_access', Path(__file__).resolve().parents[1] / 'plugins/nodequality/public-access-policy.py')
+    for before, after in reversed(policy.REPLACEMENTS):
+        patched = replace_once(patched, after, before)
+    return patched
 
 
 def browser_anchors(name):
@@ -38,6 +54,8 @@ def browser_anchors(name):
 
 
 def undo_browser(role, patched):
+    if role == 'ip.sh' and b'sinan_provider_access_json(){' in patched:
+        patched = undo_access(role, patched)
     if role not in ('ip.sh', 'net.sh'):
         return patched
     policy = module('fixture_undo_browser', Path(__file__).resolve().parents[1] / 'plugins/nodequality/browser-policy.py')
@@ -286,5 +304,17 @@ def prepare_policy(plugin, contents):
         content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
         outputs[role] = patched
     browser_path.write_bytes(content)
+    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
+    access_path = Path(plugin) / 'public-access-policy.py'
+    access = module('synthetic_public_access_policy_input', access_path)
+    content = access_path.read_bytes()
+    original_hash = hashlib.sha256(content).hexdigest().encode()
+    for role, spec in access.SOURCES.items():
+        canonical = outputs[role]
+        patched = access.patch(canonical)
+        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
+        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
+        outputs[role] = patched
+    access_path.write_bytes(content)
     helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
     return outputs

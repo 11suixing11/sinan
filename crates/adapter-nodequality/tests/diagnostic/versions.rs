@@ -10,6 +10,8 @@ const R7: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r7";
 const R6: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r6";
 const R12: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r12";
 const R14: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14";
+const R17: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17";
+const R15: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r15";
 const R16: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r16";
 const R13: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r13";
 const R11: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r11";
@@ -19,7 +21,9 @@ const R8: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r8";
 
 #[tokio::test]
 async fn saved_full_jobs_are_not_prepared_but_keep_each_report_version() {
-    for version in [R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R16, VERSION] {
+    for version in [
+        R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, R17, VERSION,
+    ] {
         let scratch = Scratch::new();
         let mut spec = scratch.spec();
         spec.version = version.into();
@@ -43,8 +47,10 @@ async fn saved_full_jobs_are_not_prepared_but_keep_each_report_version() {
 }
 
 #[tokio::test]
-async fn r4_through_r17_daily_jobs_keep_mode_targets_budget_and_saved_chapters() {
-    for version in [R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R16, VERSION] {
+async fn r4_through_r18_daily_jobs_keep_mode_targets_budget_and_saved_chapters() {
+    for version in [
+        R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, R17, VERSION,
+    ] {
         let scratch = Scratch::new();
         let mut spec = scratch.spec();
         spec.version = version.into();

@@ -214,6 +214,8 @@ class BrowserTests(unittest.TestCase):
     def test_production_identity_and_generator_disable_leave_other_bytes_unchanged(self):
         for role in policy.SOURCES:
             new = self.production(role)
+            if role == 'ip.sh':
+                new = sources.fixture.undo_access(role, new)
             prior = sources.fixture.undo_browser(role, new)
             self.assertEqual(hashlib.sha256(prior).hexdigest(), policy.SOURCES[role]['source_sha256'])
             self.assertEqual(policy.transform(role, prior), new)
