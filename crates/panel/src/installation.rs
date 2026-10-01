@@ -83,6 +83,21 @@ mod tests {
     #[cfg(unix)]
     use std::process::Command;
 
+    #[cfg(unix)]
+    fn tool_path(name: &str) -> std::path::PathBuf {
+        let output = Command::new("/bin/sh")
+            .args(["-c", "command -v \"$1\"", "fixture", name])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "missing fixture tool: {name}");
+        let path = std::path::PathBuf::from(String::from_utf8(output.stdout).unwrap().trim());
+        assert!(
+            path.is_absolute() && path.is_file(),
+            "invalid fixture tool: {name}"
+        );
+        path
+    }
+
     #[test]
     fn command_pins_the_official_blob_and_installer_bytes() {
         let command = command("agent-v0.3.0", "https://panel.example.com", "fixture-token");
@@ -124,6 +139,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("sinan-bootstrap-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&directory).unwrap();
+        std::os::unix::fs::symlink(tool_path("sha256sum"), directory.join("sha256sum")).unwrap();
         let marker = directory.join("executed");
         let payload = directory.join("payload");
         fs::write(
@@ -217,8 +233,7 @@ mod tests {
                     fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
                 }
                 for tool in ["sh", "env", "mktemp", "rm", "sha256sum"] {
-                    std::os::unix::fs::symlink(format!("/usr/bin/{tool}"), directory.join(tool))
-                        .unwrap();
+                    std::os::unix::fs::symlink(tool_path(tool), directory.join(tool)).unwrap();
                 }
                 let output = Command::new("/bin/sh")
                     .args([
