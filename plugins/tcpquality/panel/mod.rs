@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 
 // Both signed architectures must identify this immutable source snapshot.
-pub const PLUGIN_VERSION: &str = "0.3.0-5e843f0fd9532abe9b7b9a052ef77b45abcfa675-r1";
+pub const PLUGIN_VERSION: &str = "0.3.0-b562effcd90f8ae319665fb4ead1807b770ed4d5-r1";
 const REGIONS: [&str; 5] = ["east_asia", "southeast_asia", "europe", "americas", "other"];
 
 #[derive(Deserialize, Serialize)]
