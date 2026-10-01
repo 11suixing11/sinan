@@ -7,6 +7,19 @@
 3963c28 组合源码的 PostgreSQL/API 3项、面板参数/目标2项、适配器15项与原生17项全部通过，workspace全targets Clippy和Linux Agent构建通过，限额容器exit0/OOM=false。fe4ae60平铺后显式地区键/API3+unit2、Clippy和Agentbuild再次通过。已正常合入根sing-box插件主线8ef465f；工具版本pin改为版权补齐后公开且实际Bookworm/五aux签名验收通过的b562effcd90f8ae319665fb4ead1807b770ed4d5，1c640d3的新pin/API3+unit2/fmt/Clippy/Agentbuild再次通过，exit0/OOM=false；最终CI另核。没有以夹具替代真实测试机验收，aws-jp0仍待恢复，完整验机工具链仍被安全门禁暂停。见 docs/acceptance/tcpquality-panel-registration.md。
 
 
+## 2026-10-01：TCP 报告界面（独立 PR）
+
+服务器导航新增 TCP 连接诊断，四项小预设及配置目标地区，按本次冻结范围显示工具版本/时间/参数、连接成功统计和独立章节；未知不补零，取消确认前保留屏障，部分报告可看，不做跨参数排名。主线管理员与 sing-box 插件导航继续保留，NodeQuality 完整门禁不由本 PR 改动。
+
+012ca9f 的 Bun/TypeScript/Vite 与 Chromium1280/390px夹具验收通过，零页面错误、正确创建/地区请求和取消禁用均已核实；最终主线整合后重新构建与浏览器复验另补。验收范围与真实节点待办见 docs/acceptance/tcpquality-report-view.md。
+
+- 在面板 fe4ae60 与公开制品主线 9a41fe5 上重整源代码，NodeQuality门禁及管理员/插件导航保留；9dbff20 的 Bun frozen install、5项/711断言、TypeScript/Vite和最终dist Chromium1280/390px复验均通过，零页面错误、每宽度一条白名单创建/地区PATCH，未知/真实0/部分/旧报告过滤/取消屏障成立。实际dist index-D5k-FUiH.js，独立PR最终CI另跟。
+
+- fa8dca4保留完整主报告统计，部分章仅能补更完整/更多连接样本的结果；目标缺数据显式未知。持久化浏览器夹具在实际index-CkSqyBT0.js的1280/390px通过，完整报告不降级、目标403/离线禁止创建以及原部分/真实0/未知/互斥取消都成立，页面错误0。旧dist被完整结果反对照准确抓住，测试脚本ASI错误修复后实跑通过；没有把这些夹具称为真实节点验收。
+
+- 本轮在作者233840a上修复成功读取后诊断/目标轮询403仍复用旧能力与目标范围的问题：未知期间暂停创建并保留历史；旧dist被新增夹具抓住（exit1）。Bun5项/711断言、TypeScript/Vite52模块及最终实际index-hb4JwTbg.js的Chromium1280/390px全部通过，真实零耗时、冻结地区/参数、部分章不覆盖complete、省略插件的旧NQ报告过滤、确认取消、轮询403禁创建/范围未知、历史保留、读取恢复和离线均成立，报告说明明确为不向第三方上传。相同dist的NQ完整门禁及sing-box业务导航伴随验证通过，完整模式POST为零。复用匹配锁文件的已有依赖，无Cargo/PG/真实节点或生产接口；专用节点TCP登记整链仍未验，验收记录已保留边界。
+
+
 ## 2026-10-01：会话签发时间跨秒修复
 
 - 对应 [Issue #47](https://github.com/theLucius7/sinan/issues/47)。[PR #45 的 CI](https://github.com/theLucius7/sinan/actions/runs/36767325898) 中服务夹具已通过，认证测试暴露两次取时跨秒：存储的会话过期时间与稍后 ACK 的服务器时间相差 3599 秒。会话签发和 ACK 现在使用同一时间快照，过期时间仍由数据库保存并供 HTTP/WebSocket 强制校验。
