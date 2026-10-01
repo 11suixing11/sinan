@@ -2,6 +2,7 @@
 
 mod health;
 mod native;
+mod obfuscation;
 mod sentinel;
 mod stats;
 mod version;

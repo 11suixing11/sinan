@@ -14,6 +14,26 @@
 
 所有协议使用同一用户账本，统计名称仍为 `u{用户ID}_n{节点ID}`。撤销后重新授权会更换凭据；旧的客户端需更新订阅。协议与 Shadowsocks 加密方法创建后不可更改，需要变更时创建新节点。
 
+## 节点连接与高级设置
+
+参考 3X-UI 的入站设置分组和 S-UI 的监听/客户端地址分离，具体原生字段按固定 sing-box 1.14.2 实现，见 [ADR 0042](adr/0042-node-settings-and-panel-operations.md)。
+
+| 字段 | 行为 |
+|---|---|
+| 启用节点 | 默认开启。关闭后立即移出订阅资格，设备应用整包后停止监听；授权、凭据和历史保留。链路任一端停用会使入口失效，不会退化为直连 |
+| 监听地址 / 监听端口 | 本机 IP，默认 `::`；IPv4 可填 `0.0.0.0`。端口仍在每台服务器内唯一，停用节点继续占用其分配记录 |
+| 公开地址 / 公开端口 | 客户端与内部链路连接端点；公开端口留空跟随监听端口，NAT 场景可分别填写。修改不会自动设置端口映射或网络策略 |
+| TCP Fast Open | 默认关闭，仅 TCP 入站可选，需要系统支持 |
+| TLS ALPN | 证书协议可设置最多 8 个不重复 ASCII 值；留空沿用默认值。Naive 仅允许 h2，客户端自行协商；不适用于 Reality |
+| Reality | 握手目标默认跟随 SNI，握手端口默认 443；客户端指纹同时写入 JSON、分享链接与内部链路 |
+| Hysteria2 | 上下行带宽同时留空或填写 1–1000000 Mbps，以服务器为视角，客户端自动交换方向。强制 BBR 与手填带宽互斥；Salamander 混淆密码可自动生成，编辑留空保留，关闭清除 |
+| TUIC | CUBIC / BBR / New Reno，认证超时与心跳 1–3600 秒；留空用原生默认值。0-RTT 默认关闭，启用需接受重放风险 |
+| AnyTLS | 客户端闲置会话检查/超时 1–3600 秒，保留数量 0–128；留空使用原生默认值 |
+
+管理接口不会回显混淆密码或服务端私钥。升级本次 Agent 后再使用 HY2 混淆和自定义 QUIC ALPN：旧 Agent 的普通 QUIC 健康探测无法正确验证这些监听器。新适配器执行实际混淆 QUIC/TLS 握手，错误密码或证书域名均不能通过。
+
+节点行“部署”显示所属服务器的合并等待、目标/应用版本、失败回报和有效授权节点数量；“检查部署条件”检查 Agent 接入、在线、插件声明和签名运行时。缺少制品时由维护者按[部署文档](deploy.md#导入签名-release)准备。检查条件通过不代表已应用，最终以 Agent 健康回报为准。
+
 ## TLS 证书
 
 Hysteria2、TUIC、AnyTLS、Naive 的“证书域名”必须是证书覆盖的 DNS 名。
@@ -33,13 +53,24 @@ Hysteria2、TUIC、AnyTLS、Naive 的“证书域名”必须是证书覆盖的 
 
 原有链接订阅和订阅令牌保持不变；`?format=links` 仅支持 Reality。混合订阅含新增协议时返回 409，提示切换 JSON，不静默省略节点、不生成非标准 Snell 链接。手动证书的公共链随 JSON 下发，客户端不启用 `insecure`。订阅仍仅含已经成功应用且健康的版本及当前有效授权。
 
+在“代理用户 → 订阅链接”可查看已授权、当前资格与可用节点、套餐额度和到期状态，并复制订阅地址、显式预览、复制完整配置或下载文件。未部署、节点停用、套餐未开始/到期/额度用尽时会说明原因。内容获取复用公开订阅的同一生成逻辑；读取失败不继续提供旧配置，复制/下载时重新检查。
+
+支持 `?format=singbox&download=true` 下载 JSON。后台预览只向面板当前同源的管理员接口请求，不调用第三方转换服务；订阅地址不存入浏览器持久存储。重置后旧地址立即失效，但已经下载的节点凭据保持不变，需要撤销授权才能使旧凭据失效。
+
 ## 本地验证
 
 Rust、Bun 常规检查外，可使用固定运行时执行实测：
 
 ```sh
-SINAN_TEST_SINGBOX=/tmp/sing-box cargo test -p sinan-compiler -- --include-ignored
+SINAN_TEST_SINGBOX=/tmp/sing-box SINAN_GROUPS_RUNTIME=/tmp/sing-box SINAN_TEST_UPSTREAM=/tmp/sing-box cargo test -p sinan-compiler -- --include-ignored
 SINAN_TEST_SINGBOX=/tmp/sing-box cargo test -p sinan-panel --test protocol_runtime -- --ignored --nocapture
+```
+
+新增参数还可用官方 1.14.2 归档执行配置解析和混淆健康探测（纯 Go 归档需同时解出 `libcronet.so`，完整计量验收仍需上面的定制标签构建）：
+
+```sh
+SINAN_TEST_UPSTREAM=/tmp/upstream/sing-box cargo test -p sinan-compiler --test modern_protocols official_runtime_accepts_protocol_settings -- --ignored
+SINAN_TEST_UPSTREAM=/tmp/upstream/sing-box cargo test -p sinan-adapter-singbox obfuscated_quic_health_checks -- --ignored
 ```
 
 运行时需包含 `with_quic,with_acme,with_v2ray_api,with_utls,with_naive_outbound`；本地环境需 OpenSSL 生成一次性证书。第二项通过实际客户端验证新协议的 TCP/UDP 流量、用户计量、证书域名拒绝及重载撤销。所有测试只使用临时凭据和回环端口。

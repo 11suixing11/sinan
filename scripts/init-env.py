@@ -2,7 +2,9 @@
 """Create a private Compose environment without replacing existing credentials."""
 
 import argparse
+import base64
 import ipaddress
+import json
 import os
 from pathlib import Path
 import secrets
@@ -51,11 +53,23 @@ def main():
     parser.add_argument("--public-url", type=origin, required=True)
     parser.add_argument("--port", type=port_number, default=8080)
     parser.add_argument("--output", type=Path, default=Path(".env"))
+    parser.add_argument("--release-keys-file", type=Path)
     args = parser.parse_args()
+    keys = []
+    if args.release_keys_file:
+        try:
+            keys = json.loads(args.release_keys_file.read_text())
+            if not isinstance(keys, list) or not keys or any(
+                not isinstance(key, str) or len(base64.b64decode(key, validate=True)) != 42
+                or base64.b64decode(key)[:2] != b"Ed" for key in keys
+            ):
+                raise ValueError("expected minisign public key records")
+        except (OSError, ValueError) as error:
+            parser.exit(1, f"Cannot read release public keys: {error}\n")
     content = "\n".join([
         "SINAN_DB_PASSWORD=" + secrets.token_hex(32),
         "SINAN_ADMIN_PASSWORD=" + secrets.token_hex(32),
-        "SINAN_RELEASE_PUBLIC_KEYS=[]",
+        "SINAN_RELEASE_PUBLIC_KEYS=" + json.dumps(keys, separators=(",", ":")),
         "SINAN_PUBLIC_URL=" + args.public_url,
         "SINAN_BIND_ADDRESS=127.0.0.1",
         "SINAN_PORT=" + str(args.port),
