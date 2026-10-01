@@ -185,7 +185,9 @@ def main():
             (bundle / name).write_bytes(read_regular(Path(args.release_dir) / name, limit))
         else:
             download(base, name, bundle / name, limit, mirror)
-        ensure(digest(read_regular(bundle / name, limit)) == entry["binary_sha256"], "Agent digest differs from signed release")
+        payload = read_regular(bundle / name, limit)
+        ensure(len(payload) == limit, "Agent length differs from signed release")
+        ensure(digest(payload) == entry["binary_sha256"], "Agent digest differs from signed release")
         token_file = bundle / ".enrollment-token"
         token_file.write_text(token)
         result = subprocess.run(["/bin/sh", str(bundle / "install.sh"), "--bundle", str(bundle),

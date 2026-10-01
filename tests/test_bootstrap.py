@@ -3,6 +3,7 @@
 
 import io
 import importlib.util
+
 import json
 import os
 from pathlib import Path
@@ -82,6 +83,34 @@ class BootstrapTests(unittest.TestCase):
                 bootstrap.download("https://github.com/allowed", "agent", target, 1024)
             self.assertEqual([call.args for call in sock.settimeout.call_args_list], [(5,), (3,)])
             self.assertEqual(target.read_bytes(), b"signed")
+
+    def test_signed_agent_length_and_digest_are_checked_before_installer_execution(self):
+        valid = b"signed!!"
+        entry = {"name": "agent", "version": "0.3.1", "arch": "amd64", "format": "raw",
+                 "asset_name": "agent-0.3.1-linux-musl-amd64", "archive_size": len(valid),
+                 "binary_sha256": release.digest(valid)}
+        for payload, error in ((b"short", "length differs"), (b"modified", "digest differs")):
+            payloads = {"SHA256SUMS": b"fixture", "SHA256SUMS.minisig": b"fixture",
+                        "release.json": json.dumps({"artifacts": [entry]}).encode(),
+                        "install.sh": b"#!/bin/sh\n" + bootstrap.PRELOADED_INSTALLER_MARKER + b"\n",
+                        entry["asset_name"]: payload}
+
+            def download(base, name, destination, limit, mirror=""):
+                destination.write_bytes(payloads[name])
+
+            with self.subTest(payload=payload), \
+                 patch.object(bootstrap.os, "getuid", return_value=0), \
+                 patch.object(bootstrap.platform, "machine", return_value="x86_64"), \
+                 patch.object(bootstrap, "load_roots", return_value=[]), \
+                 patch.object(bootstrap, "verify_manifest") as verify, \
+                 patch.object(bootstrap, "download", side_effect=download), \
+                 patch.object(bootstrap.subprocess, "run") as execute, \
+                 patch.object(sys, "argv", ["bootstrap", "--tag", "agent-v0.3.1", "--panel",
+                                            "https://panel.example.com", "--token", "TEST_ONLY_token"]):
+                with self.assertRaisesRegex(ValueError, error):
+                    bootstrap.main()
+                verify.assert_called_once()
+                execute.assert_not_called()
 
     def test_mirror_is_explicit_https_prefix_without_panel_credentials(self):
         base = "https://github.com/theLucius7/sinan/releases/download/agent-v0.3.1"
