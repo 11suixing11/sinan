@@ -10,6 +10,7 @@ use uuid::Uuid;
 #[test]
 fn relay_compilation_does_not_reinterpret_modern_protocols_as_reality() {
     let relay = Relay {
+        fingerprint: Default::default(),
         chain_id: 1,
         entry_node_id: 1,
         exit_node_id: 2,
@@ -22,6 +23,8 @@ fn relay_compilation_does_not_reinterpret_modern_protocols_as_reality() {
     };
     for id in [1, 2] {
         let node = Node {
+            enabled: true,
+            settings: Default::default(),
             id,
             name: "Modern node".into(),
             port: 443,

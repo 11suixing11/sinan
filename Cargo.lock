@@ -2444,9 +2444,11 @@ name = "sinan-adapter-singbox"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "blake2",
  "prost",
  "protoc-bin-vendored",
  "quinn",
+ "rand 0.8.8",
  "serde_json",
  "sinan-adapter-sdk",
  "tokio",

@@ -6,14 +6,15 @@
 
 运行时固定上游 sing-box 1.14.2，保留官方默认构建标签并启用统计 API。NodeQuality 日常检查使用有限轻量探测；完整验机因在线执行依赖、内层上传和宿主 swap 风险暂停新任务，详见[安全门禁](docs/acceptance/nodequality-full-start-gate.md)。
 
-先按[部署文档](docs/deploy.md)核对发布公钥、创建私有 `.env` 并配置构建时信任根，再在仓库根目录启动：
+准备 Docker Engine、Compose 插件与 Python 3，按[部署文档](docs/deploy.md)核对仓库内发布公钥，在仓库根目录安装：
 
 ```sh
-docker compose --project-name sinan --env-file .env \
-  -f deploy/docker-compose.yml up -d --build --wait
+python3 scripts/panel.py install --public-url https://panel.example.com
 ```
 
 面板默认在 `http://127.0.0.1:8080`。登录后可在 `/#/dashboard` 查看独立服务器看板，或从后台侧栏“服务器看板”跳转；看板右上角可返回后台，旧 `/#/overview` 链接继续可用。看板可在「看板与通知」中配置公开访问，默认仍需登录。
+
+后台“统计仪表盘”（`/#/statistics`）提供服务器状态、近 7/30 天网卡与代理流量趋势和排行，仅管理员可见。节点可配置监听/公开端点、启停与各协议高级参数；代理用户的订阅窗口支持可用状态、配置预览、复制与下载。面板管理工具提供状态、日志、自检和私有备份，升级会先备份，保留凭据与数据卷。
 
 「延迟检测」可统一分配 TCP/ICMP 任务；「看板与通知」可配置离线、资源、到期、流量提醒和 Telegram 渠道。操作见[延迟检测与通知](docs/monitoring.md)。检测与通知均需管理员配置，不执行付款、停用或远程命令。
 
@@ -25,6 +26,7 @@ Agent 从 GitHub Release 或配置的独立 HTTPS 镜像下载，面板不提供
 
 - [部署、制品导入、节点接入与升级](docs/deploy.md)
 - [服务器看板、表格视图与历史曲线](docs/server-display.md)
+- [后台统计仪表盘与流量口径](docs/statistics.md)
 - [服务器资产、续费记录与流量额度](docs/server-assets.md)
 - [开发、测试和 CI](docs/dev.md)
 - [离线签署、发布与公钥轮换](docs/release.md)

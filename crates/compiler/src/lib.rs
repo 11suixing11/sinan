@@ -16,6 +16,11 @@ use uuid::Uuid;
 mod certificates;
 mod protocols;
 pub use protocols::{AcmeChallenge, ProtocolConfig, SsMethod, TlsConfig};
+mod settings;
+pub use settings::{
+    AnyTlsSettings, CongestionControl, Fingerprint, Hysteria2Settings, NodeSettings,
+    RealitySettings, TuicSettings,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Access {
@@ -36,8 +41,25 @@ pub struct Node {
     pub public_key: String,
     pub short_id: String,
     pub users: Vec<Access>,
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_enabled")]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "NodeSettings::is_default")]
+    pub settings: NodeSettings,
     #[serde(default, skip_serializing_if = "ProtocolConfig::is_reality")]
     pub protocol_config: ProtocolConfig,
+}
+
+fn enabled_by_default() -> bool {
+    true
+}
+fn is_enabled(value: &bool) -> bool {
+    *value
+}
+
+impl Node {
+    pub fn public_port(&self) -> u16 {
+        self.settings.public_port.unwrap_or(self.port)
+    }
 }
 
 #[derive(Debug, Error)]
@@ -71,7 +93,7 @@ pub fn compile_server(nodes: &[Node]) -> Result<String, CompileError> {
     let mut stats_users = BTreeSet::new();
     let provider = certificates::provider(&nodes)?;
     for node in nodes {
-        if node.users.is_empty() {
+        if !node.enabled || node.users.is_empty() {
             continue;
         }
         let mut users: Vec<_> = node.users.iter().collect();
@@ -133,8 +155,9 @@ pub fn subscription_links(nodes: &[Node], user_id: i64) -> Result<String, Compil
         let host = unbracket_host(&node.public_host);
         let host = if host.contains(':') { format!("[{host}]") } else { host.to_string() };
         format!(
-            "vless://{}@{}:{}?encryption=none&flow=xtls-rprx-vision&security=reality&sni={}&fp=chrome&pbk={}&sid={}&type=tcp#{}",
-            access.uuid, host, node.port, percent_encode(&node.sni), percent_encode(&node.public_key),
+            "vless://{}@{}:{}?encryption=none&flow=xtls-rprx-vision&security=reality&sni={}&fp={}&pbk={}&sid={}&type=tcp#{}",
+            access.uuid, host, node.public_port(), percent_encode(&node.sni),
+            serde_json::to_value(node.settings.reality.fingerprint).expect("fingerprint").as_str().expect("fingerprint string"), percent_encode(&node.public_key),
             percent_encode(&node.short_id), percent_encode(&node.name)
         )
     }).collect();
@@ -174,6 +197,7 @@ fn authorized_nodes(nodes: &[Node], user_id: i64) -> Result<Vec<(&Node, &Access)
     }
     let accesses: Vec<_> = sorted_validated(nodes, false)?
         .into_iter()
+        .filter(|node| node.enabled)
         .filter_map(|node| {
             node.users
                 .iter()
@@ -185,6 +209,7 @@ fn authorized_nodes(nodes: &[Node], user_id: i64) -> Result<Vec<(&Node, &Access)
 }
 
 fn validate_node(node: &Node) -> Result<(), CompileError> {
+    settings::validate(node)?;
     if node.id <= 0 {
         return Err(invalid_node(node, "id must be positive"));
     }

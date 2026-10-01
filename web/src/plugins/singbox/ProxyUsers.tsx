@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import UserEntitlements from './UserEntitlements'
+import SubscriptionDialog from './SubscriptionDialog'
+import type { SubscriptionFormat } from './SubscriptionDialog'
 import type { Chain } from './groupTypes'
 import { api } from '../../api'
-import { Badge, Confirm, CopyField, Empty, ErrorNotice, Field, FormDialog, Icon, Loading, Modal, PageHeader, Refresh, Stat } from '../../components'
+import { Badge, Confirm, Empty, ErrorNotice, Field, FormDialog, Icon, Loading, Modal, PageHeader, Refresh, Stat } from '../../components'
 import { bytes, totalBytes } from '../../format'
 import { useAction, useResource } from '../../hooks'
 import type { Access, Node, Usage, ProxyUser } from '../../types'
@@ -18,7 +20,7 @@ export default function ProxyUsers() {
   const [deleting, setDeleting] = useState<ProxyUser | null>(null)
   const [subscription, setSubscription] = useState<ProxyUser | null>(null)
   const [resetting, setResetting] = useState<ProxyUser | null>(null)
-  const [format, setFormat] = useState('singbox')
+  const [format, setFormat] = useState<SubscriptionFormat>('singbox')
   const [notice, setNotice] = useState('')
   const [search, setSearch] = useState('')
   useEffect(() => {
@@ -48,6 +50,6 @@ export default function ProxyUsers() {
     {editor && <FormDialog title={editor === 'new' ? '创建代理用户' : '编辑代理用户'} onClose={() => setEditor(null)} onSubmit={submit} busy={action.busy} error={action.error} submitLabel={editor === 'new' ? '创建代理用户' : '保存修改'}><Field label="代理用户名称"><input name="name" required maxLength={128} defaultValue={editor === 'new' ? '' : editor.name} placeholder="为使用者设置一个名称" autoComplete="off" /></Field></FormDialog>}
     {deleting && <Confirm title={`删除「${deleting.name}」？`} busy={action.busy} error={action.error} onClose={() => setDeleting(null)} onConfirm={() => void action.run(() => api(`/api/plugins/sing-box/users/${deleting.id}`, 'DELETE'), () => { setDeleting(null); setSelected(null); refresh() })}>此代理用户的订阅链接将失效，全部节点授权会被撤销。历史用量保留，设备应用新配置后停止接受旧凭据。</Confirm>}
     {resetting && <Modal title={`重置「${resetting.name}」的订阅链接？`} busy={action.busy} onClose={() => setResetting(null)}><div className="modal-body"><ErrorNotice message={action.error} /><p className="confirm-copy">旧链接将立即失效，代理用户需要在客户端换成新链接。现有节点连接凭据和授权保持不变，已下载的配置仍可使用。</p></div><footer><button className="button button-secondary" disabled={action.busy} onClick={() => setResetting(null)}>取消</button><button className="button button-danger" disabled={action.busy} onClick={() => void action.run(() => api<ProxyUser>(`/api/plugins/sing-box/users/${resetting.id}/subscription/reset`, 'POST'), value => { setResetting(null); setSubscription(value); users.reload(); setNotice('订阅链接已重置，请将新链接提供给代理用户。') })}>{action.busy ? '正在重置…' : '确认重置'}</button></footer></Modal>}
-    {subscription && <Modal title={`${subscription.name} 的订阅`} onClose={() => setSubscription(null)} wide><div className="modal-body"><Field label="订阅格式"><select value={format} onChange={event => setFormat(event.target.value)}><option value="links">分享链接（仅 Reality）</option><option value="singbox">sing-box 配置（全部协议）</option></select></Field><CopyField text={`${subscription.subscription_url}?format=${format}`} label="复制订阅链接" /><div className="notice quiet-notice"><Icon name="lock" size={17} /><p>订阅链接包含访问凭据，仅分享给此代理用户。刚授权的节点需要等设备成功应用后才会出现。</p></div></div><footer><button className="button button-danger" disabled={action.busy} onClick={() => { action.clearError(); setResetting(subscription); setSubscription(null) }}>重置订阅链接</button><button className="button button-secondary" onClick={() => setSubscription(null)}>完成</button></footer></Modal>}
+    {subscription && <SubscriptionDialog user={subscription} format={format} onFormatChange={setFormat} onClose={() => setSubscription(null)} onReset={() => { action.clearError(); setResetting(subscription); setSubscription(null) }} />}
   </>
 }
