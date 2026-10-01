@@ -13,9 +13,9 @@
 | `crates/compiler/src/lib.rs` | 输入为 `Vec<Node>`；`Node.users` 只有终端用户授权。`compile_server` 跳过无用户节点，生成完整配置、仅一个 `direct` 出站，统计名单只含 `u{user_id}_n{node_id}`。集合排序保证确定性。 |
 | `crates/adapter-singbox/src/lib.rs`、`stats.rs` | 已从传入的已应用 `RuntimeSpec` 提取 `stats.users` 白名单，查询累计统计时使用 `reset=false`，名单外计数不返回给 core。成功查询缺少白名单用户时补零，RPC 失败仍返回错误；不能把错误当作零。当前名单验证检查字符串格式，不判断链路角色。 |
 | `crates/agent-core/src/usage.rs` | 在同一 SQLite 事务内更新累计基线、分配序号并保存待发送批次。core 验证通用计数名字，不解析具体运行时配置。 |
-| `crates/panel/src/usage.rs` | 严格解析用户统计名字，并检查发送服务器对应的历史 deployment 是否曾授权该用户和节点；批次入库后才确认，重复批次必须保持相同内容。 |
-| `crates/panel/src/publisher.rs` | 锁定单台服务器，读取节点和授权，按完整配置包摘要发布；原生字节不变时更新同一 deployment 的 `source_json` 而不增版本。`dirty_at` 持久保存发布待办，WebSocket 仅加快对账。尚无跨服务器依赖图。 |
-| `crates/panel/src/subscriptions.rs` | 将 `source_json` 解析为 `Vec<Node>`，取已应用且健康的快照与当前授权的交集；输出用户入口，不输出服务器私钥。 |
+| `plugins/singbox/panel/usage.rs` | 严格解析用户统计名字，并检查发送服务器对应的历史 deployment 是否曾授权该用户和节点；批次入库后才确认，重复批次必须保持相同内容。 |
+| `crates/panel/src/publisher.rs`、`plugins/singbox/panel/publisher.rs` | core 调度发布，插件读取节点和授权并编译；事务中锁定单台服务器，按完整配置包摘要发布；原生字节不变时更新同一 deployment 的 `source_json` 而不增版本。`dirty_at` 持久保存发布待办，WebSocket 仅加快对账。尚无跨服务器依赖图。 |
+| `plugins/singbox/panel/subscriptions.rs` | 将 `source_json` 解析为 `Vec<Node>`，取已应用且健康的快照与当前授权的交集；输出用户入口，不输出服务器私钥。 |
 | `crates/panel/migrations/0001_initial.sql`、`0002_unsigned_usage.sql` | 用户账本关联真实用户和节点，序号及字节数支持完整 `u64`；没有内部链路、凭证代数或跨服务器发布记录。 |
 
 本地端口、统计 API 和服务健康，以及 hello/heartbeat 中的已应用版本，只能证明现有单机状态，不能证明入口已用某一代内部凭证通过出口访问目标。链路轮换不得将这些证据直接当作端到端确认。

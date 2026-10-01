@@ -234,6 +234,7 @@ pub async fn run_with_diagnostics(
         privileged.clone(),
         client_rx.clone(),
         retirement.clone(),
+        agent_version,
     ));
     tasks.spawn(crate::tasks::run(
         config.allow_remote_commands,
