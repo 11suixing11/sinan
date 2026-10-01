@@ -43,8 +43,8 @@ pub async fn get(
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(ApiError::NotFound)?;
-    let accesses = sqlx::query("SELECT a.node_id,a.uuid,a.credential FROM accesses a JOIN nodes n ON n.id=a.node_id JOIN servers s ON s.id=n.server_id WHERE a.user_id=$1 AND n.deleted_at IS NULL AND s.deleted_at IS NULL")
-        .bind(user_id).fetch_all(&mut *tx).await?;
+    let accesses = sqlx::query("SELECT a.node_id,a.uuid,a.credential FROM singbox_eligible_accesses($2) a WHERE a.user_id=$1 AND NOT EXISTS (SELECT 1 FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id WHERE c.entry_node_id=a.node_id AND (SELECT COUNT(*) FROM server_module_status m JOIN servers s ON s.id=m.server_id WHERE m.server_id=ANY(ARRAY[n.server_id,e.server_id]) AND m.module='singbox' AND m.healthy AND m.applied_rev=m.target_rev AND s.dirty_at IS NULL AND s.deleted_at IS NULL) <> 2)")
+        .bind(user_id).bind(sinan_protocol::now_timestamp()).fetch_all(&mut *tx).await?;
     let current: BTreeMap<i64, (Uuid, String)> = accesses
         .into_iter()
         .map(|row| (row.get("node_id"), (row.get("uuid"), row.get("credential"))))
