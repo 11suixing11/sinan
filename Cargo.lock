@@ -2476,6 +2476,7 @@ dependencies = [
  "sinan-adapter-nodequality",
  "sinan-adapter-sdk",
  "sinan-adapter-singbox",
+ "sinan-adapter-tcpquality",
  "sinan-agent-core",
  "tokio",
  "toml",

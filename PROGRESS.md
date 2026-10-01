@@ -1,5 +1,12 @@
 # 执行进度
 
+## 2026-10-01：TCP 诊断面板登记（独立 PR）
+
+登记第二诊断插件并由 Linux Agent 加载无状态适配器，共用任务服务负责互斥、预算、上传、确认取消和历史。仅开放地区、IPv4/6、4/8 次连接和1/2并发，冻结已配置 TCP 目标及摘要，地区标签在插件独立表保存；空 PATCH 拒绝、显式 null 才清除。前端另一个独立 PR。
+
+3963c28 组合源码的 PostgreSQL/API 3项、面板参数/目标2项、适配器15项与原生17项全部通过，workspace全targets Clippy和Linux Agent构建通过，限额容器exit0/OOM=false。fe4ae60平铺后显式地区键/API3+unit2、Clippy和Agentbuild再次通过。已正常合入根sing-box插件主线8ef465f；工具版本pin改为版权补齐后公开且实际Bookworm/五aux签名验收通过的b562effcd90f8ae319665fb4ead1807b770ed4d5，1c640d3的新pin/API3+unit2/fmt/Clippy/Agentbuild再次通过，exit0/OOM=false；最终CI另核。没有以夹具替代真实测试机验收，aws-jp0仍待恢复，完整验机工具链仍被安全门禁暂停。见 docs/acceptance/tcpquality-panel-registration.md。
+
+
 ## 2026-10-01：会话签发时间跨秒修复
 
 - 对应 [Issue #47](https://github.com/theLucius7/sinan/issues/47)。[PR #45 的 CI](https://github.com/theLucius7/sinan/actions/runs/36767325898) 中服务夹具已通过，认证测试暴露两次取时跨秒：存储的会话过期时间与稍后 ACK 的服务器时间相差 3599 秒。会话签发和 ACK 现在使用同一时间快照，过期时间仍由数据库保存并供 HTTP/WebSocket 强制校验。
@@ -736,3 +743,7 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 保留作者 `08c9de2` 与正式主线 `d1ff2df`。官方 musl1.2.5 归档、193 行 COPYRIGHT、Rust 1.98.1 固定官方 commit 和 97 行配方的摘要及原字节全部核对；配方除两项 2025 iconv 补丁还包含两份 2026 安全补丁，均不改 COPYRIGHT。库存简述只描述 2025 子集，原库存不改写，实际 self-contained libc 与系统构建工具通知分开记录。
 - 修复 rustc 身份歧义：旧表达式接受已知/未知双字段和重复已知字段，即使按完整摘要与公开 TEST_ONLY key 真实重签仍被接受；新检查只允许一个精确字段，补充收集前和重签后的实际负向回归。来源/签名 17、旧 release 28（4 既有条件跳过）、模拟发布 22、core 分层 6 项通过，合计 73 通过/0 失败/4 跳过；Python/core/actionlint/链接/差异检查通过。
 - 实际原生 CI `36794789931` 三个 job 成功，工作流 head `08c9de2` 显式选择固定工具源 `b562effcd90f8ae319665fb4ead1807b770ed4d5`；每个 job 真实启动及来源/签名 15+原生 bundle 1 项通过。独立下载两个架构的原包，当前严格验证器接受合法历史库存，并将其重新组装公开 TEST_ONLY 签名验证通过；内嵌构建器、旧验证器、收集器及三份库存与 Git b562 逐字一致。不声称旧固定对象含新歧义检查，不改其版本路径或既存制品。本机未运行下载二进制、Cargo/native build、正式签名、发布或生产探测；本地完整整合提交 CI 另行核对。
+
+### PR #77 登记整合复核
+
+冻结 `58868c4` 的 TCP API/目标单元5、core共用诊断生命周期40、TCP适配器与UID15、NodeQuality适配器15，共75项本地通过/0失败/忽略，workspace全targets Clippy及fmt/core通过。核对Linux/monitor-only登记边界、固定b562版本、六文件签名前及启动前校验、60秒/64MiB预算和旧NQ完整门禁；55432专用PG已停止。作者实际370+6 CI与Reality成功分别记录，不将不可执行API签名夹具或通用systemd验收称作新TCP实机完整执行链。正常保留作者提交并合入#76正式主线b152e2a，相关Rust/SQL/锁文件与已验58868c4原字节保持一致；最终主线CI单独跟进。

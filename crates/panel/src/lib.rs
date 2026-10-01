@@ -141,6 +141,14 @@ pub fn router(state: AppState) -> Router {
             "/api/servers/{id}/diagnostics/{job}/cancel",
             post(diagnostics::cancellation::request),
         )
+        .route(
+            "/api/plugins/tcpquality/servers/{id}/targets",
+            get(diagnostic_plugins::tcpquality::list_targets),
+        )
+        .route(
+            "/api/plugins/tcpquality/servers/{id}/targets/{probe}",
+            axum::routing::patch(diagnostic_plugins::tcpquality::set_region),
+        )
         .merge(plugins::router())
         .route("/api/agent/v1/enroll", post(servers::enroll))
         .route("/api/agent/v1/ws", get(agent_api::websocket))

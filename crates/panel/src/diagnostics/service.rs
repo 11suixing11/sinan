@@ -50,6 +50,7 @@ pub struct PluginReadiness {
 
 #[derive(Serialize)]
 pub struct DiagnosticView {
+    pub cancel_supported: bool,
     pub plugins: Vec<PluginReadiness>,
     pub reports: Vec<ReportRecord>,
 }
@@ -161,6 +162,7 @@ pub async fn get(
         plugins.push(readiness(&state, &row, *plugin).await);
     }
     Ok(Json(DiagnosticView {
+        cancel_supported: cancel_supported(&row.get::<Value, _>("capabilities")),
         plugins,
         reports: history(&state, id, None).await?,
     }))
