@@ -9,7 +9,7 @@ ENTRY_REPLACEMENTS = [
     (b'    . <(curl -sL "$raw_file_prefix/part/swap.sh")\n',
      b'    : # Sinan modification (2026-10-01): do not load the unused swap helper.\n'),
     (b'        run_HardwareQuality | tee $result_directory/$hardware_quality_filename\n',
-     b'        run_HardwareQuality | tee $result_directory/$hardware_quality_filename; [[ ${PIPESTATUS[0]} != 70 ]] || exit 70 # Sinan: stop after memory refusal.\n'),
+     b'        (set -o pipefail; run_HardwareQuality | tee $result_directory/$hardware_quality_filename) || exit $? # Sinan: stop after hardware refusal.\n'),
 ]
 HARDWARE_PREFIX = rb'''test_cpu_gb5(){
 local mem_avail_mb swap_free_mb
@@ -61,7 +61,7 @@ NO_SWAP_CLEANUP = rb'''# Sinan: no swap was created, so cleanup must not change 
 SOURCES = {
     'NodeQuality.sh': {
         'source_sha256': '4e1b25894cadf908ef61fb0d9ce874a75524c6dafc2ea26f0477107288e0c018',
-        'patched_sha256': '70863b1038cd650977ea9f378741a6fcb530f87d45f07fbb28c418f07c30ad88',
+        'patched_sha256': 'a68a42e8f508fdc1ed5a7170fda4b114ab81afc184a9c035b48613407a1fdc93',
     },
     'hardware.sh': {
         'source_sha256': 'f7413e8a19eaacce2df70b1ae6c63bab89334bca0d07846badacde5ef6afcb0c',

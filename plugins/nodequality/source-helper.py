@@ -14,7 +14,7 @@ MAX_FILE = 2 * 1024 * 1024
 MAX_BUNDLE = 8 * 1024 * 1024
 REPORT_POLICY_SHA256 = '0c66e702084820e399a16b18b51ba331cd8edd406dd96ede7c2ee84f78c30245'
 REPORT_ROLES = frozenset({'hardware.sh', 'ip.sh', 'net.sh'})
-SWAP_POLICY_SHA256 = 'd43b3e6fa6bfc0a31fcff5e3bc7a3228cdd1501c9f15f7e27175d09dada9a96b'
+SWAP_POLICY_SHA256 = '1d6acda7821d013773b273d77db12973d7075631b0309614dadb9c5cfc09ff24'
 FILES = {
     'NodeQuality.sh': ('LloydAsp/NodeQuality', 'NodeQuality.sh', 'LICENSE.nodequality'),
     'header.sh': ('LloydAsp/NodeQuality', 'part/header.sh', 'LICENSE.nodequality'),

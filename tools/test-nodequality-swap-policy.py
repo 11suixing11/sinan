@@ -128,6 +128,88 @@ main
                 self.assertEqual((root / 'trace').read_text(), 'cleanup' if denied else 'nextcleanup')
                 self.assertEqual((root / 'hardware.log').read_bytes(), b'hardware fixture\n')
 
+    def test_pinned_cleanup_with_real_observer_cannot_complete_after_hardware_refusal(self):
+        if READONLY_SOURCES is None:
+            self.skipTest('requires previously verified, readonly pinned source cache')
+        lock = json.loads((PLUGIN / 'source-lock.json').read_bytes())
+        rows = helper.validate(lock)
+        entry = helper.verified((READONLY_SOURCES / 'NodeQuality.sh').read_bytes(), rows['NodeQuality.sh'])
+        lines = entry.splitlines(keepends=True)
+        self.assertEqual(lines[439], b'function post_cleanup(){\n')
+        self.assertEqual(lines[454], b'    exit 1\n')
+        self.assertEqual(lines[462], b'\n')
+        # Run only the exact cleanup functions, preserving their observer line
+        # numbers. All mount, chroot and deletion operations are inert stubs.
+        cleanup = b'\n' * 439 + b''.join(lines[439:462])
+        prelude = b'''work_dir=$TEST_DIRECTORY/.nodequality-fixture
+result_directory=$TEST_DIRECTORY
+hardware_quality_filename=hardware.log
+chroot_run(){ :; }
+clear_mount(){ :; }
+post_check_mount(){ :; }
+rm(){ :; }
+_green_bold(){ :; }
+L(){ printf cleanup; }
+run_HardwareQuality(){ printf 'hardware fixture\\n'; return "$TEST_STATUS"; }
+main(){
+trap 'sig_cleanup' INT TERM SIGHUP EXIT
+'''
+        tail = b'''printf next > "$TEST_DIRECTORY/trace"
+post_cleanup
+}
+main
+'''
+        for guard, status in ((guard, status) for guard in ('legacy-refusal', 'fixed')
+                              for status in (0, 70, 7)):
+            with self.subTest(guard=guard, status=status), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                (root / '.runner').mkdir()
+                path = root / 'cleanup-fixture.sh'
+                if guard == 'legacy-refusal':
+                    line = (policy.ENTRY_REPLACEMENTS[2][0].rstrip(b'\n')
+                            + b'; [[ ${PIPESTATUS[0]} != 70 ]] || exit 70\n')
+                else:
+                    line = policy.ENTRY_REPLACEMENTS[2][1]
+                path.write_bytes(cleanup + prelude + line + tail)
+                environment = {'PATH': os.environ['PATH'], 'LC_ALL': 'C',
+                               'TEST_DIRECTORY': name, 'TEST_STATUS': str(status),
+                               'BASH_ENV': str(PLUGIN / 'exit-observer.sh'),
+                               'SINAN_REPORT_UPSTREAM': str(path),
+                               'SINAN_REPORT_WORKSPACE': name}
+                run = subprocess.run(['bash', str(path)], env=environment,
+                                     capture_output=True, timeout=4)
+                # The pinned EXIT cleanup ends with exit 1 for both paths.
+                # Only normal main cleanup is allowed to mark completion.
+                self.assertEqual(run.returncode, 1, run.stderr)
+                completed = guard == 'legacy-refusal' or status == 0
+                self.assertEqual((root / 'trace').exists(), completed)
+                self.assertEqual((root / '.runner/upstream-completed').exists(), completed)
+                self.assertEqual((root / 'hardware.log').read_bytes(), b'hardware fixture\n')
+
+    def test_hardware_source_failure_cannot_be_hidden_by_an_empty_child_script(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            script = b'''result_directory=$TEST_DIRECTORY
+hardware_quality_filename=hardware.log
+run_HardwareQuality(){ return_failure | accept_empty_input; }
+return_failure(){ return 1; }
+accept_empty_input(){ cat >/dev/null; }
+main(){
+''' + policy.ENTRY_REPLACEMENTS[2][1] + b'''printf next > "$TEST_DIRECTORY/trace"
+}
+main
+'''
+            environment = {'PATH': os.environ['PATH'], 'LC_ALL': 'C',
+                           'TEST_DIRECTORY': name,
+                           'BASH_ENV': str(PLUGIN / 'exit-observer.sh'),
+                           'SINAN_REPORT_UPSTREAM': 'inert-fixture',
+                           'SINAN_REPORT_WORKSPACE': name}
+            run = subprocess.run(['bash'], input=script, env=environment,
+                                 capture_output=True, timeout=4)
+            self.assertEqual(run.returncode, 1, run.stderr)
+            self.assertFalse((root / 'trace').exists())
+            self.assertEqual((root / 'hardware.log').read_bytes(), b'')
+
     def test_transform_requires_exact_identity_anchors_and_final_hash(self):
         role = 'NodeQuality.sh'
         original = source_tests.fixture.swap_anchors(role)
