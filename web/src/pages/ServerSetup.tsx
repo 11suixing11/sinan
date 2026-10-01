@@ -45,7 +45,7 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
   }
   const submit = () => {
     const agent_settings: AgentSettings = { sample_interval_secs: Number(sample), upload_interval_secs: Number(upload), auto_update: autoUpdate, discover_public_ips: discover }
-    const initialProbes: Probe[] = probes.map(probe => bindProbeAuthorization(withMonitoring({ id: '00000000-0000-0000-0000-000000000000', name: probe.name.trim(), kind: probe.kind, target: probe.target.trim(), port: probe.kind === 'tcp' ? Number(probe.port) : null, interval_secs: Number(probe.interval), carrier: probe.carrier.trim(), enabled: true, monitor: null }, probe.monitoring))))
+    const initialProbes: Probe[] = probes.map(probe => bindProbeAuthorization(withMonitoring({ id: '00000000-0000-0000-0000-000000000000', name: probe.name.trim(), kind: probe.kind, target: probe.target.trim(), port: probe.kind === 'tcp' ? Number(probe.port) : null, interval_secs: Number(probe.interval), carrier: probe.carrier.trim(), enabled: true, monitor: null }, probe.monitoring)))
     void action.run(() => api<Server>('/api/servers', 'POST', { name: name.trim(), agent_settings, probes: initialProbes, asset_settings: assetPayload(asset) }), onCreated)
   }
 
