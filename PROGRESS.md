@@ -1201,3 +1201,24 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 刷新编译输入后的 Rust/PostgreSQL 诊断专项 42 项、workspace 全 targets Clippy、fmt/core 通过。最终 Python/runner 组合含同源复用的真实 Bash5 排名 8 项，共 140 个唯一用例 136 通过、4 个仅 Linux root 安装器条件跳过；初次报告超时另存，回调优化后原 20 秒预算下 6 项通过，未放宽预算。
 - 默认和 false 上传时本地分数保留、真实回环 POST 为零；true 保留原载荷，403/429/实际超时/非 JSON/缺字段不重试且不继承旧百分位。耐久证据 pr116-root-rust-fresh-local、pr116-python-final-local、pr115-116-review-20261001。
 - 这是受控本地夹具与库验证，不是作者 guest、本机完整上游负载或线上签收；CI 暂停与 full 门禁保持。
+
+### NodeQuality r13：未知 IP 评分与 IPQS JSON 修正（#117）
+
+- 已在专用 Debian 12 用固定原函数和无网络错误响应复现：Scamalytics、AbuseIPDB、IP2Location、IPQS 四源均将缺失评分解释为低风险；IPQS JSON还读取错误数组成员。新建 #117，归入整改 milestone。
+- 新增固定 ip-score-policy，先验证单一JSON、错误包络、类型/范围，再进入算术；ipapi字符串只接受固定格式，DB-IP只接受已知等级。真实零分和原阈值保留，文本显式未知，六源缺失JSON为null，IPQS改用自己的分数。原请求、完整来源许可证和所有full门禁保持。
+- 升r13并保留r12历史兼容，新增10项专项。初测修正正则末尾换行和测试提取边界；本机6通过/4 Bash3条件跳过。冻结后的组合、Debian实际执行和Rust/API验证待独立收据，不将此项视为全链验收。
+
+- 冻结产品66ec04b在Debian12实际运行新增10项全通过，组合114运行/113通过/1缺minisign跳过，194.199秒；256MiB/Swap0/Tasks64等属性实际读回，峰值69,853,184B/11pids，max/oom/oom_kill均0。结束无进程/挂载/cgroup残留，SSH406重启0/同boot/swap0，48份输入保持、30份仓库输入匹配产品冻结。
+- Rust/API19及Clippy/fmt/core通过，专属PG55439停止且PID不存在/端口关闭。本机150唯一用例最终137通过/13条件跳过，共153次执行含保留的三次旧报告夹具超时；采样显示20秒持续推进至70条记录，473d592仅将夹具期限20改60秒，保留清理和断言，之后失败单项及未执行组通过，产品字节不变。详见[评分独立验收](docs/acceptance/nodequality-ip-score-unknown.md)和JSON索引。未进行完整验机、正式发布部署或恢复CI；UA/cookies/凭证路径和其他全链缺口保持待审查。
+
+### PR #118 合并复核（2026-10-01）
+
+- 正常合入已包含 #119 的 cdae763 主线、将 PR base 改为 main；保留作者 r13、r2–r12 历史与所有 full 门禁。报告夹具承接相同提前分派，恢复原 20 秒预算；作者曾用 60 秒的历史证据仍单独标明。
+- 受验整合输入 27b7849：刷新编译输入后的 Rust/PostgreSQL 诊断专项 42 项、workspace 全 targets Clippy、fmt/core 通过；这不替代 #119 新功能的专项/完整整合验收。
+- 115 个唯一 Python 专项 111 通过、4 个 Linux root 安装器条件跳过。实际 Bash5 六源评分专项 10 通过，原函数负对照、未知/null、有效零分、原阈值、IPQS 自身数组和原请求均检查；报告真实原文 6 项在原预算通过，签名/来源与包装器回归通过。
+- 耐久证据 pr118-root-rust-fresh-local、pr118-review-20261001；作者 Debian guest 未由本聊天重演，真实源未执行完整负载或公网上传。CI 暂停及发布/部署限制继续保持。
+
+## 2026-10-01 PR #124 设计文档整合
+
+- 保留作者 `ff02fbb3` 并普通合入 `44ba2220`；新增范围仅为代理节点内统一创建直连与多条链路的设计，现有实现、旧 ID/凭据、两服务器 Reality、授权及历史计量不变。新页面、API、批量事务和加强删除逻辑仍待实现，未宣称实机验收。
+- 本地核对五文档、94 个本地链接及现有节点/链路实现，合并和 diff 检查通过。文档变更未运行 Rust、PostgreSQL 或 CI；四个源码工作流仍暂停，不恢复 CI。
