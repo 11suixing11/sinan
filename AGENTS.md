@@ -42,7 +42,7 @@
 
 不得实现链路、转发、链式代理、外部出口、出口池、用户分组、配额强制执行、计费、DDNS、WebSSH、frp、Shadowsocks、SSM API、VLESS + Reality 之外的协议、xray、多个运行时实例、独立特权 helper 进程、防火墙或 nftables、Clash 订阅、多管理员、权限体系、多语言界面或面板高可用。OpenRC 服务支持已按用户要求增加，详见 [ADR 0021](docs/adr/0021-openrc-services.md)。用户进一步确认补齐 Agent 高频监控、任务、自动更新及非 Linux 常驻部署，详见 [ADR 0022](docs/adr/0022-agent-capability-alignment.md)，覆盖原排除项。特权 helper 仅保留 trait 边界；保留重复安装升级。制品签名与编译时发布信任根按 [ADR 0017](docs/adr/0017-signed-release-artifacts.md) 执行。
 
-当前整改额外授权服务器成本、续费到期、按账单日计算的网卡配额、可配置轻量周期拨测，以及 sing-box 插件的代理用户配额、重置周期和到期；按 [ADR 0023](docs/adr/0023-proxy-business-boundary.md) 分层，覆盖上述相关排除项。整改清单每一项独立 PR、独立验收，专用测试机验证资源场景，不在生产机器上反复运行完整验机。
+当前整改额外授权服务器成本、续费到期、按账单日计算的网卡配额、可配置轻量周期拨测，以及 sing-box 插件的代理用户配额、重置周期和到期；按 [ADR 0023](docs/adr/0023-proxy-business-boundary.md) 分层，覆盖上述相关排除项。整改清单在同一集成分支整体交付，每项保留验收证据，专用测试机验证资源场景，不在生产机器上反复运行完整验机。
 
 当前整改按 P0 保护服务器 → P0 IP 查询 → P1 sing-box 业务归位 → P1 共用诊断框架 → P2 TCP 接入的顺序签收实机能力。源码审查、源码合入、实机能力签收和正式发布/部署分别记录；前置阶段未通过时，后续实现可经独立审查及相称验证后合入作为准备，但不能签收、正式发布或部署新增诊断能力，不以其 CI 结果宣称前置阶段完成。逐项记录故障场景、证据对应的源码和未验证范围；NodeQuality 历史报告可读与完整执行能力须分别验收。执行条件和当前缺口见 [整改顺序与验收状态](docs/acceptance/ordered-remediation.md)。续费、配额和周期监控仍属于之后的独立工作。
 

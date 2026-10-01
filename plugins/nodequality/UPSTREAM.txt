@@ -139,3 +139,15 @@ the native curl calls covered here. Original sources/licenses remain embedded.
 The helper and transformed input/output identities are fixed. Other binaries,
 rootfs provenance/licenses and full execution remain unresolved; full-start
 stays closed and no formal release or complete-toolchain approval is implied.
+
+Sinan integrated query guard (2026-10-01, runner r15):
+- query-policy.py applies only to the fixed IP source after r14 browser policy.
+- Netflix keeps stdout, curl exit code and HTTP status separate. DNS, connection,
+  TLS, timeout, HTTP403/429, other failures and empty/unrecognized pages stay
+  unknown; a failed first title stops before a second request, with no retry.
+- Valid transport plus matching known country fields retains the existing two-title
+  heuristic. This is not proof of playback or current provider schema validity.
+- Text explains failure; Media.Netflix.Error and Attempts preserve category,
+  target IP, attempted time, curl elapsed time/status and per-title request data.
+- Other providers, public cookies and borrowed credentials are unchanged and
+  still block full acceptance. All full-start gates and license checks remain.

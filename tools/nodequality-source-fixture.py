@@ -28,7 +28,25 @@ def inert_source(name, policy):
         if name == 'net.sh':
             source += policy.NET_OUTPUT
         source += policy.SOURCES[name]['original_guard'] + b'}\n'
-    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ip_score_anchors(name) + browser_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ip_score_anchors(name) + browser_anchors(name) + query_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+
+
+def query_anchors(name):
+    if name != 'ip.sh':
+        return b''
+    policy = module('fixture_query_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/query-policy.py')
+    return b"fixture_unused_queries(){\ncat <<'SINAN_FIXTURE_QUERY'\n" + b''.join(a for a, _ in policy.REPLACEMENTS) + b'SINAN_FIXTURE_QUERY\n}\n'
+
+
+def undo_queries(role, patched):
+    if role != 'ip.sh':
+        return patched
+    policy = module('fixture_undo_query', Path(__file__).resolve().parents[1] / 'plugins/nodequality/query-policy.py')
+    if policy.HELPERS not in patched:
+        return patched
+    for before, after in reversed(policy.REPLACEMENTS):
+        patched = replace_once(patched, after, before)
+    return patched
 
 
 def browser_anchors(name):
@@ -38,6 +56,7 @@ def browser_anchors(name):
 
 
 def undo_browser(role, patched):
+    patched = undo_queries(role, patched)
     if role not in ('ip.sh', 'net.sh'):
         return patched
     policy = module('fixture_undo_browser', Path(__file__).resolve().parents[1] / 'plugins/nodequality/browser-policy.py')
@@ -256,5 +275,17 @@ def prepare_policy(plugin, contents):
         content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
         outputs[role] = patched
     browser_path.write_bytes(content)
+    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
+    query_path = Path(plugin) / 'query-policy.py'
+    query = module('synthetic_query_policy_input', query_path)
+    content = query_path.read_bytes()
+    original_hash = hashlib.sha256(content).hexdigest().encode()
+    for role, spec in query.SOURCES.items():
+        canonical = outputs[role]
+        patched = query.patch(canonical)
+        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
+        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
+        outputs[role] = patched
+    query_path.write_bytes(content)
     helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
     return outputs

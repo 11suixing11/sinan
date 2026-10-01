@@ -148,7 +148,7 @@ class SourceTests(unittest.TestCase):
         for name, payload in [('NODEQUALITY_SOURCE', entry), ('NODEQUALITY_LICENSE', '# Synthetic license\n'),
                               ('PINNED_CHAIN', self.bundle_path.read_text())] + [
                               (name, (self.fixture_plugin / path).read_text()) for name, path in [
-                                  ('SOURCE_HELPER', 'source-helper.py'), ('REPORT_POLICY_HELPER', 'report-policy.py'), ('SWAP_POLICY_HELPER', 'swap-policy.py'), ('DEPENDENCY_POLICY_HELPER', 'dependency-policy.py'), ('DATA_POLICY_HELPER', 'data-policy.py'), ('LOADER_POLICY_HELPER', 'loader-policy.py'), ('RANKING_POLICY_HELPER', 'ranking-policy.py'), ('IP_SCORE_POLICY_HELPER', 'ip-score-policy.py'), ('BROWSER_POLICY_HELPER', 'browser-policy.py'), ('REPORT_HELPER', 'report.py'),
+                                  ('SOURCE_HELPER', 'source-helper.py'), ('REPORT_POLICY_HELPER', 'report-policy.py'), ('SWAP_POLICY_HELPER', 'swap-policy.py'), ('DEPENDENCY_POLICY_HELPER', 'dependency-policy.py'), ('DATA_POLICY_HELPER', 'data-policy.py'), ('LOADER_POLICY_HELPER', 'loader-policy.py'), ('RANKING_POLICY_HELPER', 'ranking-policy.py'), ('IP_SCORE_POLICY_HELPER', 'ip-score-policy.py'), ('BROWSER_POLICY_HELPER', 'browser-policy.py'), ('QUERY_POLICY_HELPER', 'query-policy.py'), ('REPORT_HELPER', 'report.py'),
                                   ('EXIT_OBSERVER', 'exit-observer.sh'), ('DAILY_HELPER', 'daily.py'),
                                   ('CURL_SHIM', 'curl-shim.sh'), ('CHROOT_SHIM', 'chroot-shim.sh')]]:
             runner = runner.replace('@' + name + '@\n', payload)
@@ -457,6 +457,7 @@ sys.stdout.buffer.write((pathlib.Path(os.environ['NQ_INPUTS']) / matching[0]['na
         self.assertIn((tree / 'plugins/nodequality/ranking-policy.py').read_bytes(), content)
         self.assertIn((tree / 'plugins/nodequality/ip-score-policy.py').read_bytes(), content)
         self.assertIn((tree / 'plugins/nodequality/browser-policy.py').read_bytes(), content)
+        self.assertIn((tree / 'plugins/nodequality/query-policy.py').read_bytes(), content)
         # Mutate an embedded license's base64 representation inside the runner.
         bundle_text = helper.pack(self.lock, self.sources)
         self.assertIn(bundle_text, content)
