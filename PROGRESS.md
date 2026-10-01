@@ -1297,3 +1297,9 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 正常保留作者 `61a872bc` 并整合已合 #114 主线 `33a30854`；仅调整规则与设计文档，不改运行代码、Cargo 依赖或数据库。混合链路新页面/API/迁移/三四段路径及恢复屏障仍待实施，旧 ID/凭据/账本与单运行时边界保持。
 - 并行 ADR 对齐为 bootstrap 0037、服务器运营 0038、延迟通知 0039、混合订阅 0040，引用按各自主题更新。核对当前插件路径、原 API 与本地文档链接，并以官方 SIP002、Mihomo provider 与 YAML parser 文档核对格式/解析依赖的规划依据；没有新增解析依赖。
 - 原作者九个原生配置 check 只对应作者历史固定运行时观察，本聊天未重演、未取真实机场订阅或运行代理，不能视为新能力验收。文档 fmt/diff/链接检查通过；CI 继续暂停，无发布或生产部署。
+
+## 2026-10-01 PR #132 PowerShell 字面参数整合补修
+
+- 保留作者 `ae9d6961`。实际定位允许的 HTTPS 镜像路径可含 PowerShell 智能单引号，原 ASCII-only 转义会在外层 payload 赋值时提前执行路径内容。按固定 PowerShell 词法源码将 ASCII 单引号及 U+2018/U+2019/U+201A/U+201B 在参数、外层 payload 两处全部倍写，保留路径原值及单行编码/UAC 后重新下载、Git blob/SHA-256 校验与完整发布验签流程。
+- 在本任务私有目录核对官方 PowerShell 7.5.3 macOS ARM64 归档 SHA-256 `f4fac5c72e8c09ba3b6fb8667f21b1d73556047819857fce7883268d02369cde`，与官方摘要文件及 API 一致；固定词法源码为 `b72c7ab1238c2d95b5c9004bca8399b8b3ca88ac`。真实 PowerShell 本地 11 项通过、0 失败、0 跳过；直接编译受验 Rust quote 函数的隔离小夹具，原转义负对照实际以 61 退出，新转义的五类引号/相邻引号/换行/中文/emoji 在六组双层 payload 中逐值恢复。其余用例覆盖真实 TEST_ONLY minisign、完整清单拒绝、历史身份/目录、回环下载预算与镜像匿名规则。
+- 另只读下载固定官方 bootstrap Git blob，精确核对嵌入入口原字节；Windows minisign 0.12 官方归档和两架构 PE 文件均实际读回并核对固定摘要，没有执行 Windows 二进制。以上是 macOS PowerShell 7 函数及词法夹具，不是 Windows PowerShell 5.1、UAC、Windows ACL/计划任务或真实 Agent 安装验收；本补修子任务未运行 Cargo/PostgreSQL，也未签署、发布、部署或恢复 CI。
