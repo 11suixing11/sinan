@@ -62,6 +62,11 @@ class Panel(ThreadingHTTPServer):
                           target='127.0.0.1', port=self.server_port, interval_secs=10,
                           carrier='', enabled=True)
         self.icmp_probe = dict(self.probe, id=str(uuid.uuid4()), name='ICMP fixture', kind='icmp', port=None)
+        for spec in (self.probe, self.icmp_probe):
+            spec['monitor'] = dict(region='', address_family='any', authorization=dict(
+                kind='owned', source='TEST_ONLY-this-process-loopback', scope='Four bounded probes per ten seconds',
+                enabled=True, expires_at=int(time.time()) + 3600, identity=dict(
+                    kind=spec['kind'], target=spec['target'], port=spec['port'], address_family='any')))
         threading.Thread(target=self.serve_forever, daemon=True).start()
 
     @property
@@ -101,7 +106,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return
-        suffix = self.path.removeprefix('/api/agent/v1/')
+        suffix = self.path.partition('?')[0].removeprefix('/api/agent/v1/')
         values = {
             'settings': dict(sample_interval_secs=1, upload_interval_secs=1,
                              auto_update=False, discover_public_ips=False),

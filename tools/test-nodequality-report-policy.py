@@ -456,6 +456,8 @@ class WiringTests(unittest.TestCase):
         # Only the private test copy relaxes host/root/Bash prerequisites.
         path = self.plugin / 'runner.sh.tmpl'
         text = path.read_text()
+        self.assertEqual(text.count(source_tests.FULL_START_GUARD), 1)
+        text = text.replace(source_tests.FULL_START_GUARD, ':')
         for guard in ("[[ $EUID == 0 ]] || die 'diagnostics require root'", "[[ ${BASH_VERSINFO[0]} -ge 4 ]] || die 'diagnostics require Bash >= 4'"):
             self.assertEqual(text.count(guard), 1)
             text = text.replace(guard, ':')

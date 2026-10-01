@@ -1,6 +1,6 @@
 # 服务器展示的数据刷新与参考说明
 
-本轮按 [ADR 0046](adr/0046-monitoring-refresh-history-and-channels.md) 实现，公开字段与隐藏规则仍受 [ADR 0038](adr/0038-server-operations-and-public-dashboard.md) 约束。
+本轮按 [ADR 0047](adr/0047-monitoring-refresh-history-and-channels.md) 实现，公开字段与隐藏规则仍受 [ADR 0038](adr/0038-server-operations-and-public-dashboard.md) 约束。
 
 ## NodeFlare 参考范围
 

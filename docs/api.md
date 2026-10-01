@@ -105,7 +105,7 @@
 
 历史窗口支持 `15m`、`1h`、`2h`、`24h`、`7d`、`30d`、`90d`、`365d`，查询范围不超过所设保留天数。返回 `window/from/to/bucket_ms/retention_days/points`；每点记录 `bucket_at/sample_count/first_sampled_at/last_sampled_at/partial`，每项有效指标为 `count/avg/min/max`。空桶不补零，范围边缘和旧历史的观测局限以 `partial` 标记。累计网卡值使用精确字符串，不将累计计数求平均。
 
-汇率返回 `base/rates/rate_dates/rate_date/source/source_url/fetched_at/attempted_at/next_refresh_at/stale/status/error_code`。汇率接口时间为 Unix 秒，`rate_dates` 是各币种官方数据日期；状态为 `fresh/stale/unavailable`。未获取成功时只有恒等换算 `CNY:1`，不提供估算价格；更新失败保留真实旧快照。公开汇率接口不附带服务器成本或资产数据。上报、存储和换算规则见 [ADR 0046](adr/0046-monitoring-refresh-history-and-channels.md)。
+汇率返回 `base/rates/rate_dates/rate_date/source/source_url/fetched_at/attempted_at/next_refresh_at/stale/status/error_code`。汇率接口时间为 Unix 秒，`rate_dates` 是各币种官方数据日期；状态为 `fresh/stale/unavailable`。未获取成功时只有恒等换算 `CNY:1`，不提供估算价格；更新失败保留真实旧快照。公开汇率接口不附带服务器成本或资产数据。上报、存储和换算规则见 [ADR 0047](adr/0047-monitoring-refresh-history-and-channels.md)。
 
 接入令牌响应为 `{token,expires_at,install_command,installation,warning}`。有兼容签名 Agent 时，`installation={version,tag,target,platform,bootstrap_url,install_command}`；自动模式 `version="latest"`、`tag=null`，在目标服务器执行时识别 ABI 后选择最新兼容稳定版，显式选版返回精确 version/tag。`target` 默认 `auto`，`platform` 默认 `unix`（Shell，Linux/macOS/FreeBSD），`windows` 返回 PowerShell 单行命令。缺少所选平台/版本的签名 proof 时命令与 installation 为 null，并返回中文 warning。令牌 24 小时有效、成功注册后只能消费一次。重新签发可用于同一设备升级，已经注册的服务器只接受原设备公钥。`GET /install.sh?token=…&agent_version=…&agent_target=…&platform=…` 返回同一安装描述 JSON；`GET /install.ps1` 固定 Windows 入口。两者验证活跃令牌，不返回面板可执行脚本。完整命令下载固定官方 GitHub 入口并核对摘要，入口自动准备依赖与独立验证发布签名。独立入口内嵌的可信 Linux 安装执行器兼容旧 `agent-v0.3.0` 的完整签名 proof，不修改已发布资产，也不要求旧 Release 安装器支持预下载 Agent；其他平台仍需对应已签制品。
 

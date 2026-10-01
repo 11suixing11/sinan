@@ -54,4 +54,4 @@ Telegram 和 Webhook 各自保存待发任务、最多尝试八次（含首次�
 
 接口为 `GET/PATCH/DELETE /api/notifications/webhook`、`POST /api/notifications/webhook/test`、`GET /api/notifications/channels`；全部需要管理员会话。外部错误统一脱敏，不回显地址、令牌、请求头或响应正文。开发回归使用本地 HTTP 替身，不发送真实测试通知。
 
-原延迟任务和告警规则迁移为 `0019_latency_tasks.sql`、`0020_notification_rules.sql`，独立通知渠道新增 `0030_notification_alignment.sql`；升级前照既有部署流程备份数据库。系统指标上报与历史策略见[服务器看板](server-display.md)及 [ADR 0046](adr/0046-monitoring-refresh-history-and-channels.md)。源码与本地回归不等于线上验收，本轮没有执行生产迁移、公开网络拨测、真实 Telegram/Webhook 发送或多平台实机测试，CI 继续暂停。
+原延迟任务和告警规则迁移为 `0019_latency_tasks.sql`、`0020_notification_rules.sql`，独立通知渠道新增 `0031_notification_alignment.sql`；升级前照既有部署流程备份数据库。系统指标上报与历史策略见[服务器看板](server-display.md)及 [ADR 0047](adr/0047-monitoring-refresh-history-and-channels.md)。源码与本地回归不等于线上验收，本轮没有执行生产迁移、公开网络拨测、真实 Telegram/Webhook 发送或多平台实机测试，CI 继续暂停。

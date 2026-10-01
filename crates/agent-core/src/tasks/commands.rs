@@ -40,7 +40,11 @@ pub(super) async fn run(
     }
     loop {
         let _guard = retirement.gate.read().await;
-        if !retirement.requested() {
+        if retirement.requested() {
+            if let Err(error) = worker::recover_for_retirement(&state, ops.as_ref()).await {
+                tracing::warn!(%error,"retirement awaits confirmed command cleanup");
+            }
+        } else {
             if let Err(error) = recover(&state, ops.as_ref()).await {
                 tracing::warn!(%error,"command recovery awaits confirmed cleanup");
             }
@@ -373,4 +377,14 @@ mod tests {
         std::fs::remove_dir_all(&root)?;
         Ok(())
     }
+}
+
+#[cfg(all(test, unix))]
+mod retirement_tests;
+
+pub(super) async fn cleanup_for_retirement(
+    state: &SharedState,
+    ops: &dyn Privileged,
+) -> Result<()> {
+    worker::recover_for_retirement(state, ops).await
 }

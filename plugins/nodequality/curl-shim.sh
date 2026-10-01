@@ -6,15 +6,9 @@ for argument in "$@"; do
   [[ $argument != https://api.nodequality.com/api/v1/record ]] || upload=1
 done
 if [[ $upload == 0 ]]; then
-  # The fixed entrypoint's rootfs download is a separate, still pending chain.
-  # Every first-level source request is served locally; unknown sources fail.
-  if [[ $# == 3 && $1 == '-L#o' && $2 == BenchOs.tar.gz ]]; then
-    case "$3" in
-      https://github.com/LloydAsp/NodeQuality/releases/download/v0.0.2/BenchOs.tar.gz|https://github.com/LloydAsp/NodeQuality/releases/download/v0.0.2/BenchOs-arm.tar.gz)
-        exec "$SINAN_REAL_CURL" --connect-timeout 15 --max-time 900 "$@"
-        ;;
-    esac
-  fi
+  # A release digest does not authorize the rootfs or its embedded tools.
+  # Every source request must use the signed local bundle. Rootfs downloads
+  # have no network fallback, including the former exact v0.0.2 URL shapes.
   exec python3 "$SINAN_CHAIN_HELPER" serve "$SINAN_CHAIN_DIRECTORY" "$@"
 fi
 python3 "$SINAN_REPORT_HELPER" capture "$SINAN_REPORT_WORKSPACE"

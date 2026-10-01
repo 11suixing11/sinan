@@ -2,7 +2,9 @@ import { useRef, useState } from 'react'
 import { api } from '../api'
 import { ErrorNotice, Field, Icon, Modal } from '../components'
 import { useAction } from '../hooks'
+import { bindProbeAuthorization, changeProbe } from '../probes'
 import type { Probe } from '../probes'
+import ProbeAuthorizationFields from './ProbeAuthorizationFields'
 import type { AgentSettings, Server } from '../types'
 import './server-setup.css'
 import ServerOperationsFields from './ServerOperationsFields'
@@ -10,6 +12,7 @@ import { assetDraft, assetPayload } from '../server-assets'
 import ServerAssetFields, { SetupNavigation } from './ServerAssetFields'
 
 type ProbeDraft = Omit<Probe, 'id' | 'enabled' | 'port' | 'interval_secs'> & { key: number; port: string; interval: string }
+const probeSpec = (probe: ProbeDraft): Probe => ({ id: '00000000-0000-0000-0000-000000000000', name: probe.name.trim(), kind: probe.kind, target: probe.target.trim(), port: probe.kind === 'tcp' ? Number(probe.port) : null, interval_secs: Number(probe.interval), carrier: probe.carrier.trim(), enabled: true, monitor: probe.monitor })
 const frequencies = [
   { label: '实时', sample: '1', upload: '3', note: '及时观察变化' },
   { label: '均衡', sample: '3', upload: '10', note: '兼顾频率与开销' },
@@ -32,14 +35,18 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
   const [autoUpdate, setAutoUpdate] = useState(false), [discover, setDiscover] = useState(true)
   const [probes, setProbes] = useState<ProbeDraft[]>([])
   const nextKey = useRef(0)
-  const updateProbe = (key: number, change: Partial<ProbeDraft>) => setProbes(current => current.map(probe => probe.key === key ? { ...probe, ...change } : probe))
+  const updateProbe = (key: number, change: Partial<ProbeDraft>) => setProbes(current => current.map(probe => {
+    if (probe.key !== key) return probe
+    const changed = { ...probe, ...change }
+    return { ...changed, monitor: changeProbe(probeSpec(probe), probeSpec(changed)).monitor }
+  }))
   const addProbe = () => {
     const key = nextKey.current++
     setProbes(current => current.length >= 32 ? current : [...current, { key, name: '', kind: 'tcp', target: '', port: '443', interval: '30', carrier: '' }])
   }
   const submit = () => {
     const agent_settings: AgentSettings = { sample_interval_secs: Number(sample), upload_interval_secs: Number(upload), auto_update: autoUpdate, discover_public_ips: discover }
-    const initialProbes: Probe[] = probes.map(probe => ({ id: '00000000-0000-0000-0000-000000000000', name: probe.name.trim(), kind: probe.kind, target: probe.target.trim(), port: probe.kind === 'tcp' ? Number(probe.port) : null, interval_secs: Number(probe.interval), carrier: probe.carrier.trim(), enabled: true }))
+    const initialProbes: Probe[] = probes.map(probe => bindProbeAuthorization(probeSpec(probe)))
     void action.run(() => api<Server>('/api/servers', 'POST', { name: name.trim(), agent_settings, telemetry_settings: { persist_interval_secs: Number(persist) }, probes: initialProbes, asset_settings: assetPayload(asset) }), onCreated)
   }
 
@@ -82,9 +89,10 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
                 {probe.kind === 'tcp' && <Field label="目标端口"><input type="number" min={1} max={65535} step={1} required value={probe.port} onChange={event => updateProbe(probe.key, { port: event.target.value })} /></Field>}
                 <Field label="拨测间隔（秒）"><input type="number" min={10} max={3600} step={1} required value={probe.interval} onChange={event => updateProbe(probe.key, { interval: event.target.value })} /></Field>
               </div>
+              <ProbeAuthorizationFields probe={probeSpec(probe)} onChange={value => updateProbe(probe.key, { monitor: value.monitor })} />
               <p className="server-setup-help">{probe.kind === 'icmp' ? '设备需具备 ICMP 检测权限；工具或权限不可用时会显示检测错误。' : 'TCP 通过建立连接测量可达性，连接失败率与 ICMP 丢包率分别展示。'}</p>
             </div>)}
-            {probes.length > 0 && <p className="server-setup-help">已配置 {probes.length} / 32 个目标。首次接入后启用，可在服务器详情中编辑或暂停。</p>}
+            {probes.length > 0 && <p className="server-setup-help">已配置 {probes.length} / 32 个目标。授权有效且 Agent 兼容后启用，可在服务器详情中编辑或暂停。</p>}
           </section>
         </fieldset>
         <ErrorNotice message={action.error} />

@@ -312,8 +312,14 @@ mod tests {
             "::",
             "::1",
             "::ffff:127.0.0.1",
+            "::ffff:169.254.169.254",
+            "::ffff:0:7f00:1",
+            "::7f00:1",
             "64:ff9b::7f00:1",
+            "64:ff9b::a9fe:a9fe",
+            "64:ff9b:1::a00:1",
             "2002:7f00:1::",
+            "2002:a9fe:a9fe::",
             "2001::1",
             "2001:db8::1",
             "3fff::1",
@@ -321,6 +327,10 @@ mod tests {
             "fd00::1",
         ] {
             assert!(!public_address(host.parse().unwrap()), "{host}");
+        }
+        for host in ["2003::1", "2600::1", "2a00::1"] {
+            assert!(public_address(host.parse().unwrap()), "{host}");
+            assert!(validate_url(&format!("https://[{host}]/subscription")).is_ok());
         }
         for url in [
             "http://example.com",

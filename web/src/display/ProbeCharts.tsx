@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { time } from '../format'
 import { useDashboardPoll } from './useDashboardPoll'
-import { latency, loss, lossLabel, probeState, probeValue } from '../probes'
+import { carrierLabel, familyLabel, latency, loss, lossLabel, probeState, probeValue } from '../probes'
 import type { Probe, ProbeResult } from '../probes'
 import Chart from './Chart'
 import { Icon } from './Icon'
@@ -15,7 +15,7 @@ function History({ id, probe, now, minutes, unavailable }: { id: number; probe: 
   return <>
     {results.error && <div className="d-notice d-error" role="alert"><span>拨测结果读取失败，已显示的曲线为历史数据。</span><button onClick={results.reload}>重试</button></div>}
     {results.loading && !results.data && <p className="d-history-loading" role="status">正在读取拨测结果…</p>}
-    <div className="d-probe-summary"><span>{probe.carrier && `${probe.carrier} · `}{probe.kind === 'tcp' ? 'TCP 连接' : 'ICMP 回显'} · {probe.target}{probe.port ? `:${probe.port}` : ''}</span><span>{state}{latest && ` · ${time(latest.sampled_at / 1000)}`}</span><strong>{latency(state === '最近采样' ? probeValue(latest, 'latency_ms') : null)} · {lossLabel(probe)} {loss(state === '最近采样' ? probeValue(latest, 'loss_percent') : null)}</strong></div>
+    <div className="d-probe-summary"><span>{carrierLabel(probe.carrier)} · {probe.monitor?.region || '地区未知'} · {familyLabel(probe.monitor?.address_family)} · {probe.kind === 'tcp' ? 'TCP 连接' : 'ICMP 回显'} · {probe.target}{probe.port ? `:${probe.port}` : ''}</span><span>{state}{latest && ` · ${time(latest.sampled_at / 1000)} · ${latest.address_family?.toUpperCase() || '采样家族未知'}`} </span><strong>{latency(state === '最近采样' ? probeValue(latest, 'latency_ms') : null)} · {lossLabel(probe)} {loss(state === '最近采样' ? probeValue(latest, 'loss_percent') : null)}</strong></div>
     {latest?.error != null && <p className="d-notice">最近一次检测未完成，请在后台查看工具或权限错误。该次结果以空缺显示。</p>}
     <div className="d-charts">
       <Chart {...props} title={`${probe.name} · 延迟`} format={latency} series={[{ label: '往返延迟', color: 'var(--d-info)', points: points.map(point => ({ at: point.sampled_at, value: probeValue(point, 'latency_ms') })) }]} />

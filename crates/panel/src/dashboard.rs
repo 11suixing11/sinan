@@ -309,6 +309,9 @@ async fn metrics(
 fn sanitize_probe(probe: &mut ProbeSpec) {
     probe.target.clear();
     probe.port = None;
+    if let Some(monitor) = &mut probe.monitor {
+        monitor.authorization = None;
+    }
 }
 fn sanitize_results(results: &mut [ProbeResult]) {
     for result in results {
