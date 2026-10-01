@@ -5,6 +5,7 @@ mod business_support;
 mod chain_gate;
 #[path = "diagnostics/modes.rs"]
 mod modes;
+mod probe_support;
 mod release_fixture;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;

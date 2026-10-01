@@ -129,6 +129,23 @@ Those provider-access audits and the full-toolchain license/provenance work
 remain open. All full-start gates remain closed; this is not a full run or a
 formal signed release.
 
+Sinan r19 modifications (2026-10-01): the packaged runner now refuses explicit
+and default new full executions before external prerequisites or workspace
+changes. It exposes a signed execution-admission record that retains unknown
+rootfs/tool provenance and rights; packaging refuses changed approval claims.
+The host curl shim no longer downloads either historical v0.0.2 rootfs, and the
+chroot shim rejects both historical nexttrace online installation commands.
+Canonical 17-source bytes/licenses remain unchanged. Daily checks and exact
+historical collect/parse/cancel compatibility remain; no runtime gate override
+exists. The source retention does not restore complete benchmark execution.
+
+The independent static inventory tool does not extract or execute archives,
+follow links or read private configuration. Matching executable declarations
+prove only observed identities, never distribution rights or safe full runs.
+Both architectures have historical static observations, but complete source,
+reproducible recipes, tool permissions, tool uploads and host side-effect
+acceptance remain unresolved. No proprietary license is accepted or inferred.
+
 Sinan r16 modifications (2026-10-01): report.py independently attempts every
 available chapter publication before reporting damaged saved metadata or a
 chapter-specific filesystem failure. Invalid sidecars remain untouched; valid
@@ -175,3 +192,10 @@ operator permission, and no full-chain/license approval is claimed. Helper,
 input and output hashes are fixed; this new identity never replaces a signed
 historical artifact. Full starts remain gated; old report collection, cancel
 and daily modes retain compatibility with the supported r14/r15/r16/r17 jobs.
+
+Sinan r19 daily node-IP helper: optional operator-owned credentials are read
+from a root-owned private local file only. Ipregistry and DB-IP use their fixed
+official HTTPS self endpoints, family validation, bounded requests and explicit
+source/error records. No public cookies, temporary web keys or panel credential
+forwarding is used; missing configured media adapters remain NotAttempted.
+Local fixture acceptance is not official-account, billing or media permission.

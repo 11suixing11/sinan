@@ -12,6 +12,7 @@ import sys
 
 MAX_FILE = 2 * 1024 * 1024
 MAX_BUNDLE = 8 * 1024 * 1024
+OFFICIAL_IP_SHA256 = '59f3e49dd9e736db0cadb573c4c9c3a590ae745f95c9b8d7f7b89a952603dd43'
 PUBLIC_ACCESS_POLICY_SHA256 = 'f53a16603bb070a13f67b056ae8124b31a62a00e411a41b1934135a937cb25db'
 BROWSER_POLICY_SHA256 = 'bda6f986d0f1dc1680989cb148dfd4214f7018bebb4413acf8474d11605fc771'
 NETFLIX_POLICY_SHA256 = '4c1f7c584ac3e0bc71f2aa37b2b739ec1383e60a0e554eb645db6bec95f89751'
@@ -49,6 +50,16 @@ ALIASES = {
     'https://IP.Check.Place': 'ip.sh',
     'https://Net.Check.Place': 'net.sh',
 }
+FULL_EXECUTION_UNRESOLVED = [
+    'complete-rootfs-and-secondary-tool-provenance',
+    'version-specific-redistribution-and-unattended-execution-rights',
+    'third-party-tool-upload-control',
+    'complete-host-side-effect-and-cancellation-acceptance',
+]
+OBSERVED_ROOTFS = {
+    'amd64': (312475959, '5f844e73941c3623175c5cdc16b01db34c155d0d1bd9b0cf71f3d72e8b1148e1'),
+    'arm64': (359657375, 'a4dd4e55b129157a02dab437b78e41b5797a7a79a0f0b7febdecab8eb2a312c7'),
+}
 
 
 def ordinary(path, limit):
@@ -74,6 +85,36 @@ def unique_object(pairs):
 
 def decode(content):
     return json.loads(content, object_pairs_hook=unique_object)
+
+
+def execution_admission(path):
+    # These observations are identities, never permission or runtime approval.
+    record = decode(ordinary(path, 16384))
+    expected = dict(
+        schema=1, profile='daily-and-historical-recovery-only',
+        full_start_allowed=False, runtime_dependency_downloads_allowed=False,
+        first_level_source_files=len(FILES), unresolved=FULL_EXECUTION_UNRESOLVED,
+        rootfs_observations={
+            arch: dict(version='v0.0.2', size=size, sha256=digest,
+                       upstream_signature_verified=False,
+                       reproducible_recipe_verified=False,
+                       redistribution_rights_verified=False)
+            for arch, (size, digest) in OBSERVED_ROOTFS.items()},
+        proprietary_tool_rights={
+            'ookla-speedtest-1.2.0.84': 'not_verified',
+            'geekbench-5.5.1': 'not_verified'})
+    # JSON bool/int equality must not accept false=0 or schema=true.
+    canonical = lambda value: json.dumps(value, sort_keys=True, separators=(',', ':'))
+    if canonical(record) != canonical(expected):
+        raise ValueError('execution admission must retain the unverified complete-toolchain gate')
+    return record
+
+
+def official_ip_identity():
+    path = Path(__file__).with_name('official-ip.py')
+    content = ordinary(path, 65536)
+    if hashlib.sha256(content).hexdigest() != OFFICIAL_IP_SHA256:
+        raise ValueError('signed official IP helper SHA256 mismatch')
 
 
 def validate(lock):
@@ -333,6 +374,8 @@ def static_references(name, content, directory, rows):
 
 def pack(lock, directory):
     rows = validate(lock)
+    execution_admission(Path(__file__).with_name('execution-admission.json'))
+    official_ip_identity()
     report_policy()
     swap_policy()
     dependency_policy()
@@ -392,10 +435,15 @@ def serve(directory, arguments):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=['downloads', 'receive', 'pack', 'materialize', 'serve', 'entrypoint'])
+    parser.add_argument('operation', choices=['downloads', 'receive', 'pack', 'materialize', 'serve', 'entrypoint', 'admission'])
     parser.add_argument('input', type=Path)
     parser.add_argument('remaining', nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.operation == 'admission':
+        if args.remaining:
+            raise ValueError('admission accepts only an execution record')
+        print(json.dumps(execution_admission(args.input), sort_keys=True, separators=(',', ':')))
+        return
     if args.operation == 'entrypoint':
         if args.remaining:
             raise ValueError('entrypoint accepts only a pinned bundle')

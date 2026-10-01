@@ -61,7 +61,7 @@ async fn modes_require_admin_confirmation_gate_capability_and_bound_daily_target
     assert!(view["plugin_reason"].as_str().unwrap().contains("Linux"));
     capable(&panel, server).await?;
     for index in 0..8 {
-        let spec = sinan_protocol::ProbeSpec {
+        let mut spec = sinan_protocol::ProbeSpec {
             id: Uuid::new_v4(),
             name: format!("private target {index}"),
             kind: sinan_protocol::ProbeKind::Tcp,
@@ -69,8 +69,11 @@ async fn modes_require_admin_confirmation_gate_capability_and_bound_daily_target
             port: Some(443),
             interval_secs: 60,
             carrier: String::new(),
+            monitor: None,
+            execution_authorized: None,
             enabled: index != 0,
         };
+        crate::probe_support::authorize(&mut spec);
         sqlx::query("INSERT INTO network_probes(id,server_id,spec) VALUES($1,$2,$3)")
             .bind(spec.id)
             .bind(server)

@@ -370,6 +370,13 @@ fn tls(
 
 fn transport(output: &mut Value, params: &mut BTreeMap<String, String>) -> Result<(), ImportError> {
     let kind = params.remove("type").unwrap_or_else(|| "tcp".into());
+    let tls_enabled = output.pointer("/tls/enabled").and_then(Value::as_bool) == Some(true);
+    if kind == "h2" && !tls_enabled {
+        return Err(ImportError("unsupported_h2_without_tls"));
+    }
+    if kind == "http" && tls_enabled {
+        return Err(ImportError("unsupported_http_with_tls"));
+    }
     let mut transport = match kind.as_str() {
         "" | "tcp" => return Ok(()),
         "ws" | "grpc" | "httpupgrade" | "quic" => json!({"type":kind}),

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 mod business_support;
+mod probe_support;
 mod release_fixture;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
@@ -40,9 +41,9 @@ async fn ready(panel: &TestPanel, server: i64) -> Result<()> {
     Ok(())
 }
 async fn probe(panel: &TestPanel, cookie: &str, server: i64, name: &str) -> Result<Value> {
-    Ok(panel.admin(Method::POST,&format!("/api/servers/{server}/probes"),cookie,Some(json!({
+    Ok(panel.admin(Method::POST,&format!("/api/servers/{server}/probes"),cookie,Some(probe_support::authorized(json!({
         "id":Uuid::nil(),"name":name,"kind":"tcp","target":"example.test","port":443,"interval_secs":60,"carrier":"fixture","enabled":true
-    }))).await?.error_for_status()?.json().await?)
+    })))).await?.error_for_status()?.json().await?)
 }
 fn path(server: i64) -> String {
     format!("/api/servers/{server}/diagnostics/tcpquality")
@@ -198,7 +199,6 @@ async fn tcp_parameters_freeze_only_selected_configured_targets(pool: PgPool) ->
     );
     let mut metadata = first.clone();
     metadata["name"] = json!("更新后的名称");
-    metadata["carrier"] = json!("更新后的线路备注");
     metadata["enabled"] = json!(false);
     panel
         .admin(Method::PATCH, &probe_path, &cookie, Some(metadata))

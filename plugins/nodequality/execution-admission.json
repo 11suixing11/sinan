@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "profile": "daily-and-historical-recovery-only",
+  "full_start_allowed": false,
+  "runtime_dependency_downloads_allowed": false,
+  "first_level_source_files": 17,
+  "unresolved": [
+    "complete-rootfs-and-secondary-tool-provenance",
+    "version-specific-redistribution-and-unattended-execution-rights",
+    "third-party-tool-upload-control",
+    "complete-host-side-effect-and-cancellation-acceptance"
+  ],
+  "rootfs_observations": {
+    "amd64": {
+      "version": "v0.0.2",
+      "size": 312475959,
+      "sha256": "5f844e73941c3623175c5cdc16b01db34c155d0d1bd9b0cf71f3d72e8b1148e1",
+      "upstream_signature_verified": false,
+      "reproducible_recipe_verified": false,
+      "redistribution_rights_verified": false
+    },
+    "arm64": {
+      "version": "v0.0.2",
+      "size": 359657375,
+      "sha256": "a4dd4e55b129157a02dab437b78e41b5797a7a79a0f0b7febdecab8eb2a312c7",
+      "upstream_signature_verified": false,
+      "reproducible_recipe_verified": false,
+      "redistribution_rights_verified": false
+    }
+  },
+  "proprietary_tool_rights": {
+    "ookla-speedtest-1.2.0.84": "not_verified",
+    "geekbench-5.5.1": "not_verified"
+  }
+}
