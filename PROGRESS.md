@@ -72,7 +72,7 @@
 
 - [agent-v0.3.0](https://github.com/theLucius7/sinan/releases/tag/agent-v0.3.0) 已正式发布，源码固定为 `75cd846f152f61d7b5daa913b31c74579eed3d22`。[该源码的 main CI](https://github.com/theLucius7/sinan/actions/runs/36770621157) 五项通过；[发布工作流 36802878940](https://github.com/theLucius7/sinan/actions/runs/36802878940) 完成生产签名与全资产校验。发布后匿名访问以及十项资产的身份、大小、摘要复核通过，原有九项产物未替换，仅追加维护者本机签出的 `SHA256SUMS.minisig`。
 - 生产公钥 ID `44B019C8269669B8` 与仓库、Actions 构建变量一致，已编译进发布二进制。使用冻结源码及同一生产根构建隔离面板，从真实公开 Release 完成两次 API 导入和一次浏览器按钮导入：Agent 0.3.0、sing-box 1.14.2、NodeQuality r2 的 amd64/arm64 六项齐全。独立 minisign、完整安装器/制品摘要、ELF 架构、无残留 staging、重复导入幂等、发布身份不变全部通过；实际页面显示六行与签名已验证，导入 POST 返回 200，后续库存读取和截图已核对，测试会话已退出。
-- 带口令私钥仍由维护者保存在 Mac 的仓库外，离线保管尚未完成；签署与发布成功不代表离线保管完成。私钥未读取或上传到仓库、服务器及 CI。
+- 带口令私钥仍由维护者保存在 Mac 的仓库外，离线保管尚未完成；签署与发布成功不代表离线保管完成。项目与 CI 仅使用公钥和签名，私钥未上传到仓库、服务器及 CI。
 - 本次证据只覆盖冻结源码 `75cd846` 的发布和制品导入，不认证后续 main 新增能力，也不补签 P0 专用节点负载、心跳、取消清理或 TCP 整链实机验收。
 - [Issue #80](https://github.com/theLucius7/sinan/issues/80) 记录更新草稿正文时观察到的 tag 身份变化；发布器 PATCH 显式携带已验证的 tag 与构建提交，并继续核对发布前后全部身份和资产。发布工具回归 24 项通过，覆盖省略 tag 被重分配，以及 PATCH 后发布 ID、tag、构建提交、Git tag 和资产 ID 被并发修改时拒绝成功。Release 回归 28 项通过、4 项既有 Linux/root 条件跳过；已正常整合 main `2fa405b`，最终提交 CI 单独核对。
 - 历史记录：main `be8b792` 合入部署条件检查后，[CI 36746601899](https://github.com/theLucius7/sinan/actions/runs/36746601899) 的构建、检查、Compose 和真实 Reality/计量部分通过，但末尾退役验收误把 systemd 条件跳过的零退出码当作失败。后续修复同时核对条件结果、服务状态、进程与启动时间；本次发布采用上述 `75cd846` 的完整成功门禁。
