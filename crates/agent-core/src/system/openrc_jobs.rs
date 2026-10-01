@@ -1,14 +1,9 @@
 use super::*;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize)]
 struct Started {
     pid: u32,
-}
-
-fn quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 impl SystemServiceManager {
@@ -39,72 +34,6 @@ impl SystemServiceManager {
         }
         Ok(units)
     }
-    pub(super) async fn start_openrc_job(&self, job: &ServiceJob) -> Result<()> {
-        let directory = self.job_root.join(&job.unit);
-        let spec = directory.join("job.json");
-        ensure!(!spec.try_exists()?, "diagnostic job already submitted");
-        super::jobs::prepare_diagnostic_lock(self.privileged.as_ref()).await?;
-        tracing::warn!(
-            unit = %job.unit,
-            memory_max = job.memory_max.get(),
-            tasks_max = job.tasks_max.get(),
-            cpu_weight = job.cpu_weight.get(),
-            io_weight = job.io_weight.get(),
-            oom_score_adjust = job.oom_score_adjust.get(),
-            "OpenRC diagnostic jobs do not enforce systemd cgroup resource budgets, including MemorySwapMax"
-        );
-        self.privileged.create_dir(&directory, 0o700, None).await?;
-        self.privileged
-            .write_file(&spec, &serde_json::to_vec(job)?, 0o600, None)
-            .await?;
-        let service = job
-            .unit
-            .strip_suffix(".service")
-            .context("invalid job unit")?;
-        let executable = std::env::current_exe()?;
-        let args = format!(
-            "run-job --spec {}",
-            quote(spec.to_str().context("job path is not UTF-8")?)
-        );
-        let script = format!(
-            "#!/sbin/openrc-run\nname={}\ncommand={}\ncommand_args={}\ncommand_background=true\numask=0077\npidfile={}\nstart_stop_daemon_args=\"--make-pidfile\"\n",
-            quote(service),
-            quote(
-                executable
-                    .to_str()
-                    .context("executable path is not UTF-8")?
-            ),
-            quote(&args),
-            quote(
-                directory
-                    .join("service.pid")
-                    .to_str()
-                    .context("pid path is not UTF-8")?
-            )
-        );
-        self.privileged
-            .write_file(
-                &PathBuf::from("/etc/init.d").join(service),
-                script.as_bytes(),
-                0o700,
-                None,
-            )
-            .await?;
-        let output = self
-            .privileged
-            .execute(
-                Path::new("rc-service"),
-                &["--".into(), service.into(), "start".into()],
-            )
-            .await?;
-        ensure!(
-            output.success,
-            "OpenRC diagnostic start failed: {}",
-            output.stderr
-        );
-        Ok(())
-    }
-
     pub(super) async fn openrc_job_status(&self, unit: &str) -> Result<JobStatus> {
         let directory = self.job_root.join(unit);
         if !directory.join("job.json").try_exists()? {
