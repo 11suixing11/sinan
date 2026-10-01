@@ -6,6 +6,7 @@ import type { Server } from '../types'
 import { count, fresh, network, number, percentage, ratio, size, speed, status } from './data'
 import { Icon, OSIcon } from './Icon'
 import AssetInfo, { AssetChips } from './AssetInfo'
+import { dashboardServer } from './dashboard'
 
 export function Metric({ label, value, detail, display }: { label: string; value: number | null; detail: string; display?: string }) {
   const tone = value !== null && value >= 90 ? 'danger' : value !== null && value >= 75 ? 'warning' : 'good'
@@ -21,7 +22,7 @@ export const ServerCard = memo(function ServerCard({ server, unavailable, probes
   const state = status(server, unavailable), live = fresh(server) && !unavailable
   const up = network(metrics, 'transmit_bytes_per_sec'), down = network(metrics, 'receive_bytes_per_sec')
   const swapDisabled = metrics.swap_total === 0 && metrics.swap_used === 0
-  return <a className={`d-card d-glass ${!server.online ? 'd-offline' : ''}`} href={`#/overview/${server.id}`} aria-label={`${server.name}，${state.label}，查看详情`}>
+  return <a className={`d-card d-glass ${!server.online && !unavailable ? 'd-offline' : ''}`} href={dashboardServer(server.id)} aria-label={`${server.name}，${state.label}，查看详情`}>
     <div className="d-card-header"><span className={`d-dot d-bg-${state.tone}`} /><strong title={server.name}>{server.name}</strong><span className={`d-card-state d-${state.tone}`}>{state.label}</span><OSIcon system={info.system} /></div>
     <AssetChips server={server} />
     <div className="d-card-body">
@@ -38,7 +39,7 @@ export const ServerCard = memo(function ServerCard({ server, unavailable, probes
         <div className="d-data"><small>系统运行</small><span><Icon name="clock" size={12} />{metrics.uptime_secs === undefined ? '—' : uptime(metrics.uptime_secs)}</span><span><Icon name="network" size={12} />{count(metrics.tcp_connections)} 个连接</span></div>
       </div>
       <ProbeQuality probes={probes} now={now} online={server.online} unavailable={probeError || unavailable} loading={probeLoading} />
-      <div className="d-card-foot"><span className={!live ? 'd-warning' : ''}>{unavailable ? '刷新失败 · 保留历史' : server.metrics_stale ? '指标已过期' : !server.online ? '最近上报的数据' : !server.metrics_sampled_at ? '采样时间未知' : '指标正常'}</span><span title={server.metrics_sampled_at ? time(server.metrics_sampled_at / 1000) : undefined}>{server.metrics_sampled_at ? new Date(server.metrics_sampled_at).toLocaleTimeString('zh-CN', { hour12: false }) : '尚无采样时间'}</span></div>
+      <div className="d-card-foot"><span className={!live ? 'd-warning' : ''}>{unavailable ? '状态待确认 · 保留历史' : server.metrics_stale ? '指标已过期' : !server.online ? '最近上报的数据' : !server.metrics_sampled_at ? '采样时间未知' : '指标正常'}</span><span title={server.metrics_sampled_at ? time(server.metrics_sampled_at / 1000) : undefined}>{server.metrics_sampled_at ? new Date(server.metrics_sampled_at).toLocaleTimeString('zh-CN', { hour12: false }) : '尚无采样时间'}</span></div>
       {!server.online && !unavailable && <div className="d-offline-overlay"><strong>{state.label}</strong><span>{server.last_seen ? `最后在线 ${time(server.last_seen)}` : '等待设备首次接入'}</span></div>}
     </div>
     <AssetInfo server={server} now={now} />
