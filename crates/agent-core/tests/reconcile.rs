@@ -512,3 +512,212 @@ async fn invalid_applied_artifact_reports_unhealthy_without_switching_to_a_new_t
             .is_empty()
     );
 }
+
+#[tokio::test]
+async fn explicit_restart_checks_revision_signature_counters_and_recovers_failed_health() {
+    let test = Fixture::new();
+    let target = test.target(1, "1", "a");
+    test.reconciler
+        .apply_prepared(target.clone())
+        .await
+        .unwrap();
+    let initial = test.services.actions.lock().unwrap().len();
+    assert!(test.reconciler.restart_applied(2).await.is_err());
+    assert_eq!(test.services.actions.lock().unwrap().len(), initial);
+    test.adapter.fail_counters.store(true, Ordering::SeqCst);
+    assert!(test.reconciler.restart_applied(1).await.is_err());
+    assert_eq!(test.services.actions.lock().unwrap().len(), initial);
+    test.adapter.fail_counters.store(false, Ordering::SeqCst);
+    test.adapter.fail_prepare.store(true, Ordering::SeqCst);
+    assert!(test.reconciler.restart_applied(1).await.is_err());
+    assert_eq!(test.services.actions.lock().unwrap().len(), initial);
+    test.adapter.fail_prepare.store(false, Ordering::SeqCst);
+    test.adapter.fail_health.store(true, Ordering::SeqCst);
+    assert!(test.reconciler.restart_applied(1).await.is_err());
+    assert_eq!(test.services.actions.lock().unwrap().len(), initial + 2);
+    assert_eq!(test.applied().unwrap().spec.revision, 1);
+    assert!(
+        test.state
+            .lock()
+            .unwrap()
+            .pending_intents()
+            .unwrap()
+            .is_empty()
+    );
+    test.reconciler.restart_applied(1).await.unwrap();
+    assert_eq!(test.services.actions.lock().unwrap().len(), initial + 3);
+    fs::write(&target.spec.binary_path, "untrusted").unwrap();
+    assert!(test.reconciler.restart_applied(1).await.is_err());
+    assert_eq!(test.services.actions.lock().unwrap().len(), initial + 3);
+}
+
+#[tokio::test]
+async fn dependency_barrier_survives_reopen_and_blocks_apply_restart_and_recovery_regression() {
+    use sinan_protocol::{
+        RuntimeValidationError, RuntimeValidationOperation, RuntimeValidationRequest,
+    };
+    let test = Fixture::new();
+    let mut previous = test.target(1, "1", &"a".repeat(64));
+    previous.spec.files.insert(
+        "runtime-constraints.json".into(),
+        serde_json::json!({"schema":1,"active":{"dependency:1":1},"retired":{}}).to_string(),
+    );
+    test.reconciler
+        .apply_prepared(previous.clone())
+        .await
+        .unwrap();
+    let mut current = test.target(2, "1", &"b".repeat(64));
+    current.spec.files.insert(
+        "runtime-constraints.json".into(),
+        serde_json::json!({"schema":1,"active":{"dependency:1":2},"retired":{}}).to_string(),
+    );
+    test.reconciler
+        .apply_prepared(current.clone())
+        .await
+        .unwrap();
+    let mut request = RuntimeValidationRequest {
+        id: Uuid::new_v4(),
+        module: "demo".into(),
+        scope: "dependency:1".into(),
+        generation: 2,
+        operation: RuntimeValidationOperation::Barrier,
+        revision: 2,
+        config_hash: "b".repeat(64),
+        expires_at: sinan_protocol::now_timestamp() + 60,
+    };
+    request.config_hash = "c".repeat(64);
+    assert_eq!(
+        test.reconciler.validate_runtime_dependency(&request).await,
+        Err(RuntimeValidationError::RevisionChanged)
+    );
+    request.config_hash = "b".repeat(64);
+    request.expires_at = sinan_protocol::now_timestamp() - 1;
+    assert_eq!(
+        test.reconciler.validate_runtime_dependency(&request).await,
+        Err(RuntimeValidationError::Expired)
+    );
+    request.expires_at = sinan_protocol::now_timestamp() + 60;
+    let unfinished = Uuid::new_v4();
+    test.state
+        .lock()
+        .unwrap()
+        .begin_intent(&IntentRecord {
+            op_id: unfinished,
+            module: "demo".into(),
+            payload: serde_json::to_value(ApplyIntent {
+                previous: Some(previous.clone()),
+                target: current.clone(),
+                plan: Plan::Restart,
+            })
+            .unwrap(),
+        })
+        .unwrap();
+    assert_eq!(
+        test.reconciler.validate_runtime_dependency(&request).await,
+        Err(RuntimeValidationError::ValidationFailed)
+    );
+    assert!(
+        test.state
+            .lock()
+            .unwrap()
+            .get_json::<serde_json::Value>("runtime_generation_floor:demo")
+            .unwrap()
+            .is_none()
+    );
+    test.state
+        .lock()
+        .unwrap()
+        .finish_intent(unfinished)
+        .unwrap();
+    test.reconciler
+        .validate_runtime_dependency(&request)
+        .await
+        .unwrap();
+    test.reconciler
+        .validate_runtime_dependency(&request)
+        .await
+        .unwrap();
+    let reopened = Arc::new(Mutex::new(State::open(&test.config.state_db).unwrap()));
+    let restarted = Reconciler::new(
+        test.config.clone(),
+        reopened.clone(),
+        test.adapter.clone(),
+        Arc::new(SystemOps),
+        test.services.clone(),
+    )
+    .with_trusted_keys(release_support::trusted_keys());
+    let mut unrelated = current.clone();
+    unrelated.spec.revision = 3;
+    unrelated.spec.config_hash = "c".repeat(64);
+    assert_eq!(
+        restarted.apply_prepared(unrelated).await.unwrap().status,
+        ApplyStatus::Applied
+    );
+    assert_eq!(
+        restarted.validate_runtime_dependency(&request).await,
+        Err(RuntimeValidationError::RevisionChanged)
+    );
+    request.id = Uuid::new_v4();
+    request.revision = 3;
+    request.config_hash = "c".repeat(64);
+    restarted
+        .validate_runtime_dependency(&request)
+        .await
+        .unwrap();
+    let actions = test.services.actions.lock().unwrap().clone();
+    assert_eq!(
+        restarted
+            .apply_prepared(previous.clone())
+            .await
+            .unwrap()
+            .status,
+        ApplyStatus::Failed
+    );
+    let absent = test.target(3, "1", &"c".repeat(64));
+    assert_eq!(
+        restarted.apply_prepared(absent).await.unwrap().status,
+        ApplyStatus::Failed
+    );
+    assert_eq!(*test.services.actions.lock().unwrap(), actions);
+    let mut retired = test.target(4, "1", &"d".repeat(64));
+    retired.spec.files.insert(
+        "runtime-constraints.json".into(),
+        serde_json::json!({"schema":1,"active":{},"retired":{"dependency:1":2}}).to_string(),
+    );
+    assert_eq!(
+        restarted
+            .apply_prepared(retired.clone())
+            .await
+            .unwrap()
+            .status,
+        ApplyStatus::Applied
+    );
+    restarted.restart_applied(4).await.unwrap();
+    let op_id = Uuid::new_v4();
+    reopened
+        .lock()
+        .unwrap()
+        .begin_intent(&IntentRecord {
+            op_id,
+            module: "demo".into(),
+            payload: serde_json::to_value(ApplyIntent {
+                previous: Some(previous.clone()),
+                target: retired,
+                plan: Plan::Restart,
+            })
+            .unwrap(),
+        })
+        .unwrap();
+    let actions = test.services.actions.lock().unwrap().clone();
+    assert!(restarted.recover().await.is_err());
+    assert_eq!(*test.services.actions.lock().unwrap(), actions);
+    assert_eq!(reopened.lock().unwrap().pending_intents().unwrap().len(), 1);
+    reopened.lock().unwrap().finish_intent(op_id).unwrap();
+    reopened
+        .lock()
+        .unwrap()
+        .set_json("applied:demo", &previous)
+        .unwrap();
+    assert!(restarted.restart_applied(1).await.is_err());
+    assert_eq!(*test.services.actions.lock().unwrap(), actions);
+}

@@ -18,6 +18,15 @@ pub async fn run(state: AppState) {
         if let Err(error) = super::entitlements::refresh(&state.pool, now_timestamp()).await {
             tracing::error!(%error, "package eligibility refresh failed; will retry");
         }
+        if let Err(error) = super::sources::refresh_due(&state).await {
+            tracing::error!(%error, "subscription source refresh failed; will retry");
+        }
+        if let Err(error) = super::mixed_paths::follow_updates(&state).await {
+            tracing::error!(%error, "path source update failed; current versions retained");
+        }
+        if let Err(error) = super::mixed_paths::advance(&state).await {
+            tracing::error!(%error, "path publication transition failed; will retry");
+        }
         if let Err(error) = publish_due(&state).await {
             tracing::error!(%error, "configuration publication failed; pending work retained");
         }
@@ -102,23 +111,43 @@ async fn publish_server(state: &AppState, server_id: i64) -> anyhow::Result<()> 
     let nodes = snapshot(&mut tx, server_id, at).await?;
     let source = serde_json::to_value(&nodes)?;
     let relays = super::chains::load(&mut tx, server_id, at).await?;
-    let native = sinan_compiler::compile_server_with_relays(&nodes, &relays)?;
-    let bundle = serde_json::to_string(&Bundle {
-        files: BTreeMap::from([("config.json".into(), native)]),
-    })?;
+    let prepared = super::mixed_paths::compile_on(&mut tx, server_id, &nodes, &relays).await?;
+    let mut files = BTreeMap::from([("config.json".into(), prepared.compiled.config)]);
+    if !prepared.evidence.is_empty() {
+        files.insert(
+            "runtime-constraints.json".into(),
+            serde_json::to_string(&prepared.compiled.constraints)?,
+        );
+        files.insert(
+            "path-checks.json".into(),
+            serde_json::to_string(&prepared.compiled.checks)?,
+        );
+        files.insert(
+            "path-features.json".into(),
+            serde_json::to_string(&prepared.compiled.features)?,
+        );
+    }
+    let bundle = serde_json::to_string(&Bundle { files })?;
     let hash = crate::auth::hash_token(&bundle);
     let previous = sqlx::query("SELECT rev,bundle_sha256 FROM deployments WHERE server_id=$1 AND module=$2 ORDER BY rev DESC LIMIT 1")
         .bind(server_id).bind(MODULE).fetch_optional(&mut *tx).await?;
     if let Some(previous) = previous.filter(|row| row.get::<String, _>("bundle_sha256") == hash) {
         // Subscription-only metadata may change without changing native bytes.
         sqlx::query(
-            "UPDATE deployments SET source_json=$4 WHERE server_id=$1 AND module=$2 AND rev=$3",
+            "INSERT INTO singbox_deployment_projections(server_id,rev,source_json) VALUES($1,$2,$3) ON CONFLICT(server_id,rev) DO UPDATE SET source_json=EXCLUDED.source_json",
         )
         .bind(server_id)
-        .bind(MODULE)
         .bind(previous.get::<i64, _>("rev"))
         .bind(source)
         .execute(&mut *tx)
+        .await?;
+        super::mixed_paths::record_deployment_on(
+            &mut tx,
+            server_id,
+            previous.get("rev"),
+            &hash,
+            &prepared.evidence,
+        )
         .await?;
         sqlx::query("UPDATE servers SET dirty_at=NULL WHERE id=$1")
             .bind(server_id)
@@ -131,7 +160,9 @@ async fn publish_server(state: &AppState, server_id: i64) -> anyhow::Result<()> 
         .checked_add(1)
         .ok_or_else(|| anyhow::anyhow!("revision overflow"))?;
     sqlx::query("INSERT INTO deployments(server_id,module,rev,bundle,bundle_sha256,source_json,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)")
-        .bind(server_id).bind(MODULE).bind(rev).bind(bundle).bind(hash).bind(source).bind(now_timestamp()).execute(&mut *tx).await?;
+        .bind(server_id).bind(MODULE).bind(rev).bind(bundle).bind(&hash).bind(source).bind(now_timestamp()).execute(&mut *tx).await?;
+    super::mixed_paths::record_deployment_on(&mut tx, server_id, rev, &hash, &prepared.evidence)
+        .await?;
     sqlx::query("INSERT INTO server_module_status(server_id,module,target_rev,updated_at) VALUES($1,$2,$3,$4) ON CONFLICT(server_id,module) DO UPDATE SET target_rev=EXCLUDED.target_rev,updated_at=EXCLUDED.updated_at")
         .bind(server_id).bind(MODULE).bind(rev).bind(now_timestamp()).execute(&mut *tx).await?;
     sqlx::query("UPDATE servers SET manifest_rev=$2,dirty_at=NULL WHERE id=$1")

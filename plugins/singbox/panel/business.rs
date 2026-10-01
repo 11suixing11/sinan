@@ -152,7 +152,7 @@ pub(crate) async fn mark_dirty(
     transaction: &mut Transaction<'_, Postgres>,
     server_ids: &[i64],
 ) -> ApiResult<()> {
-    let affected: Vec<i64> = sqlx::query_scalar("SELECT id FROM servers WHERE id=ANY($1) OR id IN (SELECT unnest(ARRAY[n.server_id,e.server_id]) FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id WHERE n.server_id=ANY($1) OR e.server_id=ANY($1)) ORDER BY id FOR UPDATE")
+    let affected: Vec<i64> = sqlx::query_scalar("WITH members AS (SELECT c.id AS chain_id,n.server_id FROM singbox_live_chains c JOIN nodes n ON n.id=c.entry_node_id UNION SELECT c.id,e.server_id FROM singbox_live_chains c JOIN nodes e ON e.id=c.exit_node_id UNION SELECT h.chain_id,h.managed_server_id FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.managed_server_id IS NOT NULL), touched AS (SELECT DISTINCT chain_id FROM members WHERE server_id=ANY($1)) SELECT id FROM servers WHERE id=ANY($1) OR id IN (SELECT server_id FROM members JOIN touched USING(chain_id)) ORDER BY id FOR UPDATE")
         .bind(server_ids).fetch_all(&mut **transaction).await?;
     sqlx::query("UPDATE servers SET dirty_at=FLOOR(EXTRACT(EPOCH FROM clock_timestamp())*1000)::bigint WHERE id=ANY($1) AND deleted_at IS NULL").bind(&affected).execute(&mut **transaction).await?;
     Ok(())

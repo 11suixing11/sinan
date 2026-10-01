@@ -5,6 +5,7 @@ mod native;
 mod obfuscation;
 mod sentinel;
 mod stats;
+mod validation;
 mod version;
 
 use anyhow::{Context, Result, bail};
@@ -46,6 +47,17 @@ impl SingboxAdapter {
 }
 
 impl Adapter for SingboxAdapter {
+    fn supports_dependency_validation(&self) -> bool {
+        true
+    }
+    fn validate_dependency<'a>(
+        &'a self,
+        runtime: &'a Prepared,
+        scope: &'a str,
+        generation: u64,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(validation::probe(runtime, scope, generation))
+    }
     fn health_timeout(&self, target: &Prepared) -> Duration {
         health::budget(target) + Duration::from_secs(5)
     }
@@ -104,6 +116,10 @@ impl Adapter for SingboxAdapter {
                 bail!("runtime version command failed");
             }
             version::validate_output(&output.stdout, &runtime.kernel_version)?;
+            version::validate_features(
+                &output.stdout,
+                runtime.files.get("path-features.json").map(String::as_str),
+            )?;
             let check_args = [
                 "check".into(),
                 "-c".into(),

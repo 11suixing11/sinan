@@ -21,7 +21,7 @@ pub struct Chain {
     pub exit_node_id: i64,
     pub available: bool,
 }
-const SELECT: &str = "SELECT c.id,c.name,c.entry_node_id,c.exit_node_id,(n.enabled AND e.enabled AND n.deleted_at IS NULL AND e.deleted_at IS NULL AND n.protocol='vless-reality' AND e.protocol='vless-reality' AND ns.deleted_at IS NULL AND es.deleted_at IS NULL) AS available FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id JOIN servers ns ON ns.id=n.server_id JOIN servers es ON es.id=e.server_id";
+const SELECT: &str = "SELECT c.id,c.name,c.entry_node_id,c.exit_node_id,(n.enabled AND e.enabled AND n.deleted_at IS NULL AND e.deleted_at IS NULL AND n.protocol='vless-reality' AND e.protocol='vless-reality' AND ns.deleted_at IS NULL AND es.deleted_at IS NULL) AS available FROM singbox_live_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id JOIN servers ns ON ns.id=n.server_id JOIN servers es ON es.id=e.server_id";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -72,7 +72,7 @@ pub async fn create(
     }
     // A dedicated entry prevents silently turning an existing direct grant into a chain.
     // Exits may be shared, but cannot themselves be chain entries (no cycles/nesting).
-    let conflict: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_chains WHERE entry_node_id=ANY($1) OR exit_node_id=$2) OR EXISTS(SELECT 1 FROM accesses WHERE node_id=$2) OR EXISTS(SELECT 1 FROM singbox_policy_nodes WHERE node_id=$2)")
+    let conflict: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_live_chains WHERE entry_node_id=ANY($1) OR exit_node_id=$2) OR EXISTS(SELECT 1 FROM accesses WHERE node_id=$2) OR EXISTS(SELECT 1 FROM singbox_policy_nodes WHERE node_id=$2) OR EXISTS(SELECT 1 FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.managed_node_id=$2)")
         .bind(vec![request.entry_node_id, request.exit_node_id]).bind(request.entry_node_id).fetch_one(&mut *tx).await?;
     if conflict {
         return Err(ApiError::Conflict(
@@ -81,6 +81,7 @@ pub async fn create(
     }
     let id: i64 = sqlx::query_scalar("INSERT INTO singbox_chains(name,entry_node_id,exit_node_id,relay_uuid) VALUES($1,$2,$3,$4) RETURNING id")
         .bind(name).bind(request.entry_node_id).bind(request.exit_node_id).bind(Uuid::new_v4()).fetch_one(&mut *tx).await?;
+    super::mixed_paths::seed_legacy_on(&mut tx, id).await?;
     super::business::mark_dirty(&mut tx, &servers).await?;
     let value = sqlx::query_as(&format!("{SELECT} WHERE c.id=$1"))
         .bind(id)
@@ -106,10 +107,10 @@ pub async fn remove(
     if used {
         return Err(ApiError::Conflict("请先从策略组移除此链路".into()));
     }
-    let servers: Vec<i64> = sqlx::query_scalar("SELECT unnest(ARRAY[n.server_id,e.server_id]) FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id WHERE c.id=$1")
+    let servers: Vec<i64> = sqlx::query_scalar("SELECT unnest(ARRAY[n.server_id,e.server_id]) FROM singbox_live_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id WHERE c.id=$1")
         .bind(id).fetch_all(&mut *tx).await?;
     super::business::mark_dirty(&mut tx, &servers).await?;
-    if sqlx::query("DELETE FROM singbox_chains WHERE id=$1")
+    if sqlx::query("UPDATE singbox_chains SET deleted_at=FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint WHERE id=$1 AND deleted_at IS NULL AND path_kind='legacy'")
         .bind(id)
         .execute(&mut *tx)
         .await?
@@ -123,11 +124,12 @@ pub async fn remove(
 }
 
 pub(crate) async fn ensure_direct(tx: &mut Transaction<'_, Postgres>, node: i64) -> ApiResult<()> {
-    let entry: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_chains WHERE entry_node_id=$1)")
-            .bind(node)
-            .fetch_one(&mut **tx)
-            .await?;
+    let entry: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM singbox_live_chains WHERE entry_node_id=$1)",
+    )
+    .bind(node)
+    .fetch_one(&mut **tx)
+    .await?;
     if entry {
         return Err(ApiError::Conflict(
             "此节点是链路入口，请通过包含该链路的策略组授权".into(),
@@ -157,7 +159,7 @@ pub(crate) async fn load(
     server: i64,
     at: i64,
 ) -> anyhow::Result<Vec<Relay>> {
-    let rows = sqlx::query_as::<_, RelayRow>("SELECT c.id AS chain_id,c.entry_node_id,c.exit_node_id,c.relay_uuid AS uuid,n.protocol AS entry_protocol,e.protocol AS exit_protocol,e.public_host,e.port,e.sni,e.public_key,e.short_id,e.settings AS exit_settings FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id JOIN servers ns ON ns.id=n.server_id JOIN servers es ON es.id=e.server_id WHERE (n.server_id=$1 OR e.server_id=$1) AND n.enabled AND e.enabled AND n.deleted_at IS NULL AND e.deleted_at IS NULL AND n.protocol='vless-reality' AND e.protocol='vless-reality' AND ns.deleted_at IS NULL AND es.deleted_at IS NULL AND EXISTS(SELECT 1 FROM singbox_eligible_accesses($2) a WHERE a.node_id=n.id) ORDER BY c.id")
+    let rows = sqlx::query_as::<_, RelayRow>("SELECT c.id AS chain_id,c.entry_node_id,c.exit_node_id,c.relay_uuid AS uuid,n.protocol AS entry_protocol,e.protocol AS exit_protocol,e.public_host,e.port,e.sni,e.public_key,e.short_id,e.settings AS exit_settings FROM singbox_live_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id JOIN servers ns ON ns.id=n.server_id JOIN servers es ON es.id=e.server_id WHERE (n.server_id=$1 OR e.server_id=$1) AND n.enabled AND e.enabled AND n.deleted_at IS NULL AND e.deleted_at IS NULL AND n.protocol='vless-reality' AND e.protocol='vless-reality' AND ns.deleted_at IS NULL AND es.deleted_at IS NULL AND EXISTS(SELECT 1 FROM singbox_eligible_accesses($2) a WHERE a.node_id=n.id) ORDER BY c.id")
         .bind(server).bind(at).fetch_all(&mut **tx).await?;
     rows.into_iter()
         .map(|r| {

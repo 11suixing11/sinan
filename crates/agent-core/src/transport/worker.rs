@@ -15,11 +15,32 @@ pub(super) async fn run(
 ) -> Result<()> {
     let mut poll = tokio::time::interval(Duration::from_secs(60));
     let mut sample = tokio::time::interval(Duration::from_secs(30));
+    let mut operations = tokio::time::interval(Duration::from_secs(5));
+    operations.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     sample.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut reported = sinan_protocol::AppliedRevisions::new();
     loop {
         tokio::select! {
+            _ = operations.tick(), if !reconcilers.is_empty() => {
+                let _gate = if let Some(retirement) = &runtime.retirement {
+                    Some(retirement.gate.read().await)
+                } else { None };
+                if runtime.retirement.as_ref().is_some_and(|retirement| retirement.requested()) { continue; }
+                let active_client = { client.borrow().clone() };
+                if let Some(active_client) = active_client
+                {
+                    if let Err(error) = crate::runtime_operations::poll(&reconcilers, &runtime.state, &active_client, &outgoing).await {
+                        tracing::debug!(%error, "runtime operations poll failed");
+                    }
+                    if runtime.capabilities.iter().any(|capability| capability == sinan_protocol::RUNTIME_VALIDATION_CAPABILITY)
+                        && !runtime.retirement.as_ref().is_some_and(|retirement| retirement.requested())
+                        && let Err(error) = crate::runtime_validations::poll(&reconcilers, &runtime.state, &active_client).await {
+                        tracing::debug!(%error, "runtime validations poll failed");
+                    }
+                }
+                continue;
+            }
             trigger = triggers.recv() => {
                 if trigger.is_none() { return Ok(()); }
             }

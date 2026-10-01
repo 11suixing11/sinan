@@ -59,6 +59,7 @@ export default function App() {
     return () => { active = false; controller.abort(); window.removeEventListener('sinan:unauthorized', unauthorized); window.removeEventListener('hashchange', hash) }
   }, [accessRevision])
   const match = path.match(/^\/servers\/([1-9]\d*)(?:\/(ip-info|node-quality|tcp-quality|plugins))?$/)
+  const proxyResource = resourceRoute(path)
   const display = dashboardRoute(path)
   const nodePage = nodeRoute(path)
   const current = navigation.find(item => path === item.path || (item.path === '/servers' && Boolean(match)) || (item.path === '/plugins/sing-box/nodes' && nodePage !== null) || (item.path === '/plugins/catalog' && isCatalogPath(path)))

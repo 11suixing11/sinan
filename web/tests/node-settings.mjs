@@ -30,6 +30,8 @@ try {
       else if (path === '/api/dashboard/access') value = { authenticated:true, public_dashboard:false }
       else if (path === '/api/plugins/sing-box/servers') value = [{ id:1, name:'测试服务器', enabled:true, online:false, agent_supported:true }]
       else if (path === '/api/plugins/sing-box/usage') value = { total:'0', by_node:[], by_user:[], uplink:'0',downlink:'0' }
+      else if (path === '/api/plugins/sing-box/proxy-resources') value = nodes.map(node => ({ ...node, kind:'direct', server_name:'测试服务器', role:'direct', entry_node_id:null, tcp:true, udp:true, available:true, stage:'direct', reference_count:0 }))
+      else if (path === '/api/plugins/sing-box/subscription-sources') value = []
       else if (path === '/api/plugins/sing-box/nodes' && method === 'GET') value = nodes
       else if (path === '/api/plugins/sing-box/nodes' && method === 'POST') {
         const body = route.request().postDataJSON(); writes.push(body)
@@ -41,6 +43,7 @@ try {
         Object.assign(nodes[0],body); value=nodes[0]
       } else if (path.endsWith('/deployments')) value = progress
       else if (path.endsWith('/deployments/check')) value = { ready:false,checks:[{name:'设备在线',passed:false,detail:'设备离线，配置将在重新连接后下发'},{name:'签名运行时',passed:true,detail:'已验证匹配的制品'}] }
+      else if (path.endsWith('/runtime-operations')) value = { supported:false,online:false,retiring:false,operations:[] }
       else { errors.push(`Unexpected ${method}: ${path}`); return route.fulfill({status:404,json:{}}) }
       await route.fulfill({json:value})
     })

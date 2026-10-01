@@ -7,6 +7,8 @@ use std::{
 };
 use tokio::time::timeout;
 
+mod logs;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ServiceBackend {
     Systemd,
@@ -214,6 +216,9 @@ impl SystemServiceManager {
 }
 
 impl ServiceManager for SystemServiceManager {
+    fn recent_logs<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, sinan_adapter_sdk::ServiceLogs> {
+        Box::pin(self.read_recent_logs(unit))
+    }
     #[cfg(unix)]
     fn supports_confirmed_cancellation(&self) -> bool {
         super::cleanup::supported(self.backend)
