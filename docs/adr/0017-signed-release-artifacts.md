@@ -87,7 +87,7 @@ GitHub 下载客户端单独禁环境代理、禁止自动跳转，显式检查 
 
 Agent 二进制 crate 版本改为 `0.3.0`；面板保持 `0.2.0`，两者不再共享产品版本号。internal crate/package 版本不等于 wire version。面板声明协议范围 `1..=1`，只接受实际实现的版本，按协议和 capabilities 判断兼容，不要求 Agent 与面板 semver 相同。
 
-Agent 入口向 core 传自身构建版本，hello 和 static telemetry 不再报告 core 的 CARGO_PKG_VERSION。面板 bootstrap 从已导入且协议兼容的签名 metadata 选择 Agent，可显式选择 version；不把 panel package version 或硬编码 0.3.0 当作默认版本。后续导入不自动替换运行节点。
+Agent 入口向 core 传自身构建版本，hello、static telemetry、本地 status、原生服务安装目录及自动升级比较均使用这个版本，不使用 core 的 CARGO_PKG_VERSION 代替 Agent 身份。监督器仍以已签候选及持久 current/pending 中对应的版本核对候选启动结果，不改为父进程版本。直接构建和预编译二进制打包都从 Agent 的独立 manifest 取得预期版本。面板 bootstrap 从已导入且协议兼容的签名 metadata 选择 Agent，可显式选择 version；不把 panel package version 或硬编码 0.3.0 当作默认版本。后续导入不自动替换运行节点。
 
 新能力为 `artifact:minisign-v1`。旧 Agent 忽略新增 proof 字段，无法事后让它验签，因此面板在 manifest、制品下载、新诊断创建/领取处拒绝没有能力的设备并给出中文升级提示；继续接受旧状态、流量 batch 与确认，保留已有 running config。新 Agent 遇到旧面板 unsigned 目标拒绝应用，不停止当前已运行程序。能力缺失与根缺失都不能 fallback 到只校验 SHA256。
 
@@ -100,7 +100,7 @@ Agent 入口向 core 传自身构建版本，hello 和 static telemetry 不再�
 
 运行时按上游版本、架构和构建脚本内容缓存。`tools/verify-release-runtime.py` 在命中缓存与新构建后均检查归档 SHA256、唯一普通二进制、ELF 目标架构及 `go version -m` 提供的固定 Go 版本、目标、CGO、标签和源码 revision；它只读取缓存，不执行缓存二进制。Go metadata 不一定保留设置运行时版本的链接参数，固定 revision 与预期上游版本的关联也不是不可伪造的构建证明。离线签名仍表示维护者批准具体成品字节，需要结合构建记录审查，不能把自描述 metadata 当成独立 attestation。
 
-用户已选择在本机生成带口令私钥，由用户交互输入口令，只向项目提供 `.pub`。密钥是否完成离线保管需用户实际安排隔离的签名环境；本方案不将联网本机生成的带口令密钥宣称为已离线。口令不放在命令参数、环境变量、工具输出或聊天中；私钥保存在仓库外受保护位置并由用户保管备份。先使用 `crates/protocol/tests/fixtures/TEST_ONLY.key` 等明确标识的测试钥完成验证；首个正式公钥现记录在 `deploy/release-public-keys.json`（key ID `44B019C8269669B8`），正式 Release 还需完成候选构建与本地签署。正式构建与发布拒绝已知测试公钥材料；隔离 CI 可显式预置测试根运行 bootstrap，不改变生产 Agent 的编译根边界。
+用户已选择在本机生成带口令私钥，由用户交互输入口令，只向项目提供 `.pub`。密钥是否完成离线保管需用户实际安排隔离的签名环境；本方案不将联网本机生成的带口令密钥宣称为已离线。口令不放在命令参数、环境变量、工具输出或聊天中；私钥保存在仓库外受保护位置并由用户保管备份。先使用 `crates/protocol/tests/fixtures/TEST_ONLY.key` 等明确标识的测试钥完成验证；首个正式公钥现记录在 `deploy/release-public-keys.json`（key ID `44B019C8269669B8`）。`agent-v0.3.0` 已完成候选构建、本地签署和正式发布；私钥仍由用户保存在 Mac，离线保管待完成，证据见 [执行进度](../../PROGRESS.md)。正式构建与发布拒绝已知测试公钥材料；隔离 CI 可显式预置测试根运行 bootstrap，不改变生产 Agent 的编译根边界。
 
 ## 多根轮换和泄漏应对
 

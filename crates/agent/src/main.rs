@@ -178,8 +178,13 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                 sinan_agent_core::retirement::ensure_monitor_only_allowed(&config)?;
             }
             let descriptor = (!monitor_only).then(|| SingboxAdapter::new().describe());
-            sinan_agent_core::system::deploy::install_services(&config, &path, descriptor.as_ref())
-                .await?;
+            sinan_agent_core::system::deploy::install_services(
+                &config,
+                &path,
+                descriptor.as_ref(),
+                env!("CARGO_PKG_VERSION"),
+            )
+            .await?;
             println!("服务安装完成，可运行 sinan-agent status 查看状态。");
             Ok(())
         }

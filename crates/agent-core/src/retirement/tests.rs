@@ -839,6 +839,7 @@ async fn requested_retirement_quiesces_task_update_and_telemetry_workers() -> Re
         Arc::new(SystemOps),
         receiver.clone(),
         fixture.retirement.clone(),
+        env!("CARGO_PKG_VERSION"),
     ));
     let sampling = crate::telemetry::cache::Sampling::start(
         Arc::new(SystemOps),

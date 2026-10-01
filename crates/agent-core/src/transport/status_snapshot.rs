@@ -21,7 +21,7 @@ pub(super) fn snapshot(runtime: &Runtime) -> Result<Value> {
     let telemetry = runtime.telemetry.borrow();
     let oversized_usage_batches = state.oversized_usage_count()?;
     Ok(json!({
-        "agent_version": env!("CARGO_PKG_VERSION"), "pid": std::process::id(),
+        "agent_version": runtime.agent_version, "pid": std::process::id(),
         "connected": runtime.connected.load(Ordering::Relaxed),
         "applied": applied, "healthy": healthy,
         "pending_batches": state.pending_usage_count()?,
