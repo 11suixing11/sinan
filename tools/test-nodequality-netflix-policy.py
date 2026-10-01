@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -24,6 +25,7 @@ READONLY_SOURCES = None
 BASH = os.environ.get('SINAN_NODEQUALITY_TEST_BASH', '/bin/bash')
 TITLES = ('81280792', '70143836')
 HARD_CAP = 2097280
+MAX_SCENARIOS_FILE = 8 * 1024 * 1024
 
 
 def module(name, path):
@@ -73,6 +75,21 @@ clean_ansi(){ printf '%s' "$1"; }
 '''
 
 
+def read_scenarios(path):
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, 'rb') as stream:
+        metadata = os.fstat(stream.fileno())
+        if not stat.S_ISREG(metadata.st_mode) or not 0 < metadata.st_size <= MAX_SCENARIOS_FILE:
+            raise ValueError('fixture scenarios require a bounded ordinary JSON file')
+        content = stream.read(MAX_SCENARIOS_FILE + 1)
+    if not content or len(content) > MAX_SCENARIOS_FILE:
+        raise ValueError('fixture scenarios exceed their byte limit')
+    value = json.loads(content)
+    if not isinstance(value, dict) or set(value) != set(TITLES):
+        raise ValueError('fixture scenarios require both owned title cases')
+    return value
+
+
 def request():
     args = sys.argv[2:]
     if not args or args[-1] not in tuple('https://www.netflix.com/title/' + title for title in TITLES):
@@ -82,7 +99,7 @@ def request():
     prior = [json.loads(line) for line in arguments.read_text().splitlines()] if arguments.exists() else []
     with arguments.open('a') as output:
         output.write(json.dumps(args) + '\n')
-    scenarios = json.loads(os.environ['SCENARIOS'])
+    scenarios = read_scenarios(os.environ['SCENARIOS_FILE'])
     scenario = scenarios[title]
     if isinstance(scenario, list):
         count = sum(row[-1].rsplit('/', 1)[-1] == title for row in prior)
@@ -266,11 +283,21 @@ class NetflixTests(unittest.TestCase):
                 binary = directory / 'curl'
                 binary.write_text('#!/bin/sh\nexec "$PYTHON" "$TOOL" --request "$@"\n')
                 binary.chmod(0o700)
+                # Linux limits each argv/environment string independently.
+                # Keep the large positive pages intact and transport them in
+                # an owned bounded file, never through an environment value.
+                scenario_path = directory / 'scenarios.json'
+                scenario_content = json.dumps(scenarios).encode()
+                self.assertLessEqual(len(scenario_content), MAX_SCENARIOS_FILE)
+                with scenario_path.open('xb') as output:
+                    os.fchmod(output.fileno(), 0o600)
+                    output.write(scenario_content)
                 env = dict(os.environ, PATH=str(directory) + ':' + os.environ['PATH'],
-                           PYTHON=sys.executable, TOOL=str(Path(__file__).resolve()), SCENARIOS=json.dumps(scenarios),
+                           PYTHON=sys.executable, TOOL=str(Path(__file__).resolve()), SCENARIOS_FILE=str(scenario_path),
                            RECORDER=recorder.url if recorder else '', ARGUMENTS=str(directory / 'arguments.jsonl'),
                            PROCESSES=str(directory / 'processes.jsonl'), REAL_CURL=shutil.which('curl'),
                            STREAMING='1' if streaming else '', IGNORE_FILESIZE='1' if ignore_filesize else '')
+                env.pop('SCENARIOS', None)
                 script = PRELUDE
                 if not canonical:
                     script += 'SINAN_NATIVE_CURL=$(type -P curl)\n'
@@ -669,6 +696,36 @@ class NetflixTests(unittest.TestCase):
             policy.transform('net.sh', source)
         run = subprocess.run([BASH, '-n'], input=policy.patch(source), capture_output=True, timeout=5)
         self.assertEqual(run.returncode, 0, run.stderr)
+        # This is larger than Linux's per-environment-string limit. Exercise
+        # the actual child fixture without requiring Bash associative arrays.
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            path = directory / 'scenarios.json'
+            rows = {title: {'body': page(title, padding=100000), 'status': 200, 'code': 0}
+                    for title in TITLES}
+            path.write_bytes(json.dumps(rows).encode())
+            path.chmod(0o600)
+            self.assertGreater(path.stat().st_size, 131072)
+            self.assertEqual(read_scenarios(path), rows)
+            env = dict(os.environ, SCENARIOS_FILE=str(path), ARGUMENTS=str(directory / 'arguments.jsonl'))
+            env.pop('SCENARIOS', None)
+            run = subprocess.run([sys.executable, str(Path(__file__).resolve()), '--request',
+                                  'https://www.netflix.com/title/' + TITLES[0]],
+                                 env=env, capture_output=True, timeout=5)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(run.stdout.decode(), rows[TITLES[0]]['body'])
+            link = directory / 'scenarios-link.json'
+            link.symlink_to(path)
+            with self.assertRaises(OSError):
+                read_scenarios(link)
+            fifo = directory / 'scenarios-fifo.json'
+            os.mkfifo(fifo, 0o600)
+            with self.assertRaisesRegex(ValueError, 'ordinary'):
+                read_scenarios(fifo)
+            with path.open('wb') as output:
+                output.truncate(MAX_SCENARIOS_FILE + 1)
+            with self.assertRaisesRegex(ValueError, 'bounded'):
+                read_scenarios(path)
 
     def test_packaging_rejects_missing_or_corrupt_helper(self):
         sources = module('netflix_source_tests', ROOT / 'tools/test-nodequality-sources.py')
