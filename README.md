@@ -19,6 +19,7 @@ docker compose --project-name sinan --env-file .env \
 - [开发、测试和 CI](docs/dev.md)
 - [离线签署、发布与公钥轮换](docs/release.md)
 - [真实 Reality 验收与阶段证据](docs/e2e.md)
+- [sing-box 策略组、套餐周期与两跳链路](docs/singbox-groups.md)
 - [HTTP API](docs/api.md) / [设备协议](docs/protocol.md)
 - [架构决策](docs/adr/0001-declarative-snapshots.md) / [问题与选择](docs/open-questions.md)
 - [执行计划](docs/PLAN.md) / [验证进度](PROGRESS.md)

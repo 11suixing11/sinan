@@ -88,6 +88,7 @@ pub async fn create(
     };
     business::validate_node(&node)?;
     let mut transaction = state.pool.begin().await?;
+    super::entitlements::lock(&mut transaction).await?;
     business::lock_server(&mut transaction, request.server_id).await?;
     super::settings::require_enabled(&mut transaction, request.server_id).await?;
     if let Some(port) = requested_port {
@@ -131,6 +132,7 @@ pub async fn update(
         return Err(ApiError::BadRequest("至少提供一个修改字段".into()));
     }
     let mut transaction = state.pool.begin().await?;
+    super::entitlements::lock(&mut transaction).await?;
     let server_id: i64 =
         sqlx::query_scalar("SELECT server_id FROM nodes WHERE id=$1 AND deleted_at IS NULL")
             .bind(id)
@@ -195,6 +197,7 @@ pub async fn remove(
 ) -> ApiResult<StatusCode> {
     require_admin(&state, &headers).await?;
     let mut transaction = state.pool.begin().await?;
+    super::entitlements::lock(&mut transaction).await?;
     let server_id: i64 =
         sqlx::query_scalar("SELECT server_id FROM nodes WHERE id=$1 AND deleted_at IS NULL")
             .bind(id)

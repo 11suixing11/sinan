@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+mod relays;
+pub use relays::{Relay, compile_server_with_relays};
+
 use base64::{
     Engine,
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
@@ -70,14 +73,7 @@ pub fn compile_server(nodes: &[Node]) -> Result<String, CompileError> {
                 json!({"name": name, "uuid": user.uuid, "flow": "xtls-rprx-vision"})
             })
             .collect();
-        inbounds.push(json!({
-            "type": "vless", "tag": format!("node-{}", node.id), "listen": "::", "listen_port": node.port,
-            "users": users,
-            "tls": { "enabled": true, "server_name": node.sni, "reality": {
-                "enabled": true, "handshake": { "server": node.sni, "server_port": 443 },
-                "private_key": node.private_key, "short_id": [node.short_id]
-            } }
-        }));
+        inbounds.push(inbound(node, users));
     }
     pretty(json!({
         "log": { "level": "warn", "timestamp": true },
@@ -88,6 +84,17 @@ pub fn compile_server(nodes: &[Node]) -> Result<String, CompileError> {
             "enabled": true, "users": stats_users
         } } }
     }))
+}
+
+fn inbound(node: &Node, users: Vec<Value>) -> Value {
+    json!({
+        "type": "vless", "tag": format!("node-{}", node.id), "listen": "::", "listen_port": node.port,
+        "users": users,
+        "tls": { "enabled": true, "server_name": node.sni, "reality": {
+            "enabled": true, "handshake": { "server": node.sni, "server_port": 443 },
+            "private_key": node.private_key, "short_id": [node.short_id]
+        } }
+    })
 }
 
 /// Callers supply only successfully applied nodes; only this user's credentials are emitted.

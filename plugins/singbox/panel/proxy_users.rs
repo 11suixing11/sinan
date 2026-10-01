@@ -101,6 +101,7 @@ pub async fn update(
     require_admin(&state, &headers).await?;
     let name = business::name(&request.name)?;
     let mut transaction = state.pool.begin().await?;
+    super::entitlements::lock(&mut transaction).await?;
     business::lock_user(&mut transaction, id).await?;
     let servers = business::lock_user_servers(&mut transaction, id).await?;
     let user = sqlx::query_as::<_, ProxyUserRow>(
@@ -139,6 +140,7 @@ pub async fn remove(
 ) -> ApiResult<StatusCode> {
     require_admin(&state, &headers).await?;
     let mut transaction = state.pool.begin().await?;
+    super::entitlements::lock(&mut transaction).await?;
     business::lock_user(&mut transaction, id).await?;
     let servers = business::lock_user_servers(&mut transaction, id).await?;
     sqlx::query("UPDATE users SET deleted_at=$2 WHERE id=$1")
@@ -147,6 +149,10 @@ pub async fn remove(
         .execute(&mut *transaction)
         .await?;
     sqlx::query("DELETE FROM accesses WHERE user_id=$1")
+        .bind(id)
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("DELETE FROM singbox_user_policies WHERE user_id=$1")
         .bind(id)
         .execute(&mut *transaction)
         .await?;

@@ -15,6 +15,9 @@ pub async fn run(state: AppState) {
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         interval.tick().await;
+        if let Err(error) = super::entitlements::refresh(&state.pool, now_timestamp()).await {
+            tracing::error!(%error, "package eligibility refresh failed; will retry");
+        }
         if let Err(error) = publish_due(&state).await {
             tracing::error!(%error, "configuration publication failed; pending work retained");
         }
@@ -40,7 +43,11 @@ pub async fn publish_due(state: &AppState) -> anyhow::Result<()> {
     }
 }
 
-async fn snapshot(tx: &mut Transaction<'_, Postgres>, server_id: i64) -> anyhow::Result<Vec<Node>> {
+async fn snapshot(
+    tx: &mut Transaction<'_, Postgres>,
+    server_id: i64,
+    at: i64,
+) -> anyhow::Result<Vec<Node>> {
     let query = format!(
         "SELECT {NODE_COLUMNS} FROM nodes n WHERE n.server_id=$1 AND n.deleted_at IS NULL ORDER BY n.id"
     );
@@ -48,8 +55,8 @@ async fn snapshot(tx: &mut Transaction<'_, Postgres>, server_id: i64) -> anyhow:
         .bind(server_id)
         .fetch_all(&mut **tx)
         .await?;
-    let rows = sqlx::query("SELECT a.node_id,a.user_id,a.uuid FROM accesses a JOIN users u ON u.id=a.user_id JOIN nodes n ON n.id=a.node_id WHERE n.server_id=$1 AND n.deleted_at IS NULL AND u.deleted_at IS NULL ORDER BY a.node_id,a.user_id")
-        .bind(server_id).fetch_all(&mut **tx).await?;
+    let rows = sqlx::query("SELECT a.node_id,a.user_id,a.uuid FROM singbox_eligible_accesses($2) a JOIN nodes n ON n.id=a.node_id WHERE n.server_id=$1 ORDER BY a.node_id,a.user_id")
+        .bind(server_id).bind(at).fetch_all(&mut **tx).await?;
     let mut accesses: BTreeMap<i64, Vec<Access>> = BTreeMap::new();
     for row in rows {
         accesses
@@ -68,6 +75,12 @@ async fn snapshot(tx: &mut Transaction<'_, Postgres>, server_id: i64) -> anyhow:
 
 async fn publish_server(state: &AppState, server_id: i64) -> anyhow::Result<()> {
     let mut tx = state.pool.begin().await?;
+    // Authorization and relay selection must see the same ledger and clock.
+    // Otherwise a reset/expiry between queries could leave an entry with direct routing.
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        .execute(&mut *tx)
+        .await?;
+    let at = now_timestamp();
     let query = format!(
         "SELECT s.manifest_rev FROM servers s LEFT JOIN server_plugins p ON p.server_id=s.id AND p.plugin='sing-box' WHERE s.id=$1 AND s.deleted_at IS NULL AND {DUE} AND ({}) IS NOT NULL FOR UPDATE OF s SKIP LOCKED",
         super::settings::SOURCE_SQL
@@ -85,9 +98,10 @@ async fn publish_server(state: &AppState, server_id: i64) -> anyhow::Result<()> 
         tx.commit().await?;
         return Ok(());
     }
-    let nodes = snapshot(&mut tx, server_id).await?;
+    let nodes = snapshot(&mut tx, server_id, at).await?;
     let source = serde_json::to_value(&nodes)?;
-    let native = sinan_compiler::compile_server(&nodes)?;
+    let relays = super::chains::load(&mut tx, server_id, at).await?;
+    let native = sinan_compiler::compile_server_with_relays(&nodes, &relays)?;
     let bundle = serde_json::to_string(&Bundle {
         files: BTreeMap::from([("config.json".into(), native)]),
     })?;
