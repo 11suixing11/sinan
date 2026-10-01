@@ -1,5 +1,10 @@
 # 执行进度
 
+## 2026-10-01：按用户要求暂时关闭 CI
+
+- 暂停仓库四个 GitHub Actions 工作流并取消正在运行或排队的检查，避免分支 push、PR 和 main 整合反复构建。保留全部工作流文件及既有历史结果，代码与文档工作继续使用相称的本地验证。
+- 等所有进行中的任务完成后，再统一恢复工作流、验证最终整合提交；单个 PR 完成不提前恢复。此次被取消及尚未运行的最终提交 CI 保持未验证，不算通过。
+
 ## 2026-10-01：Release 发布身份保留整合
 
 - 保留作者 `504bae9`，正常合入正式主线 `2fa405b`。最终发布 PATCH 显式携带已核对标签及完整构建提交，发布前后身份、完整签名、资产摘要和精确主线 CI 门禁保持；当前 TCP 可选模块必须双架构的规则保留。
@@ -68,10 +73,14 @@
 - 独立步骤及验收边界见 [有界读取验收](docs/acceptance-bounded-usage.md)。旧超限批的历史账本恢复、小内存/小磁盘 Debian 12 实机、持续代理流量下完整验机仍待后续独立验收，不以回环通过替代。下一步：PR CI、专用节点验证，以及独立的心跳采集解耦 PR。
 - 与当前主分支 `a62968e` 集成时保留辅助表、退役门禁和跨平台共享 status；有界索引改为增量创建，保持 `user_version=1`，新增旧 Agent 迁移重新打开试运行账本的回滚兼容断言。集成后的 core、对账及账本专项共 88 项通过、2 项真实 systemd 专项在 macOS 跳过；core 全 targets Clippy 与 workspace fmt 通过。
 
-## 正式发布准备：生产公钥已提供，候选尚未签署
+## 正式发布：agent-v0.3.0 已公开，真实面板导入通过
 
-- 维护者在本机交互生成带口令的 minisign 密钥，私钥保存在仓库外；项目只取得公开根。`deploy/release-public-keys.json` 的 key ID 为 `44B019C8269669B8`，已通过生产根校验，并与 Actions 的 `SINAN_RELEASE_PUBLIC_KEYS` 变量一致。离线保管与正式签署仍需由维护者完成，不把公钥配置视为已发布。
-- main `be8b792` 合入部署条件检查后，[CI 36746601899](https://github.com/theLucius7/sinan/actions/runs/36746601899) 的构建、检查、Compose 和真实 Reality/计量部分通过，但末尾退役验收误把 systemd 条件跳过的零退出码当作失败。发布候选继续受完整 main CI 门禁约束；修复将同时核对条件结果、服务状态、进程与启动时间，避免把未执行运行时和启动成功混淆。
+- [agent-v0.3.0](https://github.com/theLucius7/sinan/releases/tag/agent-v0.3.0) 已正式发布，源码固定为 `75cd846f152f61d7b5daa913b31c74579eed3d22`。[该源码的 main CI](https://github.com/theLucius7/sinan/actions/runs/36770621157) 五项通过；[发布工作流 36802878940](https://github.com/theLucius7/sinan/actions/runs/36802878940) 完成生产签名校验及全资产校验。发布后匿名访问以及十项资产的身份、大小、摘要复核通过，原有九项产物未替换，仅追加维护者本机签出的 `SHA256SUMS.minisig`。
+- 生产公钥 ID `44B019C8269669B8` 与仓库、Actions 构建变量一致，已编译进发布二进制。使用冻结源码及同一生产根构建隔离面板，从真实公开 Release 完成两次 API 导入和一次浏览器按钮导入：Agent 0.3.0、sing-box 1.14.2、NodeQuality r2 的 amd64/arm64 六项齐全。独立 minisign、完整安装器/制品摘要、ELF 架构、无残留 staging、重复导入幂等、发布身份不变全部通过；实际页面显示六行与签名已验证，导入 POST 返回 200，后续库存读取和截图已核对，测试会话已退出。
+- 带口令私钥仍由维护者保存在 Mac 的仓库外，离线保管尚未完成；签署与发布成功不代表离线保管完成。项目与 CI 仅使用公钥和签名，私钥未上传到仓库、服务器及 CI。
+- 本次证据只覆盖冻结源码 `75cd846` 的发布和制品导入，不认证后续 main 新增能力，也不补签 P0 专用节点负载、心跳、取消清理或 TCP 整链实机验收。
+- [Issue #80](https://github.com/theLucius7/sinan/issues/80) 记录更新草稿正文时观察到的 tag 身份变化；发布器 PATCH 显式携带已验证的 tag 与构建提交，并继续核对发布前后全部身份和资产。发布工具回归 24 项通过，覆盖省略 tag 被重分配，以及 PATCH 后发布 ID、tag、构建提交、Git tag 和资产 ID 被并发修改时拒绝成功。Release 回归 28 项通过、4 项既有 Linux/root 条件跳过；已正常整合 main `2fa405b`，最终提交 CI 单独核对。
+- 历史记录：main `be8b792` 合入部署条件检查后，[CI 36746601899](https://github.com/theLucius7/sinan/actions/runs/36746601899) 的构建、检查、Compose 和真实 Reality/计量部分通过，但末尾退役验收误把 systemd 条件跳过的零退出码当作失败。后续修复同时核对条件结果、服务状态、进程与启动时间；本次发布采用上述 `75cd846` 的完整成功门禁。
 
 ## 新合入平台能力的整合修复
 
@@ -128,7 +137,7 @@
 - 验收边界：回环 CI 不覆盖外部 CDN、云 DNS、防火墙或公网超时，也不替代第 1 阶段 0.1.0→0.2.0 的跨版本升级证据。[版本选择 #3](https://github.com/theLucius7/sinan/issues/3)、[CDN 设备路径 #4](https://github.com/theLucius7/sinan/issues/4)、[手动端口 #5](https://github.com/theLucius7/sinan/issues/5)、[公网超时 #6](https://github.com/theLucius7/sinan/issues/6) 仍是后续处理范围。此阶段制品尚无签名，不能把 SHA-256 校验视为已建立发布信任链。
 - PR #7 已合入 main，合入提交为 `8a9ad2f`；[该提交 main CI 36724902150](https://github.com/theLucius7/sinan/actions/runs/36724902150) 实际全部 5 个 job 成功，包含真实 Reality 安装和精确计量。下一步：继续发布、离线签名与版本解耦阶段。
 
-## 交付加固第 3 阶段：实现已合入，正式发布待用户签署
+## 交付加固第 3 阶段：实现及正式发布完成，私钥离线保管待完成
 
 - 先采纳 ADR 0017，按用户决定使用 minisign-verify、构建时多个公钥和独立产品版本。Agent 为 0.3.0，面板仍为 0.2.0，协议范围为 1..=1；公钥不由面板或安装脚本向 Agent 下发，生产命令没有运行时换根开关。
 - protocol 的完整四行签名、canonical 清单和 metadata 绑定通过 14 项测试；包括正文与 trusted comment 篡改、多根与真实测试根轮换。core 下载、缓存、准备、应用、同 revision、回滚、未完成事务恢复及诊断启动验证实际二进制与签名证明；70 项单元测试通过，1 项真实 Linux/systemd 专项仍由 Linux CI 验证。CLI 和 systemd 预检绑定期望的制品角色及格式，不能用另一种已签制品替换执行目标。
@@ -139,7 +148,7 @@
 - 发布候选流程构建双架构 Agent、运行时及诊断制品，输出 metadata 和 SHA256SUMS，先创建 draft。用户在仓库外本机生成带口令私钥、只提供公钥、本地签署并上传 minisig；CI 不取得生产私钥。正式发布要求全资产验签和对应 main 必需 CI，已知测试根在正式流程中拒绝。本阶段实现时尚无正式公钥、正式签名或正式 Release；最新公钥及发布状态见本文顶部，测试根验收不替代生产签名。
 - 发布流程在缓存恢复或新构建后，以归档、ELF 和 Go metadata 检查两种架构、固定源码 revision、工具链及构建标签；检查不执行缓存二进制。此信息用于发现错误产物，不作为独立构建证明。12 项验收驱动、8 项签名 CI 契约、3 项既有缓存契约及 actionlint、Shell/Python 语法检查通过。
 - [PR #11](https://github.com/theLucius7/sinan/pull/11) 已合入 main（`20d09ca`）。[PR CI](https://github.com/theLucius7/sinan/actions/runs/36738530095) 的 5 项全部通过，包括真实签名安装、篡改二进制/证明/旧未签缓存拒绝、恢复 systemd 验签器、Reality 双向流量、重启、HUP、精确计量和同版重装。首轮上传/下载为 1,048,821/2,097,454 字节，重载后相同流量累积精确为两倍。使用 TEST_ONLY 根，不能替代正式发布签名。
-- [main CI](https://github.com/theLucius7/sinan/actions/runs/36740903057) 的全部 5 项也已通过。正式公钥与本地签署仍待用户完成，安全功能和链式 ADR 继续推进。
+- 历史记录：[main CI](https://github.com/theLucius7/sinan/actions/runs/36740903057) 的全部 5 项也已通过；当时正式公钥与本地签署仍待用户完成。现已完成正式签署、发布与真实导入，证据及尚未完成的私钥离线保管见上文正式发布记录。
 
 ## 交付加固第 4 阶段：实现与本地验收已完成
 
