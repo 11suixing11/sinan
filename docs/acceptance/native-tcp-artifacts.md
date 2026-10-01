@@ -74,3 +74,27 @@ python3 tools/release.py assemble --source <制品根目录> --output <新输出
 整合复核保留作者 `b536476`：该源码的[三项原生制品 CI](https://github.com/theLucius7/sinan/actions/runs/36792542789)全部通过，含真实 Bookworm 启动、来源校验和 TEST_ONLY 完整签名。macOS 专项首次暴露旧回环夹具的读取竞态：非阻塞 listener 接受的 stream 未显式切回阻塞，读 EOF 返回 WouldBlock 导致 server 提前结束；夹具现在显式设置 blocking，仍保留一秒读取限制和零应用数据断言。并行库测试另遇一秒初始发布预算超时；未放宽引擎或测试预算，按单线程重验后 **13库+4真实CLI 全部通过/0忽略**。TCP 全targets Clippy、workspace fmt、core门禁、actionlint通过，Python来源12项、模拟发布22项通过，旧Release32项中28通过/4既有root条件跳过。没有在本机重跑 Linux musl 构建或完整 workspace Rust；最终 HEAD 的 GitHub CI 继续单独核对。
 
 已拉取永久 `5e843f0` Git 对象并逐字核对：生产 TCP、构建配方与来源/原文验证器相同；当前 main 的 Cargo.lock 另含 #71 适配器包，不把两份整体锁文件称为相同。永久制品仍从该对象自己的完整归档、配方和 Cargo.lock 构建，测试夹具修复不替换既有固定制品。
+
+## Issue #75：实际 bundled musl 版权库存（独立 PR）
+
+#72 已合并，不修改已关闭分支。当前实际 Rust工具链使用bundled musl1.2.5，旧库存将系统1.2.3标为linker库并不能证明真实来源。补齐官方1.2.5完整COPYRIGHT、rustc完整commit对应的musl配方原文（仅不可执行证明文本）和固定来源摘要；系统musl通知明确为构建工具。没有引入上游TcpQuality代码/targets/rootfs或下载执行链。
+
+构建必须在Cargo前拒绝未知rustc commit、缺失/篡改库存原文；制品验证必须检查原文与source归档一致、标准库与binary rustc一致，重签缺失或伪造bundled通知仍拒绝。新增真实minisign重签夹具与原文/工具链行为测试；原生重新构建、最新source pin和最终CI分别记录。五辅助文件和CLI/报告ABI保持不变。源5e既有启动/签名证据不代表此通知补齐完成。
+
+官方musl1.2.5归档SHA256 a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4，COPYRIGHT原文SHA256 f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af，固定Rust recipe SHA256 2f218a2dc7b7e73509212bfd4319ebddc2ddac7c651fca142c2b29bd7ea0aa38。许可证构建阶段零联网，原文随source与第五辅助文件共同签名。
+
+最终公开并验证的修复后工具源为 [b562effcd90f8ae319665fb4ead1807b770ed4d5](https://github.com/theLucius7/sinan/commit/b562effcd90f8ae319665fb4ead1807b770ed4d5)，外部版本0.3.0-b562effcd90f8ae319665fb4ead1807b770ed4d5-r1。2026-10-01受限Bookworm容器（1536MiB/2CPU/pids512/OOM500）实际通过fmt/core、来源与真实重签15项、旧Release32项、模拟发布22项、固定源码archive内配方locked musl构建、实际ELF/version/build-info及完整五辅助文件TEST_ONLY签名bundle1项；exit0/OOMKilled=false。35个锁定Cargo依赖之外，库存有Rust标准库原文、systemmusl build tooling1.2.3、Rust bundled musl libc1.2.5三组，后二者来源不混用。
+
+修复后原生binary SHA256 e493d09511929f4479a3a18496f4a034e01faac5628f3db204b2d1c6f89cd85f，build-info的source commit与公开对象精确一致。日志/制品/原文/SOURCE/SHA256SUMS保存在evidence/tcp-musl-notices-b562eff，binary单独保存binaries/tcp-musl-notices-head。此项仅变Python配方/库存与测试，没有Rust实现变化，未重复无交集完整workspace；新PR的两架构、Bookworm和标准CI继续按最终HEAD单独核对。无正式签名/发布/外部探测。源5e已完成的证据保留，但分发候选改为b562。
+
+制品workflow_dispatch支持source_commit指定已存在的完整固定对象，保持Git archive/缺对象拒绝与归档配方契约，可在新主线验证历史固定工具源的amd64/arm64及Bookworm，而不把当前head误作永久工具pin。只产生TEST_ONLY验收产物，不发布Release。新PR发布后将以b562固定源触发双架构原生验收，最终结果单独记录。
+
+## bundled musl 独立复核与历史制品兼容
+
+本轮直接读取官方 musl1.2.5 发布归档，确认归档 SHA256 `a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4`；其中 193 行 COPYRIGHT 与仓库保存文本逐字一致，SHA256 `f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af`。官方 Rust commit `48a229ceaefd4985c50990b14116b6d856af0985` 的 `src/version` 为 1.98.1；97 行 musl 配方逐字匹配，SHA256 `2f218a2dc7b7e73509212bfd4319ebddc2ddac7c651fca142c2b29bd7ea0aa38`。除库存简述中的两项 2025 iconv 补丁，完整配方还应用 CVE-2026-6042 与 CVE-2026-40200；官方两份补丁未改版权原文。来源链接见 [ADR 0032](../adr/0032-native-tcp-artifacts.md)。不将系统 musl1.2.3 工具通知称作实际 self-contained libc。
+
+[原生 CI 36794789931](https://github.com/theLucius7/sinan/actions/runs/36794789931) 的工作流提交为 `08c9de2`，显式源码 pin 为 `b562effcd90f8ae319665fb4ead1807b770ed4d5`。Ubuntu amd64、arm64 与 Debian12 三个 job 全部成功，各自完成真实本机启动、静态 ELF、来源/签名 15 项和原生 bundle 1 项。该结果证明固定 b562 配方及官方编译器产物，不将旧配方记作包含本轮新的重复字段检查。
+
+独立复核捕获旧验证器接受同时包含已知/未知或重复已知 `commit-hash` 的重签包：先更新 notices、build-info、外部全部摘要并以公开 TEST_ONLY key 真实重签，三个歧义输入仍被接受。当前验证器改为只接受一个精确字段；来源/签名 17 项全部通过，覆盖重新签名后仍拒绝及 Cargo 调用前拒绝。另下载上述 CI 的两个真实原包，只读验证其静态 ELF、五个辅助文件和内嵌固定源；构建配方、旧验证器、收集器及三份库存与 Git b562 原字节一致。两个原包均通过当前严格验证器，并可重新组装公开 TEST_ONLY 签名 bundle 后通过现有 release 验证；未执行下载二进制、未在本机重建 Linux 或签正式 release。b562 原库存、版权文本、版本与制品路径均保持不变。
+
+本轮旧 release 32 项中 28 通过、4 既有 root 条件跳过，模拟发布 22 项及 core 分层 6 项通过；合计 73 通过、0 失败、4 跳过。Python 语法、core 门禁、actionlint、文档链接及差异检查通过。Rust 源码无变化，未运行 Cargo/native 构建，也不把已完成固定源 CI 当作新验证器提交的 CI；最终整合提交仍需单独核对。

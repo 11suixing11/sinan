@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Existing full lowercase source commit to verify (empty selects this workflow commit)
+        required: false
+        type: string
 permissions:
   contents: read
 jobs:
@@ -22,7 +27,7 @@ jobs:
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
     env:
-      TCP_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+      TCP_SOURCE_COMMIT: ${{ inputs.source_commit || github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -67,7 +72,7 @@ jobs:
     container: rust:1.98.1-bookworm
     timeout-minutes: 30
     env:
-      TCP_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+      TCP_SOURCE_COMMIT: ${{ inputs.source_commit || github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:

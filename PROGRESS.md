@@ -712,6 +712,11 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 保留作者 Bookworm 启动及精确 workspace 信任修复；`b536476` 的 Debian12/amd64/arm64 原生制品 CI 全过。本地修正回环 CLI 测试的非阻塞 socket 读取竞态，TCP 17项单线程通过，TCP 全targets Clippy、fmt、Python来源12/发布22、旧Release28通过/4条件跳过及 core/actionlint 通过。永久源与当前 main 的锁文件区别已明确，生产引擎预算和固定制品未改；最终整合 HEAD 的主线 CI 尚须实时核对。
 
+### P2 原生 TCP 实际 bundled musl 原文补齐（Issue #75，独立 PR）
+
+自带musl/CRT配方使用Rust官方固定commit对应musl1.2.5与安全补丁；旧system1.2.3通知不作为实际libc来源。纳入官方完整版权原文、不可执行Rust证明配方与固定摘要，构建不联网补齐、未知rustc/原文篡改在Cargo前拒绝；签名验证对比固定source与实际rustc，真实重签缺失/篡改仍拒绝。五aux与ABI不变；新的公开工具pin、实际Bookworm及最新CI完成后单独记录，未正式发布。
+
+- 修复后永久公开工具pin b562effcd90f8ae319665fb4ead1807b770ed4d5已实际Bookworm构建/ELF/version/build-info/完整5aux TEST_ONLY签名通过，35锁定依赖与Rust标准库、actual bundledmusl1.2.5、system1.2.3工具通知分别完整记录。fmt/core/15行为与真实重签/旧Release32/模拟发布22通过，exit0/OOMfalse，binary SHA e493d095...，日志evidence/tcp-musl-notices-b562eff。仅Python/库存变动，无重复全workspace；最新独立PR CI待核，未正式发布。
 ### P1 sing-box 根插件物理目录恢复（独立后续）
 
 合并后 sing-box 面板实现位于 crates/panel/src/plugins/singbox，与用户要求及ADR0023的根 plugins/singbox 不一致。独立后续将13文件 git mv 至 plugins/singbox/panel，以薄的 Rust path 桥保留模块名与接口；逐文件blob SHA一致，无业务/API/数据库/epoch/前端变动。ADR0030与AGENTS明确物理路径。静态fmt/core/差异检查及最新CI分别记录，未重新宣称实机流量完成。详见singbox-plugin-business独立验收。
@@ -725,3 +730,9 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 14专项含真实回环HTTP/TLS、卡死夹具预算及恶意摘要隐私回归通过；验收驱动21、运行时缓存3、签名8、Python仓库101项/6既有条件跳过通过，fmt/core/shell/差异检查通过。独立提交CI与实际Reality另行核对，未将同源旧提交重跑当成本项集成验收。见 [独立验收](docs/acceptance/reality-failure-evidence.md)。
 
 - 最终正常保留作者原始 `7db4c1a` 及推进后的 `7ce37b9`，合入正式主线 `8ef465f`，保留原生Bookworm制品修复/CLI夹具及根sing-box插件物理目录。冻结源码 `357eadb` 中HTTP每次底层读取共享绝对截止，作者的唯一短命worker硬2秒截止/回收与进程存在性字段均保留；已有失败的清理继续尝试并保留原28，原成功流程的清理错误仍拒绝。真实负对照捕获慢滴头/体3.48/3.50秒超限和原28被清理7覆盖，恢复后取证16、驱动21、缓存3、签名8全部通过；仓库Python101项运行（95通过/6既有条件跳过），合计143通过、0失败、6跳过。Python/Bash语法、fmt只读检查、core/actionlint及链接/差异检查通过，未运行Rust编译/测试或实际生产Reality/公开网络，完整提交CI继续单独核对，Issue #6原因仍未知。
+
+### PR #76 实际 bundled musl 独立复核
+
+- 保留作者 `08c9de2` 与正式主线 `d1ff2df`。官方 musl1.2.5 归档、193 行 COPYRIGHT、Rust 1.98.1 固定官方 commit 和 97 行配方的摘要及原字节全部核对；配方除两项 2025 iconv 补丁还包含两份 2026 安全补丁，均不改 COPYRIGHT。库存简述只描述 2025 子集，原库存不改写，实际 self-contained libc 与系统构建工具通知分开记录。
+- 修复 rustc 身份歧义：旧表达式接受已知/未知双字段和重复已知字段，即使按完整摘要与公开 TEST_ONLY key 真实重签仍被接受；新检查只允许一个精确字段，补充收集前和重签后的实际负向回归。来源/签名 17、旧 release 28（4 既有条件跳过）、模拟发布 22、core 分层 6 项通过，合计 73 通过/0 失败/4 跳过；Python/core/actionlint/链接/差异检查通过。
+- 实际原生 CI `36794789931` 三个 job 成功，工作流 head `08c9de2` 显式选择固定工具源 `b562effcd90f8ae319665fb4ead1807b770ed4d5`；每个 job 真实启动及来源/签名 15+原生 bundle 1 项通过。独立下载两个架构的原包，当前严格验证器接受合法历史库存，并将其重新组装公开 TEST_ONLY 签名验证通过；内嵌构建器、旧验证器、收集器及三份库存与 Git b562 逐字一致。不声称旧固定对象含新歧义检查，不改其版本路径或既存制品。本机未运行下载二进制、Cargo/native build、正式签名、发布或生产探测；本地完整整合提交 CI 另行核对。
