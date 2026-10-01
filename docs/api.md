@@ -226,7 +226,7 @@
 
 从未发布时 `status` 为 `null`、`history` 为空。历史按版本倒序，最多 100 条，仅包含元数据。`target_rev` 是最新期望版本；`applied_rev` 是已知成功应用的版本；`last_result_rev` 是最后接受的应用结果版本；`healthy` 表示设备报告当前配置是否健康。失败后成功回滚时可以同时出现 `healthy=true` 和 `last_error`，界面应保留失败提示及当前实际版本。
 
-响应还含 `pending`（存在尚未发布的修改）、`enabled_nodes` 与 `authorized_nodes`（当前有有效授权的节点数）。管理员 `POST /api/plugins/sing-box/servers/{id}/deployments/check` 无请求体，返回 `{ready,checks:[{name,passed,detail}]}`，检查设备接入、60 秒在线、插件能力及现有平台选择规则下的签名运行时。只读检查不会安装、发布或重启；归档验签不随每次状态轮询执行。缺少制品返回检查未通过，内部验证错误不泄露密钥和路径。
+响应还含 `pending`（存在尚未发布的修改）、`enabled_nodes` 与 `authorized_nodes`（当前有有效授权的节点数）。管理员 `POST /api/plugins/sing-box/servers/{id}/deployments/check` 无请求体，返回 `{ready,checks:[{name,passed,detail}]}`，检查设备接入、60 秒在线、插件能力、设备制品验签能力及现有平台选择规则下的签名运行时。只有设备声明 `artifact:minisign-v1` 才能通过验签能力检查；面板保存已签运行时不能替代设备验签支持。只读检查不会安装、发布或重启；归档验签不随每次状态轮询执行。缺少制品返回检查未通过，内部验证错误不泄露密钥和路径。
 
 较旧的应用结果不能覆盖较新结果。认证设备在 hello/heartbeat 中报告已发布且高于面板记录的已应用版本时，面板补齐成功状态，以恢复应用成功但回报丢失的场景；最近目标版本的错误说明仍保留。
 
