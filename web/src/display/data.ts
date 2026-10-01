@@ -44,7 +44,7 @@ export function aggregate(servers: Server[], field: NetworkField, live = false) 
 export function filterServers(servers: Server[], query: string, filter: string) {
   const text = query.trim().toLocaleLowerCase()
   return servers.filter(server => {
-    const matches = [server.name, server.static_info.hostname, server.static_info.system, server.static_info.arch]
+    const matches = [server.name, server.static_info.hostname, server.static_info.system, server.static_info.arch, server.asset_settings?.region, server.asset_settings?.group_name, ...(server.asset_settings?.tags ?? [])]
       .filter(Boolean).join(' ').toLocaleLowerCase().includes(text)
     return matches && (filter === 'all' || (filter === 'online' ? server.online : filter === 'offline' ? !server.online && Boolean(server.device_public_key) : !server.online && !server.device_public_key))
   })

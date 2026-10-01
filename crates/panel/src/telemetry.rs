@@ -89,6 +89,7 @@ pub async fn ingest(
         .fetch_one(&mut *tx)
         .await?;
     let mut ack = Vec::new();
+    let mut traffic_samples = Vec::new();
     for sample in batch.samples {
         let value = serde_json::to_value(&sample.metrics).map_err(anyhow::Error::from)?;
         let digest = format!(
@@ -113,9 +114,11 @@ pub async fn ingest(
                 .bind(server).bind(&value).bind(sample.sampled_at).execute(&mut *tx).await?;
             sqlx::query("INSERT INTO metrics_minutely(server_id,bucket,metrics,sampled_at) VALUES($1,$2,$3,$4) ON CONFLICT(server_id,bucket) DO UPDATE SET metrics=EXCLUDED.metrics,sampled_at=EXCLUDED.sampled_at WHERE metrics_minutely.sampled_at<EXCLUDED.sampled_at")
                 .bind(server).bind(sample.sampled_at / 60_000 * 60).bind(&value).bind(sample.sampled_at).execute(&mut *tx).await?;
+            traffic_samples.push(sample.clone());
         }
         ack.push(sample.id);
     }
+    crate::server_traffic::ingest(&mut tx, server, &mut traffic_samples).await?;
     sqlx::query("DELETE FROM telemetry_samples WHERE server_id=$1 AND sampled_at<$2")
         .bind(server)
         .bind(now - 2 * 3_600_000)
