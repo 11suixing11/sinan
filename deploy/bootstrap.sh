@@ -146,7 +146,7 @@ for tool in $TOOLS; do
   command -v "$tool" >/dev/null || { echo "系统软件源未提供所需工具: $tool" >&2; exit 1; }
 done
 fi
-cat > "$STAGING/bootstrap.py" <<'SINAN_BOOTSTRAP_2092CBE03C470AE6A2DD609C928E670BA6D7B8202D0A323A60D9AFF5F59DEA56'
+cat > "$STAGING/bootstrap.py" <<'SINAN_BOOTSTRAP_F5FBBF0763C47193872F805D334FCDB06F624EFD2F62CE79D0E044340AEB1F3E'
 #!/usr/bin/env python3
 """Trusted, operator-provisioned bootstrap; never fetched from the panel and executed."""
 
@@ -182,6 +182,7 @@ PROOF_FILES = (("SHA256SUMS", 8192), ("SHA256SUMS.minisig", 16384),
 PRELOADED_INSTALLER_MARKER = b"# SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1"
 DOWNLOAD_BUDGET_SECONDS = 300
 DOWNLOAD_SOCKET_TIMEOUT = 20
+CATALOG_BUDGET_SECONDS = 30
 
 
 class IncompatibleRelease(ValueError):
@@ -195,9 +196,9 @@ def require_preloaded_installer(installer):
            "trusted Linux installer requires the preloaded-GitHub Agent contract")
 
 
-def bounded_read(response, size, deadline):
+def bounded_read(response, size, deadline, message="GitHub download exceeded total time budget"):
     remaining = deadline - time.monotonic()
-    ensure(remaining > 0, "GitHub download exceeded total time budget")
+    ensure(remaining > 0, message)
     # urllib otherwise renews its timeout for every socket read. Bound each
     # active HTTP(S) read by this file's remaining total budget as well.
     sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
@@ -205,7 +206,7 @@ def bounded_read(response, size, deadline):
         sock.settimeout(min(DOWNLOAD_SOCKET_TIMEOUT, remaining))
     read = getattr(response, "read1", response.read)
     block = read(size)
-    ensure(time.monotonic() < deadline, "GitHub download exceeded total time budget")
+    ensure(time.monotonic() < deadline, message)
     return block
 
 
@@ -381,10 +382,20 @@ def catalog(panel, token, target, version):
     if version != "latest":
         parameters["agent_version"] = version
     url = panel.rstrip("/") + "/api/bootstrap/versions?" + urllib.parse.urlencode(parameters)
+    deadline = time.monotonic() + CATALOG_BUDGET_SECONDS
     try:
-        with panel_opener().open(url, timeout=30) as response:
+        with panel_opener().open(url, timeout=CATALOG_BUDGET_SECONDS) as response:
             ensure(response.status == 200 and response.url == url, "接入版本目录响应无效")
-            encoded = response.read(131073)
+            blocks, total = [], 0
+            while True:
+                block = bounded_read(response, min(65536, 131073 - total), deadline,
+                                     "panel catalog download exceeded total time budget")
+                if not block:
+                    break
+                total += len(block)
+                ensure(total <= 131072, "接入版本目录超出大小限制")
+                blocks.append(block)
+            encoded = b"".join(blocks)
     except urllib.error.HTTPError as error:
         raise ValueError("无法获取接入版本，请检查令牌是否有效以及面板是否已导入签名 Release") from error
     ensure(0 < len(encoded) <= 131072, "接入版本目录超出大小限制")
@@ -687,7 +698,7 @@ if __name__ == "__main__":
         main()
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise SystemExit(f"Bootstrap refused: {error}") from error
-SINAN_BOOTSTRAP_2092CBE03C470AE6A2DD609C928E670BA6D7B8202D0A323A60D9AFF5F59DEA56
+SINAN_BOOTSTRAP_F5FBBF0763C47193872F805D334FCDB06F624EFD2F62CE79D0E044340AEB1F3E
 
 cat > "$STAGING/release.py" <<'SINAN_BOOTSTRAP_6DD03D6EF5135BCDB95B6849274A2D3C5CB988244B816F951C05B747FC41BC81'
 #!/usr/bin/env python3

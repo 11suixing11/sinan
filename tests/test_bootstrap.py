@@ -3,6 +3,7 @@
 
 import io
 import importlib.util
+import http.server
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 import urllib.request
@@ -97,6 +100,46 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual([item["version"] for item in candidates], ["0.10.0", "0.9.0"])
         self.assertEqual(opener.return_value.open.call_args.args[0], url)
 
+    def test_slow_private_catalog_cannot_renew_its_total_deadline(self):
+        payload = json.dumps({"versions": [{"version": "0.3.0", "tag": "agent-v0.3.0",
+                                          "targets": ["arm64"]}]}).encode()
+        stop = threading.Event()
+
+        class SlowCatalog(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                try:
+                    for byte in payload:
+                        if stop.wait(0.01):
+                            break
+                        self.wfile.write(bytes([byte]))
+                        self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+
+            def log_message(self, *_arguments):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), SlowCatalog)
+        worker = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        worker.start()
+        started = time.monotonic()
+        try:
+            with patch.object(bootstrap, "CATALOG_BUDGET_SECONDS", 0.15), \
+                    self.assertRaises((ValueError, OSError)) as refusal:
+                bootstrap.catalog(f"http://127.0.0.1:{server.server_port}",
+                                  "TEST_ONLY_catalog_token", "linux-musl-arm64", "latest")
+            self.assertLess(time.monotonic() - started, 1)
+            self.assertNotIn("TEST_ONLY_catalog_token", str(refusal.exception))
+        finally:
+            stop.set()
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=1)
+        self.assertFalse(worker.is_alive())
+
     def test_agent_download_is_bounded_github_only_and_rejects_tampering_before_execution(self):
         item = {"version": "0.3.0", "arch": "freebsd-arm64", "archive_size": 3,
                 "binary_size": 3, "format": "raw", "asset_name": "agent-0.3.0-freebsd-arm64",
@@ -181,7 +224,7 @@ class BootstrapTests(unittest.TestCase):
                     self.assertRaisesRegex(ValueError, "activation failure"):
                 bootstrap.install_native(bundle, "https://panel.example.com", "fixture", {}, "freebsd-amd64")
             self.assertEqual(configuration.read_bytes(), previous)
-            self.assertEqual(calls[-1][0], old_agent)
+            self.assertEqual(calls[-1][0], old_agent.resolve(strict=True))
             self.assertIn("install-service", calls[-1][1])
             self.assertEqual(calls[0][1][0], "verify-installed")
             self.assertIn("verify-cache", calls[1][1])
