@@ -9,6 +9,7 @@ from pathlib import Path
 import platform
 import subprocess
 import tempfile
+import time
 import urllib.parse
 import urllib.request
 
@@ -17,6 +18,16 @@ from release import (REPOSITORY, VERSION, digest, ensure, load_roots, read_regul
 
 GITHUB_DOWNLOAD_HOSTS = frozenset(("github.com", "release-assets.githubusercontent.com",
                                     "objects.githubusercontent.com"))
+PRELOADED_INSTALLER_MARKER = b"# SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1"
+DOWNLOAD_BUDGET_SECONDS = 300
+DOWNLOAD_SOCKET_TIMEOUT = 20
+
+
+def require_preloaded_installer(bundle):
+    installer = read_regular(Path(bundle) / "install.sh", 262144)
+    ensure(installer.splitlines().count(PRELOADED_INSTALLER_MARKER) == 1,
+           "signed installer requires panel Agent downloads; install a new immutable "
+           "GitHub Release with the preloaded-Agent contract (agent-v0.3.0 is incompatible)")
 
 
 def validate_mirror(value, panel=None):
@@ -91,9 +102,26 @@ def download(base, name, destination, limit, mirror=""):
     if mirror:
         url = mirror + "/" + url
     validate_github_url(url, mirror)
-    with github_opener(mirror).open(url, timeout=120) as response:
+    deadline = time.monotonic() + DOWNLOAD_BUDGET_SECONDS
+    with github_opener(mirror).open(url, timeout=DOWNLOAD_SOCKET_TIMEOUT) as response:
         validate_github_url(response.url, mirror)
-        data = response.read(limit + 1)
+        blocks, total = [], 0
+        while True:
+            remaining = deadline - time.monotonic()
+            ensure(remaining > 0, "GitHub download exceeded total time budget")
+            # urllib's timeout is otherwise renewed by every socket read. Cap
+            # the active HTTP(S) socket by this file's remaining total budget.
+            sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+            if sock is not None:
+                sock.settimeout(min(DOWNLOAD_SOCKET_TIMEOUT, remaining))
+            block = response.read1(min(65536, limit + 1 - total))
+            ensure(time.monotonic() < deadline, "GitHub download exceeded total time budget")
+            if not block:
+                break
+            total += len(block)
+            ensure(total <= limit, "download size outside permitted range")
+            blocks.append(block)
+        data = b"".join(blocks)
     ensure(0 < len(data) <= limit, "download size outside permitted range")
     destination.write_bytes(data)
 
@@ -142,6 +170,9 @@ def main():
             validate_manifest(bundle, tag)
         else:
             verify_manifest(bundle, roots, args.minisign, tag)
+        # This marker is covered by the independently verified installer digest.
+        # Old signed installers must never reach their panel binary request.
+        require_preloaded_installer(bundle)
         metadata = json.loads((bundle / "release.json").read_text())
         arch = {"x86_64": "amd64", "aarch64": "arm64"}[platform.machine()]
         entries = [item for item in metadata["artifacts"] if

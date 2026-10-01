@@ -39,6 +39,50 @@ class BootstrapTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             RENDER.render(trusted_keys=FIXTURES / "public-keys.json")
 
+    def test_signed_installer_requires_preloaded_agent_contract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            installer = Path(directory) / "install.sh"
+            installer.write_bytes(b"#!/bin/sh\n# Old signed installer\n")
+            with self.assertRaisesRegex(ValueError, "agent-v0.3.0 is incompatible"):
+                bootstrap.require_preloaded_installer(directory)
+            marker = bootstrap.PRELOADED_INSTALLER_MARKER + b"\n"
+            installer.write_bytes(b"#!/bin/sh\n" + marker)
+            bootstrap.require_preloaded_installer(directory)
+            installer.write_bytes(b"#!/bin/sh\n" + marker + marker)
+            with self.assertRaises(ValueError):
+                bootstrap.require_preloaded_installer(directory)
+
+    def test_slow_stream_has_total_budget_and_leaves_no_partial_file(self):
+        class SlowResponse(Response):
+            def read1(self, size):
+                return b"x"
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "agent"
+            with patch.object(bootstrap, "github_opener") as opener, \
+                 patch.object(bootstrap.time, "monotonic", side_effect=[0, 0, 200, 200, 301]):
+                opener.return_value.open.return_value = SlowResponse(b"", "https://github.com/asset")
+                with self.assertRaisesRegex(ValueError, "total time budget"):
+                    bootstrap.download("https://github.com/allowed", "agent", target, 1024)
+                self.assertEqual(opener.return_value.open.call_args.kwargs["timeout"], 20)
+            self.assertFalse(target.exists())
+
+    def test_socket_timeout_uses_remaining_file_budget(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "agent"
+            response = Response(b"signed", "https://github.com/asset")
+            sock = Mock()
+            response.fp = SimpleNamespace(raw=SimpleNamespace(_sock=sock))
+            with patch.object(bootstrap, "github_opener") as opener, \
+                 patch.object(bootstrap.time, "monotonic", side_effect=[0, 295, 296, 297, 298]):
+                opener.return_value.open.return_value = response
+                bootstrap.download("https://github.com/allowed", "agent", target, 1024)
+            self.assertEqual([call.args for call in sock.settimeout.call_args_list], [(5,), (3,)])
+            self.assertEqual(target.read_bytes(), b"signed")
+
     def test_mirror_is_explicit_https_prefix_without_panel_credentials(self):
         base = "https://github.com/theLucius7/sinan/releases/download/agent-v0.3.1"
         mirror = "https://mirror.example.com"
