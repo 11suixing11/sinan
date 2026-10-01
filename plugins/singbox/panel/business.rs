@@ -6,7 +6,7 @@ use sinan_compiler::{Access, Node};
 use sqlx::{FromRow, Postgres, Transaction};
 use x25519_dalek::{PublicKey, StaticSecret};
 
-pub(crate) const NODE_COLUMNS: &str = "n.id, n.name, n.server_id, n.protocol, n.port, n.public_host, n.sni, n.private_key, n.public_key, n.short_id";
+pub(crate) const NODE_COLUMNS: &str = "n.id, n.name, n.server_id, n.protocol, n.port, n.public_host, n.sni, n.private_key, n.public_key, n.short_id, n.protocol_config";
 
 #[derive(FromRow)]
 pub(crate) struct NodeRow {
@@ -20,6 +20,7 @@ pub(crate) struct NodeRow {
     pub private_key: String,
     pub public_key: String,
     pub short_id: String,
+    pub protocol_config: serde_json::Value,
 }
 
 #[derive(Serialize)]
@@ -33,6 +34,7 @@ pub struct NodeView {
     pub sni: String,
     pub public_key: String,
     pub short_id: String,
+    pub protocol_config: serde_json::Value,
 }
 
 impl NodeRow {
@@ -47,10 +49,13 @@ impl NodeRow {
             public_key: self.public_key.clone(),
             short_id: self.short_id.clone(),
             users,
+            protocol_config: serde_json::from_value(self.protocol_config.clone())?,
         })
     }
 
     pub(crate) fn view(self) -> ApiResult<NodeView> {
+        let config: sinan_compiler::ProtocolConfig =
+            serde_json::from_value(self.protocol_config).map_err(anyhow::Error::from)?;
         Ok(NodeView {
             id: self.id,
             name: self.name,
@@ -61,6 +66,7 @@ impl NodeRow {
             sni: self.sni,
             public_key: self.public_key,
             short_id: self.short_id,
+            protocol_config: super::node_protocol::view(&config),
         })
     }
 }

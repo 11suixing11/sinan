@@ -207,6 +207,33 @@ async fn failed_health_rolls_back_links_state_and_captures_terminal_usage() {
 }
 
 #[tokio::test]
+async fn extended_health_budget_allows_startup_but_still_rolls_back_on_timeout() {
+    let test = Fixture::new();
+    test.adapter.health_budget_secs.store(2, Ordering::SeqCst);
+    test.adapter
+        .next_health_delay_ms
+        .store(1200, Ordering::SeqCst);
+    let first = test
+        .reconciler
+        .apply_prepared(test.target(1, "1", "a"))
+        .await
+        .unwrap();
+    assert_eq!(first.status, ApplyStatus::Applied);
+    test.adapter
+        .next_health_delay_ms
+        .store(2500, Ordering::SeqCst);
+    let failed = test
+        .reconciler
+        .apply_prepared(test.target(2, "1", "b"))
+        .await
+        .unwrap();
+    assert_eq!(failed.status, ApplyStatus::Failed);
+    assert!(failed.healthy);
+    assert!(failed.error.unwrap().contains("health check timed out"));
+    assert_eq!(test.applied().unwrap().spec.revision, 1);
+}
+
+#[tokio::test]
 async fn missing_terminal_counters_prevent_service_disruption() {
     let test = Fixture::new();
     test.reconciler

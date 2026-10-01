@@ -136,8 +136,7 @@ impl Reconciler {
                     .begin_usage_epoch(&descriptor.module, now_timestamp())?;
             }
             anyhow::ensure!(
-                self.bounded(self.adapter.health(&intent.target, self.services.as_ref()))
-                    .await?,
+                self.runtime_health(&intent.target).await?,
                 "runtime failed health check"
             );
             self.checkpoint(op_id, Some(&intent.target), true)?;
@@ -207,8 +206,7 @@ impl Reconciler {
                 .map_err(|_| anyhow::anyhow!("state poisoned"))?
                 .begin_usage_epoch(&descriptor.module, now_timestamp())?;
             anyhow::ensure!(
-                self.bounded(self.adapter.health(previous, self.services.as_ref()))
-                    .await?,
+                self.runtime_health(previous).await?,
                 "rollback health check failed"
             );
             self.checkpoint(op_id, Some(previous), true)?;

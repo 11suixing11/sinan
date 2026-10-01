@@ -18,7 +18,7 @@
 rootfs 下载：
 - https://github.com/LloydAsp/NodeQuality/releases/download/v0.0.2/BenchOs.tar.gz：312,475,959 字节；GitHub 发布资产 digest 为 sha256:5f844e73941c3623175c5cdc16b01db34c155d0d1bd9b0cf71f3d72e8b1148e1。
 - 同版本 BenchOs-arm.tar.gz：359,657,375 字节；发布 digest 为 sha256:a4dd4e55b129157a02dab437b78e41b5797a7a79a0f0b7febdecab8eb2a312c7。
-- v0.0.2 tag 指向 b9967df1797d4079c89b008bb888bc6ef1fb2672。仓库该提交未提供 rootfs 构建配方或包/许可证清单。初次审计没有下载 rootfs；之后已完成 amd64 归档摘要和有界静态盘点，发现预置 Ookla 二进制缺少可核对的来源与再分发证明，见 [rootfs 独立证据](nodequality-rootfs-inventory.md)。ARM 归档仍未盘点；资产 digest 不代表签名、完整来源或授权。
+- v0.0.2 tag 指向 b9967df1797d4079c89b008bb888bc6ef1fb2672。仓库该提交未提供 rootfs 构建配方或包/许可证清单。初次审计没有下载 rootfs；之后已完成 amd64 归档摘要和有界静态盘点，发现预置 Ookla 二进制缺少可核对的来源与再分发证明，见 [rootfs 独立证据](nodequality-rootfs-inventory.md)。ARM 归档已另行完成有界静态盘点，见 [ARM 独立证据](nodequality-rootfs-arm-inventory.md)；资产 digest 不代表签名、完整来源或授权。
 - 现行入口下载后直接解压，没有比对摘要或签名。两个 rootfs 压缩包均超当前 256 MiB 单执行文件/辅助文件上限，不能直接塞入既有单文件 runner。不得为了接受不透明包而放宽全局制品限额。
 
 NextTrace：

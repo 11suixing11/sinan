@@ -112,6 +112,7 @@ pub fn router(state: AppState) -> Router {
             axum::routing::patch(probes::update).delete(probes::remove),
         )
         .route("/api/servers/{id}/probe-results", get(probes::history))
+        .route("/api/probes/overview", get(probes::overview))
         .route(
             "/api/servers/{id}/diagnostics",
             get(diagnostics::service::get),

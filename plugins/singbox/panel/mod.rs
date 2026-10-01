@@ -3,6 +3,7 @@ mod activity;
 pub mod agent;
 pub mod business;
 pub mod deployments;
+mod node_protocol;
 pub mod nodes;
 pub mod proxy_users;
 pub mod publisher;
