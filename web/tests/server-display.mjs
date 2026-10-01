@@ -48,6 +48,7 @@ try {
       const request = route.request(), url = new URL(request.url()), path = url.pathname.replace('/api/dashboard/', '/api/')
       requests.push(path + url.search)
       if (request.method() !== 'GET') writes.push(path)
+      if (path === '/api/exchange-rates' && request.method() === 'GET') return route.fulfill({ json: { base: 'CNY', rates: { CNY: 1 }, rate_dates: {}, rate_date: null, source: null, source_url: null, fetched_at: null, attempted_at: null, next_refresh_at: 0, stale: true, status: 'unavailable', error_code: null } })
       if (path === '/api/access') return route.fulfill({ json: { authenticated: signedIn && failure !== 401, public_dashboard: false } })
       if (path === '/api/me') { await route.fulfill({ status: signedIn ? 200 : 401, json: signedIn ? {} : { error: '登录已过期' } }); return }
       if (path === '/api/servers') {

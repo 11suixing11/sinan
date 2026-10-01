@@ -47,6 +47,7 @@ try {
       else if (path === '/api/plugins/sing-box/chains') value = []
       else if (path === '/api/plugins/sing-box/usage') value = { uplink: '0', downlink: '0', total: '0', by_user: [], by_node: [] }
       else if (path === '/api/servers/1/agent-settings') value = { sample_interval_secs: 1, upload_interval_secs: 3, discover_public_ips: false, auto_update: false }
+      else if (path === '/api/servers/1/telemetry-settings') value = { persist_interval_secs: 60 }
       else if (path === '/api/servers/1/node-quality') value = { ip_addresses: [], quality: [], plugin_ready: false, plugin_reason: '夹具未启用诊断', reports: [] }
       else if (['/api/servers/1/probes', '/api/servers/1/probe-results', '/api/servers/1/commands'].includes(path)) value = []
       else if (path === '/api/security/totp') value = { enabled: false }

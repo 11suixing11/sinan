@@ -41,6 +41,7 @@ try {
     else if (path === '/api/servers/1') value = { id: 1, name: '工具链门禁夹具', online: true, device_public_key: 'TEST_ONLY', static_info: {}, latest_metrics: {}, last_seen: now, manifest_rev: 0, capabilities: [] }
     else if (path === '/api/servers/1/deployments') value = { status: null, history: [] }
     else if (path === '/api/servers/1/agent-settings') value = { sample_interval_secs: 1, upload_interval_secs: 3, discover_public_ips: false, auto_update: false }
+    else if (path === '/api/servers/1/telemetry-settings') value = { persist_interval_secs: 60 }
     else if (path === '/api/servers/1/node-quality/reports' && request.method() === 'GET') value = { plugin_ready: ready, plugin_reason: ready ? null : 'Agent 当前离线', full_ready: false, full_reason: reason, cancel_supported: true, reports: records, proxy_activity: { state: 'unknown', reason: '代理流量状态未知', checked_at: now, last_positive_at: null } }
     else if (path === '/api/servers/1/node-quality/reports') {
       const body = request.postDataJSON()
@@ -67,6 +68,8 @@ try {
   assert.equal(await page.getByRole('checkbox').first().isDisabled(), true)
   await daily.click()
   await page.getByText('IP 查询源返回 403；历史结果保留', { exact: true }).waitFor()
+  // The independent IP response can arrive before the report read-back.
+  await page.getByText('任务已保存，等待在线 Agent 领取。通常会在数秒内开始。', { exact: true }).waitFor()
   assert.equal(dailyPosts, 1); assert.equal(refreshPosts, 1); assert.equal(fullPosts, 0)
   assert.equal(await daily.isDisabled(), true)
   records = [old]

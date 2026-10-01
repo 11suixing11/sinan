@@ -7,6 +7,7 @@ import Servers from './pages/Servers'
 import ServerDetail from './pages/ServerDetail'
 import Nodes from './plugins/singbox/Nodes'
 import { nodeRoute } from './plugins/singbox/nodeRoute'
+import { resourceRoute } from './plugins/singbox/resourceTypes'
 import ProxyUsers from './plugins/singbox/ProxyUsers'
 import Groups from './plugins/singbox/Groups'
 import Plugins from './pages/Plugins'
@@ -62,7 +63,7 @@ export default function App() {
   const proxyResource = resourceRoute(path)
   const display = dashboardRoute(path)
   const nodePage = nodeRoute(path)
-  const current = navigation.find(item => path === item.path || (item.path === '/servers' && Boolean(match)) || (item.path === '/plugins/sing-box/nodes' && nodePage !== null) || (item.path === '/plugins/catalog' && isCatalogPath(path)))
+  const current = navigation.find(item => path === item.path || (item.path === '/servers' && Boolean(match)) || (item.path === '/plugins/sing-box/nodes' && (nodePage !== null || proxyResource !== null)) || (item.path === '/plugins/catalog' && isCatalogPath(path)))
   const title = display ? '服务器看板' : current?.label ?? '控制面板'
   useEffect(() => { document.title = `${title} · 司南` }, [title])
   if (session === null) return <div className="boot"><Brand /><Loading /></div>
@@ -75,7 +76,7 @@ export default function App() {
     : path === '/servers' || path === '/' ? <Servers />
       : path === '/statistics' ? <Statistics />
       : path === '/latency' ? <LatencyTasks />
-      : nodePage ? nodePage.chains ? <Groups key="node-chains" initialTab="chains" /> : <Nodes key={nodePage.serverId ?? 'all-nodes'} serverId={nodePage.serverId} />
+      : nodePage || proxyResource ? <Nodes key={nodePage?.chains ? 'chains' : nodePage?.serverId ?? 'all-nodes'} serverId={nodePage?.serverId} chains={nodePage?.chains} selected={proxyResource ?? undefined} />
         : path === '/plugins/sing-box/users' ? <ProxyUsers />
           : path === '/plugins/sing-box/groups' ? <Groups />
             : path === '/system/plugins' ? <Plugins />

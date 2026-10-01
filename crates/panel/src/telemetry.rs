@@ -1,3 +1,20 @@
+mod aggregate;
+mod history;
+mod live;
+mod maintenance;
+mod persistence;
+mod storage;
+
+pub use aggregate::{HistoryPoint, MetricAggregate, network_metric_key};
+pub(crate) use history::read_aggregate;
+pub use history::{AggregateHistory, AggregateQuery, aggregate_history, read_minutes, read_window};
+pub(crate) use live::dashboard_live;
+pub use live::{LiveSample, LiveStore, attach_live, latest_live, live};
+pub use maintenance::{maintain, maintain_at};
+pub use storage::{
+    agent_storage_settings, policy, storage_settings, update_policy, update_storage_settings,
+};
+
 use crate::{
     AppState, auth,
     error::{ApiError, ApiResult},
@@ -45,6 +62,9 @@ fn decode(headers: &HeaderMap, bytes: &Bytes) -> ApiResult<TelemetryBatch> {
 }
 
 fn valid_sample(sample: &TelemetrySample, now: i64) -> bool {
+    let nonnegative = |value: Option<f64>| {
+        value.is_none_or(|value| value.is_finite() && (0.0..=1.0e18).contains(&value))
+    };
     sample.sampled_at > 0
         && sample.sampled_at <= now + 60_000
         && sample.sampled_at >= now - 7 * 86_400_000
@@ -56,13 +76,45 @@ fn valid_sample(sample: &TelemetrySample, now: i64) -> bool {
             .cpu_percent
             .is_none_or(|v| v.is_finite() && (0.0..=100.0).contains(&v))
         && sample.metrics.gpus.iter().all(|v| {
-            v.model.len() <= 256 && v.usage_percent.is_none_or(|v| (0.0..=100.0).contains(&v))
+            v.model.len() <= 256
+                && !v.model.contains('\0')
+                && v.usage_percent
+                    .is_none_or(|v| v.is_finite() && (0.0..=100.0).contains(&v))
         })
+        && [
+            sample.metrics.load_1,
+            sample.metrics.load_5,
+            sample.metrics.load_15,
+        ]
+        .into_iter()
+        .all(nonnegative)
         && sample
             .metrics
-            .disks
+            .network_interfaces
             .iter()
-            .all(|v| v.name.len() <= 1024 && v.mount_point.len() <= 4096)
+            .all(|(name, value)| {
+                name.len() <= 1024
+                    && !name.contains('\0')
+                    && nonnegative(value.receive_bytes_per_sec)
+                    && nonnegative(value.transmit_bytes_per_sec)
+            })
+        && sample.metrics.disks.iter().all(|v| {
+            v.name.len() <= 1024
+                && v.mount_point.len() <= 4096
+                && !v.name.contains('\0')
+                && !v.mount_point.contains('\0')
+                && [
+                    v.read_bytes_per_sec,
+                    v.write_bytes_per_sec,
+                    v.read_iops,
+                    v.write_iops,
+                    v.await_ms,
+                ]
+                .into_iter()
+                .all(nonnegative)
+                && v.utilization_percent
+                    .is_none_or(|value| value.is_finite() && (0.0..=100.0).contains(&value))
+        })
 }
 
 pub async fn ingest(
@@ -83,54 +135,9 @@ pub async fn ingest(
     {
         return Err(ApiError::BadRequest("遥测样本重复、过期或格式无效".into()));
     }
-    let mut tx = state.pool.begin().await?;
-    sqlx::query("SELECT id FROM servers WHERE id=$1 FOR UPDATE")
-        .bind(server)
-        .fetch_one(&mut *tx)
-        .await?;
-    let mut ack = Vec::new();
-    let mut traffic_samples = Vec::new();
-    for sample in batch.samples {
-        let value = serde_json::to_value(&sample.metrics).map_err(anyhow::Error::from)?;
-        let digest = format!(
-            "{:x}",
-            Sha256::digest(serde_json::to_vec(&sample).map_err(anyhow::Error::from)?)
-        );
-        let result = sqlx::query("INSERT INTO telemetry_samples(server_id,id,sampled_at,digest,metrics) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING")
-            .bind(server).bind(sample.id).bind(sample.sampled_at).bind(&digest).bind(&value).execute(&mut *tx).await?;
-        if result.rows_affected() == 0 {
-            let previous: String = sqlx::query_scalar(
-                "SELECT digest FROM telemetry_samples WHERE server_id=$1 AND id=$2",
-            )
-            .bind(server)
-            .bind(sample.id)
-            .fetch_one(&mut *tx)
-            .await?;
-            if previous != digest {
-                return Err(ApiError::Conflict("同一遥测标识的内容发生变化".into()));
-            }
-        } else {
-            sqlx::query("UPDATE servers SET latest_metrics=$2,metrics_sampled_at=$3 WHERE id=$1 AND metrics_sampled_at<$3")
-                .bind(server).bind(&value).bind(sample.sampled_at).execute(&mut *tx).await?;
-            sqlx::query("INSERT INTO metrics_minutely(server_id,bucket,metrics,sampled_at) VALUES($1,$2,$3,$4) ON CONFLICT(server_id,bucket) DO UPDATE SET metrics=EXCLUDED.metrics,sampled_at=EXCLUDED.sampled_at WHERE metrics_minutely.sampled_at<EXCLUDED.sampled_at")
-                .bind(server).bind(sample.sampled_at / 60_000 * 60).bind(&value).bind(sample.sampled_at).execute(&mut *tx).await?;
-            traffic_samples.push(sample.clone());
-        }
-        ack.push(sample.id);
-    }
-    crate::server_traffic::ingest(&mut tx, server, &mut traffic_samples).await?;
-    sqlx::query("DELETE FROM telemetry_samples WHERE server_id=$1 AND sampled_at<$2")
-        .bind(server)
-        .bind(now - 2 * 3_600_000)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("DELETE FROM metrics_minutely WHERE server_id=$1 AND bucket<$2")
-        .bind(server)
-        .bind(now / 1000 - 7 * 86400)
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await?;
-    Ok(Json(TelemetryAck { ids: ack }))
+    Ok(Json(
+        persistence::save(&state.pool, server, batch, now).await?,
+    ))
 }
 
 pub async fn agent_settings(

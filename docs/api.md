@@ -85,6 +85,28 @@
 
 `last_seen` 为 Unix 秒，表示最近设备消息，距最后消息不超过 60 秒视为在线。`last_heartbeat_at` 为 Unix 秒，仅 heartbeat 消息更新，旧数据或尚无心跳时为 null。`metrics_sampled_at` 是既有遥测采样时间，单位毫秒；尚无指标或旧 telemetry.metrics 不含采样时间时为 null。`metrics_stale` 按 Agent 采样和上传设置计算；过期不清空最近指标，在线也可能指标过期。静态信息和指标字段见 [协议文档](protocol.md)。未采集到的指标缺省，前端显示“暂无数据”；不得把缺失值显示为测得的零。
 
+2026-10-02 新增 `metrics_received_at`（最近实时样本接收时间）、`metrics_persisted_at`（最新已持久化样本的采样时间）、`served_at`（查询时间），均为毫秒。不能将 `metrics_persisted_at` 解释为数据库写入的墙钟时间。`telemetry_settings` 为 `{ "persist_interval_secs": 60 }`，新建服务器可选同名字段，省略使用默认值；与名称、资产和初始拨测一起验证保存。旧 `agent_settings` 消息不增加字段。
+
+### 实时监控、历史和汇率
+
+| 方法与路径 | 用途与权限 |
+|---|---|
+| `GET/PATCH /api/servers/{id}/telemetry-settings` | 管理员读取或设置历史批量写入间隔，15–3600 秒 |
+| `GET /api/agent/v1/telemetry-settings` | 设备读取本机历史写入设置 |
+| `POST /api/agent/v1/telemetry/live` | 设备提交一个 `TelemetrySample`，仅更新内存；响应不是持久化 ACK |
+| `POST /api/agent/v1/telemetry` | 保留原批量持久化接口及 `TelemetryAck`；确认后 Agent 才删除本地样本 |
+| `GET/PATCH /api/telemetry/policy` | 管理员读取或设置 `{ "history_retention_days": 30 }`，1–3650 天 |
+| `GET /api/servers/{id}/history?window=24h` | 管理员读取有界聚合历史 |
+| `GET /api/dashboard/live` | 看板轻量实时快照，每次重新校验公开开关、会话和隐藏节点 |
+| `GET /api/dashboard/servers/{id}/history?window=24h` | 看板历史，公开模式沿用指标白名单 |
+| `GET /api/exchange-rates` | 管理员读取汇率缓存，不触发下载 |
+| `POST /api/exchange-rates/refresh` | 管理员手动刷新，30 秒冷却，忙时返回 429 |
+| `GET /api/dashboard/exchange-rates` | 看板汇率缓存，遵守公开开关与 `Cache-Control: no-store` |
+
+历史窗口支持 `15m`、`1h`、`2h`、`24h`、`7d`、`30d`、`90d`、`365d`，查询范围不超过所设保留天数。返回 `window/from/to/bucket_ms/retention_days/points`；每点记录 `bucket_at/sample_count/first_sampled_at/last_sampled_at/partial`，每项有效指标为 `count/avg/min/max`。空桶不补零，范围边缘和旧历史的观测局限以 `partial` 标记。累计网卡值使用精确字符串，不将累计计数求平均。
+
+汇率返回 `base/rates/rate_dates/rate_date/source/source_url/fetched_at/attempted_at/next_refresh_at/stale/status/error_code`。汇率接口时间为 Unix 秒，`rate_dates` 是各币种官方数据日期；状态为 `fresh/stale/unavailable`。未获取成功时只有恒等换算 `CNY:1`，不提供估算价格；更新失败保留真实旧快照。公开汇率接口不附带服务器成本或资产数据。上报、存储和换算规则见 [ADR 0046](adr/0046-monitoring-refresh-history-and-channels.md)。
+
 接入令牌响应为 `{token,expires_at,install_command,installation,warning}`。有兼容签名 Agent 时，`installation={version,tag,target,platform,bootstrap_url,install_command}`；自动模式 `version="latest"`、`tag=null`，在目标服务器执行时识别 ABI 后选择最新兼容稳定版，显式选版返回精确 version/tag。`target` 默认 `auto`，`platform` 默认 `unix`（Shell，Linux/macOS/FreeBSD），`windows` 返回 PowerShell 单行命令。缺少所选平台/版本的签名 proof 时命令与 installation 为 null，并返回中文 warning。令牌 24 小时有效、成功注册后只能消费一次。重新签发可用于同一设备升级，已经注册的服务器只接受原设备公钥。`GET /install.sh?token=…&agent_version=…&agent_target=…&platform=…` 返回同一安装描述 JSON；`GET /install.ps1` 固定 Windows 入口。两者验证活跃令牌，不返回面板可执行脚本。完整命令下载固定官方 GitHub 入口并核对摘要，入口自动准备依赖与独立验证发布签名。独立入口内嵌的可信 Linux 安装执行器兼容旧 `agent-v0.3.0` 的完整签名 proof，不修改已发布资产，也不要求旧 Release 安装器支持预下载 Agent；其他平台仍需对应已签制品。
 
 删除服务器使用面板实际持有的 WebSocket 连接判定在线，与列表按最近 60 秒消息显示的 `online` 不同：

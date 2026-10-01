@@ -18,7 +18,9 @@ python3 scripts/panel.py install --public-url https://panel.example.com
 
 sing-box 运维入口提供状态、脱敏日志、重启和失败部署重试；服务器任务页展示命令执行过程并支持按设备能力取消。代理节点页统一管理直连与有序混合链路，可导入机场订阅并选择具体节点作为中间段或出口，支持固定版本及跟随同一节点更新。使用方法与平台限制见 [Agent 运维与混合链路](docs/agent-runtime-and-chains.md)。
 
-「延迟检测」可统一分配 TCP/ICMP 任务；「看板与通知」可配置离线、资源、到期、流量提醒和 Telegram 渠道。操作见[延迟检测与通知](docs/monitoring.md)。检测与通知均需管理员配置，不执行付款、停用或远程命令。
+服务器看板支持卡片与表格、实时状态、分层历史、跨币种成本及每日汇率缓存。Agent 的采样、实时上报与历史批量写入分别配置，监控历史默认保留 30 天。操作与数据语义见[服务器看板](docs/server-display.md)。
+
+「延迟检测」可统一分配 TCP/ICMP 任务；「看板与通知」可配置离线、资源、到期、流量提醒以及 Telegram、Webhook 渠道，各渠道独立记录投递和重试状态。操作见[延迟检测与通知](docs/monitoring.md)。检测与通知均需管理员配置，不执行付款、停用或远程命令。
 
 远端接入需要可达的 HTTPS 地址。维护者先按[部署维护流程](docs/deploy.md#导入签名-release)使用管理员运维接口准备对应服务器架构的签名 Release，再到服务器接入页复制一次性安装命令，在目标服务器执行。选择 Shell（Linux、macOS、FreeBSD）或 PowerShell（Windows）入口，自动匹配本机系统、CPU/ABI 与最新兼容的已签稳定版本，也可指定已签版本。一行命令自动下载官方独立安装入口，核对固定入口摘要、准备验证工具并核验制品签名，无需预装 `sinan-bootstrap`。
 

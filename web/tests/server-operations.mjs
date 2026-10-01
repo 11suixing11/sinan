@@ -38,6 +38,8 @@ try {
       if (path === '/api/login') { signedIn = true; return respond({}) }
       if (method !== 'GET') writes.push({ path, body: request.postDataJSON() })
       if (path.startsWith('/api/dashboard/') && !signedIn && !publicDashboard) return respond({ error: '请先登录' }, 401)
+      if (path === '/api/dashboard/exchange-rates') return respond({base:'CNY',rates:{CNY:1},rate_dates:{},rate_date:null,fetched_at:null,stale:true,status:'unavailable'})
+      if (path.endsWith('/telemetry-settings')) return respond({persist_interval_secs:60})
       if (path === '/api/dashboard/servers') return respond([view()])
       if (path === '/api/dashboard/servers/1') return respond(view())
       if (path === '/api/settings') {
@@ -52,6 +54,9 @@ try {
       }
       if (path === '/api/servers/1/traffic-correction') return respond({ correction_id: 1 })
       if (path.endsWith('/agent-settings')) return respond(device.agent_settings)
+      if (path === '/api/notifications/webhook') return respond({enabled:false,preset:'custom',url_configured:false,headers_configured:false,body_configured:false})
+      if (path === '/api/notifications/channels') return respond([])
+      if (path === '/api/telemetry/policy') return respond({history_retention_days:30})
       if (path === '/api/notifications') return respond([{ id: 1, server_id: 1, server_name: '演示服务器', last_seen: second - 600, opened_at: second - 300, resolved_at: null, resolution: null, deliveries: [{ kind: 'offline', status: 'pending', attempts: 1, last_error: '模拟网络失败' }] }])
       if (path === '/api/plugins/sing-box/servers/1') return respond({ enabled: false, online: true, agent_supported: false, read_only: false, source: null })
       if (['/metrics', '/probes', '/probe-results', '/commands', '/overview'].some(suffix => path.endsWith(suffix))) return respond([])
