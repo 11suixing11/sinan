@@ -86,7 +86,7 @@ impl ProviderRegistry {
         Self { providers: vec![
             Provider { id: "check-place", label: "check-place 聚合入口", kind: "aggregator", execution: "panel", adapter: Some(Adapter::CheckPlace { origin: super::PROVIDER_ORIGIN.into() }), reason: None, databases: &DATABASES },
             Provider { id: "abuseipdb-api", label: "AbuseIPDB 官方接口", kind: "credential_api", execution: "panel", adapter: credential.map(|key| Adapter::AbuseIpDb { endpoint: ABUSEIPDB_ENDPOINT.into(), key }), reason, databases: &OFFICIAL_DATABASES },
-            Provider { id: "ipquality-node", label: "IPQuality 节点自查", kind: "node_self", execution: "node", adapter: None, reason: Some("尚未启用受控的固定版本；原版 UA、在线引用与统计请求未完成整改，节点自查和流媒体解锁未知".into()), databases: &[] },
+            Provider { id: "ipquality-node", label: "IPQuality 节点自查", kind: "node_self", execution: "node", adapter: None, reason: Some("正式节点认证适配与完整工具链授权、验收尚未就绪，节点出口和流媒体信息未知；面板正式接口凭证仅用于面板查询".into()), databases: &[] },
         ] }
     }
 

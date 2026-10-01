@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 mod business_support;
+#[path = "plugin_business/installation.rs"]
+mod installation;
 #[path = "plugin_business/migration_recovery.rs"]
 mod migration_recovery;
 #[path = "../../protocol/tests/support/release.rs"]
@@ -138,7 +140,7 @@ async fn monitoring_server_requires_explicit_enablement_and_never_publishes_prox
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn current_capability_enables_business_but_a_stale_capability_flag_does_not(
+async fn capability_only_establishes_support_and_an_administrator_must_enable_business(
     pool: PgPool,
 ) -> Result<()> {
     let panel = TestPanel::start(pool.clone()).await?;
@@ -149,10 +151,11 @@ async fn current_capability_enables_business_but_a_stale_capability_flag_does_no
         .execute(&pool)
         .await?;
     let declared = metadata(&panel, &cookie, server).await?;
-    assert_eq!(declared["enabled"], true);
-    assert_eq!(declared["source"], "agent_capability");
-    assert_eq!(declared["read_only"], true);
+    assert_eq!(declared["enabled"], false);
+    assert_eq!(declared["source"], Value::Null);
+    assert_eq!(declared["read_only"], false);
     assert_eq!(declared["agent_supported"], true);
+    assert_eq!(declared["installation"]["state"], "not_enabled");
     sqlx::query("INSERT INTO server_plugins(server_id,plugin,source,enabled_at) VALUES($1,'sing-box','agent_capability',0)").bind(server).execute(&pool).await?;
     sqlx::query("UPDATE servers SET capabilities='[]' WHERE id=$1")
         .bind(server)

@@ -103,6 +103,14 @@ pub async fn check(
         .get::<Value, _>("capabilities")
         .as_array()
         .is_some_and(|caps| caps.iter().any(|cap| cap == "singbox"));
+    let signature_supported = row
+        .get::<Value, _>("capabilities")
+        .as_array()
+        .is_some_and(|caps| {
+            caps.iter().any(|cap| {
+                cap.as_str() == Some(sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY)
+            })
+        });
     let mut checks = vec![
         Check {
             name: "Agent 接入",
@@ -131,6 +139,16 @@ pub async fn check(
                 "设备已声明 sing-box 支持"
             } else {
                 "尚未收到 sing-box 能力声明，请检查 Agent 版本与安装参数"
+            }
+            .into(),
+        },
+        Check {
+            name: "制品验签能力",
+            passed: signature_supported,
+            detail: if signature_supported {
+                "设备支持独立制品验签"
+            } else {
+                "此 Agent 尚不支持制品验签，请先使用可信安装器升级；已运行配置和流量上报继续保留"
             }
             .into(),
         },

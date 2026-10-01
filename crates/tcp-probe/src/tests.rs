@@ -1,5 +1,5 @@
 use crate::{
-    engine::{Limits, Network, NetworkFuture, resolved_addresses, run_with},
+    engine::{Limits, Network, NetworkFuture, resolved_addresses, run_with, run_with_deadline},
     *,
 };
 use sha2::{Digest, Sha256};
@@ -101,6 +101,7 @@ async fn refusal_and_missing_family_do_not_fabricate_latency() {
 
 enum Dns {
     Addresses(Vec<SocketAddr>),
+    ReadyLate(Vec<SocketAddr>, Duration),
     Error,
     Pending,
 }
@@ -111,6 +112,7 @@ struct FakeNetwork {
     peak: AtomicUsize,
     connections: Mutex<Vec<SocketAddr>>,
     pending: bool,
+    ready_connect_delay: Duration,
 }
 impl FakeNetwork {
     fn new(dns: Dns, pending: bool) -> Arc<Self> {
@@ -121,6 +123,7 @@ impl FakeNetwork {
             peak: AtomicUsize::new(0),
             connections: Mutex::new(Vec::new()),
             pending,
+            ready_connect_delay: Duration::ZERO,
         })
     }
 }
@@ -136,6 +139,11 @@ impl Network for FakeNetwork {
         Box::pin(async move {
             match &self.dns {
                 Dns::Addresses(addresses) => Ok(addresses.clone()),
+                Dns::ReadyLate(addresses, delay) => {
+                    // Model a ready resolver result whose polling was delayed past its deadline.
+                    std::thread::sleep(*delay);
+                    Ok(addresses.clone())
+                }
                 Dns::Error => Err(std::io::Error::other("fixture DNS failure")),
                 Dns::Pending => std::future::pending().await,
             }
@@ -147,6 +155,10 @@ impl Network for FakeNetwork {
             let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
             self.peak.fetch_max(active, Ordering::SeqCst);
             let _guard = Active(self.active.clone());
+            if !self.ready_connect_delay.is_zero() {
+                std::thread::sleep(self.ready_connect_delay);
+                return Ok(());
+            }
             if self.pending {
                 std::future::pending::<()>().await;
             }
@@ -317,10 +329,120 @@ async fn dns_failure_timeout_and_no_matching_family_preserve_unknown_results() {
 }
 
 #[tokio::test]
+async fn ready_dns_result_after_probe_cutoff_cannot_start_a_connection() {
+    let directory = Directory::new();
+    let address = "127.0.0.1:12345".parse().unwrap();
+    let network = FakeNetwork::new(
+        Dns::ReadyLate(vec![address], Duration::from_millis(1250)),
+        false,
+    );
+    let (options, mut journal) = directory
+        .prepare(vec![target(1, "late.example.test", 12345)], IpVersion::V4)
+        .await;
+    let mut limits = fast_limits();
+    limits.total = Duration::from_secs(3);
+    limits.publication = Duration::from_secs(2);
+    limits.dns = Duration::from_secs(2);
+    let report = run_with(&options, &mut journal, network.clone(), limits)
+        .await
+        .unwrap();
+    assert_eq!(network.dns_calls.load(Ordering::SeqCst), 1);
+    assert!(network.connections.lock().unwrap().is_empty());
+    assert!(!report.complete && report.deadline_exceeded);
+    assert_eq!(report.targets[0].status, "partial");
+    assert!(report.targets[0].samples.is_empty());
+    assert_eq!(report.targets[0].error.as_deref(), Some("total_timeout"));
+    assert_eq!(report.targets[0].summary.connection_success_percent, None);
+    directory.assert_reports(&report);
+}
+
+#[tokio::test]
+async fn ready_dns_and_connect_results_after_local_timeouts_do_not_fabricate_success() {
+    let directory = Directory::new();
+    let address = "127.0.0.1:12345".parse().unwrap();
+    let network = FakeNetwork::new(
+        Dns::ReadyLate(vec![address], Duration::from_millis(50)),
+        false,
+    );
+    let (options, mut journal) = directory
+        .prepare(vec![target(1, "late.example.test", 12345)], IpVersion::V4)
+        .await;
+    let report = run_with(&options, &mut journal, network.clone(), fast_limits())
+        .await
+        .unwrap();
+    assert!(report.complete && !report.deadline_exceeded);
+    assert_eq!(report.targets[0].error.as_deref(), Some("dns_timeout"));
+    assert!(network.connections.lock().unwrap().is_empty());
+    directory.assert_reports(&report);
+
+    let directory = Directory::new();
+    let mut network = FakeNetwork::new(Dns::Error, false);
+    Arc::get_mut(&mut network).unwrap().ready_connect_delay = Duration::from_millis(90);
+    let (options, mut journal) = directory
+        .prepare(vec![target(1, "127.0.0.1", 12345)], IpVersion::V4)
+        .await;
+    let report = run_with(&options, &mut journal, network.clone(), fast_limits())
+        .await
+        .unwrap();
+    assert!(report.complete && !report.deadline_exceeded);
+    assert_eq!(network.connections.lock().unwrap().len(), 4);
+    assert_eq!(
+        report.targets[0].summary.connection_success_percent,
+        Some(0.0)
+    );
+    assert!(report.targets[0].samples.iter().all(|sample| {
+        sample.error.as_deref() == Some("connect_timeout") && sample.latency_ms.is_none()
+    }));
+    directory.assert_reports(&report);
+}
+
+async fn publish_across_deadline(
+    options: Options,
+    mut journal: Journal,
+    network: Arc<FakeNetwork>,
+    limits: Limits,
+    outer_deadline: Option<tokio::time::Instant>,
+) -> Report {
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    // Initial scope, targets and two progress updates each write three files.
+    // Hold the first sample's real atomic write before sync/rename.
+    let targets = journal.snapshot(&options).unwrap().targets.len();
+    let actual_deadline =
+        journal.gate_publication_after(3 * (1 + targets + 2), entered.clone(), release.clone());
+    let started = std::time::Instant::now();
+    let handle = tokio::spawn({
+        let network = network.clone();
+        async move { run_with_deadline(&options, &mut journal, network, limits, outer_deadline).await }
+    });
+    tokio::time::timeout(Duration::from_secs(2), entered.notified())
+        .await
+        .unwrap();
+    let probe_deadline = actual_deadline
+        .lock()
+        .unwrap()
+        .expect("engine's actual probe deadline");
+    if let Some(outer_deadline) = outer_deadline {
+        assert_eq!(probe_deadline, outer_deadline - limits.publication);
+    }
+    tokio::time::sleep_until(probe_deadline + Duration::from_millis(20)).await;
+    assert_eq!(network.active.load(Ordering::SeqCst), 0);
+    assert!(
+        !handle.is_finished(),
+        "publication must retain its reserved budget"
+    );
+    release.notify_one();
+    let report = handle.await.unwrap().unwrap();
+    assert!(started.elapsed() < Duration::from_secs(4));
+    assert!(!report.targets[0].samples.is_empty());
+    report
+}
+
+#[tokio::test]
 async fn deadline_includes_queued_targets_and_preserves_atomic_partial_sections() {
     let directory = Directory::new();
     let network = FakeNetwork::new(Dns::Error, true);
-    let (options, mut journal) = directory
+    let (options, journal) = directory
         .prepare(
             (1..=8).map(|id| target(id, "127.0.0.1", 12345)).collect(),
             IpVersion::V4,
@@ -332,11 +454,9 @@ async fn deadline_includes_queued_targets_and_preserves_atomic_partial_sections(
     limits.total = Duration::from_secs(3);
     limits.publication = Duration::from_secs(2);
     limits.connect = Duration::from_millis(250);
-    let started = std::time::Instant::now();
-    let report = run_with(&options, &mut journal, network.clone(), limits)
-        .await
-        .unwrap();
-    assert!(started.elapsed() < Duration::from_secs(4));
+    let report = publish_across_deadline(options, journal, network.clone(), limits, None).await;
+    assert_eq!(report.targets[0].status, "partial");
+    assert!(!report.targets[0].complete);
     assert!(!report.complete && report.deadline_exceeded);
     assert_eq!(network.active.load(Ordering::SeqCst), 0);
     assert!(network.connections.lock().unwrap().len() <= 4);
@@ -354,6 +474,73 @@ async fn deadline_includes_queued_targets_and_preserves_atomic_partial_sections(
                 && target.samples.is_empty()
                 && target.summary.connection_success_percent.is_none())
     );
+    directory.assert_reports(&report);
+}
+
+#[tokio::test]
+async fn caller_deadline_includes_prior_inspection_without_restarting_the_budget() {
+    let caller_deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    let directory = Directory::new();
+    let network = FakeNetwork::new(Dns::Error, true);
+    let (options, journal) = directory
+        .prepare(vec![target(1, "127.0.0.1", 12345)], IpVersion::V4)
+        .await;
+    // Model time already spent by the caller before entering the probe engine.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let mut limits = fast_limits();
+    limits.total = Duration::from_secs(3);
+    limits.publication = Duration::from_secs(2);
+    limits.connect = Duration::from_millis(250);
+    let report =
+        publish_across_deadline(options, journal, network, limits, Some(caller_deadline)).await;
+    assert!(!report.complete && report.deadline_exceeded);
+    assert_eq!(report.targets[0].status, "partial");
+    assert!(tokio::time::Instant::now() < caller_deadline);
+    directory.assert_reports(&report);
+}
+
+#[tokio::test]
+async fn buffered_attempts_during_publication_remain_known_after_deadline() {
+    let directory = Directory::new();
+    let network = FakeNetwork::new(Dns::Error, false);
+    let (options, journal) = directory
+        .prepare(
+            (1..=8)
+                .map(|id| target(id, "127.0.0.1", 12345 + id as u16))
+                .collect(),
+            IpVersion::V4,
+        )
+        .await;
+    let mut limits = fast_limits();
+    limits.total = Duration::from_secs(3);
+    limits.publication = Duration::from_secs(2);
+    let report = publish_across_deadline(options, journal, network.clone(), limits, None).await;
+    assert!(!report.complete && report.deadline_exceeded);
+    assert!(report.targets[0].complete);
+    assert!(report.targets[1].complete);
+    for address in network.connections.lock().unwrap().iter() {
+        let target = report
+            .targets
+            .iter()
+            .find(|target| target.target.port == address.port())
+            .unwrap();
+        assert_ne!(target.status, "not_attempted");
+        assert_eq!(
+            target.address.as_deref(),
+            Some(address.to_string().as_str())
+        );
+    }
+    for target in &report.targets {
+        let name = format!("tcp_target_{}", target.target.id.replace('-', ""));
+        let section: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(directory.path.join("sections").join(format!("{name}.json"))).unwrap(),
+        )
+        .unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_str(section["text"].as_str().unwrap()).unwrap();
+        assert_eq!(saved["status"], target.status);
+        assert_eq!(section["complete"], target.complete);
+    }
     directory.assert_reports(&report);
 }
 

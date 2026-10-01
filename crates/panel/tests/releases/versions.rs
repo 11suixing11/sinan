@@ -54,6 +54,59 @@ fn platform_bundle(version: &str, protocol: (u16, u16), targets: &[&str]) -> Res
 }
 
 #[tokio::test]
+async fn explicit_installation_distinguishes_missing_protocol_and_platform_failures() -> Result<()>
+{
+    let fixture = Fixture::new()?;
+    for (version, protocol) in [("0.9.0", (1, 1)), ("9.0.0", (2, 2))] {
+        let bundle = platform_bundle(version, protocol, &["linux-musl-amd64"])?;
+        targets::import_target(
+            &fixture.state,
+            &bundle,
+            "linux-musl-amd64",
+            &Mutex::new(Vec::new()),
+        )
+        .await?;
+    }
+    for (version, target, expected) in [
+        ("0.1.0", "linux-musl-amd64", "尚未导入"),
+        ("9.0.0", "linux-musl-amd64", "协议不兼容"),
+        ("0.9.0", "linux-musl-arm64", "该平台可安装的制品"),
+    ] {
+        let selected =
+            releases::select_agent_for_target(&fixture.state, Some(version), Some(target)).await;
+        match selected {
+            Err(ApiError::Conflict(message)) => assert!(message.contains(expected), "{message}"),
+            other => panic!("expected explicit selection failure, got {other:?}"),
+        }
+        let installation = sinan_panel::installation::select_with_mirror(
+            &fixture.state,
+            Some(version),
+            "fixture-token",
+            Some("unix"),
+            Some(target),
+            "",
+        )
+        .await;
+        match installation {
+            Err(ApiError::Conflict(message)) => assert!(message.contains(expected), "{message}"),
+            _ => panic!("expected explicit installation failure"),
+        }
+    }
+    let installed = sinan_panel::installation::select_with_mirror(
+        &fixture.state,
+        Some("0.9.0"),
+        "fixture-token",
+        Some("unix"),
+        Some("linux-musl-amd64"),
+        "",
+    )
+    .await?;
+    assert_eq!(installed.version, "0.9.0");
+    assert_eq!(installed.tag.as_deref(), Some("agent-v0.9.0"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn versions_are_numeric_platform_compatible_and_include_signed_uncached_targets() -> Result<()>
 {
     let fixture = Fixture::new()?;

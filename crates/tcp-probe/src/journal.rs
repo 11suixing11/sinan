@@ -23,6 +23,16 @@ pub struct Journal {
     revisions: std::collections::BTreeMap<String, u64>,
     #[cfg(unix)]
     owner_uid: u32,
+    #[cfg(test)]
+    publication_gate: std::sync::Mutex<Option<PublicationGate>>,
+}
+
+#[cfg(test)]
+struct PublicationGate {
+    writes_before: usize,
+    entered: std::sync::Arc<tokio::sync::Notify>,
+    release: std::sync::Arc<tokio::sync::Notify>,
+    probe_deadline: std::sync::Arc<std::sync::Mutex<Option<Instant>>>,
 }
 
 #[derive(Serialize)]
@@ -138,10 +148,41 @@ impl Journal {
                 revisions: Default::default(),
                 #[cfg(unix)]
                 owner_uid,
+                #[cfg(test)]
+                publication_gate: Default::default(),
             })
         })
         .await
         .context("workspace/input inspection timed out")?
+    }
+
+    #[cfg(test)]
+    pub(crate) fn gate_publication_after(
+        &mut self,
+        writes_before: usize,
+        entered: std::sync::Arc<tokio::sync::Notify>,
+        release: std::sync::Arc<tokio::sync::Notify>,
+    ) -> std::sync::Arc<std::sync::Mutex<Option<Instant>>> {
+        let probe_deadline = std::sync::Arc::new(std::sync::Mutex::new(None));
+        self.publication_gate = std::sync::Mutex::new(Some(PublicationGate {
+            writes_before,
+            entered,
+            release,
+            probe_deadline: probe_deadline.clone(),
+        }));
+        probe_deadline
+    }
+
+    #[cfg(test)]
+    pub(crate) fn record_probe_deadline(&self, deadline: Instant) {
+        if let Some(gate) = self
+            .publication_gate
+            .lock()
+            .expect("publication gate")
+            .as_ref()
+        {
+            *gate.probe_deadline.lock().expect("probe deadline") = Some(deadline);
+        }
     }
 
     pub(crate) fn snapshot(&self, options: &Options) -> Result<Snapshot> {
@@ -229,6 +270,24 @@ impl Journal {
                 );
             }
             file.write_all(bytes).await?;
+            #[cfg(test)]
+            {
+                let gate = {
+                    let mut slot = self.publication_gate.lock().expect("publication gate");
+                    match slot.as_mut() {
+                        Some(gate) if gate.writes_before > 0 => {
+                            gate.writes_before -= 1;
+                            None
+                        }
+                        Some(_) => slot.take(),
+                        None => None,
+                    }
+                };
+                if let Some(gate) = gate {
+                    gate.entered.notify_one();
+                    gate.release.notified().await;
+                }
+            }
             file.sync_all().await?;
             drop(file);
             fs::rename(&pending, target).await?;

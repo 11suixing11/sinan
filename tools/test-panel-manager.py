@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -20,10 +21,12 @@ with open(os.environ["PANEL_TEST_LOG"], "a") as output:
     output.write(json.dumps(args) + "\n")
 if "ps" in args and "--services" in args:
     print("postgres\npanel")
+elif args[:2] == ["ps", "-aq"]:
+    print("existing-project-container" if os.environ.get("PANEL_TEST_PROJECT_CONTAINER") else "")
 elif "ps" in args and "-aq" in args:
     print("existing" if os.environ.get("PANEL_TEST_EXISTING") else "")
 elif "volume" in args:
-    print("existing-volume" if os.environ.get("PANEL_TEST_VOLUME") else "")
+    print("existing-volume" if os.environ.get("PANEL_TEST_VOLUME") or os.environ.get("PANEL_TEST_PANEL_VOLUME") and "label=com.docker.compose.volume=postgres-data" not in args else "")
 elif "pg_dump" in args:
     if os.environ.get("PANEL_TEST_FAIL"):
         print("private-database-password", file=sys.stderr)
@@ -118,6 +121,37 @@ class ManagerTests(unittest.TestCase):
         self.log.write_text("")
         result = self.run_cli("install", PANEL_TEST_VOLUME="1")
         self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any("build" in command or "up" in command for command in self.commands()))
+
+    def test_missing_environment_refuses_existing_project_before_creating_credentials(self):
+        for override in ("PANEL_TEST_PROJECT_CONTAINER", "PANEL_TEST_VOLUME"):
+            with self.subTest(override=override):
+                self.env_file.unlink(missing_ok=True)
+                if self.backups.exists():
+                    shutil.rmtree(self.backups)
+                self.log.write_text("")
+                result = self.run_cli("install", "--public-url", "https://panel.example.com", **{override: "1"})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(self.env_file.exists())
+                self.assertFalse(self.backups.exists())
+                self.assertFalse(any("build" in command or "up" in command for command in self.commands()))
+
+    def test_fresh_install_initializes_only_after_read_only_project_discovery(self):
+        result = self.run_cli("install", "--public-url", "https://panel.example.com")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = self.commands()
+        container = next(command for command in commands if command[:2] == ["ps", "-aq"])
+        volumes = next(command for command in commands if command[:2] == ["volume", "ls"])
+        self.assertIn("label=com.docker.compose.project=sinan", container)
+        self.assertIn("label=com.docker.compose.project=sinan", volumes)
+        self.assertFalse(any("com.docker.compose.volume=" in argument for argument in volumes))
+        self.assertEqual(self.env_file.stat().st_mode & 0o777, 0o600)
+
+    def test_orphan_panel_data_with_preserved_environment_requires_recovery(self):
+        content = self.init()
+        result = self.run_cli("install", PANEL_TEST_PANEL_VOLUME="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.env_file.read_bytes(), content)
         self.assertFalse(any("build" in command or "up" in command for command in self.commands()))
 
     def test_failed_stop_still_attempts_to_restore_original_service(self):

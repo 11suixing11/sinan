@@ -187,20 +187,54 @@ pub async fn agent_versions(
     versions(state, target, version, None).await
 }
 
+pub(crate) async fn selection_error(
+    state: &AppState,
+    version: Option<&str>,
+) -> ApiResult<ApiError> {
+    let Some(version) = version.filter(|version| *version != "latest") else {
+        return Ok(ApiError::Conflict(
+            "请先导入对应平台且协议兼容的已签名 Agent Release".into(),
+        ));
+    };
+    let releases = released(state).await?;
+    let matching: Vec<_> = releases
+        .iter()
+        .filter(|release| {
+            release
+                .verified
+                .metadata()
+                .artifacts
+                .iter()
+                .any(|entry| entry.name == "agent" && entry.version == version)
+        })
+        .collect();
+    let reason = if matching.is_empty() {
+        "所选 Agent 版本尚未导入已校验的签名 Release"
+    } else if matching.iter().all(|release| {
+        let metadata = release.verified.metadata();
+        metadata.protocol_min > PROTOCOL_MAX || metadata.protocol_max < PROTOCOL_MIN
+    }) {
+        "所选 Agent 版本与当前面板协议不兼容，请选择兼容的已签名版本"
+    } else {
+        "所选 Agent 版本不包含该平台可安装的制品，请核对平台、架构及稳定版本要求"
+    };
+    Ok(ApiError::Conflict(reason.into()))
+}
+
 pub async fn select_agent_for_target(
     state: &AppState,
     version: Option<&str>,
     target: Option<&str>,
 ) -> ApiResult<(String, String)> {
     let target = target.filter(|target| *target != "auto");
-    versions(state, target, version, target.is_none().then_some("linux"))
+    let selected = versions(state, target, version, target.is_none().then_some("linux"))
         .await?
         .into_iter()
-        .next()
-        .map(|release| (release.version, release.tag))
-        .ok_or_else(|| {
-            ApiError::Conflict("请先导入对应平台且协议兼容的已签名 Agent Release".into())
-        })
+        .next();
+    match selected {
+        Some(release) => Ok((release.version, release.tag)),
+        None => Err(selection_error(state, version).await?),
+    }
 }
 
 pub async fn list_agent_versions(

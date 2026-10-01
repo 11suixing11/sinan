@@ -1,0 +1,123 @@
+{
+  "closed_count": 17,
+  "remaining_from_original_count": 11,
+  "items": [
+    {
+      "number": 4,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T13:50:16Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/4#issuecomment-5932828069"
+    },
+    {
+      "number": 14,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T13:50:23Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/14#issuecomment-5932830246"
+    },
+    {
+      "number": 15,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T13:50:30Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/15#issuecomment-5932832352"
+    },
+    {
+      "number": 18,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T13:50:36Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/18#issuecomment-5932834859"
+    },
+    {
+      "number": 20,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T13:50:43Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/20#issuecomment-5932837236"
+    },
+    {
+      "number": 22,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T13:50:50Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/22#issuecomment-5932839197"
+    },
+    {
+      "number": 23,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T13:50:56Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/23#issuecomment-5932841358"
+    },
+    {
+      "number": 25,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T13:51:03Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/25#issuecomment-5932843433"
+    },
+    {
+      "number": 27,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T13:51:09Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/27#issuecomment-5932845438"
+    },
+    {
+      "number": 42,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T14:00:50Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/42#issuecomment-5933024894"
+    },
+    {
+      "number": 47,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T13:51:16Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/47#issuecomment-5932847652"
+    },
+    {
+      "number": 61,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T13:51:23Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/61#issuecomment-5932849891"
+    },
+    {
+      "number": 62,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T13:51:28Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/62#issuecomment-5932851772"
+    },
+    {
+      "number": 64,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T13:51:35Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/64#issuecomment-5932853739"
+    },
+    {
+      "number": 120,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T13:51:41Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/120#issuecomment-5932856163"
+    },
+    {
+      "number": 121,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T13:51:48Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/121#issuecomment-5932858203"
+    },
+    {
+      "number": 131,
+      "state": "CLOSED",
+      "closed_at": "2026-10-01T13:51:54Z",
+      "comment_url": "https://github.com/theLucius7/sinan/issues/131#issuecomment-5932860278"
+    }
+  ],
+  "remaining": [
+    3,
+    6,
+    24,
+    28,
+    58,
+    63,
+    65,
+    66,
+    82,
+    122,
+    130
+  ],
+  "pull_request": 133,
+  "pull_request_state": "draft/open, not merged or deployed"
+}

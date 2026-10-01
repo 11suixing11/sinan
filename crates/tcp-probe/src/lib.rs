@@ -6,7 +6,7 @@ mod journal;
 mod model;
 
 pub use cli::{Command, Options, parse};
-pub use engine::run;
+pub use engine::{run, run_until};
 pub use journal::Journal;
 pub use model::{IpVersion, Report, Snapshot, Target};
 

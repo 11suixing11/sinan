@@ -34,7 +34,7 @@ try {
     await page.route('**/api/**', async route => {
       const request = route.request(), url = new URL(request.url()), path = url.pathname
       const respond = json => route.fulfill({ json })
-      if (path === '/api/dashboard/access') return respond({ authenticated: true, public_dashboard: false })
+      if (path === '/api/dashboard/access') return respond({ authenticated: mode !== 'unauthorized', public_dashboard: false })
       if (path === '/api/plugins/sing-box/users') return respond([user])
       if (path === '/api/plugins/sing-box/nodes') return respond(nodes)
       if (path === '/api/plugins/sing-box/chains' || path.endsWith('/accesses') || path.endsWith('/policy-groups') && !path.includes('/users/') || path.endsWith('/package-groups')) return respond([])
@@ -48,6 +48,7 @@ try {
       }
       if (path === '/api/plugins/sing-box/users/1/subscription') {
         assert.equal(request.method(), 'GET'); subscriptionRequests++
+        if (mode === 'unauthorized') return route.fulfill({ status: 401, json: { error: '登录已过期' } })
         if (mode === 'failure') return route.fulfill({ status: 500, json: { error: '测试：当前订阅读取失败' } })
         const format = url.searchParams.get('format'), status = mode === 'ready' && format === 'links' && modern ? 'format_unavailable' : mode
         lastContent = status === 'ready' ? (format === 'links' ? `vless://fixture-${subscriptionRequests}@proxy.example.com:443#测试节点` : JSON.stringify({ outbounds: [{ tag: '当前用户节点', password: `fixture-secret-${subscriptionRequests}` }] }, null, 2)) : null
@@ -143,8 +144,30 @@ try {
     assert.equal(await dialog.getByLabel('配置预览').count(), 0)
     assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter(key => /subscription|token|config/i.test(key))), [])
     assert.deepEqual(errors, []); assert.deepEqual(unexpected, []); assert.deepEqual(external, [])
-    results.push({ width, freshRequests: 'passed', download: 'passed', unavailable: 'passed', reset: 'passed' })
+    await dialog.getByRole('button', { name: '预览配置', exact: true }).click()
+    await dialog.getByLabel('配置预览').waitFor()
+    mode = 'unauthorized'
+    await dialog.getByRole('button', { name: '复制配置', exact: true }).click()
+    await page.getByRole('heading', { name: '欢迎回来', exact: true }).waitFor()
+    assert.equal(await page.getByRole('dialog').count(), 0)
+    assert.equal(await page.locator('.subscription-preview').count(), 0)
+    assert.equal((await page.locator('body').innerText()).includes('fixture-secret'), false)
+    assert.equal((await page.locator('body').innerText()).includes('fresh-fixture'), false)
+    assert.deepEqual(await page.evaluate(() => [...Object.keys(localStorage), ...Object.keys(sessionStorage)].filter(key => /subscription|token|config/i.test(key))), [])
+    assert.deepEqual(errors, []); assert.deepEqual(unexpected, []); assert.deepEqual(external, [])
+    results.push({ width, freshRequests: 'passed', download: 'passed', unavailable: 'passed', reset: 'passed', unauthorizedClearsView: 'passed' })
     await context.close()
   }
+  const context = await browser.newContext(), page = await context.newPage(), privateRequests = []
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname
+    if (path === '/api/dashboard/access') return route.fulfill({ json: { authenticated: false, public_dashboard: true } })
+    privateRequests.push(path); return route.fulfill({ status: 401, json: { error: '请先登录' } })
+  })
+  await page.goto(`${origin}/#/plugins/sing-box/users`)
+  await page.getByRole('heading', { name: '欢迎回来', exact: true }).waitFor()
+  assert.deepEqual(privateRequests, [])
+  assert.equal(await page.locator('.subscription-dialog').count(), 0)
+  await context.close()
   console.log(JSON.stringify(results))
 } finally { await browser.close(); server.close() }

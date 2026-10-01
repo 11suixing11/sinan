@@ -15,7 +15,7 @@ use tokio::{
     net::{TcpStream, lookup_host},
     sync::{Semaphore, mpsc},
     task::JoinSet,
-    time::{Instant, sleep, timeout, timeout_at},
+    time::{Instant, sleep, timeout_at},
 };
 
 pub(crate) type NetworkFuture<'a, T> = Pin<Box<dyn Future<Output = io::Result<T>> + Send + 'a>>;
@@ -84,11 +84,36 @@ pub async fn run(options: &Options, journal: &mut Journal) -> Result<Report> {
     run_with(options, journal, Arc::new(NativeNetwork), Limits::default()).await
 }
 
+pub async fn run_until(
+    options: &Options,
+    journal: &mut Journal,
+    deadline: Instant,
+) -> Result<Report> {
+    run_with_deadline(
+        options,
+        journal,
+        Arc::new(NativeNetwork),
+        Limits::default(),
+        Some(deadline),
+    )
+    .await
+}
+
 pub(crate) async fn run_with(
     options: &Options,
     journal: &mut Journal,
     network: Arc<dyn Network>,
     limits: Limits,
+) -> Result<Report> {
+    run_with_deadline(options, journal, network, limits, None).await
+}
+
+pub(crate) async fn run_with_deadline(
+    options: &Options,
+    journal: &mut Journal,
+    network: Arc<dyn Network>,
+    limits: Limits,
+    outer_deadline: Option<Instant>,
 ) -> Result<Report> {
     let snapshot = journal.snapshot(options)?;
     ensure!(
@@ -102,9 +127,15 @@ pub(crate) async fn run_with(
         "invalid embedded source commit"
     );
     let started = Instant::now();
-    let deadline = started + limits.total;
+    // Caller inspection and output share the same absolute process budget.
+    let deadline = outer_deadline.map_or(started + limits.total, |limit| {
+        limit.min(started + limits.total)
+    });
+    ensure!(deadline > started, "execution deadline has elapsed");
     // Reserve bounded final publication time within the same total budget.
     let probe_deadline = deadline - limits.publication;
+    #[cfg(test)]
+    journal.record_probe_deadline(probe_deadline);
     let mut report = Report {
         schema: 1, method: "tcp_connect".into(),
         semantics: "连接成功率和 TCP 建连耗时；不是包丢失率、吞吐测速或上游 TcpQuality 兼容评分。地区与运营商是管理员配置标签，未指定地区不推断。".into(),
@@ -114,9 +145,9 @@ pub(crate) async fn run_with(
         target_digest: options.target_digest.clone(), targets: snapshot.targets.into_iter().map(TargetResult::queued).collect(),
         complete: false, deadline_exceeded: false, upload_enabled: false, ranking_enabled: false, speedtest_enabled: false,
     };
-    journal.update(&report, None, probe_deadline).await?;
+    journal.update(&report, None, deadline).await?;
     for index in 0..report.targets.len() {
-        journal.update(&report, Some(index), probe_deadline).await?;
+        journal.update(&report, Some(index), deadline).await?;
     }
     let permits = Arc::new(Semaphore::new(options.concurrency.into()));
     let (updates, mut receiver) = mpsc::channel(16);
@@ -127,19 +158,36 @@ pub(crate) async fn run_with(
         let network = network.clone();
         let options = options.clone();
         tasks.spawn(async move {
-            if let Ok(Ok(_permit)) = timeout_at(probe_deadline, permits.acquire_owned()).await {
-                probe(index, target, &options, network.as_ref(), limits, &updates).await;
+            if let Ok(Ok(_permit)) = timeout_at(probe_deadline, permits.acquire_owned()).await
+                && Instant::now() < probe_deadline
+            {
+                // Stop connections independently of any in-flight report I/O.
+                let _ = timeout_at(
+                    probe_deadline,
+                    probe(
+                        index,
+                        target,
+                        &options,
+                        network.as_ref(),
+                        limits,
+                        &updates,
+                        probe_deadline,
+                    ),
+                )
+                .await;
             }
         });
     }
     drop(updates);
-    while !report.targets.iter().all(|target| target.complete) {
+    while !report.targets.iter().all(|target| target.complete) && Instant::now() < probe_deadline {
+        // A ready queued update must not consume the reserved publication time.
+        // Finish an already-started atomic write within the unchanged total budget.
         let update = timeout_at(probe_deadline, receiver.recv()).await;
         let Ok(Some((index, target))) = update else {
             break;
         };
         report.targets[index] = target;
-        journal.update(&report, Some(index), probe_deadline).await?;
+        journal.update(&report, Some(index), deadline).await?;
     }
     tasks.abort_all();
     while let Some(result) = tasks.join_next().await {
@@ -147,9 +195,16 @@ pub(crate) async fn run_with(
             ensure!(error.is_cancelled(), "probe worker failed");
         }
     }
+    // Workers have stopped and the bounded channel cannot receive new updates.
+    // Retain attempts queued while report I/O crossed the probe cutoff.
+    let mut buffered = vec![false; report.targets.len()];
+    while let Ok((index, target)) = receiver.try_recv() {
+        report.targets[index] = target;
+        buffered[index] = true;
+    }
     report.complete = report.targets.iter().all(|target| target.complete);
     report.deadline_exceeded = !report.complete && Instant::now() >= probe_deadline;
-    for index in 0..report.targets.len() {
+    for (index, buffered) in buffered.into_iter().enumerate() {
         if !report.targets[index].complete {
             let target = &mut report.targets[index];
             target.error = Some(
@@ -163,6 +218,8 @@ pub(crate) async fn run_with(
             if target.status != "not_attempted" {
                 target.status = "partial".into();
             }
+        }
+        if !report.targets[index].complete || buffered {
             journal.update(&report, Some(index), deadline).await?;
         }
     }
@@ -186,6 +243,7 @@ async fn probe(
     network: &dyn Network,
     limits: Limits,
     updates: &mpsc::Sender<(usize, TargetResult)>,
+    deadline: Instant,
 ) {
     target.status = "resolving".into();
     if !publish(index, &target, updates).await {
@@ -201,20 +259,32 @@ async fn probe(
         if !publish(index, &target, updates).await {
             return;
         }
-        match timeout(
-            limits.dns,
+        let started = Instant::now();
+        if started >= deadline {
+            return;
+        }
+        let dns_deadline = deadline.min(started + limits.dns);
+        let outcome = timeout_at(
+            dns_deadline,
             network.resolve(&target.target.target, target.target.port),
         )
-        .await
-        {
-            Ok(Ok(addresses)) => addresses.into_iter().find(|address| {
-                options.ip_version.matches(address.ip())
-                    && unicast(address.ip())
-                    && address.port() == target.target.port
-            }),
+        .await;
+        // A ready future can be polled before timeout_at checks its elapsed timer.
+        // Do not advance to a connection from a result received after the cutoff.
+        if Instant::now() >= deadline {
+            return;
+        }
+        match outcome {
+            Ok(Ok(addresses)) if Instant::now() < dns_deadline => {
+                addresses.into_iter().find(|address| {
+                    options.ip_version.matches(address.ip())
+                        && unicast(address.ip())
+                        && address.port() == target.target.port
+                })
+            }
             result => {
                 target.error = Some(
-                    if result.is_err() {
+                    if result.is_err() || Instant::now() >= dns_deadline {
                         "dns_timeout"
                     } else {
                         "dns_error"
@@ -251,9 +321,15 @@ async fn probe(
             return;
         };
         let started = Instant::now();
-        let outcome = timeout(limits.connect, network.connect(address)).await;
+        if started >= deadline {
+            return;
+        }
+        let connect_deadline = deadline.min(started + limits.connect);
+        let outcome = timeout_at(connect_deadline, network.connect(address)).await;
+        let finished = Instant::now();
         let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
         let error = match outcome {
+            _ if finished >= connect_deadline => Some("connect_timeout".into()),
             Ok(Ok(())) => None,
             Err(_) => Some("connect_timeout".into()),
             Ok(Err(error)) if error.kind() == io::ErrorKind::ConnectionRefused => {
@@ -268,6 +344,10 @@ async fn probe(
             error,
         });
         target.summarize();
+        if finished >= deadline {
+            publish(index, &target, updates).await;
+            return;
+        }
         if iteration + 1 == options.count {
             target.complete = true;
             target.status = "completed".into();
