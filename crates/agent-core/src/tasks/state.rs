@@ -146,9 +146,17 @@ impl State {
     }
 
     pub(super) fn pending_commands(&self) -> Result<Vec<CommandRecord>> {
-        let mut query = self.connection.prepare("SELECT j.spec,l.claim_id,l.process,l.cancel_requested,l.recovering FROM command_journal j JOIN command_lifecycle l USING(id) WHERE j.result IS NULL ORDER BY j.rowid LIMIT 64")?;
+        self.command_records(false)
+    }
+
+    pub(super) fn pending_command_cleanup(&self) -> Result<Vec<CommandRecord>> {
+        self.command_records(true)
+    }
+
+    fn command_records(&self, cleanup_only: bool) -> Result<Vec<CommandRecord>> {
+        let mut query = self.connection.prepare("SELECT j.spec,l.claim_id,l.process,l.cancel_requested,l.recovering FROM command_journal j JOIN command_lifecycle l USING(id) WHERE j.result IS NULL AND (?1=0 OR l.process IS NOT NULL) ORDER BY j.rowid LIMIT 64")?;
         let rows = query
-            .query_map([], |r| {
+            .query_map([cleanup_only], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
                     r.get::<_, String>(1)?,
