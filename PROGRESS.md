@@ -1011,3 +1011,8 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 - 受验源码 `f179cc6` 完整 Rust/PostgreSQL 428 通过、0 失败、15 条件忽略，另 macOS umask077、workspace 全 targets Clippy/fmt/core 通过。保留作者 d93→e055→7f 推进、全部主线进度/开放问题及 #98/#101；最终文档变化不改受验产品/测试输入。初轮47b的425/0/15与作者历史实机证据分别保留。
 - 迁移0016/ADR0035解决编号冲突，普通组现代凭据和套餐资格、Reality-only链双端限制、无绕链降级与两侧互补回归保持。Bun17/771、TS/Vite与分组/展示/TCP/业务/NodeQuality/取消六套真实Chromium通过；旧业务fixture新增chains响应，原未知API断言仍在，初次失败日志保留。未执行15项条件实机、真实双机负载、生产迁移/签名/发布/部署或CI；四workflow保持暂停。详见[独立验收](docs/acceptance/singbox-groups.md)。
+
+## 2026-10-01：#100/#102 合入产物同步补修
+
+- 实际 main `ed1d935` 的源码已含公网/内网折叠，HTML 却仍加载旧 `index-BCdIyArN.js`；真实 dist 地址页夹具找不到 private 折叠控件，原失败保留。部分未引用资源还残留合并内容。按冻结 Bun1.4.2/lock 重建并清理本树旧生成文件，恢复源与产物一致。
+- TypeScript/Vite 通过，真实 Chromium 地址页1280/390正例通过；重建全部19个文件逐字节等于本聊天受验 `8e1f1f9` 的产物，该输入的分组/地址/展示浏览器已通过。运行源码/迁移不变，无额外Cargo/PG、正式签名、发布部署或CI；四个workflow继续暂停。
