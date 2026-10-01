@@ -1,28 +1,27 @@
 #![forbid(unsafe_code)]
 
-pub mod accesses;
 pub mod agent_api;
 pub mod agent_updates;
 pub mod artifacts;
 pub mod auth;
-pub mod business;
 pub mod commands;
 pub mod config;
-pub mod deployments;
+pub mod diagnostic_plugins;
 pub mod diagnostics;
 pub mod error;
 pub mod frontend;
 pub mod ip_quality;
-pub mod nodes;
+pub mod maintenance;
+pub mod plugins;
 pub mod probes;
+// Compatibility exports preserve the public Rust embedding API.
+pub use plugins::singbox::proxy_users as users;
+pub use plugins::singbox::{accesses, business, deployments, nodes, subscriptions, usage};
 pub mod publisher;
 pub mod releases;
 pub mod retirement;
 pub mod servers;
-pub mod subscriptions;
 pub mod telemetry;
-pub mod usage;
-pub mod users;
 
 use axum::{
     Router,
@@ -46,6 +45,7 @@ pub struct AppState {
     pub pool: PgPool,
     pub login_permits: Arc<Semaphore>,
     pub quality_permits: Arc<Semaphore>,
+    pub quality_providers: Arc<ip_quality::ProviderRegistry>,
     pub release_permits: Arc<Semaphore>,
     pub release_keys: Option<Arc<sinan_protocol::release::TrustedKeys>>,
     pub config: Arc<Config>,
@@ -61,6 +61,7 @@ impl AppState {
             pool,
             login_permits: Arc::new(Semaphore::new(4)),
             quality_permits: Arc::new(Semaphore::new(2)),
+            quality_providers: Arc::new(ip_quality::ProviderRegistry::from_env()),
             release_permits: Arc::new(Semaphore::new(1)),
             release_keys: sinan_protocol::release::TrustedKeys::compiled()
                 .ok()
@@ -93,7 +94,6 @@ pub fn router(state: AppState) -> Router {
             "/api/servers/{id}/enrollment",
             post(servers::issue_enrollment),
         )
-        .route("/api/servers/{id}/deployments", get(deployments::get))
         .route(
             "/api/servers/{id}/agent-settings",
             get(telemetry::settings).patch(telemetry::update_settings),
@@ -112,39 +112,44 @@ pub fn router(state: AppState) -> Router {
             axum::routing::patch(probes::update).delete(probes::remove),
         )
         .route("/api/servers/{id}/probe-results", get(probes::history))
-        .route("/api/servers/{id}/node-quality", get(diagnostics::get))
+        .route(
+            "/api/servers/{id}/diagnostics",
+            get(diagnostics::service::get),
+        )
+        .route(
+            "/api/servers/{id}/diagnostics/{plugin}",
+            post(diagnostics::service::create),
+        )
+        .route("/api/servers/{id}/ip-quality", get(ip_quality::get))
+        .route(
+            "/api/servers/{id}/ip-quality/refresh",
+            post(ip_quality::refresh),
+        )
+        .route(
+            "/api/servers/{id}/node-quality",
+            get(diagnostics::legacy_get),
+        )
         .route(
             "/api/servers/{id}/node-quality/refresh",
             post(ip_quality::refresh),
         )
         .route(
             "/api/servers/{id}/node-quality/reports",
-            post(diagnostics::create),
-        )
-        .route("/api/nodes", get(nodes::list).post(nodes::create))
-        .route(
-            "/api/nodes/{id}",
-            get(nodes::get).patch(nodes::update).delete(nodes::remove),
-        )
-        .route("/api/users", get(users::list).post(users::create))
-        .route(
-            "/api/users/{id}",
-            get(users::get).patch(users::update).delete(users::remove),
+            get(diagnostics::get).post(diagnostics::create),
         )
         .route(
-            "/api/users/{id}/subscription/reset",
-            post(users::reset_subscription),
+            "/api/servers/{id}/diagnostics/{job}/cancel",
+            post(diagnostics::cancellation::request),
         )
         .route(
-            "/api/users/{id}/accesses",
-            get(accesses::list).post(accesses::grant),
+            "/api/plugins/tcpquality/servers/{id}/targets",
+            get(diagnostic_plugins::tcpquality::list_targets),
         )
         .route(
-            "/api/users/{user_id}/accesses/{node_id}",
-            axum::routing::delete(accesses::revoke),
+            "/api/plugins/tcpquality/servers/{id}/targets/{probe}",
+            axum::routing::patch(diagnostic_plugins::tcpquality::set_region),
         )
-        .route("/api/usage", get(usage::summary))
-        .route("/sub/{token}", get(subscriptions::get))
+        .merge(plugins::router())
         .route("/api/agent/v1/enroll", post(servers::enroll))
         .route("/api/agent/v1/ws", get(agent_api::websocket))
         .route(
@@ -160,7 +165,19 @@ pub fn router(state: AppState) -> Router {
         .route("/api/agent/v1/probes", get(probes::agent_list))
         .route("/api/agent/v1/probe-results", post(probes::ingest))
         .route("/api/agent/v1/diagnostics", get(diagnostics::pending))
+        .route(
+            "/api/agent/v1/diagnostics/cancellations",
+            get(diagnostics::cancellation::pending),
+        )
+        .route(
+            "/api/agent/v1/diagnostics/{id}/cancel-confirmation",
+            post(diagnostics::cancellation::confirm),
+        )
         .route("/api/agent/v1/diagnostics/{id}", post(diagnostics::update))
+        .route(
+            "/api/agent/v1/diagnostics/{id}/sections",
+            post(diagnostics::upload_section),
+        )
         .route("/api/agent/v1/bundles/{rev}", get(agent_api::bundle))
         .route(
             "/api/agent/v1/artifacts/{name}/{version}/{arch}",

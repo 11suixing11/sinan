@@ -13,7 +13,10 @@ fn response(path: &str, value: Value) -> Value {
 
 #[test]
 fn every_known_field_requires_its_declared_type_and_valid_value() {
-    for (database, _) in super::super::DATABASES {
+    for (database, _) in super::super::DATABASES
+        .into_iter()
+        .chain([("abuseipdb-v2", "正式接口")])
+    {
         for (path, label, kind) in definitions(database) {
             let known = match kind {
                 QualityFieldKind::Boolean => json!(false),

@@ -240,6 +240,7 @@ async fn migration_preflight_checks_resumable_diagnostic_jobs() {
             proof: Some(proof),
         },
         timeout_secs: 30,
+        resource_budget: None,
         expires_at: None,
         options: BTreeMap::new(),
     };

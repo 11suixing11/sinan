@@ -53,11 +53,14 @@ jobs:
       - name: Verify real acceptance driver and runtime cache contracts
         run: |
           python3 scripts/test-e2e-driver.py
+          python3 scripts/test-e2e-traffic-evidence.py
           python3 scripts/test-e2e-runtime.py
           python3 scripts/test-ci-signed-release.py
           python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Verify NodeQuality wrapper and artifact contracts
-        run: sudo python3 tools/test-nodequality.py
+        run: |
+          sudo python3 tools/test-nodequality.py
+          python3 tools/test-diagnostic-modes.py
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - name: Run Rust and PostgreSQL tests

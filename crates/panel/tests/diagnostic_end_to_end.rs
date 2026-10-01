@@ -21,13 +21,15 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
 #[derive(Default)]
 struct IndependentServices {
     starts: AtomicUsize,
+    stops: AtomicUsize,
+    block_stop: AtomicBool,
     jobs: Mutex<BTreeMap<String, (PathBuf, JobStatus)>>,
 }
 
@@ -67,8 +69,26 @@ impl ServiceManager for IndependentServices {
     fn restart<'a>(&'a self, _: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
-    fn stop<'a>(&'a self, _: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(async { Ok(()) })
+    fn supports_confirmed_cancellation(&self) -> bool {
+        true
+    }
+    fn diagnostic_cleanup_confirmed<'a>(
+        &'a self,
+        unit: &'a str,
+        _: &'a std::path::Path,
+    ) -> BoxFuture<'a, bool> {
+        Box::pin(async move { Ok(!self.jobs.lock().unwrap().contains_key(unit)) })
+    }
+    fn stop<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            self.stops.fetch_add(1, Ordering::SeqCst);
+            anyhow::ensure!(
+                !self.block_stop.load(Ordering::SeqCst),
+                "fixture stop not confirmed"
+            );
+            self.jobs.lock().unwrap().remove(unit);
+            Ok(())
+        })
     }
     fn is_active<'a>(&'a self, _: &'a str) -> BoxFuture<'a, bool> {
         Box::pin(async { Ok(false) })
@@ -96,6 +116,16 @@ impl ServiceManager for IndependentServices {
                 .unwrap_or(JobStatus::Missing))
         })
     }
+}
+
+// IndependentServices simulates the Linux job backend even on a macOS test host.
+async fn mark_simulated_linux(harness: &Harness, id: i64) -> Result<()> {
+    sqlx::query("UPDATE servers SET static_info=static_info || $2 WHERE id=$1")
+        .bind(id)
+        .bind(json!({"os":"linux"}))
+        .execute(&harness.state.pool)
+        .await?;
+    Ok(())
 }
 
 fn write_artifact(harness: &Harness) -> Result<()> {
@@ -172,11 +202,12 @@ async fn node_report_survives_agent_restart_and_is_started_only_once(pool: PgPoo
         },
     )
     .await?;
+    mark_simulated_linux(&harness, id).await?;
     let report = harness
         .api(
             Method::POST,
             &format!("/api/servers/{id}/node-quality/reports"),
-            json!({"ip_version":"both","network_mode":"low","upload_report":true}),
+            json!({"mode":"daily","ip_version":"both"}),
         )
         .await?;
     let report_id = report["id"].as_str().context("report job id")?.to_owned();
@@ -192,6 +223,16 @@ async fn node_report_survives_agent_restart_and_is_started_only_once(pool: PgPoo
             .is_some_and(|checkpoint| !checkpoint.is_null()),
         "diagnostic-only restart must recover an existing managed checkpoint"
     );
+    let mut state = State::open(&config.state_db)?;
+    let mut saved: serde_json::Value = state
+        .get_json("diagnostics:active")?
+        .context("saved start")?;
+    saved["Started"]["spec"]["version"] = json!("a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2");
+    saved["Started"]["spec"]["options"] = json!({});
+    state.set_json("diagnostics:active", &saved)?;
+    drop(state);
+    sqlx::query("UPDATE diagnostic_jobs SET status='running',job=jsonb_set(jsonb_set(job,'{options}','{}'),'{version}','\"a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2\"') WHERE id=$1")
+        .bind(uuid::Uuid::parse_str(&report_id)?).execute(&harness.state.pool).await?;
     services.finish()?;
     let restarted = start();
     eventually(
@@ -229,3 +270,9 @@ async fn node_report_survives_agent_restart_and_is_started_only_once(pool: PgPoo
     let _ = restarted.await;
     Ok(())
 }
+
+#[path = "diagnostic_end_to_end/cancellation.rs"]
+mod cancellation;
+
+#[path = "diagnostic_end_to_end/chain_gate.rs"]
+mod chain_gate;

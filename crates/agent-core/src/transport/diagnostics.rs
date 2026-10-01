@@ -1,3 +1,5 @@
+mod budget;
+mod sections;
 use crate::{
     Config, SharedState,
     artifacts::{PanelClient, safe_component},
@@ -23,6 +25,8 @@ const ACTIVE: &str = "diagnostics:active";
 const OUTBOX: &str = "diagnostics:outbox";
 const MAX_REPORT: usize = 512 * 1024;
 
+pub mod cancellation;
+mod environment;
 mod monitoring;
 mod observation;
 mod safety;
@@ -41,6 +45,8 @@ enum Checkpoint {
         expires_at: Option<i64>,
         #[serde(default)]
         protection_stop_reason: Option<String>,
+        #[serde(default)]
+        environment: Option<environment::ExecutionEnvironment>,
     },
 }
 
@@ -51,6 +57,8 @@ pub struct DiagnosticWorker {
     privileged: Arc<dyn Privileged>,
     services: Arc<dyn ServiceManager>,
     keys: std::result::Result<TrustedKeys, ReleaseError>,
+    cancellations: Option<Arc<cancellation::CancellationControl>>,
+    retirement: Option<Arc<crate::retirement::Retirement>>,
 }
 
 impl DiagnosticWorker {
@@ -80,13 +88,26 @@ impl DiagnosticWorker {
             privileged,
             services,
             keys: TrustedKeys::compiled(),
+            cancellations: None,
+            retirement: None,
         })
+    }
+
+    pub fn with_cancellations(mut self, control: Arc<cancellation::CancellationControl>) -> Self {
+        self.cancellations = Some(control);
+        self
     }
 
     /// Supplies roots already trusted by an embedding caller, including test fixtures.
     pub fn with_trusted_keys(mut self, keys: TrustedKeys) -> Self {
         self.keys = Ok(keys);
         self
+    }
+
+    fn retiring(&self) -> bool {
+        self.retirement
+            .as_ref()
+            .is_some_and(|retirement| retirement.requested())
     }
 
     fn read<T: serde::de::DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
@@ -136,6 +157,8 @@ impl DiagnosticWorker {
     }
 
     async fn flush(&self, client: &PanelClient) -> Result<()> {
+        // A chapter upload failure must not hide an execution failure or completion.
+        let chapters_result = self.flush_sections(client).await;
         let pending: Vec<DiagnosticUpdate> = self.read(OUTBOX)?.unwrap_or_default();
         for update in pending {
             self.bounded(client.diagnostic_update(&update)).await?;
@@ -147,7 +170,7 @@ impl DiagnosticWorker {
             outbox.retain(|saved| saved.id != update.id);
             state.set_json(OUTBOX, &outbox)?;
         }
-        Ok(())
+        chapters_result
     }
 
     fn accept(&self, jobs: Vec<DiagnosticJob>) -> Result<()> {
@@ -164,6 +187,10 @@ impl DiagnosticWorker {
             if !self.adapters.contains_key(&job.plugin)
                 || !safe_component(&job.version)
                 || !(1..=3600).contains(&job.timeout_secs)
+                || job
+                    .resource_budget
+                    .as_ref()
+                    .is_some_and(|budget| !budget.valid())
                 || expired(&job)
             {
                 self.finish(failure(
@@ -182,17 +209,19 @@ impl DiagnosticWorker {
     async fn prepare(&self, job: DiagnosticJob, client: &PanelClient) -> Result<()> {
         let id = job.id;
         let result: Result<()> = async {
+            ensure!(!self.cancellation_requested(id)?, "diagnostic cancellation was requested");
             ensure!(!expired(&job), "diagnostic task has expired");
             let adapter = self.adapters.get(&job.plugin).context("diagnostic plugin is not registered")?;
             let descriptor = adapter.describe();
+            let auxiliary_files = adapter.auxiliary_files();
             let signed_descriptor = Descriptor {
-                auxiliary_files: vec![],
+                auxiliary_files: auxiliary_files.clone(),
                 module: "diagnostics".into(), plugin_name: descriptor.plugin_name.clone(),
                 binary_name: descriptor.binary_name.clone(), service_unit: String::new(), service_group: String::new(),
             };
             let binary = tokio::time::timeout(Duration::from_secs(300), client.ensure_artifact(&job.artifact, &job.version, &Descriptor {
                 module: "diagnostics".into(), plugin_name: descriptor.plugin_name,
-                binary_name: descriptor.binary_name, auxiliary_files: Vec::new(), service_unit: String::new(), service_group: String::new(),
+                binary_name: descriptor.binary_name, auxiliary_files, service_unit: String::new(), service_group: String::new(),
             }, &self.config.install_root, self.privileged.as_ref())).await.context("diagnostic artifact installation timed out")??;
             ensure!(!expired(&job), "diagnostic task expired during artifact installation");
             let keys = self.keys.as_ref().map_err(|error| anyhow::anyhow!(error.to_string()))?;
@@ -207,7 +236,8 @@ impl DiagnosticWorker {
             ensure!(service.unit == format!("sinan-diagnostic-{id}.service")
                 && service.timeout_secs == spec.timeout_secs
                 && service.working_directory == spec.job_dir && service.program == spec.binary_path, "invalid prepared diagnostic service");
-            self.preflight(&service).await?;
+            if let Some(budget)=&job.resource_budget { budget::apply(budget,&mut service)?; }
+            let resources = self.preflight(&service).await?;
             let started_at = unix_time();
             // Preparation can consume part of the remaining budget. Recompute immediately
             // before the durable start checkpoint and give systemd the reduced limit.
@@ -218,9 +248,12 @@ impl DiagnosticWorker {
             // This checkpoint is durable before asking systemd to start anything. Recovery
             // only observes it; an uncertain start must never execute the task again.
             let mut checkpoint = Checkpoint::Started {
+                environment: Some(environment::ExecutionEnvironment::capture(&service, &resources, started_at)),
                 spec, service: service.clone(), started_at, plugin: job.plugin, start_error: None, expires_at: job.expires_at, protection_stop_reason: None,
             };
+            ensure!(!self.cancellation_requested(id)?, "diagnostic cancellation was requested before service start");
             self.save(&checkpoint)?;
+            self.capture_environment(&checkpoint)?;
             if let Err(error) = self.bounded(self.services.start_job(&service)).await {
                 tracing::warn!(%id, %error, "diagnostic start response is uncertain; inspecting service on next poll");
                 if let Checkpoint::Started { start_error, .. } = &mut checkpoint {
@@ -230,13 +263,16 @@ impl DiagnosticWorker {
             }
             Ok(())
         }.await;
-        if let Err(error) = result {
+        if let Err(error) = result
+            && !self.cancellation_requested(id)?
+        {
             self.finish(failure(id, format!("诊断准备失败：{error:#}"), None))?;
         }
         Ok(())
     }
 
     pub async fn tick(&self, client: Option<&PanelClient>) -> Result<()> {
+        self.process_cancellations().await?;
         if let Some(checkpoint @ Checkpoint::Started { .. }) = self.active()? {
             self.observe(&checkpoint).await?;
         }

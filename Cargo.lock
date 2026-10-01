@@ -2426,6 +2426,7 @@ name = "sinan-adapter-nodequality"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "serde_json",
  "sinan-adapter-sdk",
  "tokio",
 ]
@@ -2454,6 +2455,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sinan-adapter-tcpquality"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sinan-adapter-sdk",
+ "tokio",
+]
+
+[[package]]
 name = "sinan-agent"
 version = "0.3.0"
 dependencies = [
@@ -2463,6 +2476,7 @@ dependencies = [
  "sinan-adapter-nodequality",
  "sinan-adapter-sdk",
  "sinan-adapter-singbox",
+ "sinan-adapter-tcpquality",
  "sinan-agent-core",
  "tokio",
  "toml",
@@ -2562,6 +2576,17 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror",
  "uuid",
+]
+
+[[package]]
+name = "sinan-tcp-probe"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
 ]
 
 [[package]]

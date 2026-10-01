@@ -1,0 +1,57 @@
+use super::*;
+
+pub async fn upload_section(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(update): Json<DiagnosticSectionUpdate>,
+) -> ApiResult<StatusCode> {
+    let server_id = auth::require_agent(&state, &headers).await?;
+    if id != update.id || !update.valid() || update.collected_at > now_timestamp() + 300 {
+        return Err(ApiError::BadRequest(
+            "报告章节编号、内容、版本或时间无效".into(),
+        ));
+    }
+    let mut tx = state.pool.begin().await?;
+    let row = sqlx::query("SELECT j.expected_sections FROM diagnostic_jobs j JOIN servers s ON s.id=j.server_id WHERE j.id=$1 AND j.server_id=$2 AND s.deleted_at IS NULL FOR UPDATE OF j")
+        .bind(id).bind(server_id).fetch_optional(&mut *tx).await?.ok_or(ApiError::NotFound)?;
+    let expected: Vec<String> = row.get("expected_sections");
+    if expected.len() > sinan_protocol::DIAGNOSTIC_SECTION_COUNT || !expected.contains(&update.name)
+    {
+        return Err(ApiError::BadRequest("任务没有登记此报告章节".into()));
+    }
+    let saved = sqlx::query(
+        "SELECT text,complete,revision FROM diagnostic_report_sections WHERE job_id=$1 AND name=$2",
+    )
+    .bind(id)
+    .bind(&update.name)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some(saved) = saved {
+        let revision: i64 = saved.get("revision");
+        if revision as u64 == update.revision
+            && (saved.get::<String, _>("text") != update.text
+                || saved.get::<bool, _>("complete") != update.complete)
+        {
+            return Err(ApiError::Conflict("同一报告章节版本的内容不一致".into()));
+        }
+        if revision as u64 >= update.revision
+            || (saved.get::<bool, _>("complete") && !update.complete)
+        {
+            tx.commit().await?;
+            return Ok(StatusCode::NO_CONTENT);
+        }
+    }
+    let total: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(octet_length(text)),0)::bigint FROM diagnostic_report_sections WHERE job_id=$1 AND name<>$2")
+        .bind(id).bind(&update.name).fetch_one(&mut *tx).await?;
+    if total + update.text.len() as i64 > REPORT_LIMIT as i64 {
+        return Err(ApiError::BadRequest("已保存报告章节超过 512 KiB".into()));
+    }
+    sqlx::query("INSERT INTO diagnostic_report_sections(job_id,name,text,complete,revision,collected_at,received_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(job_id,name) DO UPDATE SET text=EXCLUDED.text,complete=EXCLUDED.complete,revision=EXCLUDED.revision,collected_at=EXCLUDED.collected_at,received_at=EXCLUDED.received_at")
+        .bind(id).bind(update.name).bind(update.text).bind(update.complete).bind(update.revision as i64).bind(update.collected_at).bind(now_timestamp()).execute(&mut *tx).await?;
+    sqlx::query("UPDATE diagnostic_jobs j SET report_completeness=CASE WHEN (SELECT COUNT(*) FROM diagnostic_report_sections s WHERE s.job_id=j.id AND s.complete)=cardinality(j.expected_sections) THEN 'complete' ELSE 'partial' END WHERE j.id=$1")
+        .bind(id).execute(&mut *tx).await?;
+    // Execution status, terminal error and legacy text are deliberately preserved.
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
