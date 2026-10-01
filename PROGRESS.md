@@ -1,5 +1,11 @@
 # 执行进度
 
+## 2026-10-01：实测专用虚拟机端口隔离修正
+
+- 独立补验 PR #91 合并审查中的 `guestIPMustBeZero: false`。构建结束后只停止、编辑并重启本任务实例一次，保留磁盘与旧证据；修正模板和实际配置摘要、新 boot 与管理 SSH 身份分别记录在[虚拟机验收](docs/acceptance/p0-dedicated-vm.md)。
+- guest 回环/全接口两个有限 HTTP 监听均可在 guest 内访问；宿主三轮六次连接全部拒绝，六次监听检查均无对应端口。夹具正常退出，无进程、监听、准备文件或共享目录残留；UDP 仅启动日志确认关闭，未做线路实测。
+- 本项只有文档与实际隔离补验，不修改 Agent/诊断代码，不复用原六夹具来认证新 boot，不签收完整 NodeQuality。新 Agent 联合负载另行记录，远端 CI 继续暂停。
+
 ## 2026-10-01：准备独立 Debian 12 P0 测试虚拟机
 
 - 单独保存 [固定 Lima/VZ 配置](tools/p0-debian12-vm.yaml) 与 [实际隔离及验收范围](docs/acceptance/p0-dedicated-vm.md)。2 CPU、1536 MiB、8 GiB 的 Debian 12 ARM64 guest 已实际启动，固定镜像 341,114,880 字节的 SHA512 校验一致；不共享宿主目录、管理密钥或业务端口，不执行生产硬件压测。
