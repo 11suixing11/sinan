@@ -1094,3 +1094,11 @@ r7只控制入口及三份固定脚本的公开报告POST，保留隐私、轻�
 - 950MiB并非已实测Geekbench预算，未证明默认512MiB cgroup可跑完整硬件；full门禁和#66保持，根文件系统/二级工具、上传与许可和完整联合负载仍待验证。详见[独立验收](docs/acceptance/nodequality-no-swap.md)。
 
 - r8根复核冻结ebf7302：Rust/API19全部通过/0忽略、Clippy/fmt/core/shell/diff通过，PG55439按归属停止且PID/端口已消失；收据c0ba55b1…。专用Debian12单次来源16（15过/1缺minisign跳过）、swap8和Bash5原函数体FD组合2通过，29输入前后不变。实际限额读回、峰值64,737,280B/11pids、0OOM，结束无进程/挂载/cgroup，SSH406重启0/同boot/swap0，guest收据841d30bb…。不运行真实swap、bootstrap或benchmark，不把该有限验收签为完整联合负载。
+
+## PR #107 本聊天整合与观察器复核（2026-10-01）
+
+正常保留作者 `b0869ef`，将原堆叠PR改到main后整合 `de299906`，精确受验运行输入 `a083c099` 保留资产、流量、策略组、r6固定来源和r7报告开关；补 queued r7 显式门禁覆盖。adapter29+panel diagnostics13共42通过/0失败/忽略，fmt/core/workspace全targets Clippy/四workflow actionlint通过，自有PG55432已停。Python105运行、101通过/4既有条件跳过（来源16/wrapper34/策略6/swap10/daily7/release28），官方十来源大小/SHA匹配；这不是r8完整workspace或实机总验。
+
+真实DEBUG观察器在Mac Bash3改写PIPESTATUS，旧守卫70可继续章节；GNU Bash5.2.15的旧70会停，两版旧7都继续。补修改局部pipefail并同步固定输出摘要：硬件或来源失败停止后续章节、没有正常完成标记；原EXITcleanup最终码1仍明确失败，不能误称最终码70。原作者guest仅对应旧ebf7302，不追认为新补修。调整可移植负对照后的 `bc7f751` 同一十项swap在Mac Bash3.2和独立GNU Bash5.2.15均全部通过；Bash5初次负对照失败原日志保留，不计通过。运行产品字节与a083不变，仅测试/文档变化。
+
+r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除已定位入口/HardwareQuality swap路径，950MiB只是原宿主阈值而非GB5峰值或cgroup预算；rootfs、二级工具/上传/许可、宿主全副作用和完整故障/负载矩阵仍未验收，没有正式签署、发布、部署r8或触发暂停中的CI。

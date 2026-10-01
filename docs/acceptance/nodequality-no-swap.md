@@ -56,4 +56,4 @@ guest在独立单元运行并内部持久化限额读回：MemoryMax256MiB、Swa
 
 补修将硬件执行和 tee 放在启用 pipefail 的子 shell 中，通过 `|| exit $?` 拒绝硬件或来源失败，避免依赖会被 DEBUG trap 改写的数组。成功分支仍保留正常完成标记；失败分支不启动后续章节、不写完成标记，退出时仍做原清理。原 sig_cleanup 的 post_cleanup 最终会把拒绝码 70 改为 1；这个结果保持失败，不能当作正常成功。
 
-补修 swap helper SHA 为 `1d6acda7821d013773b273d77db12973d7075631b0309614dadb9c5cfc09ff24`，执行入口 SHA 为 `a68a42e8f508fdc1ed5a7170fda4b114ab81afc184a9c035b48613407a1fdc93`，其余 canonical 与硬件输出不变。这份补修在 macOS Bash 3.2 的有限夹具中验证；正式 runner 仍要求 Bash ≥4，Bash 5、实机完整链及负载未在合并审查中复演，不把原作者的较早 guest 结果移作新补修证明。
+补修 swap helper SHA 为 `1d6acda7821d013773b273d77db12973d7075631b0309614dadb9c5cfc09ff24`，执行入口 SHA 为 `a68a42e8f508fdc1ed5a7170fda4b114ab81afc184a9c035b48613407a1fdc93`，其余 canonical 与硬件输出不变。这份补修最先在 macOS Bash 3.2 的有限夹具中验证，随后在本任务独立构建的 GNU Bash 5.2.15（源码官方 HTTPS，SHA256 `13720965b5f4fc3a0d4b61dd37e7565c741da9a5be24edc2ae00182fc1b3588c`）重复同一十项专项，两版均全部通过/0跳过。GNU Bash 首轮因旧70负对照预期与Mac3不同而失败的日志保留，不计通过；选择两版都忽略的旧7作稳定负对照后再验，新守卫70/7均拒绝。这里只执行惰性桩与真实观察器/固定cleanup，未在Linux guest或实际chroot复演，也未跑完整负载，不把作者较早guest结果移作新补修证明。
