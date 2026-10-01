@@ -33,18 +33,29 @@ async fn official_node_jobs_are_signed_capability_bound_deduplicated_and_cancela
         StatusCode::CONFLICT
     );
     prepare(&panel, server).await?;
-    for request in [
-        json!({"api_key":"TEST_ONLY_private"}),
-        json!({"ip_version":"invalid"}),
+    for (request, rejection) in [
+        (
+            json!({"api_key":"TEST_ONLY_private"}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (json!({"ip_version":"invalid"}), StatusCode::BAD_REQUEST),
     ] {
         assert_eq!(
             panel
                 .admin(Method::POST, &path, &cookie, Some(request))
                 .await?
                 .status(),
-            StatusCode::BAD_REQUEST
+            rejection
         );
     }
+    let jobs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM diagnostic_jobs WHERE server_id=$1")
+        .bind(server)
+        .fetch_one(&panel.state.pool)
+        .await?;
+    assert_eq!(
+        jobs, 0,
+        "rejected credentials and invalid family never create a job"
+    );
     let ordinary = format!("/api/servers/{server}/node-quality/reports");
     assert_eq!(
         panel
@@ -168,6 +179,91 @@ async fn chapter_replay_repairs_postcommit_cache_failure_and_old_revisions_do_no
         StatusCode::NO_CONTENT
     );
     assert_history_false_zero(&view(&panel, server, &cookie).await?, at, "http_429");
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn deferred_cache_writes_cannot_regress_same_second_revisions_or_jobs(
+    pool: PgPool,
+) -> Result<()> {
+    use sinan_panel::diagnostic_plugins::nodequality::node_queries::{
+        parse_section, persist_section,
+    };
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, ack) = panel
+        .authenticated_device(&cookie, "延迟缓存并发夹具")
+        .await?;
+    prepare(&panel, server).await?;
+    let record = create(&panel, server, &cookie).await?;
+    let id = record["id"].as_str().unwrap();
+    let at = record["created_at"].as_i64().unwrap();
+    let first = section(id, at, 1, false, None);
+    assert_eq!(
+        upload(&panel, &ack.session_token, id, &first).await?,
+        StatusCode::NO_CONTENT
+    );
+    let deferred = parse_section(
+        &record["job"],
+        &serde_json::from_value(first.clone())?,
+        at,
+        at + 390,
+    )?;
+    let failure = section(id, at, 2, true, Some(("http_429", Some(429))));
+    assert_eq!(
+        upload(&panel, &ack.session_token, id, &failure).await?,
+        StatusCode::NO_CONTENT
+    );
+    // Reproduce an earlier accepted upload resuming its postcommit continuation
+    // only after a newer revision has committed both chapter and cache.
+    persist_section(&panel.state, server, deferred).await?;
+    assert_history_false_zero(&view(&panel, server, &cookie).await?, at, "http_429");
+    let conflicting_text = section(id, at, 2, true, Some(("http_403", Some(403))));
+    let conflicting = parse_section(
+        &record["job"],
+        &serde_json::from_value(conflicting_text)?,
+        at,
+        at + 390,
+    )?;
+    persist_section(&panel.state, server, conflicting).await?;
+    assert_history_false_zero(&view(&panel, server, &cookie).await?, at, "http_429");
+
+    let latest_deferred = parse_section(
+        &record["job"],
+        &serde_json::from_value(failure)?,
+        at,
+        at + 390,
+    )?;
+    let final_response = panel.client.post(format!("{}/api/agent/v1/diagnostics/{id}", panel.base))
+        .bearer_auth(&ack.session_token)
+        .json(&json!({"id":id,"status":"succeeded","report":{"text":"TEST_ONLY completed node query"}}))
+        .send().await?;
+    assert_eq!(final_response.status(), StatusCode::NO_CONTENT);
+    let next = create(&panel, server, &cookie).await?;
+    assert!(
+        next["job"]["node_query_generation"].as_i64().unwrap()
+            > record["job"]["node_query_generation"].as_i64().unwrap()
+    );
+    let next_id = next["id"].as_str().unwrap();
+    // Force identical creation and report seconds; lifecycle still creates these
+    // jobs consecutively with only one active job at a time.
+    sqlx::query("UPDATE diagnostic_jobs SET created_at=$2 WHERE id=$1::uuid")
+        .bind(next_id)
+        .bind(at)
+        .execute(&panel.state.pool)
+        .await?;
+    let next_failure = section(next_id, at, 1, true, Some(("http_403", Some(403))));
+    assert_eq!(
+        upload(&panel, &ack.session_token, next_id, &next_failure).await?,
+        StatusCode::NO_CONTENT
+    );
+    persist_section(&panel.state, server, latest_deferred).await?;
+    let quality = view(&panel, server, &cookie).await?;
+    assert_history_false_zero(&quality, at, "http_403");
+    assert!(
+        !quality.to_string().contains("_node_query_order"),
+        "internal ordering never enters the public IP response"
+    );
     Ok(())
 }
 

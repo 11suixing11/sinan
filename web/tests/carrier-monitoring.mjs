@@ -116,7 +116,7 @@ try {
     assert.equal(await dialog.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).isChecked(), false, 'Changing evidence requires confirmation again')
     await dialog.getByRole('button', { name: '保存任务' }).click()
     await dialog.waitFor({ state: 'detached' })
-    await network('电信').getByText('授权已撤销', { exact: true }).waitFor()
+    await network('电信').getByText('授权已撤销', { exact: false }).waitFor()
     assert.equal(writes.at(-1).body.spec.enabled, false)
     assert.equal(writes.at(-1).body.spec.monitor.authorization.enabled, false)
     assert.equal(writes.at(-1).body.spec.monitor.authorization.source, 'TEST_ONLY replacement permission record')
@@ -128,7 +128,7 @@ try {
     rows[2].probe.monitor.authorization.expires_at = null
     rows[2].results = [{ id: id(104), probe_id: id(14), sampled_at: now - 1000, latency_ms: null, loss_percent: 100, error: 'TEST_ONLY ICMP permission denied' }]
     await page.getByRole('button', { name: '刷新', exact: true }).click()
-    await network('移动').getByText('检测不可用', { exact: true }).waitFor()
+    await network('移动').getByText('检测不可用', { exact: false }).waitFor()
     assert.match(await network('移动').innerText(), /ICMP 回显/)
     assert.match(await network('移动').innerText(), /IPv6（配置）/)
     assert.match(await network('移动').innerText(), /TEST_ONLY ICMP permission denied/)

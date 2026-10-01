@@ -43,7 +43,8 @@ fn official_node_receipt_preserves_false_zero_and_source_identity() {
     let (job, update, now) = receipt();
     let parsed = parse_section(&job, &update, now, now + 90)
         .unwrap()
-        .unwrap();
+        .unwrap()
+        .quality;
     assert_eq!(parsed.len(), 2);
     assert_eq!(parsed[0].databases[0].fields[0].value, json!(false));
     assert_eq!(
@@ -77,7 +78,8 @@ fn mixed_wrong_types_fail_the_source_without_losing_other_source() {
         alter(&mut update, "/results/1/data/isProxy", wrong);
         let parsed = parse_section(&job, &update, now, now + 90)
             .unwrap()
-            .unwrap();
+            .unwrap()
+            .quality;
         assert_eq!(parsed[0].status, "succeeded");
         assert_eq!(parsed[1].status, "failed");
         assert!(parsed[1].databases[0].fields.is_empty());
@@ -146,7 +148,8 @@ fn per_source_unknown_and_http_errors_preserve_attempt_semantics() {
         }
         let parsed = parse_section(&job, &update, now, now + 90)
             .unwrap()
-            .unwrap();
+            .unwrap()
+            .quality;
         assert_eq!(parsed[1].status, "failed");
         assert!(parsed[1].databases[0].fields.is_empty());
         assert_eq!(parsed[1].last_success_at, None);

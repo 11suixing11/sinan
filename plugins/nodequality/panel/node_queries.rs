@@ -1,5 +1,6 @@
 //! Official node IP translation; diagnostic service owns execution and history.
 use super::*;
+use sha2::{Digest, Sha256};
 use sinan_protocol::DiagnosticSectionUpdate;
 
 mod parsing;
@@ -9,6 +10,11 @@ mod tests;
 pub const NODE_QUERY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21";
 pub const NODE_QUERY_CAPABILITY: &str = "diagnostic:nodequality-node-query";
 const SCHEMA: &str = "sinan.node-ip-quality.v1";
+
+pub struct NodeSectionResults {
+    pub identity: ip_quality::NodeResultIdentity,
+    pub quality: Vec<ip_quality::IpQuality>,
+}
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -75,6 +81,13 @@ impl DiagnosticPlugin for NodeIpQualityPlugin {
                     "Agent 尚未上报所选版本的公网 IP，不能将面板出口当作节点出口".into(),
                 ));
             }
+            // The shared service already holds the durable server lock here.
+            // Creation order remains distinct when consecutive jobs share a second.
+            let previous: i64 = sqlx::query_scalar("SELECT COALESCE(MAX((job->>'node_query_generation')::bigint),0) FROM diagnostic_jobs WHERE server_id=$1 AND job->>'plugin'='nodequality' AND job->'options'->>'mode'='ip' AND job ? 'node_query_generation'")
+                .bind(server_id).fetch_one(&mut *connection).await?;
+            let generation = previous
+                .checked_add(1)
+                .ok_or_else(|| ApiError::Conflict("节点查询历史序号已耗尽".into()))?;
             Ok(JobPlan {
                 timeout_secs: 90,
                 budget: DiagnosticResourceBudget {
@@ -96,10 +109,10 @@ impl DiagnosticPlugin for NodeIpQualityPlugin {
                     ("environment_section".into(), "true".into()),
                 ]),
                 expected_sections: vec!["ip_quality".into(), "environment".into()],
-                metadata: BTreeMap::from([(
-                    "node_query_schema".into(),
-                    Value::String(SCHEMA.into()),
-                )]),
+                metadata: BTreeMap::from([
+                    ("node_query_schema".into(), Value::String(SCHEMA.into())),
+                    ("node_query_generation".into(), Value::from(generation)),
+                ]),
             })
         })
     }
@@ -142,20 +155,28 @@ pub fn parse_section(
     update: &DiagnosticSectionUpdate,
     created_at: i64,
     expires_at: i64,
-) -> ApiResult<Option<Vec<ip_quality::IpQuality>>> {
+) -> ApiResult<Option<NodeSectionResults>> {
     if job["options"]["mode"].as_str() != Some("ip") || update.name != "ip_quality" {
         return Ok(None);
     }
-    parsing::parse(job, update, created_at, expires_at).map(Some)
+    Ok(Some(NodeSectionResults {
+        identity: ip_quality::NodeResultIdentity {
+            job_id: update.id,
+            revision: update.revision,
+            text_sha256: format!("{:x}", Sha256::digest(update.text.as_bytes())),
+        },
+        quality: parsing::parse(job, update, created_at, expires_at)?,
+    }))
 }
 
 pub async fn persist_section(
     state: &AppState,
     server_id: i64,
-    results: Option<Vec<ip_quality::IpQuality>>,
+    results: Option<NodeSectionResults>,
 ) -> ApiResult<()> {
     if let Some(results) = results {
-        ip_quality::persist_node_results(state, server_id, &results).await?;
+        ip_quality::persist_node_results(state, server_id, &results.identity, &results.quality)
+            .await?;
     }
     Ok(())
 }

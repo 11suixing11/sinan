@@ -243,12 +243,19 @@ pub async fn cached(state: &AppState, server_id: i64, ips: &[String]) -> ApiResu
     Ok(quality)
 }
 
+pub struct NodeResultIdentity {
+    pub job_id: uuid::Uuid,
+    pub revision: u64,
+    pub text_sha256: String,
+}
+
 pub async fn persist_node_results(
     state: &AppState,
     server_id: i64,
+    identity: &NodeResultIdentity,
     quality: &[IpQuality],
 ) -> ApiResult<()> {
-    cache::persist(&state.pool, server_id, quality).await
+    cache::persist_node(&state.pool, server_id, identity, quality).await
 }
 
 pub fn confirmed_node_fields(database: &str, value: &Value) -> Vec<QualityField> {

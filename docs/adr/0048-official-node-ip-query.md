@@ -26,6 +26,8 @@
 
 独立章节先持久化，然后释放 job 锁再写 IP 缓存，避免 job/server 锁倒序。相同章节版本与相同内容的 Agent outbox 重放再次写缓存，能修复章节已经提交、缓存写入失败的情况；旧版本、同版本冲突和 complete 回退不覆盖新结果。缓存沿用 `(server, ip, provider, database)` 的上次成功、时间和有效期，失败、凭证删除及面板重建不清掉历史。
 
+缓存事务取得 server 锁后，再以普通读取核对当前已提交章节的任务 UUID、revision 和原文 SHA256；较早请求的延迟缓存 continuation 与当前章节不一致时跳过写入，不取得 job 锁。公共服务在创建任务时已有 server 锁，插件在该事务内分配并保存 `node_query_generation`，明确连续任务的创建顺序；服务器只允许一个活动任务，但任务结束后的缓存 continuation 仍可能晚于下一任务，因此不能只依赖活动任务限制。专用缓存 payload 保存内部 generation/revision 顺序，较早任务即使与新任务在同一秒结束，也不能覆盖新缓存。无需数据库迁移；这些内部键不会进入公开 IP 查询响应，普通面板 IP 刷新继续沿用原有时间比较规则。同版本同原文重放仍可补偿 postcommit 缓存失败，逐数据库上次成功的 0 和 false 不变。
+
 ## 流媒体和验收边界
 
 没有为 Disney+、YouTube Premium 或 ChatGPT 找到并核实可用的正式授权检测合同。本轮不提供借用公共授权材料或任意 operator JSON 断言的替代品；三个服务仍明确为未知，已有检查源码、来源与报告能力保留，原 r18 public-access policy 继续逐源禁止公共凭证自动使用。正式 IP 成功不代表流媒体解锁或完整验机可用。
