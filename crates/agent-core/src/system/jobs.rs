@@ -101,14 +101,12 @@ impl SystemServiceManager {
                     ),
                 "diagnostic arguments cannot contain systemd expansion syntax or control characters"
             );
-            if self.backend == ServiceBackend::OpenRc {
-                return self.start_openrc_job(job).await;
-            }
             ensure!(
                 self.backend == ServiceBackend::Systemd,
-                "diagnostic jobs require Linux"
+                "诊断启动需要 systemd 的 swap 系统调用保护；当前后端无法验证保护，不允许降级运行"
             );
             prepare_diagnostic_lock(self.privileged.as_ref()).await?;
+            super::syscall_protection::verify_support(self.privileged.as_ref()).await?;
             let mut args = vec![
                 format!("--unit={}", job.unit),
                 "--no-block".into(),
@@ -118,6 +116,11 @@ impl SystemServiceManager {
                 "--property=TimeoutStopSec=30s".into(),
                 "--property=KillMode=control-group".into(),
                 "--property=PrivateMounts=yes".into(),
+                "--property=NoNewPrivileges=yes".into(),
+                "--property=SystemCallArchitectures=native".into(),
+                "--property=SystemCallFilter=~swapon swapoff".into(),
+                "--property=SystemCallErrorNumber=EPERM".into(),
+                super::syscall_protection::FILTER_CHECK.into(),
                 "--property=UMask=0077".into(),
                 "--property=StandardOutput=null".into(),
                 "--property=StandardError=journal".into(),

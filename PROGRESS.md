@@ -1,5 +1,13 @@
 # 执行进度
 
+## 2026-10-01：准备独立 Debian 12 P0 测试虚拟机
+
+- 单独保存 [固定 Lima/VZ 配置](tools/p0-debian12-vm.yaml) 与 [实际隔离及验收范围](docs/acceptance/p0-dedicated-vm.md)。2 CPU、1536 MiB、8 GiB 的 Debian 12 ARM64 guest 已实际启动，固定镜像 341,114,880 字节的 SHA512 校验一致；不共享宿主目录、管理密钥或业务端口，不执行生产硬件压测。
+- 实际读回 systemd running、cgroup v2、启动时约 1.3 GiB 可用内存与 6.4 GiB 根盘剩余、无启用 swap。管理 SSH loopback 绑定、重启数 0。安装仅限 guest 编译依赖和校验过摘要的 Rust 1.97.1，构建单元限 1100 MiB/无 swap/128 tasks/一个 Cargo 编译任务。
+- 源码冻结 `356350e` 的 ARM64 ELF 实际串行运行六个 systemd 夹具，6 通过、0 失败/忽略、2.30 秒；预算 OOM 仅在诊断 cgroup，结束无残留单元/进程/挂载、无手动补清理。另 16 MiB 私有 tmpfs 实测 ENOSPC 后完整卸载；SSH PID/重启数保持。这些证据不认证后续主线、不证明 Agent 预检整链或持续代理服务。
+- 专用 aws-jp0 仍需恢复，完整 NodeQuality 授权与受控执行链门禁保持。真实 systemd 有限夹具、小文件系统、实际 Agent 联合负载分别记录，不把准备 VM 或旧 CI 当阶段总验；本项不恢复暂停的远端 CI。
+- 合并审查补齐端口忽略规则的 `guestIPMustBeZero: false`，覆盖回环监听；Lima 2.2.0 配置校验、文档链接、fmt/core 和差异检查通过。原运行证据不转记为修订规则的运行期端口验收，本轮未启动或重启既有 guest，应用后实测单独跟进。
+
 ## 2026-10-01：补齐 NodeQuality amd64 rootfs 证据
 
 - 对应 [Issue #82](https://github.com/theLucius7/sinan/issues/82)，单独记录 [归档静态盘点](docs/acceptance/nodequality-rootfs-inventory.md)。单次取得固定发布资产，312,475,959 字节及 SHA256 与发布元数据一致；禁网、只读、512 MiB/1 CPU 分析容器仅流式读取，没有解压执行、挂载或运行诊断。
@@ -901,3 +909,12 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - Rust 1.98.1 限额 Linux 容器执行 `cargo test --locked --offline -p sinan-agent-core`，181 项通过、0 失败、6 项既有真实服务条件忽略；包含新增 8 项磁盘回归。workspace fmt、core 全 targets Clippy（warnings 为错误）、core 分层门禁与差异检查通过。
 - 使用相同构建的 Collector 做只读采样：宿主仅保留 `/`、`/boot`、`/boot/efi`，总量 `541018241536` bytes（503.863 GiB），逐字节等于 `df -B1 --output=size` 之和，已用等于逐盘已用之和。另建无目录卷的临时 Debian 12 容器，旧名称累加结果 `1079556669440` bytes，修复后仅 `/` 为 `539778334720` bytes；容器退出 0、无 OOM，采样后已删除。
 - 未重跑完整 workspace、面板浏览器或非 Linux 原生实机；未推断容器额外目录卷与不可见 overlay 后端的物理归属。遵循临时约定保留四个 workflow 暂停并使用 `[skip ci]`，不将本地验证称作远端 CI 通过。下一步审查合入后构建并签名新版 Agent，再部署生效；本次仅提交修复 PR，线上 Agent 尚未替换。
+
+- 用户随后要求合入并准备新版 Agent。正常合并主线 `2605dbe`（含 #91、#92），仅 PROGRESS 追加记录冲突，保留双方内容及原磁盘实现。最终整合 core 回归 185 通过、0 失败、7 项既有实机条件忽略；fmt、core 全 targets Clippy 与分层门禁通过。CI 继续暂停，新版签名、发布与线上升级单独记录。
+
+## 2026-10-01：独立 P0 诊断 swap 系统调用保护（关联 #66）
+
+- 新 systemd 诊断固定 `NoNewPrivileges=yes`、`SystemCallArchitectures=native`、`SystemCallFilter=~swapon swapoff`、`SystemCallErrorNumber=EPERM`，资源预算五字段保持原样。三次 3 秒/16 KiB 支持探测失败即拒绝；同单元固定 awk 预命令检查 `NoNewPrivs=1`、`Seccomp=2`、至少两层过滤，识别未安装/只有 ABI 过滤的异常。
+- 运行中 manager 的 `+SECCOMP` 与 PID 1 无继承过滤必须可验证；OpenRC 新诊断明确拒绝，常驻代理运行时和历史诊断的停止/读取/回收保持。保护只覆盖单元直接 fork/exec 子树，不阻止 D-Bus 或其他宿主 daemon 另开进程，不禁止文件写入，也不解除 full 门禁或修复上游 swap helper，#66 继续开放。
+- 本地 `fmt`、core 边界检查、`clippy --locked -p sinan-agent-core --all-targets -- -D warnings` 通过；core 全套在增加 count guard 前通过，最终相关 `system::` 专项 23 passed / 7 ignored、服务集成 6 passed。独立 Debian 12 ARM64 guest 新 swap syscall 夹具 1 passed / 0 failed / 0 ignored，同一新 core 二进制原六有限 systemd 夹具回归 6 passed / 0 failed / 0 ignored；direct/fork/exec 无过滤返回 ENOENT、过滤后 EPERM，NNP=1/Seccomp=2/filters=2，仅 native ABI 负例未运行 payload，swap 表逐字节不变。清理后诊断单元/编译进程/夹具挂载/目录为空，SSH PID 446 重启 0、无 global OOM；不据此声称完整 NodeQuality、实际 Agent 心跳或持续代理流量通过。CI 按临时规则保持暂停。
+- 独立步骤与支持边界见 [验收文档](docs/acceptance/diagnostic-swap-syscalls.md)。真实测试仅在获授权的可销毁 guest 对 root-owned 0700 目录下的不存在路径调用 syscall，不创建 swap 文件，不更改宿主 swap。
