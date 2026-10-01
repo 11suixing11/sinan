@@ -65,11 +65,14 @@ try {
       else if (pathname === `${prefix}/users/1/subscription` && method === 'GET') {
         const format = new URL(request.url()).searchParams.get('format')
         assert(['singbox', 'links'].includes(format))
-        value = { format, status: 'ready', message: '当前授权节点已应用。', subscription_url: user.subscription_url,
+        value = {
+          format, status: 'ready', message: '私有夹具订阅已就绪', subscription_url: user.subscription_url,
           available_formats: ['singbox', 'links'], granted_nodes: groupIds.length, eligible_nodes: groupIds.length,
-          ready_nodes: nodes.filter(node => groupIds.includes(node.id)), entitlement: entitlement(),
-          content: format === 'singbox' ? JSON.stringify({ outbounds: [{ tag: 'TEST_ONLY 当前用户节点' }] }) : 'vless://TEST_ONLY@proxy.example.com:443',
-          filename: format === 'singbox' ? 'fixture.json' : 'fixture.txt', content_type: 'text/plain' }
+          ready_nodes: nodes.filter(node => groupIds.includes(node.id)),
+          content: format === 'singbox' ? JSON.stringify({ outbounds: [{ tag: 'TEST_ONLY 当前用户节点' }] }) : 'vless://TEST_ONLY@proxy.example.com:20002',
+          filename: format === 'singbox' ? 'sinan-subscription.json' : 'sinan-subscription.txt',
+          content_type: format === 'singbox' ? 'application/json' : 'text/plain', entitlement: entitlement(),
+        }
       }
       else if (pathname === `${prefix}/users/1/package` && method === 'POST') {
         const payload = request.postDataJSON()
@@ -123,10 +126,12 @@ try {
     await page.getByRole('button', { name: '订阅链接', exact: true }).click()
     assert.equal(await page.getByRole('combobox', { name: '订阅格式', exact: true }).inputValue(), 'singbox')
     await page.getByRole('dialog').getByText('可以获取', { exact: true }).waitFor()
-    assert.equal(await page.locator('.subscription-address code').textContent(), `${user.subscription_url}?format=singbox`)
+    await page.getByRole('region', { name: '订阅地址', exact: true }).locator('code').waitFor()
+    assert.equal(await page.getByRole('region', { name: '订阅地址', exact: true }).locator('code').textContent(), `${user.subscription_url}?format=singbox`)
     await page.getByRole('combobox', { name: '订阅格式', exact: true }).selectOption('links')
     await page.getByRole('dialog').getByText('可以获取', { exact: true }).waitFor()
-    assert.equal(await page.locator('.subscription-address code').textContent(), `${user.subscription_url}?format=links`)
+    await page.getByRole('region', { name: '订阅地址', exact: true }).locator('code').waitFor()
+    assert.equal(await page.getByRole('region', { name: '订阅地址', exact: true }).locator('code').textContent(), `${user.subscription_url}?format=links`)
     await page.getByRole('button', { name: '完成', exact: true }).click()
     assert.equal(writes.length, 2, 'subscription display must not write credentials or grants')
     assert.deepEqual(errors, [])

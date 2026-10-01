@@ -1,0 +1,63 @@
+{
+  "tested_merge": "196a9b3060e0639f102fc9964e6b9c949a4108bc",
+  "merged_main": "fdbe6687fb75342427404fd4983a55325a0c3f08",
+  "rust": {
+    "passed": 501,
+    "failed": 0,
+    "ignored": 17,
+    "targets": 67,
+    "complete_single_workspace_invocation": true,
+    "ignored_reasons": [
+      "test health::tests::obfuscated_quic_health_checks_certificate_and_custom_alpn ... ignored, requires OpenSSL and official sing-box 1.14.2 in SINAN_TEST_UPSTREAM; runs only on ephemeral loopback ports",
+      "test real_check_stats_cumulative_reads_and_reload_generation ... ignored, Requires exact upstream runtime built with with_v2ray_api; set SINAN_TEST_SINGBOX and run --ignored",
+      "test system::cleanup::acceptance::real_systemd_diagnostic_cancellation_confirms_process_and_private_mount_cleanup ... ignored, requires root, Linux cgroup v2, systemd, flock and private tmpfs mounts on a dedicated test node",
+      "test system::jobs::lock_tests::real_systemd_diagnostic_lock_blocks_unprivileged_open_and_preserves_held_inode ... ignored, requires Linux, Python 3, flock, and root",
+      "test system::jobs::tests::budgets::real_systemd_diagnostic_resource_budget_restricts_memory_and_children ... ignored, requires Linux cgroup v2, a running systemd system manager, Python 3, and root",
+      "test system::jobs::tests::queued::real_systemd_diagnostic_queued_start_stays_running_until_executed ... ignored, requires Linux, a running systemd system manager, and root to create isolated transient services",
+      "test system::jobs::tests::real_systemd_diagnostic_jobs_survive_manager_recreation_and_enforce_timeout ... ignored, requires Linux, a running systemd system manager, and root to create isolated transient services",
+      "test system::jobs::tests::real_systemd_diagnostic_preflight_reads_resources_and_enforces_exclusive_execution ... ignored, requires Linux cgroup v2, root, flock, and a running systemd system manager",
+      "test system::syscall_protection::tests::acceptance::real_systemd_swap_syscalls_are_denied_before_payload_and_inherited ... ignored, requires explicit disposable guest opt-in, Linux/root/systemd, Python 3, and no inherited seccomp filter",
+      "test tasks::probes::tests::icmp_measures_real_ipv4_and_ipv6_loopback ... ignored, requires the platform ICMP tool and permission to send IPv4/IPv6 loopback echoes",
+      "test upstream_runtime_accepts_compiled_server_and_client ... ignored, requires an upstream v1.14.2 binary with with_v2ray_api; set SINAN_TEST_SINGBOX",
+      "test official_runtime_accepts_protocol_settings ... ignored, requires the official v1.14.2 binary in SINAN_TEST_UPSTREAM; checks protocol fields without the optional accounting extension",
+      "test upstream_accepts_every_protocol_and_acme_provider ... ignored, requires upstream v1.14.2 with QUIC, ACME, Naive and V2Ray API; set SINAN_TEST_SINGBOX",
+      "test pinned_native_runtime_accepts_entry_exit_and_client_configs ... ignored, requires the pinned upstream binary in SINAN_GROUPS_RUNTIME",
+      "test actual_challenges_persistence_and_expired_certificate_renewal ... ignored, requires local Pebble and fixed runtime; run tools/acme-smoke.py",
+      "test all_protocols_authenticate_account_and_revoke_with_real_runtime ... ignored, requires openssl and upstream v1.14.2 with Naive, QUIC, ACME and V2Ray API; set SINAN_TEST_SINGBOX",
+      "test panel_reality_keys_match_upstream_generated_key_format ... ignored, Requires PostgreSQL and SINAN_TEST_SINGBOX pointing to an upstream runtime; run --ignored"
+    ]
+  },
+  "python": {
+    "suites": 21,
+    "tests": 378,
+    "passed": 367,
+    "skips": 11,
+    "failures": 0,
+    "errors": 0,
+    "powershell_actual_passed": 15,
+    "fixed_source_files_unchanged": 17
+  },
+  "web": {
+    "unit_passed": 40,
+    "assertions": 922,
+    "browser_suites_passed": 17,
+    "typescript_vite_build": true,
+    "scope": "actual dist, owned loopback API fixtures, desktop and mobile"
+  },
+  "runtime_source_inputs_match": true,
+  "test_fixture_changes": "new main subscription GET contract; no product assertions weakened",
+  "static_checks": [
+    "fmt",
+    "workspace all-targets clippy -D warnings",
+    "core boundary",
+    "git diff check",
+    "Unix and PowerShell bootstrap regeneration"
+  ],
+  "scope": "local source verification; no production deployment, official signing or full NodeQuality acceptance",
+  "failed_attempts_retained": [
+    "private PostgreSQL long socket path",
+    "local linker disk exhaustion",
+    "Python long temporary socket fixture path"
+  ],
+  "four_source_workflows": "disabled_manually"
+}
