@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """TEST_ONLY Debian carrier monitoring with real Agent/Panel/PG and loopback traffic."""
 import argparse
+from contextlib import closing
 import hashlib
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -226,7 +227,7 @@ def active_connects(pid, ports):
 
 
 def state_rows(path, sql, args=()):
-    with sqlite3.connect(f'file:{path}?mode=ro', uri=True, timeout=2) as connection:
+    with closing(sqlite3.connect(f'file:{path}?mode=ro', uri=True, timeout=2)) as connection:
         return connection.execute(sql, args).fetchall()
 
 
@@ -284,6 +285,7 @@ def main(args):
     common.ownership(units=[])
     result = {'ok': False, 'source_commit': args.source_commit, 'test_only': True, 'steps': {}, 'errors': []}
     phase, mounted, gate, slow, worker = 'setup', False, None, None, None
+    storage_reader = None
     proxy_port = None
     stop = threading.Event()
     traffic, observations = [], []
@@ -296,7 +298,7 @@ def main(args):
             completed = subprocess.run(['runuser', '-u', 'postgres', '--', '/usr/lib/postgresql/15/bin/initdb', '-D', str(common.PG), '--auth-local=trust', '--auth-host=trust', '--encoding=UTF8', '--no-locale'], stdout=output, stderr=subprocess.STDOUT, timeout=60)
         require(completed.returncode == 0, 'fresh PG init failed')
         common.start('pg', ['/usr/lib/postgresql/15/bin/postgres', '-D', str(common.PG), '-p', str(PG_PORT), '-h', '127.0.0.1', '-k', str(common.PG), '-c', 'shared_buffers=32MB', '-c', 'max_connections=20', '-c', 'max_wal_size=128MB'], '192M', extra=['--property=User=postgres', '--property=Group=postgres'])
-        common.wait_for(lambda: common.port_open(PG_PORT), timeout=20)
+        common.wait_for(lambda: subprocess.run(['/usr/lib/postgresql/15/bin/pg_isready', '-h', '127.0.0.1', '-p', str(PG_PORT), '-U', 'postgres'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2).returncode == 0, timeout=20)
         common.command(['runuser', '-u', 'postgres', '--', '/usr/lib/postgresql/15/bin/createdb', '-h', str(common.PG), '-p', str(PG_PORT), common.DATABASE])
         password = secrets.token_urlsafe(32)
         (args.output / 'admin-password').write_text(password)
@@ -439,6 +441,16 @@ def main(args):
         result['steps'][phase] = {'observed_disconnect_seconds': disconnected_seconds, 'last_config_fetched_at': last_fetch, 'active_after_expiry': 0, 'outbox_stable_after_expiry': True}
         phase_start('private_filesystem_enospc')
         # Fill only a dedicated 16 MiB tmpfs. Never allocate guest root disk space.
+        # Pin a short owned WAL snapshot so real writes cannot recycle previously
+        # allocated WAL capacity while the dedicated filesystem is actually full.
+        storage_reader = sqlite3.connect(db, timeout=2)
+        checkpoint = storage_reader.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone()
+        require(checkpoint[0] == 0, 'private WAL checkpoint remained busy')
+        storage_reader.execute("INSERT OR REPLACE INTO kv(key,value) VALUES(?,?)", ('TEST_ONLY_carrier_full_snapshot', json.dumps(time.time())))
+        storage_reader.commit()
+        storage_reader.execute('BEGIN')
+        require(storage_reader.execute("SELECT value FROM kv WHERE key=?", ('TEST_ONLY_carrier_full_snapshot',)).fetchone(), 'private WAL snapshot is missing')
+        require(Path(str(db) + '-wal').stat().st_size <= 65536, 'bounded private WAL setup was raced by unrelated writes')
         before_disk = os.statvfs(state_dir)
         with filler.open('xb') as output:
             try:
@@ -460,6 +472,8 @@ def main(args):
         window(45)
         text = (args.output / 'agent.log').read_text()
         require('state storage temporarily unavailable' in text and ('database or disk is full' in text or 'disk I/O error' in text), 'actual Agent storage failure was not observed')
+        storage_reader.close()
+        storage_reader = None
         filler.unlink()
         count = int(common.sql(f'SELECT count(*) FROM probe_results WHERE server_id={sid}'))
         common.wait_for(lambda: int(common.sql(f'SELECT count(*) FROM probe_results WHERE server_id={sid}')) > count, timeout=25)
@@ -505,7 +519,8 @@ def main(args):
         result['traffic'] = traffic
         result['observations'] = observations
         result['ok'] = result['ok'] and bool(traffic) and all(row['ok'] for row in traffic)
-        for name, action in [('release_private_filler', lambda: filler.unlink(missing_ok=True)),
+        for name, action in [('release_private_wal_reader', lambda: storage_reader.close() if storage_reader else None),
+                             ('release_private_filler', lambda: filler.unlink(missing_ok=True)),
                              ('stop_agent', lambda: common.stop(common.unit('agent'))),
                              ('stop_runtime', lambda: common.stop(common.unit('runtime')))]:
             try:
@@ -514,7 +529,7 @@ def main(args):
                 result['errors'].append({'step': name, 'error_kind': type(error).__name__})
         if mounted:
             try:
-                with sqlite3.connect(state_dir / 'state.db') as source, sqlite3.connect(args.output / 'retained-private-state.db') as destination:
+                with closing(sqlite3.connect(state_dir / 'state.db')) as source, closing(sqlite3.connect(args.output / 'retained-private-state.db')) as destination:
                     source.backup(destination)
             except BaseException as error:
                 result['errors'].append({'step': 'retain_private_state', 'error_kind': type(error).__name__})
