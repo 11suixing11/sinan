@@ -19,7 +19,7 @@ export function AgentSettings({ serverId }: { serverId: number }) {
       <label><input type="checkbox" checked={form.discover_public_ips} onChange={event => { setSaved(false); setForm({ ...form, discover_public_ips: event.target.checked }) }} /> 自动识别公网 IPv4 / IPv6</label>
       <p className="helper">公网识别使用固定的 icanhazip 接口；设备本地关闭该功能时，面板设置不会覆盖本地限制。</p>
       <label><input type="checkbox" checked={form.auto_update} onChange={event => { setSaved(false); setForm({ ...form, auto_update: event.target.checked }) }} /> 自动更新 Agent</label>
-      <p className="helper">从 GitHub 下载面板选定的兼容签名 Agent，保留身份与账本。可在编辑服务器中设置下载加速。</p>
+      <p className="helper">从 GitHub 下载面板选定的兼容签名 Agent，保留身份与账本。旧版 Agent 需先通过兼容的新签名接入入口手工迁移，之后才能从 GitHub 自动更新。可在编辑服务器中设置下载加速。</p>
       <button className="button button-primary" disabled={action.busy} type="submit">{action.busy ? '保存中…' : '保存设置'}</button>{saved && <span className="subtle"> 已保存，设备会在一分钟内同步。</span>}
     </form>}
   </div></section>

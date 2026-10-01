@@ -40,12 +40,12 @@ export default function ServerEnrollment({ server, created = false, onClose }: {
         </form>
         <ErrorNotice message={action.error} />
         {action.busy ? <Loading /> : enrollment ? expired ? <div className="notice" role="status">接入令牌已过期，请重新生成命令。</div> : enrollment.install_command ? <div className="server-enrollment-command">
-          <div><span><Icon name="box" size={15} />签名版本 {enrollment.installation?.version}</span><small>在目标服务器的终端执行</small></div>
+          <div><span><Icon name="box" size={15} />签名版本 {enrollment.installation?.version}</span><small>复制后在目标服务器的终端粘贴执行</small></div>
           <CopyField text={enrollment.install_command} label="复制安装命令" />
           <p>一次性接入令牌有效至 {time(enrollment.expires_at)}，请勿公开分享命令。</p>
         </div> : <div className="notice" role="status"><span>{enrollment.warning ?? '请先导入已签名的 Agent 制品。'}<br />服务器配置已保留，准备好制品后可在这里重新生成命令。</span></div> : !action.error && <p className="server-setup-help">点击“重新生成命令”获取所选版本的接入命令。</p>}
         {action.error && <p className="server-setup-help">服务器已保存。重试只会生成新的接入命令，不会重复创建服务器。</p>}
-        <div className="server-enrollment-trust"><Icon name="lock" size={17} /><p>执行前，请按部署文档核对发布公钥，并准备可信的 sinan-bootstrap。升级保留设备身份与本地状态。</p></div>
+        <div className="server-enrollment-trust"><Icon name="lock" size={17} /><p>安装命令会自动下载安装器、准备验证工具，识别目标服务器的系统与架构，并验证对应的签名制品。升级保留设备身份与本地状态。</p></div>
         <p className="server-setup-help">macOS、FreeBSD 和 Windows 请按平台部署文档使用原生安装流程。</p>
       </section>
       <section className={`server-setup-section server-enrollment-status ${online ? 'is-online' : ''}`} aria-labelledby="enrollment-status">

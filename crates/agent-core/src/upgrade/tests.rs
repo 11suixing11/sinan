@@ -51,7 +51,7 @@ impl Fixture {
             1,
             "untrusted releases must be rejected before any executable download"
         );
-        assert!(requests[0].starts_with("GET /api/agent/v1/update "));
+        assert!(requests[0].starts_with("GET /api/agent/v1/update?download_source=github "));
     }
 
     async fn config(&self) -> Result<Config> {
@@ -150,13 +150,14 @@ fn main() {
                     }
                 }
                 let request = String::from_utf8_lossy(&request).into_owned();
-                let body = if request.starts_with("GET /api/agent/v1/update ") {
-                    serde_json::to_vec(&*response_release.lock().unwrap()).unwrap()
-                } else if request.starts_with(&binary_path) {
-                    response_bytes.lock().unwrap().clone()
-                } else {
-                    b"invalid executable".to_vec()
-                };
+                let body =
+                    if request.starts_with("GET /api/agent/v1/update?download_source=github ") {
+                        serde_json::to_vec(&*response_release.lock().unwrap()).unwrap()
+                    } else if request.starts_with(&binary_path) {
+                        response_bytes.lock().unwrap().clone()
+                    } else {
+                        b"invalid executable".to_vec()
+                    };
                 captured.lock().unwrap().push(request);
                 let response = format!(
                     "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -200,6 +201,13 @@ async fn independent_agent_version_can_upgrade_below_the_core_version() -> Resul
     );
     assert!(fixture.root.join("executed").is_file());
     assert_eq!(state(&config)?.unwrap().current, current);
+    let requests = fixture.requests.lock().unwrap();
+    assert!(requests[0].starts_with("GET /api/agent/v1/update?download_source=github "));
+    assert!(
+        requests[0]
+            .to_ascii_lowercase()
+            .contains("authorization: bearer update-fixture-session")
+    );
     Ok(())
 }
 
@@ -293,12 +301,10 @@ async fn stages_signed_updates_only_after_identity_digest_format_and_version_che
 
     *fixture.release.lock().unwrap() = original.clone();
     check(&config, &ops, &client).await?;
-    for request in fixture
-        .requests
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|request| !request.starts_with("GET /api/agent/v1/update "))
+    for request in
+        fixture.requests.lock().unwrap().iter().filter(|request| {
+            !request.starts_with("GET /api/agent/v1/update?download_source=github ")
+        })
     {
         assert!(!request.to_lowercase().contains("authorization:"));
         assert!(!request.contains("update-fixture-session"));
