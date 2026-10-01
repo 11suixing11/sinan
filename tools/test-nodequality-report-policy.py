@@ -497,7 +497,9 @@ class WiringTests(unittest.TestCase):
         process = subprocess.Popen(command, env=env, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, start_new_session=True)
         try:
-            stdout, stderr = process.communicate(timeout=20)
+            # Each inert probe starts a Python recorder; slow hosts need a
+            # bounded orchestration allowance distinct from product timeouts.
+            stdout, stderr = process.communicate(timeout=60)
         except subprocess.TimeoutExpired:
             # A fixture deadline must also stop its inherited watcher/children.
             os.killpg(process.pid, signal.SIGTERM)
