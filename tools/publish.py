@@ -183,7 +183,9 @@ def checked_publication(github, tag, roots, minisign, publish=False):
     evidence = {"tag": tag, "tag_identity": identity, "checks": checks, "release": before,
                 "published": False}
     if publish:
-        result = github.api(f"repos/{REPOSITORY}/releases/{before['id']}", "PATCH", ("draft=false",))
+        result = github.api(f"repos/{REPOSITORY}/releases/{before['id']}", "PATCH",
+                            ("draft=false", f"tag_name={before['tag']}",
+                             f"target_commitish={before['build_commit']}"))
         ensure(result["id"] == before["id"] and result["draft"] is False, "publication request failed")
         after = release_snapshot(github, tag)
         ensure(after == dict(before, draft=False) and tag_identity(github, tag) == identity,
