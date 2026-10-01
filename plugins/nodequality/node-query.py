@@ -31,6 +31,13 @@ PATHS = {
 BOOLEAN_PATHS = {'security.is_proxy', 'security.is_tor', 'security.is_vpn', 'security.is_abuser',
                  'security.is_attacker', 'security.is_cloud_provider', 'isProxy', 'isCrawler'}
 NUMBER_PATHS = {'connection.asn', 'asNumber', 'latitude', 'longitude'}
+# These special-use ranges were not classified consistently by the Python
+# versions shipped on supported nodes. Keep the new node-query boundary stable
+# without changing historical adapters' public-IP interpretation.
+SPECIAL_RANGES = tuple(ipaddress.ip_network(value) for value in
+                       ('192.88.99.0/24', '2001:2::/48', '3fff::/20'))
+REQUEST_ENV_BLOCKED = {'http_proxy', 'https_proxy', 'all_proxy', 'ftp_proxy', 'no_proxy',
+                       'curl_ca_bundle', 'ssl_cert_file', 'ssl_cert_dir', 'sslkeylogfile', 'qlogdir'}
 
 
 class QueryFailure(Exception):
@@ -54,10 +61,44 @@ def decode(content):
 
 def public_ip(value):
     address = ipaddress.ip_address(value)
-    # Python's global classification also excludes documentation, multicast and shared space.
-    if not address.is_global or address.is_multicast or address.is_unspecified:
+    if (not address.is_global or address.is_multicast or address.is_unspecified
+            or any(address in network for network in SPECIAL_RANGES)):
         raise ValueError('查询目标不是公网单播 IP')
     return address
+
+
+def frozen_ips(workspace, ips_path, deadline):
+    if ips_path != workspace / 'node-ips.json':
+        raise ValueError('节点查询必须使用私有工作区的固定输入文件')
+    parent = os.open(workspace, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        descriptor = os.open('node-ips.json', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                             dir_fd=parent)
+        try:
+            before = os.fstat(descriptor)
+            if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                    or not 0 < before.st_size <= 2048):
+                raise ValueError('冻结节点 IP 必须为有界普通文件')
+            content = bytearray()
+            while True:
+                if time.monotonic() >= deadline:
+                    raise ValueError('冻结节点 IP 读取超过总时间限制')
+                chunk = os.read(descriptor, 2049 - len(content))
+                if not chunk:
+                    break
+                content.extend(chunk)
+                if len(content) > 2048:
+                    raise ValueError('冻结节点 IP 文件超过大小限制')
+            after = os.fstat(descriptor)
+            identity = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns', 'st_nlink')
+            if len(content) != before.st_size or any(getattr(before, name) != getattr(after, name)
+                                                     for name in identity):
+                raise ValueError('冻结节点 IP 文件读取时发生变化')
+            return decode(bytes(content))
+        finally:
+            os.close(descriptor)
+    finally:
+        os.close(parent)
 
 
 def load_configuration():
@@ -126,7 +167,7 @@ def curl_json(provider, key, target, family, deadline):
               'ipv4' if family == 4 else 'ipv6']
     config += ['header = ' + quote(header) for header in headers]
     environment = {name: value for name, value in os.environ.items()
-                   if name.lower() not in {'http_proxy', 'https_proxy', 'all_proxy', 'ftp_proxy', 'no_proxy'}
+                   if name.lower() not in REQUEST_ENV_BLOCKED
                    and not name.startswith('SINAN_')}
     started = time.monotonic()
     try:
@@ -255,19 +296,17 @@ def encode(value):
 
 
 def run(workspace, ips_path, version, job_id):
+    started_at, deadline = int(time.time()), time.monotonic() + TOTAL_SECONDS
     workspace = workspace.resolve(strict=True)
-    if not workspace.is_dir() or ips_path != workspace / 'node-ips.json' or ips_path.is_symlink() or ips_path.stat().st_size > 2048:
-        raise ValueError('节点查询必须使用私有工作区的固定输入文件')
     if str(uuid.UUID(job_id)) != job_id or version not in {'both', 'ipv4', 'ipv6'}:
         raise ValueError('节点查询任务编号或 IP 版本无效')
-    ips = decode(ips_path.read_bytes())
+    ips = frozen_ips(workspace, ips_path, deadline)
     if not isinstance(ips, list) or not 1 <= len(ips) <= 8 or len(set(ips)) != len(ips):
         raise ValueError('节点查询需要 1–8 个不同的冻结公网 IP')
     addresses = {str(public_ip(value)): public_ip(value) for value in ips}
     if list(addresses) != ips:
         raise ValueError('冻结公网 IP 必须使用标准表示')
     families = [family for family in (4, 6) if version == 'both' or version == f'ipv{family}']
-    started_at, deadline = int(time.time()), time.monotonic() + TOTAL_SECONDS
     configuration = load_configuration()
     results = []
     for provider, database in PROVIDERS.items():

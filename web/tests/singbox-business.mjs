@@ -17,8 +17,8 @@ const server = createServer(async (request, response) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 const browser = await chromium.launch({ headless: true, ...(process.env.SINAN_CHROME_PATH ? { executablePath: process.env.SINAN_CHROME_PATH } : {}) })
 try {
-  for (const width of [1280, 390]) {
-    const page = await browser.newPage({ viewport: { width, height: 900 } })
+  for (const [width, height] of [[1280, 900], [1280, 600], [390, 900]]) {
+    const page = await browser.newPage({ viewport: { width, height } })
     const errors = [], requests = [], now = Math.floor(Date.now() / 1000)
     page.on('pageerror', error => errors.push(error.message))
     const metadata = { id: 1, name: '纯监控验收服务器', enabled: false, source: null, read_only: false, online: true, agent_supported: false, installation: { state: 'not_enabled', reason: '尚未启用插件；设备支持此插件不代表已安装', target_rev: 0, applied_rev: 0 } }
@@ -47,6 +47,7 @@ try {
       else if (path === '/api/plugins/sing-box/chains') value = []
       else if (path === '/api/plugins/sing-box/usage') value = { uplink: '0', downlink: '0', total: '0', by_user: [], by_node: [] }
       else if (path === '/api/servers/1/agent-settings') value = { sample_interval_secs: 1, upload_interval_secs: 3, discover_public_ips: false, auto_update: false }
+      else if (path === '/api/servers/1/telemetry-settings') value = { persist_interval_secs: 60 }
       else if (path === '/api/servers/1/node-quality') value = { ip_addresses: [], quality: [], plugin_ready: false, plugin_reason: '夹具未启用诊断', reports: [] }
       else if (['/api/servers/1/probes', '/api/servers/1/probe-results', '/api/servers/1/commands'].includes(path)) value = []
       else if (path === '/api/security/totp') value = { enabled: false }
@@ -86,5 +87,5 @@ try {
     assert.equal(requests.some(path => ['/api/nodes', '/api/users', '/api/usage'].includes(path)), false)
     await page.close()
   }
-  console.log('PASS: dist desktop/mobile, monitor hides business and skips business requests, explicit enable, read-only sources, administrator/proxy-user navigation, canonical APIs')
+  console.log('PASS: dist desktop/short desktop/mobile, accessible full sidebar, monitor hides business and skips business requests, explicit enable, read-only sources, administrator/proxy-user navigation, canonical APIs')
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)) }

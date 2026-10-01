@@ -11,6 +11,24 @@ pub const NODE_QUERY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r
 pub const NODE_QUERY_CAPABILITY: &str = "diagnostic:nodequality-node-query";
 const SCHEMA: &str = "sinan.node-ip-quality.v1";
 
+fn public_node_ip(ip: std::net::IpAddr) -> bool {
+    if !ip_quality::public_ip(ip) {
+        return false;
+    }
+    // Keep the legacy shared predicate unchanged, but exclude IANA special-use
+    // documentation, benchmarking and deprecated relays from new node queries.
+    match ip {
+        std::net::IpAddr::V4(ip) => {
+            let [a, b, c, _] = ip.octets();
+            !(a == 192 && b == 88 && c == 99)
+        }
+        std::net::IpAddr::V6(ip) => {
+            let s = ip.segments();
+            !(s[0] == 0x2001 && s[1] == 2 && s[2] == 0) && !(s[0] == 0x3fff && s[1] & 0xf000 == 0)
+        }
+    }
+}
+
 pub struct NodeSectionResults {
     pub identity: ip_quality::NodeResultIdentity,
     pub quality: Vec<ip_quality::IpQuality>,
@@ -71,7 +89,7 @@ impl DiagnosticPlugin for NodeIpQualityPlugin {
             .ok_or(ApiError::NotFound)?;
             let ips: Vec<_> = ip_quality::reported_ips(&info)
                 .into_iter()
-                .filter(|ip| ip.parse().is_ok_and(ip_quality::public_ip))
+                .filter(|ip| ip.parse().is_ok_and(public_node_ip))
                 .collect();
             let family_present = ips.iter().any(|ip| {
                 request.ip_version == "both" || (request.ip_version == "ipv6") == ip.contains(':')

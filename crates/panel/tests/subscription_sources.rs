@@ -8,7 +8,9 @@ use anyhow::{Context, Result, ensure};
 use business_support::{TestPanel, id};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
-use sinan_panel::plugins::singbox::sources::{latest_follow_version_on, load_version_on};
+use sinan_panel::plugins::singbox::sources::{
+    latest_follow_version_on, load_version_on, refresh_due,
+};
 use sqlx::PgPool;
 use std::time::Duration;
 
@@ -40,6 +42,10 @@ fn content(password: &str) -> String {
 
 async fn settled(panel: &TestPanel, cookie: &str, source: i64) -> Result<Value> {
     tokio::time::timeout(Duration::from_secs(20), async {
+        // This HTTP-only fixture has no publisher. Drive its production cadence
+        // so a best-effort API kick cannot strand jobs while permits are busy.
+        let mut refresh = tokio::time::interval(Duration::from_secs(1));
+        refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             let value = call(
                 panel,
@@ -56,7 +62,10 @@ async fn settled(panel: &TestPanel, cookie: &str, source: i64) -> Result<Value> 
                 );
                 return Ok(value);
             }
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            tokio::select! {
+                _ = refresh.tick() => refresh_due(&panel.state).await?,
+                _ = tokio::time::sleep(Duration::from_millis(20)) => {},
+            }
         }
     })
     .await

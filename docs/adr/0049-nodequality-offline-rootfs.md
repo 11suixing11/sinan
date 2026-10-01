@@ -1,4 +1,4 @@
-# ADR 0047：NodeQuality 的离线 Debian 12 rootfs 准备链
+# ADR 0049：NodeQuality 的离线 Debian 12 rootfs 准备链
 
 状态：实现准备接口，尚未完成真实制品与双架构验收。完整验机门禁保持关闭。
 日期：2026-10-01。

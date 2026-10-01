@@ -71,15 +71,24 @@ async fn public_dashboard_is_opt_in_and_never_exposes_hidden_servers_or_private_
         "ip_addresses",
         "agent_mirror",
         "price",
-        "agent_settings",
     ] {
         assert!(!text.contains(private), "{private}");
     }
     let list: Vec<Value> = serde_json::from_str(&text)?;
     assert_eq!(list.len(), 1);
     assert_eq!(list[0]["registered"], true);
+    assert_eq!(
+        list[0]["agent_settings"],
+        json!({"sample_interval_secs":1,"upload_interval_secs":3})
+    );
+    assert!(list[0]["agent_settings"].get("auto_update").is_none());
+    assert!(
+        list[0]["agent_settings"]
+            .get("discover_public_ips")
+            .is_none()
+    );
     assert_eq!(list[0]["static_info"]["cpu_cores"], 4);
-    for suffix in ["", "/metrics", "/probes", "/probe-results"] {
+    for suffix in ["", "/metrics", "/history", "/probes", "/probe-results"] {
         assert_eq!(
             panel
                 .client

@@ -92,17 +92,13 @@ impl DiagnosticPlugin for NodeQualityPlugin {
         &["diagnostic:nodequality", "diagnostic:nodequality-modes"]
     }
     fn start_denial(&self, job: &Value) -> Option<&'static str> {
-        (!matches!(job["options"]["mode"].as_str(), Some("daily" | "ip")))
-            .then_some(FULL_START_DENIAL)
+        // Exact r21 IP jobs select NodeIpQualityPlugin through for_job().
+        // An unrecognized IP version must never exempt the original plugin's gate.
+        (job["options"]["mode"].as_str() != Some("daily")).then_some(FULL_START_DENIAL)
     }
     fn can_dispatch(&self, job: &Value, capabilities: &Value) -> bool {
         if job["options"]["mode"].as_str() == Some("ip") {
-            return job["version"].as_str() == Some(node_queries::NODE_QUERY_VERSION)
-                && capabilities.as_array().is_some_and(|items| {
-                    items
-                        .iter()
-                        .any(|item| item.as_str() == Some(node_queries::NODE_QUERY_CAPABILITY))
-                });
+            return node_queries::NodeIpQualityPlugin.can_dispatch(job, capabilities);
         }
         job["options"]["mode"].as_str() == Some("daily")
             || capabilities.as_array().is_some_and(|items| {

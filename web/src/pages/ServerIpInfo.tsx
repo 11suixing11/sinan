@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { api } from '../api'
 import { Badge, ErrorNotice, Icon, Loading } from '../components'
 import { time } from '../format'
-import { useAction, useResource } from '../hooks'
+import { resourceWriteError, useAction, useResource } from '../hooks'
 import { qualityValue } from '../quality'
 import type { DiagnosticRecord, IpQuality, ServerIpInfo as ServerIpInfoData, QualityDatabase, QualityErrorKind } from '../types'
 
@@ -50,12 +50,15 @@ export default function ServerIpInfo({ serverId }: { serverId: number }) {
   const data = resource.data
   const publicIps = data?.public_ip_addresses ?? []
   const privateIps = data?.private_ip_addresses ?? []
+  const writeError = () => resourceWriteError(resource)
+  const refreshQuality = () => { if (writeError() || !resource.getCurrent()?.public_ip_addresses.length) return; void refresh.run(() => api<IpQuality[]>(`/api/servers/${serverId}/ip-quality/refresh`, 'POST'), () => resource.reload()) }
+  const queryNode = () => { if (writeError() || !resource.getCurrent()?.node_query_ready || !resource.getCurrent()?.public_ip_addresses.length) return; void nodeQuery.run(() => api<DiagnosticRecord>(`/api/servers/${serverId}/ip-quality/node-query`, 'POST', { ip_version: 'both' }), record => { setNodeTask(record.id); resource.reload() }) }
   return <section className="panel">
-    <div className="panel-heading"><h2>服务器 IP 信息</h2><button className="button button-secondary" disabled={refresh.busy || !publicIps.length} onClick={() => void refresh.run(() => api<IpQuality[]>(`/api/servers/${serverId}/ip-quality/refresh`, 'POST'), () => resource.reload())}><Icon name="refresh" size={14} />{refresh.busy ? '查询中…' : '刷新 IP 质量'}</button></div>
+    <div className="panel-heading"><h2>服务器 IP 信息</h2><button className="button button-secondary" disabled={refresh.busy || Boolean(writeError()) || !publicIps.length} onClick={refreshQuality}><Icon name="refresh" size={14} />{refresh.busy ? '查询中…' : '刷新 IP 质量'}</button></div>
     <div className="panel-body quality-body"><ErrorNotice message={resource.error || refresh.error || nodeQuery.error} retry={resource.reload} />
       {!data ? resource.loading && <Loading /> : <>
         <p className="helper">公网地址直接展示，内网地址合并在下方查看。质量查询仅将公网 IP 发送给已启用入口；缓存仅作参考，不推导统一评分。</p>
-        <div className="quality-options"><button className="button button-secondary" disabled={nodeQuery.busy || !data.node_query_ready || !publicIps.length} onClick={() => void nodeQuery.run(() => api<DiagnosticRecord>(`/api/servers/${serverId}/ip-quality/node-query`, 'POST', { ip_version: 'both' }), record => { setNodeTask(record.id); resource.reload() })}>{nodeQuery.busy ? '创建节点任务…' : '节点正式 IP 查询'}</button></div>
+        <div className="quality-options"><button className="button button-secondary" disabled={nodeQuery.busy || Boolean(writeError()) || !data.node_query_ready || !publicIps.length} onClick={queryNode}>{nodeQuery.busy ? '创建节点任务…' : '节点正式 IP 查询'}</button></div>
         <p className="helper">“刷新 IP 质量”由面板请求已启用入口；“节点正式 IP 查询”由 Agent 使用节点 root 私有配置中的 Ipregistry / DB-IP 正式凭证，先核实实际节点出口再查询。任务预算 90 秒 / 64 MiB，凭证不会传给面板；缺配置、拒绝、超时或出口不符均为未知，保留上次成功。任务与取消操作见设备 NodeQuality 页面中的最近报告。</p>
         {data.node_query_reason && <p className="quality-database-error">{data.node_query_reason}</p>}
         {nodeTask && <p className="helper">节点任务已保存：{nodeTask}。等待 Agent 回报；页面自动更新，历史结果继续保留。</p>}

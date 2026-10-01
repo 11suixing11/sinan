@@ -1,7 +1,7 @@
 use super::cache::{Control, Snapshot};
 use crate::{Config, SharedState, state::StorageRetry};
 use anyhow::{Result, ensure};
-use sinan_protocol::AgentSettings;
+use sinan_protocol::{AgentSettings, telemetry::TelemetrySettings};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -37,6 +37,8 @@ pub(crate) async fn run(
 ) -> Result<()> {
     // Persistence and upload never own or call the collector. Even a kernel call
     // that never returns leaves both async futures and the connection responsive.
+    let live_snapshots = snapshots.clone();
+    let (delivery_tx, delivery_rx) = watch::channel(None::<TelemetrySettings>);
     let persist = async {
         let mut saved = None;
         let mut stale = false;
@@ -85,81 +87,155 @@ pub(crate) async fn run(
         #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())
     };
+    let durable_client = client.clone();
     let upload = async {
         let mut last_settings: Option<Instant> = None;
+        let mut live_sent = None;
         let mut settings_storage = StorageRetry::default();
-        let mut acknowledgment_storage = StorageRetry::default();
         loop {
             let interval = {
                 let _guard = retirement.gate.read().await;
-                if retirement.requested() {
-                    config.settings.upload_interval_secs
-                } else {
-                    let active = client.borrow_and_update().clone();
-                    if let Some(active) = active {
-                        if last_settings.is_none_or(|v| v.elapsed() >= Duration::from_secs(60)) {
-                            last_settings = Some(Instant::now());
-                            match active.agent_settings().await {
-                                Ok(settings) => {
-                                    let mut state = state
-                                        .lock()
-                                        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
-                                    if settings_storage
-                                        .finish(
-                                            "persist Agent settings",
-                                            state.set_json("agent_settings", &settings),
-                                        )?
-                                        .is_none()
-                                    {
-                                        // Keep the last durable settings. The next upload cycle retries.
-                                        last_settings = None;
-                                    }
-                                }
-                                Err(error) => {
-                                    tracing::warn!(%error, "Agent settings refresh failed")
+                let active = client.borrow_and_update().clone();
+                if !retirement.requested()
+                    && let Some(active) = active
+                {
+                    if last_settings.is_none_or(|v| v.elapsed() >= Duration::from_secs(60)) {
+                        last_settings = Some(Instant::now());
+                        match active.agent_settings().await {
+                            Ok(settings) => {
+                                let mut state = state
+                                    .lock()
+                                    .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+                                if settings_storage
+                                    .finish(
+                                        "persist Agent settings",
+                                        state.set_json("agent_settings", &settings),
+                                    )?
+                                    .is_none()
+                                {
+                                    // Retain the durable settings and retry on the next live cycle.
+                                    last_settings = None;
                                 }
                             }
+                            Err(error) => tracing::warn!(%error, "Agent settings refresh failed"),
                         }
-                        let samples = state
-                            .lock()
-                            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                            .pending_telemetry()?;
-                        if !retirement.requested() && !samples.is_empty() {
+                        let settings = active
+                            .get_json::<TelemetrySettings>("/api/agent/v1/telemetry-settings")
+                            .await;
+                        // Older panels do not expose this endpoint. Keep their
+                        // durable upload schedule and strict settings decoder.
+                        delivery_tx.send_replace(settings.ok().filter(TelemetrySettings::valid));
+                    }
+                    if delivery_tx.borrow().is_some() {
+                        let sample = live_snapshots.borrow().sample.clone();
+                        if let Some(sample) = sample.filter(|sample| Some(sample.id) != live_sent) {
                             match active
-                                .telemetry(&sinan_protocol::TelemetryBatch { samples })
+                                .post_json::<serde_json::Value>(
+                                    "/api/agent/v1/telemetry/live",
+                                    &sample,
+                                )
                                 .await
                             {
-                                Ok(ack) => {
-                                    let mut state = state
-                                        .lock()
-                                        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
-                                    acknowledgment_storage.finish(
-                                        "persist telemetry acknowledgment",
-                                        state.acknowledge_telemetry(&ack),
-                                    )?;
-                                }
+                                Ok(_) => live_sent = Some(sample.id),
                                 Err(error) => {
-                                    tracing::warn!(%error, "telemetry upload failed; samples retained for retry")
+                                    tracing::debug!(%error, "live telemetry will retry; durable sample retained")
                                 }
                             }
                         }
                     }
-                    let settings = state
-                        .lock()
-                        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                        .get_json::<AgentSettings>("agent_settings")?
-                        .unwrap_or_else(|| config.settings.clone());
-                    settings.upload_interval_secs
                 }
+                state
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+                    .get_json::<AgentSettings>("agent_settings")?
+                    .unwrap_or_else(|| config.settings.clone())
+                    .upload_interval_secs
             };
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {},
-                changed = client.changed() => { changed?; last_settings = None; },
+                changed = client.changed() => { changed?; last_settings = None; live_sent = None; },
             }
         }
         #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())
     };
-    tokio::try_join!(persist, upload)?;
+    let durable = deliver(&config, &state, delivery_rx, durable_client, &retirement);
+    tokio::try_join!(persist, upload, durable)?;
     Ok(())
+}
+
+async fn deliver(
+    config: &Config,
+    state: &SharedState,
+    mut settings: watch::Receiver<Option<TelemetrySettings>>,
+    mut client: watch::Receiver<Option<Arc<crate::artifacts::PanelClient>>>,
+    retirement: &crate::retirement::Retirement,
+) -> Result<()> {
+    let mut saved: Option<Instant> = None;
+    let mut acknowledgment_storage = StorageRetry::default();
+    loop {
+        let upload_interval = state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+            .get_json::<AgentSettings>("agent_settings")?
+            .unwrap_or_else(|| config.settings.clone())
+            .upload_interval_secs;
+        let interval = settings
+            .borrow_and_update()
+            .as_ref()
+            .map_or(upload_interval, |s| s.persist_interval_secs);
+        let due = saved.is_none_or(|at| at.elapsed() >= Duration::from_secs(interval));
+        let active = client.borrow_and_update().clone();
+        if due && let Some(active) = active {
+            // Bound each catch-up pass; release the read gate between requests
+            // so a waiting retirement writer can stop the next batch.
+            for _ in 0..16 {
+                {
+                    let _guard = retirement.gate.read().await;
+                    if retirement.requested() {
+                        break;
+                    }
+                    let samples = state
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+                        .pending_telemetry()?;
+                    if samples.is_empty() {
+                        saved = Some(Instant::now());
+                        break;
+                    }
+                    match active
+                        .telemetry(&sinan_protocol::TelemetryBatch { samples })
+                        .await
+                    {
+                        Ok(ack) => {
+                            let acknowledged = {
+                                let mut state = state
+                                    .lock()
+                                    .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+                                acknowledgment_storage.finish(
+                                    "persist telemetry acknowledgment",
+                                    state.acknowledge_telemetry(&ack),
+                                )?
+                            };
+                            if acknowledged.is_none() {
+                                // Retain samples whose ACK could not commit until the next delivery cycle,
+                                // rather than resending up to sixteen batches against a busy store.
+                                break;
+                            }
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error,"telemetry upload failed; samples retained for retry");
+                            break;
+                        }
+                    }
+                }
+                tokio::task::yield_now().await;
+            }
+        }
+        tokio::select! {
+            _=tokio::time::sleep(Duration::from_secs(upload_interval.min(3)))=>{},
+            changed=settings.changed()=>{changed?;},
+            changed=client.changed()=>{changed?; saved=None;},
+        }
+    }
 }

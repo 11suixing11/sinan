@@ -30,6 +30,7 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
   const [name, setName] = useState('')
   const [asset, setAsset] = useState(() => assetDraft())
   const [sample, setSample] = useState('1'), [upload, setUpload] = useState('3')
+  const [persist, setPersist] = useState('60')
   const [autoUpdate, setAutoUpdate] = useState(false), [discover, setDiscover] = useState(true)
   const [probes, setProbes] = useState<ProbeDraft[]>([])
   const nextKey = useRef(0)
@@ -46,7 +47,7 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
   const submit = () => {
     const agent_settings: AgentSettings = { sample_interval_secs: Number(sample), upload_interval_secs: Number(upload), auto_update: autoUpdate, discover_public_ips: discover }
     const initialProbes: Probe[] = probes.map(probe => bindProbeAuthorization(withMonitoring({ id: '00000000-0000-0000-0000-000000000000', name: probe.name.trim(), kind: probe.kind, target: probe.target.trim(), port: probe.kind === 'tcp' ? Number(probe.port) : null, interval_secs: Number(probe.interval), carrier: probe.carrier.trim(), enabled: true, monitor: null }, probe.monitoring)))
-    void action.run(() => api<Server>('/api/servers', 'POST', { name: name.trim(), agent_settings, probes: initialProbes, asset_settings: assetPayload(asset) }), onCreated)
+    void action.run(() => api<Server>('/api/servers', 'POST', { name: name.trim(), agent_settings, telemetry_settings: { persist_interval_secs: Number(persist) }, probes: initialProbes, asset_settings: assetPayload(asset) }), onCreated)
   }
 
   return <Modal title="添加服务器" onClose={onClose} busy={action.busy} className="server-setup-modal">
@@ -63,11 +64,12 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
           <ServerAssetFields value={asset} onChange={setAsset} />
       <ServerOperationsFields asset={asset} onChange={setAsset} />
           <section className="server-setup-section" aria-labelledby="setup-monitoring">
-            <div className="server-setup-heading"><div><h3 id="setup-monitoring">监控与采集</h3><p>采样决定数据精度，批量上传决定展示更新频率。</p></div><Icon name="activity" size={20} /></div>
+            <div className="server-setup-heading"><div><h3 id="setup-monitoring">监控与采集</h3><p>采样、实时上报和历史写入分别设置，兼顾展示速度与数据库开销。</p></div><Icon name="activity" size={20} /></div>
             <div className="server-setup-presets" role="group" aria-label="监控频率预设">{frequencies.map(frequency => <button key={frequency.label} type="button" aria-pressed={sample === frequency.sample && upload === frequency.upload} onClick={() => { setSample(frequency.sample); setUpload(frequency.upload) }}><strong>{frequency.label}</strong><span>{frequency.sample} 秒采样 · {frequency.upload} 秒上传</span><small>{frequency.note}</small></button>)}</div>
             <div className="server-setup-grid">
               <Field label="采样间隔（秒）" hint="每次采集系统指标的间隔，1–60 秒。"><input name="sample_interval_secs" type="number" min={1} max={60} step={1} required value={sample} onChange={event => setSample(event.target.value)} /></Field>
-              <Field label="批量上传间隔（秒）" hint="应大于或等于采样间隔，最多 60 秒。"><input name="upload_interval_secs" type="number" min={Number(sample) || 1} max={60} step={1} required value={upload} onChange={event => setUpload(event.target.value)} /></Field>
+              <Field label="实时上报间隔（秒）" hint="应大于或等于采样间隔，最多 60 秒；不决定历史保存粒度。"><input name="upload_interval_secs" type="number" min={Number(sample) || 1} max={60} step={1} required value={upload} onChange={event => setUpload(event.target.value)} /></Field>
+              <Field label="历史批量写入间隔（秒）" hint="15–3600 秒，默认 60 秒。新版 Agent 收到持久化确认后再清除本地缓存；旧 Agent 继续按原上传间隔写入。"><input name="persist_interval_secs" type="number" min={15} max={3600} step={1} required value={persist} onChange={event => setPersist(event.target.value)} /></Field>
             </div>
             <div className="server-setup-toggles">
               <label className="server-setup-toggle"><span><strong>自动识别公网地址</strong><small>识别 IPv4 / IPv6；设备本地关闭时，以本地设置为准。</small></span><input type="checkbox" role="switch" name="discover_public_ips" checked={discover} onChange={event => setDiscover(event.target.checked)} /><span className="server-setup-switch" aria-hidden="true" /></label>

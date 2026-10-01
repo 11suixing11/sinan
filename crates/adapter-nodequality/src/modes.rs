@@ -68,7 +68,8 @@ pub(super) fn validate(spec: &DiagnosticSpec) -> Result<Mode> {
                         && !(a == 100 && (64..=127).contains(&b))
                         && !(a == 169 && b == 254)
                         && !(a == 172 && (16..=31).contains(&b))
-                        && !(a == 192 && ((b == 0 && matches!(c, 0 | 2)) || b == 168))
+                        && !(a == 192
+                            && ((b == 0 && matches!(c, 0 | 2)) || b == 168 || (b == 88 && c == 99)))
                         && !(a == 198 && (matches!(b, 18 | 19) || (b == 51 && c == 100)))
                         && !(a == 203 && b == 0 && c == 113)
                 }
@@ -76,6 +77,8 @@ pub(super) fn validate(spec: &DiagnosticSpec) -> Result<Mode> {
                     let segments = address.segments();
                     segments[0] & 0xe000 == 0x2000
                         && !(segments[0] == 0x2001 && segments[1] == 0x0db8)
+                        && !(segments[0] == 0x2001 && segments[1] == 2 && segments[2] == 0)
+                        && !(segments[0] == 0x3fff && segments[1] & 0xf000 == 0)
                 }
             };
             if !public || address.to_string() != value || !distinct.insert(value) {

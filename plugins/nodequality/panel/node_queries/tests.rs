@@ -174,3 +174,65 @@ fn dispatch_requires_exact_version_mode_and_every_capability() {
     wrong["version"] = json!(PLUGIN_VERSION);
     assert!(!NodeIpQualityPlugin.can_dispatch(&wrong, &required));
 }
+
+#[test]
+fn special_use_addresses_cannot_be_reported_as_official_node_sources() {
+    for ip in [
+        "2001:2::1",
+        "3fff::1",
+        "3fff:fff:ffff:ffff:ffff:ffff:ffff:ffff",
+        "192.88.99.1",
+    ] {
+        let (mut job, mut update, now) = receipt();
+        job["options"]["node_ips"] = json!(serde_json::to_string(&vec![ip]).unwrap());
+        let mut report: Value = serde_json::from_str(&update.text).unwrap();
+        report["ips"] = json!([ip]);
+        for row in report["results"].as_array_mut().unwrap() {
+            row["target_ip"] = json!(ip);
+            row["observed_ip"] = json!(ip);
+            if row["provider"] == "ipregistry-node" {
+                row["data"]["ip"] = json!(ip);
+                row["data"]["type"] = json!(if ip.contains(':') { "IPv6" } else { "IPv4" });
+            } else {
+                row["data"]["ipAddress"] = json!(ip);
+            }
+        }
+        update.text = report.to_string();
+        assert!(parse_section(&job, &update, now, now + 90).is_err(), "{ip}");
+    }
+}
+
+#[test]
+fn only_exact_registered_r21_ip_jobs_bypass_the_full_start_gate() {
+    let (job, _, _) = receipt();
+    assert!(
+        crate::diagnostic_plugins::for_job(&job)
+            .unwrap()
+            .start_denial(&job)
+            .is_none()
+    );
+    for version in [
+        PLUGIN_VERSION,
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20",
+        "unknown",
+    ] {
+        let mut invalid = job.clone();
+        invalid["version"] = json!(version);
+        assert!(
+            crate::diagnostic_plugins::for_job(&invalid)
+                .unwrap()
+                .start_denial(&invalid)
+                .is_some()
+        );
+    }
+    for mode in [Value::Null, json!("full")] {
+        let mut full = job.clone();
+        full["options"]["mode"] = mode;
+        assert!(
+            crate::diagnostic_plugins::for_job(&full)
+                .unwrap()
+                .start_denial(&full)
+                .is_some()
+        );
+    }
+}

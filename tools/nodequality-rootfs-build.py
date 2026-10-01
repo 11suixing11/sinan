@@ -611,11 +611,22 @@ def cleanup_output(output, guard_mounts=False):
 def copy_locked(cache, value, target, limit, deadline):
     source = checked_blob(cache, value, limit, deadline)
     target.parent.mkdir(parents=True, exist_ok=True)
-    with source.open('rb') as input_stream, target.open('xb') as output:
+    input_stream, metadata = open_regular(source, limit)
+    with input_stream, target.open('xb') as output:
+        require(metadata.st_size == value['size'], 'locked input changed before copying')
         os.fchmod(output.fileno(), 0o644)
-        while chunk := input_stream.read(65536):
+        length, sha256 = 0, hashlib.sha256()
+        while True:
             deadline.check()
+            chunk = input_stream.read(min(65536, limit - length + 1))
+            if not chunk:
+                break
+            length += len(chunk)
+            require(length <= limit, 'copied locked input exceeds byte limit')
+            sha256.update(chunk)
             output.write(chunk)
+        require(length == value['size'] and sha256.hexdigest() == value['sha256'],
+                'locked input changed while copying')
     require(file_identity(target, limit, deadline) == {key: value[key] for key in ('sha256', 'size')}, 'copied locked input changed')
 
 

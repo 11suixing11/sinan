@@ -67,6 +67,12 @@ Linux 宿主 ABI 与 Agent 编译 ABI 不同时，运行时先保留旧的编译
 
 ## 应用与计量语义
 
+监控上报另有兼容的 HTTP 扩展：旧 `AgentSettings` 的字段保持不变，新 Agent 声明 `telemetry:live:v1` 能力，独立读取 `GET /api/agent/v1/telemetry-settings` 获得 `persist_interval_secs`（默认 60，范围 15–3600）。接口不存在或不可用时继续原持久化上传节奏。采样默认 1 秒，`upload_interval_secs` 默认 3 秒并用于新版实时上报；新旧面板与设备无需同时升级。配置提前保存不等于旧设备已经支持，后台按设备声明提示升级。
+
+`POST /api/agent/v1/telemetry/live` 接受单个 `TelemetrySample`，返回仅表示实时缓存收到请求，不是历史 ACK；Agent 不能据此删除 SQLite outbox。原 `POST /api/agent/v1/telemetry` 仍提交最多 64 条的 `TelemetryBatch`，面板将去重收据、历史汇总、最新持久化样本和服务器网卡增量事务提交后才返回 `TelemetryAck`。时间戳始终为真实采样的毫秒值，实时重试或心跳不得将旧指标改为新采样。
+
+实时缓存丢失不影响已有历史和账本；历史压缩不删除七天重放窗口内的去重身份，不将聚合速率反推为流量。每个设备只访问自身的配置与上报端点。详见 [ADR 0047](adr/0047-monitoring-refresh-history-and-channels.md)。
+
 `apply.result` 中 op_id 对应本地意图。只有校验、原子切换、服务动作、健康检查都成功后才能报告 applied；失败应回滚并提供错误。面板只接受已经为该服务器发布的版本，不接受未来版本，旧回报不能覆盖较新已应用状态。
 
 累计计数读取必须 reset=false。Agent 在同一 SQLite 事务内写基线和待发送差值。确认前持续重发；面板事务去重键为 `(server_id,epoch,seq,stat_name)`，持久化成功后回复 ack，重复批次仍回复 ack。Agent 收到相同 ack 多次是幂等操作。

@@ -85,12 +85,17 @@ class NodeQueryContracts(unittest.TestCase):
     def test_native_curl_secret_stdin_and_no_proxy_retry_ua_or_redirect(self):
         for provider in query.PROVIDERS:
             value, captured = self.curl(json.dumps(self.body(provider)).encode() + b'\n200', provider=provider,
-                                       environment={'HTTP_PROXY': 'TEST_ONLY_proxy', 'https_proxy': 'TEST_ONLY_proxy', 'SINAN_SECRET': KEY})
+                                       environment={'HTTP_PROXY': 'TEST_ONLY_proxy', 'https_proxy': 'TEST_ONLY_proxy',
+                                                    'SINAN_SECRET': KEY, 'CURL_CA_BUNDLE': 'TEST_ONLY_alternate_CA',
+                                                    'SSL_CERT_FILE': 'TEST_ONLY_alternate_CA',
+                                                    'SSL_CERT_DIR': 'TEST_ONLY_alternate_CA',
+                                                    'SSLKEYLOGFILE': 'TEST_ONLY_tls_secrets', 'QLOGDIR': 'TEST_ONLY_logs'})
             self.assertIsInstance(value, dict)
             self.assertEqual(captured['args'], ['/usr/bin/curl', '--disable', '--config', '-'])
             self.assertNotIn(KEY, repr(captured['args']))
             self.assertNotIn(KEY, repr(captured['env']))
             self.assertFalse(any(name.lower().endswith('proxy') for name in captured['env']))
+            self.assertFalse(query.REQUEST_ENV_BLOCKED & {name.lower() for name in captured['env']})
             config = captured['stdin'].decode()
             self.assertIn(KEY, config)
             self.assertIn('retry = 0', config)
@@ -180,9 +185,53 @@ class NodeQueryContracts(unittest.TestCase):
         self.assertEqual(len(calls), 4)
         self.assertTrue(all(call.args[3] == 4 for call in calls))
         self.assertTrue(all(row['attempted_at'] is None for row in report['results'] if ':' in row['target_ip']))
-        for ip in ['127.0.0.1', '192.0.2.1', '224.0.0.1', '100.64.0.1', '::1', '2001:db8::1']:
+        for ip in ['127.0.0.1', '192.0.2.1', '224.0.0.1', '100.64.0.1', '::1', '2001:db8::1',
+                   '192.88.99.1', '192.88.99.2', '2001:2::1', '3fff::1', '3fff:fff::1']:
             with self.subTest(ip=ip), self.assertRaises(ValueError): query.public_ip(ip)
         with self.assertRaises(query.QueryFailure): query.identity('ipregistry-node', {'ip': '1.1.1.1', 'type': 'IPv6'}, 4)
+
+    def test_special_use_frozen_inputs_never_start_provider_requests(self):
+        with tempfile.TemporaryDirectory(prefix='sinan-node-query-special-input-') as directory:
+            workspace = Path(directory).resolve()
+            source = workspace / 'node-ips.json'
+            for ip in ['192.88.99.2', '2001:2::1', '3fff::1']:
+                source.write_text(json.dumps([ip]))
+                with self.subTest(ip=ip), patch.object(query, 'curl_json') as requests, \
+                     patch.object(query, 'load_configuration', return_value=self.configured()), \
+                     self.assertRaises(ValueError):
+                    query.run(workspace, source, 'both', JOB)
+                requests.assert_not_called()
+
+    def test_frozen_input_refuses_symlink_directory_and_oversized_file(self):
+        with tempfile.TemporaryDirectory(prefix='sinan-node-query-input-') as directory:
+            workspace = Path(directory).resolve()
+            source = workspace / 'node-ips.json'
+            target = workspace / 'other.json'
+            target.write_text('["1.1.1.1"]')
+            source.symlink_to(target)
+            with self.assertRaises(OSError):
+                query.frozen_ips(workspace, source, time.monotonic() + 3)
+            source.unlink()
+            source.mkdir()
+            with self.assertRaises(ValueError):
+                query.frozen_ips(workspace, source, time.monotonic() + 3)
+            source.rmdir()
+            source.write_bytes(b' ' * 2049)
+            with self.assertRaises(ValueError):
+                query.frozen_ips(workspace, source, time.monotonic() + 3)
+
+    def test_real_fifo_frozen_input_is_rejected_before_any_provider_request(self):
+        with tempfile.TemporaryDirectory(prefix='sinan-node-query-input-fifo-') as directory:
+            workspace = Path(directory).resolve()
+            source = workspace / 'node-ips.json'
+            os.mkfifo(source, mode=0o600)
+            result = subprocess.run([sys.executable, str(ROOT / 'plugins/nodequality/node-query.py'),
+                                     '--workspace', str(workspace), '--ips-file', str(source),
+                                     '--ip-version', 'both', '--job-id', JOB],
+                                    capture_output=True, text=True, timeout=3)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn('私有输入或报告写入失败', result.stderr)
+            self.assertFalse((workspace / 'section-ip_quality.json').exists())
 
     def test_config_contract_private_authorized_only_and_permission_checks(self):
         with tempfile.TemporaryDirectory() as directory:

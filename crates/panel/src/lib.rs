@@ -10,6 +10,7 @@ pub mod dashboard;
 pub mod diagnostic_plugins;
 pub mod diagnostics;
 pub mod error;
+pub mod exchange;
 pub mod frontend;
 pub mod installation;
 pub mod ip_quality;
@@ -63,6 +64,7 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub connections: Arc<RwLock<HashMap<i64, AgentConnection>>>,
     pub device_lifecycle: Arc<Mutex<()>>,
+    pub telemetry_live: Arc<telemetry::LiveStore>,
 }
 
 impl AppState {
@@ -82,6 +84,7 @@ impl AppState {
             config: Arc::new(config),
             connections: Arc::default(),
             device_lifecycle: Arc::default(),
+            telemetry_live: Arc::default(),
         })
     }
 }
@@ -93,8 +96,21 @@ pub fn router(state: AppState) -> Router {
         .route("/api/logout", post(auth::logout))
         .route("/api/me", get(auth::me))
         .route("/api/statistics", get(statistics::summary))
+        .route("/api/exchange-rates", get(exchange::get))
+        .route("/api/exchange-rates/refresh", post(exchange::refresh))
         .route("/api/settings", get(settings::get).patch(settings::update))
         .route("/api/notifications", get(notifications::list))
+        .route("/api/notifications/channels", get(notifications::channels))
+        .route(
+            "/api/notifications/webhook",
+            get(notifications::webhook_settings::get)
+                .patch(notifications::webhook_settings::update)
+                .delete(notifications::webhook_settings::remove),
+        )
+        .route(
+            "/api/notifications/webhook/test",
+            post(notifications::test_webhook),
+        )
         .route(
             "/api/notifications/telegram/test",
             post(notifications::test_telegram),
@@ -132,6 +148,18 @@ pub fn router(state: AppState) -> Router {
             get(telemetry::settings).patch(telemetry::update_settings),
         )
         .route("/api/servers/{id}/metrics", get(telemetry::history))
+        .route(
+            "/api/servers/{id}/history",
+            get(telemetry::aggregate_history),
+        )
+        .route(
+            "/api/servers/{id}/telemetry-settings",
+            get(telemetry::storage_settings).patch(telemetry::update_storage_settings),
+        )
+        .route(
+            "/api/telemetry/policy",
+            get(telemetry::policy).patch(telemetry::update_policy),
+        )
         .route(
             "/api/servers/{id}/commands",
             get(commands::list).post(commands::create),
@@ -224,8 +252,13 @@ pub fn router(state: AppState) -> Router {
             post(runtime_operations::complete),
         )
         .route("/api/agent/v1/settings", get(telemetry::agent_settings))
+        .route(
+            "/api/agent/v1/telemetry-settings",
+            get(telemetry::agent_storage_settings),
+        )
         .route("/api/agent/v1/update", get(agent_updates::available))
         .route("/api/agent/v1/telemetry", post(telemetry::ingest))
+        .route("/api/agent/v1/telemetry/live", post(telemetry::live))
         .route("/api/agent/v1/commands", get(commands::pending))
         .route(
             "/api/agent/v1/commands/lifecycle",

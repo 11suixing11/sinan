@@ -43,3 +43,5 @@
 .group-details dt { font-size: 13px; opacity: .75; }
 .group-details dd { margin: 6px 0 0; font-weight: 600; overflow-wrap: anywhere; }
 @media (max-width: 640px) { .group-form-grid, .group-details { grid-template-columns: 1fr; } }
+
+@media (min-width: 801px) { .sidebar nav { min-height: 0; overflow-y: auto; scrollbar-width: thin; } }

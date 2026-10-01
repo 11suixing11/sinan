@@ -20,6 +20,18 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(listen).await?;
     tracing::info!(address = %listener.local_addr()?, "panel started");
     let maintenance = tokio::spawn(sinan_panel::maintenance::run(state.clone()));
+    let exchange = tokio::spawn(sinan_panel::exchange::run(state.pool.clone()));
+    let telemetry_pool = state.pool.clone();
+    let telemetry = tokio::spawn(async move {
+        let mut timer = tokio::time::interval(std::time::Duration::from_secs(60));
+        timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            timer.tick().await;
+            if let Err(error) = sinan_panel::telemetry::maintain(&telemetry_pool).await {
+                tracing::warn!(%error, "telemetry history maintenance failed");
+            }
+        }
+    });
     let plugins = tokio::spawn(sinan_panel::plugins::run(state.clone()));
     let result = axum::serve(
         listener,
@@ -30,6 +42,8 @@ async fn main() -> anyhow::Result<()> {
     })
     .await;
     maintenance.abort();
+    exchange.abort();
+    telemetry.abort();
     plugins.abort();
     result?;
     Ok(())

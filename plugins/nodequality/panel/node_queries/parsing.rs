@@ -51,7 +51,7 @@ fn invalid() -> ApiError {
 fn public(value: &str) -> bool {
     value
         .parse::<IpAddr>()
-        .is_ok_and(|ip| ip_quality::public_ip(ip) && ip.to_string() == value)
+        .is_ok_and(|ip| public_node_ip(ip) && ip.to_string() == value)
 }
 fn bounded_text(value: &str, maximum: usize) -> bool {
     !value.trim().is_empty() && value.len() <= maximum && !value.chars().any(char::is_control)

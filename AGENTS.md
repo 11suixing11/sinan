@@ -50,4 +50,8 @@
 
 2026-10-01 用户明确链路在代理节点页统一创建/管理，且中间段可来自机场等订阅配置。按 [ADR 0040](docs/adr/0040-mixed-chains-and-subscriptions.md) 规划有序混合链路，覆盖此前仅两台受管服务器及外部出口的对应排除项；中间/最终段可为受管节点或订阅中的具体节点。保持单运行时、独立公开入口、线性无环路径、入口单次计量及内部秘密不进入用户订阅；不扩展自动出口池。用户已进一步授权源码实施，并要求补齐 sing-box 运维入口、命令状态及取消。按 ADR 0043–0045 实施；源码、本地隔离验证、正式发布与真实设备签收分别记录，CI 暂停安排及诊断实机门禁不变。
 
+2026-10-02 用户授权进一步对齐 NodeFlare 的服务器展示刷新、数据上报、历史保存粒度、每日汇率与通知。按 [ADR 0047](docs/adr/0047-monitoring-refresh-history-and-channels.md) 实施：实时样本与持久化确认分开，历史聚合不改变网卡或代理业务账本；汇率使用可追溯来源、不编造缺失币种，匿名看板不公开成本；Telegram 与 Webhook 分渠道投递，测试不发送真实通知。CI 暂停及实机签收门禁保持。
+
+2026-10-02 用户授权 DDNS，首个提供方为 Cloudflare，覆盖上述 DDNS 排除项。用户进一步明确做成插件，实际实现位于 `plugins/ddns/panel/`，按服务器在 `server_plugins` 显式启用。按 [ADR 0048](docs/adr/0048-cloudflare-ddns.md) 实施：复用 Agent 已上报的 IP，面板持有 API Token 并执行有限 DNS 对账，凭据不发给 Agent 或公开界面；无有效地址或设备离线时保留解析。CI 暂停与实机门禁保持，真实 DNS 写入不属于开发测试。
+
 详细架构约束见 `docs/adr/0001-declarative-snapshots.md` 至 `docs/adr/0011-loopback-local-api.md`。

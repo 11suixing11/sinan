@@ -37,6 +37,7 @@ impl Fixture {
         let state = AppState {
             started_at: sinan_protocol::now_timestamp(),
             device_lifecycle: Default::default(),
+            telemetry_live: Arc::default(),
             pool: PgPoolOptions::new().connect_lazy("postgres://fixture@127.0.0.1/unused")?,
             login_permits: Arc::new(Semaphore::new(4)),
             quality_permits: Arc::new(Semaphore::new(2)),

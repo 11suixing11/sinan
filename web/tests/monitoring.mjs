@@ -63,6 +63,9 @@ try {
         }
         return respond(settings)
       }
+      if (path === '/api/notifications/webhook') return respond({enabled:false,preset:'custom',url_configured:false,headers_configured:false,body_configured:false})
+      if (path === '/api/notifications/channels') return respond([])
+      if (path === '/api/telemetry/policy') return respond({history_retention_days:30})
       if (path === '/api/notifications/telegram/test') return respond(testFailure ? { error: '测试：Telegram 暂时不可用' } : { sent: true }, testFailure ? 400 : 200)
       if (path === '/api/alert-rules') {
         if (method === 'POST') { rules.push({ ...request.postDataJSON(), id: 'rule-1', revision: 1 }); return respond(rules[0], 201) }
@@ -137,7 +140,7 @@ try {
     await page.getByRole('alert').filter({ hasText: '模板变量无效' }).waitFor()
     await page.getByLabel('消息模板', { exact: false }).fill('{{title}}\n{{server}}\n{{message}}\n{{time}}\n{{event}}')
     await page.getByText('查看模板预览', { exact: true }).click()
-    await page.locator('.monitoring-preview').filter({ hasText: '示例服务器' }).waitFor()
+    await page.locator('form.monitoring-settings .monitoring-preview').filter({ hasText: '示例服务器' }).waitFor()
     await page.getByRole('button', { name: '保存设置' }).click()
     await page.getByRole('status').filter({ hasText: '设置已保存' }).waitFor()
     const saved = writes.filter(write => write.path === '/api/settings').at(-1).body

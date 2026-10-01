@@ -6,8 +6,7 @@ use crate::{
     server_traffic,
     servers::{SERVER_COLUMNS, Server},
 };
-use futures_util::TryStreamExt;
-use serde_json::{Value, json};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 
@@ -143,26 +142,29 @@ pub async fn evaluate(pool: &PgPool, started_at: i64, now: i64) -> anyhow::Resul
             .max()
             .unwrap_or(0);
         let end = now / 60 * 60;
-        let samples: Vec<resources::Sample> = if online && max_window > 0 {
-            let mut rows = sqlx::query_as::<_, (i64, i64, Value)>("SELECT bucket,sampled_at,jsonb_build_object(
-                'cpu_percent',metrics->'cpu_percent','memory_used',metrics->'memory_used','memory_total',metrics->'memory_total',
-                'disk_used',metrics->'disk_used','disk_total',metrics->'disk_total','network_interfaces',metrics->'network_interfaces')
-                FROM metrics_minutely WHERE server_id=$1 AND bucket>=$2 AND bucket<$3 ORDER BY bucket LIMIT 1440")
-                .bind(id).bind(end - i64::from(max_window) * 60).bind(end).fetch(&mut *tx);
-            let mut samples = Vec::new();
-            while let Some((bucket, at, metrics)) = rows.try_next().await? {
-                samples.push(resources::Sample::from_metrics(
-                    bucket, at, &metrics, &server,
-                ));
-            }
-            samples
+        let samples = if online && max_window > 0 {
+            crate::telemetry::read_minutes(
+                &mut tx,
+                id,
+                (end - i64::from(max_window) * 60) * 1000,
+                end * 1000,
+            )
+            .await?
         } else {
             Vec::new()
         };
+
         for rule in rules {
             let key = format!("resource:{}:{}", rule.id, rule.revision);
             keep.push(key.clone());
-            if online && let Some((active, value)) = resources::evaluate(&rule.spec, &samples, now)
+            if online
+                && let Some((active, value)) = resources::evaluate(
+                    &rule.spec,
+                    &samples,
+                    &server.asset_settings.network_interface,
+                    now,
+                    server.metrics_sampled_at,
+                )
             {
                 let unit = rule.spec.metric.unit();
                 let aggregation = if rule.spec.aggregation == rules::Aggregation::Continuous {
@@ -172,7 +174,7 @@ pub async fn evaluate(pool: &PgPool, started_at: i64, now: i64) -> anyhow::Resul
                 };
                 events::observe(&mut tx, &settings, &server, Observation {
                     key, category: "resource", active,
-                    message: format!("{}：最近 {} 个完整分钟的{aggregation} {value:.2} {unit}，阈值 {:.2} {unit}。", rule.spec.name, rule.spec.duration_minutes, rule.spec.threshold),
+                    message: format!("{}：最近 {} 个完整分钟内实际样本的{aggregation} {value:.2} {unit}，阈值 {:.2} {unit}。", rule.spec.name, rule.spec.duration_minutes, rule.spec.threshold),
                     details: json!({"rule_id":rule.id,"revision":rule.revision,"metric":rule.spec.metric,"value":value,"threshold":rule.spec.threshold,"duration_minutes":rule.spec.duration_minutes,"aggregation":rule.spec.aggregation}),
                     reminder_until: None,
                 }, now).await?;
