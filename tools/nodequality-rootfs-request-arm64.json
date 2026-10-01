@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "arch": "arm64",
+  "source_epoch": 1790864840,
+  "repositories": [
+    {
+      "id": "main",
+      "archive": "debian",
+      "timestamp": "20261001T142720Z",
+      "suite": "bookworm"
+    },
+    {
+      "id": "security",
+      "archive": "debian-security",
+      "timestamp": "20261001T142623Z",
+      "suite": "bookworm-security"
+    }
+  ]
+}

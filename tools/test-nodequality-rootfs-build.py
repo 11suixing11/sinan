@@ -9,6 +9,7 @@ import gzip
 import importlib.util
 import io
 import json
+import lzma
 import os
 from pathlib import Path
 import signal
@@ -167,6 +168,102 @@ class RootfsBuildTests(unittest.TestCase):
         for value in variants:
             with self.subTest(value=value), self.assertRaises(ValueError):
                 BUILD.validate_lock(value)
+
+    def test_unbound_source_materials_do_not_fabricate_builder_identity(self):
+        materials = {key: value for key, value in self.lock.items() if key != 'builder'}
+        self.assertEqual(set(BUILD.validate_materials(materials)), {'main', 'security'})
+        with self.assertRaisesRegex(ValueError, 'invalid rootfs input lock fields'):
+            BUILD.validate_lock(materials)
+        with self.assertRaisesRegex(ValueError, 'invalid source material fields'):
+            BUILD.validate_materials(self.lock)
+        for missing in ('keyring', 'repositories', 'packages', 'sources'):
+            with self.subTest(missing=missing), self.assertRaises(ValueError):
+                BUILD.validate_materials({key: value for key, value in materials.items() if key != missing})
+
+    def test_main_and_security_pool_paths_remain_exactly_scoped(self):
+        lock = copy.deepcopy(self.lock)
+        lock['packages'][0]['repository'] = 'security'
+        lock['packages'][0]['filename'] = 'pool/updates/main/f/fixture/owned.deb'
+        BUILD.validate_lock(lock)
+        lock['sources'][0]['repository'] = 'security'
+        lock['sources'][0]['directory'] = 'pool/updates/main/f/fixture'
+        BUILD.validate_lock(lock)
+        for archive, path in (('debian', 'pool/updates/main/f/fixture'),
+                              ('debian-security', 'pool/main/f/fixture'),
+                              ('debian-security', 'pool/updates/non-free/f/fixture'),
+                              ('debian', 'pool/contrib/f/fixture')):
+            with self.subTest(archive=archive, path=path), self.assertRaises(ValueError):
+                BUILD.main_pool_path(archive, path)
+
+    def test_valid_security_pool_path_cannot_bypass_signed_index_identity(self):
+        materials = {key: copy.deepcopy(value) for key, value in self.lock.items() if key != 'builder'}
+        materials['packages'][0]['repository'] = 'security'
+        materials['packages'][0]['filename'] = 'pool/updates/main/f/fixture/owned.deb'
+        BUILD.validate_materials(materials)
+        with mock.patch.object(BUILD, 'run_bounded', side_effect=self.fake_gpgv), \
+                self.assertRaisesRegex(ValueError, 'binary is not covered by signed Packages'):
+            BUILD.verify_authenticated_sources(materials, self.cache, BUILD.Deadline(10))
+
+    def test_streamed_gzip_and_xz_records_cross_chunk_boundaries(self):
+        description = '界' * 23000
+        raw = ('Package: fixture\r\nDescription: ' + description + '\r\n continuation\r\n\r\n'
+               'Package: final\nVersion: 1.0').encode('utf-8')
+        for suffix, compress in (('.gz', gzip.compress), ('.xz', lzma.compress)):
+            with self.subTest(suffix=suffix):
+                path = self.root / ('streamed' + suffix)
+                path.write_bytes(compress(raw))
+                self.assertEqual(list(BUILD.index_records(path, len(raw), BUILD.Deadline(10))), [
+                    {'Package': 'fixture', 'Description': description + '\ncontinuation'},
+                    {'Package': 'final', 'Version': '1.0'},
+                ])
+                with self.assertRaisesRegex(ValueError, 'expanded Debian index exceeds its limit'):
+                    list(BUILD.index_records(path, len(raw) - 1, BUILD.Deadline(10)))
+
+    def test_streamed_record_budget_and_invalid_fields_rejected(self):
+        path = self.root / 'bad.gz'
+        path.write_bytes(gzip.compress(b'Package: fixture\nDescription: ' + b'x' * 100 + b'\n\n'))
+        with mock.patch.object(BUILD, 'MAX_LOCK', 64), self.assertRaisesRegex(ValueError, 'control record exceeds its limit'):
+            list(BUILD.index_records(path, BUILD.MAX_INDEX, BUILD.Deadline(10)))
+        for raw in (b'Package: first\nPackage: duplicate\n\n', b' orphan\n\n', b'Package: binary\0\n\n'):
+            path.write_bytes(gzip.compress(raw))
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                list(BUILD.index_records(path, BUILD.MAX_INDEX, BUILD.Deadline(10)))
+
+    def test_streamed_index_still_observes_deadline_and_file_kind(self):
+        path = self.root / 'deadline.gz'
+        path.write_bytes(gzip.compress(b'Package: fixture\n\n'))
+        deadline = mock.Mock()
+        deadline.check.side_effect = ValueError('owned deadline expired')
+        with self.assertRaisesRegex(ValueError, 'owned deadline expired'):
+            list(BUILD.index_records(path, BUILD.MAX_INDEX, deadline))
+        link = self.root / 'link.gz'
+        link.symlink_to(path)
+        with self.assertRaises(OSError):
+            list(BUILD.index_records(link, BUILD.MAX_INDEX, BUILD.Deadline(10)))
+
+    def test_unbound_authentication_retains_entire_signed_source_chain(self):
+        materials = {key: value for key, value in self.lock.items() if key != 'builder'}
+        with mock.patch.object(BUILD, 'verify_tools', side_effect=AssertionError('source API must not approve a builder')), \
+                mock.patch.object(BUILD, 'run_bounded', side_effect=self.fake_gpgv):
+            inventory, signatures = BUILD.verify_authenticated_sources(materials, self.cache, BUILD.Deadline(10))
+        self.assertEqual(inventory['packages'], self.lock['packages'])
+        self.assertEqual(len(signatures), 2)
+        self.assertEqual(len(inventory['sources'][0]['files']), 2)
+        source = self.lock['sources'][0]['files'][1]
+        (self.cache / source['blob']).write_bytes(b'altered corresponding source')
+        with mock.patch.object(BUILD, 'run_bounded', side_effect=self.fake_gpgv), self.assertRaises(ValueError):
+            BUILD.verify_authenticated_sources(materials, self.cache, BUILD.Deadline(10))
+
+    def test_prepare_still_requires_approval_before_source_authentication(self):
+        with mock.patch.object(BUILD, 'verify_authenticated_sources', side_effect=AssertionError('approval must precede source work')) as authenticated:
+            with self.assertRaisesRegex(ValueError, 'builder image was not independently approved'):
+                BUILD.verify_inputs(self.lock, self.cache, '0' * 64, BUILD.Deadline(10))
+        authenticated.assert_not_called()
+        materials = {key: value for key, value in self.lock.items() if key != 'builder'}
+        self.lock_path.write_bytes(BUILD.canonical(materials))
+        with self.assertRaisesRegex(ValueError, 'invalid rootfs input lock fields'):
+            BUILD.prepare(self.lock_path, self.cache, self.root / 'not-prepared', APPROVED)
+        self.assertFalse((self.root / 'not-prepared').exists())
 
     def test_duplicate_json_and_cache_traversal_rejected(self):
         with self.assertRaises(ValueError):

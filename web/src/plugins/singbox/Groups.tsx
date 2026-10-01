@@ -2,14 +2,15 @@ import { useState } from 'react'
 import { api } from '../../api'
 import { Confirm, Empty, ErrorNotice, Field, FormDialog, Loading, PageHeader, Refresh } from '../../components'
 import { bytes } from '../../format'
-import { useAction, useResource } from '../../hooks'
+import { resourceWriteError, useAction, useResource } from '../../hooks'
 import type { Node } from '../../types'
 import { quotaBytes, scheduleText } from './groupTypes'
 import type { Chain, PackageGroup, PolicyGroup } from './groupTypes'
 
 const root = '/api/plugins/sing-box'
 type Tab = 'policy-groups' | 'package-groups'
-type Editor = { kind: 'policy-groups'; value?: PolicyGroup } | { kind: 'package-groups'; value?: PackageGroup }
+type EditorInput = { kind: 'policy-groups'; value?: PolicyGroup } | { kind: 'package-groups'; value?: PackageGroup }
+type Editor = { kind: 'policy-groups'; value?: PolicyGroup; nodeIds: number[]; chainIds: number[] } | { kind: 'package-groups'; value?: PackageGroup }
 const labels: Record<Tab, string> = { 'policy-groups': '策略组', 'package-groups': '套餐组' }
 
 export default function Groups({ initialTab = 'policy-groups' }: { initialTab?: Tab } = {}) {
@@ -21,16 +22,32 @@ export default function Groups({ initialTab = 'policy-groups' }: { initialTab?: 
   const [tab, setTab] = useState<Tab>(initialTab)
   const [editor, setEditor] = useState<Editor | null>(null)
   const [deleting, setDeleting] = useState<{ kind: Tab; id: number; name: string } | null>(null)
+  const policyWriteError = resourceWriteError(policies, nodes, chains)
+  const packageWriteError = resourceWriteError(packages)
+  const writeError = (kind: Tab, id?: number) => {
+    const dependencyError = kind === 'policy-groups' ? policyWriteError : packageWriteError
+    if (dependencyError) return dependencyError
+    const data = kind === 'policy-groups' ? policies.data : packages.data
+    return id !== undefined && !data?.some(value => value.id === id) ? '此资源已不可用，暂不能提交。草稿已保留，可关闭窗口后重新选择。' : ''
+  }
+  const invalidNodes = editor?.kind === 'policy-groups' ? editor.nodeIds.filter(id => !nodes.data?.some(node => node.id === id) || chains.data?.some(chain => chain.entry_node_id === id)) : []
+  const invalidChains = editor?.kind === 'policy-groups' ? editor.chainIds.filter(id => !chains.data?.some(chain => chain.id === id && chain.available)) : []
+  const selectionError = invalidNodes.length || invalidChains.length ? '已选资源已不可用或身份已变更，请取消这些选择后再保存。其余草稿已保留。' : ''
   const refresh = () => { policies.reload(); packages.reload(); chains.reload(); nodes.reload() }
   const nodeName = (id: number) => nodes.data?.find(n => n.id === id)?.name ?? `节点 #${id}（已不可用）`
-  const open = (value: Editor) => { action.clearError(); setEditor(value) }
-  const remove = (kind: Tab, value: { id: number; name: string }) => { action.clearError(); setDeleting({ kind, ...value }) }
+  const open = (value: EditorInput) => {
+    if (writeError(value.kind, value.value?.id)) return
+    action.clearError()
+    setEditor(value.kind === 'policy-groups' ? { ...value, nodeIds: [...(value.value?.node_ids ?? [])], chainIds: [...(value.value?.chain_ids ?? [])] } : value)
+  }
+  const choose = (kind: 'nodeIds' | 'chainIds', id: number, checked: boolean) => { if (policyWriteError) return; setEditor(previous => previous?.kind === 'policy-groups' ? { ...previous, [kind]: checked ? [...previous[kind], id] : previous[kind].filter(value => value !== id) } : previous) }
+  const remove = (kind: Tab, value: { id: number; name: string }) => { if (writeError(kind, value.id)) return; action.clearError(); setDeleting({ kind, ...value }) }
   const submit = (form: FormData) => {
-    if (!editor) return
+    if (!editor || writeError(editor.kind, editor.value?.id) || selectionError) return
     void action.run(async () => {
       const name = String(form.get('name') ?? '').trim()
       const value = 'value' in editor ? editor.value : undefined
-      const body = editor.kind === 'policy-groups' ? { name, node_ids: form.getAll('node_ids').map(Number), chain_ids: form.getAll('chain_ids').map(Number) }
+      const body = editor.kind === 'policy-groups' ? { name, node_ids: editor.nodeIds, chain_ids: editor.chainIds }
         : { name, monthly_bytes: quotaBytes(String(form.get('amount') ?? ''), String(form.get('unit'))), reset_day: Number(form.get('reset_day')), reset_hour: Number(String(form.get('reset_time')).split(':')[0]), reset_minute: Number(String(form.get('reset_time')).split(':')[1]), timezone: String(form.get('timezone')), duration_days: Number(form.get('duration_days')) }
       return api(`${root}/${editor.kind}${value ? `/${value.id}` : ''}`, value ? 'PUT' : 'POST', body)
     }, () => { setEditor(null); refresh() })
@@ -40,21 +57,22 @@ export default function Groups({ initialTab = 'policy-groups' }: { initialTab?: 
     <div className="group-tabs" aria-label="管理内容">{(Object.keys(labels) as Tab[]).map(key => <button key={key} className={`button ${tab === key ? 'button-primary' : 'button-secondary'}`} aria-pressed={tab === key} onClick={() => setTab(key)}>{labels[key]}</button>)}</div>
     <ErrorNotice message={policies.error || packages.error || chains.error || nodes.error} retry={refresh} />
     <section className="panel">
-      <div className="panel-heading"><h2>{labels[tab]}</h2><button className="button button-primary button-small" onClick={() => open({ kind: tab })} disabled={tab !== 'package-groups' && (!nodes.data || !chains.data)}>创建{labels[tab]}</button></div>
-      {tab === 'policy-groups' && (policies.loading && !policies.data ? <Loading /> : !policies.data?.length ? <Empty icon="nodes" title="把常用节点放进一个策略组" description="一个用户可分配多个策略组；重叠的节点只授权一次。修改组内节点后，所有已分配用户随之更新。" /> : <div className="table-wrap"><table><thead><tr><th>策略组</th><th>可用节点与链路</th><th>已分配用户</th><th>操作</th></tr></thead><tbody>{policies.data.map(p => <tr key={p.id}><td><strong>{p.name}</strong></td><td>{[...p.node_ids.map(nodeName), ...p.chain_ids.map(id => chains.data?.find(c => c.id === id)?.name ?? `链路 #${id}`)].join('、') || '空组，不授予节点'}</td><td>{p.member_count}</td><td><div className="row-actions"><button className="text-button" onClick={() => open({ kind: 'policy-groups', value: p })}>编辑</button><button className="text-button danger-text" onClick={() => remove('policy-groups', p)}>删除</button></div></td></tr>)}</tbody></table></div>)}
-      {tab === 'package-groups' && (packages.loading && !packages.data ? <Loading /> : !packages.data?.length ? <Empty icon="activity" title="为不同用量创建套餐" description="例如每月 500 GiB、每月 1 日零点重置、使用 365 天。每位用户的套餐独立计量，不共用总额度。" /> : <div className="table-wrap"><table><thead><tr><th>套餐组</th><th>每月流量</th><th>重置时间</th><th>有效期</th><th>操作</th></tr></thead><tbody>{packages.data.map(p => <tr key={p.id}><td><strong>{p.name}</strong></td><td>{p.monthly_bytes === null ? '不限量' : bytes(p.monthly_bytes)}</td><td>{scheduleText(p)}</td><td>分配后 {p.duration_days} 天</td><td><div className="row-actions"><button className="text-button" onClick={() => open({ kind: 'package-groups', value: p })}>编辑</button><button className="text-button danger-text" onClick={() => remove('package-groups', p)}>删除</button></div></td></tr>)}</tbody></table></div>)}
+      {writeError(tab) && <p className="helper" role="status">{writeError(tab)}</p>}
+      <div className="panel-heading"><h2>{labels[tab]}</h2><button className="button button-primary button-small" onClick={() => open({ kind: tab })} disabled={action.busy || Boolean(writeError(tab))}>创建{labels[tab]}</button></div>
+      {tab === 'policy-groups' && (policies.loading && !policies.data ? <Loading /> : !policies.data?.length ? <Empty icon="nodes" title="把常用节点放进一个策略组" description="一个用户可分配多个策略组；重叠的节点只授权一次。修改组内节点后，所有已分配用户随之更新。" /> : <div className="table-wrap"><table><thead><tr><th>策略组</th><th>可用节点与链路</th><th>已分配用户</th><th>操作</th></tr></thead><tbody>{policies.data.map(p => <tr key={p.id}><td><strong>{p.name}</strong></td><td>{[...p.node_ids.map(nodeName), ...p.chain_ids.map(id => chains.data?.find(c => c.id === id)?.name ?? `链路 #${id}`)].join('、') || '空组，不授予节点'}</td><td>{p.member_count}</td><td><div className="row-actions"><button className="text-button" disabled={action.busy || Boolean(policyWriteError)} onClick={() => open({ kind: 'policy-groups', value: p })}>编辑</button><button className="text-button danger-text" disabled={action.busy || Boolean(policyWriteError)} onClick={() => remove('policy-groups', p)}>删除</button></div></td></tr>)}</tbody></table></div>)}
+      {tab === 'package-groups' && (packages.loading && !packages.data ? <Loading /> : !packages.data?.length ? <Empty icon="activity" title="为不同用量创建套餐" description="例如每月 500 GiB、每月 1 日零点重置、使用 365 天。每位用户的套餐独立计量，不共用总额度。" /> : <div className="table-wrap"><table><thead><tr><th>套餐组</th><th>每月流量</th><th>重置时间</th><th>有效期</th><th>操作</th></tr></thead><tbody>{packages.data.map(p => <tr key={p.id}><td><strong>{p.name}</strong></td><td>{p.monthly_bytes === null ? '不限量' : bytes(p.monthly_bytes)}</td><td>{scheduleText(p)}</td><td>分配后 {p.duration_days} 天</td><td><div className="row-actions"><button className="text-button" disabled={action.busy || Boolean(packageWriteError)} onClick={() => open({ kind: 'package-groups', value: p })}>编辑</button><button className="text-button danger-text" disabled={action.busy || Boolean(packageWriteError)} onClick={() => remove('package-groups', p)}>删除</button></div></td></tr>)}</tbody></table></div>)}
       <div className="panel-body"><p className="helper">{tab === 'policy-groups' ? '多个策略组与单独授权取并集。只取消一个来源，不会撤销其他来源仍授予的节点。' : '套餐修改仅影响之后的分配；已分配用户保留原有套餐快照。29 至 31 日在短月份按月末重置，下一月仍按原设定日期计算。'}</p><a className="text-button" href="#/plugins/sing-box/nodes?kind=chains">管理两跳链路</a></div>
     </section>
-    {editor && <FormDialog title={`${'value' in editor && editor.value ? '编辑' : '创建'}${labels[editor.kind]}`} onClose={() => setEditor(null)} onSubmit={submit} busy={action.busy} error={action.error}>
+    {editor && <FormDialog title={`${'value' in editor && editor.value ? '编辑' : '创建'}${labels[editor.kind]}`} onClose={() => setEditor(null)} onSubmit={submit} busy={action.busy} disabled={Boolean(writeError(editor.kind, editor.value?.id))} submitDisabled={Boolean(selectionError)} error={writeError(editor.kind, editor.value?.id) || selectionError || action.error} retry={writeError(editor.kind, editor.value?.id) ? refresh : undefined}>
       <Field label="名称"><input name="name" required maxLength={128} defaultValue={'value' in editor ? editor.value?.name ?? '' : ''} autoComplete="off" /></Field>
       {editor.kind === 'policy-groups' && <>
-        <fieldset className="group-choices"><legend>直接连接的节点</legend>{nodes.data?.filter(n => !chains.data?.some(c => c.entry_node_id === n.id)).map(n => <label className="group-choice" key={n.id}><input name="node_ids" type="checkbox" value={n.id} defaultChecked={editor.value?.node_ids.includes(n.id)} /><span>{n.name}<small>服务器 #{n.server_id} · {n.public_host}:{n.port}</small></span></label>)}{!nodes.data?.length && <p>请先创建代理节点。</p>}</fieldset>
-        <fieldset className="group-choices"><legend>通过入口连接的链路</legend>{chains.data?.map(c => <label className="group-choice" key={c.id}><input name="chain_ids" type="checkbox" value={c.id} defaultChecked={c.available && editor.value?.chain_ids.includes(c.id)} disabled={!c.available} /><span>{c.name}<small>{nodeName(c.entry_node_id)} → {nodeName(c.exit_node_id)}{!c.available && '（已不可用，保存时移除）'}</small></span></label>)}{!chains.data?.length && <p>尚未创建链路，可先只选择节点，或<a className="text-button" href="#/plugins/sing-box/nodes?kind=chains">创建两跳链路</a>。</p>}</fieldset>
+        <fieldset className="group-choices"><legend>直接连接的节点</legend>{nodes.data?.filter(n => !chains.data?.some(c => c.entry_node_id === n.id)).map(n => <label className="group-choice" key={n.id}><input name="node_ids" type="checkbox" value={n.id} checked={editor.nodeIds.includes(n.id)} onChange={event => choose('nodeIds', n.id, event.target.checked)} /><span>{n.name}<small>服务器 #{n.server_id} · {n.public_host}:{n.port}</small></span></label>)}{invalidNodes.map(id => <label className="group-choice" key={`unavailable-${id}`}><input name="node_ids" type="checkbox" value={id} checked onChange={event => choose('nodeIds', id, event.target.checked)} /><span>{nodeName(id)}<small>当前不能作为普通节点授权，请取消选择。</small></span></label>)}{!nodes.data?.length && <p>请先创建代理节点。</p>}</fieldset>
+        <fieldset className="group-choices"><legend>通过入口连接的链路</legend>{chains.data?.map(c => <label className="group-choice" key={c.id}><input name="chain_ids" type="checkbox" value={c.id} checked={editor.chainIds.includes(c.id)} onChange={event => choose('chainIds', c.id, event.target.checked)} disabled={!c.available && !editor.chainIds.includes(c.id)} /><span>{c.name}<small>{nodeName(c.entry_node_id)} → {nodeName(c.exit_node_id)}{!c.available && '（已不可用，请取消选择）'}</small></span></label>)}{invalidChains.filter(id => !chains.data?.some(chain => chain.id === id)).map(id => <label className="group-choice" key={`unavailable-${id}`}><input name="chain_ids" type="checkbox" value={id} checked onChange={event => choose('chainIds', id, event.target.checked)} /><span>链路 #{id}<small>当前不可用，请取消选择。</small></span></label>)}{!chains.data?.length && <p>尚未创建链路，可先只选择节点，或<a className="text-button" href="#/plugins/sing-box/nodes?kind=chains">创建两跳链路</a>。</p>}</fieldset>
         {editor.value && <p className="helper">保存后会更新此组的 {editor.value.member_count} 位用户。新增授权等待设备应用，撤销授权同时移出订阅。</p>}
       </>}
       {editor.kind === 'package-groups' && <PackageFields value={editor.value} />}
     </FormDialog>}
-    {deleting && <Confirm title={`删除「${deleting.name}」？`} busy={action.busy} error={action.error} onClose={() => setDeleting(null)} onConfirm={() => void action.run(() => api(`${root}/${deleting.kind}/${deleting.id}`, 'DELETE'), () => { setDeleting(null); refresh() })}>{deleting.kind === 'package-groups' ? '已分配用户的套餐与历史用量保持不变；此套餐不再提供新的分配。' : '已分配给用户的策略组不能直接删除，请先在用户页面取消分配。'}</Confirm>}
+    {deleting && <Confirm title={`删除「${deleting.name}」？`} busy={action.busy} disabled={Boolean(writeError(deleting.kind, deleting.id))} error={writeError(deleting.kind, deleting.id) || action.error} retry={writeError(deleting.kind, deleting.id) ? refresh : undefined} onClose={() => setDeleting(null)} onConfirm={() => { if (writeError(deleting.kind, deleting.id)) return; void action.run(() => api(`${root}/${deleting.kind}/${deleting.id}`, 'DELETE'), () => { setDeleting(null); refresh() }) }}>{deleting.kind === 'package-groups' ? '已分配用户的套餐与历史用量保持不变；此套餐不再提供新的分配。' : '已分配给用户的策略组不能直接删除，请先在用户页面取消分配。'}</Confirm>}
   </>
 }
 

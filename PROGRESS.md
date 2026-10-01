@@ -1604,3 +1604,11 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 按用户节奏先集中编辑再冻结统一验收；失败修复后只补受影响或尚未完成范围。最终Rust十包/67不同目标去重524通过、0失败、18忽略，格式、Clippy、分层及diff检查通过；前端19不同浏览器套件通过、Bun40通过且零跳过；Python28命令范围去重423通过、49跳过。Debian12小型隔离夹具70项、受影响12项和扩展80项分别有独立记录，重复范围不累计为不同方法。
 - 全局编译守卫两次中断自身测试，已根据另一任务持有独立target锁的实际只读证据缩小范围，不操作他人进程；未完成summary不计通过。本步原参数/信任根/安装器/夹具失败及macOS超时、信号和producer回收记录缺失均保留，所选Linux补验不能改写原平台结果。自有PG与本次受控夹具确认清理，最终392功能输入前后一致。
 - 完整范围及摘要见 [本步验收](docs/acceptance/integrated-main-native-r1.md) 与 [机器证据](docs/acceptance/evidence/integrated-main-native-r1.json)。四源码CI仍 disabled_manually，未执行不算通过；无正式签署、发布、生产迁移/部署或重复关闭issue。完整NodeQuality许可/真实工具链、双架构制品复建及持续Agent/sing-box联合负载总验继续待验，完整入口门禁保持，整体目标尚未签收。
+
+## 2026-10-02：实际 Debian 输入与 sing-box 编辑保护大步骤
+
+- 新增固定 main/security Snapshot 请求及实际材料收集器：签名元数据认证、逐段有界索引、隔离 APT 闭包、二进制/完整对应源码下载接口、独立未绑定材料及严格候选 builder 绑定。下载、总字节、磁盘预留、期限与 owned worker 清理受限；原 builder 审批和设备制品预算保持，未填虚构镜像摘要。
+- sing-box 策略组、代理用户直接授权与套餐分配使用相关读取的新鲜状态保护全部按钮及表单处理器；失败或 pending 保留旧数据与草稿并关闭写入，恢复后检查失效实体和资源。已打开的窗口同样受控，关闭与重试可用；不把界面保护当作权限绕过修复或并发事务锁。
+- 按用户节奏先集中完成代码，再冻结统一验收并记录实际失败；之后只补受修复影响的范围。当前 Linux 不同方法 92 通过/0 失败/0 跳过，macOS 重叠范围 53 通过/6 Linux 条件跳过且保留两个 ResourceWarning。一次前端构建、Bun 40/922、四套受影响实际 dist 浏览器通过；五次浏览器夹具失败及修复保留。最终 550 功能输入及 19 dist 与收据一致，342 Rust/Cargo/面板插件输入保持基线；未重复 Rust 全量测试。
+- 真实专用 Debian12 ARM64 收集的三次失败分别是完整 GPG 多签名 keyring、APT 可选展示校验和兼容及 900 MiB 总材料预算拒绝。最后一次 8 个元数据对象、签名索引及独立 APT 求解已通过，选择 237 个二进制包/168 个源码版本；正文下载前拒绝，源码总字节未知，无完整输入锁或 rootfs。每次独立单元均无 OOM/所属进程/挂载/cgroup 残留；宿主 ENOSPC 及尝试间未知 guest boot 变化分别保留，不伪称全程同一启动。
+- 详见[验收记录](docs/acceptance/debian-inputs-and-singbox-snapshots.md)、[机器证据](docs/acceptance/evidence/debian-inputs-and-singbox-snapshots.json)与 [ADR0046](docs/adr/0046-nodequality-input-collection.md)。#139 保留开放，aws-jp0 SSH 仍超时。下一步安排完整闭包的独立工厂容量、候选镜像身份和原生复建；Geekbench/Ookla 条件、完整联合负载及混合机场链路仍待。没有正式签署、发布、生产部署或恢复 CI，整体目标继续进行。

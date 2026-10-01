@@ -40,6 +40,8 @@ Bookworm 的主自动签名主指纹为 `B8B80B5B623EAB6AD8775C45B7C5D7D6350947F
 
 只接受 Debian 12 `main` 的 native/all 二进制包和完整对应源码。索引压缩文件及其展开最多各 256 MiB，单 `.deb` 最多 256 MiB，单源码文件最多 1 GiB；所有输入数量也有上限。源缓存可能比最终 rootfs 大，必须在独立 builder 上准备磁盘空间。流程不接受缓存路径穿越、符号链接父目录、FIFO、设备或冲突的 blob 身份。
 
+实际收集接线确认：`debian` 的 main pool 为 `pool/main/`，`debian-security` 的 main pool 为 `pool/updates/main/`。锁校验按每条记录所属 archive 接受对应路径，继续拒绝其他组件及错误仓库路径；路径符合不能代替签名索引中的 Filename/Directory、版本与摘要证明。
+
 `--approved-builder-image-sha256` 必须由调用者独立提供，并与锁完全一致。模块检查三个关键工具的实际字节，但不从内部证明正在运行的虚拟机等于该镜像摘要。Perl/Python/APT、动态库、mmdebstrap file-mirror hook、内核及构建环境属于外部镜像审批范围。外层环境管理器必须给出实际镜像身份、构建配置与全部构建工具来源/许可；CLI 中重复一个摘要字符串不构成镜像证明。当前没有这些真实审批材料。
 
 ## 接口与目录
@@ -121,3 +123,7 @@ Bookworm 的 `stun-client` 在 amd64 与 arm64 提供客户端 `/usr/bin/stun`�
 ## 最新整合的身份修订
 
 原r17→r18准备派生和de54084收据是历史原始输入。当前打包要求本checkout的精确 `sinan-native-r1` 包，派生 `offline-rootfs-r1`；只有新离线命名接收双辅助文件。此修订不改变Debian来源、外层预算、展开约束或full门禁，也不把旧同名制品当作新制品。
+
+## 实际输入收集的后续步骤
+
+[ADR 0046](0046-nodequality-input-collection.md) 增加实际 Snapshot 索引、APT 闭包及完整对应源码的收集入口，补齐本工具之前依赖人工取得材料的环节。输入认证、候选 builder 身份和完整镜像审批分别记录；尚无真正 builder 材料时也可保存未绑定的已收集材料，不能填入虚构摘要使锁通过校验。收集不执行这里的准备、构建或导出，原生制品及完整验机条件保持。后续实际取得结果按新的整步收据记录，不重写本 ADR 对先前步骤的范围说明。

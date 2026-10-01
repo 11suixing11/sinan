@@ -162,6 +162,13 @@ def relative(value):
     return value
 
 
+def main_pool_path(archive, value):
+    require(archive in SIGNERS, 'unsupported Debian archive')
+    prefix = 'pool/updates/main/' if archive == 'debian-security' else 'pool/main/'
+    require(relative(value).startswith(prefix), 'package/source path differs from its Debian main archive')
+    return value
+
+
 def private_directory(path):
     path = Path(path).absolute()
     metadata = path.lstat()
@@ -295,11 +302,49 @@ def expanded_index(path, limit, deadline):
     return bytes(content)
 
 
+def index_records(path, limit, deadline):
+    """Read authenticated compressed indices one bounded paragraph at a time."""
+    require(type(limit) is int and 0 < limit <= MAX_INDEX, 'invalid expanded index limit')
+    raw, _ = open_regular(path, MAX_INDEX)
+    with raw:
+        if str(path).endswith('.xz'):
+            stream = lzma.LZMAFile(raw)
+        elif str(path).endswith('.gz'):
+            stream = gzip.GzipFile(fileobj=raw)
+        else:
+            raise ValueError('only fixed gzip/xz Debian indices are supported')
+        with stream:
+            total, paragraph, pending = 0, bytearray(), b''
+            while True:
+                deadline.check()
+                chunk = stream.read(min(65536, limit - total + 1))
+                if not chunk:
+                    break
+                total += len(chunk)
+                require(total <= limit, 'expanded Debian index exceeds its limit')
+                lines = (pending + chunk).split(b'\n')
+                pending = lines.pop()
+                for line in lines:
+                    deadline.check()
+                    if line.endswith(b'\r'):
+                        line = line[:-1]
+                    if line:
+                        paragraph.extend(line + b'\n')
+                    elif paragraph:
+                        yield from control_records(bytes(paragraph))
+                        paragraph.clear()
+                    require(len(paragraph) <= MAX_LOCK, 'Debian control record exceeds its limit')
+                require(len(paragraph) + len(pending) <= MAX_LOCK, 'Debian control record exceeds its limit')
+            if pending:
+                paragraph.extend(pending)
+            if paragraph:
+                yield from control_records(bytes(paragraph))
+
+
 def validate_lock(lock):
     require(isinstance(lock, dict) and set(lock) == {'schema', 'arch', 'source_epoch', 'builder',
             'keyring', 'repositories', 'packages', 'sources'}, 'invalid rootfs input lock fields')
     require(type(lock['schema']) is int and lock['schema'] == 1 and lock['arch'] in ARCHES, 'unsupported lock identity')
-    require(type(lock['source_epoch']) is int and 0 < lock['source_epoch'] < 2**32, 'fixed source epoch required')
     builder = lock['builder']
     require(isinstance(builder, dict) and set(builder) == {'image_sha256', 'arch', 'tools'}, 'invalid builder identity')
     require(builder['arch'] == lock['arch'] and SHA256.fullmatch(builder['image_sha256'] or ''), 'fixed native builder image required')
@@ -312,6 +357,17 @@ def validate_lock(lock):
         require(isinstance(tool['version'], str) and 0 < len(tool['version']) <= 128, 'fixed build tool version required')
         descriptor({'blob': tool['name'], 'sha256': tool['sha256'], 'size': tool['size']}, MAX_ARCHIVE)
         seen_tools.add(tool['name'])
+    return validate_materials({key: value for key, value in lock.items() if key != 'builder'})
+
+
+def validate_materials(materials):
+    """Validate collected source inputs without inventing a builder identity."""
+    require(isinstance(materials, dict) and set(materials) == {'schema', 'arch', 'source_epoch',
+            'keyring', 'repositories', 'packages', 'sources'}, 'invalid source material fields')
+    require(type(materials['schema']) is int and materials['schema'] == 1
+            and materials['arch'] in ARCHES, 'unsupported material identity')
+    lock = materials
+    require(type(lock['source_epoch']) is int and 0 < lock['source_epoch'] < 2**32, 'fixed source epoch required')
     descriptor(lock['keyring'], MAX_LOCK)
     require(isinstance(lock['repositories'], list) and 2 <= len(lock['repositories']) <= 3, 'main and security snapshots required')
     repos, timestamps = {}, {}
@@ -345,7 +401,7 @@ def validate_lock(lock):
         require(row['repository'] in repos and NAME.fullmatch(row['name'] or '') and VERSION.fullmatch(row['version'] or ''), 'invalid package identity')
         require(row['architecture'] in (lock['arch'], 'all') and row['name'] not in seen, 'duplicate/foreign binary package')
         require(NAME.fullmatch(row['source_name'] or '') and VERSION.fullmatch(row['source_version'] or ''), 'fixed corresponding source identity required')
-        require(relative(row['filename']).startswith('pool/main/'), 'only authenticated Debian main package paths are accepted')
+        main_pool_path(repos[row['repository']]['archive'], row['filename'])
         descriptor({key: row[key] for key in ('blob', 'sha256', 'size')}, MAX_ARCHIVE)
         seen.add(row['name'])
     require(set(TOOL_PACKAGES.values()) <= seen, 'open-source tool/base package inventory is incomplete')
@@ -356,7 +412,7 @@ def validate_lock(lock):
         pair = (row['name'], row['version'])
         require(row['repository'] in repos and NAME.fullmatch(row['name'] or '') and VERSION.fullmatch(row['version'] or '')
                 and pair not in source_pairs, 'duplicate/invalid corresponding source identity')
-        require(relative(row['directory']).startswith('pool/main/'), 'invalid corresponding source directory')
+        main_pool_path(repos[row['repository']]['archive'], row['directory'])
         require(isinstance(row['files'], list) and 0 < len(row['files']) <= 64, 'complete source file inventory required')
         names = set()
         for value in row['files']:
@@ -490,8 +546,15 @@ def all_descriptors(lock):
 
 
 def verify_inputs(lock, cache, approved_image, deadline):
-    repos = validate_lock(lock)
+    validate_lock(lock)
     verify_tools(lock, approved_image, {'gpgv'}, deadline)
+    return verify_authenticated_sources({key: value for key, value in lock.items() if key != 'builder'}, cache, deadline)
+
+
+def verify_authenticated_sources(materials, cache, deadline):
+    """Authenticate Debian source bytes; this API never approves a builder."""
+    repos = validate_materials(materials)
+    lock = materials
     for value, limit in all_descriptors(lock):
         checked_blob(cache, value, limit, deadline)
     keyring = input_path(cache, lock['keyring']['blob'])
@@ -517,8 +580,7 @@ def verify_inputs(lock, cache, approved_image, deadline):
                                'inrelease_sha256': repo['inrelease']['sha256']})
             for index in repo['indices']:
                 require(sums.get(index['path']) == {key: index[key] for key in ('sha256', 'size')}, 'index is not covered by signed Release')
-                content = expanded_index(input_path(cache, index['blob']), MAX_INDEX, deadline)
-                for row in control_records(content):
+                for row in index_records(input_path(cache, index['blob']), MAX_INDEX, deadline):
                     deadline.check()
                     if index['kind'] == 'Packages':
                         key = (repo['id'], row.get('Package'), row.get('Version'), row.get('Architecture'))
