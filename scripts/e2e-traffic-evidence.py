@@ -26,8 +26,11 @@ CURL_ERRORS = {6: "dns", 7: "connect", 22: "http", 28: "timeout", 35: "tls", 52:
                55: "send", 56: "receive", 60: "tls_verify", 97: "proxy"}
 NUMBERS = {"curl_exit": 255, "http_status": 599, "download_bytes": 2 ** 63 - 1,
            "upload_bytes": 2 ** 63 - 1, "connect_ms": 90000,
+           "local_dns_ms": 90000, "pretransfer_ms": 90000,
            "first_byte_ms": 90000, "elapsed_ms": 100000}
-METRICS = "http_status download_bytes upload_bytes connect_ms first_byte_ms elapsed_ms".split()
+LEGACY_METRICS = "http_status download_bytes upload_bytes connect_ms first_byte_ms elapsed_ms".split()
+METRICS = "http_status download_bytes upload_bytes local_dns_ms connect_ms pretransfer_ms first_byte_ms elapsed_ms".split()
+STAGES = {"completed", "receiving_response", "request_or_response", "proxy_or_transport", "before_proxy_connect", "unknown"}
 EVIDENCE_NAME = "traffic-evidence.json"
 
 
@@ -52,6 +55,8 @@ def safe_record(value, transfer=False):
         result.pop("passed", None)
         if type(value.get("curl_succeeded")) is bool:
             result["curl_succeeded"] = value["curl_succeeded"]
+        if isinstance(value.get("reached_stage"), str) and value["reached_stage"] in STAGES:
+            result["reached_stage"] = value["reached_stage"]
     return result
 
 
@@ -108,10 +113,11 @@ def curl_metrics(output):
     if not isinstance(output, str) or len(output) > 256:
         return {}
     values = output.split()
-    if len(values) != len(METRICS):
+    fields = METRICS if len(values) == len(METRICS) else LEGACY_METRICS
+    if len(values) != len(fields):
         return {}
     result = {}
-    for index, (key, value) in enumerate(zip(METRICS, values)):
+    for index, (key, value) in enumerate(zip(fields, values)):
         if not re.fullmatch(r"[0-9]{1,20}(?:\.[0-9]{1,6})?", value):
             continue
         number = decimal.Decimal(value)
@@ -123,6 +129,23 @@ def curl_metrics(output):
     return result
 
 
+def reached_stage(record, status):
+    """Describe observations, never attribute a stall to an unobserved remote hop."""
+    if status == 0:
+        return "completed"
+    if ((record.get("first_byte_ms") or 0) > 0
+            or (record.get("http_status") or 0) >= 100
+            or (record.get("download_bytes") or 0) > 0):
+        return "receiving_response"
+    if (record.get("pretransfer_ms") or 0) > 0:
+        return "request_or_response"
+    if (record.get("connect_ms") or 0) > 0:
+        return "proxy_or_transport"
+    if record.get("connect_ms") == 0 and record.get("elapsed_ms", 0) > 0:
+        return "before_proxy_connect"
+    return "unknown"
+
+
 def transfer(scratch, phase, direction):
     # All endpoints and curl options are fixed; no config, environment, or body is emitted.
     output = scratch / ("download.bin" if direction == "download" else "upload-response.txt")
@@ -131,7 +154,7 @@ def transfer(scratch, phase, direction):
     if direction == "upload":
         command += ["-X", "POST", "--data-binary", "@" + str(scratch / "upload.bin")]
     command += ["http://127.0.0.1:18081/" + direction, "-o", str(output), "--write-out",
-                "%{http_code} %{size_download} %{size_upload} %{time_connect} "
+                "%{http_code} %{size_download} %{size_upload} %{time_namelookup} %{time_connect} %{time_pretransfer} "
                 "%{time_starttransfer} %{time_total}\n"]
     started = time.monotonic()
     try:
@@ -146,7 +169,7 @@ def transfer(scratch, phase, direction):
     except OSError:
         status, record, kind = 127, {}, "launch"
     record.update(phase=phase, direction=direction, curl_exit=status, error_kind=kind,
-                  curl_succeeded=status == 0)
+                  curl_succeeded=status == 0, reached_stage=reached_stage(record, status))
     record.setdefault("elapsed_ms", min(100000, int((time.monotonic() - started) * 1000)))
     path = scratch / EVIDENCE_NAME
     evidence = load(path)

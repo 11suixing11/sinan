@@ -211,6 +211,28 @@ class AcceptanceContracts(unittest.TestCase):
         self.assertIsNone(status["healthy"])
         self.assertIsNone(status["has_last_error"])
 
+    def test_explicit_installation_failure_is_not_an_indefinite_wait_or_secret_leak(self):
+        sample = view()
+        secret = "TEST_ONLY-private-installation-detail"
+        sample["installation"] = {"state": "failed", "reason": secret}
+        args = argparse.Namespace(state=self.state_path, timeout=600, agent_version=None, client_port=None)
+        with patch.object(DRIVER, "snapshot", return_value=sample), patch.object(DRIVER.time, "sleep") as sleep:
+            with self.assertRaisesRegex(DRIVER.AcceptanceError, "安装已明确失败") as error:
+                DRIVER.ready(None, self.state, args)
+            sleep.assert_not_called()
+        self.assertNotIn(secret, str(error.exception))
+        private = self.state_path.with_name("ready-timeout.json")
+        self.assertIn(secret, private.read_text())
+        self.assertEqual(private.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(DRIVER.readiness_status(sample, None)["installation_state"], "failed")
+        sample["installation"]["state"] = secret
+        self.assertNotIn("installation_state", DRIVER.readiness_status(sample, None))
+        sample["installation"]["state"] = "pending"
+        self.assertFalse(DRIVER.healthy(sample))
+        sample["installation"]["state"] = "ready"
+        sample["publication_pending"] = True
+        self.assertFalse(DRIVER.healthy(sample))
+
     def test_systemd_public_status_rejects_ambiguous_out_of_range_and_failed_queries(self):
         for value in ("-1", "256", "65536", "01", "1.0", "secret"):
             with self.subTest(value=value):
@@ -416,6 +438,30 @@ class AcceptanceContracts(unittest.TestCase):
         changed["server"]["device_public_key"] = "different-public-identity"
         with self.assertRaisesRegex(DRIVER.AcceptanceError, "身份发生变化"):
             self.verify([changed])
+
+    def test_changed_configuration_cannot_pass_upgrade_continuity_with_unchanged_ledger(self):
+        changed = view()
+        changed["deployment"].update(target_rev=2, applied_rev=2)
+        changed["agent"]["applied"]["singbox"] = 2
+        with self.assertRaisesRegex(DRIVER.AcceptanceError, "配置版本发生变化"):
+            self.verify([changed])
+
+    def test_upgrade_requires_both_actual_version_reports_and_a_new_process(self):
+        self.args.agent_version, self.args.agent_restarted = "0.3.1", True
+        baseline = self.state["checkpoints"]["before"]
+        baseline["agent"].update(pid=100, agent_version="0.3.0")
+        baseline["server"].update(id=41, agent_version="0.3.0", runtime_version="1.14.2")
+        upgraded = view()
+        upgraded["agent"].update(pid=200, agent_version="0.3.1")
+        upgraded["server"].update(id=41, agent_version="0.3.1", runtime_version="1.14.2")
+        for field, mutation in (("agent", {"agent_version": "0.3.0"}), ("agent", {"pid": 100}),
+                                ("server", {"id": 42}), ("server", {"runtime_version": "1.14.3"})):
+            changed = json.loads(json.dumps(upgraded))
+            changed[field].update(mutation)
+            with self.subTest(mutation=mutation), self.assertRaises(DRIVER.AcceptanceError):
+                self.verify([changed])
+        self.verify([upgraded, upgraded, upgraded])
+        self.assertEqual(self.state["checkpoints"]["after"]["agent"]["pid"], 200)
 
     def test_pending_outbox_cannot_be_reported_as_a_stable_pass(self):
         with self.assertRaisesRegex(DRIVER.AcceptanceError, "outbox 未清空"):

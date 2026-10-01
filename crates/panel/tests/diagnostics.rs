@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod business_support;
+mod probe_support;
 #[path = "diagnostics/chain_gate.rs"]
 mod chain_gate;
 #[path = "diagnostics/modes.rs"]

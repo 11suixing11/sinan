@@ -67,6 +67,34 @@ class EvidenceContracts(unittest.TestCase):
         self.assertNotIn("passed", record)
         self.assertNotIn(str(self.scratch), self.path.read_text())
 
+    def test_timeout_stage_distinguishes_observed_progress_without_claiming_root_cause(self):
+        cases = (
+            ("000 0 0 0 0 0 0 90", "before_proxy_connect"),
+            ("000 0 0 0 0.001 0 0 90", "proxy_or_transport"),
+            ("000 0 1048576 0 0.001 0.02 0 90", "request_or_response"),
+            ("200 1103168 0 0 0.001 0.02 0.04 90", "receiving_response"),
+            ("", "unknown"),
+        )
+        for metrics, expected in cases:
+            with self.subTest(expected=expected), patch.object(EVIDENCE.subprocess, "run", return_value=
+                    subprocess.CompletedProcess([], 28, metrics, SECRET)), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(EVIDENCE.transfer(self.scratch, "first-traffic", "download"), 28)
+            record = EVIDENCE.load(self.path)["transfers"][0]
+            self.assertEqual(record["reached_stage"], expected)
+            self.assertEqual(record["curl_exit"], 28)
+            self.assertNotIn(SECRET, self.path.read_text())
+
+    def test_extended_timing_fields_are_allowlisted_and_legacy_json_stays_readable(self):
+        metrics = EVIDENCE.curl_metrics("200 8 1048576 0.001 0.002 0.03 0.04 0.05")
+        self.assertEqual(metrics["local_dns_ms"], 1)
+        self.assertEqual(metrics["pretransfer_ms"], 30)
+        value = {"transfers": [{"phase": "first-traffic", "direction": "upload", **metrics,
+                                "reached_stage": SECRET, "proxy_target": SECRET}]}
+        EVIDENCE.save(self.path, value)
+        self.assertNotIn(SECRET, self.path.read_text())
+        self.assertNotIn("reached_stage", EVIDENCE.load(self.path)["transfers"][0])
+        self.assertEqual(EVIDENCE.curl_metrics("200 8 1048576 0.002 0.04 0.05")["connect_ms"], 2)
+
     def test_launch_guard_and_evidence_write_failure_never_turn_timeout_into_success(self):
         for error, expected, kind in ((OSError(SECRET), 127, "launch"),
                                       (subprocess.TimeoutExpired([SECRET], 92, SECRET, SECRET), 28, "timeout")):
