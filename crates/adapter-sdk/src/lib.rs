@@ -93,6 +93,16 @@ pub struct Execution {
     pub truncated: bool,
 }
 
+/// A service-manager observation of the currently controlled process.
+/// Paths are internal observations and must never be accepted from a device request.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeInstance {
+    pub instance_id: String,
+    pub binary_path: PathBuf,
+    /// The stable absolute command argument; configuration resolution is checked separately.
+    pub config_path: PathBuf,
+}
+
 pub trait ManagedProcess: Send {
     fn id(&self) -> u32;
     fn try_wait(&mut self) -> anyhow::Result<Option<bool>>;
@@ -103,6 +113,13 @@ pub trait ManagedProcess: Send {
 }
 
 pub trait Privileged: Send + Sync {
+    fn runtime_process<'a>(
+        &'a self,
+        _pid: u32,
+        _control_group: &'a str,
+    ) -> BoxFuture<'a, RuntimeInstance> {
+        Box::pin(async { anyhow::bail!("runtime process inspection is not supported") })
+    }
     fn diagnostic_memory(&self) -> BoxFuture<'_, DiagnosticMemory> {
         Box::pin(async { anyhow::bail!("diagnostic memory inspection is not supported") })
     }
@@ -242,6 +259,12 @@ pub trait Privileged: Send + Sync {
 }
 
 pub trait ServiceManager: Send + Sync {
+    fn supports_runtime_checkpoint(&self) -> bool {
+        false
+    }
+    fn runtime_instance<'a>(&'a self, _unit: &'a str) -> BoxFuture<'a, RuntimeInstance> {
+        Box::pin(async { anyhow::bail!("runtime instance inspection is not supported") })
+    }
     fn supports_confirmed_cancellation(&self) -> bool {
         false
     }

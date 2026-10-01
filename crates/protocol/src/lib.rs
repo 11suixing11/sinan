@@ -12,8 +12,10 @@ pub use telemetry::{
 
 mod diagnostics;
 mod retirement;
+pub mod runtime_control;
 pub use diagnostics::*;
 pub use retirement::*;
+pub use runtime_control::*;
 pub mod release;
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -79,6 +81,18 @@ impl Envelope {
             "telemetry.static" => self.to_payload().map(Message::TelemetryStatic),
             "telemetry.metrics" => self.to_payload().map(Message::TelemetryMetrics),
             "apply.result" => self.to_payload().map(Message::ApplyResult),
+            "runtime.checkpoint.request" => {
+                self.to_payload().map(Message::RuntimeCheckpointRequest)
+            }
+            "runtime.checkpoint.result" => self.to_payload().map(Message::RuntimeCheckpointResult),
+            "runtime.checkpoint.ack" => self.to_payload().map(Message::RuntimeCheckpointAck),
+            "runtime.barrier.request" => self
+                .to_payload()
+                .map(Message::RuntimeRecoveryBarrierRequest),
+            "runtime.barrier.result" => {
+                self.to_payload().map(Message::RuntimeRecoveryBarrierResult)
+            }
+            "runtime.barrier.ack" => self.to_payload().map(Message::RuntimeRecoveryBarrierAck),
             "usage.batch" => self.to_payload().map(Message::UsageBatch),
             "manifest.changed" => self.to_payload().map(Message::ManifestChanged),
             "diagnostic.cancel.request" => self.to_payload().map(Message::DiagnosticCancelRequest),
@@ -104,6 +118,12 @@ pub enum Message {
     TelemetryStatic(StaticInfo),
     TelemetryMetrics(Metrics),
     ApplyResult(ApplyResult),
+    RuntimeCheckpointRequest(RuntimeCheckpointRequest),
+    RuntimeCheckpointResult(RuntimeCheckpointResult),
+    RuntimeCheckpointAck(RuntimeControlAck),
+    RuntimeRecoveryBarrierRequest(RuntimeRecoveryBarrierRequest),
+    RuntimeRecoveryBarrierResult(RuntimeRecoveryBarrierResult),
+    RuntimeRecoveryBarrierAck(RuntimeControlAck),
     UsageBatch(UsageBatch),
     ManifestChanged(ManifestChanged),
     DiagnosticCancelRequest(DiagnosticCancelRequest),
@@ -128,6 +148,12 @@ impl Message {
             Self::TelemetryStatic(_) => "telemetry.static",
             Self::TelemetryMetrics(_) => "telemetry.metrics",
             Self::ApplyResult(_) => "apply.result",
+            Self::RuntimeCheckpointRequest(_) => "runtime.checkpoint.request",
+            Self::RuntimeCheckpointResult(_) => "runtime.checkpoint.result",
+            Self::RuntimeCheckpointAck(_) => "runtime.checkpoint.ack",
+            Self::RuntimeRecoveryBarrierRequest(_) => "runtime.barrier.request",
+            Self::RuntimeRecoveryBarrierResult(_) => "runtime.barrier.result",
+            Self::RuntimeRecoveryBarrierAck(_) => "runtime.barrier.ack",
             Self::UsageBatch(_) => "usage.batch",
             Self::ManifestChanged(_) => "manifest.changed",
             Self::DiagnosticCancelRequest(_) => "diagnostic.cancel.request",
@@ -149,6 +175,12 @@ impl Message {
             Self::TelemetryStatic(value) => serde_json::to_value(value)?,
             Self::TelemetryMetrics(value) => serde_json::to_value(value)?,
             Self::ApplyResult(value) => serde_json::to_value(value)?,
+            Self::RuntimeCheckpointRequest(value) => serde_json::to_value(value)?,
+            Self::RuntimeCheckpointResult(value) => serde_json::to_value(value)?,
+            Self::RuntimeCheckpointAck(value) => serde_json::to_value(value)?,
+            Self::RuntimeRecoveryBarrierRequest(value) => serde_json::to_value(value)?,
+            Self::RuntimeRecoveryBarrierResult(value) => serde_json::to_value(value)?,
+            Self::RuntimeRecoveryBarrierAck(value) => serde_json::to_value(value)?,
             Self::UsageBatch(value) => serde_json::to_value(value)?,
             Self::ManifestChanged(value) => serde_json::to_value(value)?,
             Self::DiagnosticCancelRequest(value) => serde_json::to_value(value)?,

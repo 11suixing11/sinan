@@ -27,6 +27,7 @@ async function main() {
       if (pathname === '/api/dashboard/access') data = { authenticated: true, public_dashboard: false }
       else if (pathname === '/api/me') data = {}
       else if (pathname === `${root}/nodes`) data = nodes
+      else if (method === 'GET' && pathname === `${root}/servers`) data = [1, 2].map(id => ({ id, name: `测试服务器 ${id}`, enabled: true, online: false, agent_supported: true, read_only: false, source: 'administrator' }))
       else if (pathname === `${root}/chains`) {
         if (method === 'POST') { data = { ...payload, id: chains.length + 1, available: true }; chains.push(data) }
         else data = chains

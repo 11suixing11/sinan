@@ -8,6 +8,7 @@ use tokio_tungstenite::accept_async;
 use uuid::Uuid;
 
 mod readiness;
+mod runtime_control;
 
 type Peer = WebSocketStream<TcpStream>;
 
@@ -153,6 +154,7 @@ async fn backlog_and_legacy_giant_preserve_heartbeat_control_ack_and_restart_rep
         agent_version: "fixture-agent",
         retirement: None,
         cancellation: None,
+        runtime_control: None,
         telemetry: watch::channel(Arc::new(crate::telemetry::cache::Snapshot::default())).1,
     };
     let mut tasks = JoinSet::new();
@@ -264,6 +266,7 @@ async fn blocked_collection_preserves_real_twenty_second_heartbeat_and_control()
         agent_version: "fixture-agent",
         retirement: None,
         cancellation: None,
+        runtime_control: None,
         telemetry: fixture.sampling.snapshots.clone(),
     };
     assert_eq!(
@@ -386,6 +389,7 @@ async fn cancellation_request_is_persisted_without_waiting_for_cleanup_or_delayi
         agent_version: "fixture-agent",
         retirement: None,
         cancellation: Some(control),
+        runtime_control: None,
         telemetry: watch::channel(Arc::new(crate::telemetry::cache::Snapshot::default())).1,
     };
     let mut tasks = JoinSet::new();

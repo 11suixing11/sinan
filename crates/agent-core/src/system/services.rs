@@ -7,6 +7,9 @@ use std::{
 };
 use tokio::time::timeout;
 
+#[path = "services/runtime.rs"]
+mod runtime;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ServiceBackend {
     Systemd,
@@ -214,6 +217,15 @@ impl SystemServiceManager {
 }
 
 impl ServiceManager for SystemServiceManager {
+    fn supports_runtime_checkpoint(&self) -> bool {
+        cfg!(target_os = "linux") && self.backend == ServiceBackend::Systemd
+    }
+    fn runtime_instance<'a>(
+        &'a self,
+        unit: &'a str,
+    ) -> BoxFuture<'a, sinan_adapter_sdk::RuntimeInstance> {
+        Box::pin(runtime::inspect(self, unit))
+    }
     #[cfg(unix)]
     fn supports_confirmed_cancellation(&self) -> bool {
         super::cleanup::supported(self.backend)

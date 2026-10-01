@@ -94,6 +94,26 @@ pub(super) async fn run(
                         let envelope: Envelope = serde_json::from_str(&text)?;
                         anyhow::ensure!(envelope.v == PROTOCOL_VERSION, "incompatible panel protocol version");
                         match envelope.decode()? {
+                            Message::RuntimeCheckpointRequest(request) => {
+                                if let Some(control) = &runtime.runtime_control {
+                                    control.enqueue(super::runtime_control::Input::Request(crate::state::runtime_control::ControlRequest::Checkpoint(request)));
+                                }
+                            }
+                            Message::RuntimeRecoveryBarrierRequest(request) => {
+                                if let Some(control) = &runtime.runtime_control {
+                                    control.enqueue(super::runtime_control::Input::Request(crate::state::runtime_control::ControlRequest::Barrier(request)));
+                                }
+                            }
+                            Message::RuntimeCheckpointAck(ack) => {
+                                if let Some(control) = &runtime.runtime_control {
+                                    control.enqueue(super::runtime_control::Input::Ack("checkpoint", ack));
+                                }
+                            }
+                            Message::RuntimeRecoveryBarrierAck(ack) => {
+                                if let Some(control) = &runtime.runtime_control {
+                                    control.enqueue(super::runtime_control::Input::Ack("barrier", ack));
+                                }
+                            }
                             Message::DiagnosticCancelRequest(request) => {
                                 let _guard = match &runtime.retirement {
                                     Some(retirement) => Some(retirement.gate.read().await),

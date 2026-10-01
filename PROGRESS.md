@@ -1621,3 +1621,13 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 唯一原 gzip 单源观察返回 HTTP 200、137,556 字节和签名索引摘要匹配，worker1.237秒、内存峰值26,136,576字节；11项收尾全过，不倒填首次原因。随后在全新目录仅执行一次完整收集，2444.594秒以0退出，784个HTTP对象完整取得，237个deb与539个源码文件的776个正文独立Size/SHA256全部匹配；实际签名指纹与精确main/security快照复核通过，未扩VM或删除旧缓存。
 - 实际所属目录954,536,198字节，满足1 GiB材料预算；guest终态余782,073,856字节，宿主482采样最低5,239,861,248字节。256 MiB限额触发max=100704次回收压力，实测峰值269,475,840字节，OOM三项均0、tasks峰值13；11项清理/身份检查全过，缓存仅在专用guest。材料完成不代表无资源争抢或完整诊断已验收。
 - 详见[本步记录](docs/acceptance/complete-debian-materials.md)与[机器证据](docs/acceptance/evidence/complete-debian-materials.json)。550功能输入仅collector及回归相对基线变化，19 dist保持；未重复Rust、前端、其他builder或CI。完成材料仍builder=null/lock_ready=false/full_ready=false；完整builder工具闭包/镜像来源审批与启动身份、原生/双架构复建、许可及完整Agent/sing-box联合负载仍待。链路列表失败/pending静态缺口已开[#142](https://github.com/theLucius7/sinan/issues/142)归原milestone，后续整步处理；真实aws-jp0不可达、混合订阅链路尚为设计，整体目标继续进行。
+
+
+## 2026-10-02：精确运行确认、持久恢复屏障与链路编辑大步骤
+
+- 先集中完成所有代码/测试代码再冻结，无中间测试或逐项PR；新增通用checkpoint/barrier协议、SDK观察接口、实际配置/签名运行时/受控进程核对、稳定activation与应用收据、SQLite持久outbox及面板事务后ACK。周期成功poll不反复生成身份/确认请求，迟到与旧事实只留历史。
+- 原子持久化单调恢复revision下限，apply/rollback/recovery均守约；阻止回退时保留intent和管理连接，不吞全局DB/身份/信任错误。检查及屏障不隐式恢复或重启；旧记录缺失或实例失效由管理员明确更高版本受控重部署认证，同版本拒绝且无动作。日志有总ID、未ACK、单行与单轮预算，未ACK不TTL删除。
+- 链路相关GET失败/pending保护已开窗口及真实创建/删除回调，保留旧列表/草稿/关闭/重试；恢复后检查失效节点/服务器/角色/链路ID。原两跳、共享出口、不可用旧链路明确清理及授权/套餐流程保持，不加online/安装就绪创建门禁，不重写凭据/订阅路径/历史账本。
+- 完整r4十包/69目标566通过、0失败、18条件忽略，最终恢复缺口仅两文件修复并r5对账21项补验；20项重复不累加，最终567不同用例通过。格式、Clippy、分层和diff均过，自有PG清理完成。一次前端构建取得19dist，Bun48/1024零跳过、四套受影响活跃Chromium及旧groups入口均通过；未重复15套未受影响浏览器或已验Python材料流程。
+- 预检旧dist清单、字段可见性和collapsible_if失败各自保留，最终审查的实际实例失效/明确新部署恢复路径集中修复后只补受影响范围；621功能输入及19dist与最后收据一致。见 [本步验收](docs/acceptance/runtime-checkpoints-and-chain-guards.md)、[机器证据](docs/acceptance/evidence/runtime-checkpoints-and-chain-guards.json)和 [ADR0047](docs/adr/0047-runtime-checkpoints-and-recovery-barriers.md)。
+- 实际Linux systemd确认、真实持续Agent/sing-box联合负载、完整NodeQuality许可/工厂身份/双架构复建与混合机场路径仍待；基础收据不冒称端到端探测或完整签收。四源码CI只读核对仍disabled_manually，无新PR、正式签署、发布、生产迁移/部署或恢复CI，整体目标继续进行。

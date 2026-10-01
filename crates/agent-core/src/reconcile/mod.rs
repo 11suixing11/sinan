@@ -1,4 +1,6 @@
 mod apply;
+mod checkpoint;
+mod inspection;
 
 use crate::{artifacts::PanelClient, config::Config, state::SharedState};
 use anyhow::{Context, Result};
@@ -29,6 +31,15 @@ pub struct Reconciler {
     keys: std::result::Result<TrustedKeys, ReleaseError>,
 }
 
+#[derive(Debug)]
+pub struct RecoveryBlocked(pub(crate) String);
+impl std::fmt::Display for RecoveryBlocked {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+impl std::error::Error for RecoveryBlocked {}
+
 impl Reconciler {
     pub fn new(
         config: Config,
@@ -54,6 +65,10 @@ impl Reconciler {
     pub fn with_trusted_keys(mut self, keys: TrustedKeys) -> Self {
         self.keys = Ok(keys);
         self
+    }
+
+    pub(crate) fn management_recovery_allowed(&self, error: &anyhow::Error) -> bool {
+        self.keys.is_ok() && error.downcast_ref::<RecoveryBlocked>().is_some()
     }
 
     async fn verify_runtime(&self, runtime: &Prepared) -> Result<()> {
@@ -124,11 +139,22 @@ impl Reconciler {
                     .lock()
                     .map_err(|_| anyhow::anyhow!("state poisoned"))?
                     .set_json(&format!("health:{module}"), &false)?;
+                if error.downcast_ref::<RecoveryBlocked>().is_some() {
+                    self.state.lock().map_err(|_| anyhow::anyhow!("state poisoned"))?.set_json(
+                        &format!("runtime_recovery_error:{module}"),
+                        &serde_json::json!({"revision": intent.target.spec.revision, "error": error.to_string()}),
+                    )?;
+                    return Err(error);
+                }
                 return Err(error.context(
                     "unfinished operation could not recover a trusted artifact; intent retained",
                 ));
             }
         }
+        self.state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("state poisoned"))?
+            .remove_json(&format!("runtime_recovery_error:{module}"))?;
         Ok(())
     }
 
@@ -189,7 +215,7 @@ impl Reconciler {
         let module = self.adapter.describe().module;
         let result = self.reconcile_locked(&manifest, client, op_id).await;
         match result {
-            Ok(rev) => Ok(ApplyResult {
+            Ok(rev) => self.stable_apply_result(ApplyResult {
                 module,
                 rev,
                 op_id,
@@ -205,7 +231,7 @@ impl Reconciler {
                     .get_json::<bool>(&format!("health:{module}"))?
                     .unwrap_or(false);
                 tracing::warn!(%module,rev=manifest.config_rev,error=%error,"application failed");
-                Ok(ApplyResult {
+                self.stable_apply_result(ApplyResult {
                     module,
                     rev: manifest.config_rev,
                     op_id,
@@ -225,6 +251,7 @@ impl Reconciler {
     ) -> Result<u64> {
         self.recover_locked().await?;
         let descriptor = self.adapter.describe();
+        self.require_revision_floor(manifest.config_rev)?;
         client.verify_artifact(&manifest.artifact, &manifest.kernel_version, &descriptor)?;
         let previous = self.previous()?;
         if let Some(previous) = &previous {
@@ -251,6 +278,11 @@ impl Reconciler {
                     .map_err(|_| anyhow::anyhow!("state poisoned"))?
                     .set_json(&format!("health:{}", descriptor.module), &healthy)?;
                 anyhow::ensure!(healthy, "last applied runtime is unhealthy");
+                if self.services.supports_runtime_checkpoint()
+                    && let Some(activation) = self.saved_activation()?
+                {
+                    self.validate_activation(previous, &activation).await?;
+                }
                 return Ok(previous.spec.revision);
             }
         }

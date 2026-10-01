@@ -27,6 +27,7 @@ pub use plugins::singbox::{accesses, business, deployments, nodes, subscriptions
 pub mod publisher;
 pub mod releases;
 pub mod retirement;
+pub mod runtime_control;
 pub mod server_assets;
 pub mod server_traffic;
 pub mod servers;
@@ -110,6 +111,7 @@ pub fn router(state: AppState) -> Router {
             post(traffic_correction::correct),
         )
         .merge(dashboard::routes())
+        .merge(runtime_control::routes())
         .route("/api/security/totp", get(auth::totp_status))
         .route("/api/security/totp/setup", post(auth::totp_setup))
         .route("/api/security/totp/confirm", post(auth::totp_confirm))

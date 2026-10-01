@@ -7,6 +7,7 @@ pub mod deploy;
 mod jobs;
 mod publication;
 mod resources;
+mod runtime_process;
 mod syscall_protection;
 
 pub use sinan_adapter_sdk::{Privileged, ServiceManager};
@@ -103,6 +104,13 @@ impl SystemOps {
 }
 
 impl Privileged for SystemOps {
+    fn runtime_process<'a>(
+        &'a self,
+        pid: u32,
+        control_group: &'a str,
+    ) -> BoxFuture<'a, sinan_adapter_sdk::RuntimeInstance> {
+        Box::pin(runtime_process::inspect(pid, control_group))
+    }
     fn diagnostic_memory(&self) -> BoxFuture<'_, sinan_adapter_sdk::DiagnosticMemory> {
         Box::pin(resources::memory())
     }

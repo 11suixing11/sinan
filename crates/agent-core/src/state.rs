@@ -9,6 +9,8 @@ use std::{
 };
 use uuid::Uuid;
 
+pub mod runtime_control;
+
 pub type SharedState = Arc<Mutex<State>>;
 
 pub struct State {
@@ -48,6 +50,7 @@ impl State {
         connection.execute_batch(include_str!("state/migrations/0002.sql"))?;
         connection.execute_batch(include_str!("state/migrations/0003.sql"))?;
         connection.execute_batch(include_str!("state/migrations/0004_bounded_usage.sql"))?;
+        connection.execute_batch(include_str!("state/migrations/0005_runtime_control.sql"))?;
         Ok(Self { connection })
     }
 
@@ -127,6 +130,8 @@ impl State {
         transaction.execute("DELETE FROM command_journal", [])?;
         transaction.execute("DELETE FROM probe_outbox", [])?;
         transaction.execute("DELETE FROM telemetry_outbox", [])?;
+        transaction.execute("DELETE FROM runtime_control", [])?;
+        transaction.execute("DELETE FROM runtime_revision_floors", [])?;
         transaction.execute(
             "DELETE FROM kv WHERE key NOT LIKE 'usage:%' AND key <> 'retirement'",
             [],

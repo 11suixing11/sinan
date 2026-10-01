@@ -1,6 +1,7 @@
 mod connection;
 pub mod diagnostics;
 mod public_ips;
+mod runtime_control;
 #[cfg(unix)]
 mod status;
 #[cfg(windows)]
@@ -39,6 +40,7 @@ struct Runtime {
     agent_version: &'static str,
     retirement: Option<Arc<crate::retirement::Retirement>>,
     cancellation: Option<Arc<diagnostics::cancellation::CancellationControl>>,
+    runtime_control: Option<runtime_control::Control>,
     telemetry: watch::Receiver<Arc<crate::telemetry::cache::Snapshot>>,
 }
 
@@ -150,19 +152,29 @@ pub async fn run_with_diagnostics(
         let module = adapter.describe().module;
         anyhow::ensure!(!modules.contains(&module), "duplicate adapter module");
         modules.push(module.clone());
-        let reconciler = Reconciler::new(
+        let reconciler = Arc::new(Reconciler::new(
             config.clone(),
             state.clone(),
             adapter,
             privileged.clone(),
             services.clone(),
-        );
-        if !retirement.requested() {
-            reconciler.recover().await?;
+        ));
+        if !retirement.requested()
+            && let Err(error) = reconciler.recover().await
+        {
+            if !reconciler.management_recovery_allowed(&error) {
+                return Err(error);
+            }
+            tracing::error!(%module, %error, "recovery barrier blocked rollback; Agent remains connected for management");
         }
         reconcilers.push((module, reconciler));
     }
     let mut capabilities = modules.clone();
+    let exact_runtime_supported = !reconcilers.is_empty() && services.supports_runtime_checkpoint();
+    if exact_runtime_supported {
+        capabilities.push(sinan_protocol::RUNTIME_CHECKPOINT_CAPABILITY.into());
+        capabilities.push(sinan_protocol::RUNTIME_RECOVERY_BARRIER_CAPABILITY.into());
+    }
     capabilities.push(sinan_protocol::RETIREMENT_CAPABILITY.into());
     capabilities.push(sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY.into());
     capabilities.extend(
@@ -196,6 +208,7 @@ pub async fn run_with_diagnostics(
     let (client_tx, client_rx) = watch::channel::<Option<Arc<PanelClient>>>(None);
     let (trigger_tx, trigger_rx) = mpsc::channel(1);
     let (outgoing_tx, mut outgoing_rx) = mpsc::channel(64);
+    let (runtime_control, control_receiver) = runtime_control::Control::channel();
     let cancellation = if !diagnostics.is_empty() && services.supports_confirmed_cancellation() {
         capabilities.push(sinan_protocol::DIAGNOSTIC_CANCEL_CAPABILITY.into());
         Some(Arc::new(
@@ -225,9 +238,16 @@ pub async fn run_with_diagnostics(
         agent_version,
         retirement: Some(retirement.clone()),
         cancellation: cancellation.clone(),
+        runtime_control: Some(runtime_control),
         telemetry: sampling.snapshots.clone(),
     };
     let mut tasks = JoinSet::new();
+    tasks.spawn(runtime_control::run(
+        reconcilers.clone(),
+        runtime.clone(),
+        control_receiver,
+        outgoing_tx.clone(),
+    ));
     tasks.spawn(crate::upgrade::run(
         config.clone(),
         state.clone(),
