@@ -229,11 +229,31 @@ impl Privileged for SystemOps {
             }
             let temporary = parent.join(format!(".link-{}", Uuid::new_v4()));
             symlink(target, &temporary)?;
-            if let Err(error) = fs::rename(&temporary, link) {
-                let _ = fs::remove_file(&temporary);
-                return Err(error.into());
+            let result: Result<()> = async {
+                #[cfg(target_os = "macos")]
+                {
+                    // Darwin applies umask to symlinks and checks their read bits.
+                    // Change only the unpublished link, never its protected target.
+                    let output = self
+                        .execute(
+                            Path::new("/bin/chmod"),
+                            &[
+                                "-h".into(),
+                                "755".into(),
+                                temporary.to_string_lossy().into_owned(),
+                            ],
+                        )
+                        .await?;
+                    ensure!(output.success, "setting symbolic link permissions failed");
+                }
+                fs::rename(&temporary, link)?;
+                sync_directory(parent)
             }
-            sync_directory(parent)
+            .await;
+            if result.is_err() {
+                let _ = fs::remove_file(&temporary);
+            }
+            result
         })
     }
 

@@ -15,7 +15,10 @@ use tokio::{net::TcpStream, time::timeout};
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(if cfg!(windows) { 30 } else { 10 });
 const SERVICE_TIMEOUT: Duration = Duration::from_secs(if cfg!(windows) { 45 } else { 15 });
-const HEALTH_TIMEOUT: Duration = Duration::from_secs(if cfg!(windows) { 30 } else { 8 });
+const SERVICE_QUERY_TIMEOUT: Duration = Duration::from_secs(if cfg!(windows) { 30 } else { 1 });
+// A cold scheduled PowerShell process on Windows ARM64 can need nearly 30 seconds
+// before the runtime starts. Allow startup and a complete service status query.
+const HEALTH_TIMEOUT: Duration = Duration::from_secs(if cfg!(windows) { 90 } else { 8 });
 const SERVICE_UNIT: &str = "sinan-singbox@main.service";
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -27,12 +30,7 @@ impl SingboxAdapter {
     }
 
     async fn healthy_once(&self, target: &Prepared, services: &dyn ServiceManager) -> Result<bool> {
-        if !timeout(
-            Duration::from_secs(if cfg!(windows) { 5 } else { 1 }),
-            services.is_active(SERVICE_UNIT),
-        )
-        .await??
-        {
+        if !timeout(SERVICE_QUERY_TIMEOUT, services.is_active(SERVICE_UNIT)).await?? {
             return Ok(false);
         }
         let addresses = native::listen_addresses(&target.spec)?;

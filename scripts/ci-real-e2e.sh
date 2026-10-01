@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install on a disposable Ubuntu host; remove only resources created by this run.
-set -euo pipefail
+set -Eeuo pipefail
 umask 077
 
 usage() {
@@ -48,12 +48,12 @@ export SINAN_E2E_ADMIN_PASSWORD="$SINAN_ADMIN_PASSWORD"
 export SINAN_E2E_STATUS_COMMAND='sudo /usr/local/bin/sinan-agent status'
 export SINAN_E2E_ARTIFACT_ROOT=$scratch/artifacts
 phase=preflight owned_installation=0 hosts_entry=0 fixture_pid= client_pid= tls_container=
-passed=0
+passed=0 failure_line=
 marker=$COMPOSE_PROJECT_NAME
 compose=(docker compose --env-file /dev/null -f deploy/docker-compose.yml -f "$scratch/compose.override.yml")
 
 write_summary() {
-  python3 - "$scratch/state.json" "$summary" "$passed" "$phase" "${result:-0}" "$owned_installation" <<'PY'
+  python3 - "$scratch/state.json" "$summary" "$passed" "$phase" "${result:-0}" "$owned_installation" "${failure_line:-0}" <<'PY'
 import importlib.util
 import json
 import os
@@ -62,7 +62,7 @@ import re
 import subprocess
 import sys
 
-state_path, output, passed, phase, exit_code, owned_installation = sys.argv[1:]
+state_path, output, passed, phase, exit_code, owned_installation, failure_line = sys.argv[1:]
 specification = importlib.util.spec_from_file_location("e2e_summary_driver", "scripts/e2e-driver.py")
 driver = importlib.util.module_from_spec(specification)
 specification.loader.exec_module(driver)
@@ -70,9 +70,8 @@ traffic_specification = importlib.util.spec_from_file_location("e2e_traffic_evid
 traffic = importlib.util.module_from_spec(traffic_specification)
 traffic_specification.loader.exec_module(traffic)
 summary = {"passed": passed == "1", "last_phase": phase, "exit_code": int(exit_code), "runtime_version": "1.14.2"}
-traffic_evidence = traffic.load(Path(state_path).with_name(traffic.EVIDENCE_NAME))
-if traffic_evidence:
-    summary["traffic"] = traffic_evidence
+if not summary["passed"]:
+    summary["failure_line"] = int(failure_line)
 readiness = Path(state_path).with_name("ready-timeout.json")
 if readiness.is_file():
     last = json.loads(readiness.read_text())
@@ -123,6 +122,9 @@ if retirement.is_file():
         summary["retirement"]["usage"] = {key: totals[key] for key in ("uplink", "downlink", "total")}
 Path(output).parent.mkdir(parents=True, exist_ok=True)
 Path(output).write_text(json.dumps(summary, indent=2) + "\n")
+if os.environ.get('GITHUB_ACTIONS') == 'true' and not summary['passed']:
+    # Publish only the same allowlisted fields as the acceptance artifact.
+    print('::error title=Reality acceptance failed::' + json.dumps(summary, ensure_ascii=True))
 if os.environ.get('GITHUB_STEP_SUMMARY'):
     with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as report:
         report.write('### 真实安装与 Reality 验收\n\n')
@@ -177,6 +179,7 @@ PY
   exit "$result"
 }
 trap cleanup EXIT
+trap 'if [[ -z $failure_line ]]; then failure_line=$LINENO; fi' ERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
 

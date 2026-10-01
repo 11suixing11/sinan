@@ -393,10 +393,24 @@ async fn atomic_writes_and_links_preserve_modes_and_real_files() -> Result<()> {
     assert!(SystemOps.atomic_symlink(&file, &directory).await.is_err());
     let link = directory.join("current");
     SystemOps.atomic_symlink(&link, &file).await?;
+    assert_eq!(
+        std::fs::symlink_metadata(&link)?.permissions().mode() & 0o444,
+        0o444,
+        "runtime accounts must be able to resolve the published link"
+    );
+    assert_eq!(
+        std::fs::metadata(&file)?.permissions().mode() & 0o777,
+        0o640,
+        "publishing a readable link must not change its target permissions"
+    );
     SystemOps
         .atomic_symlink(&link, &directory.join("missing"))
         .await?;
     assert_eq!(std::fs::read_link(&link)?, directory.join("missing"));
+    assert_eq!(
+        std::fs::symlink_metadata(&link)?.permissions().mode() & 0o444,
+        0o444
+    );
     SystemOps.remove_symlink(&link).await?;
     SystemOps.remove_symlink(&link).await?;
     assert!(std::fs::symlink_metadata(&link).is_err());

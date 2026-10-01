@@ -518,269 +518,70 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 最终整合 main `21e6a01`，保留诊断资源预算、有限流量补报、监控模式、任务页面与退役保护。使用独立 PostgreSQL 再跑上述 20 项专项测试，全部通过且无忽略；panel 全 targets Clippy（warnings 为错误）、workspace fmt 与差异空白检查通过。Bun 1.4.2 冻结锁文件安装及 TypeScript/Vite 构建通过，并重建合并后的 dist；此结果不代表最终提交的完整 workspace 或平台 CI 已通过。
 - 此项不修改缓存结构或覆盖语义；失败后保留历史成功结果由下一独立 PR 完成。新增 rustls 类型直接依赖的理由及替代方案记录于 [ADR 0024](docs/adr/0024-ip-provider-error-classification.md)。
 
-## 2026-10-01：专用 Debian 12 测试节点就绪（独立 PR）
+## 2026-10-01：修复签名与多平台 CI 的整合失败
 
-- 按明确授权停用选定节点原 xboard-node 业务并禁用自启动，保留配置和身份；447 MiB 内存、约 12 GiB 可用磁盘、已有 2 GiB swap。其余生产代理节点未运行完整硬件测试。
-- 建立私有测试面板与独立 PostgreSQL、正常注册的测试 Agent/代理用户/授权，回环绑定和 SSH 隧道连接。公开 TEST_ONLY 签名安装验证保留，实际 GNU 调试构建不作为正式 musl Release 发布。
-- Agent 与独立 sing-box 单元健康在线，实读 -500/1000 优先级和初始零重启；凭据、原始日志和环境配置保存在本机私有目录，未进入 Git。独立验收见 docs/acceptance/dedicated-debian12-node.md。默认512MiB完整诊断预算不适合该机，预检应拒绝；完整资源症状与故障场景另项记录。
+- 在 `main` 快进到上游 `45df3b1` 后修复，保留上游签名、设备退役、服务优先级和诊断基线。上游原 PR 已合并，此后只提交针对新基线的修复差异。
+- Windows 的已签证明改用原始字节保存，避免文本写入自动转换 CRLF；正式清单与安装器渲染也保留 LF。新增模拟 Windows 文本模式的回归，独立 minisign 验证正确签名并拒绝篡改，不放宽校验边界。
+- Windows CI 使用基于 protocol 现有测试支持的 Rust TEST_ONLY 签名 example，避免 cryptography ARM64 wheel 缺失后的 OpenSSL 本机构建；无新增依赖、无正式私钥输入。Linux OpenRC 与 Agent 行为步骤也保留公开失败摘要，便于后续定位。
+- 隔离 Alpine 复现普通运行账户执行代理时的 `Permission denied`，确认签名安装器新建的共享父目录受 umask 影响成为 0750。显式设置父目录可遍历权限后，真实 OpenRC 安装、重装、失败恢复、HUP、非 root 低端口能力、独立运行、default runlevel 和 systemd 安装命令契约均通过。此项运行在用户/挂载/进程/网络命名空间和临时根目录内，未安装宿主服务。
+- 本地 fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过（204 项成功，4 项原有实机专项忽略），实际签名 Agent 的注册、补报、双拨测、命令去重、成功升级及失败恢复全部通过。Python 71 项检查中 66 项通过、5 项需容器 root 的原有专项忽略；构建脚本 5 项、actionlint、Python 语法和 diff 检查通过。
+- 下一步：推送修复后核对完整 CI，特别是 Windows 两架构签名升级/原生服务、musl 两架构 OpenRC 及被前置失败阻断的真实 Reality 验收；本地通过不代替远端结果。
 
-## 2026-10-01：专用小内存节点完整 NodeQuality OOM 基线（独立 PR）
+### 首轮 CI 跟进：容器内测试信任根归属
 
-- 在447MiB专用Debian12节点，用主线541f52d的签名测试Agent提交一次硬件启用、IPv4、低网络流量、关闭上传的完整NodeQuality入口，同步采集cgtop/内核OOM/磁盘/设备状态与面板时间。
-- 已复现globalOOM：被杀Geekbench属于诊断单元，anon-rss275192KiB、oom_score_adj500；诊断Result=oom-kill，最终failed且无完整报告。Agent子进程/监督进程和sing-box PID均保留，NRestarts0。SSH恢复后停止诊断，cgroup进程与相关挂载为空。
-- 旧API没有专用心跳/指标时间显示，last_seen是“最后消息”；私有DB只读指标时间的最大采样跳跃319.014秒，测试SSH隧道也中断，因此不把此值等同纯心跳中断或停止采集时长。独立验收见docs/acceptance/nodequality-oom-baseline.md；原始证据不进Git，未宣称P0整体验收通过。
+- `98287f4` 的主检查、Compose、GNU Agent、四种 Linux 运行时及 macOS 已通过。Windows 双架构通过公开 Rust 签名夹具构建与实际 Agent 签名升级/恢复，原生服务仍在运行；测试依赖和 CRLF 修复已覆盖之前的阻塞步骤。
+- 新增公开摘要确认 OpenRC 在 bootstrap 前拒绝源码中的测试公钥：Docker 的只读源码挂载仍属于宿主 runner，不能当作 root 受保护的操作员信任文件。夹具将明确公开的 TEST_ONLY 公钥复制到容器内 `/root` 下的私有临时目录，再按原有 bootstrap 流程验证；不修改生产权限检查。
+- 隔离 Alpine 中补跑全部 Python 检查，71 项全部通过、无忽略，包含安装器篡改拒绝、下载边界、重定向拒绝与受保护信任根专项。此前命名空间复现将源码所有者映射为 root，不能替代本轮发现的 Docker 所有权条件，后续另行模拟该条件。
+- 随后将临时源码副本设为命名空间内 UID/GID 1001，并只读挂载到 `/src`；新的 root 私有测试根通过严格 bootstrap，完整 OpenRC 服务流程再次通过。Windows AMD64 及 FreeBSD 双架构远端检查已成功，Windows ARM64 常驻服务仍待完成。
 
-## 2026-10-01：CI 会话时间夹具修正
+### 第二轮跟进：OpenRC 通过与 Windows ARM64 运行时诊断
 
-- main 合并后的服务测试夹具已适配 root/0700 锁目录，6 项服务回归及目标 Clippy 通过。后续 CI 暴露会话到期断言的跨秒假设：认证发放时间与确认消息时间可相差一秒；改为认证前后窗口核对，并要求确认消息的绝对到期值与该服务器数据库会话记录一致，保留过期 401 检查。
-- 独立 PostgreSQL 会话专项 1 项通过、0 失败、0 忽略，目标 Clippy、fmt、core 门禁和差异检查通过。main `13f2975` 的真实 Reality CI `36766239541` 已通过完整安装、计量、签名拒绝、重装和在线退役；本次最新整合提交的完整回归与 Linux 专项分别继续验证。
+- `df417a6` 的双架构 OpenRC 与后续 Agent 行为检查已通过，真实 Reality 验收已开始；主检查及 Compose 也通过。此前的签名根所有权阻塞已解除。
+- 第一轮 Windows ARM64 在原生运行时对账等待超时；任务已成功启动，现有事件显示它后来被停止，但不能据此确定应用失败原因。详细任务事件挤掉了公开摘要中的 ApplyResult，现将应用结果和最终 Agent 状态放到摘要末尾，事件改用紧凑格式，并只在一次性 CI 夹具为运行时加入 transcript。保留原有账户、启动参数、健康断言及等待期限，继续依据实际错误定位。
 
-- 随后保留贡献者 `98f86d8` 的生产修复：会话到期值与 hello.ack 取同一次签发时间。合并强制 PostgreSQL 会话写锁跨秒回归和认证前后窗口、token/server 数据库一致性检查；该专项 1 项实际通过，panel 全 targets Clippy、workspace fmt 与差异检查通过。Agent 仍提前 60 秒续期，认证 ACK 有 10 秒等待上限，服务端保留绝对到期拒绝。
+### 同步上游后续修复与验收诊断
 
-## 2026-10-01：P0 IP 查询保留成功快照（独立 PR）
+- 合入上游 `541f52d` 的诊断资源预算、有界流量补报和 CI 修复；统一采用上游的 `ci-fixture-sign`、受保护 OpenRC 公钥目录及共享安装目录权限，删除重复签名 example。保留尚未合入上游的 Windows 签名字节回归、发布文件 LF 写入和原生服务诊断。
+- 第二轮 14 项通过，Windows ARM64 仍在首次运行时对账超时，Reality 任务失败但公开接口只有退出码。Reality 验收增加失败行号及公开错误注解，内容仅取现有白名单摘要；用含私有占位字段的状态验证其不会泄漏到注解，未公开安装凭证或完整日志。
+- 合并后本地 fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过（216 项成功、5 项原有实机专项忽略）；隔离 Alpine 的 71 项 Python 测试全部通过，真实 OpenRC 安装与普通账户遍历权限检查通过。上游 Rust 签名器通过 Windows 换行模拟和独立 minisign 正向/篡改拒绝验证。验收驱动 17 项、运行时缓存 3 项、工作流与脚本语法检查通过。
+- 下一步：继续定位 Windows ARM64 和 Reality 的失败，完整远端验收通过前不将此项标为完成。
 
-- 缓存按 IP 与真实入口分开，每种数据库响应单独保存最新尝试和最后成功快照。失败仅更新状态与错误，不覆盖字段、成功时间或有效期；部分成功只更新对应响应，换 IP 保留旧记录，旧批次不覆盖新批次。旧表名和 payload 保留，0008 迁移明确成功数据，未知字段/时间/分类不补造。
-- 页面同时显示当前失败和历史字段、上次成功时间及过期，历史成功不计为当前成功；原零分和 false 不变。刷新 admission 在服务器行锁事务内检查最近尝试与运行租约，异常退出后租约过期可恢复，重复刷新去重。
-- 对齐最新 main `e2d898c` 并保留新 Agent 控制界面。在隔离 Debian 12 构建容器通过 workspace fmt、全 targets Clippy、16 项 IP 专项（含五项缓存 PostgreSQL 场景）、四项 diagnostics 与完整 workspace 245 项成功 / 0 失败 / 六项已有真实 systemd/上游运行时条件忽略；新增缓存测试无忽略。独立 PostgreSQL 旧 DDL/旧 payload/0008 实际迁移、Bun 1.4.2 冻结安装、TypeScript/Vite 和最终 dist 桌面/手机历史场景、core gate 及六项行为测试、文档链接与差异检查通过。本提交的平台/Compose CI 单独核对，不由该普通构建容器推断实机通过。
-- 数据和兼容语义见 [ADR 0025](docs/adr/0025-ip-provider-cache.md)，独立步骤及边界见 [缓存验收](docs/acceptance/ip-provider-cache.md)。本项没有新增查询入口或修改网络重试策略。
+### Windows ARM64 冷启动时限
 
-- IP 缓存合并整合 main `75cd846`，保留诊断内存保护、固定锁权限、宿主 ABI 缓存兼容、服务夹具和会话单次签发修复。完整 Rust/PostgreSQL workspace 回归 267 项成功、0 失败、8 项既有 Linux/root/systemd 或上游运行时条件忽略；Clippy --all-targets -D warnings、fmt、core 门禁和差异检查通过。Bun 1.4.2 TypeScript/Vite 重建与提交 dist 一致。此完整回归尚不包含后续 IP 未知字段 PR #44，最终 Linux CI 单独核对。
+- `1ea10e7` 的运行时 transcript 与任务事件确认：计划任务启动后约 28 秒 PowerShell 才开始执行脚本，30 秒健康期限届满即被 Agent 回滚，留给真实代理的启动时间约 2 秒；ApplyResult 连续报告 `runtime failed health check`。
+- Windows 运行时健康期限调整为有界 90 秒，服务状态查询允许底层 PowerShell 命令已有的 30 秒期限，避免在较短的外层超时反复取消查询。仍须通过计划任务状态、全部监听和统计 RPC 检查；Linux、macOS、FreeBSD 的时限不变。等待新的 Windows 原生冷启动、重载与独立服务验证。
+- 本地 fmt、Clippy 和完整 Rust/PostgreSQL 回归通过（216 项成功、5 项原有实机专项忽略）；Windows 冷启动行为以原生 CI 为准。
 
-## 2026-10-01：P0 IP 未知字段显示（独立 PR）
+### Windows 已通过，修复静态 Agent 的运行时 libc 选择
 
-- 专项审查实际复现空字符串/错误类型和 success=false 默认字段被记为成功，归独立 Issue #42，不混入来源适配层 #24。每个已知字段增加语义类型和有效值检查，不能确认的状态/字段保持未知，真实 0/false 和可信原始评分字符串保留。
-- 旧缓存原始快照保留，读取过滤不能确认的已知字段并补可选 kind；页面无效值显示未知，历史/过期/未知状态不能冒充当前成功。旧响应包缺失时不追溯编造成功证据。
-- 未知字段首轮 CI 的 check 在测试辅助路径的反向迭代编译失败，Rust 测试未执行；作者已修复为 rsplit，保留该修复，未将初轮记为通过。
-- fmt、core gate、差异、Bun 1.4.2 冻结安装/TypeScript/Vite 与实际 dist 桌面/手机字段、历史和模拟未启用来源验收通过。Rust/Clippy 和独立 HTTP/PostgreSQL 场景等待隔离编译槽或 CI，结果单独更新，未宣称平台/完整诊断通过。独立步骤见 [未知字段验收](docs/acceptance/ip-quality-unknown.md)。
-- 整合 main `07e8f58` 时补齐旧 payload 缺少 kind 的前端校验，代理=0/评分=false 和空白/占位评级不再冒充事实；保留合法 0/false 与未知自定义标签原标量。Bun 1.4.2 冻结安装、4 项字段回归（637 项断言）、TypeScript/Vite 构建通过，覆盖后端全部 55 个字段的前端兼容规则并重建最终 dist；core gate 与差异检查通过。补修后的桌面/手机浏览器场景尚未重跑，Rust 和平台验证随后单独记录。
-- 最终正常整合作者 `56f8211` 和 main `b8e5689`，保留缓存、会话签发/夹具、服务保护和宿主 ABI 兼容修复。独立 PostgreSQL 下 20 项 IP 质量 library 测试与 4 项 diagnostics API 测试全部通过，0 失败/忽略；panel 全 targets Clippy（warnings 为错误）、workspace fmt、core 门禁与差异检查通过。Bun 4 项/637 断言及 TypeScript/Vite 再次通过，最终 dist 与重建结果一致；未重复完整 workspace 或实机 NodeQuality/平台 CI，补修后的浏览器桌面/手机场景仍未重跑。
+- [cf93e4a 的 CI](https://github.com/imengying/sinan/actions/runs/36760693539) 中 Windows 双架构完整常驻服务通过，共 14/16 项成功。剩余失败为真实 Reality 安装后等待健康应用及上游新增的 systemd 资源预算专项。
+- Reality 公开摘要定位到 `install` 阶段的 `ready` 等待。代码确认静态 Agent 将编译时 musl 同时用于外部运行时下发；验收提供已签旧格式 GNU 运行时，面板会拒绝选择。保留 Agent 自更新使用的 `libc`，新增可选 `runtime_libc`，从系统程序有界 ELF 解释器信息识别宿主，面板下发及 core 签名/缓存预检一致采用宿主 ABI。无法识别与旧字段缺失的行为明确回退，不放宽签名、摘要或平台校验。
+- 新增协议兼容、GNU/musl ELF 与截断输入、签名运行时平台拒绝、GNU 宿主上的静态 Agent 下发及篡改拒绝回归；已有 Agent 更新测试同时证明 GNU 宿主仍选择 musl Agent 更新。Ubuntu 四种 Agent 行为任务增加实际宿主 libc 上报断言。主检查为两个真实 systemd 专项补充公开失败摘要与具体预算状态，保留所有限制断言。
+- fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过（221 项成功、5 项原有实机专项忽略），两个工作流语法与 core 分层检查通过。真实 Reality 和 systemd 资源预算仍须以下一轮 CI 为准。
 
-- 未知字段修复后的 `56f8211` CI `36769441248`：check 中全 targets Clippy、Rust/PostgreSQL、真实 systemd 和提交 dist 检查通过，Compose 和两项 musl 也通过；旧基线的 Reality 任务失败另行处理。现保留已合并缓存和最新 main 后复验最终源，不用前一提交结果替代。
+### 修复 systemd 排队任务被误判失败
 
-- 贡献者提供的同期验收记录：最终 Rust 源保留 main `b8e5689` 后，在独立 Debian 12 构建容器（1.5 GiB/2 CPU、无额外 swap）通过 fmt、Clippy --all-targets -D warnings、20 项 IP 与 4 项 diagnostics 专项、完整 workspace 270 项成功 / 0 失败 / 8 项既有 Linux/root/systemd 或外部运行时条件忽略；新增未知字段测试无忽略，容器无 OOM。最终 TypeScript/Vite 与已有 dist 一致，桌面/手机夹具和 core 门禁通过。平台 CI 仍按最终提交单独核对。 此记录属于贡献者原前端源，不替代合并审查补修后的最终 dist；两侧 Rust/依赖源码完全一致，本地专项证据继续有效。
+- `9cd112a` 的四种 Linux Agent、OpenRC、四种运行时和 Compose 已通过，包含 Ubuntu 上的实际宿主 libc 断言；本地实际签名 Agent 的注册、补报、命令、双拨测、升级和回退也通过。Reality 与原生服务继续执行。
+- 主检查公开摘要确认新预算专项在子进程测试首次状态查询得到 `result=success, code=0, status=0` 后提前失败；这是异步启动尚未执行的状态。读取 systemd `Job` 属性，非零待执行 Job 视为运行中，包括排队重启时仍残留上一次终态的情况；没有待执行 Job 的未启动单元仍不能被当作成功。
+- 新增排队启动/重启、空值/零值及非法 Job 标识回归，保留 OOM、TasksMax、PID 清理断言。fmt、Clippy、完整 Rust/PostgreSQL 检查通过（222 项成功、5 项原有实机专项忽略）；真实 systemd 验证交由新一轮 CI。
 
-- 发布前正常合入作者新 head `cbe54ae`：与已验证 `14893f5` 的所有 crates、Cargo 清单/锁文件及工具脚本完全相同，仅补验收记录与已有前端差异。保留双向正常祖先和旧 payload 类型补修，Bun 4 项/637 断言及 TypeScript/Vite 复验通过，最终 dist 与既有构建一致；相同 Rust 源码不重复构建。
+### Reality 全流程与 systemd 预算通过，收敛 Windows 夹具竞态
 
-## 2026-10-01 心跳与遥测隔离（Issue #17，独立 PR）
+- [9cd112a 的 Reality 验收](https://github.com/imengying/sinan/actions/runs/36764089656) 已通过，覆盖签名安装、特权端口实际代理流量、重启与重载计量、重复安装、缓存篡改拒绝及在线退役。Windows ARM64、macOS 和 FreeBSD 双架构也通过；Windows AMD64 的常驻服务成功，但无服务升级夹具在读取被替换的 `pending-update.json` 时遇到短暂 `PermissionError`。
+- [e8d4e23 的主检查](https://github.com/imengying/sinan/actions/runs/36765073067) 已通过，包含真实 systemd 两项专项。Job 队列识别后，OOM、TasksMax、超时和停止后 PID 清理断言全部通过；其余平台仍在执行。
+- Windows 夹具读取更新状态时，对短暂共享冲突进行最多两秒的重读；持续拒绝仍抛出原异常，非 Windows 权限错误及无效 JSON 不重试。新增三项回归验证这些边界；隔离 Alpine 的全部 74 项 Python 检查通过，实际签名 Agent 的完整行为和升级回退流程再次通过。此项仅修改测试，不改变产品权限或文件写入行为。
 
-- 单一 OS 线程持有 Collector 和硬件补充采集器，watch 缓存 StaticInfo 与已有 TelemetrySample；连接初次、300 秒刷新以及公网/配置变更不再创建 Collector，心跳 uptime 读取缓存。5 秒采集超时保留旧样本，不生成额外阻塞线程，不持有退役 gate。
-- 采样缓存、SQLite 持久化与 HTTP 上传分开，保留 1 秒/3 秒默认设置、原 outbox 保留上限与 UUID ACK；时间下限随样本原子保存，ACK 后保留，重启与时钟修正不倒退。
-- API 暴露既有 metrics_sampled_at（毫秒），新增仅 heartbeat 更新的可空 last_heartbeat_at（秒）；last_seen 保持最近设备消息语义。界面分别显示三种时间、指标过期和可读历史，未知不补造时间。baseline 读取真实字段，Cookie 和权限保护不变。
-- 本机 fmt/core 边界检查、baseline 7 项和边界 6 项通过；Bun 1.4.2 构建及 dist 同步完成；真实 Chromium 回环 6 项验收通过、错误 0。集中 Debian 12 构建容器（1.5 GiB/2 CPU/无 swap）fmt、全 targets clippy、Rust/PostgreSQL 工作区 246 通过/6 原有环境依赖忽略，专项 core 遥测10/阻塞4/面板4通过，Agent/Panel 构建通过、二进制已保存，OOM=false；本机 Python77通过（5环境skip），未在磁盘不足的本机重建 Cargo。
-- 初始缓存保留编译期 OS/arch/libc；首个真实采集之前不向面板发送默认 StaticInfo，保留注册时的宿主 ABI，hello/heartbeat/control 继续工作。专项覆盖永久阻塞时真实 20 秒心跳/1 秒 Ping、同缓存重连、不增加采集器、HTTP503补报与ACK、退役 gate、重启时间下限、API 过期与慢采样配置。独立验收见 [telemetry-isolation](docs/acceptance/telemetry-isolation.md)。真实受保护完整验机与取消清理由总任务分别验收。
-- 单独提交整合 main b8e5689（含 IP 缓存与会话修复），保留预检和宿主 ABI 修复，新增真实 WebSocket 缓存就绪/双 ABI 测试。本机 fmt/core 边界、Python77（5skip）、Bun/dist、Chromium6项重验通过；最新 HEAD Rust/PostgreSQL 与真实 systemd 交 GitHub CI，上一轮246项与保存二进制只证明 e2d898c 基线版本。
+### 再次同步上游诊断保护与平台校验
 
-- 合并审查继续正常整合 main `c958ba2`（PR #44），保留双方正常祖先、未知字段过滤和遥测时间类型，重新生成最终 dist。补修独立采集线程退出：异步硬件命令使用 4 秒 / 128 KiB 的受限执行与进程组 guard，退出发取消信号并最多等 1 秒确认清理；同步永久阻塞的 Collector 不 join，不生成替代线程。缓存测试拆为子模块，新增真实 Unix 子树取消、失败/超时后恢复和 CPU 忙循环隔离回归。
-- 本轮本机独立 PostgreSQL / macOS 专项 Rust 共 21 项通过、0 失败/忽略：遥测/core 13、真实 WebSocket 心跳与初始 ABI 就绪/usage 重放 3、阻塞采集期间退役与 HTTP503→ACK 补报 1、panel telemetry 4。全 workspace/all-targets Clippy（warnings 为错误）、fmt、core 门禁、差异与 baseline Python 7 项通过，日志前缀 `/tmp/sinan-pr48-`。Rust 验证对应作者 `03f7d30` 加退出补修；随后合入的 `c958ba2` 只修改 IP 质量 Rust 文件，core/SDK/protocol、遥测相关 panel/test 文件与 Cargo 清单/锁完全相同，不重复无交集构建，也不以此前 246 项记录代替本轮验证。
-- 最新合并源通过 Bun 1.4.2 冻结安装、TypeScript/Vite 重建，4 项字段测试 / 637 断言，最终 dist 的 Chromium 回环遥测 6 场景全部通过、浏览器错误 0。真实 Linux/systemd 和完整受保护节点负载仍按最终发布 HEAD 的 CI/独立验收核对；本轮 Unix 子树取消通过不冒称已完成平台全验收。
+- 合入上游 `13f2975`，保留诊断资源预检、独占锁、运行中内存保护、候选升级缓存预检、原生服务独立签名复验、退役保护和 IP 查询错误分类。运行时 ABI、签名字节和 systemd 排队状态统一采用上游实现，删除重复的宿主解析模块与重复回归。
+- 用户确认保留每次 push/PR 的全平台自动构建：Linux GNU/musl 双架构、macOS arm64、Windows 与 FreeBSD 双架构。OpenRC 继续在 musl 任务内验证；保留上游新增的 core 业务边界门禁和真实 systemd 串行执行。
+- 完整回归发现上游新增独占锁后，两项外部服务测试仍使用旧的权限夹具。更新夹具记录目录模式及所有者，验证 root/0700 锁目录与 `stat` 查询先于后端启动；不放宽产品权限检查。Reality 摘要回归同步新增参数，验证失败行号、公开注解和白名单摘要一致且不包含私有快照字段。
+- 合并后的 fmt、全 targets Clippy、完整 Rust/PostgreSQL 测试及 Agent 构建通过：260 项成功、0 失败，8 项需 root/systemd 或真实外部运行时的专项保持忽略。隔离 Alpine 的 81 项 Python 检查全部通过，真实 OpenRC 安装与恢复夹具通过；验收驱动 21 项、运行时缓存 3 项、构建脚本 5 项及环境初始化 3 项通过。Bun 前端构建与提交的 dist 一致，三份工作流 actionlint 和 core 门禁通过。
+- 本次完整合并源的非 Linux 原生服务、真实 systemd 五项专项与 Reality 全流程仍以随后远端 CI 为准；此前成功的独立运行记录不替代新提交的验收。
 
-## 确认式诊断取消（Issue #19，独立 PR）
+### macOS 启动前复验与软链接读取权限
 
-- 完成管理员取消请求持久化、WS 请求 / 清理确认协议、HTTP pending / ACK 恢复、SQLite 持久取消意图与 outbox。请求期间显示“等待设备确认取消”；停止失败、仍有进程或挂载保持待确认重试。旧 Agent 与缺少清理证据的后端明确不支持。
-- 准备/下载期间可以取消且不再启动；已进入持久启动检查点的启动先结束再清理确认。任务绑定设备 / UUID / 模块 / 版本和已保存单元，取消不接受任意服务名。普通末尾报告不会提前结束取消状态，已有报告与任务根目录保留。
-- 协议、PG + WS + HTTP、SQLite 重启、挂起的签名下载、实际 Agent ↔ 面板及真实 systemd 私有挂载夹具已加入独立验收。Bun 实际 dist 和浏览器桌面/移动状态验收通过；基于 main `75cd846` 的最终本项源码在受限 Debian 12 构建容器 fmt、Clippy 全目标、完整工作区测试通过：271 通过 / 0 失败 / 9 项环境忽略，exit 0 / 未 OOM。Linux core 测试二进制已交付，专用节点 6 个 systemd 夹具结果待记录。
-- 代码 `8957f5c` 的 CI `36772176396` 通过 check、compose-smoke、Linux musl 两架构，实际 systemd 串行 6 项通过 / 0 失败 / 0 忽略（2.28 秒）；Reality 安装计量因 Draft 跳过。专用 Debian 12 节点夹具尚未执行，保留待验状态，不以 CI 环境替代。
-- 设计见 [ADR 0026](docs/adr/0026-confirmed-diagnostic-cancellation.md)，独立验收见 [取消验收](docs/acceptance/diagnostic-cancellation.md)。不把本项夹具当作完整 NodeQuality / 持续代理流量验收。
-- 合并审查统一能力宣告与真实清理条件：Linux/systemd/cgroup v2 三项必须同时满足，缺少控制器证据不宣告确认取消能力。新增回归尚待 Rust 编译槽，保留原签名、预算与不支持 OpenRC 的边界。整合 main `c958ba2` 的缓存/未知字段前端规则后，Bun 1.4.2 冻结安装、4 项/637 断言与 TypeScript/Vite 通过，重建合并 dist；最终后端/平台结果单独记录。
-## 2026-10-01：发布草稿查找修正（独立 PR）
-
-- [Issue #52](https://github.com/theLucius7/sinan/issues/52)：真实草稿的 tag 查询返回 404，而已认证 List releases 与按 ID 查询可读。发布器改为每页 100 条、最多 10 页查找精确且唯一的 tag，再按 ID 复核 ID、tag、完整 build SHA；缺失、重复、异常、扫描超限或身份变化均拒绝。原有 CI、资产摘要、签名与发布前后身份门禁保留。
-- Fake API 对草稿 tag 查询明确返回 404；新增回归先在旧发布器下失败，再在修复后通过。分页、相似标签、歧义、重复 ID、页数上限及下载期间身份变化均有覆盖。发布专项 22 项全部通过；Python discovery 共 88 项，83 项通过、5 项依既有条件跳过（需要隔离 Linux root）。本次只修改发布工具、测试与文档，未运行 Cargo，也未据此宣称正式 Release 已发布。
-- 候选源码 `75cd846`、`agent-v0.3.0` 标签与原有资产保持冻结；本修复须独立审阅，随后从已审阅的工具分支验证同一草稿，正式签名与公开状态另行记录。
-- 对真实 GitHub 草稿执行只读验证成功：固定 Release ID、完整 build SHA 和九项资产 ID/摘要/大小与已下载并审核的候选完全一致，未执行签名或发布写操作。
-
-- 合并审查：发布器专项 22 项重新通过，core 门禁与差异检查通过。真实 GitHub 草稿只读查找再次确认 ID、冻结 build SHA 及九项资产名称；没有执行签名或发布写入。
-
-- 继续整合心跳隔离与发布工具修复；Windows 继承 SDK 默认不支持取消确认，恢复线程与 WS 请求共用退役门禁并复核退役标志，新增挂起 HTTP 回复后不得重建取消键的回归。此阶段仅完成源码/前端构建，Rust 最终验证待合入章节与页面拆分后的主线。
-## 2026-10-01：诊断章节独立持久化（独立 PR）
-
-- 独立章节表和完整度字段与执行状态分开；保留原整份文本及 r2 历史/恢复。NodeQuality r3 包装器每阶段原子保存章节，缺一章仍可读其他已存部分。
-- Agent 离线观察也写 SQLite 章节 outbox，重启继续上传；HTTP 503 不阻止终态回报，版本和设备范围校验避免迟到覆盖。界面分别显示执行状态、完整度、每章预览/完成及缺失章节。
-- Python 25 项首轮 20 通过、5 项既有 Linux/root 夹具忽略；本机 fmt、分层检查、差异检查和 TypeScript/Vite 构建通过。远端 Clippy、完整 Rust/PG、Linux 夹具和实际浏览器验收待完成，尚未声称整体验收完成。独立步骤见 [章节保存验收](docs/acceptance/diagnostic-report-sections.md)。
-
-- 合并整合修复 watcher、capture 和退出快照并发发布：固定私有锁序列化版本更新，唯一 0600 临时文件原子替换并同步目录；保留已完成章节和原 ZIP。上游非零退出即使已生成完整报告也保持执行失败，超限章节明确提示截断。新增并发与 exit 0/7 包装器回归；原实现分别触发临时路径冲突、完整章退回预览及 exit 7 被改成 0，修复后 Python 共 28 项，23 通过 / 5 项既有 Linux/root 条件忽略。core 门禁及 6 项行为回归、fmt、actionlint、Bash/Python 语法、差异检查和 Bun 1.4.2 TypeScript/Vite 重建通过；Rust/PostgreSQL 专项待共享构建槽验证。
-
-- 正常合入作者最新 `93356dd` 和 main `c958ba2`，保留缓存、未知字段严格校验及 4 项前端回归（637 项断言），重建 dist。独立 PostgreSQL 下 protocol/SDK/NodeQuality adapter 29 项、Agent 诊断 29 项、章节接口及既有 diagnostics API 6 项，共 64 项通过、0 失败/忽略；覆盖旧 payload/r2、断连重启、HTTP 503 与 ACK 持久化、执行失败但章节完整、迟到章节、内存保护和终态恢复。workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁及文档相对链接通过。未重复完整 workspace 或真实 NodeQuality 硬件压测，Linux/root 包装器 5 项仍须最终 CI 验证。
-
-- 发布前继续正常合入 main `47c066b`（遥测隔离）及 `7a6f104`（草稿发布器），保留遥测线程/心跳时间、严格 IP 类型和全部验收章节。因遥测依赖变化，仅复验 Agent 章节重启/HTTP ACK 2 项与新增心跳迁移下的 PostgreSQL 章节 2 项，4 项全部通过、0 失败/忽略；全 workspace/all-targets Clippy、fmt、core 门禁通过。Bun 4 项/637 断言及 TypeScript/Vite 再次通过并重建最终 dist；发布 Python 22 项通过。草稿查找没有改变 Rust 源，不重复此前 64 项或全工作区测试；最终提交的 CI 与真实负载验收仍单独核对。
-
-## 2026-10-01：P0 服务器 IP 与 NodeQuality 视图拆分（独立 PR）
-
-- Issue #25：独立 IP GET/refresh 与仅包含准备状态/历史的 NodeQuality reports GET，NodeQualityView 去除 IP 查询字段。旧组合 GET 与旧刷新保留兼容汇合层；缓存 schema、旧报告/ID/参数和 当前 r3 签名制品及 r2 历史兼容不改。
-- 服务器概况/IP信息/NodeQuality验机独立导航与 hash 页面；ServerIpInfo 展示一个入口下的数据库响应，NodeQuality 只保留验机和报告。IP 查询错误或缓存损坏不阻止新报告页读取历史，浏览切换不创建任务或刷新来源。
-- fmt/core gate/差异、Bun 1.4.2 冻结安装/TypeScript/Vite 与最终 dist 桌面/手机导航、历史、IP失败隔离夹具通过。真实 HTTP/PostgreSQL、Clippy 和完整 workspace 待隔离槽或 CI；独立步骤见 [视图拆分验收](docs/acceptance/server-ip-view.md)，没有宣称实机完整诊断通过。
-
-- 视图拆分 `177bfc9` 的 CI `36769525534`：check（Rust/PostgreSQL、全 targets Clippy、systemd、dist）、Compose 与两项 musl 通过，旧基线 Reality 失败。保留新未知字段提交和最新 main 后仍由最终提交 CI 复验。
-
-- 对齐 main `6a583af`：保留章节组件/r3、严格旧字段类型校验和心跳/指标过期展示，只移动 IP 展示与路由。最终提交重新构建 dist，并分别核对最终 CI。
-
-- 视图最终合并源重建通过 TypeScript/Vite、既有四项字段回归（637 断言）和实际 dist 桌面/手机完整路由隔离夹具；额外验证旧 payload 缺 kind 的已知 ASN=false 不冒充事实。章节组件调用和指标过期提示均保留，Rust/平台仍按最终提交 CI 核对。
-
-- 合并审查最终保留 main `6a583af` 与作者最新 `84938ba` 正常祖先；作者新提交与已验证 `e0d6bda` 的全部 Rust/Cargo/CI/工具脚本及 web 源和 dist 完全相同，仅更新两项文档，不重复相同源码构建。完整 locked workspace/all-targets Rust/PostgreSQL 回归 289 项通过、0 失败、8 项既有 Linux/root/systemd 或外部运行时条件忽略；workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁、actionlint 与差异检查通过。Python discovery 83 项通过/5 跳过，NodeQuality 包装器 23 项通过/5 跳过；Bun 4 项/637 断言与 TypeScript/Vite 通过。最终 dist 实际 Chromium 桌面 1280×900/手机 390×844 共 9 组场景通过、页面错误 0，包含严格未知/有效0和false、IP失败隔离、旧报告与独立章节、指标过期与三类时间、独立导航；本轮未测试取消或实机完整诊断，最终 Linux CI 单独核对。
-
-## 2026-10-01：P1 sing-box 业务归位（独立 PR / Issue #26）
-
-- 面板代理节点、代理用户、授权、订阅、用户流量、发布及设备运行时清单移入 plugins/singbox；管理 API 与前端导航切换插件命名空间。系统管理员和代理用户使用不同名称，core 继续管理网卡总流量，epoch 仍标记计数器重置。
-- 0012 仅新增启用证据表：当前设备能力、管理员明确启用、已有节点或 singbox 部署才启用；未知能力纯监控机关闭。订阅旧路径永久保留，旧表名和业务 ID/令牌/密钥/授权/历史账本不修改。
-- Python 验收驱动 21 项通过、workspace fmt 与 TypeScript/Vite 构建通过。整合 main `6a583af` 后实际 dist 桌面/手机浏览器场景通过，页面错误为零、关闭服务器不发业务请求；独立 PostgreSQL迁移及最终完整 Rust/CI 证据待补；未宣称专用节点或生产迁移通过。设计见 ADR 0030，独立验收见 docs/acceptance/singbox-plugin-business.md。
-
-- 正常保留作者 `b22386f` 与 main `6b63f71`（确认式取消）的双侧祖先，合并取消路由/cancel_supported 和插件 API，重建最终 dist。修复发布扫描与事务之间设备能力消失的竞态：服务器行锁内重新核对插件启用证据，关闭时保留 dirty，不创建会反向启用插件的空部署。补齐 API 文档中的插件路径与有意切换约定，永久 `/sub` 保持。
-- 新增真实 SQLx 0012 故障注入、DDL/回填原子回滚与重试/二次启动幂等回归；旧库服务器、节点、用户、授权、部署、状态、批次、用量、设备会话及接入令牌十张表完整 JSON 快照比对，真实旧批次哈希重放去重并拒绝更改 payload。源码已完成，Rust/PostgreSQL 尚未执行，不把测试定义当成通过。Bun 1.4.2 TypeScript/Vite、实际 dist 桌面/手机插件验收、Python 驱动 21 项、core 门禁与差异检查通过；后续日常/完整诊断的业务证据读取将在插件边界内整合。
-
-- Python 验收驱动 21 项通过、workspace fmt 与 TypeScript/Vite 构建通过。整合 main `6a583af` 后实际 dist 桌面/手机浏览器场景通过，页面错误为零、关闭服务器不发业务请求；独立 Debian 12 限制容器最终代码 `b22386f` 的 fmt / 全 targets Clippy -D warnings / 完整 Rust+PG 291通过、0失败、8既有条件ignore，新三项启用/真实旧数据迁移测试无忽略；exit0/OOM=false、容器已移除。首次抽取 Clippy 两项已修并完整复跑，本次 CI 尚单独核对；未宣称专用节点或生产迁移通过。设计见 ADR 0030，独立验收见 docs/acceptance/singbox-plugin-business.md。
-
-- 业务归位 #55 正常整合 main `229becc`，保留已合并 #51 取消与 #56 独立夹具修复。重建实际 dist 后业务桌面/手机和取消浏览器回归、fmt/core 门禁/差异检查通过；291 项完整 Rust 证据仍限定旧 base，本轮 CI 单独核对。
-
-## 2026-10-01 两个诊断入口（Issue #21，独立 PR）
-
-- 新 r4 不可变 runner 将日常检查限制为自有标准库 TCP 探测，最多 4 个已配置启用目标、每 IP 族 4 次、DNS 2 秒/连接 1 秒/任务 90 秒，无硬件/rootfs/测速/上游/公开上传。IP 刷新复用逐源缓存，明确不是节点流媒体证据。
-- 日常固定 64MiB/32tasks，完整512MiB/128；不降低256MiB启动预留、2GiB磁盘与128MiB运行保护。服务端完整入口必须管理员确认；正向计量活跃与缺少新计量证据的未知都需要警告确认。时间和证据随任务保存，不用网卡总流量冒充代理流量。
-- preflight实际资源/负载/最终预算随Started检查点持久化，environment独立章复用r3补报。日常2章、完整6章；旧r2/r3签名队列/检查点继续恢复收集，不重复运行。新mode独立capability与Linux gate防止旧Agent误ready。
-- 本机fmt/core门禁、Python discovery 88（83通过/5环境skip）、daily helper6、Bun/dist与真实Chromium6（0错误）通过。main 6a583af 上的模式源在集中Debian12容器（1.5GiB/2CPU/无swap）通过完整Rust/PostgreSQL293项/0失败/8既有环境ignored、全targets Clippy、fmt与Agent/Panel build，OOM=false；Linux wrapper29/helper6通过。wrapper首轮三个既有exit1期望0夹具需独立PR#56修复，远端临时对齐后验证，不混入本项实现。二进制保存binaries/modes-head；后续整合HEAD CI另核对。本机磁盘不足未从头Cargo。独立验收见 [diagnostic-modes](docs/acceptance/diagnostic-modes.md)，实际小节点保护/持续代理流量/取消矩阵由总任务整合验证。
-
-- 发布前整合 main af43ccf 的独立 IP/NodeQuality 视图，保留拆分API与导航；日常入口改为独立IP刷新接口。fmt/core门禁、Python discovery83通过/5skip、helper6、Bun4项/637断言与TypeScript/Vite重建、最终dist Chromium6场景/0错误再次通过。整合Rust及取消状态兼容交最终HEAD CI，不用先前293项结果代替。
-
-## 2026-10-01：P0 IP 查询入口适配（独立 PR）
-
-- Issue #24：注册真实入口，check-place 是一个旧聚合入口、七种响应视图；新增 AbuseIPDB 官方 v2 CHECK 只读适配，固定 30 天窗口、目标身份与字段契约，Key 仅敏感请求头、无 UA/重试/重定向/verbose/上传。缺私有凭据明确未启用和信息未知，既有成功快照继续保留并标历史。
-- 全入口共用四并发/40 秒批次截止、单请求超时/响应上限和 typed DNS/TLS 错误分类，不为每个入口重复预算。IP/provider/database 缓存与旧接口兼容，无新增依赖/迁移，服务器 IP 页按真实入口说明来源与不可用原因。
-- 固定 AGPL-3.0 IPQuality 只读审查发现随机 UA、在线 main 引用、统计请求、请求重试和高并发/宿主依赖边界，参数不能直接消除；未执行或打包原版，节点自查明确未启用，流媒体解锁未知。受控修改版本由后续独立 PR 验收，不把此正式 API 项标为节点自查完成。
-- 本机 fmt、core 门禁/六项行为测试、差异检查、Bun 1.4.2 冻结安装/TypeScript/Vite、真实桌面/手机浏览器的明确模拟来源/凭据/0false/403429timeout历史/禁用历史/百分比边界通过。真实 HTTP/PostgreSQL、Clippy 和完整 Rust 回归由本 PR 独立 CI 或隔离槽执行，尚未记为通过；官方账户/公网权限与完整诊断压力未验。契约与边界见 [ADR 0027](docs/adr/0027-ip-provider-adapters.md) 与 [入口适配验收](docs/acceptance/ip-provider-adapters.md)。
-
-- 源码接到主线 `6a583af` 与视图拆分，保留报告章节/r3、心跳与严格旧字段兼容；入口适配不修改 NodeQuality 工具链。
-
-- 保留主线旧字段 kind 缺失兼容，正式百分比规则按 abuseipdb-v2 响应区分，旧 payload 不引入新 kind 变体。五项前端字段回归/711 断言覆盖后端 60 个字段及官方整数百分比边界；当前/历史计数明确为数据项，避免把聚合响应数当来源数。
-## 确认式取消最终合并审查
-
-- 正常合入 main `af43ccf`（含章节持久化与 IP/报告拆分）并保留作者 `f5d468e` 祖先。修复 Windows 默认不支持路径、Linux/systemd/cgroup v2 能力误报、取消 HTTP/WS 退役门禁；已在途清理结束后不继续新取消任务。取消确认前采集最终章节，取消后迟到章节仍保存但不复活状态，旧整份报告继续标记 legacy；reports GET 和旧组合 GET 同时保留 cancel_supported。PostgreSQL 回归证明已应用 0011 后补入 0010 不丢任务、报告或章节。最终 locked workspace/all-targets 304 项通过、0 失败、9 项条件忽略；workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁和差异检查通过。Bun 1.4.2 冻结依赖下 4 项/637 断言及 TypeScript/Vite 构建通过，最终 JS 为 `index-8GW7pq_B.js`；真实 Chromium 桌面/390px 手机取消专项和原 IP/导航/章节 9 组场景全部通过，页面错误 0。Python discovery 83 项通过/5 跳过。此轮 macOS 本机没有运行新增真实 Linux/root/systemd 取消夹具（9 项条件忽略包含它）或完整 NodeQuality 负载；最终 Linux CI 与专用节点验收另行核对，不以前一作者 CI 替代。
-
-- 已准备日常/完整诊断的插件证据桥：代理部署与正向计量查询由 sing-box 插件拥有，系统诊断只消费 configured / last_positive_at，不把沉默当作空闲，不更改用量账本或为监控机创建配置；接入调用待日常检查 PR 正常合入后完成。
-
-## IP 入口适配最终合并审查
-
-- 正常合入 main `6b63f71`（含确认式取消），保留作者 `cfea748` 祖先及双方全部记录；最终代码审查未发现需要改动的生产缺陷。全程移除真实 `SINAN_ABUSEIPDB_API_KEY`，只使用明确公开的合成 key 与回环 HTTP，未读取或调用真实账户。独立 PostgreSQL 下 IP/provider library 25 项、diagnostics API 7 项及章节/迁移 3 项，共 35 项通过、0 失败/忽略；覆盖敏感 Header、固定路径/参数/无 UA/重试/重定向、身份/类型、403/429/超时、禁用零请求、0/false 与双来源历史及新连接池/租约。Panel 全 targets Clippy（warnings 为错误）、workspace fmt、core 门禁及其 6 项行为回归、差异检查通过。Bun 1.4.2 冻结安装、5 项字段测试/711 断言及 TypeScript/Vite 构建通过，重建 JS `index-C1v7YTay.js`；最终 dist 在实际 Chromium 桌面/390px 手机的入口/缺凭据/0false/错误历史/禁用/百分比边界及确认取消组合场景全部通过、页面错误 0。本轮没有重复完整 workspace 或调用正式公网账户，不宣称配额/权限/节点自查或完整 NodeQuality 压力已验。
-
-- 继续正常合入 main `229becc`（PR #56）：与已验证 `c2b01cc` 相比仅修改 `tools/test-nodequality.py`，所有 Rust/Cargo、生产工具、web 源与 dist 完全相同，未重复无交集 Cargo。包装器 Python 28 项中 23 项通过、5 项既有 Linux/root 条件跳过；core 门禁与差异检查再次通过。真实 Linux 正常退出的生产工具补修仍由独立任务验收，本项不将本机跳过计为通过。
-
-- 业务发布并发复核：候选筛选后设备切换纯监控时，事务内重新检查启用来源，防止空配置意外成为永久legacy部署证据。新增旧候选→能力清除→零发布/保留dirty→明确启用后发布的 PostgreSQL 回归；该新项按后续 CI 单独验证。
-
-- 业务归位最终代码 `29c4df4` / main `229becc` 的 CI36780128478 实际通过：fmt、全 targets Clippy、Rust/PostgreSQL307成功/0失败/9既有条件ignore，四项业务PG验收（含发布启用竞态）全部执行；随后六项真实systemd成功/0失败/0忽略，Compose与musl两架构成功。该PR事件Reality按draft跳过，专用节点/生产迁移未冒称通过；此后仅追加文档证据。
-
-- 业务归位最终整合正常保留作者 `9cc507e` 与 main `8254055`（#51/#54/#57/R5），源码基线 `276bdea`。模式活动读取改用 plugins facade，真实 PG 证明纯监控日常检查 `not_enabled` 且零部署；发布保留锁内筛选和独立语句启用重检。首次整套链接因磁盘不足中断，随后按 target 清单串行完成全部八包 all-targets 覆盖并补统一 workspace library/adapter/runtime，去重325通过/0失败/9既有条件忽略，统一 workspace 全 targets Clippy、fmt、core 门禁/六项行为、actionlint及差异检查通过。Bun五项/711断言、TypeScript/Vite与实际 dist `index-Hx7wA0D0.js` 的桌面/手机插件、模式、取消、provider场景通过，页面错误0；浏览器使用明确 API 夹具。Python83通过/5条件跳过、R5包装器34通过、daily helper7通过。所有 provider 测试移除真实密钥并仅用合成凭据/回环；本机未运行真实Linux/root/systemd、正式账户/配额、上游完整负载或生产迁移，最终CI独立核对。详细证据见 [业务搬迁验收](docs/acceptance/singbox-plugin-business.md)。
-
-## 2026-10-01 两个诊断入口（Issue #21，独立 PR）
-
-- 新 r4 不可变 runner 将日常检查限制为自有标准库 TCP 探测，最多 4 个已配置启用目标、每 IP 族 4 次、DNS 2 秒/连接 1 秒/任务 90 秒，无硬件/rootfs/测速/上游/公开上传。IP 刷新复用逐源缓存，明确不是节点流媒体证据。
-- 日常固定 64MiB/32tasks，完整512MiB/128；不降低256MiB启动预留、2GiB磁盘与128MiB运行保护。服务端完整入口必须管理员确认；正向计量活跃与缺少新计量证据的未知都需要警告确认。时间和证据随任务保存，不用网卡总流量冒充代理流量。
-- preflight实际资源/负载/最终预算随Started检查点持久化，environment独立章复用r3补报。日常2章、完整6章；旧r2/r3签名队列/检查点继续恢复收集，不重复运行。新mode独立capability与Linux gate防止旧Agent误ready。
-- 本机fmt/core门禁、Python discovery 88（83通过/5环境skip）、daily helper6、Bun/dist与真实Chromium6（0错误）通过。main 6a583af 上的模式源在集中Debian12容器（1.5GiB/2CPU/无swap）通过完整Rust/PostgreSQL293项/0失败/8既有环境ignored、全targets Clippy、fmt与Agent/Panel build，OOM=false；Linux wrapper29/helper6通过。wrapper首轮三个既有exit1期望0夹具需独立PR#56修复，远端临时对齐后验证，不混入本项实现。二进制保存binaries/modes-head；后续整合HEAD CI另核对。本机磁盘不足未从头Cargo。独立验收见 [diagnostic-modes](docs/acceptance/diagnostic-modes.md)，实际小节点保护/持续代理流量/取消矩阵由总任务整合验证。
-
-- 发布前整合 main af43ccf 的独立 IP/NodeQuality 视图，保留拆分API与导航；日常入口改为独立IP刷新接口。fmt/core门禁、Python discovery83通过/5skip、helper6、Bun4项/637断言与TypeScript/Vite重建、最终dist Chromium6场景/0错误再次通过。整合Rust及取消状态兼容交最终HEAD CI，不用先前293项结果代替。
-
-- 继续整合 main229becc，保留已合并#51确认取消与#56正常/非零退出夹具；新创建任务返回完整取消字段，cancel_requested同时阻止两种入口。最终dist重建与Chromium7场景（含等待取消和资源章）通过、错误0；fmt/core门禁、Python83通过/5skip与Bun4/637断言复验通过。最终Rust/平台CI另核对。
-
-- main7848268合入独立查询来源适配层后再次整合，保留providers字段与独立IP查询接口；fmt/core门禁、Bun5项/711断言、TypeScript/Vite与dist重建通过。main229becc上的7c784e6已由CI36779254979验证workspace309通过/0失败/9忽略，随后真实systemd6项通过，Compose与AMD/ARM musl/OpenRC也通过；这些记录不替代新来源整合提交的CI。
-- 本机fmt/core门禁、Python77（5环境skip）、daily helper6、Bun/dist与真实Chromium6（0错误）通过，wrapper26（6Linux/root跳过）。完整Rust/PostgreSQL/Clippy/Linux wrapper等待集中远端与该PR CI；本机磁盘不足未从头Cargo。独立验收见 [diagnostic-modes](docs/acceptance/diagnostic-modes.md)，实际小节点保护/持续代理流量/取消矩阵由总任务整合验证。
-
-
-## 2026-10-01：TcpQuality 许可与原生路径（Issue #58）
-
-固定检查 ibsgss/TcpQuality c2295ae 的完整树与 README，未发现明确分发许可。已创建作者授权询问 ibsgss/TcpQuality#27，当前无回复。按用户提供的备选方案采用独立 Rust TCP 建连诊断，不分发、执行或复制上游脚本/rootfs/helper，详见 ADR0029。
-
-本次仅许可审计和决策；原生引擎、固定/签名制品、参数、无上传与宿主修改、共用框架登记及报告均各自验收。没有实际执行上游工具或访问生产节点。
-
-- 最终合并审查正常保留旧作者 `ec7c663`、最新作者 `a374c12` 与 main `c47fc69`（含 #51 确认取消、#54 真实 IP 来源和 #59 许可文档）。修复 DNS 列表前八项同属一个 IP 家族时 `both` 静默漏测另一家族：先按家族选择，仍至多两个地址、每家族四次连接；新增两种顺序回归。portable 端到端夹具明确使用模拟 Linux 服务身份，不放宽生产 Linux 门禁。最终集中 Rust/PostgreSQL 专项 89 项通过、0 失败/忽略（适配器12、Agent诊断37、IP/provider25、diagnostics API10、章节3、真实Agent WS/HTTP/restart2），workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁及六项行为回归、差异检查通过。Bun 1.4.2 五项字段测试/711 断言与 TypeScript/Vite 重建通过，最终 dist 为 `index-CtZ2u8uf.js`；实际 Chromium 桌面与390px手机模式各7场景、确认取消与来源展示通过，页面错误0。Python discovery 83通过/5跳过、daily helper7通过、r4包装器23通过/6项Linux/root条件跳过。所有测试移除真实 `SINAN_ABUSEIPDB_API_KEY`，仅回环与合成凭据；本轮未重复完整 workspace，也未在本机执行真实 Linux/root/systemd、上游完整验机负载或正式 API 账户/配额验收。最终提交 CI 单独核对，R5正常退出契约修复继续独立合并。
-
-## 2026-10-01：固定 NodeQuality 正常退出契约修复
-
-- main `af43ccf` 的 Linux check 发现三项包装器回归失败。完整章节与执行成功仍分开，但此前直接保留上游非零返回漏掉真实固定入口的正常清理 `exit 1`：固定源码 SHA-256 `4e1b25894cadf908ef61fb0d9ce874a75524c6dafc2ea26f0477107288e0c018` 第 455 行，由 `main → post_cleanup` 正常到达。
-- 新启动观察器保留上游/许可证原字节，仅确认该精确分支；完整本地报告校验成功后才转换此特例。任意早退 1、真实失败 7、信号清理、清理拒绝、缺报告不转换，可选上传 HTTP 403/传输失败单独警告。原退出值、ZIP、五章、关闭公开上传、取消清理和不可变构建检查都保留。
-- 包装器使用独立 r5（r4 留给模式功能）；r2/r3 历史与排队恢复兼容，原 r2 签名资产及冻结候选源码不变。macOS 夹具 32 项全部通过、0 跳过；断网且无 Linux capabilities 的只读测试容器重现旧版 28 项/3 失败，并验证修复版 32 项全部通过、0 跳过。挂载、chroot 和网络全部为合成夹具，不对生产或真实基准执行操作。fmt、core 门禁、Python/Bash 语法及差异检查通过；Rust 编译/Clippy 尚待后续独占槽或最终 CI，模式功能合入后的最终版本将另行复验。
-
-- 正常合入确认式取消、IP 入口及 PR #56 的原始 exit 0/1 夹具；保留纯 exit 0 成功、纯 exit 1 失败及所有原 ZIP/五章/选项/清理断言，固定正常 cleanup 的 exit 1 另作独立场景。夹具补上真实 main 的 EXIT→sig_cleanup 二次清理，macOS 和断网 Linux root 都 33 项全部通过、0 跳过。相同 33 项的反对照中移除正常分支转换触发四项失败；把所有 exit 1 转成功会被早退、信号清理、清理拒绝及原始非零夹具拒绝。已核对 cleanup 夹具与固定 SHA 源码第 440–456 行原字节一致。发布 Python 32 项中 28 通过、4 项现有条件跳过；没有占用 Cargo，模式主线及 r4→r5 历史兼容仍待最终合入。
-
-- 最终正常合入正式模式主线 `2ea4bb9`（含许可文档），保留 DNS 双家族修复。r5 同时内嵌 daily helper 与 full 分支观察器；r4 已签模式任务继续使用自身版本、参数及目标预算恢复，r2/r3 保留旧参数且拒绝 mode 参数，不能用 r5 二进制替代 r4 身份。新任务实际创建为 r5。macOS 和正式主线后的断网 Linux root：包装器 34 项与 daily helper 7 项，共 41 项全部通过、0 跳过；无真实硬件压测或公开上传。独占短槽下适配器 16 项（新增版本接收/恢复 4 项）及 PostgreSQL 模式创建 1 项，共 17 项通过、0 失败/忽略；适配器全 targets Clippy（warnings 为错误）、fmt、core 门禁、actionlint 与差异检查通过，已释放构建槽，不重复完整 workspace。
-- 本地双架构 r5 打包成功且 runner 原字节相同，归档 SHA-256 均为 `385a8c42e5a54542544b6459e1246958d0abe8bd860c3e44dd8e1996efbdbcb1`；包内原入口与 AGPL 许可证 SHA-256 和固定值完全一致，daily/observer 都已内嵌、无未替换 marker。当前构建说明与固定旧 r2 草稿候选分开，未签名、发布或修改任何旧 Release；最终整合全 workspace 与实机压力继续独立核对。
-## 2026-10-01：原生 TCP 连接工具（独立 PR，尚未接服务）
-
-- 用户授权无上游许可时自行实现；仅新增自有 AGPL Rust 库/二进制，不复制上游代码/目标/rootfs，不注册 panel/Agent 第二插件或改 UI/签名管线。未来目标由已配置 TCP 拨测冻结提供，不修改 ProbeSpec/协议兼容。
-- 最多八目标/16 KiB 快照与摘要核对，IPv4/6、count4/8、concurrency1/2；DNS2秒/单连接1秒/间隔250ms，总60秒含排队并预留2秒发布。只连一个同族 SocketAddr、关闭连接且零应用 payload，必须 --no-rank-upload，宿主/测速/未知选项拒绝。
-- 有界 JSON 与原子独立章节保留部分结果，明示连接成功率/建连耗时，不冒称包丢失/测速、没有排名，未知不补0。编译期源码 SHA 未提供则 null；固定源码/锁和签名打包及框架注册均为后续独立 PR。
-- 本机仅 fmt/locked offline metadata/core 门禁/差异检查；Debian12 1.5GiB/2CPU 隔离槽全源码 touch 后，5896f6d 的真实 IPv4/6/CLI/取消及有界 DNS/并发/截止/输入安全 13 项、fmt、全 targets Clippy（warnings 为错误）、完整 Rust/PostgreSQL 331 项通过/0失败/9既有条件忽略，exit0/OOM=false。ef1c7c9 再补 stdout write/flush 共用2秒截止，13 项与fmt/Clippy再次通过；全量重复运行按协调主动停止，不将331证据移给新SHA。独立 Draft PR #68、milestone1，固定/签名与服务注册仍为后续，最终CI另核对；不宣称服务或真实网络压力验收完成。见 [原生 TCP 验收](docs/acceptance/native-tcp-probe.md)。
-
-- 最终正常保留作者 `0a6b849` 与正式主线 `e3a41ed`，解决进度文档冲突且保留共享诊断服务、中性活动桥、业务插件和 r5。DNS 按家族筛选后至多保留两个有效地址，避免前32项为另一家族时漏测；实际打开输入句柄重验权限/链接数/UID，首次报告写入前拒绝异主目录；运行错误 stderr 也受两秒和总截止限制。16项工具测试（13库/3真实CLI）全部通过、0失败/忽略，回环验证零应用数据。旧截断、移除UID检查、同步阻塞stderr负对照均被回归抓住，恢复修复后再次通过。工具及workspace全targets Clippy（warnings为错误）、fmt/core/actionlint/差异检查通过；截止夹具保留一秒探测并提供两秒原子发布，生产仍60秒/两秒。没有新增依赖、拨打第三方节点、公开上传、签名/发布或冒用旧331项全量证据，最终主线CI继续单独核对。
-
-## 2026-10-01：原生 TCP 固定源码与签名制品（独立 PR）
-
-- 依赖原生引擎 #68，新增固定 Git 对象归档构建与归档内配方执行，Cargo.lock --locked、native musl ELF/CLI/来源验证，外部不可变版本包含完整 SHA。
-- 包内二进制 + build-info、许可证、完整源码归档、锁文件和第三方原文使用现有 release/minisign 精确签名契约；release 显式选入第四模块，旧三模块默认不变。
-- SDK 默认空辅助文件声明由 core 同时用于签名前检查与下载，含五文件实际安装/缓存篡改/启动前再校验回归；不登记 TCP 插件或修改 UI。
-- Python TCP 来源/签名/许可 11 项、旧 Release 32 项、build-script 5 项通过；实际锁定原文库存 35 包 / 2,006,844 bytes。Rust 与真实 musl 和双架构 CI 尚待完成，正式 release 未发布。独立验收见 docs/acceptance/native-tcp-artifacts.md，决策见 ADR 0032。
-- 最终正常保留最新作者 `bf56d5e` 与正式主线 `fb79388`，源码基线 `644e785`。多余aux读取删除且准备阶段集合保持一致，五辅助文件下载/缓存篡改/签名前及启动前拒绝与旧适配器兼容保留；显式选入TCP时严格要求双架构及旧三模块完整。独占槽Rust专项90通过/0失败/0忽略（制品14、release6、wire12、诊断/取消/预算/来源40、SDK1、TCP17），workspace全targets Clippy、fmt、core门禁/六项行为、actionlint及差异检查通过。Python最新契约12与模拟发布22项通过，无真实发布。#70的11个前端/门禁哈希原样保留，含暂停完整入口与 `index-OopWuqxH.js`、中性活动桥/r5；未重复无交集浏览器、PG或完整workspace。本机没有Linuxmusl构建、真实systemd、生产节点或正式Release，最终CI继续独立核对。详见 [制品最终验收](docs/acceptance/native-tcp-artifacts.md)。
-## 2026-10-01：共用诊断任务服务（Issue #27）
-
-将 NodeQuality 的参数、工具版本和报告规则移到登记插件，创建/能力/签名制品/预算/互斥/结果/历史改为共用服务，保留原 API 和原任务历史。协议新增可空预算，Agent 只收紧既有适配器上限；新任务要求能力握手。新增路由竞争、跨插件互斥、历史/部分报告与预算权限夹具。
-
-代码 bfae951 在限额 Debian 12 容器通过 fmt、全 targets Clippy（warnings 为错误）、完整 locked Rust/PostgreSQL 318 项/0 失败/9 既有条件忽略；容器退出 0、OOM=false。Linux wrapper 29、daily helper 6、core 分层行为 6 项通过。修复并重新验证历史 job={} 正文上传与缺插件字段的 NodeQuality 历史兼容。当前提交的独立 CI、真实 systemd 与双架构构建另行核对；专用节点连接恢复与完整验机总验仍待补。详见独立 [共用诊断服务验收](docs/acceptance/shared-diagnostic-service.md)。
-
-- 最终正常合入作者 `924a8ff` 与正式主线 `2c3c1e5`（含 r5 正常退出契约及 sing-box 插件搬迁）。迁移后的 NodeQuality 保持 r5，活动证据只调用中性 `plugins::runtime_activity_on`，保留纯监控未发布、陈旧能力、缺发布行与代理活动判断。包装器、daily/observer 与前端原字节均与已验证主线一致，本轮不重复无交集包装器或浏览器验收。
-- 补齐真实缺少 plugin/resource_budget 字段的 r2 历史 JSON 与原文精确保存、跨插件 queued/running/已过期 cancel_requested 对两条创建入口的互斥，以及 IO 权重不可放宽和预算未知命令字段拒绝。最终相关 Rust/PostgreSQL 68 项通过、0 失败/忽略（协议 12、Agent 诊断/预算 39、共用服务 2、诊断 API 10、章节 3、真实 Agent WS/HTTP/restart/cancel 2），workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁、actionlint 与差异检查通过。完整 workspace 测试尝试在另外 47 项通过/2 项既有条件忽略后因本机链接器磁盘耗尽中止，不记为完整测试通过；只清理本任务失败链接对象及已通过的测试可执行文件。真实 root/systemd 专项、签名发布、硬件压力与最终提交 CI 继续独立核对，未在生产机器压测或公开上传。
-
-
-## 2026-10-01：NodeQuality 不受控完整任务安全门禁（Issue #28）
-
-- 固定入口审计确认在线 main 依赖、内层公开上传和宿主 swap；分别创建 #65/#66，归整改 milestone。固定提交、摘要、许可缺口与无特权命令模拟证据见 [执行链审计](docs/acceptance/nodequality-chain-audit.md)。
-- 插件拒绝新完整任务，共用服务调用登记插件安全 hook；旧排队完整任务保存明确失败原因且不冒充设备已停止。运行任务不重发给无门禁能力的旧 Agent，新 Agent 的适配器在诊断工作目录/工具调用前拒绝完整模式；既有 Started 继续原身份收集/取消。r2–r5 不可变制品不改，日常固定轻量分支与资源预检不降低。
-- 界面分别显示日常可用与完整暂停原因，历史关闭上传仅称顶层设置；真实 Chromium 桌面/390px 手机验证日常、403、历史章节与确认取消、离线/重复禁用，页面错误和完整 POST 均为 0。fmt/core 门禁、Bun 五项/711 断言和 dist 构建通过；源码20e27ff在限额Debian12容器通过全 targets Clippy、完整locked Rust/PostgreSQL325项/0失败/9既有条件忽略、专项34和r5包装器34/helper7；Agent/Panel构建退出0、OOM=false。二进制及core测试保存binaries/nodequality-gate-head，源码摘要与日志保存evidence/nodequality-gate-head。
-- [ADR0031](docs/adr/0031-nodequality-full-start-gate.md) 与 [独立验收](docs/acceptance/nodequality-full-start-gate.md) 明确旧 Agent 门禁前已领取任务须升级或取消确认。本项仅止血，不关闭 #28/#65/#66，不替换或删减完整能力；完整工具链及用户取舍仍待完成。
-- 发布后正常重基已合并框架/插件业务归位/原生引擎的main2574a84，保留主线视图与PluginServer类型，重新构建dist并复验；最终整合HEAD CI单独核对，不以前一冻结源码的325项代替。
-
-## 2026-10-01：完整验机门禁合并审查
-
-- 正常整合插件业务主线 `2c3c1e5`、正式共享服务 `e3a41ed`、正式原生引擎主线 `2574a84` 与最新作者 `75cf69f`，保留新版插件设置、代理用户与独立 IP/诊断路由；重建 dist，完整验机门禁保持启用。
-- 修复缺少 plugin/mode 的旧任务绕过面板门禁：排队清理和分发统一采用历史 NodeQuality 归属；分发响应补默认插件名但原 JSON、版本与参数不改写。新增旧排队、运行分发、迟到报告及已登记硬件章节回归；章节可保存但门禁失败原因与未完成状态不被伪造，已有 Started 恢复/取消路径保持原逻辑。Preparing 升级夹具改为主机架构的签名制品地址，实际验证走到适配器门禁且零启动。
-- 本机 Python 包装器 34、daily helper 7、Bun 5/711 断言、TypeScript/Vite、fmt、core 门禁、actionlint 与实际 dist Chromium 门禁及插件业务场景通过；完整 POST 0、页面错误 0。冻结整合源码 `e2ccd3f` 的相关 Rust/PostgreSQL 75 项全部通过、0 失败/忽略（适配器 15、Agent 诊断/预算 39、API 13、共用服务 2、章节 3、真实 Agent WS/HTTP restart/cancel/Preparing 门禁 3）；移除旧插件默认归属的负对照使两项回归失败，恢复后三项门禁回归再次通过。workspace 全 targets Clippy（warnings 为错误）通过，最终主线 CI 继续独立核对；本轮仅使用回环和假服务，未重跑无关 accounting 全量。
-- 固定上游执行链六个源码摘要与审计表一致；测试移除真实 SINAN_ABUSEIPDB_API_KEY，未运行真实完整验机、正式 API、宿主 swap 或发布操作。
-## 2026-10-01：原生 TCP 参数与报告无状态适配器（独立 PR）
-
-- 仅新增依赖 SDK 的 TcpQualityAdapter，不登记第二插件或迁入生命周期/ProbeSpec/UI。版本目录与源码pin、精确version/build-info、五静态签名aux、参数/地区白名单、原字节目标摘要、私有目录/文件、有界IO与64MiB/32tasks/60秒预算均独立校验。
-- mandatory --no-rank-upload，不接受测速/宿主/rootfs/上传选项；仅返回ServiceJob，环境章core处理。严格报告目标/参数/source/UTC/实际地址/统计/null语义，最多十独立工具章，坏章不遮住好章，取消/重启前部分结果可继续读取。
-- 记录型Privileged与真实磁盘夹具覆盖参数先拒绝、身份失败不准备、预算/固定argv、0与未知、篡改、部分/重复、链接/超限和坏章。881cce5的fresh GitHub CI：13专项、全targets Clippy、完整Rust/PostgreSQL353通过/0失败/9既有条件忽略、六项core真实systemd回归，以及Compose/Agent双musl/TCP制品双arch通过；最终制品依赖HEAD另核。不会将合成报告或现有core回归称为已登记TCP的服务/签名安装验收。见 [TCP适配器验收](docs/acceptance/tcpquality-adapter.md)。
-
-- TCP 适配器最终正常整合最新作者 `972647c` 与正式制品主线 `cbe5558`，保留 nullable 字段必须显式出现、同族 literal 不得伪称家族不可用及原报告/章节完整度规则。prepare 比较可信签名缓存 binary UID，历史收集核对可信私有任务目录、输入、章节/报告及实际句柄 UID，删除旧二进制后仍可重复读取已有部分报告；调用方保持任务根目录及祖先可信。冻结源码 `7a70b11` 的 TCP14+owner1+NodeQuality15 共30项全部通过、0失败/忽略，两项移除 UID/错误依赖旧二进制的负对照被实际回归捕获，恢复后再通过；workspace 全 targets Clippy（warnings为错误）、fmt、core分层6项、actionlint与链接/差异检查通过。core/SDK/native/前端与正式主线原字节一致，未重复完整workspace或冒称TCP已登记/实网验收，已释放构建槽。
-
-### P2 原生 TCP 制品 Debian12 启动修复（独立后续）
-
-#69 整合后独立修复 Bookworm 的 musl-gcc 静态 PIE 启动 SIGSEGV：使用 native cc 与 Rust 自带 musl/CRT（link-self-contained=yes），保留静态 PIE，并新增 Debian12 真实构建、执行、五辅助文件签名 CI。help 去除临时接入状态。永久公开工具源 5e843f0fd9532abe9b7b9a052ef77b45abcfa675、外部版本 0.3.0-<该SHA>-r1 已实际原生执行验证。源码500受限容器完整Rust347/0/9、Clippy/fmt、Python来源签名12/旧Release32/模拟发布22通过；最终5e再次TCP17、Clippy/fmt、实际musl/完整TEST_ONLY bundle通过，exit0/OOM=false。未发布正式Release，后续main功能和最新CI状态需单独核对。详见独立验收 native-tcp-artifacts.md。
-# PR #72 整合复核
-
-保留作者 Bookworm 启动及精确 workspace 信任修复；`b536476` 的 Debian12/amd64/arm64 原生制品 CI 全过。本地修正回环 CLI 测试的非阻塞 socket 读取竞态，TCP 17项单线程通过，TCP 全targets Clippy、fmt、Python来源12/发布22、旧Release28通过/4条件跳过及 core/actionlint 通过。永久源与当前 main 的锁文件区别已明确，生产引擎预算和固定制品未改；最终整合 HEAD 的主线 CI 尚须实时核对。
-
-### P2 原生 TCP 实际 bundled musl 原文补齐（Issue #75，独立 PR）
-
-自带musl/CRT配方使用Rust官方固定commit对应musl1.2.5与安全补丁；旧system1.2.3通知不作为实际libc来源。纳入官方完整版权原文、不可执行Rust证明配方与固定摘要，构建不联网补齐、未知rustc/原文篡改在Cargo前拒绝；签名验证对比固定source与实际rustc，真实重签缺失/篡改仍拒绝。五aux与ABI不变；新的公开工具pin、实际Bookworm及最新CI完成后单独记录，未正式发布。
-
-- 修复后永久公开工具pin b562effcd90f8ae319665fb4ead1807b770ed4d5已实际Bookworm构建/ELF/version/build-info/完整5aux TEST_ONLY签名通过，35锁定依赖与Rust标准库、actual bundledmusl1.2.5、system1.2.3工具通知分别完整记录。fmt/core/15行为与真实重签/旧Release32/模拟发布22通过，exit0/OOMfalse，binary SHA e493d095...，日志evidence/tcp-musl-notices-b562eff。仅Python/库存变动，无重复全workspace；最新独立PR CI待核，未正式发布。
-### P1 sing-box 根插件物理目录恢复（独立后续）
-
-合并后 sing-box 面板实现位于 crates/panel/src/plugins/singbox，与用户要求及ADR0023的根 plugins/singbox 不一致。独立后续将13文件 git mv 至 plugins/singbox/panel，以薄的 Rust path 桥保留模块名与接口；逐文件blob SHA一致，无业务/API/数据库/epoch/前端变动。ADR0030与AGENTS明确物理路径。静态fmt/core/差异检查及最新CI分别记录，未重新宣称实机流量完成。详见singbox-plugin-business独立验收。
-
-本轮独立审查逐一确认13个Git blob完全相同，path桥解析全部子模块及publisher嵌套测试，Rust可见性/旧导出保持；Docker COPY plugins与Compose根上下文保留。冻结源码 `7d1bda4` 的19项Rust/PostgreSQL专项全部通过、0失败/忽略（搬迁publisher2、插件业务/迁移4、账本4、业务/旧订阅4、订阅重置2、端口2、真实Agent配置/丢失ACK/重启1），workspace全targets Clippy（warnings为错误）、fmt、core门禁及六项行为、build-script5、runtime-cache3与差异检查通过。独立55432数据库由本任务启动并已停止，未触5432或生产；正常合入正式main `5d908b9` 后业务13文件与桥仍保持已验原字节，新增TCP/构建流程证据由其独立验收负责，最终整合CI继续单独核对。
-
-## 2026-10-01：Reality 间歇传输失败证据（Issue #6）
-
-- 业务源码743955c原CI在HUP后的2MiB下载只收到1,103,168字节，90秒exit28；同源码失败job只重跑一次，attempt2安装/双向流量/Agent重启/HUP/续传/签名拒绝/重装/在线退役全过。后续75cf整合源码另在首次下载90秒0字节失败，不能归因于业务或门禁。追加既有milestone1 Issue #6，保持原因未知，不重复开Issue或推已合并分支。
-- 独立标准库helper记录最多4条固定传输的数字/错误类别，保留curl90秒、退出码与原载荷核对；失败清理前最多7秒直接HTTP/TCP/TLS夹具检查、有限宿主资源和进程存在性布尔状态；并行审查发现socket超时不能限制慢滴HTTP，改唯一短命子进程硬2秒结束并回收。沿用常驻单元状态白名单，不读取/上传配置、env、密钥、令牌、证书或完整日志；写入与公开汇总均重新过滤，失败取证不吞失败或重试代理流量。
-- 14专项含真实回环HTTP/TLS、卡死夹具预算及恶意摘要隐私回归通过；验收驱动21、运行时缓存3、签名8、Python仓库101项/6既有条件跳过通过，fmt/core/shell/差异检查通过。独立提交CI与实际Reality另行核对，未将同源旧提交重跑当成本项集成验收。见 [独立验收](docs/acceptance/reality-failure-evidence.md)。
-
-- 最终正常保留作者原始 `7db4c1a` 及推进后的 `7ce37b9`，合入正式主线 `8ef465f`，保留原生Bookworm制品修复/CLI夹具及根sing-box插件物理目录。冻结源码 `357eadb` 中HTTP每次底层读取共享绝对截止，作者的唯一短命worker硬2秒截止/回收与进程存在性字段均保留；已有失败的清理继续尝试并保留原28，原成功流程的清理错误仍拒绝。真实负对照捕获慢滴头/体3.48/3.50秒超限和原28被清理7覆盖，恢复后取证16、驱动21、缓存3、签名8全部通过；仓库Python101项运行（95通过/6既有条件跳过），合计143通过、0失败、6跳过。Python/Bash语法、fmt只读检查、core/actionlint及链接/差异检查通过，未运行Rust编译/测试或实际生产Reality/公开网络，完整提交CI继续单独核对，Issue #6原因仍未知。
-
-### PR #76 实际 bundled musl 独立复核
-
-- 保留作者 `08c9de2` 与正式主线 `d1ff2df`。官方 musl1.2.5 归档、193 行 COPYRIGHT、Rust 1.98.1 固定官方 commit 和 97 行配方的摘要及原字节全部核对；配方除两项 2025 iconv 补丁还包含两份 2026 安全补丁，均不改 COPYRIGHT。库存简述只描述 2025 子集，原库存不改写，实际 self-contained libc 与系统构建工具通知分开记录。
-- 修复 rustc 身份歧义：旧表达式接受已知/未知双字段和重复已知字段，即使按完整摘要与公开 TEST_ONLY key 真实重签仍被接受；新检查只允许一个精确字段，补充收集前和重签后的实际负向回归。来源/签名 17、旧 release 28（4 既有条件跳过）、模拟发布 22、core 分层 6 项通过，合计 73 通过/0 失败/4 跳过；Python/core/actionlint/链接/差异检查通过。
-- 实际原生 CI `36794789931` 三个 job 成功，工作流 head `08c9de2` 显式选择固定工具源 `b562effcd90f8ae319665fb4ead1807b770ed4d5`；每个 job 真实启动及来源/签名 15+原生 bundle 1 项通过。独立下载两个架构的原包，当前严格验证器接受合法历史库存，并将其重新组装公开 TEST_ONLY 签名验证通过；内嵌构建器、旧验证器、收集器及三份库存与 Git b562 逐字一致。不声称旧固定对象含新歧义检查，不改其版本路径或既存制品。本机未运行下载二进制、Cargo/native build、正式签名、发布或生产探测；本地完整整合提交 CI 另行核对。
-
-### PR #77 登记整合复核
-
-冻结 `58868c4` 的 TCP API/目标单元5、core共用诊断生命周期40、TCP适配器与UID15、NodeQuality适配器15，共75项本地通过/0失败/忽略，workspace全targets Clippy及fmt/core通过。核对Linux/monitor-only登记边界、固定b562版本、六文件签名前及启动前校验、60秒/64MiB预算和旧NQ完整门禁；55432专用PG已停止。作者实际370+6 CI与Reality成功分别记录，不将不可执行API签名夹具或通用systemd验收称作新TCP实机完整执行链。正常保留作者提交并合入#76正式主线b152e2a，相关Rust/SQL/锁文件与已验58868c4原字节保持一致；最终主线CI单独跟进。
+- [5a8517e 的完整 CI](https://github.com/imengying/sinan/actions/runs/36767902951) 15/16 项通过：Windows 双架构、FreeBSD 双架构、四种 Linux Agent 与运行时、OpenRC、Compose、完整 Rust/PostgreSQL、真实 systemd 五项专项和 Reality 全流程均成功。唯一失败为 macOS 原生运行时启动，日志在启动前离线签名复验时报告 `Permission denied`。
+- macOS 的软链接创建继承 umask，读取链接目标需要链接自身的读取权限。launchd 使用 `umask 027`，root 创建的运行时 `current` 无法由普通运行账户读取。`SystemOps::atomic_symlink` 在 macOS 发布前对临时链接执行 `chmod -h 755`，失败则清理临时链接；目标文件权限、目录隔离、进程 umask 和签名验证保持原有约束。
+- 扩展现有原子写入回归，检查软链接可读、目标文件仍为 0640、替换为悬空链接和拒绝覆盖普通文件。自动与手动 macOS 工作流均用 `umask 077` 运行该回归，然后运行完整原生服务、缓存篡改拒绝和恢复验收。
+- 本地 fmt、全 targets Clippy、core 门禁、三份 workflow actionlint、构建脚本 5 项及 Agent/协议/编译器/适配器 Rust 回归通过（193 项成功，7 项实机专项忽略）。本轮本机重启后临时 PostgreSQL 环境已清除，面板没有代码变更；完整工作区、真实 systemd、macOS 权限语义与所有平台再次由新提交 CI 验证，尚不记为全部通过。

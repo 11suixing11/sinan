@@ -131,12 +131,18 @@ class AcceptanceContracts(unittest.TestCase):
         source = source.split("<<'PY'\n", 1)[1].split("\nPY\n}", 1)[0]
         output = self.state_path.with_name("public-summary.json")
         report = self.state_path.with_name("public-summary.md")
-        argv = ["summary", str(self.state_path), str(output), "0", "install", "1", "1" if owned else "0"]
+        argv = ["summary", str(self.state_path), str(output), "0", "install", "1", "1" if owned else "0", "278"]
+        annotation = io.StringIO()
         with contextlib.chdir(ROOT), patch.object(DRIVER.sys, "argv", argv), \
-             patch.dict(DRIVER.os.environ, {"GITHUB_STEP_SUMMARY": str(report)}, clear=True), \
+             patch.dict(DRIVER.os.environ, {"GITHUB_STEP_SUMMARY": str(report), "GITHUB_ACTIONS": "true"}, clear=True), \
+             contextlib.redirect_stdout(annotation), \
              patch.object(DRIVER.subprocess, "run", side_effect=systemd_queries) as run:
             exec(compile(source, "ci-real-e2e.sh:write_summary", "exec"), {})
-        return json.loads(output.read_text()), report.read_text(), run
+        summary = json.loads(output.read_text())
+        self.assertEqual(summary["failure_line"], 278)
+        self.assertEqual(annotation.getvalue(), "::error title=Reality acceptance failed::"
+                         + json.dumps(summary, ensure_ascii=True) + "\n")
+        return summary, report.read_text(), run
 
     def test_ready_timeout_preserves_private_last_snapshot_but_public_outputs_are_allowlisted(self):
         secret = "TOKEN-identity-key@private-host.example.test/198.51.100.77"
