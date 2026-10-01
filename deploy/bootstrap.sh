@@ -704,7 +704,7 @@ if __name__ == "__main__":
         raise SystemExit(f"Bootstrap refused: {error}") from error
 SINAN_BOOTSTRAP_7415F3BDC30846B6CEC2230C27EC5FF57840ABA1FA0BC3BCA2E47C30DA90269B
 
-cat > "$STAGING/legacy_agent_checkpoint.py" <<'SINAN_BOOTSTRAP_F35C1B150835B0D630CFE1F19D9C7A1510F7D3D4FF6AAB9428F30515FC2B9741'
+cat > "$STAGING/legacy_agent_checkpoint.py" <<'SINAN_BOOTSTRAP_3787069DD3526732BC6A95C780003451986974D878DB9DFA33BDE240E46770DB'
 #!/usr/bin/env python3
 """Read-only recovery gate for independently signed Agent versions before 0.3.1."""
 
@@ -721,6 +721,7 @@ import urllib.parse
 import uuid
 
 SEGMENT = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}\Z")
+LEGACY_NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2"
 
 
 def ensure(condition, message):
@@ -855,6 +856,12 @@ def checkpoint_safe(encoded):
         ensure(all(type(service[key]) is int for key in
                    {"memory_max", "tasks_max", "cpu_weight", "io_weight", "oom_score_adjust"} & set(service)),
                "旧已启动检查点资源形状无效，安装未切换")
+        ensure(spec["version"] == LEGACY_NODEQUALITY_VERSION
+               and set(spec["options"]) <= {"ip_version", "network_mode", "upload_report"}
+               and spec["options"].get("ip_version", "both") in ("both", "ipv4", "ipv6")
+               and spec["options"].get("network_mode", "low") in ("low", "normal")
+               and spec["options"].get("upload_report", "false") in ("true", "false"),
+               "旧 Agent 无法按原版本回收此已启动任务；请保留状态并使用兼容的新签名 Agent，安装未切换")
         try:
             uuid.UUID(spec["id"])
         except (ValueError, TypeError, AttributeError):
@@ -974,7 +981,7 @@ if __name__ == "__main__":
         raise SystemExit(f"Legacy Agent refused: {error}") from None
     except OSError:
         raise SystemExit("Legacy Agent refused: 旧状态路径无法安全读取，安装未切换") from None
-SINAN_BOOTSTRAP_F35C1B150835B0D630CFE1F19D9C7A1510F7D3D4FF6AAB9428F30515FC2B9741
+SINAN_BOOTSTRAP_3787069DD3526732BC6A95C780003451986974D878DB9DFA33BDE240E46770DB
 
 cat > "$STAGING/release.py" <<'SINAN_BOOTSTRAP_788A52C57028213512A314AC63BD8FDDDBC07FA0307EF0A2AAEF490878105077'
 #!/usr/bin/env python3
@@ -1763,7 +1770,7 @@ cat > "$STAGING/public-keys.json" <<'SINAN_BOOTSTRAP_51121348A57E37D339622582811
 ["RWS4aZYmyBmwROpGKjfADJqNedYCNRhlg0+UoIBjQHxXZxYL7XMlkGJN"]
 SINAN_BOOTSTRAP_51121348A57E37D3396225828114D19A3F62EDB0AAD0F6157E7FBCBEBF56B576
 
-cat > "$STAGING/trusted-install.sh" <<'SINAN_BOOTSTRAP_E4AAB9A4F59919C6BDBFF4F938C28CEE39431224EC36BDDAFA2D70BFC99E359A'
+cat > "$STAGING/trusted-install.sh" <<'SINAN_BOOTSTRAP_C6C95142E68A89AA786F475B3209016DAF80A8320F115DB3215FB7D94B62D439'
 #!/bin/sh
 # Static signed release installer. Invoke only after independent verification.
 # SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1
@@ -1822,6 +1829,7 @@ import urllib.parse
 import uuid
 
 SEGMENT = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}\Z")
+LEGACY_NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2"
 
 
 def ensure(condition, message):
@@ -1956,6 +1964,12 @@ def checkpoint_safe(encoded):
         ensure(all(type(service[key]) is int for key in
                    {"memory_max", "tasks_max", "cpu_weight", "io_weight", "oom_score_adjust"} & set(service)),
                "旧已启动检查点资源形状无效，安装未切换")
+        ensure(spec["version"] == LEGACY_NODEQUALITY_VERSION
+               and set(spec["options"]) <= {"ip_version", "network_mode", "upload_report"}
+               and spec["options"].get("ip_version", "both") in ("both", "ipv4", "ipv6")
+               and spec["options"].get("network_mode", "low") in ("low", "normal")
+               and spec["options"].get("upload_report", "false") in ("true", "false"),
+               "旧 Agent 无法按原版本回收此已启动任务；请保留状态并使用兼容的新签名 Agent，安装未切换")
         try:
             uuid.UUID(spec["id"])
         except (ValueError, TypeError, AttributeError):
@@ -2326,6 +2340,7 @@ import urllib.parse
 import uuid
 
 SEGMENT = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}\Z")
+LEGACY_NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2"
 
 
 def ensure(condition, message):
@@ -2460,6 +2475,12 @@ def checkpoint_safe(encoded):
         ensure(all(type(service[key]) is int for key in
                    {"memory_max", "tasks_max", "cpu_weight", "io_weight", "oom_score_adjust"} & set(service)),
                "旧已启动检查点资源形状无效，安装未切换")
+        ensure(spec["version"] == LEGACY_NODEQUALITY_VERSION
+               and set(spec["options"]) <= {"ip_version", "network_mode", "upload_report"}
+               and spec["options"].get("ip_version", "both") in ("both", "ipv4", "ipv6")
+               and spec["options"].get("network_mode", "low") in ("low", "normal")
+               and spec["options"].get("upload_report", "false") in ("true", "false"),
+               "旧 Agent 无法按原版本回收此已启动任务；请保留状态并使用兼容的新签名 Agent，安装未切换")
         try:
             uuid.UUID(spec["id"])
         except (ValueError, TypeError, AttributeError):
@@ -2712,7 +2733,7 @@ done
 [ "$STARTED" = 1 ] || { echo 'Agent 未通过启动检查' >&2; exit 1; }
 COMPLETED=1
 printf '%s\n' '已验证并安装 Agent，可运行 sinan-agent status 查看状态。'
-SINAN_BOOTSTRAP_E4AAB9A4F59919C6BDBFF4F938C28CEE39431224EC36BDDAFA2D70BFC99E359A
+SINAN_BOOTSTRAP_C6C95142E68A89AA786F475B3209016DAF80A8320F115DB3215FB7D94B62D439
 
 
 if [ "$PLATFORM" = Linux ] && ! command -v minisign >/dev/null; then
