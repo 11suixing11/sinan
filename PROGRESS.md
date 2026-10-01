@@ -1378,3 +1378,6 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 实际复现不可执行的 minisign/Agent 文件配合历史 `LASTEXITCODE=0` 会被旧函数当作成功；四行 ED 结构的假签名因验证器未启动而绕过。每次原生调用先清空全局退出码，立即捕获本次 `$?` 和退出码，只接受本次调用确实成功且返回 0；验签工具未启动直接拒绝，真实返回非零的签名拒绝仍可尝试下一个可信根。
 - 官方私有 macOS ARM64 PowerShell 7.5.3 的最终完整函数夹具 14 项通过、0 失败、0 跳过。另用补修前精确 `fdc60b8` 入口和新入口作真实双负对照：同一不可执行文件在旧验签与 Agent 函数均被接受，在新函数均拒绝且退出码为 null；同时实际运行坏签名/正确签名、错误根后正确根，以及原生子进程返回 0/7，保留智能单引号回归。
 - 同步重生 UTF-8 BOM 入口，新本地 bootstrap SHA-256 为 `425fccaba9de63a4def8a27d95c468338da24a44c29734573bf378a97264acb0`；此前匿名 Git blob 下载核对只对应补修前入口，不能认证这个尚未由本子任务推送的新对象。Windows PS5.1/UAC/ACL/原生服务安装仍待实机验证；本子任务没有 Cargo/PostgreSQL、CI、正式签署、发布或部署操作。
+
+- 上述前端冻结结果之后，继续普通保留 Unix `e8fb3de`（产品 `3c3d146`）与 PowerShell `6cbcf23` 两份独立补修。最终旧状态守卫只放行旧 0.3.0 实际兼容的 r2 Started，其他精确原版本留给兼容 Agent 回收；Preparing full/缺 plugin/mode/损坏状态拒绝，JSON 零写。PowerShell 修复五种引号和真实 spawn 失败后的旧 `$LASTEXITCODE=0` 绕过，签名与 Agent 调用都核对本次调用成功。两分工的 12 项旧状态及 14 项真实 macOS PowerShell7 结果分别记于其冻结证据，不冒称本聊天重复执行或 Windows 原生验收。
+- 最终 Linux r14 自包含入口和 PowerShell 正式公开根入口从组合源码重新生成并核对同步；全部前端输入仍与上述 `1313a29` 逐字相同，因此不重复浏览器。最终完整 Rust/PostgreSQL 与组合 Python/PowerShell 回归由主整合任务继续执行；未执行不记通过，CI 仍暂停。
