@@ -406,7 +406,9 @@ class ReleaseTests(unittest.TestCase):
             server.server_close()
             thread.join()
 
-    def installer_prefix(self, panel, forced_optimization=False):
+    def installer_prefix(self, panel, forced_optimization=False, payload=None):
+        if payload is not None:
+            (self.bundle / "agent-0.3.0-linux-musl-amd64").write_bytes(payload)
         # Execute the actual production path through its first Agent execution.
         text = (ROOT / "deploy/install.sh.tmpl").read_text()
         text = text.split("# Reject unverifiable legacy caches", 1)[0] + "\nexit 0\n"
@@ -445,9 +447,9 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(len(good), len(bad))
         for forced in (False, True):
             with self.subTest(forced_optimization=forced), self.panel_response(bad) as (server, panel):
-                result = self.installer_prefix(panel, forced)
+                result = self.installer_prefix(panel, forced, bad)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertEqual(server.requests, 1)
+                self.assertEqual(server.requests, 0)
                 self.assertIn("摘要不匹配".encode(), result.stderr)
                 self.assertFalse(bad_marker.exists())
                 self.assertFalse(good_marker.exists())
@@ -456,9 +458,9 @@ class ReleaseTests(unittest.TestCase):
     def test_installer_accepts_signed_raw_and_passes_role_binding(self):
         good, _, good_marker, bad_marker = self.signed_executable_fixture()
         with self.panel_response(good) as (server, panel):
-            result = self.installer_prefix(panel, True)
+            result = self.installer_prefix(panel, True, good)
             self.assertEqual(result.returncode, 0, result.stderr.decode())
-            self.assertEqual(server.requests, 1)
+            self.assertEqual(server.requests, 0)
             self.assertEqual(good_marker.read_text(), "verified")
             self.assertFalse(bad_marker.exists())
 
@@ -466,21 +468,22 @@ class ReleaseTests(unittest.TestCase):
     def test_installer_refuses_unbounded_body_at_signed_size(self):
         good, _, good_marker, bad_marker = self.signed_executable_fixture()
         with self.panel_response(good + b"x" * 1048576, length=False) as (server, panel):
-            result = self.installer_prefix(panel)
+            result = self.installer_prefix(panel, payload=good + b"x" * 1048576)
             self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(server.requests, 1)
-            self.assertIn("超出已签大小上限".encode(), result.stderr)
+            self.assertEqual(server.requests, 0)
+            self.assertIn("有界普通文件".encode(), result.stderr)
             self.assertFalse(good_marker.exists())
             self.assertFalse(bad_marker.exists())
 
     @unittest.skipUnless(os.getuid() == 0, "real installer prefix requires isolated Linux container root")
-    def test_installer_does_not_follow_panel_redirect(self):
+    def test_missing_preloaded_agent_never_falls_back_to_panel(self):
         good, _, good_marker, bad_marker = self.signed_executable_fixture()
+        (self.bundle / "agent-0.3.0-linux-musl-amd64").unlink()
         with self.panel_response(good, redirect=True) as (server, panel):
             result = self.installer_prefix(panel)
             self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(server.requests, 1)
-            self.assertIn("禁止重定向".encode(), result.stderr)
+            self.assertEqual(server.requests, 0)
+            self.assertIn("有界普通文件".encode(), result.stderr)
             self.assertFalse(good_marker.exists())
             self.assertFalse(bad_marker.exists())
 

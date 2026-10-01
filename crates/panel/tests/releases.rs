@@ -3,6 +3,8 @@
 mod release_fixture;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
+#[path = "releases/targets.rs"]
+mod targets;
 
 use anyhow::{Context, Result, bail};
 use release_support as signing;
@@ -31,6 +33,7 @@ impl Fixture {
         let data = root.join("data");
         std::fs::create_dir(&data)?;
         let state = AppState {
+            started_at: sinan_protocol::now_timestamp(),
             device_lifecycle: Default::default(),
             pool: PgPoolOptions::new().connect_lazy("postgres://fixture@127.0.0.1/unused")?,
             login_permits: Arc::new(Semaphore::new(4)),
@@ -119,18 +122,26 @@ fn bundle(
 }
 
 async fn import(state: &AppState, bundle: Bundle) -> Result<usize, ApiError> {
-    releases::import_bundle(state, &bundle.tag, bundle.proof, move |name, maximum| {
-        let bytes = bundle
-            .assets
-            .get(&name)
-            .cloned()
-            .context("fixture asset is missing");
-        async move {
-            let bytes = bytes?;
-            anyhow::ensure!(bytes.len() <= maximum, "fixture exceeds download bound");
-            Ok(bytes)
-        }
-    })
+    // These signed fixtures contain legacy Linux artifacts for the native CPU,
+    // independently of the platform running the test process.
+    releases::import_bundle_for_targets(
+        state,
+        &bundle.tag,
+        bundle.proof,
+        &[native_arch().unwrap().into()],
+        move |name, maximum| {
+            let bytes = bundle
+                .assets
+                .get(&name)
+                .cloned()
+                .context("fixture asset is missing");
+            async move {
+                let bytes = bytes?;
+                anyhow::ensure!(bytes.len() <= maximum, "fixture exceeds download bound");
+                Ok(bytes)
+            }
+        },
+    )
     .await
 }
 
@@ -177,10 +188,11 @@ async fn interrupted_and_tampered_imports_keep_previous_release_unchanged() -> R
     let before = snapshot(&fixture.release_root())?;
     let candidate = bundle("0.4.0", (1, 1), b"next agent", Some(b"runtime"))?;
     let assets = candidate.assets.clone();
-    let result = releases::import_bundle(
+    let result = releases::import_bundle_for_targets(
         &fixture.state,
         &candidate.tag,
         candidate.proof.clone(),
+        &[native_arch()?.into()],
         move |name, _| {
             let bytes = assets.get(&name).cloned();
             async move {
@@ -222,15 +234,16 @@ async fn interrupted_and_tampered_imports_keep_previous_release_unchanged() -> R
 }
 
 #[tokio::test]
-async fn idempotence_checks_existing_bytes_without_redownloading_or_overwriting() -> Result<()> {
+async fn idempotence_reuses_valid_bytes_and_repairs_damaged_signed_payloads() -> Result<()> {
     let fixture = Fixture::new()?;
     let bundle = bundle("0.3.0", (1, 1), b"agent", Some(b"runtime"))?;
     assert_eq!(import(&fixture.state, bundle.clone()).await?, 2);
     let before = snapshot(&fixture.release_root())?;
-    let count = releases::import_bundle(
+    let count = releases::import_bundle_for_targets(
         &fixture.state,
         &bundle.tag,
         bundle.proof.clone(),
+        &[native_arch()?.into()],
         |_, _| async { bail!("idempotent import must use verified existing bytes") },
     )
     .await?;
@@ -243,15 +256,14 @@ async fn idempotence_checks_existing_bytes_without_redownloading_or_overwriting(
         .join("agent/0.3.0")
         .join(native_arch()?);
     std::fs::write(&path, b"changed bytes")?;
-    assert!(matches!(
-        import(&fixture.state, bundle).await,
-        Err(ApiError::Conflict(_))
-    ));
-    assert_eq!(std::fs::read(&path)?, b"changed bytes");
-    assert!(matches!(
-        releases::artifact(&fixture.state, "agent", "0.3.0", native_arch()?).await,
-        Err(ApiError::Conflict(_))
-    ));
+    assert_eq!(import(&fixture.state, bundle).await?, 2);
+    assert_eq!(std::fs::read(&path)?, b"agent");
+    assert_eq!(
+        releases::artifact(&fixture.state, "agent", "0.3.0", native_arch()?)
+            .await?
+            .0,
+        b"agent"
+    );
     Ok(())
 }
 

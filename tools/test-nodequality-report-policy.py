@@ -1,19 +1,43 @@
 #!/usr/bin/env python3
 """Exercise actual packaging/serving with private sources and loopback reports."""
+import json
+import os
+import sys
+
+sys.dont_write_bytecode = True
+
+
+def record(kind, args):
+    value = {'kind': kind, 'argv': args, 'policy': os.environ.get('SINAN_UPLOAD_REPORT'),
+             'nqenv': os.environ.get('NQENV')}
+    data = (json.dumps(value, sort_keys=True) + '\n').encode()
+    if len(data) > 8192:
+        raise ValueError('fixture record exceeds byte limit')
+    fd = os.open(os.environ['FIXTURE_TRACE'], os.O_WRONLY | os.O_APPEND)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
+
+
+# Probe callbacks only append a bounded private record. Avoid reloading all
+# packaging and source fixtures for every inert callback in a real chapter.
+if __name__ == '__main__' and len(sys.argv) > 1 and sys.argv[1] == '--record':
+    record(sys.argv[2], sys.argv[3:])
+    raise SystemExit(0)
+
+
 import argparse
 import base64
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
-import json
-import os
 from pathlib import Path
 import re
 import signal
 import shlex
 import shutil
 import subprocess
-import sys
 import tarfile
 import threading
 import tempfile
@@ -22,7 +46,6 @@ from unittest import mock
 import urllib.parse
 import urllib.request
 
-sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / 'plugins/nodequality'
 READONLY_SOURCES = None
@@ -62,19 +85,6 @@ function run_net_trace(){
     chroot_run bash <(curl -Ls https://Net.Check.Place) $opt_ipv $opt_lang -R -n -S 123 -o /result/$backroute_trace_json_filename
 }
 '''
-
-
-def record(kind, args):
-    value = {'kind': kind, 'argv': args, 'policy': os.environ.get('SINAN_UPLOAD_REPORT'),
-             'nqenv': os.environ.get('NQENV')}
-    data = (json.dumps(value, sort_keys=True) + '\n').encode()
-    if len(data) > 8192:
-        raise ValueError('fixture record exceeds byte limit')
-    fd = os.open(os.environ['FIXTURE_TRACE'], os.O_WRONLY | os.O_APPEND)
-    try:
-        os.write(fd, data)
-    finally:
-        os.close(fd)
 
 
 def report_post(args):
@@ -499,9 +509,7 @@ class WiringTests(unittest.TestCase):
         process = subprocess.Popen(command, env=env, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, start_new_session=True)
         try:
-            # Each inert probe starts a Python recorder; slow hosts need a
-            # bounded orchestration allowance distinct from product timeouts.
-            stdout, stderr = process.communicate(timeout=60)
+            stdout, stderr = process.communicate(timeout=20)
         except subprocess.TimeoutExpired:
             # A fixture deadline must also stop its inherited watcher/children.
             os.killpg(process.pid, signal.SIGTERM)
@@ -577,9 +585,7 @@ class WiringTests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1 and sys.argv[1] == '--record':
-        record(sys.argv[2], sys.argv[3:])
-    elif len(sys.argv) > 1 and sys.argv[1] == '--report-post':
+    if len(sys.argv) > 1 and sys.argv[1] == '--report-post':
         report_post(sys.argv[2:])
     elif len(sys.argv) > 1 and sys.argv[1] == '--assemble':
         assemble()

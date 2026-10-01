@@ -740,9 +740,7 @@ async fn websocket_challenges_are_connection_bound_and_sessions_expire(pool: PgP
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifacts(
-    pool: PgPool,
-) -> Result<()> {
+async fn panel_never_serves_agent_binaries_even_with_a_live_token(pool: PgPool) -> Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     let panel = TestPanel::start(pool).await?;
     let cookie = panel.admin_cookie().await?;
@@ -784,10 +782,8 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
         .get(&bootstrap_url)
         .query(&[("token", &token)])
         .send()
-        .await?
-        .error_for_status()?;
-    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
-    assert_eq!(response.bytes().await?.as_ref(), binary);
+        .await?;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
 
     let install = panel
         .client
@@ -795,7 +791,60 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
         .query(&[("token", &token)])
         .send()
         .await?;
-    assert_eq!(install.status(), StatusCode::CONFLICT);
+    assert_eq!(install.status(), StatusCode::OK);
+    assert_eq!(install.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(install.headers()[header::CONTENT_TYPE], "application/json");
+    let installation: Value = install.json().await?;
+    assert_eq!(installation["version"], version);
+    assert_eq!(
+        installation["bootstrap_url"],
+        sinan_panel::installation::bootstrap_url()
+    );
+    let install_command = installation["install_command"].as_str().unwrap();
+    assert!(install_command.contains("https://api.github.com/repos/theLucius7/sinan/git/blobs/"));
+    assert!(install_command.contains("sha256sum -c"));
+    assert!(!install_command.contains("sudo sinan-bootstrap"));
+    assert_eq!(
+        panel
+            .client
+            .get(format!("{}/install.sh", panel.base))
+            .query(&[("token", token.as_str()), ("agent_version", "99.0.0")])
+            .send()
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let issued: Value = panel
+        .client
+        .post(format!("{}/api/servers/{server_id}/enrollment", panel.base))
+        .header(header::COOKIE, &cookie)
+        .header(header::ORIGIN, &panel.base)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert!(
+        issued["install_command"]
+            .as_str()
+            .unwrap()
+            .contains(issued["installation"]["bootstrap_url"].as_str().unwrap())
+    );
+    assert_eq!(
+        issued["install_command"],
+        issued["installation"]["install_command"]
+    );
+    let missing = panel
+        .client
+        .get(format!("{}/api/bootstrap/99.0.0/arm64", panel.base))
+        .query(&[("token", &token)])
+        .send()
+        .await?;
+    assert_eq!(missing.status(), StatusCode::CONFLICT);
+    let missing: Value = missing.json().await?;
+    let message = missing["error"].as_str().unwrap();
+    assert!(message.contains("GitHub"));
+    assert!(message.contains("面板不再提供"));
     assert_eq!(
         panel
             .client
@@ -807,7 +856,7 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
             .send()
             .await?
             .status(),
-        StatusCode::NOT_FOUND
+        StatusCode::CONFLICT
     );
     assert_eq!(
         panel
@@ -896,8 +945,120 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
         ))
         .bearer_auth(&ack.session_token)
         .send()
+        .await?;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn installation_requires_signed_preloaded_contract_and_uses_server_mirror(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let server_id = panel
+        .create_server(&cookie, "Signed installer compatibility")
+        .await?;
+    let token = panel.token(&cookie, server_id).await?;
+    let binary = b"TEST ONLY Agent bytes never executed";
+    let artifact = release_fixture::write(
+        &panel.directory,
+        "agent",
+        "0.3.0",
+        "sinan-agent",
+        binary,
+        binary,
+        "raw",
+    )?;
+    let release = panel.directory.join("artifacts/releases/agent-v0.3.0");
+    let marker = b"# SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1";
+    for installer in [
+        b"#!/bin/sh\nexit 0\n".to_vec(),
+        [marker.as_slice(), b"\n", marker.as_slice(), b"\n"].concat(),
+    ] {
+        release_fixture::replace_signed_installer(&release, &installer)?;
+        let response = panel
+            .client
+            .get(format!("{}/install.sh", panel.base))
+            .query(&[("token", &token)])
+            .send()
+            .await?;
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let issued: Value = panel
+            .client
+            .post(format!("{}/api/servers/{server_id}/enrollment", panel.base))
+            .header(header::COOKIE, &cookie)
+            .header(header::ORIGIN, &panel.base)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        assert!(issued["install_command"].is_null());
+        assert!(issued["warning"].as_str().unwrap().contains("预下载"));
+    }
+    let installer = [b"#!/bin/sh\n".as_slice(), marker.as_slice(), b"\nexit 0\n"].concat();
+    release_fixture::replace_signed_installer(&release, &installer)?;
+    // GitHub Agent downloads use signed metadata rather than a local payload.
+    for arch in ["amd64", "arm64"] {
+        std::fs::remove_file(artifact.join(arch))?;
+    }
+    sqlx::query("UPDATE servers SET asset_settings = jsonb_set(asset_settings, '{agent_mirror}', to_jsonb($2::text)) WHERE id = $1")
+        .bind(server_id).bind("https://mirror.example.com").execute(&panel.state.pool).await?;
+    let response = panel
+        .client
+        .get(format!("{}/install.sh", panel.base))
+        .query(&[("token", &token)])
+        .send()
         .await?
         .error_for_status()?;
-    assert_eq!(response.bytes().await?.as_ref(), binary);
+    let installation: Value = response.json().await?;
+    let command = installation["install_command"].as_str().unwrap();
+    assert!(command.contains("--mirror"));
+    assert!(command.contains("https://mirror.example.com"));
+    std::fs::write(
+        release.join("install.sh"),
+        [installer, b"tampered".to_vec()].concat(),
+    )?;
+    assert_eq!(
+        panel
+            .client
+            .get(format!("{}/install.sh", panel.base))
+            .query(&[("token", &token)])
+            .send()
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    // Signed but incompatible Agent identities must not produce a command.
+    let wrong_version =
+        release_support::entry("agent", "0.3.1", "sinan-agent", "raw", binary, binary);
+    let mut non_linux =
+        release_support::entry("agent", "0.3.0", "sinan-agent", "raw", binary, binary);
+    non_linux.arch = "macos-arm64".into();
+    non_linux.asset_name = sinan_protocol::release::canonical_asset_name(&non_linux)?;
+    let wrong_name =
+        release_support::entry("agent", "0.3.0", "another-binary", "raw", binary, binary);
+    let archive = release_fixture::archive("sinan-agent", binary)?;
+    let wrong_format =
+        release_support::entry("agent", "0.3.0", "sinan-agent", "tar.gz", &archive, binary);
+    for entry in [wrong_version, non_linux, wrong_name, wrong_format] {
+        let bytes = if entry.format == "tar.gz" {
+            archive.clone()
+        } else {
+            binary.to_vec()
+        };
+        release_fixture::write_entries(&panel.directory, vec![(entry, bytes)])?;
+        assert_eq!(
+            panel
+                .client
+                .get(format!("{}/install.sh", panel.base))
+                .query(&[("token", &token)])
+                .send()
+                .await?
+                .status(),
+            StatusCode::CONFLICT
+        );
+    }
     Ok(())
 }

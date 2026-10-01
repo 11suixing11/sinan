@@ -36,7 +36,8 @@ const origin = `http://127.0.0.1:${server.address().port}`;
  reports.push({id:'legacy-node-history',status:'succeeded',agent_completed:true,job:{options:{}},report:{text:'LEGACY_MISSING_PLUGIN_MUST_NOT_SHOW'}});
  await page.route('**/api/**',async route=>{
  const req=route.request(),path=new URL(req.url()).pathname;let data={};
- if(path==='/api/me') data={authenticated:true};
+ if(path==='/api/dashboard/access') data={authenticated:true,public_dashboard:false};
+ else if(path==='/api/me') data={authenticated:true};
  else if(path==='/api/servers/1')data={id:1,name:'TCP 验收节点',static_info:{},online:true};
  else if(path==='/api/servers/1/diagnostics'){if(diagnosticFailure){await route.fulfill({status:403,json:{error:'DIAGNOSTICS_DENIED_FIXTURE'}});return;}data={cancel_supported:true,plugins:[{plugin:'tcpquality',title:'TCP',version:'fixture',ready,reason:ready?null:'Agent 当前离线'}],reports};}
  else if(path==='/api/plugins/tcpquality/servers/1/targets'){ if(targetFailure){await route.fulfill({status:403,json:{error:'TARGETS_DENIED_FIXTURE'}});return;}data=[target];}

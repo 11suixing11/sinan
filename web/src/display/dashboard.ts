@@ -27,8 +27,8 @@ export function dashboardCounts(servers: Server[]) {
   return {
     all: servers.length,
     online: servers.filter(server => server.online).length,
-    offline: servers.filter(server => !server.online && Boolean(server.device_public_key)).length,
-    pending: servers.filter(server => !server.online && !server.device_public_key).length,
+    offline: servers.filter(server => !server.online && (server.registered ?? Boolean(server.device_public_key))).length,
+    pending: servers.filter(server => !server.online && !(server.registered ?? Boolean(server.device_public_key))).length,
     stale: servers.filter(server => server.online && !fresh(server)).length,
   }
 }
@@ -43,7 +43,7 @@ function metric(server: Server, sort: DashboardSort, unavailable: boolean): numb
 }
 
 export function attention(server: Server): number {
-  if (!server.online) return server.device_public_key ? 3 : 1
+  if (!server.online) return (server.registered ?? Boolean(server.device_public_key)) ? 3 : 1
   if (!fresh(server)) return 2
   const metrics = server.latest_metrics
   return [number(metrics.cpu_percent), ratio(metrics.memory_used, server.static_info.memory_total), ratio(metrics.disk_used, server.static_info.disk_total)]

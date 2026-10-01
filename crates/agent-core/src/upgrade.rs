@@ -130,7 +130,9 @@ async fn check_guarded(
         root.join("update-state.json").is_file(),
         "automatic updates require the installed Agent supervisor"
     );
-    let release: Option<AgentRelease> = client.get_json("/api/agent/v1/update").await?;
+    let release: Option<AgentRelease> = client
+        .get_json("/api/agent/v1/update?download_source=github")
+        .await?;
     active()?;
     let Some(release) = release else {
         return Ok(());
@@ -144,7 +146,11 @@ async fn check_guarded(
         return Ok(());
     }
     let bytes = client
-        .agent_binary(&release.artifact, &release.version)
+        .agent_binary(
+            &release.artifact,
+            &release.version,
+            &release.download_mirror,
+        )
         .await?;
     active()?;
     ensure!(
