@@ -126,15 +126,29 @@ pub async fn update(
     if spec.id != id || !spec.valid() {
         return Err(ApiError::BadRequest("拨测配置无效".into()));
     }
-    let result = sqlx::query("UPDATE network_probes SET spec=$3 WHERE server_id=$1 AND id=$2")
+    let mut tx = state.pool.begin().await?;
+    let previous: serde_json::Value = sqlx::query_scalar(
+        "SELECT spec FROM network_probes WHERE server_id=$1 AND id=$2 FOR UPDATE",
+    )
+    .bind(server)
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    let previous: ProbeSpec = serde_json::from_value(previous).map_err(anyhow::Error::from)?;
+    // Samples and offline retries identify their destination only by this immutable ID.
+    if spec.kind != previous.kind || spec.target != previous.target || spec.port != previous.port {
+        return Err(ApiError::Conflict(
+            "拨测方式、目标地址和端口创建后不可修改；请新建拨测目标以保留历史归属".into(),
+        ));
+    }
+    sqlx::query("UPDATE network_probes SET spec=$3 WHERE server_id=$1 AND id=$2")
         .bind(server)
         .bind(id)
         .bind(serde_json::to_value(&spec).map_err(anyhow::Error::from)?)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await?;
-    if result.rows_affected() == 0 {
-        return Err(ApiError::NotFound);
-    }
+    tx.commit().await?;
     Ok(Json(spec))
 }
 
