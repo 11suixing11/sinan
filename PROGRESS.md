@@ -917,3 +917,5 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 包含最新主线 swap 保护及 Windows 兼容补修的本地输入 `aa5ab3e`，在 macOS ARM64 使用公开 TEST_ONLY 信任根和专用回环 PostgreSQL 执行完整 Rust workspace 全 targets 回归：389 通过、0 失败、10 项既有实机条件忽略；新增名称去重 helper 与 Unix Collector 回归在本机执行。workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁及额外 macOS `umask 077` 真实软链接权限专项通过。专用 PostgreSQL 已停止；此结果不代替 Linux 条件用例或 Windows 原生验收，最终文档回填不改变受测 Rust 输入。
 - 使用相同构建的 Collector 做只读采样：宿主仅保留 `/`、`/boot`、`/boot/efi`，总量 `541018241536` bytes（503.863 GiB），逐字节等于 `df -B1 --output=size` 之和，已用等于逐盘已用之和。另建无目录卷的临时 Debian 12 容器，旧名称累加结果 `1079556669440` bytes，修复后仅 `/` 为 `539778334720` bytes；容器退出 0、无 OOM，采样后已删除。
 - 未重跑完整 workspace、面板浏览器或非 Linux 原生实机；未推断容器额外目录卷与不可见 overlay 后端的物理归属。遵循临时约定保留四个 workflow 暂停并使用 `[skip ci]`，不将本地验证称作远端 CI 通过。下一步审查合入后构建并签名新版 Agent，再部署生效；本次仅提交修复 PR，线上 Agent 尚未替换。
+
+- 作者在 Windows 兼容补修前同步主线 `2605dbe` 的输入 `81374df`，另行记录 Linux core 专项 185 通过、0 失败、7 项既有实机条件忽略；fmt、core 全 targets Clippy 和分层门禁通过。此结果不代替 `aa5ab3e` 补修输入的本地完整验证；新版签名、发布与线上升级由对应任务单独记录，CI 保持暂停。
