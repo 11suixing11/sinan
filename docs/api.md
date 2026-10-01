@@ -118,7 +118,7 @@
 | `GET /api/plugins/sing-box/nodes` | 有效服务器下的节点列表 |
 | `POST /api/plugins/sing-box/nodes` | `{"name":"节点名称","server_id":1,"public_host":"node.example.com","sni":"www.example.com","port":443}`；`port` 可省略 |
 | `GET /api/plugins/sing-box/nodes/{id}` | 节点详情 |
-| `PATCH /api/plugins/sing-box/nodes/{id}` | 可选 `name`、`public_host`、`sni`、`port`，至少一个字段；省略 `port` 保留现值 |
+| `PATCH /api/plugins/sing-box/nodes/{id}` | 可选 `name`、`public_host`、`sni`、`port`、`protocol_config`、`enabled`、`settings`，至少一个字段；省略字段保留现值 |
 | `DELETE /api/plugins/sing-box/nodes/{id}` | 删除节点及现有授权，并安排重新发布 |
 
 节点对象：
@@ -179,6 +179,28 @@
 
 ## 自动发布与部署状态
 
+节点 POST/PATCH 新增 `enabled`（创建默认 true）与 `settings`：
+
+```json
+{
+  "enabled": true,
+  "settings": {
+    "listen": "::",
+    "public_port": 443,
+    "tcp_fast_open": false,
+    "tls_alpn": [],
+    "hysteria2": {
+      "up_mbps": 80,
+      "down_mbps": 40,
+      "ignore_client_bandwidth": false,
+      "obfs_enabled": true
+    }
+  }
+}
+```
+
+上例用于 HY2 节点。公共字段省略保留，`public_port:null` 恢复跟随监听端口；协议设置组省略保留，提供组时组内未提供项恢复该组默认值。仅 `hysteria2.obfs_password` 在启用混淆且省略/空字符串时保留原密码，没有原值则自动生成；`obfs_enabled:false` 清除。管理响应只含 `obfs_enabled`，不回显密码。未知字段、不匹配协议、非法端口/IP/ALPN/带宽/超时会原子拒绝。Reality、TUIC、AnyTLS 的字段与范围见[协议设置](proxy-protocols.md#节点连接与高级设置)和编译器 `NodeSettings`；旧 API 不传这些字段保持兼容。
+
 影响配置或订阅投影的节点、用户或授权变更在同一个数据库事务中更新对应服务器的 `dirty_at`；仅重置订阅令牌和字段未变的节点 PATCH 不触发发布。发布任务每秒检查一次，在最后一次变更后等待完整 5 秒，然后编译该服务器的完整快照。`dirty_at` 内部使用 Unix 毫秒，重启面板不会丢失待发布状态。新变更会重新开始合并窗口。
 
 原生配置及包序列化结果确定；包 SHA-256 与最新发布版本相同则不增加版本号。节点名称、公开地址等仅影响客户端的元数据，在这一情况下更新原版本的订阅快照。配置内容变化时增加服务器版本、保存完整包和模型快照，再通知 Agent 拉取。只有事务提交后才发送通知；通知丢失由设备心跳和重新对账恢复。
@@ -204,6 +226,8 @@
 
 从未发布时 `status` 为 `null`、`history` 为空。历史按版本倒序，最多 100 条，仅包含元数据。`target_rev` 是最新期望版本；`applied_rev` 是已知成功应用的版本；`last_result_rev` 是最后接受的应用结果版本；`healthy` 表示设备报告当前配置是否健康。失败后成功回滚时可以同时出现 `healthy=true` 和 `last_error`，界面应保留失败提示及当前实际版本。
 
+响应还含 `pending`（存在尚未发布的修改）、`enabled_nodes` 与 `authorized_nodes`（当前有有效授权的节点数）。管理员 `POST /api/plugins/sing-box/servers/{id}/deployments/check` 无请求体，返回 `{ready,checks:[{name,passed,detail}]}`，检查设备接入、60 秒在线、插件能力及现有平台选择规则下的签名运行时。只读检查不会安装、发布或重启；归档验签不随每次状态轮询执行。缺少制品返回检查未通过，内部验证错误不泄露密钥和路径。
+
 较旧的应用结果不能覆盖较新结果。认证设备在 hello/heartbeat 中报告已发布且高于面板记录的已应用版本时，面板补齐成功状态，以恢复应用成功但回报丢失的场景；最近目标版本的错误说明仍保留。
 
 ## 订阅
@@ -212,10 +236,24 @@
 
 - `GET /sub/{token}` 或 `?format=links`：标准 base64 编码的多行 `vless://` 分享链接，`text/plain`。
 - `GET /sub/{token}?format=singbox`：可导入的 sing-box JSON，包含本地混合代理入口、选择器及用户有权使用的节点。
+- 两种格式可附加 `download=true`，以固定 `sinan-用户ID.json` / `.txt` 文件名下载；响应含 `Referrer-Policy: no-referrer`。
 
 响应带 `Cache-Control: no-store`。订阅从服务器已应用且健康的版本快照生成，再与当前有效用户、节点和授权 UUID 取交集。待应用的新配置、其他用户 UUID、服务端私钥不会出现在订阅中。撤销授权立即从订阅移除；重新授权的新 UUID 要等相应版本成功应用后出现。只修改名称或公开地址且原生包不变时，合并窗口后无需等待一次空部署即可更新订阅元数据。
 
 无可用节点时 links 返回空文本，singbox 返回 409 和中文说明；删除用户或重置订阅链接后，旧令牌返回 404。不支持的格式返回 400。
+
+管理员 `GET /api/plugins/sing-box/users/{id}/subscription?format=singbox` 默认完整 JSON，复用上述同一快照与授权检查。返回 `{format,status,message,available_formats,granted_nodes,eligible_nodes,ready_nodes,content,filename,content_type,entitlement,subscription_url}`：
+
+- `status` 为 `ready`、`empty`、`blocked` 或 `format_unavailable`；后三种仍返回 200 以供界面解释状态，`content` 为 null。
+- `granted_nodes` 是当前未删除的授权投影数量；`eligible_nodes` 是套餐/启停资格有效且链路依赖符合条件的数量；`ready_nodes` 为最终快照交集的 `{id,name,protocol}`，不含内部链路秘密或其他用户凭据。
+- `entitlement` 复用套餐状态，额度/用量以十进制字符串返回。`subscription_url` 是本次事务读取的当前令牌地址，重置后重新获取即可更新。
+- `content` 在成功时为完整配置或 base64 分享链接字符串。禁止缓存，界面仅显式预览，复制/下载重新读取；不调用第三方转换服务。
+
+## 后台统计
+
+管理员 `GET /api/statistics?days=7` 返回服务器数量、网卡 `traffic` 汇总、逐日 `points` 和 `by_server` 前 8 排行；`GET /api/plugins/sing-box/statistics?days=7` 返回代理节点/用户数量、独立代理 `traffic`、`points`、`by_node` / `by_user` 前 8 排行。`days` 仅支持 7/30；未知查询字段拒绝。公开看板开关不会开放这些接口。
+
+流量以十进制字符串返回，没有记录用 null，真实零用 `"0"`；日期为 UTC 日起点。服务器统计排除删除服务器、包含隐藏服务器，并按当前选定网卡汇总原始日观测；不包含账单流量矫正。代理按批次结束日汇总并保留删除对象历史。完整口径见[统计仪表盘](statistics.md)。
 
 ## 流量与制品
 

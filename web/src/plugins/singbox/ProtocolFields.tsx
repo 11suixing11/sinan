@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Field } from '../../components'
 import type { Node } from '../../types'
+import ProtocolSettings from './NodeSettingsFields'
 
 export const protocolNames: Record<string, string> = {
   'vless-reality': 'VLESS + Reality', hysteria2: 'Hysteria2', shadowsocks2022: 'Shadowsocks 2022',
@@ -28,7 +29,7 @@ export default function ProtocolFields({ node }: { node: Node | 'new' }) {
   const reality = protocol === 'vless-reality'
   return <>
     <Field label="代理协议" hint={existing ? '协议创建后不可更改。需要更换协议时请创建新节点。' : '所有协议均支持完整 sing-box 配置订阅。'}>
-      <select value={protocol} disabled={Boolean(existing)} onChange={event => setProtocol(event.target.value)}>{Object.entries(protocolNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+      <select aria-label="代理协议" value={protocol} disabled={Boolean(existing)} onChange={event => setProtocol(event.target.value)}>{Object.entries(protocolNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
       <input type="hidden" name="protocol" value={protocol} />
     </Field>
     {protocol === 'shadowsocks2022' && <Field label="加密方法" hint="节点密钥和每个授权的密钥自动生成。加密方法创建后不可更改。">
@@ -49,6 +50,7 @@ export default function ProtocolFields({ node }: { node: Node | 'new' }) {
         <Field label="PEM 私钥" hint="私钥仅用于服务器配置，保存后不会回显，也不会出现在客户端订阅中。"><textarea name="key" rows={5} maxLength={16384} required={tls?.mode !== 'manual'} autoComplete="off" spellCheck={false} placeholder="-----BEGIN PRIVATE KEY-----" /></Field>
       </>}
     </>}
+    <ProtocolSettings key={protocol} protocol={protocol} node={node} />
     <p className="helper">{reality ? 'Reality 密钥和 short ID 自动生成。' : protocol === 'snell-v6' ? '使用 Snell v6 多用户模式，节点与授权密钥自动生成。客户端需支持 Snell v6。' : '授权凭据自动生成。新增协议请使用 sing-box 配置订阅；Naive 客户端需带 Naive 支持。'}{['hysteria2', 'tuic'].includes(protocol) ? ' 此协议使用 UDP，请确保节点的 UDP 端口可达。' : protocol === 'shadowsocks2022' ? ' 节点使用 TCP 和 UDP。' : ' 节点使用 TCP。'}</p>
   </>
 }

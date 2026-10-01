@@ -16,7 +16,19 @@ pub fn bootstrap_url() -> String {
 }
 
 fn quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
+    // PowerShell treats smart single quotes as delimiters too, at both payload levels.
+    let mut literal = String::from("'");
+    for character in value.chars() {
+        if matches!(
+            character,
+            '\'' | '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}'
+        ) {
+            literal.push(character);
+        }
+        literal.push(character);
+    }
+    literal.push('\'');
+    literal
 }
 
 fn encoded(value: &str) -> String {
@@ -143,5 +155,45 @@ mod tests {
         assert!(wrapper.find("Get-FileHash").unwrap() < wrapper.find("& $s -Version").unwrap());
         assert!(command.len() < 32767);
         assert!(BOOTSTRAP.len() <= 262144);
+    }
+
+    #[test]
+    fn windows_launcher_quotes_every_single_quote_delimiter_in_mirror_paths() {
+        for character in ['\'', '\u{2018}', '\u{2019}', '\u{201a}', '\u{201b}'] {
+            let value = format!(
+                "https://mirror.example.com/{character};[Environment]::Exit(61);{character}tail"
+            );
+            let settings = crate::server_assets::AssetSettings {
+                agent_mirror: value.clone(),
+                ..Default::default()
+            }
+            .normalized()
+            .unwrap();
+            assert_eq!(settings.agent_mirror, value);
+            let doubled = value.replace(character, &format!("{character}{character}"));
+            assert_eq!(quote(&value), format!("'{doubled}'"));
+            let command = command_with_mirror(
+                "latest",
+                "https://panel.example.com",
+                "fixture",
+                "auto",
+                &value,
+            );
+            let wrapper = decode(command.split_whitespace().last().unwrap());
+            let quoted_argument = quote(&value);
+            let outer_literal = quote(&quoted_argument);
+            assert!(wrapper.contains(&outer_literal[1..outer_literal.len() - 1]));
+            assert!(command.len() < 32767);
+        }
+        let mirror = format!("https://mirror.example.com/{}", "\u{2019}".repeat(160));
+        assert!(mirror.len() <= 512);
+        let command = command_with_mirror(
+            "latest",
+            "https://panel.example.com",
+            "fixture",
+            "auto",
+            &mirror,
+        );
+        assert!(command.len() < 32767);
     }
 }

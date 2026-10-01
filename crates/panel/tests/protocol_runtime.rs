@@ -221,6 +221,8 @@ async fn all_protocols_authenticate_account_and_revoke_with_real_runtime() -> Re
     ] {
         let kind = protocol.kind();
         let mut node = Node {
+            enabled: true,
+            settings: Default::default(),
             id: 3,
             name: kind.into(),
             port: port().await?,

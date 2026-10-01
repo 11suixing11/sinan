@@ -4,6 +4,7 @@
 /.local/
 /.env
 /data/
+/backups/
 /artifacts/
 /.ci-artifacts/
 /.ci-binaries/

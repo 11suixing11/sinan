@@ -13,6 +13,8 @@ use uuid::Uuid;
 
 fn node(id: i64, users: Vec<Access>) -> Node {
     Node {
+        enabled: true,
+        settings: Default::default(),
         id,
         name: format!("node-{id}"),
         port: 443,
@@ -27,6 +29,7 @@ fn node(id: i64, users: Vec<Access>) -> Node {
 }
 fn relay(id: i64) -> Relay {
     Relay {
+        fingerprint: Default::default(),
         chain_id: id,
         entry_node_id: 1,
         exit_node_id: 2,
