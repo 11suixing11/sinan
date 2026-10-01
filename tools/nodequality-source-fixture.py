@@ -25,7 +25,24 @@ def inert_source(name, policy):
         if name == 'net.sh':
             source += policy.NET_OUTPUT
         source += policy.SOURCES[name]['original_guard'] + b'}\n'
-    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+
+
+def ranking_anchors(name):
+    if name != 'hardware.sh':
+        return b''
+    policy = module('fixture_ranking_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/ranking-policy.py')
+    # These anchors stay inside an uncalled heredoc; no script runs here.
+    return b"fixture_unused_ranking(){\ncat <<'SINAN_FIXTURE_RANKING'\n" + b''.join(a for a, _ in policy.REPLACEMENTS) + b'SINAN_FIXTURE_RANKING\n}\n'
+
+
+def undo_ranking(role, patched):
+    if role != 'hardware.sh':
+        return patched
+    policy = module('fixture_undo_ranking', Path(__file__).resolve().parents[1] / 'plugins/nodequality/ranking-policy.py')
+    for before, after in reversed(policy.REPLACEMENTS):
+        patched = replace_once(patched, after, before)
+    return patched
 
 
 def loader_anchors(name, existing=b''):
@@ -169,5 +186,17 @@ def prepare_policy(plugin, contents):
         content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
         outputs[role] = patched
     loader_path.write_bytes(content)
+    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
+    ranking_path = Path(plugin) / 'ranking-policy.py'
+    ranking = module('synthetic_ranking_policy_input', ranking_path)
+    content = ranking_path.read_bytes()
+    original_hash = hashlib.sha256(content).hexdigest().encode()
+    for role, spec in ranking.SOURCES.items():
+        canonical = outputs[role]
+        patched = ranking.patch(canonical)
+        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
+        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
+        outputs[role] = patched
+    ranking_path.write_bytes(content)
     helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
     return outputs
