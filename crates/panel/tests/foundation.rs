@@ -740,16 +740,13 @@ async fn websocket_challenges_are_connection_bound_and_sessions_expire(pool: PgP
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifacts(
-    pool: PgPool,
-) -> Result<()> {
+async fn panel_never_serves_agent_binaries_even_with_a_live_token(pool: PgPool) -> Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     let panel = TestPanel::start(pool).await?;
     let cookie = panel.admin_cookie().await?;
     let server_id = panel.create_server(&cookie, "Bootstrap device").await?;
     let token = panel.token(&cookie, server_id).await?;
     let binary = b"test-agent-artifact";
-    let hash = format!("{:x}", Sha256::digest(binary));
     let artifact_dir = release_fixture::write(
         &panel.directory,
         "agent",
@@ -784,10 +781,8 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
         .get(&bootstrap_url)
         .query(&[("token", &token)])
         .send()
-        .await?
-        .error_for_status()?;
-    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
-    assert_eq!(response.bytes().await?.as_ref(), binary);
+        .await?;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
 
     let install = panel
         .client
@@ -851,8 +846,7 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
     assert_eq!(missing.status(), StatusCode::CONFLICT);
     let missing: Value = missing.json().await?;
     let message = missing["error"].as_str().unwrap();
-    assert!(message.contains("arm64"));
-    assert!(message.contains("制品页导入"));
+    assert!(message.contains("GitHub"));
     assert_eq!(
         panel
             .client
@@ -864,7 +858,7 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
             .send()
             .await?
             .status(),
-        StatusCode::NOT_FOUND
+        StatusCode::CONFLICT
     );
     assert_eq!(
         panel
@@ -880,30 +874,6 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
         StatusCode::UNAUTHORIZED
     );
 
-    #[cfg(unix)]
-    {
-        let outside = panel.directory.join("outside-artifact-root");
-        std::fs::write(&outside, binary)?;
-        std::fs::remove_file(artifact_dir.join("arm64"))?;
-        std::os::unix::fs::symlink(&outside, artifact_dir.join("arm64"))?;
-        std::fs::write(
-            artifact_dir.join("SHA256SUMS"),
-            format!("{hash}  amd64\n{hash}  arm64\n"),
-        )?;
-        assert_eq!(
-            panel
-                .client
-                .get(format!("{}/api/bootstrap/{version}/arm64", panel.base))
-                .query(&[("token", &token)])
-                .send()
-                .await?
-                .status(),
-            StatusCode::CONFLICT
-        );
-        std::fs::remove_file(artifact_dir.join("arm64"))?;
-        std::fs::write(artifact_dir.join("arm64"), binary)?;
-    }
-
     std::fs::write(artifact_dir.join("amd64"), b"corrupted-test-artifact")?;
     let catalogue: Value = panel
         .client
@@ -916,7 +886,7 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
         .await?;
     assert_eq!(catalogue["versions"][0]["targets"], json!(["amd64"]));
     assert_eq!(catalogue["versions"][0]["cached_targets"], json!([]));
-    // A malformed proof must fail before any on-demand network download begins.
+    // The catalogue must still reject tampering with its complete signed proof.
     let metadata = artifact_dir
         .parent()
         .context("component directory")?
@@ -928,7 +898,7 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
     assert_eq!(
         panel
             .client
-            .get(&bootstrap_url)
+            .get(format!("{}/api/bootstrap/versions", panel.base))
             .query(&[("token", &token)])
             .send()
             .await?
@@ -974,9 +944,8 @@ async fn bootstrap_downloads_require_live_tokens_and_verified_contained_artifact
         ))
         .bearer_auth(&ack.session_token)
         .send()
-        .await?
-        .error_for_status()?;
-    assert_eq!(response.bytes().await?.as_ref(), binary);
+        .await?;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
     Ok(())
 }
 

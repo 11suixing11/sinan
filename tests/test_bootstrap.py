@@ -64,6 +64,11 @@ class BootstrapTests(unittest.TestCase):
             with self.subTest(actual=actual, requested=requested), self.assertRaises(ValueError):
                 bootstrap.compatible_targets(actual, requested)
 
+    def test_native_selection_rejects_prerelease_before_enrollment(self):
+        for actual in ("macos-arm64", "freebsd-amd64"):
+            with self.subTest(target=actual), self.assertRaises(bootstrap.IncompatibleRelease):
+                bootstrap.select_artifact({}, "0.3.0-rc.1", actual)
+
     def test_signed_selection_requires_real_platform_version_and_protocol(self):
         metadata = {"tag": "agent-v0.3.0", "protocol_min": 1, "protocol_max": 2, "artifacts": [
             {"name": "agent", "version": "0.3.0", "arch": "linux-gnu-arm64", "format": "raw",
@@ -92,23 +97,44 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual([item["version"] for item in candidates], ["0.10.0", "0.9.0"])
         self.assertEqual(opener.return_value.open.call_args.args[0], url)
 
-    def test_agent_download_is_bounded_same_origin_and_rejects_tampering_before_execution(self):
+    def test_agent_download_is_bounded_github_only_and_rejects_tampering_before_execution(self):
         item = {"version": "0.3.0", "arch": "freebsd-arm64", "archive_size": 3,
+                "binary_size": 3, "format": "raw", "asset_name": "agent-0.3.0-freebsd-arm64",
                 "binary_sha256": release.digest(b"raw")}
-        url = "https://panel.example.com/api/bootstrap/0.3.0/freebsd-arm64?token=fixture"
+        url = "https://github.com/theLucius7/sinan/releases/download/agent-v0.3.0/agent-0.3.0-freebsd-arm64"
         with tempfile.TemporaryDirectory() as directory:
-            for data, response_url in ((b"evil", url), (b"bad", url), (b"raw", "https://elsewhere.example.com")):
+            for data, response_url in ((b"evil", url), (b"bad", url), (b"raw", "https://panel.example.com/agent")):
                 target = Path(directory) / "agent"
-                with self.subTest(data=data), patch.object(bootstrap, "panel_opener") as opener:
+                with self.subTest(data=data), patch.object(bootstrap, "github_opener") as opener, \
+                        patch.object(bootstrap, "panel_opener") as panel:
                     opener.return_value.open.return_value = Response(data, response_url)
                     with self.assertRaises(ValueError):
-                        bootstrap.download_agent("https://panel.example.com", "fixture", item, target)
+                        bootstrap.download_agent(item, target)
                     self.assertFalse(target.exists())
+                    panel.assert_not_called()
             target = Path(directory) / "valid"
-            with patch.object(bootstrap, "panel_opener") as opener:
+            with patch.object(bootstrap, "github_opener") as opener:
                 opener.return_value.open.return_value = Response(b"raw", url)
-                bootstrap.download_agent("https://panel.example.com", "fixture", item, target)
+                bootstrap.download_agent(item, target)
+                self.assertEqual(opener.return_value.open.call_args.args[0], url)
+                self.assertNotIn("token", opener.return_value.open.call_args.args[0])
             self.assertEqual(target.read_bytes(), b"raw")
+            mirror = "https://mirror.example.com"
+            with patch.object(bootstrap, "github_opener") as opener:
+                opener.return_value.open.return_value = Response(b"raw", mirror + "/" + url)
+                bootstrap.download_agent(item, Path(directory) / "mirrored", mirror)
+                self.assertEqual(opener.return_value.open.call_args.args[0], mirror + "/" + url)
+                self.assertEqual(opener.call_args.args, (mirror,))
+            offline = Path(directory) / "offline"
+            offline.mkdir()
+            (offline / item["asset_name"]).write_bytes(b"raw")
+            with patch.object(bootstrap, "github_opener") as opener:
+                bootstrap.download_agent(item, Path(directory) / "copied", release_dir=offline)
+                opener.assert_not_called()
+            (offline / item["asset_name"]).write_bytes(b"bad")
+            with self.assertRaises(ValueError):
+                bootstrap.download_agent(item, Path(directory) / "rejected", release_dir=offline)
+            self.assertFalse((Path(directory) / "rejected").exists())
 
     def test_native_preflight_rejects_download_and_cached_state_before_enrollment(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -145,7 +171,7 @@ class BootstrapTests(unittest.TestCase):
                 if "install-service" in arguments and Path(agent) == bundle / "sinan-agent":
                     raise ValueError("TEST ONLY activation failure")
 
-            def download(_panel, _token, _item, target):
+            def download(_item, target, _mirror, _release_dir):
                 target.write_bytes(b"TEST ONLY already independently validated new Agent")
 
             with patch.object(bootstrap, "download_agent", side_effect=download), \
@@ -189,7 +215,7 @@ class BootstrapTests(unittest.TestCase):
                     raise ValueError("TEST ONLY enrollment HTTP failure")
                 configuration.write_text('panel_url="https://panel.example.com"\n')
 
-            def download(_panel, _token, _item, target):
+            def download(_item, target, _mirror, _release_dir):
                 target.write_bytes(b"TEST ONLY already independently validated new Agent")
 
             with patch.object(bootstrap, "download_agent", side_effect=download), \
@@ -222,6 +248,27 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual((ROOT / "deploy/bootstrap.sh").read_text(), RENDER.render())
         with self.assertRaises(ValueError):
             RENDER.render(trusted_keys=FIXTURES / "public-keys.json")
+        with self.assertRaises(ValueError):
+            RENDER.render(test_installer="#!/bin/sh\nexit 0\n")
+    def test_mirror_is_explicit_https_prefix_without_panel_credentials(self):
+        base = "https://github.com/theLucius7/sinan/releases/download/agent-v0.3.1"
+        mirror = "https://mirror.example.com"
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "agent"
+            with patch.object(bootstrap, "github_opener") as opener:
+                opener.return_value.open.return_value = Response(b"signed", mirror + "/" + base + "/agent")
+                bootstrap.download(base, "agent", target, 1024, mirror)
+                self.assertEqual(opener.call_args.args, (mirror,))
+                self.assertEqual(opener.return_value.open.call_args.args, (mirror + "/" + base + "/agent",))
+                self.assertEqual(target.read_bytes(), b"signed")
+        for prefix in ("http://mirror.example.com", "https://secret@mirror.example.com", "https://127.0.0.1",
+                       "https://[::1]", "https://mirror.example.com?token=secret", "https://mirror.example.com/#fragment",
+                       "https://panel.example.com:443"):
+            with self.subTest(prefix=prefix), self.assertRaises(ValueError):
+                bootstrap.validate_mirror(prefix,"https://panel.example.com")
+        request = urllib.request.Request(mirror + "/" + base + "/agent")
+        with self.assertRaises(ValueError):
+            bootstrap.GithubRedirect(mirror).redirect_request(request,None,302,"Found",{},"https://panel.example.com/agent")
 
     def test_http_panel_is_only_allowed_for_loopback(self):
         for value in ("http://127.0.0.1:8000", "http://[::1]:8000", "http://localhost:8000",
@@ -311,7 +358,7 @@ class StandaloneBootstrapTests(unittest.TestCase):
         self.directory = Path(self.temporary.name)
         self.bundle = self.directory / "release"
         self.bundle.mkdir()
-        installer = b"#!/bin/sh\nset -eu\nprintf '%s\\n' INSTALLER_VERIFIED\n"
+        installer = b"#!/bin/sh\nset -eu\nprintf '%s\\n' RELEASE_INSTALLER_MUST_NOT_EXECUTE\n"
         (self.bundle / "install.sh").write_bytes(installer)
         binary = b"TEST ONLY Agent never executed"
         architecture = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}[platform.machine()]
@@ -321,6 +368,7 @@ class StandaloneBootstrapTests(unittest.TestCase):
                             binary_name="sinan-agent", archive_size=len(binary),
                             binary_size=len(binary), binary_sha256=release.digest(binary),
                             asset_name="agent-0.3.0-linux-musl-" + architecture)])
+        (self.bundle / metadata["artifacts"][0]["asset_name"]).write_bytes(binary)
         encoded = (json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n").encode()
         (self.bundle / "release.json").write_bytes(encoded)
         checksums = {"agent/0.3.0/" + architecture: release.digest(binary),
@@ -333,7 +381,9 @@ class StandaloneBootstrapTests(unittest.TestCase):
                                  "Sinan TEST ONLY standalone fixture"], capture_output=True)
         self.assertEqual(result.returncode, 0, "fixture signing failed")
         self.script = self.directory / "bootstrap.sh"
-        self.script.write_text(RENDER.render(trusted_keys=FIXTURES / "public-keys.json", publication=False))
+        self.script.write_text(RENDER.render(
+            trusted_keys=FIXTURES / "public-keys.json", publication=False,
+            test_installer="#!/bin/sh\nset -eu\nprintf '%s\\n' TRUSTED_INSTALLER_VERIFIED\n"))
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -347,7 +397,8 @@ class StandaloneBootstrapTests(unittest.TestCase):
     def test_standalone_bootstrap_provisions_its_own_trust_and_verifies_before_execution(self):
         result = self.run_bootstrap()
         self.assertEqual(result.returncode, 0, result.stderr.decode())
-        self.assertIn(b"INSTALLER_VERIFIED", result.stdout)
+        self.assertIn(b"TRUSTED_INSTALLER_VERIFIED", result.stdout)
+        self.assertNotIn(b"RELEASE_INSTALLER_MUST_NOT_EXECUTE", result.stdout)
 
     def test_standalone_rejects_writable_staging_before_writing_or_importing_helpers(self):
         unsafe = self.directory / "unsafe"
@@ -359,24 +410,83 @@ class StandaloneBootstrapTests(unittest.TestCase):
         result = self.run_bootstrap(script)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("root 保护".encode(), result.stderr)
-        self.assertNotIn(b"INSTALLER_VERIFIED", result.stdout)
+        self.assertNotIn(b"TRUSTED_INSTALLER_VERIFIED", result.stdout)
         self.assertEqual(list(unsafe.iterdir()), [])
 
     def test_tampered_installer_or_metadata_never_executes(self):
-        for filename in ("install.sh", "release.json"):
+        for filename in ("install.sh", "release.json", next(self.bundle.glob("agent-*" )).name):
             path = self.bundle / filename
             original = path.read_bytes()
             path.write_bytes(original + b" ")
             result = self.run_bootstrap()
             self.assertNotEqual(result.returncode, 0)
-            self.assertNotIn(b"INSTALLER_VERIFIED", result.stdout)
+            self.assertNotIn(b"TRUSTED_INSTALLER_VERIFIED", result.stdout)
             path.write_bytes(original)
 
     def test_official_roots_reject_a_release_signed_by_test_root(self):
         result = self.run_bootstrap(ROOT / "deploy/bootstrap.sh")
         self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn(b"INSTALLER_VERIFIED", result.stdout)
+        self.assertNotIn(b"TRUSTED_INSTALLER_VERIFIED", result.stdout)
         self.assertIn(b"no trusted key verifies", result.stderr)
+
+    def test_linux_static_preflight_allows_only_recoverable_same_origin_identity(self):
+        template = (ROOT / "deploy/install.sh.tmpl").read_text()
+        preflight = template.split('python3 -I - "$PANEL" <<\'PY\'\n', 1)[1].split("\nPY\n", 1)[0]
+        # Run the production preflight in a protected disposable hierarchy, without activating services.
+        harness = r'''
+import os, pathlib, sys, tempfile
+source = sys.argv[1]
+with tempfile.TemporaryDirectory(prefix='sinan-partial-fixture-', dir='/root') as fixture:
+    root = pathlib.Path(fixture)
+    source = source.replace('/etc/sinan/identity', str(root / 'identity'))
+    source = source.replace('/var/lib/sinan/core/state.db', str(root / 'state.db'))
+    source = source.replace('/opt/sinan/core/current', str(root / 'current'))
+    source = source.replace('/opt/sinan/plugins', str(root / 'plugins'))
+    sys.argv = ['trusted-preflight', 'https://panel.example.com']
+    identity = root / 'identity'
+    identity.mkdir(mode=0o700)
+    origin = identity / 'panel_origin'
+    origin.write_text('https://PANEL.example.com:443/')
+    key = identity / 'device.key'
+    def preflight(refused=False):
+        try:
+            exec(compile(source, '<actual static Linux preflight>', 'exec'), {})
+        except (SystemExit, ValueError, OSError):
+            assert refused, 'recoverable identity was rejected'
+        else:
+            assert not refused, 'unsafe partial identity was accepted'
+    preflight()
+    key.write_bytes(b'K' * 32)
+    key.chmod(0o600)
+    preflight()  # An interrupted registration keeps its original device identity on retry.
+    assert key.read_bytes() == b'K' * 32
+    server = identity / 'server_id'
+    server.write_text('123')
+    preflight()
+    key.unlink()
+    preflight(True)
+    key.write_bytes(b'K' * 32)
+    key.chmod(0o600)
+    origin.write_text('https://different.example.com')
+    preflight(True)
+    origin.write_text('https://panel.example.com')
+    unknown = identity / 'unexpected'
+    unknown.write_text('unknown state')
+    preflight(True)
+    unknown.unlink()
+    key.chmod(0o644)
+    preflight(True)
+    key.chmod(0o600)
+    state = root / 'state.db-wal'
+    state.write_bytes(b'active state')
+    preflight(True)
+    state.unlink()
+    preflight()
+    assert key.read_bytes() == b'K' * 32
+'''
+        result = subprocess.run(self.root_command + ["python3", "-I", "-c", harness, preflight],
+                                capture_output=True, check=False, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
 
 
 if __name__ == "__main__":

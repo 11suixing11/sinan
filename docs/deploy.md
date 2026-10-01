@@ -123,9 +123,9 @@ Linux musl 静态 Agent 保留原制品目录。GNU、macOS、Windows、FreeBSD 
 
 命令从官方 GitHub 固定 blob 下载自包含入口，核对 SHA-256 后才执行。Linux/FreeBSD 自动使用系统软件源准备依赖，macOS 在缺少 Python 时安装固定官方 pkg 并准备固定 minisign，Windows 自动准备本机架构 minisign。目标服务器需能访问官方 GitHub、平台依赖来源和面板；Linux 需运行中的 systemd 或 OpenRC。
 
-入口独立验证正式根、完整发布 proof 和本机兼容性。即使面板只缓存 ARM，AMD 服务器也可安装同一签名发布的 AMD Agent：有效令牌请求时面板仅按需补对应 Agent；运行时和其他架构不会因此下载。已损坏普通文件按签名恢复，软链路径拒绝。重复安装保留原设备身份，缓存预检失败时不会切换服务；令牌过期或已使用时重新生成命令。
+入口独立验证正式根、完整发布 proof 和本机兼容性。即使面板只缓存 ARM，AMD 服务器也可安装同一签名发布的 AMD Agent：入口直接从 GitHub 或服务器已配置的独立 HTTPS 镜像取对应目标，不向 GitHub/镜像发送接入令牌或设备凭据，也不因此下载运行时和其他架构。面板不提供 Agent 二进制；软链路径拒绝。重复安装保留原设备身份，缓存预检失败时不会切换服务；令牌过期或已使用时重新生成命令。
 
-首次信任来源为固定官方 HTTPS 渠道与已批准的入口公钥，不从面板下载新的发布根。`/install.sh` 和 `/install.ps1` 仅提供安装描述 JSON，不能管道执行。自建根、离线部署或需要独立预置验证器时使用下一节。决策与适用范围见 [ADR 0037](adr/0037-bootstrap-and-selective-import.md) 与 [ADR 0038](adr/0038-cross-platform-enrollment.md)。Windows/macOS/FreeBSD 入口的函数与签名测试不替代真实平台服务安装验收。
+首次信任来源为固定官方 HTTPS 渠道与已批准的入口公钥，不从面板下载新的发布根。`/install.sh` 和 `/install.ps1` 仅提供安装描述 JSON，不能管道执行。自建根、离线部署或需要独立预置验证器时使用下一节。决策与适用范围见 [ADR 0038](adr/0038-bootstrap-and-selective-import.md) 与 [ADR 0039](adr/0039-cross-platform-enrollment.md)。Windows/macOS/FreeBSD 入口的函数与签名测试不替代真实平台服务安装验收。
 
 ## 手动准备可信 bootstrap
 
@@ -137,6 +137,8 @@ Linux musl 静态 Agent 保留原制品目录。GNU、macOS、Windows、FreeBSD 
 sudo apt-get update
 sudo apt-get install -y python3 minisign ca-certificates curl coreutils passwd
 sudo install -d -m 755 /usr/local/lib/sinan /etc/sinan/trust
+python3 tools/release.py render-installer --template deploy/install.sh.tmpl --agent-unit deploy/sinan-agent.service --runtime-unit plugins/sing-box/sinan-singbox@.service --output /临时目录/trusted-install.sh
+sudo install -m 644 /临时目录/trusted-install.sh /usr/local/lib/sinan/trusted-install.sh
 sudo install -m 755 tools/bootstrap.py /usr/local/lib/sinan/bootstrap.py
 sudo install -m 644 tools/release.py /usr/local/lib/sinan/release.py
 sudo install -m 644 /已独立核对的路径/public-keys.json /etc/sinan/trust/public-keys.json
@@ -276,3 +278,9 @@ Agent 在托管应用前读取终值，再打开新计量周期；外部强制�
 IP 信息页区分一个 check-place 聚合入口和 AbuseIPDB 官方接口。要启用官方查询，在私有 `.env` 中填写自己账户的 `SINAN_ABUSEIPDB_API_KEY`，重建容器环境后生效；不要提交或粘贴密钥到面板/Issue/日志。没有密钥时不会访问该接口，页面提供不可用原因。凭据改变不删除既有快照；关闭入口后保存结果显示为历史。真实额度、授权和官方网络可达性需要单独验证，403/429 不会重试或更改 UA。
 
 官方接口固定只读 CHECK、30 天报告窗口，不请求 verbose，不包含报告人资料或上传/写入。评分保留官方原值，不等于“干净”。面板查询不能证明节点流媒体解锁，IPQuality 节点自查目前未启用，详情见 [ADR 0027](adr/0027-ip-provider-adapters.md)。
+
+## 服务器运营设置与 Agent 下载
+
+升级到包含 `0018_server_operations.sql` 的版本后，后台「看板与通知」配置公开看板、离线阈值与 Telegram。服务器新增和编辑中配置单节点告警、Agent 自动更新与 GitHub 镜像；详情可进行本期流量矫正。默认私有看板、离线阈值 5 分钟，Telegram 默认关闭。操作和计量语义见 [服务器资产与运营说明](server-assets.md)。
+
+Agent 安装与自动更新从 GitHub Release 获取已签二进制，面板只下发更新元数据，旧 Agent 下载接口不再提供文件。部署前需要使用本次源码的独立可信 bootstrap；它包含从 GitHub 下载后安装已签 Agent 的静态 Linux 执行器，可兼容旧 0.3.0 的完整签名 proof，不修改正式 Release。新平台仍需发布对应签名制品；衔接说明见 [发布与安装说明](release.md)。本次源码工作不代表已发布新 Release 或完成多平台实机升级验收，CI 暂停安排继续有效。

@@ -203,9 +203,14 @@ def install_script(origin):
     proof["checksums"] = "".join(f"{lines[path]}  {path}\n" for path in sorted(lines))
     proof["signature"] = RELEASE["sign"](proof["checksums"].encode())
     RELEASE["install"](BUNDLE, proof)
+    entry = json.loads(proof["metadata_json"])["artifacts"][0]
+    (BUNDLE / entry["asset_name"]).write_bytes(AGENT)
+    installer = TRUST_DIRECTORY / "trusted-install.sh"
+    installer.write_bytes((BUNDLE / "install.sh").read_bytes())
+    installer.chmod(0o600)
     return ["python3", str(ROOT / "tools/bootstrap.py"), "--tag", f"agent-v{AGENT_VERSION}",
             "--panel", origin, "--trusted-keys", str(TRUST_FILE),
-            "--release-dir", str(BUNDLE)]
+            "--release-dir", str(BUNDLE), "--trusted-installer", str(installer)]
 
 
 def main():
@@ -234,12 +239,7 @@ def main():
 
     class Download(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            assert self.path.startswith(f"/api/bootstrap/{AGENT_VERSION}/")
-            assert self.path.endswith(f"?token={TOKEN}")
-            self.send_response(200)
-            self.send_header("Content-Length", str(len(AGENT)))
-            self.end_headers()
-            self.wfile.write(AGENT)
+            raise AssertionError("Agent binary must never be downloaded from panel")
 
         def log_message(self, format, *args):
             pass

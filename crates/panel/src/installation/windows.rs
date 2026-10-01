@@ -28,7 +28,18 @@ fn encoded(value: &str) -> String {
     )
 }
 
+#[cfg(test)]
 pub fn command(version: &str, panel: &str, token: &str, target: &str) -> String {
+    command_with_mirror(version, panel, token, target, "")
+}
+
+pub fn command_with_mirror(
+    version: &str,
+    panel: &str,
+    token: &str,
+    target: &str,
+    mirror: &str,
+) -> String {
     let checksum = format!("{:x}", Sha256::digest(BOOTSTRAP));
     let program = format!(
         concat!(
@@ -60,7 +71,7 @@ pub fn command(version: &str, panel: &str, token: &str, target: &str) -> String 
             "Add-Type -AssemblyName System.Net.Http; $h=[Net.Http.HttpClientHandler]::new(); ",
             "$h.UseProxy=$false; $h.AllowAutoRedirect=$false; ",
             "$c=[Net.Http.HttpClient]::new($h); $c.Timeout=[TimeSpan]::FromSeconds(120); ",
-            "$c.MaxResponseContentBufferSize=262144; ",
+            "$c.MaxResponseContentBufferSize=262144; $c.DefaultRequestHeaders.UserAgent.ParseAdd('sinan-bootstrap'); ",
             "$c.DefaultRequestHeaders.Accept.ParseAdd('application/vnd.github.raw+json'); ",
             "try{{$r=$c.GetAsync({url}).GetAwaiter().GetResult(); ",
             "try{{if([int]$r.StatusCode -ne 200){{throw '可信安装器下载失败'}}; ",
@@ -69,7 +80,7 @@ pub fn command(version: &str, panel: &str, token: &str, target: &str) -> String 
             "$s=Join-Path $d 'bootstrap.ps1'; [IO.File]::WriteAllBytes($s,$bytes); ",
             "if((Get-FileHash -LiteralPath $s -Algorithm SHA256).Hash -ine {hash}){{throw '可信安装器摘要不匹配'}} ",
             "}}finally{{$r.Dispose()}} }}finally{{$c.Dispose();$h.Dispose()}}; ",
-            "& $s -Version {version} -Panel {panel} -Token {token} -Target {target} ",
+            "& $s -Version {version} -Panel {panel} -Token {token} -Target {target} -Mirror {mirror} ",
             "}}finally{{Remove-Item -LiteralPath $d -Recurse -Force}}"
         ),
         url = quote(&bootstrap_url()),
@@ -78,6 +89,7 @@ pub fn command(version: &str, panel: &str, token: &str, target: &str) -> String 
         panel = quote(panel),
         token = quote(token),
         target = quote(target),
+        mirror = quote(mirror),
     );
     let wrapper = format!(
         concat!(

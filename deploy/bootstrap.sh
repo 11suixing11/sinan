@@ -146,7 +146,7 @@ for tool in $TOOLS; do
   command -v "$tool" >/dev/null || { echo "系统软件源未提供所需工具: $tool" >&2; exit 1; }
 done
 fi
-cat > "$STAGING/bootstrap.py" <<'SINAN_BOOTSTRAP_332E2D1CAC820E4E48B3072A15EA435D29E26E86A163BD765081A9E1ACB6D3FC'
+cat > "$STAGING/bootstrap.py" <<'SINAN_BOOTSTRAP_5FDA1407DC3056D994C69A813AD0F5D481769184693FB39E807177CE787DC7C4'
 #!/usr/bin/env python3
 """Trusted, operator-provisioned bootstrap; never fetched from the panel and executed."""
 
@@ -166,7 +166,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from release import (REPOSITORY, VERSION, ensure, load_roots, read_regular,
+from release import (REPOSITORY, VERSION, digest, ensure, load_roots, read_regular,
                      require_protected_file, validate_manifest, verify_manifest)
 
 GITHUB_DOWNLOAD_HOSTS = frozenset(("github.com", "release-assets.githubusercontent.com",
@@ -185,10 +185,32 @@ class IncompatibleRelease(ValueError):
     pass
 
 
-def validate_github_url(url):
+def validate_mirror(value, panel=None):
+    if not value:
+        return ""
+    parsed = urllib.parse.urlsplit(value)
+    ensure(len(value) <= 512 and not any(ord(c) < 32 or ord(c) == 127 for c in value)
+           and parsed.scheme == "https" and parsed.hostname and parsed.hostname != "localhost"
+           and parsed.port in (None, 443) and not parsed.username and not parsed.password
+           and not parsed.query and not parsed.fragment, "invalid HTTPS mirror prefix")
+    try:
+        ipaddress.ip_address(parsed.hostname)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("mirror must be a hostname")
+    if panel:
+        origin = urllib.parse.urlsplit(panel)
+        ensure((parsed.hostname, parsed.port or 443) != (origin.hostname, origin.port or (443 if origin.scheme == "https" else 80)), "Agent cannot be downloaded from panel")
+    return value.rstrip("/")
+
+
+def validate_github_url(url, mirror=""):
+
     parsed = urllib.parse.urlsplit(url)
     ensure(not any(ord(character) < 32 or ord(character) == 127 for character in url)
-           and parsed.scheme == "https" and parsed.hostname in GITHUB_DOWNLOAD_HOSTS
+           and parsed.scheme == "https" and (parsed.hostname in GITHUB_DOWNLOAD_HOSTS or
+               (mirror and parsed.netloc == urllib.parse.urlsplit(mirror).netloc))
            and parsed.port in (None, 443) and not parsed.username and not parsed.password
            and not parsed.fragment, "GitHub download URL is outside the fixed HTTPS allowlist")
 
@@ -214,22 +236,29 @@ class GithubRedirect(urllib.request.HTTPRedirectHandler):
     max_redirections = 5
     max_repeats = 2
 
+    def __init__(self, mirror=""):
+        super().__init__()
+        self.mirror = mirror
+
     def redirect_request(self, request, response, code, message, headers, new_url):
-        validate_github_url(new_url)
+        validate_github_url(new_url, self.mirror)
         return super().redirect_request(request, response, code, message, headers, new_url)
 
 
-def github_opener():
+def github_opener(mirror=""):
     # Bootstrap proof downloads never inherit HTTP_PROXY/HTTPS_PROXY/ALL_PROXY.
-    return urllib.request.build_opener(urllib.request.ProxyHandler({}), GithubRedirect())
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), GithubRedirect(mirror))
 
 
-def download(base, name, destination, limit):
+def download(base, name, destination, limit, mirror=""):
     ensure(Path(name).name == name and name not in (".", ".."), "unsafe asset name")
     url = base + "/" + urllib.parse.quote(name, safe="")
-    validate_github_url(url)
-    with github_opener().open(url, timeout=120) as response:
-        validate_github_url(response.url)
+    mirror = validate_mirror(mirror)
+    if mirror:
+        url = mirror + "/" + url
+    validate_github_url(url, mirror)
+    with github_opener(mirror).open(url, timeout=120) as response:
+        validate_github_url(response.url, mirror)
         data = response.read(limit + 1)
     ensure(0 < len(data) <= limit, "download size outside permitted range")
     destination.write_bytes(data)
@@ -351,6 +380,8 @@ def catalog(panel, token, target, version):
 
 
 def select_artifact(metadata, version, actual, requested="auto"):
+    if not actual.startswith("linux-") and not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version):
+        raise IncompatibleRelease("原生平台服务安装仅支持稳定版本，请选择数字三段版本")
     ensure(metadata["tag"] == "agent-v" + version, "签名发布版本与所选版本不匹配")
     if not metadata["protocol_min"] <= PROTOCOL_VERSION <= metadata["protocol_max"]:
         raise IncompatibleRelease("签名 Agent 发布不支持此接入入口的协议版本")
@@ -366,33 +397,49 @@ def select_artifact(metadata, version, actual, requested="auto"):
     raise IncompatibleRelease(f"签名发布 {version} 没有本机 {actual} 可运行的 Agent")
 
 
-def download_agent(panel, token, item, destination):
-    validate_panel_origin(panel)
+def download_agent(item, destination, mirror="", release_dir=None):
+    """Fetch only the signed raw asset from its official GitHub tag, never the panel."""
     expected_size = item["archive_size"]
-    ensure(type(expected_size) is int and 0 < expected_size <= 256 * 1024 * 1024,
-           "已签 Agent 大小无效")
-    url = (panel.rstrip("/") + "/api/bootstrap/" + urllib.parse.quote(item["version"], safe="")
-           + "/" + urllib.parse.quote(item["arch"], safe="")
-           + "?" + urllib.parse.urlencode({"token": token}))
-    deadline = time.monotonic() + 300
+    name = item["asset_name"]
+    ensure(type(expected_size) is int and 0 < expected_size <= 256 * 1024 * 1024
+           and item["format"] == "raw" and item["binary_size"] == expected_size,
+           "已签 Agent 大小或格式无效")
+    ensure(VERSION.fullmatch(item["version"]) and Path(name).name == name
+           and name not in (".", ".."), "已签 Agent 身份无效")
+    mirror = validate_mirror(mirror)
+    destination = Path(destination)
     try:
-        with panel_opener().open(url, timeout=30) as response:
-            ensure(response.status == 200 and response.url == url, "面板 Agent 响应无效")
+        if release_dir:
+            payload = read_regular(Path(release_dir) / name, expected_size)
+            ensure(len(payload) == expected_size and digest(payload) == item["binary_sha256"],
+                   "离线 Agent 不符合已签大小或摘要，拒绝执行")
+            with destination.open("xb") as output:
+                output.write(payload)
+            return
+        url = f"https://github.com/{REPOSITORY}/releases/download/agent-v{item['version']}/{urllib.parse.quote(name, safe='')}"
+        if mirror:
+            url = mirror + "/" + url
+        validate_github_url(url, mirror)
+        deadline = time.monotonic() + 300
+        with github_opener(mirror).open(url, timeout=30) as response:
+            validate_github_url(response.url, mirror)
+            ensure(response.status == 200, "GitHub Agent 响应无效")
             declared = response.headers.get("Content-Length")
-            ensure(declared is None or int(declared) == expected_size, "面板 Agent 声明长度不匹配")
-            total, digest = 0, hashlib.sha256()
+            ensure(declared is None or int(declared) == expected_size, "GitHub Agent 声明长度不匹配")
+            total, checksum = 0, hashlib.sha256()
             with destination.open("xb") as output:
                 while True:
                     ensure(time.monotonic() < deadline, "Agent 下载超时")
-                    data = response.read(min(65536, expected_size + 1 - total))
+                    read = getattr(response, "read1", response.read)
+                    data = read(min(65536, expected_size + 1 - total))
                     ensure(time.monotonic() < deadline, "Agent 下载超时")
                     if not data:
                         break
                     total += len(data)
                     ensure(total <= expected_size, "Agent 超出已签大小")
                     output.write(data)
-                    digest.update(data)
-            ensure(total == expected_size and digest.hexdigest() == item["binary_sha256"],
+                    checksum.update(data)
+            ensure(total == expected_size and checksum.hexdigest() == item["binary_sha256"],
                    "Agent 不符合已签大小或摘要，拒绝执行")
     except BaseException:
         destination.unlink(missing_ok=True)
@@ -450,11 +497,11 @@ def validate_partial_identity(identity, panel):
                "首次接入的服务器身份无效")
 
 
-def install_native(bundle, panel, token, item, actual):
+def install_native(bundle, panel, token, item, actual, mirror="", release_dir=None):
     import tomllib
 
     agent = bundle / "sinan-agent"
-    download_agent(panel, token, item, agent)
+    download_agent(item, agent, validate_mirror(mirror, panel), release_dir)
     agent.chmod(0o755)
     checked_agent(agent, ["verify-installed", "--binary", str(agent), "--name", "agent", "--format", "raw"])
     configuration, command, base, agent_root = native_paths(actual)
@@ -513,11 +560,13 @@ def main():
     parser.add_argument("--target", default="auto", help="Expected server platform or auto")
     parser.add_argument("--panel", required=True)
     parser.add_argument("--token")
+    parser.add_argument("--mirror", default="", help="HTTPS prefix for GitHub downloads")
     parser.add_argument("--trusted-keys", default="/etc/sinan/trust/public-keys.json",
                         help="Operator-provisioned root-owned JSON key set, independent of panel")
     parser.add_argument("--minisign", default="minisign")
+    parser.add_argument("--trusted-installer", help="Independent root-protected Linux installer; defaults to bundled trusted-install.sh")
     parser.add_argument("--trusted-agent", help="Previously trusted signed Agent for offline proof verification")
-    parser.add_argument("--release-dir", help="Pre-downloaded proof and signed installer; CI/offline proof only")
+    parser.add_argument("--release-dir", help="Pre-downloaded signed release, including Agent binary; offline installation")
     args = parser.parse_args()
     ensure(os.getuid() == 0, "bootstrap requires root")
     if args.tag:
@@ -528,6 +577,7 @@ def main():
     validate_panel_origin(args.panel)
     actual = host_target()
     compatible_targets(actual, args.target)
+    mirror = validate_mirror(args.mirror, args.panel)
     token = args.token or os.environ.pop("SINAN_ENROLLMENT_TOKEN", None)
     ensure(token, "provide one-time token through SINAN_ENROLLMENT_TOKEN")
     roots = None if args.trusted_agent else load_roots(args.trusted_keys, require_protected=True)
@@ -558,7 +608,7 @@ def main():
                 if args.release_dir:
                     (selected / name).write_bytes(read_regular(Path(args.release_dir) / name, limit))
                 else:
-                    download(base, name, selected / name, limit)
+                    download(base, name, selected / name, limit, mirror)
             if args.trusted_agent:
                 trusted_agent = Path(args.trusted_agent).resolve(strict=True)
                 require_protected_file(trusted_agent)
@@ -582,11 +632,16 @@ def main():
         ensure(bundle is not None and item is not None, f"没有通过签名和本机 {actual} 兼容检查的 Agent 版本")
         print(f"已验证 Agent {version}，安装平台 {item['arch']}（本机 {actual}）", flush=True)
         if not actual.startswith("linux-"):
-            install_native(bundle, args.panel, token, item, actual)
+            install_native(bundle, args.panel, token, item, actual, mirror, args.release_dir)
             return
+
+        installer = Path(args.trusted_installer) if args.trusted_installer else Path(__file__).with_name("trusted-install.sh")
+        require_protected_file(installer)
+        ensure(installer.is_file(), "独立可信 Linux 安装器缺失，请使用官方自包含 bootstrap.sh")
+        download_agent(item, bundle / item["asset_name"], mirror, args.release_dir)
         token_file = bundle / ".enrollment-token"
         token_file.write_text(token)
-        command = ["/bin/sh", str(bundle / "install.sh"), "--bundle", str(bundle),
+        command = ["/bin/sh", str(installer), "--bundle", str(bundle),
                    "--panel", args.panel, "--version", version, "--token-file", str(token_file)]
         if item["arch"] not in ("amd64", "arm64"):
             command.extend(["--target", item["arch"]])
@@ -599,9 +654,9 @@ if __name__ == "__main__":
         main()
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise SystemExit(f"Bootstrap refused: {error}") from error
-SINAN_BOOTSTRAP_332E2D1CAC820E4E48B3072A15EA435D29E26E86A163BD765081A9E1ACB6D3FC
+SINAN_BOOTSTRAP_5FDA1407DC3056D994C69A813AD0F5D481769184693FB39E807177CE787DC7C4
 
-cat > "$STAGING/release.py" <<'SINAN_BOOTSTRAP_B7B46B7314B26DB189D55C48848F67EAA9AE991F05280212819BB2F419AA9D01'
+cat > "$STAGING/release.py" <<'SINAN_BOOTSTRAP_6DD03D6EF5135BCDB95B6849274A2D3C5CB988244B816F951C05B747FC41BC81'
 #!/usr/bin/env python3
 """Build canonical release manifests and verify complete offline-signed bundles."""
 
@@ -622,7 +677,7 @@ TEST_ONLY_PUBLIC_KEY = "RWS3NbDikg3VqWRlxJMUyaB1dTvErk0ptJ695xQ50Kyb+MmtynMhN/lq
 TEST_ONLY_ROTATION_PUBLIC_KEY = "RWRURVNUUk9UMjMuvo0ny3Mjs6QBwcE7XdZLzMDhDs2hwrXRGgN3moXl"
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 TEST_PUBLIC_KEY_DIRS = (SOURCE_ROOT / "fixtures", SOURCE_ROOT / "crates/protocol/tests/fixtures")
-NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r8"
+NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r13"
 SEGMENT = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}\Z")
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?\Z")
 MAX_BINARY = 256 * 1024 * 1024
@@ -775,18 +830,24 @@ def assemble(args):
     (output / "SHA256SUMS").write_bytes(checksums.encode("utf-8"))
 
 
-def render_installer(args):
-    text = read_regular(Path(args.template), 262144).decode("utf-8")
-    for marker, filename in (("@@AGENT_UNIT@@", args.agent_unit),
-                             ("@@RUNTIME_UNIT@@", args.runtime_unit)):
+def installer_source(template, agent_unit, runtime_unit, source_root=SOURCE_ROOT):
+    """Render audited static Linux installation logic for release or trusted bootstrap."""
+    text = read_regular(Path(template), 262144).decode("utf-8")
+    for marker, filename in (("@@AGENT_UNIT@@", agent_unit),
+                             ("@@RUNTIME_UNIT@@", runtime_unit)):
         ensure(text.count(marker) == 1, "missing or duplicate installer unit marker")
         text = text.replace(marker, read_regular(Path(filename), 65536).decode("utf-8").rstrip())
-    for marker, filename in (("@@AGENT_OPENRC@@", SOURCE_ROOT / "deploy/sinan-agent.openrc"),
-                             ("@@RUNTIME_OPENRC@@", SOURCE_ROOT / "plugins/sing-box/sinan-singbox.openrc")):
+    for marker, filename in (("@@AGENT_OPENRC@@", source_root / "deploy/sinan-agent.openrc"),
+                             ("@@RUNTIME_OPENRC@@", source_root / "plugins/sing-box/sinan-singbox.openrc")):
         if marker in text:
             ensure(text.count(marker) == 1, "duplicate installer unit marker")
             text = text.replace(marker, read_regular(filename, 65536).decode("utf-8").rstrip())
     ensure("@@" not in text, "unexpanded installer marker")
+    return text
+
+
+def render_installer(args):
+    text = installer_source(args.template, args.agent_unit, args.runtime_unit)
     output = Path(args.output)
     ensure(not output.exists(), "installer output exists")
     output.write_bytes(text.encode("utf-8"))
@@ -983,7 +1044,7 @@ if __name__ == "__main__":
         main()
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise SystemExit(f"Release verification failed: {error}") from error
-SINAN_BOOTSTRAP_B7B46B7314B26DB189D55C48848F67EAA9AE991F05280212819BB2F419AA9D01
+SINAN_BOOTSTRAP_6DD03D6EF5135BCDB95B6849274A2D3C5CB988244B816F951C05B747FC41BC81
 
 cat > "$STAGING/tcp_probe_artifact.py" <<'SINAN_BOOTSTRAP_7C9C790035F22EC0554D1B922A5B960571792B991659DDFBF9C0A8E337C0BD0A'
 """Validate the complete, pinned native TCP artifact without executing it."""
@@ -1377,6 +1438,409 @@ SINAN_BOOTSTRAP_8B75C06855E5CA6222579D9DD5B14185451D81B0CB68219B1B2540F92415324D
 cat > "$STAGING/public-keys.json" <<'SINAN_BOOTSTRAP_51121348A57E37D3396225828114D19A3F62EDB0AAD0F6157E7FBCBEBF56B576'
 ["RWS4aZYmyBmwROpGKjfADJqNedYCNRhlg0+UoIBjQHxXZxYL7XMlkGJN"]
 SINAN_BOOTSTRAP_51121348A57E37D3396225828114D19A3F62EDB0AAD0F6157E7FBCBEBF56B576
+
+cat > "$STAGING/trusted-install.sh" <<'SINAN_BOOTSTRAP_3D77971B8E87B97D80A93DE5D1791FB648262A72C5BB2421B08E2700ACC1D513'
+#!/bin/sh
+# Static signed release installer. Invoke only after independent verification.
+set -eu
+umask 027
+BUNDLE=
+PANEL=
+VERSION=
+TARGET=
+TOKEN_FILE=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --bundle) BUNDLE=$2 ;;
+    --panel) PANEL=$2 ;;
+    --version) VERSION=$2 ;;
+    --target) TARGET=$2 ;;
+    --token-file) TOKEN_FILE=$2 ;;
+    *) echo '未知安装参数' >&2; exit 2 ;;
+  esac
+  shift 2
+done
+[ "$(id -u)" = 0 ] || { echo '请以 root 运行' >&2; exit 1; }
+[ -n "$BUNDLE" ] && [ -n "$PANEL" ] && [ -n "$VERSION" ] && [ -n "$TOKEN_FILE" ] || exit 2
+[ "$(uname -s)" = Linux ] || { echo '此签名安装器需要 Linux；原生平台须独立核对签名目录后执行 install-services' >&2; exit 1; }
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null; then
+  INIT=systemd
+elif [ -f /run/openrc/softlevel ] && command -v rc-service >/dev/null && command -v rc-update >/dev/null; then
+  INIT=openrc
+  for tool in openrc-run supervise-daemon; do command -v "$tool" >/dev/null || exit 1; done
+  SUPERVISOR_HELP=$(RC_SVCNAME=sinan-agent supervise-daemon sinan-agent --help 2>&1)
+  case "$SUPERVISOR_HELP" in *--capabilities*) ;; *) echo 'OpenRC 缺少 libcap 支持' >&2; exit 1 ;; esac
+  case "$SUPERVISOR_HELP" in *--no-new-privs*) ;; *) echo 'OpenRC 缺少 no_new_privs 支持' >&2; exit 1 ;; esac
+else
+  echo '需要运行中的 Linux systemd 或 OpenRC' >&2; exit 1
+fi
+for tool in python3 install getent cmp mv seq; do
+  command -v "$tool" >/dev/null || { echo "缺少工具: $tool" >&2; exit 1; }
+done
+case "$(uname -m)" in x86_64|amd64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; *) exit 1 ;; esac
+[ -n "$TARGET" ] || TARGET=$ARCH
+case "$TARGET" in "$ARCH"|"linux-musl-$ARCH"|"linux-gnu-$ARCH") ;; *) echo '所选 Agent 平台与本机架构不兼容' >&2; exit 1 ;; esac
+DOWNLOAD=$(mktemp -d)
+STAGE=
+PREVIOUS=$(readlink /opt/sinan/core/current 2>/dev/null || true)
+ACTIVATING=0
+COMPLETED=0
+if [ -f /etc/sinan/agent.toml ]; then cp -p /etc/sinan/agent.toml "$DOWNLOAD/agent.toml.previous"; fi
+if [ "$INIT" = systemd ] && [ -f /etc/systemd/system/sinan-agent.service ]; then cp -p /etc/systemd/system/sinan-agent.service "$DOWNLOAD/agent.service.previous"; fi
+if [ "$INIT" = openrc ] && [ -f /etc/init.d/sinan-agent ]; then cp -p /etc/init.d/sinan-agent "$DOWNLOAD/agent.openrc.previous"; fi
+cleanup() {
+  result=$?
+  trap - EXIT HUP INT TERM
+  if [ "$ACTIVATING" = 1 ] && [ "$COMPLETED" != 1 ]; then
+    printf '%s\n' '新 Agent 未通过启动检查，正在恢复上一版本。' >&2
+    if [ "$INIT" = systemd ]; then systemctl stop sinan-agent.service || true
+    else rc-service sinan-agent stop || true; fi
+    if [ -f "$DOWNLOAD/agent.toml.previous" ]; then cp -p "$DOWNLOAD/agent.toml.previous" /etc/sinan/agent.toml; fi
+    if [ -f "$DOWNLOAD/agent.service.previous" ]; then cp -p "$DOWNLOAD/agent.service.previous" /etc/systemd/system/sinan-agent.service; systemctl daemon-reload; fi
+    if [ -f "$DOWNLOAD/agent.openrc.previous" ]; then cp -p "$DOWNLOAD/agent.openrc.previous" /etc/init.d/sinan-agent; rc-update --update; fi
+    if [ -n "$PREVIOUS" ]; then
+      ln -s "$PREVIOUS" "/opt/sinan/core/recover.$$"
+      mv -Tf "/opt/sinan/core/recover.$$" /opt/sinan/core/current
+      if [ "$INIT" = systemd ]; then systemctl restart sinan-agent.service || true
+      else rc-service sinan-agent restart || true; fi
+    else
+      rm -f /opt/sinan/core/current
+    fi
+  fi
+  rm -rf "$DOWNLOAD"
+  [ -z "$STAGE" ] || rm -rf "$STAGE"
+  exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' HUP TERM
+TOKEN=$(cat "$TOKEN_FILE")
+# Bootstrap downloaded this asset from GitHub and verified the signed proof.
+python3 -I - "$BUNDLE" "$VERSION" "$ARCH" "$DOWNLOAD/sinan-agent" "$PANEL" "$TOKEN_FILE" "$TARGET" <<'PY'
+import hashlib, ipaddress, json, pathlib, platform, re, subprocess, sys, urllib.parse
+
+def ensure(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+def ordinary(path, limit):
+    ensure(path.is_file() and not path.is_symlink() and 0 < path.stat().st_size <= limit,
+           '安装证明必须是有界普通文件')
+    return path.read_bytes()
+
+def protected_existing_parents(path):
+    while not path.exists() and not path.is_symlink():
+        path = path.parent
+    for current in (path, *path.parents):
+        properties = current.lstat()
+        ensure(current.is_dir() and not current.is_symlink() and properties.st_uid == 0
+               and properties.st_mode & 0o022 == 0,
+               'Agent 执行目录与父目录必须由 root 保护，不能含符号链接')
+
+root, version, arch, asset = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3], pathlib.Path(sys.argv[4])
+panel, token_file = sys.argv[5], pathlib.Path(sys.argv[6])
+target = sys.argv[7]
+protected_existing_parents(pathlib.Path('/opt/sinan/core'))
+ensure(re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?', version), '无效 Agent 版本')
+ensure(arch in ('amd64', 'arm64'), '无效 Agent 架构')
+ensure(target in (arch, 'linux-musl-' + arch, 'linux-gnu-' + arch), 'Agent 平台与本机 CPU 不匹配')
+if target.startswith('linux-gnu-'):
+    libc = platform.libc_ver()[0].lower()
+    if libc not in ('glibc', 'gnu'):
+        try:
+            result = subprocess.run(['ldd', '--version'], capture_output=True, check=False, timeout=10)
+            description = (result.stdout + result.stderr).decode('utf-8', errors='replace').lower()
+        except (OSError, subprocess.TimeoutExpired):
+            description = ''
+        libc = 'gnu' if 'glibc' in description or 'gnu libc' in description else ''
+    ensure(libc in ('glibc', 'gnu'), 'GNU Agent 需要 GNU/glibc 主机，不能在 musl 上安装')
+origin = urllib.parse.urlsplit(panel)
+ensure(not any(ord(character) < 32 or ord(character) == 127 for character in panel)
+       and origin.scheme in ('http', 'https') and origin.hostname
+       and not origin.username and not origin.password and origin.path in ('', '/')
+       and not origin.query and not origin.fragment
+       and (origin.port is None or 0 < origin.port <= 65535), '面板地址必须是有效同源地址')
+if origin.scheme == 'http':
+    try:
+        address = ipaddress.ip_address(origin.hostname)
+        address = getattr(address, 'ipv4_mapped', None) or address
+        loopback = address.is_loopback
+    except ValueError:
+        loopback = origin.hostname == 'localhost'
+    ensure(loopback, 'HTTP 面板仅允许回环地址，请使用 HTTPS')
+metadata_bytes = ordinary(root / 'release.json', 32768)
+metadata = json.loads(metadata_bytes)
+ensure(type(metadata['schema']) is int and metadata['schema'] == 1
+       and metadata['source_repo'] == 'theLucius7/sinan', '发布身份不匹配')
+ensure(metadata['tag'] == 'agent-v' + version, '发布标签不匹配')
+matches = [item for item in metadata['artifacts'] if
+           (item['name'], item['version'], item['arch']) == ('agent', version, target)]
+ensure(len(matches) == 1, '发布缺失或重复目标 Agent')
+item = matches[0]
+expected_name = 'agent-' + version + ('-linux-musl-' + arch if target == arch else '-' + target)
+ensure(item['format'] == 'raw' and item['binary_name'] == 'sinan-agent'
+       and item['asset_name'] == expected_name, 'Agent 制品身份不匹配')
+expected_size = item['archive_size']
+ensure(type(expected_size) is int and 0 < expected_size <= 256 * 1024 * 1024
+       and type(item['binary_size']) is int and item['binary_size'] == expected_size,
+       '已签 Agent 大小无效')
+ensure(isinstance(item['binary_sha256'], str)
+       and re.fullmatch(r'[0-9a-f]{64}', item['binary_sha256']), '已签 Agent 摘要无效')
+checksums = {}
+for line in ordinary(root / 'SHA256SUMS', 8192).decode('utf-8').splitlines():
+    match = re.fullmatch(r'([0-9a-f]{64})  ([0-9A-Za-z.+_/-]+)', line)
+    ensure(match is not None and match[2] not in checksums, '发布清单格式错误或重复')
+    checksums[match[2]] = match[1]
+ensure(checksums.get('release.json') == hashlib.sha256(metadata_bytes).hexdigest(), '已签 metadata 摘要不匹配')
+ensure(checksums.get('agent/' + version + '/' + target) == item['binary_sha256'], '已签 Agent 摘要不匹配')
+source = root / expected_name
+payload = ordinary(source, expected_size)
+ensure(len(payload) == expected_size, 'Agent 长度不匹配')
+ensure(hashlib.sha256(payload).hexdigest() == item['binary_sha256'], 'Agent 摘要不匹配，拒绝执行')
+with asset.open('xb') as output:
+    output.write(payload)
+PY
+install -d -m 0755 -o root -g root /opt/sinan /opt/sinan/core
+STAGE=$(mktemp -d /opt/sinan/core/.bootstrap.XXXXXX)
+install -d -m 0755 "$STAGE/$VERSION"
+install -m 0755 "$DOWNLOAD/sinan-agent" "$STAGE/$VERSION/sinan-agent"
+for proof in release.json SHA256SUMS SHA256SUMS.minisig; do
+  install -m 0644 "$BUNDLE/$proof" "$STAGE/$VERSION/$proof"
+done
+# Compiled Agent roots must accept the proof before enrollment or activation.
+"$STAGE/$VERSION/sinan-agent" verify-installed --binary "$STAGE/$VERSION/sinan-agent" --name agent --format raw
+# Reject unverifiable legacy caches before touching identity, units or current links.
+if [ -e /etc/sinan/agent.toml ] || [ -L /etc/sinan/agent.toml ]; then
+  [ -f /etc/sinan/agent.toml ] && [ ! -L /etc/sinan/agent.toml ] || {
+    echo '已有 Agent 配置必须是普通文件，安装未切换' >&2; exit 1;
+  }
+  "$STAGE/$VERSION/sinan-agent" --config /etc/sinan/agent.toml verify-cache || {
+    echo '已有运行时或未完成操作未通过签名预检，请按发布文档迁移；安装未切换' >&2
+    exit 1
+  }
+else
+  python3 -I - "$PANEL" <<'PY'
+import ipaddress, os, re, sys, urllib.parse
+from pathlib import Path
+paths = [Path('/var/lib/sinan/core/state.db' + suffix) for suffix in ('', '-wal', '-shm')]
+paths.append(Path('/opt/sinan/core/current'))
+plugins = Path('/opt/sinan/plugins')
+if plugins.exists():
+    paths.extend(plugins.glob('*/current'))
+for path in paths:
+    if path.exists() or path.is_symlink():
+        raise SystemExit('已有安装状态但配置缺失，签名预检无法确定引用；安装未切换')
+
+def protected(path):
+    for current in (path, *path.parents):
+        info = current.lstat()
+        if current.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
+            raise SystemExit('首次接入身份与父目录必须由 root 保护')
+        if current != path and not current.is_dir():
+            raise SystemExit('首次接入身份父路径必须是普通目录')
+
+def ordinary(path, limit):
+    protected(path)
+    if not path.is_file() or not 0 < path.stat().st_size <= limit:
+        raise SystemExit('首次接入身份必须是有界普通文件')
+    return path.read_bytes()
+
+def origin(value):
+    parsed = urllib.parse.urlsplit(value)
+    if (any(ord(c) < 32 or ord(c) == 127 for c in value) or parsed.scheme not in ('http', 'https')
+            or not parsed.hostname or parsed.username or parsed.password or parsed.path not in ('', '/')
+            or parsed.query or parsed.fragment or parsed.port is not None and not 0 < parsed.port <= 65535):
+        raise SystemExit('首次接入面板地址无效')
+    hostname = parsed.hostname.lower()
+    try:
+        address = ipaddress.ip_address(hostname)
+        hostname = address.compressed
+        loopback = (getattr(address, 'ipv4_mapped', None) or address).is_loopback
+    except ValueError:
+        hostname = hostname.encode('idna').decode('ascii')
+        loopback = hostname == 'localhost'
+    if parsed.scheme == 'http' and not loopback:
+        raise SystemExit('首次接入 HTTP 面板仅允许回环地址')
+    return parsed.scheme, hostname, parsed.port or (443 if parsed.scheme == 'https' else 80)
+
+identity = Path('/etc/sinan/identity')
+if identity.exists() or identity.is_symlink():
+    protected(identity)
+    if not identity.is_dir():
+        raise SystemExit('首次接入身份目录必须是普通目录')
+    names = {path.name for path in identity.iterdir()}
+    if names:
+        if ('panel_origin' not in names or not names <= {'panel_origin', 'device.key', 'server_id'}
+                or 'server_id' in names and 'device.key' not in names):
+            raise SystemExit('已有身份不是可恢复的首次接入状态')
+        if origin(ordinary(identity / 'panel_origin', 8192).decode('utf-8').strip()) != origin(sys.argv[1]):
+            raise SystemExit('已有身份属于另一面板，请在原面板重新获取令牌')
+        if 'device.key' in names:
+            key = identity / 'device.key'
+            if key.stat().st_mode & 0o077 or len(ordinary(key, 32)) != 32:
+                raise SystemExit('首次接入设备密钥必须是私有 32 字节文件')
+        if 'server_id' in names:
+            value = ordinary(identity / 'server_id', 32).decode('ascii').strip()
+            if not re.fullmatch(r'[1-9][0-9]{0,18}', value) or int(value) > 9223372036854775807:
+                raise SystemExit('首次接入服务器身份无效')
+PY
+fi
+if [ -e "/opt/sinan/core/$VERSION" ]; then
+  [ -d "/opt/sinan/core/$VERSION" ] && [ ! -L "/opt/sinan/core/$VERSION" ] || exit 1
+  for file in sinan-agent release.json SHA256SUMS SHA256SUMS.minisig; do
+    cmp -- "$STAGE/$VERSION/$file" "/opt/sinan/core/$VERSION/$file"
+  done
+else
+  mv --no-clobber --no-target-directory "$STAGE/$VERSION" "/opt/sinan/core/$VERSION"
+  [ ! -d "$STAGE/$VERSION" ] || { echo '版本目录已被并发创建，请重新验证' >&2; exit 1; }
+fi
+if ! getent group sinan-singbox >/dev/null; then
+  if command -v groupadd >/dev/null; then groupadd --system sinan-singbox; else addgroup -S sinan-singbox; fi
+fi
+if ! getent passwd sinan-singbox >/dev/null; then
+  NOLOGIN=$(command -v nologin)
+  if command -v useradd >/dev/null; then useradd --system --no-create-home --gid sinan-singbox --shell "$NOLOGIN" sinan-singbox
+  else adduser -S -D -H -G sinan-singbox -s "$NOLOGIN" sinan-singbox; fi
+fi
+install -d -m 0755 -o root -g root /opt/sinan/plugins /opt/sinan/plugins/sing-box /var/lib/sinan
+install -d -m 0700 /etc/sinan /etc/sinan/identity /var/lib/sinan/core
+install -d -m 2750 -o root -g sinan-singbox /var/lib/sinan/plugins /var/lib/sinan/plugins/sing-box@main /var/lib/sinan/plugins/sing-box@main/revisions
+install -d -m 0750 -o sinan-singbox -g sinan-singbox /var/lib/sinan/plugins/sing-box@main/data
+"/opt/sinan/core/$VERSION/sinan-agent" enroll --panel "$PANEL" --token "$TOKEN"
+unset TOKEN
+ACTIVATING=1
+ln -s "$VERSION" "/opt/sinan/core/current.$$"
+mv -Tf "/opt/sinan/core/current.$$" /opt/sinan/core/current
+ln -sfn /opt/sinan/core/current/sinan-agent /usr/local/bin/sinan-agent
+if [ "$INIT" = systemd ]; then
+cat > /etc/systemd/system/sinan-agent.service <<'UNIT_AGENT'
+[Unit]
+Description=Sinan Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+OOMScoreAdjust=-500
+CPUWeight=1000
+ExecStartPre=/opt/sinan/core/current/sinan-agent verify-installed --binary /opt/sinan/core/current/sinan-agent --name agent --format raw
+ExecStart=/opt/sinan/core/current/sinan-agent --config /etc/sinan/agent.toml supervise
+Restart=always
+RestartPreventExitStatus=78
+SuccessExitStatus=78
+RestartSec=5
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
+UNIT_AGENT
+cat > /etc/systemd/system/sinan-singbox@.service <<'UNIT_RUNTIME'
+[Unit]
+Description=Sinan sing-box runtime (%i)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/sinan/plugins/sing-box/current/sing-box
+ConditionPathExists=/var/lib/sinan/plugins/sing-box@%i/current/config.json
+
+[Service]
+OOMScoreAdjust=-500
+CPUWeight=1000
+User=sinan-singbox
+Group=sinan-singbox
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ExecStartPre=/usr/bin/test -f /var/lib/sinan/plugins/sing-box@%i/current/config.json
+ExecStartPre=/opt/sinan/core/current/sinan-agent verify-installed --binary /opt/sinan/plugins/sing-box/current/sing-box --name sing-box --format tar.gz
+ExecStart=/opt/sinan/plugins/sing-box/current/sing-box run -c /var/lib/sinan/plugins/sing-box@%i/current/config.json -D /var/lib/sinan/plugins/sing-box@%i/data
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT_RUNTIME
+systemctl daemon-reload
+systemctl enable sinan-singbox@main.service sinan-agent.service
+systemctl restart sinan-agent.service
+else
+cat > /etc/init.d/sinan-agent <<'UNIT_AGENT_OPENRC'
+#!/sbin/openrc-run
+
+description="Sinan Agent"
+supervisor="supervise-daemon"
+command="/opt/sinan/core/current/sinan-agent"
+command_args="--config /etc/sinan/agent.toml supervise"
+pidfile="/run/${RC_SVCNAME}.pid"
+required_files="/etc/sinan/agent.toml"
+respawn_delay=5
+respawn_max=0
+retry="TERM/5/KILL/5"
+umask="0027"
+output_log="/var/log/sinan/agent.log"
+error_log="$output_log"
+
+depend() {
+    need net
+}
+
+start_pre() {
+    /opt/sinan/core/current/sinan-agent verify-installed --binary /opt/sinan/core/current/sinan-agent --name agent --format raw || return 1
+    checkpath --directory --mode 0750 --owner root:sinan-singbox /var/log/sinan
+    checkpath --file --mode 0640 --owner root:root "$output_log"
+}
+UNIT_AGENT_OPENRC
+cat > /etc/init.d/sinan-singbox@main <<'UNIT_RUNTIME_OPENRC'
+#!/sbin/openrc-run
+
+description="Sinan 代理运行时"
+supervisor="supervise-daemon"
+command="/opt/sinan/plugins/sing-box/current/sing-box"
+command_args="run -c /var/lib/sinan/plugins/sing-box@main/current/config.json -D /var/lib/sinan/plugins/sing-box@main/data"
+command_user="sinan-singbox:sinan-singbox"
+pidfile="/run/${RC_SVCNAME}.pid"
+required_files="$command /var/lib/sinan/plugins/sing-box@main/current/config.json"
+capabilities="^cap_net_bind_service"
+no_new_privs="yes"
+respawn_delay=5
+respawn_max=0
+retry="TERM/5/KILL/5"
+umask="0027"
+output_log="/var/log/sinan/runtime.log"
+error_log="$output_log"
+extra_started_commands="reload"
+description_reload="重载代理配置"
+
+depend() {
+    need net
+}
+
+start_pre() {
+    /opt/sinan/core/current/sinan-agent verify-installed --binary /opt/sinan/plugins/sing-box/current/sing-box --name sing-box --format tar.gz || return 1
+    checkpath --directory --mode 0750 --owner root:sinan-singbox /var/log/sinan
+    checkpath --file --mode 0640 --owner sinan-singbox:sinan-singbox "$output_log"
+}
+
+reload() {
+    ebegin "重载代理配置"
+    supervise-daemon "$RC_SVCNAME" --signal HUP
+    eend $?
+}
+UNIT_RUNTIME_OPENRC
+chmod 0755 /etc/init.d/sinan-agent /etc/init.d/sinan-singbox@main
+rc-update --update
+rc-update add sinan-agent default
+rc-update add sinan-singbox@main default
+rc-service sinan-agent restart
+fi
+STARTED=0
+for attempt in $(seq 1 30); do
+  if /opt/sinan/core/current/sinan-agent --config /etc/sinan/agent.toml status >/dev/null 2>&1; then STARTED=1; break; fi
+  sleep 1
+done
+[ "$STARTED" = 1 ] || { echo 'Agent 未通过启动检查' >&2; exit 1; }
+COMPLETED=1
+printf '%s\n' '已验证并安装 Agent，可运行 sinan-agent status 查看状态。'
+SINAN_BOOTSTRAP_3D77971B8E87B97D80A93DE5D1791FB648262A72C5BB2421B08E2700ACC1D513
 
 
 if [ "$PLATFORM" = Linux ] && ! command -v minisign >/dev/null; then

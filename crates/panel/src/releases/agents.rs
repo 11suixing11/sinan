@@ -90,6 +90,7 @@ fn valid_agent(release: &StoredRelease, artifact: &VerifiedArtifact) -> bool {
         && entry.format == "raw"
         && entry.binary_name == binary_name
         && version_key(&entry.version).is_some()
+        && (linux_target(&entry.arch) || sinan_protocol::release_version(&entry.version).is_some())
         && metadata.tag == format!("agent-v{}", entry.version)
         && metadata.protocol_min <= PROTOCOL_MAX
         && metadata.protocol_max >= PROTOCOL_MIN
@@ -231,93 +232,4 @@ pub async fn bootstrap_agent_versions(
         Json(AgentVersions { versions }),
     )
         .into_response())
-}
-
-async fn cache_payload<F, Fut, A, Aut>(
-    state: &AppState,
-    version: &str,
-    arch: &str,
-    mut asset_bytes: F,
-    mut authorize: A,
-) -> ApiResult<()>
-where
-    F: FnMut(String, String, usize) -> Fut,
-    Fut: Future<Output = Result<Vec<u8>>>,
-    A: FnMut() -> Aut,
-    Aut: Future<Output = ApiResult<()>>,
-{
-    canonical_path("agent", version, arch).map_err(|_| ApiError::NotFound)?;
-    authorize().await?;
-    let _permit = state
-        .release_permits
-        .clone()
-        .acquire_owned()
-        .await
-        .map_err(|_| ApiError::Busy)?;
-    authorize().await?;
-    let releases = released(state).await?;
-    let declared = inventory(&releases).map_err(invalid)?;
-    let identity = ("agent".into(), version.into(), arch.into());
-    let (index, artifact) = declared.get(&identity).ok_or(ApiError::NotFound)?;
-    let release = &releases[*index];
-    checked(
-        valid_agent(release, artifact),
-        "Agent release identity or protocol differs",
-    )?;
-    let bytes = storage::existing_bytes(&release.directory.join(artifact.path()), MAX_ARTIFACT)
-        .await
-        .map_err(invalid)?;
-    let bytes = bytes.filter(|bytes| verify_payload(artifact, bytes).is_ok());
-    if bytes.is_some() && release.paths.contains(artifact.path()) {
-        return Ok(());
-    }
-    let bytes = match bytes {
-        Some(bytes) => bytes,
-        None => asset_bytes(
-            release.verified.metadata().tag.clone(),
-            artifact.metadata().asset_name.clone(),
-            artifact
-                .metadata()
-                .archive_size
-                .try_into()
-                .map_err(invalid)?,
-        )
-        .await
-        .map_err(invalid)?,
-    };
-    verify_payload(artifact, &bytes).map_err(invalid)?;
-    storage::publish_agent(release, artifact, &bytes, authorize).await
-}
-
-/// Low-level cache helper: callers authorize mutations; HTTP enrollment uses a live token.
-pub async fn cache_agent_payload<F, Fut>(
-    state: &AppState,
-    version: &str,
-    arch: &str,
-    asset_bytes: F,
-) -> ApiResult<()>
-where
-    F: FnMut(String, String, usize) -> Fut,
-    Fut: Future<Output = Result<Vec<u8>>>,
-{
-    cache_payload(state, version, arch, asset_bytes, || async { Ok(()) }).await
-}
-
-pub async fn ensure_bootstrap_agent(
-    state: &AppState,
-    token: &str,
-    version: &str,
-    arch: &str,
-) -> ApiResult<()> {
-    cache_payload(
-        state,
-        version,
-        arch,
-        |tag, asset, maximum| async move { network::asset(&tag, &asset, maximum).await },
-        || async {
-            crate::servers::validate_enrollment(&state.pool, token).await?;
-            Ok(())
-        },
-    )
-    .await
 }

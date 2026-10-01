@@ -17,7 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from release import (REPOSITORY, VERSION, ensure, load_roots, read_regular,
+from release import (REPOSITORY, VERSION, digest, ensure, load_roots, read_regular,
                      require_protected_file, validate_manifest, verify_manifest)
 
 GITHUB_DOWNLOAD_HOSTS = frozenset(("github.com", "release-assets.githubusercontent.com",
@@ -36,10 +36,32 @@ class IncompatibleRelease(ValueError):
     pass
 
 
-def validate_github_url(url):
+def validate_mirror(value, panel=None):
+    if not value:
+        return ""
+    parsed = urllib.parse.urlsplit(value)
+    ensure(len(value) <= 512 and not any(ord(c) < 32 or ord(c) == 127 for c in value)
+           and parsed.scheme == "https" and parsed.hostname and parsed.hostname != "localhost"
+           and parsed.port in (None, 443) and not parsed.username and not parsed.password
+           and not parsed.query and not parsed.fragment, "invalid HTTPS mirror prefix")
+    try:
+        ipaddress.ip_address(parsed.hostname)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("mirror must be a hostname")
+    if panel:
+        origin = urllib.parse.urlsplit(panel)
+        ensure((parsed.hostname, parsed.port or 443) != (origin.hostname, origin.port or (443 if origin.scheme == "https" else 80)), "Agent cannot be downloaded from panel")
+    return value.rstrip("/")
+
+
+def validate_github_url(url, mirror=""):
+
     parsed = urllib.parse.urlsplit(url)
     ensure(not any(ord(character) < 32 or ord(character) == 127 for character in url)
-           and parsed.scheme == "https" and parsed.hostname in GITHUB_DOWNLOAD_HOSTS
+           and parsed.scheme == "https" and (parsed.hostname in GITHUB_DOWNLOAD_HOSTS or
+               (mirror and parsed.netloc == urllib.parse.urlsplit(mirror).netloc))
            and parsed.port in (None, 443) and not parsed.username and not parsed.password
            and not parsed.fragment, "GitHub download URL is outside the fixed HTTPS allowlist")
 
@@ -65,22 +87,29 @@ class GithubRedirect(urllib.request.HTTPRedirectHandler):
     max_redirections = 5
     max_repeats = 2
 
+    def __init__(self, mirror=""):
+        super().__init__()
+        self.mirror = mirror
+
     def redirect_request(self, request, response, code, message, headers, new_url):
-        validate_github_url(new_url)
+        validate_github_url(new_url, self.mirror)
         return super().redirect_request(request, response, code, message, headers, new_url)
 
 
-def github_opener():
+def github_opener(mirror=""):
     # Bootstrap proof downloads never inherit HTTP_PROXY/HTTPS_PROXY/ALL_PROXY.
-    return urllib.request.build_opener(urllib.request.ProxyHandler({}), GithubRedirect())
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), GithubRedirect(mirror))
 
 
-def download(base, name, destination, limit):
+def download(base, name, destination, limit, mirror=""):
     ensure(Path(name).name == name and name not in (".", ".."), "unsafe asset name")
     url = base + "/" + urllib.parse.quote(name, safe="")
-    validate_github_url(url)
-    with github_opener().open(url, timeout=120) as response:
-        validate_github_url(response.url)
+    mirror = validate_mirror(mirror)
+    if mirror:
+        url = mirror + "/" + url
+    validate_github_url(url, mirror)
+    with github_opener(mirror).open(url, timeout=120) as response:
+        validate_github_url(response.url, mirror)
         data = response.read(limit + 1)
     ensure(0 < len(data) <= limit, "download size outside permitted range")
     destination.write_bytes(data)
@@ -202,6 +231,8 @@ def catalog(panel, token, target, version):
 
 
 def select_artifact(metadata, version, actual, requested="auto"):
+    if not actual.startswith("linux-") and not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version):
+        raise IncompatibleRelease("原生平台服务安装仅支持稳定版本，请选择数字三段版本")
     ensure(metadata["tag"] == "agent-v" + version, "签名发布版本与所选版本不匹配")
     if not metadata["protocol_min"] <= PROTOCOL_VERSION <= metadata["protocol_max"]:
         raise IncompatibleRelease("签名 Agent 发布不支持此接入入口的协议版本")
@@ -217,33 +248,49 @@ def select_artifact(metadata, version, actual, requested="auto"):
     raise IncompatibleRelease(f"签名发布 {version} 没有本机 {actual} 可运行的 Agent")
 
 
-def download_agent(panel, token, item, destination):
-    validate_panel_origin(panel)
+def download_agent(item, destination, mirror="", release_dir=None):
+    """Fetch only the signed raw asset from its official GitHub tag, never the panel."""
     expected_size = item["archive_size"]
-    ensure(type(expected_size) is int and 0 < expected_size <= 256 * 1024 * 1024,
-           "已签 Agent 大小无效")
-    url = (panel.rstrip("/") + "/api/bootstrap/" + urllib.parse.quote(item["version"], safe="")
-           + "/" + urllib.parse.quote(item["arch"], safe="")
-           + "?" + urllib.parse.urlencode({"token": token}))
-    deadline = time.monotonic() + 300
+    name = item["asset_name"]
+    ensure(type(expected_size) is int and 0 < expected_size <= 256 * 1024 * 1024
+           and item["format"] == "raw" and item["binary_size"] == expected_size,
+           "已签 Agent 大小或格式无效")
+    ensure(VERSION.fullmatch(item["version"]) and Path(name).name == name
+           and name not in (".", ".."), "已签 Agent 身份无效")
+    mirror = validate_mirror(mirror)
+    destination = Path(destination)
     try:
-        with panel_opener().open(url, timeout=30) as response:
-            ensure(response.status == 200 and response.url == url, "面板 Agent 响应无效")
+        if release_dir:
+            payload = read_regular(Path(release_dir) / name, expected_size)
+            ensure(len(payload) == expected_size and digest(payload) == item["binary_sha256"],
+                   "离线 Agent 不符合已签大小或摘要，拒绝执行")
+            with destination.open("xb") as output:
+                output.write(payload)
+            return
+        url = f"https://github.com/{REPOSITORY}/releases/download/agent-v{item['version']}/{urllib.parse.quote(name, safe='')}"
+        if mirror:
+            url = mirror + "/" + url
+        validate_github_url(url, mirror)
+        deadline = time.monotonic() + 300
+        with github_opener(mirror).open(url, timeout=30) as response:
+            validate_github_url(response.url, mirror)
+            ensure(response.status == 200, "GitHub Agent 响应无效")
             declared = response.headers.get("Content-Length")
-            ensure(declared is None or int(declared) == expected_size, "面板 Agent 声明长度不匹配")
-            total, digest = 0, hashlib.sha256()
+            ensure(declared is None or int(declared) == expected_size, "GitHub Agent 声明长度不匹配")
+            total, checksum = 0, hashlib.sha256()
             with destination.open("xb") as output:
                 while True:
                     ensure(time.monotonic() < deadline, "Agent 下载超时")
-                    data = response.read(min(65536, expected_size + 1 - total))
+                    read = getattr(response, "read1", response.read)
+                    data = read(min(65536, expected_size + 1 - total))
                     ensure(time.monotonic() < deadline, "Agent 下载超时")
                     if not data:
                         break
                     total += len(data)
                     ensure(total <= expected_size, "Agent 超出已签大小")
                     output.write(data)
-                    digest.update(data)
-            ensure(total == expected_size and digest.hexdigest() == item["binary_sha256"],
+                    checksum.update(data)
+            ensure(total == expected_size and checksum.hexdigest() == item["binary_sha256"],
                    "Agent 不符合已签大小或摘要，拒绝执行")
     except BaseException:
         destination.unlink(missing_ok=True)
@@ -301,11 +348,11 @@ def validate_partial_identity(identity, panel):
                "首次接入的服务器身份无效")
 
 
-def install_native(bundle, panel, token, item, actual):
+def install_native(bundle, panel, token, item, actual, mirror="", release_dir=None):
     import tomllib
 
     agent = bundle / "sinan-agent"
-    download_agent(panel, token, item, agent)
+    download_agent(item, agent, validate_mirror(mirror, panel), release_dir)
     agent.chmod(0o755)
     checked_agent(agent, ["verify-installed", "--binary", str(agent), "--name", "agent", "--format", "raw"])
     configuration, command, base, agent_root = native_paths(actual)
@@ -364,11 +411,13 @@ def main():
     parser.add_argument("--target", default="auto", help="Expected server platform or auto")
     parser.add_argument("--panel", required=True)
     parser.add_argument("--token")
+    parser.add_argument("--mirror", default="", help="HTTPS prefix for GitHub downloads")
     parser.add_argument("--trusted-keys", default="/etc/sinan/trust/public-keys.json",
                         help="Operator-provisioned root-owned JSON key set, independent of panel")
     parser.add_argument("--minisign", default="minisign")
+    parser.add_argument("--trusted-installer", help="Independent root-protected Linux installer; defaults to bundled trusted-install.sh")
     parser.add_argument("--trusted-agent", help="Previously trusted signed Agent for offline proof verification")
-    parser.add_argument("--release-dir", help="Pre-downloaded proof and signed installer; CI/offline proof only")
+    parser.add_argument("--release-dir", help="Pre-downloaded signed release, including Agent binary; offline installation")
     args = parser.parse_args()
     ensure(os.getuid() == 0, "bootstrap requires root")
     if args.tag:
@@ -379,6 +428,7 @@ def main():
     validate_panel_origin(args.panel)
     actual = host_target()
     compatible_targets(actual, args.target)
+    mirror = validate_mirror(args.mirror, args.panel)
     token = args.token or os.environ.pop("SINAN_ENROLLMENT_TOKEN", None)
     ensure(token, "provide one-time token through SINAN_ENROLLMENT_TOKEN")
     roots = None if args.trusted_agent else load_roots(args.trusted_keys, require_protected=True)
@@ -409,7 +459,7 @@ def main():
                 if args.release_dir:
                     (selected / name).write_bytes(read_regular(Path(args.release_dir) / name, limit))
                 else:
-                    download(base, name, selected / name, limit)
+                    download(base, name, selected / name, limit, mirror)
             if args.trusted_agent:
                 trusted_agent = Path(args.trusted_agent).resolve(strict=True)
                 require_protected_file(trusted_agent)
@@ -433,11 +483,16 @@ def main():
         ensure(bundle is not None and item is not None, f"没有通过签名和本机 {actual} 兼容检查的 Agent 版本")
         print(f"已验证 Agent {version}，安装平台 {item['arch']}（本机 {actual}）", flush=True)
         if not actual.startswith("linux-"):
-            install_native(bundle, args.panel, token, item, actual)
+            install_native(bundle, args.panel, token, item, actual, mirror, args.release_dir)
             return
+
+        installer = Path(args.trusted_installer) if args.trusted_installer else Path(__file__).with_name("trusted-install.sh")
+        require_protected_file(installer)
+        ensure(installer.is_file(), "独立可信 Linux 安装器缺失，请使用官方自包含 bootstrap.sh")
+        download_agent(item, bundle / item["asset_name"], mirror, args.release_dir)
         token_file = bundle / ".enrollment-token"
         token_file.write_text(token)
-        command = ["/bin/sh", str(bundle / "install.sh"), "--bundle", str(bundle),
+        command = ["/bin/sh", str(installer), "--bundle", str(bundle),
                    "--panel", args.panel, "--version", version, "--token-file", str(token_file)]
         if item["arch"] not in ("amd64", "arm64"):
             command.extend(["--target", item["arch"]])

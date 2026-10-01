@@ -198,6 +198,14 @@ pub async fn history(
     Query(query): Query<HistoryQuery>,
 ) -> ApiResult<Json<Vec<TelemetrySample>>> {
     auth::require_admin(&state, &headers).await?;
+    read_history(&state, server, query).await
+}
+
+pub(crate) async fn read_history(
+    state: &AppState,
+    server: i64,
+    query: HistoryQuery,
+) -> ApiResult<Json<Vec<TelemetrySample>>> {
     let exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM servers WHERE id=$1 AND deleted_at IS NULL)",
     )

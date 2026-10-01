@@ -1,0 +1,382 @@
+{
+  "schema": 1,
+  "tested_product_source": "2d08c61fa7a9bd2ddf39cb1346b2be0d5aa93b92",
+  "test_inverse_fix_source": "643522bf55337c7c039388dd74c0c21ee61f52e5",
+  "test_only_change": [
+    "tools/test-nodequality-report-policy.py"
+  ],
+  "base_pull_request": 115,
+  "related_issue": 65,
+  "scope": "Hardware percentile submission consent only; local scoring formulas and benchmarks retained. No full upstream execution.",
+  "source_lock_sha256": "16bc414c7f9bf79514b36f9cc3d8b0376a1805ad58f24f8d8be81ddeb8542dd7",
+  "ranking_policy_sha256": "6f46038c22267108b4572b1f1382a5deb779ecd51d90b0910c2a90f3ef122d59",
+  "hardware_before_sha256": "82b18e8eef943a4acfcfb3724fb6b0526ac1b769d8c3591839e89d50f82f562c",
+  "hardware_after_sha256": "3590bf56114fa8a2ec8bb7b9249efb2faf10ae52b49566a1084f8f00ab1d05eb",
+  "hardware_after_bytes": 156653,
+  "host": {
+    "unique_cases": 140,
+    "finally_passed": 131,
+    "conditional_skips": 9,
+    "initial_failures": 1,
+    "total_executions": 141,
+    "first_receipt_sha256": "24b1f1b8f2ff61b000d947d0554555d377b754710d3acd98ca7b82f95ba5262c",
+    "first_checks": [
+      {
+        "name": "ranking",
+        "exit_code": 0,
+        "tests": 8,
+        "skipped": 4,
+        "seconds": 2.873,
+        "log_sha256": "09fd44281edbd632eefaf75fe4fca970943d3b5057f42fd1b97fa15edfc775db"
+      },
+      {
+        "name": "loader",
+        "exit_code": 0,
+        "tests": 10,
+        "skipped": 0,
+        "seconds": 10.43,
+        "log_sha256": "38aec4c632d271da8b17bf6a35df6713c5eae965e94905f33b5335e7c1423e62"
+      },
+      {
+        "name": "data",
+        "exit_code": 0,
+        "tests": 6,
+        "skipped": 0,
+        "seconds": 7.319,
+        "log_sha256": "4155ee6e47109537ab1ead1af9735ad6c7b095d9b1ec06c2adb2cd073ae2d497"
+      },
+      {
+        "name": "dependencies",
+        "exit_code": 0,
+        "tests": 11,
+        "skipped": 1,
+        "seconds": 2.267,
+        "log_sha256": "3d1ed2a304decfe286eaa57740be0ef3a230ec9bad0bf590e12c40c5e0f64d90"
+      },
+      {
+        "name": "swap",
+        "exit_code": 0,
+        "tests": 10,
+        "skipped": 0,
+        "seconds": 2.071,
+        "log_sha256": "963aa7acf0bd02dc2a499a4ae6c9437cb60df5f9b3ed39a3a03b1c99abfafe86"
+      },
+      {
+        "name": "sources",
+        "exit_code": 0,
+        "tests": 16,
+        "skipped": 0,
+        "seconds": 12.187,
+        "log_sha256": "b1fec9494473de1f6bd9c32aa9f099dd8220d76ac532437eee1a207648701f3e"
+      },
+      {
+        "name": "report",
+        "exit_code": 1,
+        "tests": 6,
+        "skipped": 0,
+        "seconds": 78.51,
+        "log_sha256": "4033a0ddf611c249ff5a5103dcb1baa93f973ffa5c98c05223e2f4f782e45e80"
+      }
+    ],
+    "supplement_receipt_sha256": "e1563b53d4ab00b9dacd6308cb9ccf5f2f5272c688648878efab76045b3f9a68",
+    "supplement_checks": [
+      {
+        "name": "report-inverse",
+        "exit_code": 0,
+        "tests": 1,
+        "skipped": 0,
+        "seconds": 0.203,
+        "log_sha256": "ca9d3c68d7a820715f7bd093db72ce4122dd5639fa0179c11cba16e4dc60c779"
+      },
+      {
+        "name": "wrapper",
+        "exit_code": 0,
+        "tests": 34,
+        "skipped": 0,
+        "seconds": 13.281,
+        "log_sha256": "653d28a116d4e68c61240f9340ae0301af10dbcb4ebfe27d174f56cc89b8d30f"
+      },
+      {
+        "name": "daily",
+        "exit_code": 0,
+        "tests": 7,
+        "skipped": 0,
+        "seconds": 6.627,
+        "log_sha256": "7564694a6d5908b4bf09feb8a5f170614a02fe6bd73d6afa4f1211320039481b"
+      },
+      {
+        "name": "release",
+        "exit_code": 0,
+        "tests": 32,
+        "skipped": 4,
+        "seconds": 0.642,
+        "log_sha256": "f49affff970d5af5d17cc86fb33c69b2496b2e263f21dfae8fd051031e6cb680"
+      }
+    ],
+    "initial_failure": "Old report inverse-transform test did not remove the new ranking patch. Product bytes unchanged; only corrected failed test and unfinished groups rerun."
+  },
+  "rust": {
+    "receipt_sha256": "c88e02f70fad8142516567ca2e59a3044105246900ca5c1f3484b2c6aaeedded",
+    "checks": [
+      {
+        "name": "postgres-start",
+        "exit_code": 0,
+        "log_sha256": "66afd0411ccc09366e99fdd99b85f21899c8d2d064f5835126859618802153ad"
+      },
+      {
+        "name": "adapter-diagnostic",
+        "exit_code": 0,
+        "log_sha256": "ec8c80bc19b092d4d12a9e5fb2c73b54dd98ea80a1f2779fb66cff888721b0ac",
+        "tests": {
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "panel-chain-gate",
+        "exit_code": 0,
+        "log_sha256": "e8da9884b2c559a29fc8a2e8b8312c53f310161258420f468567da31a74b9fb1",
+        "tests": {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "panel-daily-version",
+        "exit_code": 0,
+        "log_sha256": "2aeae7240ec86c23806061e08a723a0a22868f3a6050b667a3c02d547bfa84b8",
+        "tests": {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "adapter-clippy",
+        "exit_code": 0,
+        "log_sha256": "d3fc5d7736f635a587d97286324e627fc4d182276f05ac5d73d146995038f348"
+      },
+      {
+        "name": "workspace-fmt",
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "core-boundary",
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "diff-check",
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "postgres-stop",
+        "exit_code": 0,
+        "log_sha256": "ca19178a35ab4153b75b494963b66ce8243e1b94c173107c87b44d09db23652d"
+      }
+    ],
+    "frozen_inputs": {
+      "crates/adapter-nodequality/src/lib.rs": "811f1ad2968790fab7edcddc363fcabf7adea539b8305dde3bbf4b1d09ecb5b1",
+      "crates/adapter-nodequality/tests/diagnostic.rs": "61999f5b453659c744677c834badf3843b0014d5d90c2c84612d47170952d988",
+      "crates/adapter-nodequality/tests/diagnostic/versions.rs": "ab4bf4b558e4fc27485d2a1b80dd478caa5b44ce3ac7ba0d2f5d1e021172424f",
+      "plugins/nodequality/panel/mod.rs": "a137115c90a24bbddaed8c86d149fafd114df50c5c45031a48f9780f907720b6",
+      "crates/panel/tests/diagnostics/modes.rs": "55b8a7c27bcf4c07d06e0a7702b40fd492d0aa71e45a1f6a2da767f8055fa582",
+      "crates/panel/tests/diagnostics/chain_gate.rs": "c9b5dab80452a9c9c15b634860eb6055b6e7ab61c90904d586328fe262ebccb9"
+    },
+    "cargo_lock_sha256": "02e3ac8f8a90c522b1267049cce2ed27fdd819bd0ab86e4d25c75581cb3bc948",
+    "postgres_stopped": true,
+    "postgres_pid_absent": true,
+    "postgres_port_closed": true,
+    "trust_kind": "public_TEST_ONLY"
+  },
+  "debian": {
+    "os": "Debian 12 arm64",
+    "bash": "5.2.15(1)-release",
+    "duration_seconds": 80.001,
+    "checks": [
+      {
+        "name": "ranking",
+        "exit_code": 0,
+        "elapsed_seconds": 17.723263091000263,
+        "ran": 8,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "a31f3fb844b0376db3e0ed402d6cd0583dc3a0cef016cbdd715b40059689b0bb"
+      },
+      {
+        "name": "loader",
+        "exit_code": 0,
+        "elapsed_seconds": 6.058273545000702,
+        "ran": 10,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "7ece04005a302cbed1985b72816466626b4419506e8f0abab7e95bc0895d3cf8"
+      },
+      {
+        "name": "source",
+        "exit_code": 0,
+        "elapsed_seconds": 4.613808294001501,
+        "ran": 16,
+        "skipped": 1,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "081390e590f1de7f1043ed08b82c8de05ea0e35ab59799c968b6141f821be913"
+      },
+      {
+        "name": "data",
+        "exit_code": 0,
+        "elapsed_seconds": 2.4956012509992433,
+        "ran": 6,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "a4eafb7155e2c04604c285fe5fdf7b4e5c89d45275db6ea648bd06a6fcca1158"
+      },
+      {
+        "name": "dependencies",
+        "exit_code": 0,
+        "elapsed_seconds": 1.0706052080004156,
+        "ran": 11,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "0159620d088670c3925ce0ef8c2c0902f463f5a744676bd62eff0d8d308a7091"
+      },
+      {
+        "name": "swap",
+        "exit_code": 0,
+        "elapsed_seconds": 0.7803131669988943,
+        "ran": 10,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "a96c7bbed3f9afb15e286f9ac5956b7e73fa6aad76bbf8acbe804a5386defd7f"
+      },
+      {
+        "name": "original-body-fd",
+        "exit_code": 0,
+        "elapsed_seconds": 42.197198936999484,
+        "ran": 2,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "41b9213bd0c6974a2b34e7052ba38761acd4f50a98ee50c3ed184175c5469bc2"
+      },
+      {
+        "name": "wrapper",
+        "exit_code": 0,
+        "elapsed_seconds": 2.6905368349998753,
+        "ran": 34,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "bc65a25879f18ebcd1e085800cd0dcd47f26df687dcce2a31b518b6d3ce6cab5"
+      },
+      {
+        "name": "daily",
+        "exit_code": 0,
+        "elapsed_seconds": 2.3502494179992937,
+        "ran": 7,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "f4af2739ff94c82eebf8f83f8423c14ed98105f9fff5b6b5ac84400a11eeb581"
+      }
+    ],
+    "runtime_properties": {
+      "MainPID": "27043",
+      "ControlGroup": "/system.slice/sinan-nodequality-r12-fd-v1.service",
+      "CPUWeight": "10",
+      "IOWeight": "10",
+      "MemoryMax": "268435456",
+      "MemorySwapMax": "0",
+      "TasksMax": "64",
+      "OOMScoreAdjust": "500",
+      "PrivateNetwork": "yes",
+      "PrivateMounts": "yes",
+      "NoNewPrivileges": "yes",
+      "KillMode": "control-group"
+    },
+    "cgroup_metrics": {
+      "memory.peak": "70348800",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "pids.peak": "11"
+    },
+    "test_tools": {
+      "jq": {
+        "sha256": "7783b0cb91736bb073d0cdeac6e3e05464abb0a5bddc235d03dd2cabad4aa080",
+        "package": "jq 1.6-2.1+deb12u2"
+      },
+      "bc": {
+        "sha256": "d83c892b35dcfe0dfa3a6b41e7f73f83e987658830facabbd3e56394ef1c4756",
+        "package": "bc 1.07.1-3"
+      }
+    },
+    "postcheck": {
+      "final_unit_properties": {
+        "MainPID": "0",
+        "ControlPID": "0",
+        "ControlGroup": "",
+        "LoadState": "not-found",
+        "ActiveState": "inactive",
+        "SubState": "dead"
+      },
+      "oom_since_actual_start": [],
+      "cgroup_exists": false,
+      "residual_fixture_pids": [],
+      "residual_fixture_mounts": [],
+      "ssh": {
+        "MainPID": "406",
+        "NRestarts": "0",
+        "ActiveState": "active"
+      },
+      "swap_entries": 0,
+      "source_files_unchanged": true,
+      "success": true
+    },
+    "files_sha256": {
+      "result.json": "198bf09da20aa6673635d16445f6f484a1b7f66e127e3c6308a9247f585210e7",
+      "postcheck.json": "ecf9cc28ec8e48ad645ac6ade8d234dead233a700dbad5a34261f5f5cbd862dc",
+      "receipt.json": "b33295792c8dfc571da0252adb6910d6dc8869e89a53f3fe580c5de9d81ad51b",
+      "source-sha256.json": "546063352bddcf675bb82fd8035a005ccb0e65b3f66ba96f8ae08e46f32d3ee6",
+      "source.tar": "dfc1507907b1be48d27ac09393cc999837714a8dea7a73754559ea3bbda3d802",
+      "fixture-driver.py": "4e89b4dc7a06cd4e222a5639028171cc594c5fa2c01efce6c3052f3fa41a09d6"
+    },
+    "input_file_count": 46,
+    "repository_input_sha256": {
+      "plugins/nodequality/loader-policy.py": "189fda7f90cd91df37ddfecf206c15137d823128a75e7b22c850abb2e2a2fe92",
+      "plugins/nodequality/dependency-policy.py": "9424dded5fd6c74ff9888fa6e2e3d9482fe8db144fa4c572682fca3f8cf5b5de",
+      "plugins/nodequality/report-policy.py": "0c66e702084820e399a16b18b51ba331cd8edd406dd96ede7c2ee84f78c30245",
+      "plugins/nodequality/chroot-shim.sh": "6d12129f92b8869b9fd78ed5b73a2dff57c3fca82ccc7995fd777646e5ba79bc",
+      "plugins/nodequality/swap-policy.py": "1d6acda7821d013773b273d77db12973d7075631b0309614dadb9c5cfc09ff24",
+      "plugins/nodequality/runner.sh.tmpl": "7a3c6dffb70ead4573530cafee9f8a19c0e179577466fbf7314711536e6af571",
+      "plugins/nodequality/UPSTREAM.txt": "e572ea561606fa458044637ae27575733566fef51462685696d053cf473dee1f",
+      "plugins/nodequality/source-helper.py": "6df281b1d428dd1a1e6a38ae81038c3fa736a763ec2ac6e898a27f5f7f72883f",
+      "plugins/nodequality/curl-shim.sh": "307b56270d67a71d3af667f6e17351bd115676bd3eecb6686b7be26931d0cfce",
+      "plugins/nodequality/data-policy.py": "0115f90f8ce521eab1472d8426b8f8dfbf1fefca427ae0fdfd557b346a8fdab3",
+      "plugins/nodequality/daily.py": "8f376ca7ef0616fedcf981c6ba671401a2e8ffb0c5ac9e4308e9e12a07c38a26",
+      "plugins/nodequality/exit-observer.sh": "b1f68e376ff7e9ee23b03bcfc854aa54440b30370ce7aada2be34ea79b06b257",
+      "plugins/nodequality/report.py": "5118a7cbe5ddb5d317e56606904bd301c30ac28519e8dcda106ce1151afc0b38",
+      "plugins/nodequality/source-lock.json": "16bc414c7f9bf79514b36f9cc3d8b0376a1805ad58f24f8d8be81ddeb8542dd7",
+      "plugins/nodequality/ranking-policy.py": "6f46038c22267108b4572b1f1382a5deb779ecd51d90b0910c2a90f3ef122d59",
+      "tools/build-nodequality.sh": "d5c32814b1afe43e7e241611641270e2b7144de622d2c56219b556d6843ff019",
+      "tools/test-nodequality-sources.py": "e8bcaf0028b6696c493c8665ff06683d40167a943f7e6773b08ec0bbaa534cd6",
+      "tools/test-nodequality-report-policy.py": "92a0c0e3a20b420f1519ca13fe07c2294d12582031ee5fae0869315c0911d500",
+      "tools/nodequality-source-fixture.py": "989cfb1510bf5b0a9a25a16a8efce0b1dfb856ba97ad38e691a8b0c32866744b",
+      "tools/test-nodequality-swap-policy.py": "9bb638f1b3a8c0bb98356b24d23db6df1a89f0cd1d0478b14961e4466cbbe170",
+      "tools/test-nodequality-dependency-policy.py": "4a2e70b7c2cbff1ddd7285a264f127ba97546a9b3a7666c983a8b1dff1f6f938",
+      "tools/test-nodequality-data-policy.py": "cd4031a55496c7e00620ad8e6292c31e58a2f8c12a0f7c6f7f76893bde22acf7",
+      "tools/test-nodequality-loader-policy.py": "c9e491c05aee0f9be630c81aa564a37db45050370b686ac215f0fd852988100c",
+      "tools/test-nodequality-ranking-policy.py": "089139ce482736fadec4d982fb12870e5ed0de8e7c4bc6b42a169eb3e5a5d87f",
+      "tools/test-nodequality.py": "e3a10d784d796e4a208b515e888db344383b664ae1c4cbc69bfdef36aa617de0",
+      "tools/test-diagnostic-modes.py": "00522348739ef4adca56964d263c1951dfca798aacc12092f2de5240b73331c3",
+      "crates/protocol/tests/fixtures/TEST_ONLY.key": "21c747afcd9c2932cd2f10fc356028b46730d76eb57e0c820ea90fa44753c07c",
+      "crates/protocol/tests/fixtures/TEST_ONLY.pub": "1883353600a9b2869b72be791a44d6d86e17566042e1ee8becfdca1b3f7a24d1"
+    }
+  },
+  "not_verified": [
+    "Complete upstream bootstrap, BenchOS or benchmark execution",
+    "Geekbench and other remaining tool uploads",
+    "Rootfs and secondary tool provenance, integrity, licenses and bounded packaging",
+    "Remaining cookies, browser impersonation, ads and target authorization",
+    "Full NodeQuality under continuous proxy load and entire fault matrix",
+    "Formal signing, release, deployment or paused CI"
+  ]
+}

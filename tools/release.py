@@ -18,7 +18,7 @@ TEST_ONLY_PUBLIC_KEY = "RWS3NbDikg3VqWRlxJMUyaB1dTvErk0ptJ695xQ50Kyb+MmtynMhN/lq
 TEST_ONLY_ROTATION_PUBLIC_KEY = "RWRURVNUUk9UMjMuvo0ny3Mjs6QBwcE7XdZLzMDhDs2hwrXRGgN3moXl"
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 TEST_PUBLIC_KEY_DIRS = (SOURCE_ROOT / "fixtures", SOURCE_ROOT / "crates/protocol/tests/fixtures")
-NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r8"
+NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r13"
 SEGMENT = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}\Z")
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?\Z")
 MAX_BINARY = 256 * 1024 * 1024
@@ -171,18 +171,24 @@ def assemble(args):
     (output / "SHA256SUMS").write_bytes(checksums.encode("utf-8"))
 
 
-def render_installer(args):
-    text = read_regular(Path(args.template), 262144).decode("utf-8")
-    for marker, filename in (("@@AGENT_UNIT@@", args.agent_unit),
-                             ("@@RUNTIME_UNIT@@", args.runtime_unit)):
+def installer_source(template, agent_unit, runtime_unit, source_root=SOURCE_ROOT):
+    """Render audited static Linux installation logic for release or trusted bootstrap."""
+    text = read_regular(Path(template), 262144).decode("utf-8")
+    for marker, filename in (("@@AGENT_UNIT@@", agent_unit),
+                             ("@@RUNTIME_UNIT@@", runtime_unit)):
         ensure(text.count(marker) == 1, "missing or duplicate installer unit marker")
         text = text.replace(marker, read_regular(Path(filename), 65536).decode("utf-8").rstrip())
-    for marker, filename in (("@@AGENT_OPENRC@@", SOURCE_ROOT / "deploy/sinan-agent.openrc"),
-                             ("@@RUNTIME_OPENRC@@", SOURCE_ROOT / "plugins/sing-box/sinan-singbox.openrc")):
+    for marker, filename in (("@@AGENT_OPENRC@@", source_root / "deploy/sinan-agent.openrc"),
+                             ("@@RUNTIME_OPENRC@@", source_root / "plugins/sing-box/sinan-singbox.openrc")):
         if marker in text:
             ensure(text.count(marker) == 1, "duplicate installer unit marker")
             text = text.replace(marker, read_regular(filename, 65536).decode("utf-8").rstrip())
     ensure("@@" not in text, "unexpanded installer marker")
+    return text
+
+
+def render_installer(args):
+    text = installer_source(args.template, args.agent_unit, args.runtime_unit)
     output = Path(args.output)
     ensure(not output.exists(), "installer output exists")
     output.write_bytes(text.encode("utf-8"))

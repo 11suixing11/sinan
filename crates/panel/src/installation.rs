@@ -25,6 +25,25 @@ pub async fn select(
     platform: Option<&str>,
     target: Option<&str>,
 ) -> ApiResult<Installation> {
+    let server_id = crate::servers::validate_enrollment(&state.pool, token).await?;
+    let asset: serde_json::Value =
+        sqlx::query_scalar("SELECT asset_settings FROM servers WHERE id=$1 AND deleted_at IS NULL")
+            .bind(server_id)
+            .fetch_one(&state.pool)
+            .await?;
+    let asset: crate::server_assets::AssetSettings =
+        serde_json::from_value(asset).map_err(anyhow::Error::from)?;
+    select_with_mirror(state, version, token, platform, target, &asset.agent_mirror).await
+}
+
+pub async fn select_with_mirror(
+    state: &AppState,
+    version: Option<&str>,
+    token: &str,
+    platform: Option<&str>,
+    target: Option<&str>,
+    mirror: &str,
+) -> ApiResult<Installation> {
     let platform = platform.unwrap_or("unix");
     let target = target.unwrap_or("auto");
     if !matches!(platform, "unix" | "windows") {
@@ -66,12 +85,12 @@ pub async fn select(
     let (bootstrap_url, install_command) = if platform == "windows" {
         (
             windows::bootstrap_url(),
-            windows::command(&version, &state.config.public_url, token, target),
+            windows::command_with_mirror(&version, &state.config.public_url, token, target, mirror),
         )
     } else {
         (
             bootstrap_url(),
-            command_with_target(&version, &state.config.public_url, token, target),
+            command_with_mirror(&version, &state.config.public_url, token, target, mirror),
         )
     };
     Ok(Installation {
@@ -104,6 +123,16 @@ pub fn command(tag: &str, panel: &str, token: &str) -> String {
 }
 
 pub fn command_with_target(version: &str, panel: &str, token: &str, target: &str) -> String {
+    command_with_mirror(version, panel, token, target, "")
+}
+
+pub fn command_with_mirror(
+    version: &str,
+    panel: &str,
+    token: &str,
+    target: &str,
+    mirror: &str,
+) -> String {
     let program = concat!(
         "set -eu; umask 077; ",
         "if ! command -v curl >/dev/null; then ",
@@ -125,11 +154,11 @@ pub fn command_with_target(version: &str, panel: &str, token: &str, target: &str
         "if command -v sha256sum >/dev/null; then printf '%s  %s\\n' \"$2\" \"$d/bootstrap.sh\" | sha256sum -c - >/dev/null; ",
         "elif command -v shasum >/dev/null; then printf '%s  %s\\n' \"$2\" \"$d/bootstrap.sh\" | shasum -a 256 -c - >/dev/null; ",
         "else [ \"$(sha256 -q \"$d/bootstrap.sh\")\" = \"$2\" ]; fi; ",
-        "/bin/sh \"$d/bootstrap.sh\" --version \"$3\" --panel \"$4\" --token \"$5\" --target \"$6\""
+        "/bin/sh \"$d/bootstrap.sh\" --version \"$3\" --panel \"$4\" --token \"$5\" --target \"$6\" --mirror \"$7\""
     );
     let checksum = format!("{:x}", Sha256::digest(BOOTSTRAP));
     format!(
-        "sh -c {} sinan-bootstrap {} {} {} {} {} {}",
+        "sh -c {} sinan-bootstrap {} {} {} {} {} {} {}",
         shell_quote(program),
         shell_quote(&bootstrap_url()),
         shell_quote(&checksum),
@@ -137,6 +166,7 @@ pub fn command_with_target(version: &str, panel: &str, token: &str, target: &str
         shell_quote(panel),
         shell_quote(token),
         shell_quote(target),
+        shell_quote(mirror),
     )
 }
 
@@ -166,7 +196,7 @@ mod tests {
         assert!(automatic.contains("--version"));
         assert!(automatic.contains("'latest'"));
         assert!(automatic.contains("--target"));
-        assert!(automatic.ends_with("'auto'"));
+        assert!(automatic.ends_with("'auto' ''"));
     }
 
     #[test]

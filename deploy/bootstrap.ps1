@@ -4,7 +4,8 @@ param(
     [string]$Version = 'latest',
     [Parameter(Mandatory = $true)][string]$Panel,
     [Parameter(Mandatory = $true)][string]$Token,
-    [string]$Target = 'auto'
+    [string]$Target = 'auto',
+    [string]$Mirror = ''
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -44,10 +45,22 @@ function Assert-Origin([string]$Value) {
         Assert-Sinan $loopback 'HTTP 面板仅允许回环地址，请使用 HTTPS'
     }
 }
-function Assert-GithubUrl([Uri]$Uri) {
-    Assert-Sinan ($Uri.Scheme -eq 'https' -and $Uri.Port -eq 443 -and -not $Uri.UserInfo -and -not $Uri.Fragment -and $Uri.Host -in @('github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com')) 'GitHub 下载地址超出固定允许范围'
+function Assert-Mirror([string]$Value, [string]$Origin) {
+    if (-not $Value) { return }
+    $uri = $null
+    Assert-Sinan ($Value.Length -le 512 -and $Value -notmatch '[\x00-\x20\x7f]' -and [Uri]::TryCreate($Value, [UriKind]::Absolute, [ref]$uri) -and $uri.Scheme -eq 'https' -and $uri.Port -eq 443 -and $uri.Host -and -not $uri.UserInfo -and -not $uri.Query -and -not $uri.Fragment -and $uri.Host -ne 'localhost') 'Agent 下载镜像必须是独立的 HTTPS 前缀'
+    $address = $null
+    Assert-Sinan (-not [Net.IPAddress]::TryParse($uri.Host.Trim('[', ']'), [ref]$address)) 'Agent 下载镜像必须使用域名'
+    Assert-Sinan ($uri.GetLeftPart([UriPartial]::Authority) -ine ([Uri]$Origin).GetLeftPart([UriPartial]::Authority)) 'Agent 二进制不能从面板下载'
 }
-function Receive-SinanFile([string]$Url, [string]$Path, [long]$Limit, [bool]$Github = $false, [long]$ExpectedSize = 0) {
+function Get-ReleaseUrl([string]$Url, [string]$Prefix) {
+    if ($Prefix) { return $Prefix.TrimEnd('/') + '/' + $Url }
+    return $Url
+}
+function Assert-GithubUrl([Uri]$Uri, [string]$MirrorHost = '') {
+    Assert-Sinan ($Uri.Scheme -eq 'https' -and $Uri.Port -eq 443 -and -not $Uri.UserInfo -and -not $Uri.Fragment -and ($Uri.Host -in @('github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com') -or ($MirrorHost -and $Uri.Host -eq $MirrorHost))) 'GitHub 下载地址超出固定允许范围'
+}
+function Receive-SinanFile([string]$Url, [string]$Path, [long]$Limit, [bool]$Github = $false, [long]$ExpectedSize = 0, [string]$MirrorHost = '') {
     Add-Type -AssemblyName System.Net.Http
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $handler = [Net.Http.HttpClientHandler]::new()
@@ -55,13 +68,14 @@ function Receive-SinanFile([string]$Url, [string]$Path, [long]$Limit, [bool]$Git
     $handler.AllowAutoRedirect = $false
     $client = [Net.Http.HttpClient]::new($handler)
     $client.Timeout = [TimeSpan]::FromSeconds(300)
+    $client.DefaultRequestHeaders.UserAgent.ParseAdd('sinan-bootstrap')
     $deadline = [DateTime]::UtcNow.AddSeconds(300)
     $cancel = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(300))
     $response = $null
     try {
         $uri = [Uri]$Url
         for ($redirect = 0; ; $redirect++) {
-            if ($Github) { Assert-GithubUrl $uri }
+            if ($Github) { Assert-GithubUrl $uri $MirrorHost }
             $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, $uri)
             try { $response = $client.SendAsync($request, [Net.Http.HttpCompletionOption]::ResponseHeadersRead, $cancel.Token).GetAwaiter().GetResult() }
             finally { $request.Dispose() }
@@ -334,7 +348,9 @@ function Invoke-SinanBootstrap {
     $administrator = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
     Assert-Sinan ($administrator.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) '请在管理员 PowerShell 中执行安装命令'
     Assert-Origin $Panel
-    Assert-Sinan ($Version -eq 'latest' -or $Version -cmatch $script:VersionPattern) '请选择自动匹配或有效 Agent 版本'
+    Assert-Mirror $Mirror $Panel
+    $mirrorHost = if ($Mirror) { ([Uri]$Mirror).Host } else { '' }
+    Assert-Sinan ($Version -eq 'latest' -or $Version -cmatch '^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$') 'Windows 服务安装仅支持稳定版本，请选择自动匹配或数字三段版本'
     $actual = Get-HostTarget
     Assert-Sinan ($Target -eq 'auto' -or $Target -ceq $actual) ('所选平台与本机 ' + $actual + ' 不兼容')
     $directory = New-ProtectedDirectory ([Environment]::GetFolderPath('Windows'))
@@ -347,7 +363,7 @@ function Invoke-SinanBootstrap {
             [void][IO.Directory]::CreateDirectory($bundle)
             $base = 'https://github.com/theLucius7/sinan/releases/download/agent-v' + $candidate
             foreach ($file in @(@('SHA256SUMS', 8192), @('SHA256SUMS.minisig', 16384), @('release.json', 32768), @('install.sh', 262144))) {
-                Receive-SinanFile ($base + '/' + $file[0]) (Join-Path $bundle $file[0]) $file[1] $true
+                Receive-SinanFile (Get-ReleaseUrl ($base + '/' + $file[0]) $Mirror) (Join-Path $bundle $file[0]) $file[1] $true 0 $mirrorHost
             }
             Test-ReleaseSignature $bundle $minisign
             $metadata = Read-ReleaseManifest $bundle $candidate
@@ -357,8 +373,9 @@ function Invoke-SinanBootstrap {
         }
         Assert-Sinan ($null -ne $selected) ('已签名发布缺少本机 ' + $actual + ' 兼容版本；请先发布并导入对应制品')
         $agent = Join-Path $bundle 'sinan-agent.exe'
-        $url = $Panel.TrimEnd('/') + '/api/bootstrap/' + [Uri]::EscapeDataString($selected.version) + '/' + $actual + '?token=' + [Uri]::EscapeDataString($Token)
-        Receive-SinanFile $url $agent $selected.binary_size $false $selected.binary_size
+        $url = Get-ReleaseUrl ($base + '/' + $selected.asset_name) $Mirror
+        # GitHub and mirror requests never carry an enrollment token or device credentials.
+        Receive-SinanFile $url $agent $selected.binary_size $true $selected.binary_size $mirrorHost
         Assert-Sinan ((Get-SinanHash $agent) -ceq $selected.binary_sha256) 'Agent 不符合已签摘要，拒绝执行'
         Invoke-CheckedAgent $agent @('verify-installed', '--binary', $agent, '--name', 'agent', '--format', 'raw')
         $programData = [Environment]::GetFolderPath('CommonApplicationData')

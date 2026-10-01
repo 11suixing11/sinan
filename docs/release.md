@@ -10,7 +10,7 @@ CI 为两种架构构建 musl Agent、固定上游运行时和当前 NodeQuality
 
 `SHA256SUMS` 按 ASCII 路径排序，格式为小写 SHA-256、两个空格、规范路径、LF。制品路径为 `name/version/arch`，GitHub 平铺文件名由已签 metadata 的 `asset_name` 映射；另包含 `release.json` 与 `install.sh`。签名本身不在 SUMS 内，签名资产必须是完整四行 `SHA256SUMS.minisig`。
 
-官方在线部署可直接复制面板接入命令，无需手动预装 bootstrap；命令下载固定官方 GitHub 入口并核对摘要，入口内置正式公开根并自动准备验证工具，再独立验证已签 Release。本文的手动预置流程继续用于自建信任域、离线部署或独立审查方式；调整范围见 [ADR 0037](adr/0037-bootstrap-and-selective-import.md)。
+官方在线部署可直接复制面板接入命令，无需手动预装 bootstrap；命令下载固定官方 GitHub 入口并核对摘要，入口内置正式公开根并自动准备验证工具，再独立验证已签 Release。本文的手动预置流程继续用于自建信任域、离线部署或独立审查方式；调整范围见 [ADR 0038](adr/0038-bootstrap-and-selective-import.md) 与 [ADR 0039](adr/0039-cross-platform-enrollment.md)。
 
 ## 生产根与离线签名
 
@@ -57,9 +57,9 @@ GitHub REST 没有把 tag、全部 assets 和 Release 发布合成一个条件�
 
 ## 首次安装
 
-首次信任必须来自面板之外。操作者通过自己信任的仓库源码取得 `tools/bootstrap.py` 与相邻 `tools/release.py`，预先安装 minisign，并将独立核对的公钥 JSON 放入 root 拥有且不可被组或其他用户修改的路径，例如 `/etc/sinan/trust/public-keys.json`；所有父目录同样受保护。不要从面板下载公钥后就把它视为根，也不要把面板返回的脚本文本直接管道交给 sudo。
+首次信任必须来自面板之外。操作者通过自己信任的仓库源码取得 `tools/bootstrap.py` 与相邻 `tools/release.py`，预先安装 minisign、独立核对并渲染当前 Linux 静态执行器为相邻受保护的 `trusted-install.sh`，并将独立核对的公钥 JSON 放入 root 拥有且不可被组或其他用户修改的路径，例如 `/etc/sinan/trust/public-keys.json`；所有父目录同样受保护。不要从面板下载公钥后就把它视为根，也不要把面板返回的脚本文本直接管道交给 sudo。
 
-若要直接使用面板给出的 `sudo sinan-bootstrap ...` 命令，先按[部署文档](deploy.md#准备可信-bootstrap)把这两个可信源码文件安装到 root 控制的 `/usr/local/lib/sinan/`，并建立 `/usr/local/bin/sinan-bootstrap` 启动脚本；脚本和目录不得由普通用户修改。也可以直接使用下面的完整 Python 路径形式。这个预置步骤独立于面板与待安装的 Agent。
+自建根或离线部署若使用 `sudo sinan-bootstrap ...`，先按[部署文档](deploy.md#手动准备可信-bootstrap)把这两个可信源码文件安装到 root 控制的 `/usr/local/lib/sinan/`，并建立 `/usr/local/bin/sinan-bootstrap` 启动脚本；脚本和目录不得由普通用户修改。也可以直接使用下面的完整 Python 路径形式。这个预置步骤独立于面板与待安装的 Agent。
 
 面板只提供目标 tag、面板 origin 和一次性令牌，用已有的可信 bootstrap 执行：
 
@@ -70,9 +70,9 @@ sudo python3 /可信源码副本/tools/bootstrap.py \
   --trusted-keys /etc/sinan/trust/public-keys.json
 ```
 
-bootstrap 只从固定的官方 GitHub 仓库取得完整 proof 和静态安装器，不使用环境代理。首次请求和每一跳重定向都要求 HTTPS、443、无 URL 凭据，并精确限制为 `github.com`、`release-assets.githubusercontent.com`、`objects.githubusercontent.com`，最多五跳；禁止降级和跳转到任意其他主机。先验完整 minisign 签名及安装器摘要，再执行已签安装器。
+bootstrap 从固定官方 GitHub Release 取得完整 proof、静态安装器和 Agent 二进制，不使用环境代理。先验证完整 minisign、正式 Release 安装器摘要和 Agent 长度/摘要。官方单行 Linux 入口执行自身固定 blob 中嵌入的受信静态安装器；手动预置同一可信安装器后也可安装旧 0.3.0，不修改已发布安装器或签名。原生平台使用已签 Agent 的 install-service。首次请求和每一跳重定向都要求 HTTPS、443、无 URL 凭据；默认只允许 `github.com`、`release-assets.githubusercontent.com`、`objects.githubusercontent.com`，最多五跳。可加 `--mirror https://mirror.example.com`，以镜像前缀加完整 GitHub URL 下载；只额外允许该镜像来源，不发送一次性令牌或设备凭据，失败不回退面板。
 
-安装器从面板同源 bootstrap 路由下载 Agent，不接受下载重定向或环境代理。面板地址通常必须是 HTTPS；HTTP 只允许字面的回环 IP 或 `localhost`，不接受通过 DNS 声称是回环地址的其他主机名。下载按照已签长度设置硬上限，并检查实际长度和 SHA256；这些检查使用 `python3 -I` 和显式拒绝逻辑，不依赖可被 Python 优化模式移除的 `assert`。只有独立检查通过后，才允许执行下载物，用新 Agent 内置根进一步验证：
+安装器仅使用 bootstrap 已下载的本地签名包，再次按已签长度和 SHA256 核对 Agent；缺失或损坏立即拒绝，完全不向面板下载二进制。检查使用 `python3 -I` 和显式拒绝逻辑，不依赖可被优化模式移除的 `assert`。`--release-dir` 离线目录必须同时包含签名、清单、安装器和对应 Agent 的 GitHub asset 文件。面板地址通常必须是 HTTPS，HTTP 只允许字面回环地址或 `localhost`，仅用于注册和后续配置通信。新 Agent 内置根进一步验证：
 
 ```sh
 /暂存/0.3.0/sinan-agent verify-installed \
@@ -96,7 +96,7 @@ bootstrap 只从固定的官方 GitHub 仓库取得完整 proof 和静态安装�
 
 迁移期间应避免其他管理员同时修改缓存或安装版本。预检与人工补证明不构成覆盖旧 Agent 的跨版本事务锁。若启动恢复在连接面板之前发现无效 proof，Agent 在本地记录失败并停止启动；此时没有连接可发送 `ApplyResult`，应从本机日志和状态定位问题，不能把面板尚未收到失败报告当作恢复成功。
 
-CI 可使用 `--release-dir <本地已签测试发布目录>` 代替 GitHub proof 下载；这个选项只替代 proof/静态安装器来源，目标 Agent 仍从面板下载，测试没有绕过 native 下载同源限制。`tools/release.py assemble --arch amd64` 可生成仅本机架构的测试 bundle，仍包含 Agent、运行时和 NodeQuality 三个已签模块；正式发布入口强制六制品，拒绝单架构测试 bundle。
+CI 可使用 `--release-dir <本地已签测试发布目录>` 代替 GitHub 下载，该目录同时包含完整 proof 与对应 Agent flat asset；Linux 执行器须另由独立受保护来源预置。Agent 不从面板下载，fixture 根只用于明确隔离的测试。`tools/release.py assemble --arch amd64` 可生成仅本机架构的测试 bundle，仍包含 Agent、运行时和 NodeQuality 三个已签模块；正式发布入口强制六制品，拒绝单架构测试 bundle。
 
 ## 公钥轮换与私钥泄漏
 
@@ -113,3 +113,9 @@ CI 可使用 `--release-dir <本地已签测试发布目录>` 代替 GitHub proo
 ## 验证与发布状态
 
 本地和 PR 验证使用明确标识的测试公钥、测试私钥与隔离环境；验收要求包括完整 minisign、错误或篡改资产、轮换、安装前缓存预检、systemd 重启和 Release 导入。测试成功不能替代生产信任根配置、用户本地签署及正式发布验证。当前阶段的实测结果和仍未验证范围以 [PROGRESS.md](../PROGRESS.md) 为准；正式发布证据来自 `Signed release draft` workflow 的验证产物和最终 Release 状态。
+
+## Agent 自动更新与旧版本衔接
+
+面板仍通过导入并验证 Release 来选择协议和平台兼容的版本，但更新描述中的 URL 指向固定 GitHub Release，Agent 根据已签仓库、标签和资产名称重建地址后比较，使用独立匿名客户端下载。可在服务器新增或编辑窗口设置「Agent 下载加速」；镜像只改变传输路径，不改变发布信任根、版本和 ABI 检查。自更新下载还逐跳检查公网 DNS 并固定解析地址，拒绝面板来源、非公网目标、凭据和不受支持的重定向。运行时与配置仍从绑定面板下载。
+
+旧 `/api/bootstrap/{version}/{arch}` 及 Agent 专用面板二进制路由已关闭，持有有效令牌也不会返回二进制。依赖这些接口的旧安装器可改用本次源码固定 blob/SHA 保护的单行入口：它核对完整 Release proof，直接 GitHub 下载已签 Agent，并使用内嵌受信 Linux 执行器。旧 Agent 若只接受面板同源更新 URL，后续升级需使用独立入口手动执行。不要修改既有签名或覆盖旧 Release 来兼容。原生平台继续从 GitHub 获取已签发布目录，独立验签后运行 `install-service`；已弃用的面板模板已移除。

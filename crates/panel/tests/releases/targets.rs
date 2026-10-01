@@ -87,10 +87,14 @@ async fn arm_import_downloads_only_arm_and_can_append_amd_without_redownloading(
         releases::artifact(&fixture.state, "agent", "0.3.0", "amd64").await,
         Err(ApiError::NotFound)
     ));
+    let update = releases::newer_agent(&fixture.state, &["amd64".into()], (0, 2, 0))
+        .await?
+        .context("signed GitHub update missing")?;
     assert!(
-        releases::newer_agent(&fixture.state, &["amd64".into()], (0, 2, 0))
-            .await?
-            .is_none()
+        update
+            .artifact
+            .url
+            .ends_with("agent-0.3.0-linux-musl-amd64")
     );
     assert!(
         releases::newer_agent(&fixture.state, &["arm64".into()], (0, 2, 0))

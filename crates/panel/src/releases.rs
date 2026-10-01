@@ -4,8 +4,8 @@ mod selection;
 mod storage;
 
 pub use agents::{
-    AgentVersion, AgentVersions, agent_versions, bootstrap_agent_versions, cache_agent_payload,
-    ensure_bootstrap_agent, list_agent_versions, select_agent_for_target,
+    AgentVersion, AgentVersions, agent_versions, bootstrap_agent_versions, list_agent_versions,
+    select_agent_for_target,
 };
 
 use crate::{
@@ -363,7 +363,8 @@ pub async fn newer_agent(
     current: (u64, u64, u64),
 ) -> ApiResult<Option<sinan_protocol::AgentRelease>> {
     let releases = released(state).await?;
-    let inventory = available_inventory(&releases).map_err(invalid)?;
+    // Agent bytes come from GitHub, so the full signed proof authorizes uncached targets.
+    let inventory = inventory(&releases).map_err(invalid)?;
     let mut candidates = Vec::new();
     for ((name, version, target), (index, artifact)) in inventory {
         let metadata = releases[index].verified.metadata();
@@ -390,17 +391,19 @@ pub async fn newer_agent(
         ));
     }
     candidates.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
-    let Some((_, _, version, target, index, artifact)) = candidates.pop() else {
+    let Some((_, _, version, _, index, artifact)) = candidates.pop() else {
         return Ok(None);
     };
     let release = &releases[index];
-    stored_bytes(release, &artifact).await.map_err(invalid)?;
     Ok(Some(sinan_protocol::AgentRelease {
         version: version.clone(),
+        download_mirror: String::new(),
         artifact: sinan_protocol::Artifact {
             url: format!(
-                "{}/api/agent/v1/artifacts/agent/{version}/{target}",
-                state.config.public_url
+                "https://github.com/{}/releases/download/{}/{}",
+                release.verified.metadata().source_repo,
+                release.verified.metadata().tag,
+                artifact.metadata().asset_name
             ),
             sha256: artifact.sha256().into(),
             proof: Some(release.proof.clone()),

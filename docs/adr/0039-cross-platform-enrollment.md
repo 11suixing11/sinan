@@ -1,19 +1,19 @@
-# ADR 0038：跨平台单行 Agent 接入
+# ADR 0039：跨平台单行 Agent 接入
 
 - 状态：已采纳，2026-10-01。
 - 用户要求：服务器接入提供单行命令，自动匹配或自行选择版本；同时支持 Linux、Windows、macOS 和 FreeBSD。
 
 ## 入口、版本与平台
 
-接入页提供 Shell 和 PowerShell 入口。Shell 自动检测 Linux GNU/musl、macOS ARM64、FreeBSD AMD64/ARM64；PowerShell 使用本机 Windows AMD64/ARM64，兼容 WOW64 终端。macOS AMD64、32 位系统和其他 CPU 没有现有发布 ABI，不猜测替代制品。自动匹配在执行时按数字排序选择最新稳定版本；显式选版保留精确版本，含合法预发布版本。
+接入页提供 Shell 和 PowerShell 入口。Shell 自动检测 Linux GNU/musl、macOS ARM64、FreeBSD AMD64/ARM64；PowerShell 使用本机 Windows AMD64/ARM64，兼容 WOW64 终端。macOS AMD64、32 位系统和其他 CPU 没有现有发布 ABI，不猜测替代制品。自动匹配在执行时按数字排序选择最新稳定版本；显式选版保留精确版本；Linux 可显式选合法预发布版本，原生平台按现有 install-service 的版本约束只提供稳定版。
 
 管理员版本目录与一次性令牌版本目录来自完整且已验签的导入 proof，而不是仅来自当前面板缓存。目录只是候选索引：独立入口仍从固定官方 GitHub tag 下载完整 proof，核对仓库、tag、协议、清单和本机 ABI。面板不能通过修改目录、更换下载源或提供新根使入口执行未签名的 Agent。入口本身按官方 Git blob 身份下载，执行前核对固定 SHA-256；两个生成器均拒绝测试根，并有生成同步检查。PowerShell 模板中的清单解析另做真实 minisign 互操作与拒绝用例，Agent 编译根仍是第二次独立检查。
 
-Linux 优先 musl，GNU 系统可使用本机 GNU；musl 不使用 GNU。旧裸 `amd64`/`arm64` 的 musl 身份继续兼容。签名安装器的精确目标参数供后续发布使用，已发布旧版本继续走其原来的 Linux 安装器。原生平台下载裸 Agent，依次验证自身、旧缓存、接入，再调用现有 `install-service`，由 launchd、FreeBSD rc.d 或 Windows 计划任务管理。已有配置在切换失败时恢复，已有设备私钥保留；原生 CLI 的版本证明、原子切换与启动失败回滚继续生效。
+Linux 优先 musl，GNU 系统可使用本机 GNU；musl 不使用 GNU。旧裸 `amd64`/`arm64` 的 musl 身份继续兼容。完整 Release 中的 install.sh 仍核对签名摘要；Linux 实际使用独立受信 bootstrap 中嵌入、由现有模板与 systemd/OpenRC units 渲染的静态安装器，支持精确目标和 GitHub 已验字节。它与入口一同受固定官方 blob/SHA 保护，避免旧正式 0.3.0 安装器仍要求面板提供 Agent；不修改已发布的任何资产。原生平台下载裸 Agent，依次验证自身、旧缓存、接入，再调用现有 `install-service`，由 launchd、FreeBSD rc.d 或 Windows 计划任务管理。已有配置在切换失败时恢复，已有设备私钥保留；原生 CLI 的版本证明、原子切换与启动失败回滚继续生效。
 
-## 只缓存需要的 Agent
+## 按架构导入与直接下载
 
-同一已签名 Release 包含 AMD、ARM 或多个系统时，面板保留完整 proof，但无需预先下载每个平台。有效接入令牌请求具体 Agent 时，复用已有合法字节；缺失或损坏的普通文件只补该目标 Agent。下载限定固定官方已发布 Release，受签名大小、摘要和二进制身份约束；release 锁、发布前令牌复验、不可变身份、私有 staging 与最后公布 inventory 防止并发或越权发布。软链和重解析目录拒绝，未签内容不公布。不因此预下载其他 CPU、运行时或诊断工具。
+管理员导入保留完整 proof，仅下载所选平台的兼容制品；局部缓存不改变已签目标目录。单行入口直接从固定官方 GitHub tag 下载本机 Agent，可使用该服务器已配置的独立 HTTPS 镜像，不携带面板接入令牌或设备凭据。下载大小与摘要由独立签名限制，再由 Agent 编译根复验。运行时与配置继续走面板；面板 Agent 下载接口保持 409，遵守主线 ADR 0037 的 GitHub-only 规则，不恢复面板分发 Agent。
 
 ## 平台依赖与首次信任
 

@@ -1,19 +1,43 @@
 #!/usr/bin/env python3
 """Exercise actual packaging/serving with private sources and loopback reports."""
+import json
+import os
+import sys
+
+sys.dont_write_bytecode = True
+
+
+def record(kind, args):
+    value = {'kind': kind, 'argv': args, 'policy': os.environ.get('SINAN_UPLOAD_REPORT'),
+             'nqenv': os.environ.get('NQENV')}
+    data = (json.dumps(value, sort_keys=True) + '\n').encode()
+    if len(data) > 8192:
+        raise ValueError('fixture record exceeds byte limit')
+    fd = os.open(os.environ['FIXTURE_TRACE'], os.O_WRONLY | os.O_APPEND)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
+
+
+# Probe callbacks only append a bounded private record. Avoid reloading all
+# packaging and source fixtures for every inert callback in a real chapter.
+if __name__ == '__main__' and len(sys.argv) > 1 and sys.argv[1] == '--record':
+    record(sys.argv[2], sys.argv[3:])
+    raise SystemExit(0)
+
+
 import argparse
 import base64
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
-import json
-import os
 from pathlib import Path
 import re
 import signal
 import shlex
 import shutil
 import subprocess
-import sys
 import tarfile
 import threading
 import tempfile
@@ -22,7 +46,6 @@ from unittest import mock
 import urllib.parse
 import urllib.request
 
-sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / 'plugins/nodequality'
 READONLY_SOURCES = None
@@ -48,7 +71,7 @@ CONTROLLER = '''function run_HardwareQuality(){
     [[ "$run_hardware_quality_test" =~ ^[Vv]$ ]] && params=" -V"
     pre_fetch_info
     payload=$(declare -p osinfo meminfo diskinfo)
-    curl -Ls https://Hardware.Check.Place | chroot_run "env NQENV=$(printf '%q' "$payload") bash -s -- $opt_lang $params -y -o /result/$hardware_quality_json_filename"
+    curl -Ls https://Hardware.Check.Place | chroot_run "env NQENV=$(printf '%q' "$payload") bash -s -- $opt_lang $params -y -o /result/$hardware_quality_json_filename" # HQ预处理
 }
 function run_ip_quality(){
     chroot_run bash <(curl -Ls https://IP.Check.Place) $opt_ipv $opt_lang -y -o /result/$ip_quality_json_filename
@@ -62,19 +85,6 @@ function run_net_trace(){
     chroot_run bash <(curl -Ls https://Net.Check.Place) $opt_ipv $opt_lang -R -n -S 123 -o /result/$backroute_trace_json_filename
 }
 '''
-
-
-def record(kind, args):
-    value = {'kind': kind, 'argv': args, 'policy': os.environ.get('SINAN_UPLOAD_REPORT'),
-             'nqenv': os.environ.get('NQENV')}
-    data = (json.dumps(value, sort_keys=True) + '\n').encode()
-    if len(data) > 8192:
-        raise ValueError('fixture record exceeds byte limit')
-    fd = os.open(os.environ['FIXTURE_TRACE'], os.O_WRONLY | os.O_APPEND)
-    try:
-        os.write(fd, data)
-    finally:
-        os.close(fd)
 
 
 def report_post(args):
@@ -201,6 +211,10 @@ def script_recipe(name):
     result = '#!/bin/bash\nscript_version="synthetic-fixture"\ncheck_bash(){\n:; }\ncheck_bash\n'
     result += 'fixture_record(){ ' + python + ' ' + tool + ' --record "$@"; }\n'
     result += source_tests.fixture.swap_anchors(name).decode()
+    result += source_tests.fixture.dependency_anchors(name).decode()
+    result += source_tests.fixture.data_anchors(name).decode()
+    result += source_tests.fixture.ranking_anchors(name).decode()
+    result += source_tests.fixture.ip_score_anchors(name).decode()
     result += 'fixture_record script ' + kind + ' "$@"\n'
     result += '''
 mode_privacy=${FIXTURE_PRIVACY:-0}
@@ -259,6 +273,7 @@ save_json(){ record save_json; hwjson=$FIXTURE_JSON; ipjson=$FIXTURE_JSON; netda
 def entry_recipe():
     python, tool = shlex.quote(sys.executable), shlex.quote(str(Path(__file__).resolve()))
     result = '#!/usr/bin/env bash\nset -e\n' + source_tests.fixture.swap_anchors('NodeQuality.sh').decode()
+    result += source_tests.fixture.dependency_anchors('NodeQuality.sh').decode()
     result += 'chroot_run(){\n'
     # macOS Bash 3 closes process-substitution descriptors in bash -c. The
     # substitute opens them as stdin before exec, retaining the original argv
@@ -291,7 +306,7 @@ run_net_trace > "$FIXTURE_OUTPUT_DIRECTORY/backroute_trace.log"
     result += python + ' ' + tool + ' --assemble\n'
     result += 'python3 "$SINAN_REPORT_HELPER" capture "$SINAN_REPORT_WORKSPACE" < "$FIXTURE_OUTPUT_DIRECTORY/archive.base64"\n'
     result += '[[ $SINAN_UPLOAD_REPORT == true ]] || printf disabled > "$SINAN_REPORT_WORKSPACE/upload-disabled.txt"\nexit 0\n'
-    return result.encode()
+    return result.encode() + source_tests.fixture.loader_anchors('NodeQuality.sh', result.encode())
 
 
 def assemble():
@@ -342,7 +357,10 @@ class PolicyTests(unittest.TestCase):
             private_policy = module('transform_fixture', plugin / 'report-policy.py')
             private_swap = module('swap_transform_fixture', plugin / 'swap-policy.py')
             for role in private_policy.SOURCES:
-                expected = outputs[role]
+                expected = source_tests.fixture.undo_ip_scores(role, outputs[role])
+                expected = source_tests.fixture.undo_ranking(role, expected)
+                expected = source_tests.fixture.undo_data(role, expected, contents)
+                expected = source_tests.fixture.undo_dependencies(role, expected, contents[role])
                 if role == 'hardware.sh':
                     expected = private_swap.replace_once(expected, private_swap.MEMORY_GUARD, private_swap.HARDWARE_PREFIX)
                     expected = private_swap.replace_once(expected, private_swap.NO_SWAP_CLEANUP, private_swap.SWAP_CLEANUP)
@@ -565,9 +583,7 @@ class WiringTests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1 and sys.argv[1] == '--record':
-        record(sys.argv[2], sys.argv[3:])
-    elif len(sys.argv) > 1 and sys.argv[1] == '--report-post':
+    if len(sys.argv) > 1 and sys.argv[1] == '--report-post':
         report_post(sys.argv[2:])
     elif len(sys.argv) > 1 and sys.argv[1] == '--assemble':
         assemble()

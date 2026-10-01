@@ -141,6 +141,15 @@ class PowerShellBootstrapTests(unittest.TestCase):
         for url in ('https://example.com/file', 'http://github.com/file', 'https://github.com:444/file', 'https://github.com.example.com/file'):
             self.assertNotEqual(self.run_ps('Assert-GithubUrl ([Uri]' + quote(url) + ')').returncode, 0)
 
+    def test_github_mirror_never_uses_panel_or_ip_origin(self):
+        self.assert_ok("Assert-Mirror https://mirror.example.com/prefix https://panel.example.com; Assert-GithubUrl ([Uri]'https://mirror.example.com/https://github.com/file') mirror.example.com; Assert-Sinan ((Get-ReleaseUrl https://github.com/file https://mirror.example.com/prefix) -eq 'https://mirror.example.com/prefix/https://github.com/file') 'bad mirror URL'")
+        for mirror in ('https://panel.example.com/mirror', 'http://mirror.example.com', 'https://127.0.0.1', 'https://localhost', 'https://user:pass@mirror.example.com', 'https://mirror.example.com:444', 'https://mirror.example.com?token=fixture'):
+            self.assertNotEqual(self.run_ps('Assert-Mirror ' + quote(mirror) + ' https://panel.example.com').returncode, 0)
+        template = (ROOT / 'deploy/bootstrap.ps1.tmpl').read_text()
+        self.assertNotIn("'/api/bootstrap/'", template)
+        self.assertIn('Receive-SinanFile $url $agent $selected.binary_size $true', template)
+        self.assertIn('Windows 服务安装仅支持稳定版本', template)
+
     def test_windows_architecture_uses_native_os_under_wow64(self):
         self.assert_ok('$env:PROCESSOR_ARCHITECTURE="AMD64"; $env:PROCESSOR_ARCHITEW6432="ARM64"; Assert-Sinan ((Get-HostTarget) -eq "windows-arm64") "wrong native architecture"; $env:PROCESSOR_ARCHITEW6432=""; Assert-Sinan ((Get-HostTarget) -eq "windows-amd64") "wrong native architecture"')
         self.assertNotEqual(self.run_ps('$env:PROCESSOR_ARCHITEW6432=""; $env:PROCESSOR_ARCHITECTURE="X86"; Get-HostTarget').returncode, 0)

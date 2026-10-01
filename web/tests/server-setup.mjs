@@ -40,8 +40,9 @@ try {
     page.on('pageerror', error => errors.push(error.message))
     let entry, settings, probes = [], createFailure = true, enrollmentMode = 'failure', statusFailure = false, windowsVersionsMissing = false, allVersionsMissing = false
     await page.route('**/api/**', async route => {
-      const request = route.request(), url = new URL(request.url()), path = url.pathname
+      const request = route.request(), url = new URL(request.url()), path = url.pathname.replace('/api/dashboard/', '/api/')
       const fulfill = (json, status = 200) => route.fulfill({ status, json })
+      if (path === '/api/access') return route.fulfill({ json: { authenticated: true, public_dashboard: false } })
       if (path === '/api/me') return fulfill({ id: 1 })
       if (path === '/api/artifacts/agent-versions') {
         const platform = url.searchParams.get('platform'), target = url.searchParams.get('target')
