@@ -901,3 +901,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 独立验收见 [IP 响应确认](docs/acceptance/ip-response-confirmation.md)。专属回环 HTTP 与临时 PostgreSQL 先保存 73 分，再分别返回根 errors、data.success=false、data.errors；失败后换池读取仍保留历史 73、成功时间和有效期，其余六库继续成功，新 IP 未知。30 项 IP 专项全部通过、无失败/忽略；workspace fmt、panel 全 targets Clippy（warnings 为错误）与差异检查通过。临时 PostgreSQL 已停止。
 - 原解析器字段负对照实际 4 通过/2 预期失败，证明两个错误响应均误返回当前 0；真实 HTTP/PostgreSQL 新历史回归在原解析器下预期失败，恢复修复后通过。源身份与负对照步骤分别记录，不把负例失败当作修复失败或累加场景数。
 - 四个远端 workflow 仍 disabled_manually，未触发、重跑或恢复 CI；未重复完整 workspace、浏览器、平台、正式外部源或节点实机总验，不关闭 Issue #42 剩余验收，也不签收、发布或部署新增诊断能力。下一步按整改顺序继续独立实机验收。
+
+## 2026-10-01：独立 P0 诊断 swap 系统调用保护（关联 #66）
+
+- 新 systemd 诊断固定 `NoNewPrivileges=yes`、`SystemCallArchitectures=native`、`SystemCallFilter=~swapon swapoff`、`SystemCallErrorNumber=EPERM`，资源预算五字段保持原样。三次 3 秒/16 KiB 支持探测失败即拒绝；同单元固定 awk 预命令检查 `NoNewPrivs=1`、`Seccomp=2`、至少两层过滤，识别未安装/只有 ABI 过滤的异常。
+- 运行中 manager 的 `+SECCOMP` 与 PID 1 无继承过滤必须可验证；OpenRC 新诊断明确拒绝，常驻代理运行时和历史诊断的停止/读取/回收保持。保护只覆盖单元直接 fork/exec 子树，不阻止 D-Bus 或其他宿主 daemon 另开进程，不禁止文件写入，也不解除 full 门禁或修复上游 swap helper，#66 继续开放。
+- 本地 `fmt`、core 边界检查、`clippy --locked -p sinan-agent-core --all-targets -- -D warnings` 通过；core 全套在增加 count guard 前通过，最终相关 `system::` 专项 23 passed / 7 ignored、服务集成 6 passed。独立 Debian 12 ARM64 guest 新 swap syscall 夹具 1 passed / 0 failed / 0 ignored，同一新 core 二进制原六有限 systemd 夹具回归 6 passed / 0 failed / 0 ignored；direct/fork/exec 无过滤返回 ENOENT、过滤后 EPERM，NNP=1/Seccomp=2/filters=2，仅 native ABI 负例未运行 payload，swap 表逐字节不变。清理后诊断单元/编译进程/夹具挂载/目录为空，SSH PID 446 重启 0、无 global OOM；不据此声称完整 NodeQuality、实际 Agent 心跳或持续代理流量通过。CI 按临时规则保持暂停。
+- 独立步骤与支持边界见 [验收文档](docs/acceptance/diagnostic-swap-syscalls.md)。真实测试仅在获授权的可销毁 guest 对 root-owned 0700 目录下的不存在路径调用 syscall，不创建 swap 文件，不更改宿主 swap。
