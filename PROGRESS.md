@@ -908,19 +908,20 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 原解析器字段负对照实际 4 通过/2 预期失败，证明两个错误响应均误返回当前 0；真实 HTTP/PostgreSQL 新历史回归在原解析器下预期失败，恢复修复后通过。源身份与负对照步骤分别记录，不把负例失败当作修复失败或累加场景数。
 - 四个远端 workflow 仍 disabled_manually，未触发、重跑或恢复 CI；未重复完整 workspace、浏览器、平台、正式外部源或节点实机总验，不关闭 Issue #42 剩余验收，也不签收、发布或部署新增诊断能力。下一步按整改顺序继续独立实机验收。
 
-## 2026-10-01：修复磁盘容量重复统计（独立 PR）
-
-- Docker 宿主的真实根分区与嵌套 overlay 原先各累加一次，容器的根 overlay 与 `/etc/hosts` 等文件绑定挂载也重复统计。Agent 统一筛选容量、已用空间与逐盘列表，排除 Linux 非根 overlay 和单文件挂载，保留容器根盘及独立分区。
-- Unix 按文件系统设备标识去重绑定挂载及别名，Btrfs 保留源设备去重；不可读元数据沿用名称/路径回退。Windows 以挂载路径区分同名及无名卷；逐盘 I/O 基线同时包含名称与挂载点。沿用已挂载文件系统容量、保留空间和未知值语义，不新增依赖、协议字段或面板换算规则；边界见 [磁盘容量决策](docs/open-questions.md#磁盘容量容器挂载与文件系统去重)。
-- Rust 1.98.1 限额 Linux 容器执行 `cargo test --locked --offline -p sinan-agent-core`，181 项通过、0 失败、6 项既有真实服务条件忽略；包含新增 8 项磁盘回归。workspace fmt、core 全 targets Clippy（warnings 为错误）、core 分层门禁与差异检查通过。
-- 使用相同构建的 Collector 做只读采样：宿主仅保留 `/`、`/boot`、`/boot/efi`，总量 `541018241536` bytes（503.863 GiB），逐字节等于 `df -B1 --output=size` 之和，已用等于逐盘已用之和。另建无目录卷的临时 Debian 12 容器，旧名称累加结果 `1079556669440` bytes，修复后仅 `/` 为 `539778334720` bytes；容器退出 0、无 OOM，采样后已删除。
-- 未重跑完整 workspace、面板浏览器或非 Linux 原生实机；未推断容器额外目录卷与不可见 overlay 后端的物理归属。遵循临时约定保留四个 workflow 暂停并使用 `[skip ci]`，不将本地验证称作远端 CI 通过。下一步审查合入后构建并签名新版 Agent，再部署生效；本次仅提交修复 PR，线上 Agent 尚未替换。
-
-- 用户随后要求合入并准备新版 Agent。正常合并主线 `2605dbe`（含 #91、#92），仅 PROGRESS 追加记录冲突，保留双方内容及原磁盘实现。最终整合 core 回归 185 通过、0 失败、7 项既有实机条件忽略；fmt、core 全 targets Clippy 与分层门禁通过。CI 继续暂停，新版签名、发布与线上升级单独记录。
-
 ## 2026-10-01：独立 P0 诊断 swap 系统调用保护（关联 #66）
 
 - 新 systemd 诊断固定 `NoNewPrivileges=yes`、`SystemCallArchitectures=native`、`SystemCallFilter=~swapon swapoff`、`SystemCallErrorNumber=EPERM`，资源预算五字段保持原样。三次 3 秒/16 KiB 支持探测失败即拒绝；同单元固定 awk 预命令检查 `NoNewPrivs=1`、`Seccomp=2`、至少两层过滤，识别未安装/只有 ABI 过滤的异常。
 - 运行中 manager 的 `+SECCOMP` 与 PID 1 无继承过滤必须可验证；OpenRC 新诊断明确拒绝，常驻代理运行时和历史诊断的停止/读取/回收保持。保护只覆盖单元直接 fork/exec 子树，不阻止 D-Bus 或其他宿主 daemon 另开进程，不禁止文件写入，也不解除 full 门禁或修复上游 swap helper，#66 继续开放。
 - 本地 `fmt`、core 边界检查、`clippy --locked -p sinan-agent-core --all-targets -- -D warnings` 通过；core 全套在增加 count guard 前通过，最终相关 `system::` 专项 23 passed / 7 ignored、服务集成 6 passed。独立 Debian 12 ARM64 guest 新 swap syscall 夹具 1 passed / 0 failed / 0 ignored，同一新 core 二进制原六有限 systemd 夹具回归 6 passed / 0 failed / 0 ignored；direct/fork/exec 无过滤返回 ENOENT、过滤后 EPERM，NNP=1/Seccomp=2/filters=2，仅 native ABI 负例未运行 payload，swap 表逐字节不变。清理后诊断单元/编译进程/夹具挂载/目录为空，SSH PID 446 重启 0、无 global OOM；不据此声称完整 NodeQuality、实际 Agent 心跳或持续代理流量通过。CI 按临时规则保持暂停。
 - 独立步骤与支持边界见 [验收文档](docs/acceptance/diagnostic-swap-syscalls.md)。真实测试仅在获授权的可销毁 guest 对 root-owned 0700 目录下的不存在路径调用 syscall，不创建 swap 文件，不更改宿主 swap。
+
+## 2026-10-01：修复磁盘容量重复统计（独立 PR）
+
+- Docker 宿主的真实根分区与嵌套 overlay 原先各累加一次，容器的根 overlay 与 `/etc/hosts` 等文件绑定挂载也重复统计。Agent 统一筛选容量、已用空间与逐盘列表，排除 Linux 非根 overlay 和单文件挂载，保留容器根盘及独立分区。
+- Unix 按文件系统设备标识去重绑定挂载及别名，Btrfs 保留源设备去重；不可读元数据沿用名称/路径回退。Windows 保留原逐盘列表和按名称首条去重的容量规则，避免同一卷多挂载点新增重复计数；不同卷同名或无名的既有歧义待真实卷 ID 的独立实现和原生验收。逐盘 I/O 基线同时包含名称与挂载点。沿用已挂载文件系统容量、保留空间和未知值语义，不新增依赖、协议字段或面板换算规则；边界见 [磁盘容量决策](docs/open-questions.md#磁盘容量容器挂载与文件系统去重)。
+- 原提交 `7ef561b` 在 Rust 1.98.1 限额 Linux 容器执行 `cargo test --locked --offline -p sinan-agent-core`，181 项通过、0 失败、6 项既有真实服务条件忽略；包含原新增 8 项磁盘回归。该提交的 workspace fmt、core 全 targets Clippy（warnings 为错误）、core 分层门禁与差异检查通过。后续整合补充 Windows 兼容收窄及同卷名称首条去重/无效/溢出回归，此处原结果不作为补修提交的验证。
+- 包含最新主线 swap 保护及 Windows 兼容补修的本地输入 `aa5ab3e`，在 macOS ARM64 使用公开 TEST_ONLY 信任根和专用回环 PostgreSQL 执行完整 Rust workspace 全 targets 回归：389 通过、0 失败、10 项既有实机条件忽略；新增名称去重 helper 与 Unix Collector 回归在本机执行。workspace 全 targets Clippy（warnings 为错误）、fmt、core 门禁及额外 macOS `umask 077` 真实软链接权限专项通过。专用 PostgreSQL 已停止；此结果不代替 Linux 条件用例或 Windows 原生验收，最终文档回填不改变受测 Rust 输入。
+- 使用相同构建的 Collector 做只读采样：宿主仅保留 `/`、`/boot`、`/boot/efi`，总量 `541018241536` bytes（503.863 GiB），逐字节等于 `df -B1 --output=size` 之和，已用等于逐盘已用之和。另建无目录卷的临时 Debian 12 容器，旧名称累加结果 `1079556669440` bytes，修复后仅 `/` 为 `539778334720` bytes；容器退出 0、无 OOM，采样后已删除。
+- 未重跑完整 workspace、面板浏览器或非 Linux 原生实机；未推断容器额外目录卷与不可见 overlay 后端的物理归属。遵循临时约定保留四个 workflow 暂停并使用 `[skip ci]`，不将本地验证称作远端 CI 通过。下一步审查合入后构建并签名新版 Agent，再部署生效；本次仅提交修复 PR，线上 Agent 尚未替换。
+
+- 作者在 Windows 兼容补修前同步主线 `2605dbe` 的输入 `81374df`，另行记录 Linux core 专项 185 通过、0 失败、7 项既有实机条件忽略；fmt、core 全 targets Clippy 和分层门禁通过。此结果不代替 `aa5ab3e` 补修输入的本地完整验证；新版签名、发布与线上升级由对应任务单独记录，CI 保持暂停。

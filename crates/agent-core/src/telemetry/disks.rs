@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use std::{
     collections::BTreeSet,
     ffi::OsString,
@@ -5,15 +6,15 @@ use std::{
 };
 use sysinfo::{Disk, Disks};
 
+#[cfg(unix)]
 #[derive(Eq, Ord, PartialEq, PartialOrd)]
 enum Identity {
-    #[cfg(unix)]
     Device(u64),
-    #[cfg(unix)]
     Name(OsString),
     Mount(PathBuf),
 }
 
+#[cfg(unix)]
 struct Mount {
     identity: Identity,
     path: PathBuf,
@@ -21,11 +22,11 @@ struct Mount {
     is_file: bool,
 }
 
+#[cfg(unix)]
 impl Mount {
     fn from_disk(disk: &Disk) -> Self {
         let path = disk.mount_point().to_path_buf();
         let metadata = std::fs::metadata(&path).ok();
-        #[cfg(unix)]
         let identity = {
             use std::os::unix::fs::MetadataExt;
             unix_identity(
@@ -35,9 +36,6 @@ impl Mount {
                 metadata.as_ref().map(MetadataExt::dev),
             )
         };
-        // Windows disk names are volume labels, which need not be unique.
-        #[cfg(not(unix))]
-        let identity = Identity::Mount(path.clone());
         Self {
             identity,
             path,
@@ -78,14 +76,23 @@ pub(super) fn refresh() -> Vec<Disk> {
     #[cfg(target_os = "freebsd")]
     let _guard = DISKS.lock().unwrap_or_else(|error| error.into_inner());
     let disks = Vec::from(Disks::new_with_refreshed_list());
-    select(
+    #[cfg(unix)]
+    {
+        select(
+            disks
+                .into_iter()
+                .map(|disk| (Mount::from_disk(&disk), disk))
+                .collect(),
+        )
+    }
+    // Keep the existing Windows inventory until stable volume IDs are available.
+    #[cfg(not(unix))]
+    {
         disks
-            .into_iter()
-            .map(|disk| (Mount::from_disk(&disk), disk))
-            .collect(),
-    )
+    }
 }
 
+#[cfg(unix)]
 fn select<T>(mut mounts: Vec<(Mount, T)>) -> Vec<T> {
     // Prefer the root and shallow mounts over aliases of the same filesystem.
     mounts.sort_by(|(a, _), (b, _)| {
@@ -117,10 +124,36 @@ fn select<T>(mut mounts: Vec<(Mount, T)>) -> Vec<T> {
 }
 
 pub(super) fn totals(disks: &[Disk]) -> Option<(u64, u64)> {
+    #[cfg(unix)]
+    {
+        capacity_totals(
+            disks
+                .iter()
+                .map(|disk| (disk.total_space(), disk.available_space())),
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        named_capacity_totals(
+            disks
+                .iter()
+                .map(|disk| (disk.name(), disk.total_space(), disk.available_space())),
+        )
+    }
+}
+
+// sysinfo exposes Windows volume labels and can enumerate multiple mount paths
+// for the same volume. Preserve legacy deduplication instead of counting aliases
+// as independent capacity. Distinct volumes with equal labels remain ambiguous.
+#[cfg(any(not(unix), test))]
+fn named_capacity_totals<'a>(
+    capacities: impl IntoIterator<Item = (&'a std::ffi::OsStr, u64, u64)>,
+) -> Option<(u64, u64)> {
+    let mut seen = std::collections::BTreeSet::new();
     capacity_totals(
-        disks
-            .iter()
-            .map(|disk| (disk.total_space(), disk.available_space())),
+        capacities
+            .into_iter()
+            .filter_map(|(name, total, available)| seen.insert(name).then_some((total, available))),
     )
 }
 

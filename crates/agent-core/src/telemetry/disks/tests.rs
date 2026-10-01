@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg(unix)]
 #[derive(Clone, Debug, PartialEq)]
 struct Sample {
     name: &'static str,
@@ -8,6 +9,7 @@ struct Sample {
     available: u64,
 }
 
+#[cfg(unix)]
 fn mount(
     name: &'static str,
     path: &'static str,
@@ -31,6 +33,7 @@ fn mount(
     )
 }
 
+#[cfg(unix)]
 fn sample_totals(samples: &[Sample]) -> Option<(u64, u64)> {
     capacity_totals(samples.iter().map(|s| (s.capacity, s.available)))
 }
@@ -133,8 +136,9 @@ fn btrfs_subvolumes_keep_source_device_deduplication() {
     assert_eq!(sample_totals(&samples), Some((1000, 800)));
 }
 
+#[cfg(unix)]
 #[test]
-fn volume_labels_do_not_merge_distinct_mount_identities() {
+fn unavailable_names_keep_distinct_mount_fallbacks() {
     let samples = select(vec![
         mount("Data", "C:\\", "NTFS", 1000, 200),
         mount("Data", "D:\\", "NTFS", 2000, 1500),
@@ -143,6 +147,27 @@ fn volume_labels_do_not_merge_distinct_mount_identities() {
     ]);
     assert_eq!(samples.len(), 4);
     assert_eq!(sample_totals(&samples), Some((10000, 2800)));
+}
+
+#[test]
+fn legacy_volume_labels_count_aliases_once_and_keep_first_sample() {
+    let data = std::ffi::OsStr::new("Data");
+    let backup = std::ffi::OsStr::new("Backup");
+    // One volume at a drive root and a directory mount must not double capacity.
+    assert_eq!(
+        named_capacity_totals([(data, 1000, 200), (data, 1000, 100), (backup, 2000, 1500)]),
+        Some((3000, 1300))
+    );
+    assert_eq!(
+        named_capacity_totals([(data, 0, 0), (data, 1000, 200)]),
+        None
+    );
+    assert_eq!(named_capacity_totals([(data, 100, 101)]), None);
+    assert_eq!(
+        named_capacity_totals([(data, u64::MAX, 0), (backup, 1, 0)]),
+        None
+    );
+    assert_eq!(named_capacity_totals([(data, 1000, 1000)]), Some((1000, 0)));
 }
 
 #[test]
@@ -160,6 +185,7 @@ fn missing_invalid_or_overflowing_capacity_stays_unknown() {
     assert_eq!(capacity_totals([(1000, 0)]), Some((1000, 1000)));
 }
 
+#[cfg(unix)]
 #[test]
 fn collector_totals_match_reported_filesystems_after_refresh() {
     let mut collector = crate::telemetry::Collector::new();
