@@ -147,9 +147,21 @@ async fn update_download_capability_requires_exact_negotiation_after_authenticat
     );
     entry.arch = "linux-musl-amd64".into();
     entry.asset_name = canonical_asset_name(&entry)?;
-    release_fixture::write_entries(
+    let mut other_arch = entry.clone();
+    other_arch.arch = "linux-musl-arm64".into();
+    other_arch.asset_name = canonical_asset_name(&other_arch)?;
+    let release_directory = release_fixture::write_entries(
         &panel.state.config.data_dir,
-        vec![(entry, b"fixture".to_vec())],
+        vec![
+            (entry, b"fixture".to_vec()),
+            (other_arch, b"fixture".to_vec()),
+        ],
+    )?;
+    // The requested ABI is signed but deliberately absent from local inventory.
+    std::fs::remove_file(release_directory.join("agent/0.9.0/linux-musl-amd64"))?;
+    std::fs::write(
+        release_directory.join("inventory.json"),
+        br#"{"paths":["agent/0.9.0/linux-musl-arm64"]}"#,
     )?;
     sqlx::query("UPDATE servers SET agent_settings=jsonb_set(agent_settings,'{auto_update}','true'),static_info=$2 WHERE id=$1")
         .bind(server)
@@ -203,7 +215,7 @@ async fn update_download_capability_requires_exact_negotiation_after_authenticat
             .unwrap()
             .starts_with("https://github.com/theLucius7/sinan/releases/download/")
     );
-    sqlx::query("UPDATE servers SET deleted_at=now() WHERE id=$1")
+    sqlx::query("UPDATE servers SET deleted_at=1 WHERE id=$1")
         .bind(server)
         .execute(&panel.state.pool)
         .await?;

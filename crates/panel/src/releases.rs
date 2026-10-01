@@ -393,6 +393,23 @@ pub async fn select_installable_agent(
         if metadata.protocol_min > PROTOCOL_MAX || metadata.protocol_max < PROTOCOL_MIN {
             continue;
         }
+        if metadata
+            .artifacts
+            .iter()
+            .filter(|entry| entry.name == "agent")
+            .any(|entry| {
+                metadata.tag != format!("agent-v{}", entry.version)
+                    || entry.format != "raw"
+                    || entry.binary_name
+                        != if entry.arch.starts_with("windows-") {
+                            "sinan-agent.exe"
+                        } else {
+                            "sinan-agent"
+                        }
+            })
+        {
+            continue;
+        }
         let installer = ordinary_bytes(&release.directory.join("install.sh"), MAX_INSTALLER)
             .await
             .map_err(invalid)?;
@@ -410,7 +427,11 @@ pub async fn select_installable_agent(
             continue;
         }
         for entry in &metadata.artifacts {
-            if entry.name != "agent" || version.is_some_and(|value| value != entry.version) {
+            if entry.name != "agent"
+                || !matches!(entry.arch.as_str(), "amd64" | "arm64")
+                || entry.archive_size > 128 * 1024 * 1024
+                || version.is_some_and(|value| value != entry.version)
+            {
                 continue;
             }
             if let Some(numbers) = sinan_protocol::release_version(&entry.version) {

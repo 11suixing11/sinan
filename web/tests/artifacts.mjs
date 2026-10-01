@@ -29,6 +29,7 @@ try {
     await page.route('**/api/**', async route => {
       const request = route.request(), path = new URL(request.url()).pathname
       const fulfill = (json, status = 200) => route.fulfill({ status, json })
+      if (path === '/api/dashboard/access') return fulfill({ public: false, authenticated: true })
       if (path === '/api/me') return fulfill({ id: 1 })
       if (path === '/api/artifacts' && request.method() === 'GET') return fulfill(inventory)
       if (path === '/api/artifacts/targets') return fulfill({ default_targets: ['linux-gnu-arm64', 'linux-musl-arm64'], supported_targets: ['amd64', 'arm64', 'linux-gnu-amd64', 'linux-gnu-arm64', 'linux-musl-amd64', 'linux-musl-arm64', 'macos-arm64', 'freebsd-amd64', 'freebsd-arm64', 'windows-amd64', 'windows-arm64'] })

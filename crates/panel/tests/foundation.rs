@@ -964,7 +964,7 @@ async fn installation_requires_signed_preloaded_contract_and_uses_server_mirror(
     let artifact = release_fixture::write(
         &panel.directory,
         "agent",
-        "0.3.1",
+        "0.3.0",
         "sinan-agent",
         binary,
         binary,
@@ -1030,5 +1030,35 @@ async fn installation_requires_signed_preloaded_contract_and_uses_server_mirror(
             .status(),
         StatusCode::CONFLICT
     );
+    // Signed but incompatible Agent identities must not produce a command.
+    let wrong_version =
+        release_support::entry("agent", "0.3.1", "sinan-agent", "raw", binary, binary);
+    let mut non_linux =
+        release_support::entry("agent", "0.3.0", "sinan-agent", "raw", binary, binary);
+    non_linux.arch = "macos-arm64".into();
+    non_linux.asset_name = sinan_protocol::release::canonical_asset_name(&non_linux)?;
+    let wrong_name =
+        release_support::entry("agent", "0.3.0", "another-binary", "raw", binary, binary);
+    let archive = release_fixture::archive("sinan-agent", binary)?;
+    let wrong_format =
+        release_support::entry("agent", "0.3.0", "sinan-agent", "tar.gz", &archive, binary);
+    for entry in [wrong_version, non_linux, wrong_name, wrong_format] {
+        let bytes = if entry.format == "tar.gz" {
+            archive.clone()
+        } else {
+            binary.to_vec()
+        };
+        release_fixture::write_entries(&panel.directory, vec![(entry, bytes)])?;
+        assert_eq!(
+            panel
+                .client
+                .get(format!("{}/install.sh", panel.base))
+                .query(&[("token", &token)])
+                .send()
+                .await?
+                .status(),
+            StatusCode::CONFLICT
+        );
+    }
     Ok(())
 }
