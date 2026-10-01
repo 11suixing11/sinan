@@ -1,5 +1,11 @@
 # 执行进度
 
+## 2026-10-01：Agent 0.3.1 版本准备（独立 PR）
+
+- 磁盘修复 #93 已合入 `main` 的 `d29fd1c`，该次与最新进程保护的整合验证为 core 185 通过、0 失败、7 项既有实机条件忽略。基于该主线将 Agent 独立版本及 Cargo.lock 更新为 `0.3.1`；面板 workspace 仍为 `0.3.0`，发布文档区分源码候选与已发布的 `agent-v0.3.0`。
+- 限额 Linux 容器使用公开 TEST_ONLY 编译根，`cargo test --locked --offline -p sinan-agent` 的 2 项集成测试通过，Agent 构建及实际 `--version` 精确输出 `sinan-agent 0.3.1`；workspace fmt、Agent 全 targets Clippy（warnings 为错误）、core 分层门禁与差异检查通过。测试二进制仅保存在本地验证目录，不作为生产候选发布；未执行多平台或线上升级验收。
+- 此次交付范围为源码版本更新 PR，不执行签名、Release 发布或线上部署。正式私钥留在维护者 Mac，当前 VPS 仅执行本地构建检查；四个 GitHub workflow 继续按约定暂停，不以本地结果代替发布 CI。
+
 ## 2026-10-01：准备独立 Debian 12 P0 测试虚拟机
 
 - 单独保存 [固定 Lima/VZ 配置](tools/p0-debian12-vm.yaml) 与 [实际隔离及验收范围](docs/acceptance/p0-dedicated-vm.md)。2 CPU、1536 MiB、8 GiB 的 Debian 12 ARM64 guest 已实际启动，固定镜像 341,114,880 字节的 SHA512 校验一致；不共享宿主目录、管理密钥或业务端口，不执行生产硬件压测。
