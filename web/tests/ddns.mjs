@@ -168,7 +168,7 @@ try {
     assert.equal(await page.getByRole('heading', { name: '尚未配置动态解析' }).count(), 0)
     const publicReads = reads.length, publicWrites = writes.length
     authenticated = false
-    await page.goto(`${origin}/#/plugins/ddns`)
+    await page.reload()
     await page.getByRole('heading', { name: '欢迎回来', exact: true }).waitFor()
     assert.deepEqual(reads.slice(publicReads), ['/api/dashboard/access'], 'Unauthenticated routes do not read DDNS configs or secrets')
     assert.equal(writes.length, publicWrites)
