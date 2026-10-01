@@ -231,9 +231,9 @@
 
 所有字节总量都是精确十进制字符串，避免浏览器整数精度损失。分组数组只包含有流量的项目；`deleted` 表示对应对象已删除，用于显示历史记录。按 `(server_id, epoch, seq)` 在事务中去重，持久化成功才确认，设备重传不会重复计费。这里的流量仅来自代理统计，与服务器网卡指标分开显示。
 
-`GET /api/artifacts` 返回签名与实际内容均验证通过的制品数组，每项为 `{"name":"agent、sing-box 或 nodequality","version":"版本","arch":"amd64 或 arm64","sha256":"摘要","bytes":123}`。
+`GET /api/artifacts` 返回签名与实际内容均验证通过的制品数组，每项包含 `name`、`version`、`arch`、`sha256`、`bytes`，例如 `{"name":"sing-box","version":"版本","arch":"amd64","sha256":"摘要","bytes":123}`。插件目录按组件身份归并不同版本和架构；`agent` 独立展示为基础组件，已登记插件为 `sing-box`、`nodequality`、`tcpquality`，未登记组件仅展示分发信息。此响应不是任何服务器的已安装列表，也不能代替服务器能力、版本或安全门禁检查。
 
-`POST /api/artifacts/import-release` 请求 `{"tag":"agent-v0.3.0"}`，只接受固定官方仓库的规范 tag，不接受 URL 或其他字段。成功返回 `{tag,artifacts,signature_verified:true}`。先验证签名再下载全部资产，在同文件系统 staging 完成核对后整体发布；失败保留原集合，相同签名集合幂等，相同版本不同内容返回 409，并发导入返回 429。草稿、缺签名、非法根、软链路径或内容篡改均拒绝；面板镜像缺少编译时公钥时也返回 409。目录布局、独立 bootstrap 和轮换步骤见部署文档与 ADR 0017。
+`POST /api/artifacts/import-release` 是部署维护接口，插件目录不再提供此操作。请求 `{"tag":"agent-v0.3.0"}`，只接受固定官方仓库的规范 tag，不接受 URL 或其他字段。成功返回 `{tag,artifacts,signature_verified:true}`。先验证签名再下载全部资产，在同文件系统 staging 完成核对后整体发布；失败保留原集合，相同签名集合幂等，相同版本不同内容返回 409，并发导入返回 429。草稿、缺签名、非法根、软链路径或内容篡改均拒绝；面板镜像缺少编译时公钥时也返回 409。该操作不安装或运行插件。目录布局、独立 bootstrap 和轮换步骤见部署文档与 ADR 0017。
 
 ## 服务器 IP 信息
 

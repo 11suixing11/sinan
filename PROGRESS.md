@@ -1202,3 +1202,12 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 受验整合输入 27b7849：刷新编译输入后的 Rust/PostgreSQL 诊断专项 42 项、workspace 全 targets Clippy、fmt/core 通过；这不替代 #119 新功能的专项/完整整合验收。
 - 115 个唯一 Python 专项 111 通过、4 个 Linux root 安装器条件跳过。实际 Bash5 六源评分专项 10 通过，原函数负对照、未知/null、有效零分、原阈值、IPQS 自身数组和原请求均检查；报告真实原文 6 项在原预算通过，签名/来源与包装器回归通过。
 - 耐久证据 pr118-root-rust-fresh-local、pr118-review-20261001；作者 Debian guest 未由本聊天重演，真实源未执行完整负载或公网上传。CI 暂停及发布/部署限制继续保持。
+
+### 插件目录与服务器执行边界（2026-10-01）
+
+- 将“制品”改为只读插件目录，保留旧地址兼容。sing-box、NodeQuality、TCP 连接诊断按插件身份展示介绍，同一插件的版本和架构归入一个条目；Agent 单列为基础组件，未知组件不再误标为代理运行时。移除网页 Release 导入表单，不删除已鉴权的运维供给接口、签名校验或分发保护。
+- 目录先选择具体服务器，只跳转、不安装、不启用、不创建任务。新增服务器内插件页，只读取所选服务器并沿用带服务器 ID 的 sing-box 启用接口；启用与安装明确区分。来源只读、读取失败、空服务器列表均不能形成错误启用目标。纯监控概况继续隐藏未启用的代理业务，诊断仍受原有门禁控制。
+- 提交前跟进 main 到 44ba222，保留 #119 的公开看板、通知、服务器运营设置和 GitHub Agent 下载，以及 #118 的 NodeQuality 修复；没有恢复面板 Agent 下载、改写后端或数据库迁移。重新构建并同步 web/dist。
+- 最终本地 Bun 33 项 / 894 断言、TypeScript/Vite 构建通过。已构建 dist 的 plugin-catalog、singbox-business、server-setup、tcpquality、server-operations 五组 Chromium 桌面/手机回归全部通过；新增检查包括多架构归并、逐版本真实架构、空集合/失败恢复、所选服务器唯一写请求，以及公开看板开启后目录与服务器插件仍需登录。目录截图完成检查，页面无横向溢出。
+- 27 个本地文档链接目标、cargo fmt、core boundary 和 git diff 检查通过。最初仅挂载 web 导致既有单元测试读不到 Rust 字段源；新浏览器夹具首次漏写 NodeQuality 的 /reports 读取路径，均修正测试环境/夹具后完整重跑，首次浏览器失败日志保留在 sinan-plugin-catalog-validation。没有通过放宽产品校验或诊断门禁使测试通过。
+- 本轮仅进行隔离回环夹具与前端验证，不代表生产 Agent 安装或新诊断能力实机验收；未运行完整 Rust/数据库回归、签署 Release 或部署。CI 按用户安排继续暂停，提交使用 [skip ci]。
