@@ -86,3 +86,5 @@ python3 tools/release.py assemble --source <制品根目录> --output <新输出
 最终公开并验证的修复后工具源为 [b562effcd90f8ae319665fb4ead1807b770ed4d5](https://github.com/theLucius7/sinan/commit/b562effcd90f8ae319665fb4ead1807b770ed4d5)，外部版本0.3.0-b562effcd90f8ae319665fb4ead1807b770ed4d5-r1。2026-10-01受限Bookworm容器（1536MiB/2CPU/pids512/OOM500）实际通过fmt/core、来源与真实重签15项、旧Release32项、模拟发布22项、固定源码archive内配方locked musl构建、实际ELF/version/build-info及完整五辅助文件TEST_ONLY签名bundle1项；exit0/OOMKilled=false。35个锁定Cargo依赖之外，库存有Rust标准库原文、systemmusl build tooling1.2.3、Rust bundled musl libc1.2.5三组，后二者来源不混用。
 
 修复后原生binary SHA256 e493d09511929f4479a3a18496f4a034e01faac5628f3db204b2d1c6f89cd85f，build-info的source commit与公开对象精确一致。日志/制品/原文/SOURCE/SHA256SUMS保存在evidence/tcp-musl-notices-b562eff，binary单独保存binaries/tcp-musl-notices-head。此项仅变Python配方/库存与测试，没有Rust实现变化，未重复无交集完整workspace；新PR的两架构、Bookworm和标准CI继续按最终HEAD单独核对。无正式签名/发布/外部探测。源5e已完成的证据保留，但分发候选改为b562。
+
+制品workflow_dispatch支持source_commit指定已存在的完整固定对象，保持Git archive/缺对象拒绝与归档配方契约，可在新主线验证历史固定工具源的amd64/arm64及Bookworm，而不把当前head误作永久工具pin。只产生TEST_ONLY验收产物，不发布Release。新PR发布后将以b562固定源触发双架构原生验收，最终结果单独记录。
