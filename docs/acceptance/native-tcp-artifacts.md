@@ -82,3 +82,7 @@ python3 tools/release.py assemble --source <制品根目录> --output <新输出
 构建必须在Cargo前拒绝未知rustc commit、缺失/篡改库存原文；制品验证必须检查原文与source归档一致、标准库与binary rustc一致，重签缺失或伪造bundled通知仍拒绝。新增真实minisign重签夹具与原文/工具链行为测试；原生重新构建、最新source pin和最终CI分别记录。五辅助文件和CLI/报告ABI保持不变。源5e既有启动/签名证据不代表此通知补齐完成。
 
 官方musl1.2.5归档SHA256 a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4，COPYRIGHT原文SHA256 f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af，固定Rust recipe SHA256 2f218a2dc7b7e73509212bfd4319ebddc2ddac7c651fca142c2b29bd7ea0aa38。许可证构建阶段零联网，原文随source与第五辅助文件共同签名。
+
+最终公开并验证的修复后工具源为 [b562effcd90f8ae319665fb4ead1807b770ed4d5](https://github.com/theLucius7/sinan/commit/b562effcd90f8ae319665fb4ead1807b770ed4d5)，外部版本0.3.0-b562effcd90f8ae319665fb4ead1807b770ed4d5-r1。2026-10-01受限Bookworm容器（1536MiB/2CPU/pids512/OOM500）实际通过fmt/core、来源与真实重签15项、旧Release32项、模拟发布22项、固定源码archive内配方locked musl构建、实际ELF/version/build-info及完整五辅助文件TEST_ONLY签名bundle1项；exit0/OOMKilled=false。35个锁定Cargo依赖之外，库存有Rust标准库原文、systemmusl build tooling1.2.3、Rust bundled musl libc1.2.5三组，后二者来源不混用。
+
+修复后原生binary SHA256 e493d09511929f4479a3a18496f4a034e01faac5628f3db204b2d1c6f89cd85f，build-info的source commit与公开对象精确一致。日志/制品/原文/SOURCE/SHA256SUMS保存在evidence/tcp-musl-notices-b562eff，binary单独保存binaries/tcp-musl-notices-head。此项仅变Python配方/库存与测试，没有Rust实现变化，未重复无交集完整workspace；新PR的两架构、Bookworm和标准CI继续按最终HEAD单独核对。无正式签名/发布/外部探测。源5e已完成的证据保留，但分发候选改为b562。
