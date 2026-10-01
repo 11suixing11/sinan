@@ -63,7 +63,7 @@ sudo <frozen-arm64-core-tests> real_systemd_diagnostic_ --ignored --test-threads
 
 两个短期 HTTP 夹具分别绑定 guest 的 `127.0.0.1` 和 `0.0.0.0`，只返回固定验收文字，无凭据或业务数据。guest 内两次正向请求均成功；启动后 0、5、10 秒，宿主对两端口的六次 TCP 连接均返回拒绝（errno 61），对应六次 `lsof` 检查均无宿主监听。夹具 15 秒正常退出，最终读回无该进程、监听或准备文件，无宿主共享文件系统；根盘仍余 3,990,147,072 字节。UDP 关闭仅由启动日志确认，本项未执行 UDP 收发，不把 TCP 结果扩展为 UDP 线路实测。
 
-私有结果保存在本任务证据目录 `port-rule-runtime/result.json`，含正/负对照、三轮检查、配置与 boot 摘要和最终清理。该补验只证明实际端口隔离；原六夹具及 swap 专项仍各对应原 boot 和原源码，新 Agent 与持续代理联合负载另行记录。CI 保持暂停，本项不重跑 Cargo，也不补签完整 NodeQuality 或其他阶段。
+私有结果保存在本任务证据目录 `port-rule-runtime/result.json`，含正/负对照、三轮检查、配置与 boot 摘要和最终清理。该补验只证明上述两类 IPv4 TCP 监听的实际端口隔离，IPv6 回环监听及线路未单独实测；原六夹具及 swap 专项仍各对应原 boot 和原源码，新 Agent 与持续代理联合负载另行记录。CI 保持暂停，本项不重跑 Cargo，也不补签完整 NodeQuality 或其他阶段。
 
 ## 验收范围与缺口
 
