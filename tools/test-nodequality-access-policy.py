@@ -507,10 +507,9 @@ class AccessTests(unittest.TestCase):
         if READONLY_SOURCES is None:
             self.skipTest('requires verified readonly 17-file source cache')
         original = helper.verified((READONLY_SOURCES / 'ip.sh').read_bytes(), helper.validate(helper.decode((PLUGIN / 'source-lock.json').read_bytes()))['ip.sh'])
-        # Read the exact r15 layer through the real helper. Only this final
-        # policy stage is omitted here to verify what the stage changes.
-        with mock.patch.object(helper, 'authorized_provider_access', side_effect=lambda name, content: content):
-            before = self.production_before_access()
+        # Read the exact r15 layer through the real helper; later layers are
+        # isolated only here to verify this stage's original byte changes.
+        before = self.production_before_access()
         after = self.production()
         self.assertEqual(hashlib.sha256(before).hexdigest(), policy.SOURCES['ip.sh']['source_sha256'])
         self.assertEqual(policy.transform('ip.sh', before), after)
@@ -530,7 +529,7 @@ class AccessTests(unittest.TestCase):
             target = Path(name) / 'sources'
             bundle = helper.decode(helper.pack(helper.decode((PLUGIN / 'source-lock.json').read_bytes()), READONLY_SOURCES))
             helper.materialize(bundle, target)
-            return helper.serve(target, ['-Ls', 'https://IP.Check.Place'])
+            return browser.sources.fixture.serve_before_access(helper, target, ['-Ls', 'https://IP.Check.Place'])
 
     def test_helper_file_type_size_hash_and_output_boundaries_fail_closed(self):
         with tempfile.TemporaryDirectory() as name:
