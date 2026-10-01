@@ -717,3 +717,11 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 合并后 sing-box 面板实现位于 crates/panel/src/plugins/singbox，与用户要求及ADR0023的根 plugins/singbox 不一致。独立后续将13文件 git mv 至 plugins/singbox/panel，以薄的 Rust path 桥保留模块名与接口；逐文件blob SHA一致，无业务/API/数据库/epoch/前端变动。ADR0030与AGENTS明确物理路径。静态fmt/core/差异检查及最新CI分别记录，未重新宣称实机流量完成。详见singbox-plugin-business独立验收。
 
 本轮独立审查逐一确认13个Git blob完全相同，path桥解析全部子模块及publisher嵌套测试，Rust可见性/旧导出保持；Docker COPY plugins与Compose根上下文保留。冻结源码 `7d1bda4` 的19项Rust/PostgreSQL专项全部通过、0失败/忽略（搬迁publisher2、插件业务/迁移4、账本4、业务/旧订阅4、订阅重置2、端口2、真实Agent配置/丢失ACK/重启1），workspace全targets Clippy（warnings为错误）、fmt、core门禁及六项行为、build-script5、runtime-cache3与差异检查通过。独立55432数据库由本任务启动并已停止，未触5432或生产；正常合入正式main `5d908b9` 后业务13文件与桥仍保持已验原字节，新增TCP/构建流程证据由其独立验收负责，最终整合CI继续单独核对。
+
+## 2026-10-01：Reality 间歇传输失败证据（Issue #6）
+
+- 业务源码743955c原CI在HUP后的2MiB下载只收到1,103,168字节，90秒exit28；同源码失败job只重跑一次，attempt2安装/双向流量/Agent重启/HUP/续传/签名拒绝/重装/在线退役全过。后续75cf整合源码另在首次下载90秒0字节失败，不能归因于业务或门禁。追加既有milestone1 Issue #6，保持原因未知，不重复开Issue或推已合并分支。
+- 独立标准库helper记录最多4条固定传输的数字/错误类别，保留curl90秒、退出码与原载荷核对；失败清理前最多7秒直接HTTP/TCP/TLS夹具检查、有限宿主资源和进程存在性布尔状态；并行审查发现socket超时不能限制慢滴HTTP，改唯一短命子进程硬2秒结束并回收。沿用常驻单元状态白名单，不读取/上传配置、env、密钥、令牌、证书或完整日志；写入与公开汇总均重新过滤，失败取证不吞失败或重试代理流量。
+- 14专项含真实回环HTTP/TLS、卡死夹具预算及恶意摘要隐私回归通过；验收驱动21、运行时缓存3、签名8、Python仓库101项/6既有条件跳过通过，fmt/core/shell/差异检查通过。独立提交CI与实际Reality另行核对，未将同源旧提交重跑当成本项集成验收。见 [独立验收](docs/acceptance/reality-failure-evidence.md)。
+
+- 最终正常保留作者原始 `7db4c1a` 及推进后的 `7ce37b9`，合入正式主线 `8ef465f`，保留原生Bookworm制品修复/CLI夹具及根sing-box插件物理目录。冻结源码 `357eadb` 中HTTP每次底层读取共享绝对截止，作者的唯一短命worker硬2秒截止/回收与进程存在性字段均保留；已有失败的清理继续尝试并保留原28，原成功流程的清理错误仍拒绝。真实负对照捕获慢滴头/体3.48/3.50秒超限和原28被清理7覆盖，恢复后取证16、驱动21、缓存3、签名8全部通过；仓库Python101项运行（95通过/6既有条件跳过），合计143通过、0失败、6跳过。Python/Bash语法、fmt只读检查、core/actionlint及链接/差异检查通过，未运行Rust编译/测试或实际生产Reality/公开网络，完整提交CI继续单独核对，Issue #6原因仍未知。
