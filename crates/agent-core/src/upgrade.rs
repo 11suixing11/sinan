@@ -62,6 +62,7 @@ pub async fn run(
     ops: Arc<dyn Privileged>,
     clients: watch::Receiver<Option<Arc<PanelClient>>>,
     retirement: Arc<crate::retirement::Retirement>,
+    agent_version: &'static str,
 ) -> Result<()> {
     let mut next = Instant::now();
     loop {
@@ -78,7 +79,14 @@ pub async fn run(
                 } else if Instant::now() >= next {
                     let active = clients.borrow().clone();
                     if let Some(active) = active {
-                        match check_guarded(&config, ops.as_ref(), &active, Some(&retirement)).await
+                        match check_guarded(
+                            &config,
+                            ops.as_ref(),
+                            &active,
+                            agent_version,
+                            Some(&retirement),
+                        )
+                        .await
                         {
                             Ok(()) => {
                                 next = Instant::now()
@@ -99,13 +107,14 @@ pub async fn run(
 
 #[cfg(all(test, unix))]
 async fn check(config: &Config, ops: &dyn Privileged, client: &PanelClient) -> Result<()> {
-    check_guarded(config, ops, client, None).await
+    check_guarded(config, ops, client, env!("CARGO_PKG_VERSION"), None).await
 }
 
 async fn check_guarded(
     config: &Config,
     ops: &dyn Privileged,
     client: &PanelClient,
+    agent_version: &str,
     retirement: Option<&crate::retirement::Retirement>,
 ) -> Result<()> {
     let active = || -> Result<()> {
@@ -127,7 +136,7 @@ async fn check_guarded(
         return Ok(());
     };
     ensure!(
-        release_version(&release.version) > release_version(env!("CARGO_PKG_VERSION")),
+        release_version(&release.version) > release_version(agent_version),
         "update must be a newer stable version"
     );
     let previous: UpgradeState = read_json(&root.join("update-state.json"))?;
