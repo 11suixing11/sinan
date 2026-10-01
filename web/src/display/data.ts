@@ -3,8 +3,6 @@ import type { Metrics, Server } from '../types'
 
 export type Sample = { id: string; sampled_at: number; metrics: Metrics }
 export type Point = { at: number; value: number | null }
-export type Probe = { id: string; name: string; kind: 'tcp' | 'icmp'; interval_secs: number; enabled: boolean }
-export type ProbeResult = { id: string; probe_id: string; sampled_at: number; latency_ms: number | null; loss_percent: number; error: string | null }
 export type NetworkField = 'received_bytes' | 'transmitted_bytes' | 'receive_bytes_per_sec' | 'transmit_bytes_per_sec'
 
 export function number(value: unknown): number | null {

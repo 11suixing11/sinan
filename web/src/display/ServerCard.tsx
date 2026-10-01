@@ -1,4 +1,6 @@
 import { memo } from 'react'
+import type { ProbeOverview } from '../probes'
+import ProbeQuality from './ProbeQuality'
 import { time, uptime } from '../format'
 import type { Server } from '../types'
 import { count, fresh, network, number, percentage, ratio, size, speed, status } from './data'
@@ -13,7 +15,7 @@ export function Metric({ label, value, detail, display }: { label: string; value
   </div>
 }
 
-export const ServerCard = memo(function ServerCard({ server, unavailable }: { server: Server; unavailable: boolean }) {
+export const ServerCard = memo(function ServerCard({ server, unavailable, probes, probeError, probeLoading, now }: { server: Server; unavailable: boolean; probes?: ProbeOverview[]; probeError: boolean; probeLoading: boolean; now: number }) {
   const metrics = server.latest_metrics, info = server.static_info
   const state = status(server, unavailable), live = fresh(server) && !unavailable
   const up = network(metrics, 'transmit_bytes_per_sec'), down = network(metrics, 'receive_bytes_per_sec')
@@ -33,6 +35,7 @@ export const ServerCard = memo(function ServerCard({ server, unavailable }: { se
         <div className="d-data"><small>网卡累计</small><span><Icon name="up" size={12} />{size(network(metrics, 'transmitted_bytes'))}</span><span><Icon name="down" size={12} />{size(network(metrics, 'received_bytes'))}</span></div>
         <div className="d-data"><small>系统运行</small><span><Icon name="clock" size={12} />{metrics.uptime_secs === undefined ? '—' : uptime(metrics.uptime_secs)}</span><span><Icon name="network" size={12} />{count(metrics.tcp_connections)} 个连接</span></div>
       </div>
+      <ProbeQuality probes={probes} now={now} online={server.online} unavailable={probeError || unavailable} loading={probeLoading} />
       <div className="d-card-foot"><span className={!live ? 'd-warning' : ''}>{unavailable ? '刷新失败 · 保留历史' : server.metrics_stale ? '指标已过期' : !server.online ? '最近上报的数据' : !server.metrics_sampled_at ? '采样时间未知' : '指标正常'}</span><span title={server.metrics_sampled_at ? time(server.metrics_sampled_at / 1000) : undefined}>{server.metrics_sampled_at ? new Date(server.metrics_sampled_at).toLocaleTimeString('zh-CN', { hour12: false }) : '尚无采样时间'}</span></div>
       {!server.online && !unavailable && <div className="d-offline-overlay"><strong>{state.label}</strong><span>{server.last_seen ? `最后在线 ${time(server.last_seen)}` : '等待设备首次接入'}</span></div>}
     </div>

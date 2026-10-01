@@ -29,7 +29,7 @@ export default function Servers() {
     }
   }
   return <>
-    <PageHeader eyebrow="基础设施" title="服务器" description="连接你的服务器，集中查看运行状态与配置部署。"><Refresh onClick={resource.reload} /><button className="button button-primary" onClick={() => edit('new')}><Icon name="plus" size={18} />添加服务器</button></PageHeader>
+    <PageHeader eyebrow="基础设施" title="服务器" description="连接你的服务器，集中查看运行状态与配置部署。"><Refresh onClick={resource.reload} /><a className="button button-secondary" href="#/overview"><Icon name="server" size={18} />服务器展示</a><button className="button button-primary" onClick={() => edit('new')}><Icon name="plus" size={18} />添加服务器</button></PageHeader>
     <div className="stats-grid"><Stat icon="server" label="服务器总数" value={resource.data ? servers.length : '—'} note="已添加到面板的服务器" /><Stat icon="activity" label="当前在线" value={resource.data ? servers.filter(server => server.online).length : '—'} note="最近 60 秒内收到设备消息" /><Stat icon="check" label="已发布配置" value={resource.data ? servers.filter(server => server.manifest_rev > 0).length : '—'} note="部署结果可在服务器详情查看" /></div>
     <ErrorNotice message={resource.error} retry={resource.reload} />
     <section className="panel"><div className="panel-heading"><h2>全部服务器 <span className="count">{servers.length}</span></h2><span className="subtle live-label"><span />每 5 秒刷新</span></div>

@@ -4,12 +4,52 @@ use crate::{
 };
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::HeaderMap,
 };
 use sha2::{Digest, Sha256};
 use sinan_protocol::{ProbeBatch, ProbeResult, ProbeSpec, TaskAck, telemetry::now_millis};
 use uuid::Uuid;
+
+#[derive(serde::Serialize)]
+pub struct Overview {
+    server_id: i64,
+    probe: ProbeSpec,
+    results: Vec<ProbeResult>,
+}
+
+pub async fn overview(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Vec<Overview>>> {
+    auth::require_admin(&state, &headers).await?;
+    // One indexed query for all cards; each target has an independent sample budget.
+    let rows: Vec<(i64, serde_json::Value, serde_json::Value)> = sqlx::query_as(
+        "SELECT p.server_id, p.spec, COALESCE(samples.results, '[]'::jsonb)
+         FROM network_probes p JOIN servers s ON s.id=p.server_id AND s.deleted_at IS NULL
+         LEFT JOIN LATERAL (
+             SELECT jsonb_agg(recent.result ORDER BY recent.sampled_at DESC, recent.id DESC) AS results
+             FROM (SELECT id, sampled_at, result FROM probe_results
+                   WHERE server_id=p.server_id AND probe_id=p.id AND sampled_at>$1 AND sampled_at<=$2
+                   ORDER BY sampled_at DESC, id DESC LIMIT 20) recent
+         ) samples ON TRUE ORDER BY p.server_id, p.id",
+    )
+    .bind(now_millis() - 86_400_000)
+    .bind(now_millis())
+    .fetch_all(&state.pool).await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|(server_id, spec, results)| {
+                Ok(Overview {
+                    server_id,
+                    probe: serde_json::from_value(spec)?,
+                    results: serde_json::from_value(results)?,
+                })
+            })
+            .collect::<Result<_, serde_json::Error>>()
+            .map_err(anyhow::Error::from)?,
+    ))
+}
 
 pub async fn list(
     State(state): State<AppState>,
@@ -117,13 +157,34 @@ pub async fn remove(
     Ok(Json(serde_json::json!({"deleted":true})))
 }
 
+#[derive(Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryQuery {
+    probe_id: Option<Uuid>,
+    hours: Option<u32>,
+}
+
 pub async fn history(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(server): Path<i64>,
+    Query(query): Query<HistoryQuery>,
 ) -> ApiResult<Json<Vec<ProbeResult>>> {
     auth::require_admin(&state, &headers).await?;
-    let rows: Vec<serde_json::Value> = sqlx::query_scalar("SELECT result FROM probe_results WHERE server_id=$1 AND sampled_at>$2 ORDER BY sampled_at DESC LIMIT 4096").bind(server).bind(now_millis()-86_400_000).fetch_all(&state.pool).await?;
+    let hours = query.hours.unwrap_or(24);
+    if !(1..=24).contains(&hours) {
+        return Err(ApiError::BadRequest("拨测历史范围须为 1 至 24 小时".into()));
+    }
+    let now = now_millis();
+    let since = now - i64::from(hours) * 3_600_000;
+    let rows: Vec<serde_json::Value> = if let Some(probe) = query.probe_id {
+        // A target sampled every ten seconds needs 8640 rows for a complete day.
+        sqlx::query_scalar("SELECT result FROM probe_results WHERE server_id=$1 AND probe_id=$2 AND sampled_at>$3 AND sampled_at<=$4 ORDER BY sampled_at DESC,id DESC LIMIT 8641")
+            .bind(server).bind(probe).bind(since).bind(now).fetch_all(&state.pool).await?
+    } else {
+        sqlx::query_scalar("SELECT result FROM probe_results WHERE server_id=$1 AND sampled_at>$2 AND sampled_at<=$3 ORDER BY sampled_at DESC,id DESC LIMIT 4096")
+            .bind(server).bind(since).bind(now).fetch_all(&state.pool).await?
+    };
     Ok(Json(
         rows.into_iter()
             .map(serde_json::from_value)

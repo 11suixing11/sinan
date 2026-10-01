@@ -89,6 +89,8 @@ impl State {
     }
 
     pub fn save_probe_result(&mut self, result: &ProbeResult) -> Result<()> {
+        let now =
+            now_millis().saturating_add(self.get_json::<i64>("clock_offset_ms")?.unwrap_or(0));
         let tx = self.connection.transaction()?;
         tx.execute(
             "INSERT INTO probe_outbox(id,sampled_at,result) VALUES(?1,?2,?3)",
@@ -100,7 +102,7 @@ impl State {
         )?;
         tx.execute(
             "DELETE FROM probe_outbox WHERE sampled_at<?1",
-            [now_millis() - 2 * 3_600_000],
+            [now.saturating_sub(2 * 3_600_000)],
         )?;
         tx.execute("DELETE FROM probe_outbox WHERE id IN (SELECT id FROM probe_outbox ORDER BY sampled_at DESC,rowid DESC LIMIT -1 OFFSET 4096)", [])?;
         tx.commit()?;
@@ -134,6 +136,49 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn probes_survive_restart_and_partial_ack_with_panel_clock_offset() -> Result<()> {
+        let path = std::env::temp_dir().join(format!("sn-probes-{}.db", Uuid::new_v4()));
+        let offset = -6 * 3_600_000;
+        let result = ProbeResult {
+            id: Uuid::new_v4(),
+            probe_id: Uuid::new_v4(),
+            sampled_at: now_millis() + offset,
+            latency_ms: None,
+            loss_percent: 100.0,
+            error: Some("ICMP tool unavailable".into()),
+        };
+        let next = ProbeResult {
+            id: Uuid::new_v4(),
+            latency_ms: Some(0.0),
+            loss_percent: 0.0,
+            error: None,
+            ..result.clone()
+        };
+        {
+            let mut state = State::open(&path)?;
+            state.set_json("clock_offset_ms", &offset)?;
+            state.save_probe_result(&result)?;
+            state.save_probe_result(&next)?;
+            assert_eq!(state.probe_results()?, vec![result.clone(), next.clone()]);
+        }
+        let mut state = State::open(&path)?;
+        assert_eq!(state.probe_results()?, vec![result.clone(), next.clone()]);
+        state.acknowledge_probes(&[result.id])?;
+        assert_eq!(state.probe_results()?, vec![next.clone()]);
+        state.acknowledge_probes(&[result.id, next.id])?;
+        assert!(state.probe_results()?.is_empty());
+        let expired = ProbeResult {
+            id: Uuid::new_v4(),
+            sampled_at: now_millis() + offset - 3 * 3_600_000,
+            ..result
+        };
+        state.save_probe_result(&expired)?;
+        assert!(state.probe_results()?.is_empty());
+        drop(state);
+        std::fs::remove_file(path)?;
+        Ok(())
+    }
     #[test]
     fn command_recovery_never_reexecutes_and_results_survive_ack_loss() -> Result<()> {
         let path = std::env::temp_dir().join(format!("sn-command-{}.db", Uuid::new_v4()));

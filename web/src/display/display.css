@@ -206,3 +206,29 @@ body.has-server-display { min-width: 320px; }
 @media (prefers-reduced-motion: reduce) {
   .server-display *, .server-display *::before, .server-display *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Quality panels follow the server display's compact two-column layout. */
+.d-quality-list { display: grid; gap: 9px; }
+.d-quality-heading, .d-quality-placeholder { display: flex; min-width: 0; justify-content: space-between; gap: 8px; color: var(--d-muted-text); font-size: 11px; }
+.d-quality-heading { margin-bottom: 4px; }
+.d-quality-heading > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-quality-heading small { flex-shrink: 0; font-size: 10px; }
+.d-quality-placeholder { padding: 10px 8px; border-radius: 8px; background: var(--d-data); }
+.d-quality-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.d-quality-panel { min-width: 0; padding: 7px 8px; border-radius: 8px; background: var(--d-data); }
+.d-quality-panel > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 11px; color: var(--d-muted-text); }
+.d-quality-value { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.d-quality-bars { display: grid; grid-template-columns: repeat(20, minmax(0, 1fr)); gap: 2px; margin-top: 5px; }
+.d-quality-bar { height: 10px; border-radius: 1px; background: currentColor; }
+.d-quality-good { color: var(--d-success-bar); }
+.d-quality-fair { color: var(--d-info); }
+.d-quality-warning { color: var(--d-warning-bar); }
+.d-quality-poor { color: #ea8754; }
+.d-quality-danger { color: var(--d-danger-bar); }
+.d-quality-empty { color: var(--d-muted-text); }
+.d-quality-bar.d-quality-empty { padding: 0; border-radius: 1px; background: color-mix(in srgb, var(--d-muted-text) 20%, transparent); }
+.d-quality-value.d-quality-empty { padding: 0; background: none; }
+.d-probes { display: flex; flex-direction: column; gap: 12px; }
+.d-probe-select { display: flex; min-width: 0; align-items: center; gap: 12px; color: var(--d-muted-text); font-size: 12px; }
+.server-display .d-probe-select select { min-width: 0; width: min(400px, 75%); min-height: 36px; border: 1px solid var(--d-border); border-radius: 7px; padding: 6px 10px; background: var(--d-card-solid); color: var(--d-foreground); font: inherit; }
+.server-display select:focus-visible { outline: 2px solid var(--d-primary); outline-offset: 3px; }

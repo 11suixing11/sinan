@@ -5,32 +5,13 @@ import { time, uptime } from '../format'
 import type { Server } from '../types'
 import Chart from './Chart'
 import { count, fresh, network, number, percentage, sampleGap, size, speed, status } from './data'
-import type { Probe, ProbeResult, Sample } from './data'
+import type { Sample } from './data'
+import ProbeCharts from './ProbeCharts'
 import { Icon, OSIcon } from './Icon'
 import { useHistory } from './useHistory'
 
 function InfoGroup({ title, icon, items }: { title: string; icon: string; items: [string, ReactNode][] }) {
   return <section className="d-info-group d-glass"><h2><Icon name={icon} size={16} />{title}</h2><dl>{items.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value ?? '—'}</dd></div>)}</dl></section>
-}
-
-function ProbeCharts({ id, now }: { id: number; now: number }) {
-  const definitions = useResource<Probe[]>(`/api/servers/${id}/probes`, 30_000)
-  const results = useResource<ProbeResult[]>(`/api/servers/${id}/probe-results`, 30_000)
-  const [minutes, setMinutes] = useState(60)
-  const probes = definitions.data ?? []
-  return <section className="d-probes">
-    <div className="d-section-heading"><h2><Icon name="network" size={17} />网络拨测</h2><div className="d-segmented" role="group" aria-label="拨测时间范围">{[[60, '1 小时'], [360, '6 小时'], [1440, '24 小时']].map(([value, label]) => <button key={value} aria-pressed={minutes === value} onClick={() => setMinutes(Number(value))}>{label}</button>)}</div></div>
-    {(definitions.error || results.error) && <div className="d-notice d-error" role="alert"><span>{definitions.error || results.error} 已显示的结果来自此前读取。</span><button onClick={() => { definitions.reload(); results.reload() }}>重试</button></div>}
-    {(definitions.loading || results.loading) && !results.data ? <div className="d-chart-empty" role="status">正在读取拨测结果…</div> : definitions.error && !definitions.data ? <div className="d-chart-empty d-glass">暂时无法读取拨测配置</div> : results.error && !results.data ? <div className="d-chart-empty d-glass">暂时无法读取拨测结果</div> : !probes.length ? <div className="d-chart-empty d-glass">尚无已配置的拨测项目</div> : <div className="d-charts">{probes.map(probe => {
-      const points = (results.data ?? []).filter(result => result.probe_id === probe.id && result.sampled_at >= now - minutes * 60_000 && result.sampled_at <= now).sort((a, b) => a.sampled_at - b.sampled_at)
-      const latest = points[points.length - 1]
-      const outdated = !latest || now - latest.sampled_at > Math.max(60_000, probe.interval_secs * 3000)
-      return <div key={probe.id} className="d-probe">
-        <Chart title={`${probe.name}${probe.enabled ? '' : '（已停用）'}`} from={now - minutes * 60_000} to={now} gap={Math.max(30_000, probe.interval_secs * 3000)} format={value => value === null ? '—' : `${value.toFixed(1)} ms`} series={[{ label: '延迟', color: 'var(--d-info)', points: points.map(point => ({ at: point.sampled_at, value: number(point.latency_ms) })) }]} />
-        <div className="d-probe-summary"><span>{probe.kind === 'tcp' ? 'TCP 连接' : 'ICMP'} · {outdated ? '暂无近期结果' : '最近采样'}{latest && ` · ${time(latest.sampled_at / 1000)}`}</span><strong className={latest?.loss_percent ? 'd-warning' : ''}>{latest ? `${probe.kind === 'tcp' ? '连接失败率' : '丢包率'} ${percentage(latest.loss_percent)}` : '结果未知'}</strong>{latest?.error && <span className="d-warning">{latest.error}</span>}</div>
-      </div>
-    })}</div>}
-  </section>
 }
 
 function ResourceCharts({ server, now }: { server: Server; now: number }) {
@@ -79,7 +60,7 @@ export default function ServerView({ id, now }: { id: number; now: number }) {
     </div>
     <div className="d-live-strip d-glass"><div><span>处理器</span><strong>{percentage(metrics.cpu_percent)}</strong></div><div><span>已用内存</span><strong>{size(metrics.memory_used)}</strong></div><div><span>实时上行</span><strong className="d-good">{live ? speed(network(metrics, 'transmit_bytes_per_sec')) : '—'}</strong></div><div><span>实时下行</span><strong className="d-info">{live ? speed(network(metrics, 'receive_bytes_per_sec')) : '—'}</strong></div></div>
     <ResourceCharts server={server} now={now} />
-    <ProbeCharts id={id} now={now} />
+    <ProbeCharts id={id} now={now} unavailable={Boolean(resource.error) || !server.online} />
     <section className="d-table-section d-glass"><h2><Icon name="network" size={16} />网络接口</h2>{Object.keys(metrics.network_interfaces ?? {}).length ? <div className="d-table-scroll"><table><thead><tr><th>接口</th><th>累计上传</th><th>累计下载</th><th>上行速率</th><th>下行速率</th></tr></thead><tbody>{Object.entries(metrics.network_interfaces ?? {}).map(([name, metric]) => <tr key={name}><th scope="row">{name}</th><td>{size(metric.transmitted_bytes)}</td><td>{size(metric.received_bytes)}</td><td className="d-good">{live ? speed(metric.transmit_bytes_per_sec) : '—'}</td><td className="d-info">{live ? speed(metric.receive_bytes_per_sec) : '—'}</td></tr>)}</tbody></table></div> : <p className="d-table-empty">设备尚未上报网卡数据。</p>}</section>
     {metrics.disks?.length ? <section className="d-table-section d-glass"><h2><Icon name="database" size={16} />磁盘读写</h2><div className="d-table-scroll"><table><thead><tr><th>磁盘 / 挂载点</th><th>已用 / 容量</th><th>读取 / 写入速率</th><th>读 / 写操作数（每秒）</th><th>等待 / 利用率</th></tr></thead><tbody>{metrics.disks.map((disk, index) => <tr key={`${disk.name}-${index}`}><th scope="row">{disk.name}<small>{disk.mount_point}</small></th><td>{size(disk.used_bytes)} / {size(disk.total_bytes)}</td><td>{speed(disk.read_bytes_per_sec)} / {speed(disk.write_bytes_per_sec)}</td><td>{count(disk.read_iops)} / {count(disk.write_iops)}</td><td>{number(disk.await_ms) === null ? '—' : `${disk.await_ms!.toFixed(1)} ms`} / {percentage(disk.utilization_percent)}</td></tr>)}</tbody></table></div></section> : null}
     {metrics.gpus?.length ? <section className="d-table-section d-glass"><h2><Icon name="cpu" size={16} />图形处理器</h2><div className="d-table-scroll"><table><thead><tr><th>型号</th><th>使用率</th><th>已用显存 / 总显存</th></tr></thead><tbody>{metrics.gpus.map((gpu, index) => <tr key={index}><th scope="row">{gpu.model}</th><td>{percentage(gpu.usage_percent)}</td><td>{size(gpu.memory_used)} / {size(gpu.memory_total)}</td></tr>)}</tbody></table></div></section> : null}
