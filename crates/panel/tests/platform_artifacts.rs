@@ -92,7 +92,12 @@ async fn musl_agent_on_gnu_host_receives_legacy_gnu_runtime(pool: PgPool) -> Res
             .send()
             .await?;
         assert_eq!(response.status(), StatusCode::CONFLICT);
-        assert!(response.json::<serde_json::Value>().await?["error"].as_str().unwrap().contains("已验签"));
+        assert!(
+            response.json::<serde_json::Value>().await?["error"]
+                .as_str()
+                .unwrap()
+                .contains("已验签")
+        );
     }
     // A GNU Agent already running through a musl compatibility layer keeps its
     // previous GNU identity ahead of the legacy and newly detected host target.
