@@ -1361,3 +1361,9 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 正常保留 fork 作者 `b98fa5f` 和已合 #126/#128/#129，冻结 `addcdbe` 运行输入：本地完整 Rust/PostgreSQL workspace/all-targets 473 通过、0 失败、15 既有实机条件忽略；macOS umask077 原子链接、workspace all-targets Clippy/fmt/core 通过。自己的 PostgreSQL 127.0.0.1:55432 已停止。
 - 已受验监控产品与私有前端输入逐字保持 `3dea5d9`：Bun 33/894、TS/Vite、19 dist 重复复现、12 套仓库与两套独立 Chromium 负例通过；仍未真实 Telegram/多平台/Agent 联合负载，未将本地当作 GitHub CI 或实机签收。
 - fork 现有四个工作流 active，逐一固定原 YAML核对仅 push/pull_request/manual 与 agent-v* tag，无 pull_request_target 等额外自动事件；普通 push 最后提交带 [skip ci]，不改变 fork 状态。主仓库四源码工作流继续 disabled_manually，不重跑、恢复或把跳过记为通过。
+
+## 2026-10-01：按五项批次核对开放 issues（第三批）
+
+- 用户要求每五项处理后提交，批次期间不测试，最后统一测试；此安排覆盖旧逐项 PR 和逐阶段测试的交付方式。当前基线 bb9638b，旧会话目录已不存在，使用独立完整 worktree 保留原 checkout。
+- #25/#27/#42/#47/#58 的原始源码缺陷已有实现；逐项核对代码与最终回归入口，见 docs/acceptance/issues-batch-three.md。未重复改造、未运行测试，也不据历史测试结果关闭含实机验收条件的 issue。
+- 当前完整 NodeQuality 工具链/许可和原生 TCP 整链等缺口继续明确记录；后续批次完成后统一运行整合提交的验证，CI 暂停保持。
