@@ -1,6 +1,10 @@
 .modal.server-setup-modal{width:840px;color:#293e35}
 .modal.server-setup-modal>header{padding:19px 28px}
 .server-setup-body{padding:24px 28px;background:#f6f8f5}
+.server-setup-shortcuts{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;gap:6px;padding:10px 28px;background:#fff;border-bottom:1px solid #e2e9de}
+.server-setup-shortcuts button{border:0;border-radius:5px;background:#f0f4ec;color:#55714a;font-size:10px;padding:5px 9px}
+.server-setup-shortcuts button:hover{background:#e3eddc}
+.server-setup-section,.server-setup-modal input{scroll-margin-top:70px}
 .server-setup-steps{display:flex;list-style:none;padding:0 0 23px;margin:0;gap:28px;border-bottom:1px solid #e0e7df}
 .server-setup-steps li{display:flex;align-items:center;gap:10px;flex:1;color:#8d998f}
 .server-setup-steps li>span{display:grid;place-items:center;width:30px;height:30px;flex:none;border:1px solid #dce4db;border-radius:50%;font-size:12px;background:#fff}
@@ -29,6 +33,11 @@
 .server-setup-modal .field small{display:block;font-size:10px;line-height:1.7;color:#83907e;margin-top:6px}
 .server-setup-modal input:focus,.server-setup-modal select:focus{outline:none;border-color:#83a285;box-shadow:0 0 0 3px #47714f12}
 .server-setup-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px 18px}
+.server-assets-three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.server-asset-full{margin-top:17px}
+.server-asset-unit{margin-top:7px;width:100%;padding:7px 9px;border:1px solid #dce5d4;border-radius:6px;background:#fff;color:#49603f;font-size:11px}
+.server-assets-progress{display:flex;align-items:center;gap:12px;margin:16px 0;font-size:12px}
+.server-assets-progress .meter{flex:1}
 .server-setup-presets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:18px}
 .server-setup-presets button{position:relative;text-align:left;padding:12px 14px;border:1px solid #e0e7dc;border-radius:7px;background:#fff;color:#5c7155;transition:border-color .15s,background .15s}
 .server-setup-presets button[aria-pressed=true]{background:#f0f6eb;border-color:#8ba77a}
@@ -86,6 +95,7 @@
 @media(max-width:600px){
   .modal.server-setup-modal>header{padding:16px 18px}
   .server-setup-body{padding:18px 14px}
+  .server-setup-shortcuts{padding:9px 14px;gap:5px}
   .server-setup-steps{gap:14px;padding-bottom:18px}
   .server-setup-steps li{gap:8px}
   .server-setup-steps li>span{width:25px;height:25px;font-size:10px}
@@ -106,6 +116,8 @@
   .server-setup-presets span{font-size:9px}
   .server-setup-presets small{display:none}
   .server-setup-grid{gap:14px}
+  .server-assets-three{grid-template-columns:1fr 1fr}
+  .server-assets-three>.field:last-child{grid-column:1/-1}
   .server-setup-probe-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .server-setup-probe-grid>.field:nth-child(4){grid-column:1/-1;grid-row:2}
   .server-setup-probe{padding:13px}

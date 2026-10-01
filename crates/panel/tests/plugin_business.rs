@@ -255,6 +255,9 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
         .bind(server).execute(&pool).await?;
     let mut legacy = migration_recovery::legacy_snapshot(&pool).await?;
     // New columns have explicit legacy defaults; every preexisting value stays identical.
+    for server in legacy.get_mut("servers").unwrap().as_array_mut().unwrap() {
+        server["asset_settings"] = json!({});
+    }
     for node in legacy.get_mut("nodes").unwrap().as_array_mut().unwrap() {
         node["protocol_config"] = json!({"type":"vless-reality"});
     }

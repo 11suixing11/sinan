@@ -13,7 +13,9 @@ export type Metrics = {
   disk_used?: number; tcp_connections?: number; udp_connections?: number; uptime_secs?: number;
   network_interfaces?: Record<string, { received_bytes?: number; transmitted_bytes?: number; receive_bytes_per_sec?: number; transmit_bytes_per_sec?: number }>;
 }
-export type Server = { id: number; name: string; device_public_key: string | null; static_info: StaticInfo; last_seen: number | null; last_heartbeat_at: number | null; metrics_sampled_at: number | null; metrics_stale: boolean; latest_metrics: Metrics; manifest_rev: number; online: boolean; capabilities?: string[] }
+export type ServerAssets = { region: string; group_name: string; tags: string[]; hidden: boolean; price: string | null; currency: string; billing_cycle: number; expires_at: number | null; auto_renewal: boolean; traffic_limit: string; traffic_limit_type: 'sum' | 'max' | 'min' | 'up' | 'down'; reset_day: number; network_interface: string }
+export type ServerTraffic = { cycle_start: number; cycle_end: number; uploaded: string; downloaded: string; used: string; limit: string; remaining: string | null; percent: number | null; exceeded: boolean; observed_from: number | null; last_sample_at: number | null; incomplete: boolean; interfaces: string[] }
+export type Server = { id: number; name: string; device_public_key: string | null; static_info: StaticInfo; last_seen: number | null; last_heartbeat_at: number | null; metrics_sampled_at: number | null; metrics_stale: boolean; latest_metrics: Metrics; manifest_rev: number; online: boolean; capabilities?: string[]; asset_settings?: ServerAssets; traffic?: ServerTraffic | null }
 export type Node = { id: number; name: string; server_id: number; protocol: string; port: number; public_host: string; sni: string; public_key: string; short_id: string; protocol_config?: { type: string; method?: string; tls?: { mode: 'acme' | 'manual'; configured?: boolean; email?: string; challenge?: 'http-01' | 'tls-alpn-01' } } }
 export type ProxyUser = { id: number; name: string; subscription_token: string; subscription_url: string }
 export type Access = { user_id: number; node_id: number; uuid: string; stat_name: string }

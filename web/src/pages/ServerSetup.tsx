@@ -5,6 +5,8 @@ import { useAction } from '../hooks'
 import type { Probe } from '../probes'
 import type { AgentSettings, Server } from '../types'
 import './server-setup.css'
+import { assetDraft, assetPayload } from '../server-assets'
+import ServerAssetFields, { SetupNavigation } from './ServerAssetFields'
 
 type ProbeDraft = Omit<Probe, 'id' | 'enabled' | 'port' | 'interval_secs'> & { key: number; port: string; interval: string }
 const frequencies = [
@@ -23,6 +25,7 @@ export function SetupSteps({ step }: { step: 1 | 2 }) {
 export default function ServerSetup({ onClose, onCreated }: { onClose: () => void; onCreated: (server: Server) => void }) {
   const action = useAction()
   const [name, setName] = useState('')
+  const [asset, setAsset] = useState(() => assetDraft())
   const [sample, setSample] = useState('1'), [upload, setUpload] = useState('3')
   const [autoUpdate, setAutoUpdate] = useState(false), [discover, setDiscover] = useState(true)
   const [probes, setProbes] = useState<ProbeDraft[]>([])
@@ -35,11 +38,12 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
   const submit = () => {
     const agent_settings: AgentSettings = { sample_interval_secs: Number(sample), upload_interval_secs: Number(upload), auto_update: autoUpdate, discover_public_ips: discover }
     const initialProbes: Probe[] = probes.map(probe => ({ id: '00000000-0000-0000-0000-000000000000', name: probe.name.trim(), kind: probe.kind, target: probe.target.trim(), port: probe.kind === 'tcp' ? Number(probe.port) : null, interval_secs: Number(probe.interval), carrier: probe.carrier.trim(), enabled: true }))
-    void action.run(() => api<Server>('/api/servers', 'POST', { name: name.trim(), agent_settings, probes: initialProbes }), onCreated)
+    void action.run(() => api<Server>('/api/servers', 'POST', { name: name.trim(), agent_settings, probes: initialProbes, asset_settings: assetPayload(asset) }), onCreated)
   }
 
   return <Modal title="添加服务器" onClose={onClose} busy={action.busy} className="server-setup-modal">
     <form onSubmit={event => { event.preventDefault(); submit() }}>
+      <SetupNavigation monitoring />
       <div className="server-setup-body">
         <SetupSteps step={1} />
         <div className="server-setup-intro"><span className="server-setup-mark"><Icon name="server" size={25} /></span><div><h3>连接一台新的服务器</h3><p>先设定监控方式，设备接入后自动同步。之后也可以在详情中调整。</p></div></div>
@@ -48,6 +52,7 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
             <div className="server-setup-heading"><div><h3 id="setup-basics">基础信息</h3><p>一个容易辨认的名称，就是接入的开始。</p></div><span className="server-setup-tag">必填</span></div>
             <Field label="服务器名称" hint="系统、架构和硬件信息会在 Agent 接入后自动获取。"><input name="name" required pattern=".*\S.*" maxLength={128} value={name} onChange={event => setName(event.target.value)} placeholder="例如：东京 · 主节点" autoComplete="off" /></Field>
           </section>
+          <ServerAssetFields value={asset} onChange={setAsset} />
           <section className="server-setup-section" aria-labelledby="setup-monitoring">
             <div className="server-setup-heading"><div><h3 id="setup-monitoring">监控与采集</h3><p>采样决定数据精度，批量上传决定展示更新频率。</p></div><Icon name="activity" size={20} /></div>
             <div className="server-setup-presets" role="group" aria-label="监控频率预设">{frequencies.map(frequency => <button key={frequency.label} type="button" aria-pressed={sample === frequency.sample && upload === frequency.upload} onClick={() => { setSample(frequency.sample); setUpload(frequency.upload) }}><strong>{frequency.label}</strong><span>{frequency.sample} 秒采样 · {frequency.upload} 秒上传</span><small>{frequency.note}</small></button>)}</div>
