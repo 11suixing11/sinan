@@ -1,0 +1,64 @@
+/* Dashboard additions reuse the existing display theme and never affect management pages. */
+.server-display:fullscreen { height: 100dvh; overflow: auto; }
+.server-display .d-dashboard-hero { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 18px 0 8px; }
+.server-display .d-dashboard-eyebrow { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: var(--d-primary); font-size: 12px; font-weight: 600; }
+.server-display .d-dashboard-hero h1 { margin: 0; font-size: clamp(26px, 3vw, 34px); font-weight: 650; letter-spacing: -.04em; line-height: 1.25; }
+.server-display .d-dashboard-hero p { margin: 12px 0 0; color: var(--d-muted-text); font-size: 13px; }
+.server-display .d-dashboard-feed { display: flex; flex-direction: column; align-items: flex-end; flex: 0 0 auto; gap: 7px; font-variant-numeric: tabular-nums; }
+.server-display .d-feed-label { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; }
+.server-display .d-dashboard-feed small { color: var(--d-muted-text); font-size: 11px; }
+.server-display .d-feed-button { display: inline-flex; align-items: center; gap: 5px; color: var(--d-muted-text); padding: 6px 0; font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
+.server-display .d-dashboard-toolbar { padding: 14px 16px; border-radius: 12px; }
+.server-display .d-dashboard-toolbar .d-toolbar { flex-wrap: wrap; gap: 10px; }
+.server-display .d-dashboard-toolbar .d-search { flex: 1 1 230px; }
+.server-display .d-dashboard-toolbar .d-segmented { max-width: 100%; }
+.server-display .d-filter-count { margin-left: 6px; font-size: 10px; color: var(--d-muted-text); font-variant-numeric: tabular-nums; }
+.server-display .d-dashboard-options { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--d-border); }
+.server-display .d-dashboard-options select { max-width: 155px; }
+.server-display .d-dashboard-view { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.server-display .d-dashboard-view .d-segmented button { gap: 6px; }
+.server-display .d-clear-filters { font-size: 11px; text-decoration: underline; color: var(--d-primary); text-underline-offset: 3px; }
+.server-display .d-fleet { min-width: 0; border-radius: 12px; overflow: hidden; }
+.server-display .d-fleet-scroll { max-height: 75dvh; overflow: auto; outline-offset: -3px; }
+.server-display .d-fleet table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 1180px; color: var(--d-foreground); font-size: 12px; }
+.server-display .d-fleet th, .server-display .d-fleet td { padding: 16px; border: 0; border-bottom: 1px solid var(--d-border); text-align: left; background: transparent; vertical-align: middle; }
+.server-display .d-fleet thead th { position: sticky; top: 0; z-index: 2; background: var(--d-card-solid); color: var(--d-muted-text); font-size: 11px; font-weight: 500; white-space: nowrap; }
+.server-display .d-fleet tbody tr:last-child > * { border-bottom: 0; }
+.server-display .d-fleet tbody tr:hover > * { background: var(--d-hover); }
+.server-display .d-fleet tbody th { min-width: 190px; max-width: 260px; font-weight: 500; }
+.server-display .d-fleet tbody td { min-width: 125px; }
+.server-display .d-fleet tbody td:nth-child(7) { min-width: 220px; }
+.server-display .d-fleet-name { display: flex; gap: 8px; align-items: center; margin-bottom: 5px; }
+.server-display .d-fleet-name strong { overflow-wrap: anywhere; font-size: 13px; }
+.server-display .d-fleet a:hover { color: var(--d-primary); }
+.server-display .d-fleet td > span, .server-display .d-fleet td > small { display: block; white-space: nowrap; }
+.server-display .d-fleet td > .d-status { display: inline-block; }
+.server-display .d-fleet small { color: var(--d-muted-text); font-size: 10px; margin-top: 4px; }
+.server-display .d-fleet .d-metric small { margin-top: 0; }
+.server-display .d-fleet .d-asset-chips { margin: 8px 0 0; }
+.server-display .d-fleet .d-metric { min-width: 120px; }
+.server-display .d-fleet-detail { display: block; margin-top: 6px; font-size: 10px; color: var(--d-primary); }
+.server-display .d-fleet .d-quality-list { gap: 4px; }
+.server-display .d-quality-compact .d-quality-grid { gap: 10px; }
+.server-display .d-quality-compact .d-quality-panel { padding: 0; background: transparent; }
+.server-display .d-quality-compact .d-quality-heading { margin-bottom: 6px; }
+.server-display .d-quality-compact .d-quality-value { font-size: 12px; }
+.server-display .d-fullscreen-control { position: relative; }
+.server-display .d-fullscreen-error { position: absolute; top: 42px; right: 0; z-index: 5; width: 200px; padding: 10px; border: 1px solid var(--d-border); border-radius: 8px; background: var(--d-card-solid); color: var(--d-warning); font-size: 12px; box-shadow: var(--d-shadow); }
+.server-display select:focus-visible, .server-display [tabindex="0"]:focus-visible { outline: 2px solid var(--d-primary); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .server-display .d-dashboard-hero { align-items: flex-start; flex-wrap: wrap; gap: 16px; padding-top: 6px; }
+  .server-display .d-dashboard-feed { width: 100%; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+  .server-display .d-dashboard-feed small { flex: 1; }
+  .server-display .d-dashboard-toolbar { padding: 12px; }
+  .server-display .d-dashboard-toolbar .d-search { flex-basis: calc(100% - 50px); order: 0; }
+  .server-display .d-dashboard-toolbar .d-toolbar > .d-icon-button { order: 1; }
+  .server-display .d-dashboard-toolbar .d-toolbar > .d-segmented { order: 2; flex: 1 1 100%; }
+  .server-display .d-dashboard-options select { max-width: 135px; }
+  .server-display .d-dashboard-view { width: 100%; justify-content: space-between; margin: 0; }
+  .server-display .d-dashboard-view .d-result-count { margin: 0; }
+  .server-display .d-dashboard-options .d-asset-filters { width: 100%; }
+  .server-display .d-dashboard-options .d-asset-filters label { flex: 1 1 100px; justify-content: space-between; }
+  .server-display .d-fleet-scroll { max-height: none; }
+}
+@media (prefers-reduced-motion: reduce) { .server-display .d-fill, .server-display .d-card { transition: none; } }
