@@ -283,8 +283,8 @@ pub(super) fn parse(
         } else if error.is_none() {
             return Err(invalid());
         }
-        if let Some(error) = &error {
-            if !bounded_text(&error.message, 1024)
+        if let Some(error) = &error
+            && (!bounded_text(&error.message, 1024)
                 || error
                     .http_status
                     .is_some_and(|status| !(300..=599).contains(&status))
@@ -297,10 +297,9 @@ pub(super) fn parse(
                     _ => error.http_status.is_some(),
                 }
                 || !row.available && error.kind != QueryErrorKind::NotAttempted
-                || row.attempted_at.is_none() && error.kind != QueryErrorKind::NotAttempted
-            {
-                return Err(invalid());
-            }
+                || row.attempted_at.is_none() && error.kind != QueryErrorKind::NotAttempted)
+        {
+            return Err(invalid());
         }
         let failure = error.as_ref().map(|error| QueryFailure {
             kind: Some(error.kind),

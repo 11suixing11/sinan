@@ -121,7 +121,8 @@ async fn sample_loop(
             }
             _ = tick.tick() => {
                 let specs = if retirement.requested() { Vec::new() } else {
-                    leased_configuration(&state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?)
+                    let state = state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+                    leased_configuration(&state)
                 };
                 running.retain(|_, (spec, task)| {
                     let keep = specs.iter().any(|current| current == spec);
