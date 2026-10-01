@@ -1167,3 +1167,6 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 已在专用 Debian 12 用固定原函数和无网络错误响应复现：Scamalytics、AbuseIPDB、IP2Location、IPQS 四源均将缺失评分解释为低风险；IPQS JSON还读取错误数组成员。新建 #117，归入整改 milestone。
 - 新增固定 ip-score-policy，先验证单一JSON、错误包络、类型/范围，再进入算术；ipapi字符串只接受固定格式，DB-IP只接受已知等级。真实零分和原阈值保留，文本显式未知，六源缺失JSON为null，IPQS改用自己的分数。原请求、完整来源许可证和所有full门禁保持。
 - 升r13并保留r12历史兼容，新增10项专项。初测修正正则末尾换行和测试提取边界；本机6通过/4 Bash3条件跳过。冻结后的组合、Debian实际执行和Rust/API验证待独立收据，不将此项视为全链验收。
+
+- 冻结产品66ec04b在Debian12实际运行新增10项全通过，组合114运行/113通过/1缺minisign跳过，194.199秒；256MiB/Swap0/Tasks64等属性实际读回，峰值69,853,184B/11pids，max/oom/oom_kill均0。结束无进程/挂载/cgroup残留，SSH406重启0/同boot/swap0，48份输入保持、30份仓库输入匹配产品冻结。
+- Rust/API19及Clippy/fmt/core通过，专属PG55439停止且PID不存在/端口关闭。本机150唯一用例最终137通过/13条件跳过，共153次执行含保留的三次旧报告夹具超时；采样显示20秒持续推进至70条记录，473d592仅将夹具期限20改60秒，保留清理和断言，之后失败单项及未执行组通过，产品字节不变。详见[评分独立验收](docs/acceptance/nodequality-ip-score-unknown.md)和JSON索引。未进行完整验机、正式发布部署或恢复CI；UA/cookies/凭证路径和其他全链缺口保持待审查。
