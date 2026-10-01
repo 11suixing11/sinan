@@ -14,7 +14,7 @@ export type Metrics = {
   network_interfaces?: Record<string, { received_bytes?: number; transmitted_bytes?: number; receive_bytes_per_sec?: number; transmit_bytes_per_sec?: number }>;
 }
 export type Server = { id: number; name: string; device_public_key: string | null; static_info: StaticInfo; last_seen: number | null; last_heartbeat_at: number | null; metrics_sampled_at: number | null; metrics_stale: boolean; latest_metrics: Metrics; manifest_rev: number; online: boolean; capabilities?: string[] }
-export type Node = { id: number; name: string; server_id: number; protocol: string; port: number; public_host: string; sni: string; public_key: string; short_id: string }
+export type Node = { id: number; name: string; server_id: number; protocol: string; port: number; public_host: string; sni: string; public_key: string; short_id: string; protocol_config?: { type: string; method?: string; tls?: { mode: 'acme' | 'manual'; configured?: boolean; email?: string; challenge?: 'http-01' | 'tls-alpn-01' } } }
 export type ProxyUser = { id: number; name: string; subscription_token: string; subscription_url: string }
 export type Access = { user_id: number; node_id: number; uuid: string; stat_name: string }
 export type Enrollment = { token: string; expires_at: number; install_command: string | null; warning?: string; installation?: { version: string; tag: string } }

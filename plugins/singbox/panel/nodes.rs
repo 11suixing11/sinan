@@ -1,3 +1,4 @@
+use super::node_protocol::ProtocolInput;
 use crate::{
     AppState,
     auth::require_admin,
@@ -18,7 +19,10 @@ pub struct CreateNode {
     pub name: String,
     pub server_id: i64,
     pub public_host: String,
+    #[serde(default)]
     pub sni: String,
+    #[serde(default)]
+    pub protocol_config: ProtocolInput,
     pub port: Option<i64>,
 }
 
@@ -28,6 +32,7 @@ pub struct UpdateNode {
     pub name: Option<String>,
     pub public_host: Option<String>,
     pub sni: Option<String>,
+    pub protocol_config: Option<ProtocolInput>,
     pub port: Option<i64>,
 }
 
@@ -73,18 +78,28 @@ pub async fn create(
 ) -> ApiResult<(StatusCode, Json<NodeView>)> {
     require_admin(&state, &headers).await?;
     let requested_port = request.port.map(validate_port).transpose()?;
-    let (private_key, public_key) = business::generate_reality_keypair();
+    let protocol = request.protocol_config.build(None)?;
+    let (private_key, public_key) = if protocol.is_reality() {
+        business::generate_reality_keypair()
+    } else {
+        (String::new(), String::new())
+    };
     let mut node = NodeRow {
-        id: 1,
+        id: i64::MAX,
         name: business::name(&request.name)?,
         server_id: request.server_id,
-        protocol: "vless-reality".into(),
+        protocol: protocol.kind().into(),
+        protocol_config: serde_json::to_value(&protocol).map_err(anyhow::Error::from)?,
         port: requested_port.unwrap_or(20000),
         public_host: request.public_host,
         sni: request.sni,
         private_key,
         public_key,
-        short_id: business::short_id(),
+        short_id: if protocol.is_reality() {
+            business::short_id()
+        } else {
+            String::new()
+        },
     };
     business::validate_node(&node)?;
     let mut transaction = state.pool.begin().await?;
@@ -95,8 +110,9 @@ pub async fn create(
     } else {
         node.port = sqlx::query_scalar::<_, i32>("SELECT candidate.port FROM generate_series(20000,29999) AS candidate(port) WHERE NOT EXISTS(SELECT 1 FROM nodes WHERE server_id=$1 AND deleted_at IS NULL AND nodes.port=candidate.port) ORDER BY candidate.port LIMIT 1").bind(node.server_id).fetch_optional(&mut *transaction).await?.ok_or_else(|| ApiError::Conflict("服务器没有可分配端口".into()))?;
     }
+    validate_server_config(&mut transaction, &node).await?;
     let query = format!(
-        "INSERT INTO nodes AS n (name,server_id,protocol,port,public_host,sni,private_key,public_key,short_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING {NODE_COLUMNS}"
+        "INSERT INTO nodes AS n (name,server_id,protocol,port,public_host,sni,private_key,public_key,short_id,protocol_config) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING {NODE_COLUMNS}"
     );
     let node = sqlx::query_as::<_, NodeRow>(&query)
         .bind(node.name)
@@ -108,6 +124,7 @@ pub async fn create(
         .bind(node.private_key)
         .bind(node.public_key)
         .bind(node.short_id)
+        .bind(node.protocol_config)
         .fetch_one(&mut *transaction)
         .await
         .map_err(port_database_error)?;
@@ -127,6 +144,7 @@ pub async fn update(
         && request.public_host.is_none()
         && request.sni.is_none()
         && request.port.is_none()
+        && request.protocol_config.is_none()
     {
         return Err(ApiError::BadRequest("至少提供一个修改字段".into()));
     }
@@ -150,6 +168,7 @@ pub async fn update(
         node.public_host.clone(),
         node.sni.clone(),
         node.port,
+        node.protocol_config.clone(),
     );
     if let Some(port) = request.port {
         node.port = validate_port(port)?;
@@ -164,22 +183,42 @@ pub async fn update(
     if let Some(sni) = request.sni {
         node.sni = sni;
     }
+    if let Some(input) = request.protocol_config {
+        let previous =
+            serde_json::from_value(node.protocol_config.clone()).map_err(anyhow::Error::from)?;
+        let next = input.build(Some(&previous))?;
+        if matches!(previous.tls(), Some(sinan_compiler::TlsConfig::Acme { .. }))
+            && let Some(sinan_compiler::TlsConfig::Acme { .. }) = next.tls()
+        {
+            // Challenge listeners belong to the service; update shared settings atomically.
+            sqlx::query("UPDATE nodes SET protocol_config=jsonb_set(protocol_config,'{tls}',$2) WHERE server_id=$1 AND deleted_at IS NULL AND protocol_config->'tls'->>'mode'='acme'")
+                .bind(server_id)
+                .bind(serde_json::to_value(next.tls()).map_err(anyhow::Error::from)?)
+                .execute(&mut *transaction).await?;
+        }
+        node.protocol_config = serde_json::to_value(next).map_err(anyhow::Error::from)?;
+    }
     business::validate_node(&node)?;
-    sqlx::query("UPDATE nodes SET name=$2,public_host=$3,sni=$4,port=$5 WHERE id=$1")
-        .bind(id)
-        .bind(&node.name)
-        .bind(&node.public_host)
-        .bind(&node.sni)
-        .bind(node.port)
-        .execute(&mut *transaction)
-        .await
-        .map_err(port_database_error)?;
+    validate_server_config(&mut transaction, &node).await?;
+    sqlx::query(
+        "UPDATE nodes SET name=$2,public_host=$3,sni=$4,port=$5,protocol_config=$6 WHERE id=$1",
+    )
+    .bind(id)
+    .bind(&node.name)
+    .bind(&node.public_host)
+    .bind(&node.sni)
+    .bind(node.port)
+    .bind(&node.protocol_config)
+    .execute(&mut *transaction)
+    .await
+    .map_err(port_database_error)?;
     if previous
         != (
             node.name.clone(),
             node.public_host.clone(),
             node.sni.clone(),
             node.port,
+            node.protocol_config.clone(),
         )
     {
         business::mark_dirty(&mut transaction, &[server_id]).await?;
@@ -259,4 +298,26 @@ fn port_database_error(error: sqlx::Error) -> ApiError {
     } else {
         error.into()
     }
+}
+
+async fn validate_server_config(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    node: &NodeRow,
+) -> ApiResult<()> {
+    let query = format!(
+        "SELECT {NODE_COLUMNS} FROM nodes n WHERE n.server_id=$1 AND n.deleted_at IS NULL AND n.id<>$2 ORDER BY n.id"
+    );
+    let rows = sqlx::query_as::<_, NodeRow>(&query)
+        .bind(node.server_id)
+        .bind(node.id)
+        .fetch_all(&mut **transaction)
+        .await?;
+    let mut nodes = rows
+        .iter()
+        .map(|row| row.model(vec![]))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    nodes.push(node.model(vec![])?);
+    sinan_compiler::compile_server(&nodes)
+        .map_err(|error| ApiError::BadRequest(format!("服务器节点配置冲突：{error}")))?;
+    Ok(())
 }

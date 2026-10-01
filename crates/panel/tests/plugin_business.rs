@@ -215,9 +215,11 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
         private_key: private_key.clone(),
         public_key: public_key.clone(),
         short_id: "0123abcd".into(),
+        protocol_config: Default::default(),
         users: vec![Access {
             user_id,
             uuid: credential,
+            credential: String::new(),
         }],
     };
     let expected_links = sinan_compiler::subscription_links(std::slice::from_ref(&node), user_id)?;
@@ -251,7 +253,14 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
         .bind(server).execute(&pool).await?;
     sqlx::query("INSERT INTO enrollment_tokens(token_hash,server_id,expires_at,consumed_at) VALUES('TEST_ONLY-imported-enrollment',$1,4099680000,1234)")
         .bind(server).execute(&pool).await?;
-    let legacy = migration_recovery::legacy_snapshot(&pool).await?;
+    let mut legacy = migration_recovery::legacy_snapshot(&pool).await?;
+    // New columns have explicit legacy defaults; every preexisting value stays identical.
+    for node in legacy.get_mut("nodes").unwrap().as_array_mut().unwrap() {
+        node["protocol_config"] = json!({"type":"vless-reality"});
+    }
+    for access in legacy.get_mut("accesses").unwrap().as_array_mut().unwrap() {
+        access["credential"] = json!("");
+    }
     // Starting the new panel applies the real migration to already imported records.
     let panel = TestPanel::start(pool.clone()).await?;
     assert_eq!(migration_recovery::legacy_snapshot(&pool).await?, legacy);

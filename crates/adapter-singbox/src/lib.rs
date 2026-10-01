@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod health;
 mod native;
 mod sentinel;
 mod stats;
@@ -11,7 +12,7 @@ use sinan_adapter_sdk::{
     UsageSource,
 };
 use std::time::Duration;
-use tokio::{net::TcpStream, time::timeout};
+use tokio::time::timeout;
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(if cfg!(windows) { 30 } else { 10 });
 const SERVICE_TIMEOUT: Duration = Duration::from_secs(if cfg!(windows) { 45 } else { 15 });
@@ -35,10 +36,7 @@ impl SingboxAdapter {
         }
         let addresses = native::listen_addresses(&target.spec)?;
         for address in addresses {
-            if !matches!(
-                timeout(Duration::from_millis(500), TcpStream::connect(address)).await,
-                Ok(Ok(_))
-            ) {
+            if !health::probe(&address).await {
                 return Ok(false);
             }
         }
@@ -47,6 +45,10 @@ impl SingboxAdapter {
 }
 
 impl Adapter for SingboxAdapter {
+    fn health_timeout(&self, target: &Prepared) -> Duration {
+        health::budget(target) + Duration::from_secs(5)
+    }
+
     fn describe(&self) -> Descriptor {
         Descriptor {
             module: "singbox".into(),
@@ -123,7 +125,9 @@ impl Adapter for SingboxAdapter {
                 spec: runtime,
                 listen_ports: addresses
                     .into_iter()
-                    .map(|address| address.port())
+                    .map(|listener| listener.address.port())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
                     .collect(),
             })
         })
@@ -181,12 +185,12 @@ impl Adapter for SingboxAdapter {
     ) -> BoxFuture<'a, bool> {
         Box::pin(async move {
             native::listen_addresses(&target.spec)?;
-            Ok(timeout(HEALTH_TIMEOUT, async {
+            Ok(timeout(health::budget(target), async {
                 loop {
                     if self.healthy_once(target, services).await.unwrap_or(false) {
                         return true;
                     }
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    tokio::time::sleep(Duration::from_millis(500)).await;
                 }
             })
             .await

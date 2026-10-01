@@ -2446,12 +2446,15 @@ dependencies = [
  "anyhow",
  "prost",
  "protoc-bin-vendored",
+ "quinn",
  "serde_json",
  "sinan-adapter-sdk",
  "tokio",
+ "tokio-rustls",
  "tonic",
  "tonic-build",
  "uuid",
+ "webpki-roots 1.0.9",
 ]
 
 [[package]]
@@ -2548,6 +2551,7 @@ dependencies = [
  "sha2 0.10.9",
  "sinan-adapter-nodequality",
  "sinan-adapter-sdk",
+ "sinan-adapter-singbox",
  "sinan-agent-core",
  "sinan-compiler",
  "sinan-protocol",

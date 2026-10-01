@@ -5,6 +5,19 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Transport {
+    Tcp,
+    Udp,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct Listener {
+    pub address: SocketAddr,
+    pub transport: Transport,
+    pub tls: Option<serde_json::Value>,
+}
+
 pub(crate) fn stats_address(address: &str) -> Result<SocketAddr> {
     let address: SocketAddr = address
         .parse()
@@ -15,7 +28,7 @@ pub(crate) fn stats_address(address: &str) -> Result<SocketAddr> {
     Ok(address)
 }
 
-pub(crate) fn listen_addresses(spec: &RuntimeSpec) -> Result<Vec<SocketAddr>> {
+pub(crate) fn listen_addresses(spec: &RuntimeSpec) -> Result<Vec<Listener>> {
     let stats = stats_address(&spec.stats_listen)?;
     if spec.files.len() != 1 {
         bail!("runtime bundle must contain only config.json");
@@ -37,9 +50,25 @@ pub(crate) fn listen_addresses(spec: &RuntimeSpec) -> Result<Vec<SocketAddr>> {
         .as_array()
         .context("inbounds must be an array")?
     {
-        if inbound["type"].as_str() != Some("vless") {
-            bail!("unsupported native inbound type");
-        }
+        let kind = inbound["type"].as_str().context("missing inbound type")?;
+        let transports: &[Transport] = match kind {
+            "vless" | "anytls" => &[Transport::Tcp],
+            "snell" if inbound["version"].as_u64() == Some(6) => &[Transport::Tcp],
+            "naive" if inbound["network"].as_str() == Some("tcp") => &[Transport::Tcp],
+            "hysteria2" | "tuic" => &[Transport::Udp],
+            "shadowsocks" => &[Transport::Tcp, Transport::Udp],
+            _ => bail!("unsupported native inbound type or transport"),
+        };
+        let tls = if matches!(kind, "hysteria2" | "tuic" | "anytls" | "naive") {
+            let tls = inbound.get("tls").context("missing TLS configuration")?;
+            anyhow::ensure!(
+                tls["enabled"] == true && tls["server_name"].as_str().is_some(),
+                "invalid TLS configuration"
+            );
+            Some(tls.clone())
+        } else {
+            None
+        };
         let port: u16 = inbound["listen_port"]
             .as_u64()
             .context("inbound has no listen port")?
@@ -56,9 +85,15 @@ pub(crate) fn listen_addresses(spec: &RuntimeSpec) -> Result<Vec<SocketAddr>> {
             IpAddr::V6(ip) if ip.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
             address => address,
         };
-        addresses.push(SocketAddr::new(probe, port));
+        for transport in transports {
+            addresses.push(Listener {
+                address: SocketAddr::new(probe, port),
+                transport: *transport,
+                tls: tls.clone(),
+            });
+        }
     }
-    addresses.sort();
+    addresses.sort_by_key(|listener| listener.address);
     Ok(addresses)
 }
 
@@ -84,7 +119,15 @@ mod tests {
             }).to_string())].into(),
         };
         let addresses = listen_addresses(&spec).unwrap();
-        assert!(addresses.contains(&"[::1]:20001".parse().unwrap()));
-        assert!(addresses.contains(&"127.0.0.1:20002".parse().unwrap()));
+        assert!(
+            addresses
+                .iter()
+                .any(|listener| listener.address == "[::1]:20001".parse().unwrap())
+        );
+        assert!(
+            addresses
+                .iter()
+                .any(|listener| listener.address == "127.0.0.1:20002".parse().unwrap())
+        );
     }
 }
