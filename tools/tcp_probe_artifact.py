@@ -160,7 +160,8 @@ def bundled_musl(source, rustc_info):
     ensure(digest(copyright_text) == identity["copyright_sha256"]
            and digest(recipe) == identity["rust_recipe_sha256"], "bundled musl source originals differ")
     ensure(isinstance(rustc_info, str)
-           and re.search(r"^commit-hash: " + identity["rustc_commit"] + r"$", rustc_info, re.MULTILINE),
+           and [line for line in rustc_info.splitlines() if line.startswith("commit-hash:")]
+           == ["commit-hash: " + identity["rustc_commit"]],
            "bundled musl inventory does not cover this rustc commit")
     return dict(name="Rust bundled musl libc", version=identity["version"], notices=[
         dict(path="musl-1.2.5/COPYRIGHT", text=copyright_text.decode()),

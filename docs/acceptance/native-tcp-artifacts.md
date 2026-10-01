@@ -88,3 +88,13 @@ python3 tools/release.py assemble --source <制品根目录> --output <新输出
 修复后原生binary SHA256 e493d09511929f4479a3a18496f4a034e01faac5628f3db204b2d1c6f89cd85f，build-info的source commit与公开对象精确一致。日志/制品/原文/SOURCE/SHA256SUMS保存在evidence/tcp-musl-notices-b562eff，binary单独保存binaries/tcp-musl-notices-head。此项仅变Python配方/库存与测试，没有Rust实现变化，未重复无交集完整workspace；新PR的两架构、Bookworm和标准CI继续按最终HEAD单独核对。无正式签名/发布/外部探测。源5e已完成的证据保留，但分发候选改为b562。
 
 制品workflow_dispatch支持source_commit指定已存在的完整固定对象，保持Git archive/缺对象拒绝与归档配方契约，可在新主线验证历史固定工具源的amd64/arm64及Bookworm，而不把当前head误作永久工具pin。只产生TEST_ONLY验收产物，不发布Release。新PR发布后将以b562固定源触发双架构原生验收，最终结果单独记录。
+
+## bundled musl 独立复核与历史制品兼容
+
+本轮直接读取官方 musl1.2.5 发布归档，确认归档 SHA256 `a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4`；其中 193 行 COPYRIGHT 与仓库保存文本逐字一致，SHA256 `f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af`。官方 Rust commit `48a229ceaefd4985c50990b14116b6d856af0985` 的 `src/version` 为 1.98.1；97 行 musl 配方逐字匹配，SHA256 `2f218a2dc7b7e73509212bfd4319ebddc2ddac7c651fca142c2b29bd7ea0aa38`。除库存简述中的两项 2025 iconv 补丁，完整配方还应用 CVE-2026-6042 与 CVE-2026-40200；官方两份补丁未改版权原文。来源链接见 [ADR 0032](../adr/0032-native-tcp-artifacts.md)。不将系统 musl1.2.3 工具通知称作实际 self-contained libc。
+
+[原生 CI 36794789931](https://github.com/theLucius7/sinan/actions/runs/36794789931) 的工作流提交为 `08c9de2`，显式源码 pin 为 `b562effcd90f8ae319665fb4ead1807b770ed4d5`。Ubuntu amd64、arm64 与 Debian12 三个 job 全部成功，各自完成真实本机启动、静态 ELF、来源/签名 15 项和原生 bundle 1 项。该结果证明固定 b562 配方及官方编译器产物，不将旧配方记作包含本轮新的重复字段检查。
+
+独立复核捕获旧验证器接受同时包含已知/未知或重复已知 `commit-hash` 的重签包：先更新 notices、build-info、外部全部摘要并以公开 TEST_ONLY key 真实重签，三个歧义输入仍被接受。当前验证器改为只接受一个精确字段；来源/签名 17 项全部通过，覆盖重新签名后仍拒绝及 Cargo 调用前拒绝。另下载上述 CI 的两个真实原包，只读验证其静态 ELF、五个辅助文件和内嵌固定源；构建配方、旧验证器、收集器及三份库存与 Git b562 原字节一致。两个原包均通过当前严格验证器，并可重新组装公开 TEST_ONLY 签名 bundle 后通过现有 release 验证；未执行下载二进制、未在本机重建 Linux 或签正式 release。b562 原库存、版权文本、版本与制品路径均保持不变。
+
+本轮旧 release 32 项中 28 通过、4 既有 root 条件跳过，模拟发布 22 项及 core 分层 6 项通过；合计 73 通过、0 失败、4 跳过。Python 语法、core 门禁、actionlint、文档链接及差异检查通过。Rust 源码无变化，未运行 Cargo/native 构建，也不把已完成固定源 CI 当作新验证器提交的 CI；最终整合提交仍需单独核对。
