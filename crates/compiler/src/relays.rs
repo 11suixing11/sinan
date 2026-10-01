@@ -1,4 +1,4 @@
-use super::{CompileError, Node, compile_server, pretty, unbracket_host};
+use super::{CompileError, Node, compile_server, pretty, protocols, unbracket_host};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -54,7 +54,7 @@ pub fn compile_server_with_relays(
         {
             return Err(CompileError::InvalidNode {
                 node_id: relay.entry_node_id,
-                reason: "invalid, duplicate, or non-two-host relay".into(),
+                reason: "invalid, duplicate, or non-two-host VLESS Reality relay".into(),
             });
         }
         let tag = format!("chain-{}", relay.chain_id);
@@ -79,7 +79,7 @@ pub fn compile_server_with_relays(
                     .expect("compiled identities")
                     .push(relay_identity);
             } else {
-                let mut inbound = super::protocols::server(exit, &[]);
+                let mut inbound = protocols::server(exit, &[]);
                 inbound["users"] = json!([relay_identity]);
                 inbounds.push(inbound);
             }

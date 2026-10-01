@@ -254,11 +254,15 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
     sqlx::query("INSERT INTO enrollment_tokens(token_hash,server_id,expires_at,consumed_at) VALUES('TEST_ONLY-imported-enrollment',$1,4099680000,1234)")
         .bind(server).execute(&pool).await?;
     let mut legacy = migration_recovery::legacy_snapshot(&pool).await?;
-    // New columns have explicit legacy defaults; every preexisting value stays identical.
+    // Migrations 0014 and 0016 add explicit legacy defaults; every old field stays identical.
     for node in legacy.get_mut("nodes").unwrap().as_array_mut().unwrap() {
         node["protocol_config"] = json!({"type":"vless-reality"});
     }
-    for access in legacy.get_mut("accesses").unwrap().as_array_mut().unwrap() {
+    for access in legacy
+        .get_mut("accesses")
+        .and_then(Value::as_array_mut)
+        .context("legacy accesses")?
+    {
         access["credential"] = json!("");
         access["direct_grant"] = json!(true);
     }

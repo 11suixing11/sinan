@@ -248,3 +248,108 @@ async fn group_migration_retains_legacy_identifiers_credentials_and_usage(
     assert_eq!(total, "50");
     Ok(())
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn modern_group_credentials_survive_direct_overlap_and_obey_quota(
+    pool: PgPool,
+) -> Result<()> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+    let panel = TestPanel::start(pool.clone()).await?;
+    let cookie = panel.admin_cookie().await?;
+    let server = panel.create_server(&cookie, "Modern policy").await?;
+    panel.enable_plugin(&cookie, server).await?;
+    let node = id(&call(
+        &panel,
+        &cookie,
+        Method::POST,
+        "/nodes",
+        Some(json!({
+            "name":"Shadowsocks policy", "server_id":server,
+            "public_host":"proxy.example.com", "sni":"",
+            "protocol_config":{"type":"shadowsocks2022", "method":"2022-blake3-aes-256-gcm"}
+        })),
+    )
+    .await?)?;
+    let first = panel.create_user(&cookie, "First member").await?;
+    let second = panel.create_user(&cookie, "Second member").await?;
+    let uid = id(&first)?;
+    let other = id(&second)?;
+    let group = create_policy(&panel, &cookie, &[node], &[]).await?;
+    set_policies(&panel, &cookie, uid, &[group]).await?;
+    set_policies(&panel, &cookie, other, &[group]).await?;
+    let before: (Uuid, String) =
+        sqlx::query_as("SELECT uuid,credential FROM accesses WHERE user_id=$1 AND node_id=$2")
+            .bind(uid)
+            .bind(node)
+            .fetch_one(&pool)
+            .await?;
+    let other_secret: String =
+        sqlx::query_scalar("SELECT credential FROM accesses WHERE user_id=$1 AND node_id=$2")
+            .bind(other)
+            .bind(node)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(STANDARD.decode(&before.1)?.len(), 32);
+    assert_eq!(STANDARD.decode(&other_secret)?.len(), 32);
+    assert_ne!(before.1, other_secret);
+    panel.grant(&cookie, uid, node).await?;
+    call(
+        &panel,
+        &cookie,
+        Method::DELETE,
+        &format!("/users/{uid}/accesses/{node}"),
+        None,
+    )
+    .await?;
+    let retained: (Uuid, String) =
+        sqlx::query_as("SELECT uuid,credential FROM accesses WHERE user_id=$1 AND node_id=$2")
+            .bind(uid)
+            .bind(node)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(retained, before);
+    let plan = create_plan(&panel, &cookie, Some("100")).await?;
+    assign(&panel, &cookie, uid, plan, Uuid::new_v4()).await?;
+    entitlements::refresh(&pool, now_timestamp()).await?;
+    panel.publish_now().await?;
+    applied(&pool).await?;
+    let sub = format!(
+        "{}?format=singbox",
+        first["subscription_url"].as_str().unwrap()
+    );
+    let client = panel
+        .client
+        .get(&sub)
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    assert!(client.contains(&before.1));
+    assert!(!client.contains(&other_secret));
+    sinan_panel::usage::ingest(
+        &panel.state,
+        server,
+        usage(uid, node, now_timestamp(), 40, 60),
+    )
+    .await?;
+    assert!(eligible(&pool, uid, now_timestamp()).await?.is_empty());
+    assert_eq!(
+        panel.client.get(&sub).send().await?.status(),
+        StatusCode::CONFLICT
+    );
+    entitlements::refresh(&pool, now_timestamp()).await?;
+    panel.publish_now().await?;
+    let native = latest_config(&pool, server).await?;
+    assert!(!native.to_string().contains(&before.1));
+    assert!(native.to_string().contains(&other_secret));
+    let after: (Uuid, String) =
+        sqlx::query_as("SELECT uuid,credential FROM accesses WHERE user_id=$1 AND node_id=$2")
+            .bind(uid)
+            .bind(node)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(after, before);
+    Ok(())
+}

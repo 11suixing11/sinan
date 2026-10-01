@@ -41,6 +41,7 @@ try {
       } else if (path === '/api/plugins/sing-box/nodes') {
         assert.equal(metadata.enabled, true); value = [node]
       } else if (path === '/api/plugins/sing-box/users') value = []
+      else if (path === '/api/plugins/sing-box/chains') value = []
       else if (path === '/api/plugins/sing-box/usage') value = { uplink: '0', downlink: '0', total: '0', by_user: [], by_node: [] }
       else if (path === '/api/servers/1/agent-settings') value = { sample_interval_secs: 1, upload_interval_secs: 3, discover_public_ips: false, auto_update: false }
       else if (path === '/api/servers/1/node-quality') value = { ip_addresses: [], quality: [], plugin_ready: false, plugin_reason: '夹具未启用诊断', reports: [] }

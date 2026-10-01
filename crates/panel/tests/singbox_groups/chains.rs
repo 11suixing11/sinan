@@ -271,3 +271,49 @@ async fn retiring_chain_exit_schedules_entry_revocation_even_without_user_reques
     );
     Ok(())
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn chains_reject_modern_protocol_at_either_endpoint(pool: PgPool) -> Result<()> {
+    let panel = TestPanel::start(pool.clone()).await?;
+    let cookie = panel.admin_cookie().await?;
+    let a = panel.create_server(&cookie, "A").await?;
+    let b = panel.create_server(&cookie, "B").await?;
+    let entry = id(&panel.create_node(&cookie, a, "Reality entry").await?)?;
+    let exit = id(&panel.create_node(&cookie, b, "Reality exit").await?)?;
+    let mut modern = Vec::new();
+    for server in [a, b] {
+        modern.push(id(&call(
+            &panel,
+            &cookie,
+            Method::POST,
+            "/nodes",
+            Some(json!({
+                "name":"Modern", "server_id":server, "public_host":"proxy.example.com", "sni":"",
+                "protocol_config":{"type":"shadowsocks2022", "method":"2022-blake3-aes-256-gcm"}
+            })),
+        )
+        .await?)?);
+    }
+    for (entry_node, exit_node) in [(modern[0], exit), (entry, modern[1])] {
+        let response = panel.admin(
+            Method::POST,
+            &format!("{ROOT}/chains"),
+            &cookie,
+            Some(json!({"name":"Invalid protocol", "entry_node_id":entry_node, "exit_node_id":exit_node})),
+        ).await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM singbox_chains")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(count, 0);
+    call(
+        &panel,
+        &cookie,
+        Method::POST,
+        "/chains",
+        Some(json!({"name":"Reality", "entry_node_id":entry, "exit_node_id":exit})),
+    )
+    .await?;
+    Ok(())
+}
