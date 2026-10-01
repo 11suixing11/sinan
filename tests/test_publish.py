@@ -24,6 +24,8 @@ class FakeGithub:
         self.patches = []
         self.downloads = 0
         self.draft = True
+        self.tag_name = TAG
+        self.reassign_tag_if_omitted = False
         self.reference = {"type": "commit", "sha": COMMIT}
         self.changed_tag = False
         self.changed_assets = False
@@ -40,7 +42,7 @@ class FakeGithub:
                        for index, path in enumerate(sorted(bundle.iterdir()), start=1)]
 
     def release_record(self):
-        value = {"id": 7, "tag_name": TAG, "draft": self.draft,
+        value = {"id": 7, "tag_name": self.tag_name, "draft": self.draft,
                  "target_commitish": self.build_commit}
         if self.downloads:
             value.update(self.changed_release_identity)
@@ -50,8 +52,12 @@ class FakeGithub:
         self.api_calls.append((endpoint, method))
         if method == "PATCH":
             self.patches.append((endpoint, fields))
+            values = dict(field.split("=", 1) for field in fields)
+            fallback_tag = "untagged-fixture" if self.reassign_tag_if_omitted else self.tag_name
+            self.tag_name = values.get("tag_name", fallback_tag)
+            self.build_commit = values.get("target_commitish", self.build_commit)
             self.draft = False
-            return {"id": 7, "draft": False}
+            return self.release_record()
         if "/git/ref/tags/" in endpoint:
             reference = self.reference
             if self.changed_tag and self.downloads:
@@ -225,7 +231,42 @@ class PublicationTests(unittest.TestCase):
         evidence = self.verify(True)
         self.assertTrue(evidence["published"])
         self.assertEqual(len(self.github.patches), 1)
-        self.assertEqual(self.github.patches[0][1], ("draft=false",))
+        self.assertEqual(self.github.patches[0][1],
+                         ("draft=false", f"tag_name={TAG}", f"target_commitish={COMMIT}"))
+
+    def test_publish_preserves_identity_when_omitted_tag_is_reassigned(self):
+        # Model the observed omitted-tag failure without assuming an API-version cause.
+        self.github.reassign_tag_if_omitted = True
+        evidence = self.verify(True)
+        self.assertTrue(evidence["published"])
+        self.assertEqual(self.github.release_record()["tag_name"], TAG)
+        self.assertEqual(self.github.release_record()["target_commitish"], COMMIT)
+
+    def test_concurrent_changes_after_patch_still_refuse_success(self):
+        for change in ("release_id", "release_tag", "build_commit", "git_tag", "asset_id"):
+            with self.subTest(change=change):
+                self.github = FakeGithub(self.fixture.bundle)
+                api = self.github.api
+
+                def change_after_patch(endpoint, method="GET", fields=()):
+                    response = api(endpoint, method, fields)
+                    if method == "PATCH":
+                        if change == "release_id":
+                            self.github.changed_release_identity = {"id": 8}
+                        elif change == "release_tag":
+                            self.github.changed_release_identity = {"tag_name": TAG + "-rc.1"}
+                        elif change == "build_commit":
+                            self.github.changed_release_identity = {"target_commitish": "b" * 40}
+                        elif change == "git_tag":
+                            self.github.reference = {"type": "commit", "sha": "b" * 40}
+                        else:
+                            self.github.assets[0]["id"] += 100
+                    return response
+
+                with patch.object(self.github, "api", side_effect=change_after_patch):
+                    with self.assertRaises(ValueError):
+                        self.verify(True)
+                self.assertEqual(len(self.github.patches), 1)
 
     def test_changed_asset_id_refuses_publication(self):
         self.github.changed_assets = True
