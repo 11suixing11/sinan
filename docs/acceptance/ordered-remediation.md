@@ -12,7 +12,7 @@
 | --- | --- | --- | --- |
 | P0 保护服务器 | [资源预算](diagnostic-resource-budget.md)、[常驻优先级](resident-service-priority.md)、[预检](diagnostic-preflight.md)、[取消](diagnostic-cancellation.md)、[遥测](telemetry-isolation.md)、[补传读取](../acceptance-bounded-usage.md)、[章节完整度](diagnostic-report-sections.md)、[日常/完整入口](diagnostic-modes.md) | 拒绝超限任务并说明原因；运行中保护触发能停止任务；诊断失败不使 Agent 或既有代理失去服务；取消确认后进程、cgroup 和挂载都已清理；真实负载中实际心跳持续；状态与章节完整度分开；完整入口需管理员确认、活跃流量警告和资源/负载记录 | 自动化与小型真实 systemd 夹具有证据；专用节点完整负载与持续代理业务总验未通过，阶段保持待验 |
 | P0 IP 查询 | [逐源错误](ip-provider-errors.md)、[缓存](ip-provider-cache.md)、[来源适配](ip-provider-adapters.md)、[未知值](ip-quality-unknown.md)、[独立页面](server-ip-view.md)、[面板环境基线](diagnostic-baseline.md) | 在面板网络环境解释失败；DNS/连接/TLS/超时/403/429/非 JSON/字段不匹配分别显示；失败后旧成功结果仍可读且标为历史；未知不显示零分、干净或成功 | 回环 HTTP、真实 PostgreSQL 和桌面/手机模拟 API 已验；面板实测外部源只确认 403。正式账户权限/额度、公网 DNS/TLS 和 IPQuality 节点自查/流媒体尚未验，按启用的实际来源独立验收 |
-| P1 sing-box 业务归位 | [边界](proxy-business-boundary.md)、[业务迁移](singbox-plugin-business.md)、[ADR 0023](../adr/0023-proxy-business-boundary.md) | core 管服务器；插件管代理用户、授权、订阅、用户流量和周期；无当前能力、管理员启用或旧节点/部署证据的纯监控服务器不请求或显示代理业务；旧节点/部署兼容迁移为插件启用；迁移前导入的身份、令牌、旧订阅 URL、凭据、授权与流量在迁移后仍有效 | 已验旧 schema 导入后执行 0012 迁移、十表快照和旧 `/sub` 两格式；真实旧客户端迁移后继续连接、授权和计量尚未实机验。新环境 Reality 结果不能补签该项 |
+| P1 sing-box 业务归位 | [边界](proxy-business-boundary.md)、[业务迁移](singbox-plugin-business.md)、[ADR 0023](../adr/0023-proxy-business-boundary.md) | core 管服务器；插件管代理用户、授权、订阅、用户流量和周期；无当前能力、管理员启用或旧节点/部署证据的纯监控服务器不请求或显示代理业务；旧节点/部署兼容迁移为插件启用；迁移前导入的身份、令牌、旧订阅 URL、凭据、授权与流量在迁移后仍有效 | 已验旧 schema 导入后执行 0012 迁移、十表快照和旧 `/sub` 两格式；[旧订阅专用节点验收](imported-subscription-runtime.md)已验证迁移前导入格式、同一客户端/Reality进程继续连接与真实计数及去重；未测试Agent托管再发布或生产迁移，前置P0完整负载仍待验 |
 | P1 共用诊断框架 | [共用服务](shared-diagnostic-service.md)、[章节持久化](diagnostic-report-sections.md)、[两种入口](diagnostic-modes.md)、[执行链审计](nodequality-chain-audit.md)、[完整门禁](nodequality-full-start-gate.md) | NodeQuality 经共用生命周期运行；预算、互斥、状态、取消、章节、上传和历史保持；原完整能力经受控执行链实测，不用历史可读代替运行能力 | 参数与历史回归有证据；旧完整执行链有安全和授权缺口，新完整执行暂时拒绝。完整能力尚未恢复，本阶段不能签收 |
 | P2 TCP 接入 | [授权](tcpquality-license.md)、[原生探测](native-tcp-probe.md)、[签名制品](native-tcp-artifacts.md)、[适配器](tcpquality-adapter.md)、[#76](https://github.com/theLucius7/sinan/pull/76)、[#77](https://github.com/theLucius7/sinan/pull/77)、[#78](https://github.com/theLucius7/sinan/pull/78) | 前置阶段实机验收通过后签收接入能力；固定并验签完整制品；小预设白名单；不向第三方上传报告、不改宿主网络配置；与 NodeQuality 共用互斥/取消，参数和结果按插件区分 | 采用自有 Rust TCP 连接探测，未获许可的 `ibsgss/TcpQuality` 文件未引入；后端登记与报告页代码已独立审查合入准备。登记后的签名安装、实际启动、重连恢复及取消清理整链尚未实机验；已有测试不补签前置阶段 |
 
@@ -36,7 +36,7 @@
 
 固定源码 `b0869eff88254c7dc4b770be13c66cd569bee045` 的 [专用 Debian 12 验收](registered-nodequality-daily.md) 已通过七个日常场景：正常/重复提交、等待设备确认取消、Agent 重启、面板断连、cgroup 低可用内存拒绝、工作目录磁盘不足和运行中内存保护。使用真实注册 Agent、面板/PG、测试根验签 r8 与 systemd，持续 sing-box 回环流量 1917 次、0 失败。正常及资源保护场景心跳最大间隔 20 秒；主动停止面板的场景为 46 秒，按断连恢复记录。取消与保护停止保存部分章节，任务、进程、cgroup、挂载和测试服务收尾分别读回。
 
-这一证据补充上表相应故障行的**日常链路**；完整上游硬件负载、外部 IP 查询、旧客户端迁移与新 TCP 整链仍按原行保留待验。没有用日常成功替代完整执行、真实旧客户端业务或阶段总验，没有解除 full 门禁。版本/二进制/签名根/场景摘要及两次验收脚本失败见该独立记录，未运行暂停的 CI。
+这一证据补充上表相应故障行的**日常链路**；完整上游硬件负载、外部 IP 查询、旧客户端迁移与新 TCP 整链在该r8证据中未验证；后续旧客户端结果另见下方独立补充。没有用日常成功替代完整执行、真实旧客户端业务或阶段总验，没有解除 full 门禁。版本/二进制/签名根/场景摘要及两次验收脚本失败见该独立记录，未运行暂停的 CI。
 
 ## 独立自动验收证据
 
@@ -88,3 +88,7 @@
 ## 整体分支中的查询修复
 
 用户改为整体交付后，集成分支正常保留main与r11–r13草稿实现，并完成[原生curl身份r14](nodequality-native-curl.md)和[Netflix错误判定r15](nodequality-query-errors.md)。这些证据只覆盖各自固定输入和受控请求，不补签完整负载、外部来源、旧客户端迁移或TCP整链。原有草稿在最终整体交付时统一整理，不再创建逐项新PR。
+
+## 旧订阅实际连接补充
+
+[固定979b998的专用Debian结果](imported-subscription-runtime.md)验证旧schema导入、真实迁移、原订阅两格式、同一Reality客户端/服务端进程迁移前后传输，以及真实计数写入与重复补传去重。该场景已通过；没有运行生产迁移或真实Agent重新发布，不改变P0完整执行仍待验的顺序条件。
