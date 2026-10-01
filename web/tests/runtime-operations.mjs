@@ -45,6 +45,7 @@ try {
       else if (path.endsWith('/deployments')) value = {status,history:[]}
       else if (path.endsWith('/nodes') || path.endsWith('/chains')) value=[]
       else if (path.endsWith('/agent-settings')) value = {sample_interval_secs:10,upload_interval_secs:30,auto_update:false,discover_public_ips:false}
+      else if (path === '/api/servers/1/telemetry-settings' && method === 'GET') value = {persist_interval_secs:60}
       else if (['/probes','/probe-results','/commands','/metrics'].some(suffix=>path.endsWith(suffix))) value=[]
       else { errors.push(`Unexpected ${method}: ${path}`); return route.fulfill({status:404,json:{}}) }
       return route.fulfill({json:value})
