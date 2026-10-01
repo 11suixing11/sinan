@@ -44,7 +44,7 @@ python3 tools/test-nodequality-report-policy.py
 
 adapter全targets Clippy、workspace fmt、core分层、shell语法与diff检查通过。Rust五输入/Cargo/trust前后不变；专属PostgreSQL55439按PID和启动时刻归属停止，PID不存在、端口关闭。Rust收据 SHA：`c0ba55b1e305b2b26ed78fc77d34a610d0521af84496524f3991d7a09f459dea`。
 
-guest在独立单元运行并内部持久化限额读回：MemoryMax256MiB、Swap0、Tasks64、CPU/IOWeight10、OOMScoreAdjust500、PrivateNetwork/PrivateMounts/NoNewPrivileges=yes、KillMode=control-group。memory.peak为64,737,280字节，pids.peak为11，memory.events max/oom/oom_kill均0。实际journal起点后的内核无新OOM；自然完成后无进程/挂载/cgroup残留，SSH406重启0、同boot、swap0。29份输入前后不变，当前对应产品文件逐个匹配；没有执行实际swapon、上游bootstrap、Geekbench或外部网络探测。
+guest在独立单元运行并内部持久化限额读回：MemoryMax256MiB、Swap0、Tasks64、CPU/IOWeight10、OOMScoreAdjust500、PrivateNetwork/PrivateMounts/NoNewPrivileges=yes、KillMode=control-group。memory.peak为64,737,280字节，pids.peak为11，memory.events max/oom/oom_kill均0。实际journal起点后的内核无新OOM；自然完成后无进程/挂载/cgroup残留，SSH406重启0、同boot、swap0。29份输入前后不变，与该冻结快照对应的产品文件逐个匹配；没有执行实际swapon、上游bootstrap、Geekbench或外部网络探测。
 
 私有 `nodequality-r8-fd-20261001` 的 result/postcheck/receipt SHA 分别为 `f5d3c6cb978cb25c447fe0641185c4e78cca87be5d6581c54f6e1bf35510e544`、`76b95895319c6d610b83ed6eef838fbd906d2f57f5b29b1dcd9d56eb0b9f8565`、`841d30bb57d4f47deb06fb6c10e31cc9e33fbf5d5065e3991088ee80494413dc`。每条证据仅对应列明源码和有限场景，不把重复回归累计为新功能数。
 
@@ -52,7 +52,7 @@ guest在独立单元运行并内部持久化限额读回：MemoryMax256MiB、Swa
 
 ## 合并审查补修：与真实退出观察器相容
 
-上述作者验收对应 `ebf7302`。合并审查发现，初版在 tee 后读取 `PIPESTATUS[0]`，但真实 `exit-observer.sh` 的 DEBUG trap 会先改写该数组。独立夹具保留固定入口的 post_cleanup/sig_cleanup 原文和第 455 行，启用产品实际观察器，把硬件、挂载、chroot 和删除全部替换为惰性桩；负对照确实在硬件拒绝 70 后继续下一章节，并写出正常完成标记。
+上述作者验收对应 `ebf7302`。合并审查在本机 Bash 3.2 发现，初版在 tee 后读取 `PIPESTATUS[0]`，但真实 `exit-observer.sh` 的 DEBUG trap 会先改写该数组。独立夹具保留固定入口的 post_cleanup/sig_cleanup 原文和第 455 行，启用产品实际观察器，把硬件、挂载、chroot 和删除全部替换为惰性桩；本机 Bash 3 的负对照确实在硬件拒绝 70 后继续下一章节，并写出正常完成标记；后来独立 Bash 5.2.15 矩阵中原 70 守卫会停止，但原逻辑在两版 Bash 都忽略其它失败码 7。回归选择 7 作为稳定负对照，修复分支仍必须在 70 和 7 下都停止，不能把解释器差异误作修复失败。
 
 补修将硬件执行和 tee 放在启用 pipefail 的子 shell 中，通过 `|| exit $?` 拒绝硬件或来源失败，避免依赖会被 DEBUG trap 改写的数组。成功分支仍保留正常完成标记；失败分支不启动后续章节、不写完成标记，退出时仍做原清理。原 sig_cleanup 的 post_cleanup 最终会把拒绝码 70 改为 1；这个结果保持失败，不能当作正常成功。
 

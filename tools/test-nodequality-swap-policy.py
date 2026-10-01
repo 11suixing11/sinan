@@ -159,8 +159,11 @@ post_cleanup
 }
 main
 '''
-        for guard, status in ((guard, status) for guard in ('legacy-refusal', 'fixed')
-                              for status in (0, 70, 7)):
+        # The legacy status-70 guard behaves differently with Bash 3 and 5
+        # DEBUG traps; status 7 is the stable failure-propagation control.
+        cases = [('legacy-refusal', 0), ('legacy-refusal', 7),
+                 ('fixed', 0), ('fixed', 70), ('fixed', 7)]
+        for guard, status in cases:
             with self.subTest(guard=guard, status=status), tempfile.TemporaryDirectory() as name:
                 root = Path(name)
                 (root / '.runner').mkdir()
