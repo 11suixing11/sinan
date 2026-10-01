@@ -6,7 +6,27 @@
 - P0 专用节点总验仍未通过。已有基线确认内核 OOM，最近记录的只读 SSH 检查仍在 banner 阶段超时；已记录的 447 MiB 物理内存不足以满足 512 MiB 完整任务预算和 256 MiB 启动预留，恢复后须重新读取实际资源。上游完整执行链的上传、宿主 swap 改动与制品授权仍待整改，继续维持完整任务门禁。
 - TCP 后端 #77 与报告页 #78 按独立源码审查及相称验证整合；代码可合入准备，实机能力签收与正式发布/部署仍受前置阶段门禁约束。已有独立 CI、真实 systemd、Reality 和浏览器结果保留；这些证据不替代 NodeQuality 在专用节点持续代理流量下的心跳与取消清理总验，也不证明登记后的原生 TCP 签名安装、实际启动、重连恢复和取消清理整链已实机通过。
 - 故障矩阵区分回环服务/数据库、真实 CI systemd、包装器替身和专用节点负载。未执行项不计通过，不以跳过项或恢复前的服务状态证明当前节点健康。恢复后按状态表先完成 P0 再推进后续验收。
-- 本轮文档链接、core 分层与差异检查通过；另核对引用的 #54/#55/#74 原 CI 日志，其 Rust 与真实 systemd 合计分别为 314、330、371 项通过、0 失败、9 条件忽略，与表中分开记录的数量一致。本项未运行 Cargo、启停服务或执行实机诊断，不把历史 CI 转记为最终整合提交的检查。
+- 本轮 66 个文档链接、core 分层、`cargo fmt --check --all` 与差异检查通过；另核对引用的 #54/#55/#74 原 CI 日志，其 Rust 与真实 systemd 合计分别为 314、330、371 项通过、0 失败、9 条件忽略，与表中分开记录的数量一致。本项未编译或测试 Rust、启停服务或执行实机诊断，不把历史 CI 转记为最终整合提交的检查。
+- 本轮正常整合 #76 主线 `b152e2a`、#77 主线 `21d8e71` 与 #78 主线 `2bd017a`，保留三项的源码、签名来源验证、登记生命周期和最终 `index-hb4JwTbg.js` 报告页。相对 `2bd017a` 只更改 AGENTS、PROGRESS 与本项验收文档，运行代码、工具、测试和 dist 全部原字节保留；最终整合提交 CI 单独核对，源码合入不补签前置实机验收。
+
+## 2026-10-01：TCP 诊断面板登记（独立 PR）
+
+登记第二诊断插件并由 Linux Agent 加载无状态适配器，共用任务服务负责互斥、预算、上传、确认取消和历史。仅开放地区、IPv4/6、4/8 次连接和1/2并发，冻结已配置 TCP 目标及摘要，地区标签在插件独立表保存；空 PATCH 拒绝、显式 null 才清除。前端另一个独立 PR。
+
+3963c28 组合源码的 PostgreSQL/API 3项、面板参数/目标2项、适配器15项与原生17项全部通过，workspace全targets Clippy和Linux Agent构建通过，限额容器exit0/OOM=false。fe4ae60平铺后显式地区键/API3+unit2、Clippy和Agentbuild再次通过。已正常合入根sing-box插件主线8ef465f；工具版本pin改为版权补齐后公开且实际Bookworm/五aux签名验收通过的b562effcd90f8ae319665fb4ead1807b770ed4d5，1c640d3的新pin/API3+unit2/fmt/Clippy/Agentbuild再次通过，exit0/OOM=false；最终CI另核。没有以夹具替代真实测试机验收，aws-jp0仍待恢复，完整验机工具链仍被安全门禁暂停。见 docs/acceptance/tcpquality-panel-registration.md。
+
+
+## 2026-10-01：TCP 报告界面（独立 PR）
+
+服务器导航新增 TCP 连接诊断，四项小预设及配置目标地区，按本次冻结范围显示工具版本/时间/参数、连接成功统计和独立章节；未知不补零，取消确认前保留屏障，部分报告可看，不做跨参数排名。主线管理员与 sing-box 插件导航继续保留，NodeQuality 完整门禁不由本 PR 改动。
+
+012ca9f 的 Bun/TypeScript/Vite 与 Chromium1280/390px夹具验收通过，零页面错误、正确创建/地区请求和取消禁用均已核实；最终主线整合后重新构建与浏览器复验另补。验收范围与真实节点待办见 docs/acceptance/tcpquality-report-view.md。
+
+- 在面板 fe4ae60 与公开制品主线 9a41fe5 上重整源代码，NodeQuality门禁及管理员/插件导航保留；9dbff20 的 Bun frozen install、5项/711断言、TypeScript/Vite和最终dist Chromium1280/390px复验均通过，零页面错误、每宽度一条白名单创建/地区PATCH，未知/真实0/部分/旧报告过滤/取消屏障成立。实际dist index-D5k-FUiH.js，独立PR最终CI另跟。
+
+- fa8dca4保留完整主报告统计，部分章仅能补更完整/更多连接样本的结果；目标缺数据显式未知。持久化浏览器夹具在实际index-CkSqyBT0.js的1280/390px通过，完整报告不降级、目标403/离线禁止创建以及原部分/真实0/未知/互斥取消都成立，页面错误0。旧dist被完整结果反对照准确抓住，测试脚本ASI错误修复后实跑通过；没有把这些夹具称为真实节点验收。
+
+- 本轮在作者233840a上修复成功读取后诊断/目标轮询403仍复用旧能力与目标范围的问题：未知期间暂停创建并保留历史；旧dist被新增夹具抓住（exit1）。Bun5项/711断言、TypeScript/Vite52模块及最终实际index-hb4JwTbg.js的Chromium1280/390px全部通过，真实零耗时、冻结地区/参数、部分章不覆盖complete、省略插件的旧NQ报告过滤、确认取消、轮询403禁创建/范围未知、历史保留、读取恢复和离线均成立，报告说明明确为不向第三方上传。相同dist的NQ完整门禁及sing-box业务导航伴随验证通过，完整模式POST为零。复用匹配锁文件的已有依赖，无Cargo/PG/真实节点或生产接口；专用节点TCP登记整链仍未验，验收记录已保留边界。
 
 ## 2026-10-01：会话签发时间跨秒修复
 
@@ -720,6 +740,11 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 保留作者 Bookworm 启动及精确 workspace 信任修复；`b536476` 的 Debian12/amd64/arm64 原生制品 CI 全过。本地修正回环 CLI 测试的非阻塞 socket 读取竞态，TCP 17项单线程通过，TCP 全targets Clippy、fmt、Python来源12/发布22、旧Release28通过/4条件跳过及 core/actionlint 通过。永久源与当前 main 的锁文件区别已明确，生产引擎预算和固定制品未改；最终整合 HEAD 的主线 CI 尚须实时核对。
 
+### P2 原生 TCP 实际 bundled musl 原文补齐（Issue #75，独立 PR）
+
+自带musl/CRT配方使用Rust官方固定commit对应musl1.2.5与安全补丁；旧system1.2.3通知不作为实际libc来源。纳入官方完整版权原文、不可执行Rust证明配方与固定摘要，构建不联网补齐、未知rustc/原文篡改在Cargo前拒绝；签名验证对比固定source与实际rustc，真实重签缺失/篡改仍拒绝。五aux与ABI不变；新的公开工具pin、实际Bookworm及最新CI完成后单独记录，未正式发布。
+
+- 修复后永久公开工具pin b562effcd90f8ae319665fb4ead1807b770ed4d5已实际Bookworm构建/ELF/version/build-info/完整5aux TEST_ONLY签名通过，35锁定依赖与Rust标准库、actual bundledmusl1.2.5、system1.2.3工具通知分别完整记录。fmt/core/15行为与真实重签/旧Release32/模拟发布22通过，exit0/OOMfalse，binary SHA e493d095...，日志evidence/tcp-musl-notices-b562eff。仅Python/库存变动，无重复全workspace；最新独立PR CI待核，未正式发布。
 ### P1 sing-box 根插件物理目录恢复（独立后续）
 
 合并后 sing-box 面板实现位于 crates/panel/src/plugins/singbox，与用户要求及ADR0023的根 plugins/singbox 不一致。独立后续将13文件 git mv 至 plugins/singbox/panel，以薄的 Rust path 桥保留模块名与接口；逐文件blob SHA一致，无业务/API/数据库/epoch/前端变动。ADR0030与AGENTS明确物理路径。静态fmt/core/差异检查及最新CI分别记录，未重新宣称实机流量完成。详见singbox-plugin-business独立验收。
@@ -733,3 +758,13 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 14专项含真实回环HTTP/TLS、卡死夹具预算及恶意摘要隐私回归通过；验收驱动21、运行时缓存3、签名8、Python仓库101项/6既有条件跳过通过，fmt/core/shell/差异检查通过。独立提交CI与实际Reality另行核对，未将同源旧提交重跑当成本项集成验收。见 [独立验收](docs/acceptance/reality-failure-evidence.md)。
 
 - 最终正常保留作者原始 `7db4c1a` 及推进后的 `7ce37b9`，合入正式主线 `8ef465f`，保留原生Bookworm制品修复/CLI夹具及根sing-box插件物理目录。冻结源码 `357eadb` 中HTTP每次底层读取共享绝对截止，作者的唯一短命worker硬2秒截止/回收与进程存在性字段均保留；已有失败的清理继续尝试并保留原28，原成功流程的清理错误仍拒绝。真实负对照捕获慢滴头/体3.48/3.50秒超限和原28被清理7覆盖，恢复后取证16、驱动21、缓存3、签名8全部通过；仓库Python101项运行（95通过/6既有条件跳过），合计143通过、0失败、6跳过。Python/Bash语法、fmt只读检查、core/actionlint及链接/差异检查通过，未运行Rust编译/测试或实际生产Reality/公开网络，完整提交CI继续单独核对，Issue #6原因仍未知。
+
+### PR #76 实际 bundled musl 独立复核
+
+- 保留作者 `08c9de2` 与正式主线 `d1ff2df`。官方 musl1.2.5 归档、193 行 COPYRIGHT、Rust 1.98.1 固定官方 commit 和 97 行配方的摘要及原字节全部核对；配方除两项 2025 iconv 补丁还包含两份 2026 安全补丁，均不改 COPYRIGHT。库存简述只描述 2025 子集，原库存不改写，实际 self-contained libc 与系统构建工具通知分开记录。
+- 修复 rustc 身份歧义：旧表达式接受已知/未知双字段和重复已知字段，即使按完整摘要与公开 TEST_ONLY key 真实重签仍被接受；新检查只允许一个精确字段，补充收集前和重签后的实际负向回归。来源/签名 17、旧 release 28（4 既有条件跳过）、模拟发布 22、core 分层 6 项通过，合计 73 通过/0 失败/4 跳过；Python/core/actionlint/链接/差异检查通过。
+- 实际原生 CI `36794789931` 三个 job 成功，工作流 head `08c9de2` 显式选择固定工具源 `b562effcd90f8ae319665fb4ead1807b770ed4d5`；每个 job 真实启动及来源/签名 15+原生 bundle 1 项通过。独立下载两个架构的原包，当前严格验证器接受合法历史库存，并将其重新组装公开 TEST_ONLY 签名验证通过；内嵌构建器、旧验证器、收集器及三份库存与 Git b562 逐字一致。不声称旧固定对象含新歧义检查，不改其版本路径或既存制品。本机未运行下载二进制、Cargo/native build、正式签名、发布或生产探测；本地完整整合提交 CI 另行核对。
+
+### PR #77 登记整合复核
+
+冻结 `58868c4` 的 TCP API/目标单元5、core共用诊断生命周期40、TCP适配器与UID15、NodeQuality适配器15，共75项本地通过/0失败/忽略，workspace全targets Clippy及fmt/core通过。核对Linux/monitor-only登记边界、固定b562版本、六文件签名前及启动前校验、60秒/64MiB预算和旧NQ完整门禁；55432专用PG已停止。作者实际370+6 CI与Reality成功分别记录，不将不可执行API签名夹具或通用systemd验收称作新TCP实机完整执行链。正常保留作者提交并合入#76正式主线b152e2a，相关Rust/SQL/锁文件与已验58868c4原字节保持一致；最终主线CI单独跟进。

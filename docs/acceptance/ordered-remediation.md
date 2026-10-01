@@ -4,6 +4,8 @@
 
 下表汇总的既有证据以主线 `d1ff2dfdea3cc45b38fd0dd25ef6a5b189081b1e` 为基线；TCP 后端 #77 和报告页 #78 的原审查基线分别为 `58868c4`、`233840a`。后续源码整合与检查以各 PR 最终提交及对应 CI 单独记录，不将这些基线当作最新主线、实机能力签收或正式发布证明。CI 结果只对其实际运行的提交和场景有效。
 
+本轮正常整合的主线为 `2bd017a6a6189af223448026d545f343f720378e`，包含 #76 版权及来源校验修复、#77 后端登记和 #78 报告页。源码审查与相称自动验证分别保存在 [登记验收](tcpquality-panel-registration.md) 和 [报告页验收](tcpquality-report-view.md)；本项只更新三份文档，代码与制品配方保持该主线原字节。专用节点总验、受控完整执行链和登记后的原生 TCP 实机整链仍待验，尚未签收、正式发布或部署新增诊断能力。
+
 ## 阶段条件
 
 | 顺序 | 独立范围与证据入口 | 必须通过的条件 | 当前状态 |
@@ -12,7 +14,7 @@
 | P0 IP 查询 | [逐源错误](ip-provider-errors.md)、[缓存](ip-provider-cache.md)、[来源适配](ip-provider-adapters.md)、[未知值](ip-quality-unknown.md)、[独立页面](server-ip-view.md)、[面板环境基线](diagnostic-baseline.md) | 在面板网络环境解释失败；DNS/连接/TLS/超时/403/429/非 JSON/字段不匹配分别显示；失败后旧成功结果仍可读且标为历史；未知不显示零分、干净或成功 | 回环 HTTP、真实 PostgreSQL 和桌面/手机模拟 API 已验；面板实测外部源只确认 403。正式账户权限/额度、公网 DNS/TLS 和 IPQuality 节点自查/流媒体尚未验，按启用的实际来源独立验收 |
 | P1 sing-box 业务归位 | [边界](proxy-business-boundary.md)、[业务迁移](singbox-plugin-business.md)、[ADR 0023](../adr/0023-proxy-business-boundary.md) | core 管服务器；插件管代理用户、授权、订阅、用户流量和周期；无当前能力、管理员启用或旧节点/部署证据的纯监控服务器不请求或显示代理业务；旧节点/部署兼容迁移为插件启用；迁移前导入的身份、令牌、旧订阅 URL、凭据、授权与流量在迁移后仍有效 | 已验旧 schema 导入后执行 0012 迁移、十表快照和旧 `/sub` 两格式；真实旧客户端迁移后继续连接、授权和计量尚未实机验。新环境 Reality 结果不能补签该项 |
 | P1 共用诊断框架 | [共用服务](shared-diagnostic-service.md)、[章节持久化](diagnostic-report-sections.md)、[两种入口](diagnostic-modes.md)、[执行链审计](nodequality-chain-audit.md)、[完整门禁](nodequality-full-start-gate.md) | NodeQuality 经共用生命周期运行；预算、互斥、状态、取消、章节、上传和历史保持；原完整能力经受控执行链实测，不用历史可读代替运行能力 | 参数与历史回归有证据；旧完整执行链有安全和授权缺口，新完整执行暂时拒绝。完整能力尚未恢复，本阶段不能签收 |
-| P2 TCP 接入 | [授权](tcpquality-license.md)、[原生探测](native-tcp-probe.md)、[签名制品](native-tcp-artifacts.md)、[适配器](tcpquality-adapter.md)、[#76](https://github.com/theLucius7/sinan/pull/76)、[#77](https://github.com/theLucius7/sinan/pull/77)、[#78](https://github.com/theLucius7/sinan/pull/78) | 前置阶段实机验收通过后签收接入能力；固定并验签完整制品；小预设白名单；不向第三方上传报告、不改宿主网络配置；与 NodeQuality 共用互斥/取消，参数和结果按插件区分 | 采用自有 Rust TCP 连接探测，未获许可的 `ibsgss/TcpQuality` 文件未引入；后端登记与报告页可独立审查合入准备。登记后的签名安装、实际启动、重连恢复及取消清理整链尚未实机验；已有测试不补签前置阶段 |
+| P2 TCP 接入 | [授权](tcpquality-license.md)、[原生探测](native-tcp-probe.md)、[签名制品](native-tcp-artifacts.md)、[适配器](tcpquality-adapter.md)、[#76](https://github.com/theLucius7/sinan/pull/76)、[#77](https://github.com/theLucius7/sinan/pull/77)、[#78](https://github.com/theLucius7/sinan/pull/78) | 前置阶段实机验收通过后签收接入能力；固定并验签完整制品；小预设白名单；不向第三方上传报告、不改宿主网络配置；与 NodeQuality 共用互斥/取消，参数和结果按插件区分 | 采用自有 Rust TCP 连接探测，未获许可的 `ibsgss/TcpQuality` 文件未引入；后端登记与报告页代码已独立审查合入准备。登记后的签名安装、实际启动、重连恢复及取消清理整链尚未实机验；已有测试不补签前置阶段 |
 
 ## 故障矩阵
 

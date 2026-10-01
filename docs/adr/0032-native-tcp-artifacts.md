@@ -31,3 +31,15 @@ Rust 的 COPYRIGHT-library.html 与 license 原文库存，以及本机 musl 包
 ## Debian 12 本机构建兼容
 
 实际 Bookworm 验收发现 musl-gcc wrapper 与静态 PIE 启动不兼容，构建后 --version 即 SIGSEGV，构建器拒绝产物。相同最小 Rust hello 在 wrapper 下 -11，使用 native cc + -Clink-self-contained=yes 返回0；选择 Rust 自带 musl/CRT，保留静态 PIE，而非混用系统启动对象。依据 [Rust issue 95926](https://github.com/rust-lang/rust/issues/95926) 和 [rustc 官方 self-contained 文档](https://doc.rust-lang.org/rustc/codegen-options/index.html#link-self-contained)；独立 Debian12 CI 与 Ubuntu amd64/arm64 CI 各执行真实启动与签名校验。未改 Agent 既有构建脚本，该模块配方需独立评估。
+
+## Rust 实际 bundled musl 库存
+
+Self-contained 链接必须记录 Rust 自带的 libc，而不是以系统 musl 版本替代。该工具当前支持已核实 rustc commit 48a229ceaefd4985c50990b14116b6d856af0985。其[官方固定配方](https://github.com/rust-lang/rust/blob/48a229ceaefd4985c50990b14116b6d856af0985/src/ci/docker/scripts/musl.sh)使用 musl1.2.5 及两项 CVE-2025-26519 iconv补丁。官方 release 归档 SHA256 为 a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4；完整 COPYRIGHT 原文、不可执行的 Rust 配方文本、来源与摘要库存纳入固定 Git 源码。构建不下载许可文件，也不执行该证明配方。
+
+第五辅助文件分别保存 Rust标准库原文、实际 Rust bundled musl1.2.5 原文及其精确来源证明、系统musl构建工具通知。系统1.2.3通知不再标作实际静态链接 libc。构建在 Cargo metadata/build 前核对 rustc commit 与本地原文摘要；未审计的新工具链明确拒绝，须以新固定源完成库存更新。签名验证重新对比库存、source.tar.gz 中原文与recipe、binary build-info 的实际 rustc，缺失/篡改/重签不一致均拒绝。五辅助文件集合和三字段CLI身份契约不变。
+
+此修复对应 Issue #75，新工具源须公开完整 Git 对象并经过原生Bookworm实际构建/运行与TEST_ONLY完整签名验收；旧5e只保留其既有测试记录，不作为修复后分发候选。未签正式Release。
+
+完整 97 行官方配方还应用 [CVE-2026-6042](https://github.com/rust-lang/rust/blob/48a229ceaefd4985c50990b14116b6d856af0985/src/ci/docker/scripts/musl-cve-2026-6042.diff) 和 [CVE-2026-40200](https://github.com/rust-lang/rust/blob/48a229ceaefd4985c50990b14116b6d856af0985/src/ci/docker/scripts/musl-cve-2026-40200.diff) 两份外部补丁；两项 2025 iconv 补丁与这两份 2026 补丁均不修改 COPYRIGHT。库存 `patches` 字段只描述 2025 iconv 子集，保留其已验证原字节，不能以简述替代完整配方。
+
+已验收的永久工具源 `b562effcd90f8ae319665fb4ead1807b770ed4d5` 保留自己的归档配方。该固定对象内的 rustc 检查采用旧的匹配表达式；本轮当前源码中的原文收集器和 release 验证器另外要求恰好一个 `commit-hash` 字段，并精确等于已核实的官方 commit，拒绝未知或重复字段，即使其余摘要和公开 TEST_ONLY 签名均被重新生成。当前验证器接受 b562 的合法历史产物；不修改该固定对象、版本路径或已存在制品。
