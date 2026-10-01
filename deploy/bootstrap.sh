@@ -704,7 +704,7 @@ if __name__ == "__main__":
         raise SystemExit(f"Bootstrap refused: {error}") from error
 SINAN_BOOTSTRAP_7415F3BDC30846B6CEC2230C27EC5FF57840ABA1FA0BC3BCA2E47C30DA90269B
 
-cat > "$STAGING/legacy_agent_checkpoint.py" <<'SINAN_BOOTSTRAP_D056991B0BDD9880D06EC94ED9E5D88C96E5D6F3049C35D122375642BD1B18B1'
+cat > "$STAGING/legacy_agent_checkpoint.py" <<'SINAN_BOOTSTRAP_F35C1B150835B0D630CFE1F19D9C7A1510F7D3D4FF6AAB9428F30515FC2B9741'
 #!/usr/bin/env python3
 """Read-only recovery gate for independently signed Agent versions before 0.3.1."""
 
@@ -714,7 +714,6 @@ import os
 from pathlib import Path
 import re
 import socket
-import sqlite3
 import subprocess
 import sys
 import time
@@ -932,6 +931,10 @@ def _preflight(version, configuration):
             ensure(sidecar.is_file(), "旧 Agent 状态附属文件无效，安装未切换")
     ensure(not wal.exists() or wal.stat().st_size == 0 or shm.exists(),
            "旧 Agent WAL 缺少共享内存，拒绝创建恢复文件，安装未切换")
+    try:
+        import sqlite3
+    except ImportError:
+        raise ValueError("旧 Agent 状态预检需要 Python 标准库 SQLite 支持，安装未切换") from None
     status = lambda: [(path.exists(), path.stat().st_ino, path.stat().st_size, path.stat().st_mtime_ns)
                       if path.exists() else (False,) for path in (database, wal, shm)]
     before, deadline = status(), time.monotonic() + 1
@@ -971,7 +974,7 @@ if __name__ == "__main__":
         raise SystemExit(f"Legacy Agent refused: {error}") from None
     except OSError:
         raise SystemExit("Legacy Agent refused: 旧状态路径无法安全读取，安装未切换") from None
-SINAN_BOOTSTRAP_D056991B0BDD9880D06EC94ED9E5D88C96E5D6F3049C35D122375642BD1B18B1
+SINAN_BOOTSTRAP_F35C1B150835B0D630CFE1F19D9C7A1510F7D3D4FF6AAB9428F30515FC2B9741
 
 cat > "$STAGING/release.py" <<'SINAN_BOOTSTRAP_788A52C57028213512A314AC63BD8FDDDBC07FA0307EF0A2AAEF490878105077'
 #!/usr/bin/env python3
@@ -1760,7 +1763,7 @@ cat > "$STAGING/public-keys.json" <<'SINAN_BOOTSTRAP_51121348A57E37D339622582811
 ["RWS4aZYmyBmwROpGKjfADJqNedYCNRhlg0+UoIBjQHxXZxYL7XMlkGJN"]
 SINAN_BOOTSTRAP_51121348A57E37D3396225828114D19A3F62EDB0AAD0F6157E7FBCBEBF56B576
 
-cat > "$STAGING/trusted-install.sh" <<'SINAN_BOOTSTRAP_F4213DA4D4646E9D8C3C91CC06599EF0DD4262BFB6B0B0602C2F224219F5CC2F'
+cat > "$STAGING/trusted-install.sh" <<'SINAN_BOOTSTRAP_E4AAB9A4F59919C6BDBFF4F938C28CEE39431224EC36BDDAFA2D70BFC99E359A'
 #!/bin/sh
 # Static signed release installer. Invoke only after independent verification.
 # SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1
@@ -1812,7 +1815,6 @@ import os
 from pathlib import Path
 import re
 import socket
-import sqlite3
 import subprocess
 import sys
 import time
@@ -2030,6 +2032,10 @@ def _preflight(version, configuration):
             ensure(sidecar.is_file(), "旧 Agent 状态附属文件无效，安装未切换")
     ensure(not wal.exists() or wal.stat().st_size == 0 or shm.exists(),
            "旧 Agent WAL 缺少共享内存，拒绝创建恢复文件，安装未切换")
+    try:
+        import sqlite3
+    except ImportError:
+        raise ValueError("旧 Agent 状态预检需要 Python 标准库 SQLite 支持，安装未切换") from None
     status = lambda: [(path.exists(), path.stat().st_ino, path.stat().st_size, path.stat().st_mtime_ns)
                       if path.exists() else (False,) for path in (database, wal, shm)]
     before, deadline = status(), time.monotonic() + 1
@@ -2313,7 +2319,6 @@ import os
 from pathlib import Path
 import re
 import socket
-import sqlite3
 import subprocess
 import sys
 import time
@@ -2531,6 +2536,10 @@ def _preflight(version, configuration):
             ensure(sidecar.is_file(), "旧 Agent 状态附属文件无效，安装未切换")
     ensure(not wal.exists() or wal.stat().st_size == 0 or shm.exists(),
            "旧 Agent WAL 缺少共享内存，拒绝创建恢复文件，安装未切换")
+    try:
+        import sqlite3
+    except ImportError:
+        raise ValueError("旧 Agent 状态预检需要 Python 标准库 SQLite 支持，安装未切换") from None
     status = lambda: [(path.exists(), path.stat().st_ino, path.stat().st_size, path.stat().st_mtime_ns)
                       if path.exists() else (False,) for path in (database, wal, shm)]
     before, deadline = status(), time.monotonic() + 1
@@ -2703,7 +2712,7 @@ done
 [ "$STARTED" = 1 ] || { echo 'Agent 未通过启动检查' >&2; exit 1; }
 COMPLETED=1
 printf '%s\n' '已验证并安装 Agent，可运行 sinan-agent status 查看状态。'
-SINAN_BOOTSTRAP_F4213DA4D4646E9D8C3C91CC06599EF0DD4262BFB6B0B0602C2F224219F5CC2F
+SINAN_BOOTSTRAP_E4AAB9A4F59919C6BDBFF4F938C28CEE39431224EC36BDDAFA2D70BFC99E359A
 
 
 if [ "$PLATFORM" = Linux ] && ! command -v minisign >/dev/null; then

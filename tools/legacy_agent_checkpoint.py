@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 import re
 import socket
-import sqlite3
 import subprocess
 import sys
 import time
@@ -225,6 +224,10 @@ def _preflight(version, configuration):
             ensure(sidecar.is_file(), "旧 Agent 状态附属文件无效，安装未切换")
     ensure(not wal.exists() or wal.stat().st_size == 0 or shm.exists(),
            "旧 Agent WAL 缺少共享内存，拒绝创建恢复文件，安装未切换")
+    try:
+        import sqlite3
+    except ImportError:
+        raise ValueError("旧 Agent 状态预检需要 Python 标准库 SQLite 支持，安装未切换") from None
     status = lambda: [(path.exists(), path.stat().st_ino, path.stat().st_size, path.stat().st_mtime_ns)
                       if path.exists() else (False,) for path in (database, wal, shm)]
     before, deadline = status(), time.monotonic() + 1
