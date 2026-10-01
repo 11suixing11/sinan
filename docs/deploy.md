@@ -104,7 +104,7 @@ SQL
 
 相同标签可重复导入以追加其他架构，或修复缺失、损坏的下载文件；不会覆写同一签名身份的不同内容。已有完整导入目录保持兼容。只下载所需架构不改变正式 Release 对完整资产集合的要求。此接口只准备分发数据，不执行安装；移除网页表单不等于删除验签、分发或运维 API。
 
-发布工作流从选定源码构建 Linux amd64/arm64 的 Agent、固定版本运行时、当前 NodeQuality 包装器、固定安装器、`release.json` 与 `SHA256SUMS`；维护者在本机签署清单，再上传 `SHA256SUMS.minisig`。已公开的 [agent-v0.3.0](https://github.com/theLucius7/sinan/releases/tag/agent-v0.3.0) 固定在源码 `75cd846`，包含 r2 包装器，正式签名与面板导入已验证。当前源码默认包装器为 r5，须完成对应能力验收后另行构建、签署和发布，不能覆盖已发布 r2，或借旧 Release 的验收宣称新能力已通过。
+发布工作流从选定源码构建 Linux amd64/arm64 的 Agent、固定版本运行时、当前 NodeQuality 包装器、固定安装器、`release.json` 与 `SHA256SUMS`；维护者在本机签署清单，再上传 `SHA256SUMS.minisig`。已公开的 [agent-v0.3.0](https://github.com/theLucius7/sinan/releases/tag/agent-v0.3.0) 固定在源码 `75cd846`，包含 r2 包装器，正式签名与面板导入已验证。当前源码默认包装器为 r13，须完成对应能力验收后另行构建、签署和发布，不能覆盖已发布 r2，或借旧 Release 的验收宣称新能力已通过。
 
 Linux musl 静态 Agent 保留原制品目录。GNU、macOS、Windows、FreeBSD 与完整运行时的实现和手动验证入口继续保留，详见 [设备平台与能力](platforms.md)。当前主线 `ci.yml` 也包含全平台检查定义，但所有工作流均按用户要求临时暂停；全部任务完成后统一确定恢复范围，见 [协作规则](../AGENTS.md#临时-ci-暂停2026-10-01-用户要求)。原生生产部署仍需独立验证来源的已签平台 bundle，不能直接使用日常 CI 的 TEST_ONLY 制品。
 
@@ -116,7 +116,7 @@ Linux musl 静态 Agent 保留原制品目录。GNU、macOS、Windows、FreeBSD 
 
 官方部署不需要预装 `sinan-bootstrap`。在接入页面复制完整命令，粘贴到运行 systemd 或 OpenRC 的目标 Linux 服务器执行；普通管理员账户需要 `sudo`，也可直接以 root 执行。目标服务器需要基本 shell 工具，以及可访问官方 GitHub、系统软件源和面板的网络；缺少 `curl` 时命令先通过系统软件源自动安装。
 
-命令从官方 GitHub 的固定 blob URL 下载自包含入口，核对 SHA-256 后才执行。入口通过系统软件源自动准备 Python、minisign 等工具，使用内嵌的正式公开根验证已签 Release 和静态安装器，只下载本机 Agent 架构。缺少对应制品时，在制品页选择目标架构重复导入；不要用另一个架构的二进制替代。一次性令牌过期或已使用时，重新生成命令。
+命令从官方 GitHub 的固定 blob URL 下载自包含入口，核对 SHA-256 后才执行。入口通过系统软件源自动准备 Python、minisign 等工具，使用内嵌的正式公开根验证已签 Release 和静态安装器，只下载本机 Agent 架构。Agent 资产缺失或缺少对应架构时，由维护者检查可信 GitHub Release，不借面板文件或另一架构二进制降级；运行时及诊断制品的本地缺失则可按目标架构重复导入修复。一次性令牌过期或已使用时，重新生成命令。
 
 首次信任来源为官方 GitHub HTTPS 渠道与已批准的入口公钥，不从面板下载新的发布根。旧 `/install.sh` 仅提供安装描述 JSON，不能管道执行。自建根、离线部署或需要独立预置验证器时使用下一节。决策与适用范围见 [ADR 0037](adr/0037-bootstrap-and-selective-import.md)。
 
@@ -227,7 +227,7 @@ public_ips = ["192.0.2.10", "2001:db8::10"]
 
 日常检查使用已导入签名 Release 中的 NodeQuality 外插；完整验机目前暂停新任务，原因在界面显示。单独编译或拷贝未签名目录不能代替验签导入。外插固定 [NodeQuality 上游提交](https://github.com/LloydAsp/NodeQuality/tree/a92fca6c0067df29ddd03fdc2fee6f3000f64545)，保留原样源码和许可证，版本为 `a92fca6c0067df29ddd03fdc2fee6f3000f64545-r13`。旧制品不能覆盖；历史顶层上传开关不能证明内层脚本零上传；旧排队完整任务保存明确失败原因，已有 Started 继续收集与取消，不重新执行。
 
-上游固定下载 amd64 版 NextTrace；包装器在 ARM64 节点仅将这条下载命令映射到官方 arm64 资产。外插工作路径不能包含空白或 shell 通配符，使用默认目录即可。
+r13 保留固定上游来源与原文许可证，执行时不下载或安装 NextTrace 等工具；daily 所需工具须由维护者预置，缺失时明确拒绝对应执行。固定辅助脚本与静态数据须在整份源码校验完成后使用，不回退在线 main。外插工作路径不能包含空白或 shell 通配符，使用默认目录即可。
 
 日常目标服务器需要 Linux systemd、root、Bash、Python 3 与面板制品访问；已配置 TCP 目标决定实际探测范围。最小 Debian 系统可先安装：
 

@@ -96,7 +96,7 @@ bootstrap 从固定官方 GitHub Release 取得完整 proof、静态安装器和
 
 迁移期间应避免其他管理员同时修改缓存或安装版本。预检与人工补证明不构成覆盖旧 Agent 的跨版本事务锁。若启动恢复在连接面板之前发现无效 proof，Agent 在本地记录失败并停止启动；此时没有连接可发送 `ApplyResult`，应从本机日志和状态定位问题，不能把面板尚未收到失败报告当作恢复成功。
 
-CI 可使用 `--release-dir <本地已签测试发布目录>` 代替 GitHub proof 下载；这个选项只替代 proof/静态安装器来源，目标 Agent 仍从面板下载，测试没有绕过 native 下载同源限制。`tools/release.py assemble --arch amd64` 可生成仅本机架构的测试 bundle，仍包含 Agent、运行时和 NodeQuality 三个已签模块；正式发布入口强制六制品，拒绝单架构测试 bundle。
+本地受控验证可使用 `--release-dir <本地已签测试发布目录>` 提供 proof、静态安装器及精确 Agent 资产；入口仍独立验签、核对唯一预下载契约及 Agent 长度/摘要，不能从面板补取 Agent。此选项不构成正式发布或实机验收，当前 CI 仍按用户安排暂停。`tools/release.py assemble --arch amd64` 可生成仅本机架构的测试 bundle，仍包含 Agent、运行时和 NodeQuality 三个已签模块；正式发布入口强制六制品，拒绝单架构测试 bundle。
 
 ## 公钥轮换与私钥泄漏
 
@@ -119,3 +119,5 @@ CI 可使用 `--release-dir <本地已签测试发布目录>` 代替 GitHub proo
 面板仍通过导入并验证 Release 来选择协议和平台兼容的版本，但更新描述中的 URL 指向固定 GitHub Release，Agent 根据已签仓库、标签和资产名称重建地址后比较，使用独立匿名客户端下载。可在服务器新增或编辑窗口设置「Agent 下载加速」；镜像只改变传输路径，不改变发布信任根、版本和 ABI 检查。自更新下载还逐跳检查公网 DNS 并固定解析地址，拒绝面板来源、非公网目标、凭据和不受支持的重定向。运行时与配置仍从绑定面板下载。
 
 旧 `/api/bootstrap/{version}/{arch}` 及 Agent 专用面板二进制路由已关闭，持有有效令牌也不会返回二进制。依赖这些接口的旧安装器需升级到本次源码生成并签名的新安装器；旧 Agent 若只接受面板同源更新 URL，需用独立验证的新 Release 手动升级一次。不要修改既有签名或覆盖旧 Release 来兼容。原生平台继续从 GitHub 获取已签发布目录，独立验签后运行 `install-service`；已弃用的面板模板已移除。
+
+2026-10-01 整合补充：公开 `agent-v0.3.0` 的旧签名安装器未带 `preloaded-github-v1` 契约，独立验证成功后仍须拒绝执行；面板也不为它生成新接入命令。必须发布新的不可变签名安装器后才能部署新面板，不覆写旧资产。新 Agent 的自动升级请求显式携带 `download_source=github`，旧/未知/重复查询返回空候选；设备凭据仅用于面板认证，不进入 GitHub 或镜像请求。
