@@ -146,6 +146,13 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 - Windows 任务 DACL 修复后的事件确认错误 `0x80070569`：普通运行账户缺少批处理登录权。安装通过系统 [secedit](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/secedit-configure) 读取并保留现有 `SeBatchLogonRight`，只追加该专用账户 SID；不更改拒绝策略及其他用户权利。新账户先禁用，设置随机密码后再启用。CI 比较安装前后及重复安装后的全部用户权利，验证只发生预期追加。
 - Windows 用户权利模板允许以账户名或带星号的 SID 表示同一主体（[MS-GPSB 2.2.6](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpsb/3413b381-a445-4d17-b77e-5bbfadda253b)）。重复安装识别这两种表示；原生测试统一转换为 SID 后比较，保留全量权限差异断言与失败详情，避免仅按原始文本误报。
 
+## 磁盘容量：容器挂载与文件系统去重
+
+- 磁盘总量沿用已挂载文件系统的容量口径，不改为裸块设备标称容量；已用空间仍为 `total_space - available_space`，包含普通进程不可用的保留空间，与 `df` 的 Used 列可能不同。静态总量、动态已用和逐盘列表共用一次筛选后的快照，读取失败、容量无效或溢出继续表示未知。
+- [sysinfo 0.33.1 的 Linux 枚举](https://github.com/GuillaumeGomez/sysinfo/blob/v0.33.1/src/unix/linux/disk.rs)会返回 overlay 与单文件绑定挂载；原来仅按名称累加时，真实分区与名为 overlay 的视图各计一次。按[内核 overlayfs 语义](https://docs.kernel.org/filesystems/overlayfs.html)，Linux 排除非根 overlay/overlayfs/fuse.overlayfs 与单文件挂载；容器中的 `/` overlay 保留。
+- Unix 使用挂载点的设备标识去重绑定挂载与设备别名，优先保留根及较浅挂载；元数据不可读时回退设备名，无名时回退挂载路径。Btrfs [子卷共享文件系统存储](https://btrfs.readthedocs.io/en/latest/Subvolumes.html)，继续按可解析的源设备名称去重，不因子卷设备标识不同重复累加。Windows 按挂载路径区分卷，避免同名或无名卷互相覆盖；I/O 基线同时使用名称与挂载点。
+- 不根据相等容量猜测两个文件系统是否同盘；容器内无法访问 overlay 后端时，也不推断它与额外目录卷的物理归属。此项修复不提供跨命名空间或所有存储池的物理容量映射。
+
 
 ## 交付加固：签名缓存的跨平台验证边界
 
