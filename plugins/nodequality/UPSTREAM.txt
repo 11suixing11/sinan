@@ -25,8 +25,9 @@ The first-level host curl calls receive only the five locally verified scripts.
 Unknown source URLs fail without an online main-branch fallback. The exact
 existing BenchOS v0.0.2 download and report-upload call remain separate paths.
 The runner and its bounded report collector are maintained by Sinan.
-The chroot command shim maps the pinned loader's fixed AMD64 trace download to
-the corresponding upstream ARM64 asset on ARM64 hosts; source bytes stay intact.
+The legacy chroot command shim retains the fixed AMD64-to-ARM64 trace download
+mapping. The r9 served entrypoint replaces that download with an executable
+presence check, so that mapping is no longer used by this entrypoint.
 Rootfs provenance/licensing, secondary tools and data, and all external upload
 paths are still pending independent audits. The panel and adapter full-start
 gate remains closed for all supported versions. This r6 change alone neither
@@ -34,3 +35,86 @@ enables nor certifies a complete NodeQuality diagnostic. Daily checks do not
 execute the embedded upstream sources.
 Linux runtime prerequisites: Bash >= 4, Python 3, curl, tar, base64, mount,
 umount, chroot, coreutils, and systemd with private mount namespaces.
+
+Sinan r9 modifications (2026-10-01): dependency-policy.py replaces the exact
+dependency installer functions in HardwareQuality, IPQuality and NetQuality
+with prerequisite checks. Explicit installer calls fail with exit code 70;
+the upstream -n option cannot bypass checks. Missing tools are named without
+executing them. NextTrace must already exist in the prepared rootfs; the loader
+does not download or chmod it. IP, network and route pipeline failures cannot
+be masked by tee. Tests, flags, serialization and the hardware locale function
+outside these documented boundaries are retained byte-for-byte after the
+earlier report and swap policies. Original sources and complete licenses remain
+in the embedded bundle, alongside these signed-in-artifact transformations.
+The helper, every input and every transformed output have fixed SHA256 checks.
+
+Presence checks alone do not verify tool provenance, versions, licensing or
+integrity. This change does not resolve rootfs downloads, secondary data,
+browser impersonation, provider access rules or uploads initiated by third-party
+binaries. The full-start gate stays closed; r9 is not a signed release or an
+approval to execute the full upstream toolchain.
+
+Sinan r10 modifications (2026-10-01): source-lock.json additionally retains
+seven reference files from the same pinned IPQuality and NetQuality commits:
+IP iso3166/dnsbl and Net iso3166/province/AS_Mapping/iperf/speedtest_cn. Their
+repository LICENSE files remain in the bundle. Reference bytes are checked by
+size, SHA256 and fixed data-policy identities before serving. Seven exact curl
+expressions are replaced with a static-format shell builtin printf of safely
+single-quoted original bytes. These requests no longer download online main
+data or depend on chroot paths, external decoders or writable temporary files.
+All surrounding parsers, probe parameters and output remain byte-for-byte.
+
+The unused IATA_Database declaration is retained but its CSV is not fetched or
+bundled. Cookies, advertisements, sponsor data, provider HTTP traffic and tool
+uploads are not reference files covered by this change. Fixing a target list
+does not grant permission to probe those targets or establish provider access.
+The reference repository license record does not certify the entire toolchain
+or third-party services; all full-start gates and unresolved audits remain.
+
+Sinan r11 modifications (2026-10-01): loader-policy.py changes the five exact
+header/hardware/IP/network/route loading calls to collect the entire bounded
+source first and require a successful producer exit. Empty successful output
+also fails. A trailing sentinel preserves all original trailing newlines in
+the local shell variable. Only the completed source is passed to the original
+consumer, with its existing arguments, NQENV and stdin/file-descriptor shape.
+No temporary script is created. A failed header now stops main explicitly;
+the existing chapter failure guards handle the other four consumers.
+
+All six substitutions preserve line counts, including the original cleanup
+and its observed line 455. The fixed helper, input and output have SHA256
+checks. The original bundle is retained unmodified. These changes address
+source failures hidden by process substitution or partial streamed execution;
+they do not complete the separate full-toolchain audit or open full-start.
+
+Sinan r12 modifications (2026-10-01): ranking-policy.py gates HardwareQuality's
+mark.check.place score submission with the existing validated upload setting.
+The default/false path retains all local score computations and then returns
+before constructing or sending a percentile request. The true path preserves
+the existing request, timeout, payload and response parsing. Both paths clear
+old percentile values before each calculation, so failed requests cannot reuse
+previous percentiles. No benchmark or scoring formula is removed or replaced.
+
+The report explains why percentiles are unavailable with uploads disabled.
+Its JSON retains numeric local scores and null missing percentiles, and adds
+Benchmark.percentile_upload_allowed to record permission, not query success.
+The new helper is embedded and identity-checked like the existing policies;
+canonical sources/licenses remain intact. Geekbench and other tool traffic,
+rootfs provenance/licenses and full execution remain unresolved. This is not
+an approval to execute the complete toolchain or a claim of zero total upload.
+
+Sinan r13 modifications (2026-10-01): ip-score-policy.py validates the four
+numeric IP scores as JSON integers within 0..100, the ipapi formatted fraction
+as 0..1 with a known label, and DB-IP's categorical level as low/medium/high.
+Malformed, missing, wrong-type or explicitly failed responses leave scores
+unknown before arithmetic. Valid zero and the existing risk thresholds remain.
+Unknown text rows are explicit; six missing JSON Score values become actual
+null, while valid values retain the existing string representation. IPQS now
+reads its own score instead of an unrelated ipapi array member.
+
+The helper, its input and its output are SHA256 checked; ordinary-file and
+size limits apply. Original sources/licenses and all HTTP request expressions
+remain unchanged. This patch does not remove browser impersonation, cookies,
+embedded credentials or retries, or certify unrelated boolean classifications.
+Those provider-access audits and the full-toolchain license/provenance work
+remain open. All full-start gates remain closed; this is not a full run or a
+formal signed release.

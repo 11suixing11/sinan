@@ -1,0 +1,865 @@
+{
+  "schema": 1,
+  "tested_source": "6decf87511160ec0d9d6f17cb5abedffc417bf3e",
+  "base_pull_request": 113,
+  "issue": 112,
+  "scope": "Wait for verified complete script supply before starting the five original consumers. No full upstream execution.",
+  "loader_policy_sha256": "189fda7f90cd91df37ddfecf206c15137d823128a75e7b22c850abb2e2a2fe92",
+  "source_lock_sha256": "16bc414c7f9bf79514b36f9cc3d8b0376a1805ad58f24f8d8be81ddeb8542dd7",
+  "previous_entry_sha256": "34be83427844aba67e4677f1dead79812d5699fbbab08be0a4f074c332efb6fa",
+  "patched_entry_sha256": "728d15d923ae030b9caf83cfe38b9bdb690800c9e11feb57c75ce99a7623a182",
+  "patched_entry_bytes": 19674,
+  "host": {
+    "receipt_sha256": "8ae999ec846b9bee7b71726b509f00baa02d5198775c26d1d5a86c1161163092",
+    "checks": [
+      {
+        "name": "loader",
+        "exit_code": 0,
+        "tests": 10,
+        "skipped": 0,
+        "seconds": 10.373,
+        "log_sha256": "c01ee910e571f23142abd9c7de1419121ee0772679470e35b4ff1f905e4f6697"
+      },
+      {
+        "name": "data",
+        "exit_code": 0,
+        "tests": 6,
+        "skipped": 0,
+        "seconds": 6.267,
+        "log_sha256": "7b83f0da22b680019dedc0fbf358ab9e82056e9a280f36674d702184fcec1e6d"
+      },
+      {
+        "name": "dependencies",
+        "exit_code": 0,
+        "tests": 11,
+        "skipped": 1,
+        "seconds": 2.527,
+        "log_sha256": "85907521bb7710fecd1175ac6f4bacf835395d2405a191b66f2ab6d32bd878d3"
+      },
+      {
+        "name": "swap",
+        "exit_code": 0,
+        "tests": 10,
+        "skipped": 0,
+        "seconds": 2.323,
+        "log_sha256": "befb1ee64be738cbc77bbcc780f0586b098b5372a1329704dbe6841802b5482d"
+      },
+      {
+        "name": "sources",
+        "exit_code": 0,
+        "tests": 16,
+        "skipped": 0,
+        "seconds": 14.363,
+        "log_sha256": "6f2ec0b739a0678b74f2fc3f46f155c34de2021e3aee6b79162fad21c3100f17"
+      },
+      {
+        "name": "report",
+        "exit_code": 0,
+        "tests": 6,
+        "skipped": 0,
+        "seconds": 75.665,
+        "log_sha256": "ce3a5c9f84d9b16127dac9bfd9d4277f11c4b19e765e324e47ad9832503d99b0"
+      },
+      {
+        "name": "wrapper",
+        "exit_code": 0,
+        "tests": 34,
+        "skipped": 0,
+        "seconds": 11.562,
+        "log_sha256": "8fd9f631957ff294ae8b1d4e6bf13b90c6d28eba789ada266f9446bbaa714d47"
+      },
+      {
+        "name": "daily",
+        "exit_code": 0,
+        "tests": 7,
+        "skipped": 0,
+        "seconds": 6.611,
+        "log_sha256": "914edfe8c7fac255af96c3d0a1d4377cf1cbebb08c52c84743c705881a0dba73"
+      },
+      {
+        "name": "release",
+        "exit_code": 0,
+        "tests": 32,
+        "skipped": 4,
+        "seconds": 0.501,
+        "log_sha256": "0092920003705f392e74bd4e44fc06c9b1c205f322bfd149d0fe068beba917e2"
+      }
+    ]
+  },
+  "rust": {
+    "receipt_sha256": "ebeeef5efad35f51c1a09f7e98121d8a8e866979cf410ad4f7ea824c5b10aeb8",
+    "checks": [
+      {
+        "name": "postgres-start",
+        "exit_code": 0,
+        "log_sha256": "66afd0411ccc09366e99fdd99b85f21899c8d2d064f5835126859618802153ad"
+      },
+      {
+        "name": "adapter-diagnostic",
+        "exit_code": 0,
+        "log_sha256": "f65153ab7913d16cf22c441ac40ced0011947741a3718231f8ea7d5d0483a630",
+        "tests": {
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "panel-chain-gate",
+        "exit_code": 0,
+        "log_sha256": "79344e42982167fa838309430446c4e226e3b3c148fec113b27151d5a7880089",
+        "tests": {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "panel-daily-version",
+        "exit_code": 0,
+        "log_sha256": "239951a7cd2fbd6002b66bb4ce5a07b2b64f7062638acb74960e551018f9a6ff",
+        "tests": {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "adapter-clippy",
+        "exit_code": 0,
+        "log_sha256": "23a8679e293543688955a8f8d014297789b8c380a0a1008b89dc5d08dc3cf761"
+      },
+      {
+        "name": "workspace-fmt",
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "core-boundary",
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "diff-check",
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "postgres-stop",
+        "exit_code": 0,
+        "log_sha256": "ca19178a35ab4153b75b494963b66ce8243e1b94c173107c87b44d09db23652d"
+      }
+    ],
+    "frozen_inputs": {
+      "crates/adapter-nodequality/src/lib.rs": "1a03afd64717c9ca479cc97727927d561242f2b63f5aa4b5360e96fa477bc18f",
+      "crates/adapter-nodequality/tests/diagnostic.rs": "61999f5b453659c744677c834badf3843b0014d5d90c2c84612d47170952d988",
+      "crates/adapter-nodequality/tests/diagnostic/versions.rs": "20d44c0c2ca86e5cd7a0dd9bf93ca3689017867b06dcf93cad333146bd0e1008",
+      "plugins/nodequality/panel/mod.rs": "e1eb89caca0b1597d6583963e2e37f491dbe63016ddeddef1388a87776b5dc70",
+      "crates/panel/tests/diagnostics/modes.rs": "55b8a7c27bcf4c07d06e0a7702b40fd492d0aa71e45a1f6a2da767f8055fa582",
+      "crates/panel/tests/diagnostics/chain_gate.rs": "a6db02ef29b860a3667959f928073808173ec14792cce701cc1c2a36d1b059b2"
+    },
+    "cargo_lock_sha256": "02e3ac8f8a90c522b1267049cce2ed27fdd819bd0ab86e4d25c75581cb3bc948",
+    "postgres_stopped": true,
+    "postgres_pid_absent": true,
+    "postgres_port_closed": true,
+    "trust_kind": "public_TEST_ONLY"
+  },
+  "debian_fd": {
+    "os": "Debian 12 arm64",
+    "scope": "Frozen builder/helper/shim with inert sources and controlled fixed original check/run function bodies; probes and serializers stubbed. Linux Bash >=4 original process-substitution FD branch. Own loopback recorder only. No complete upstream bootstrap, rootfs or benchmark execution.",
+    "duration_seconds": 63.561,
+    "runtime_properties": {
+      "MainPID": "22950",
+      "ControlGroup": "/system.slice/sinan-nodequality-r11-fd-v1.service",
+      "CPUWeight": "10",
+      "IOWeight": "10",
+      "MemoryMax": "268435456",
+      "MemorySwapMax": "0",
+      "TasksMax": "64",
+      "OOMScoreAdjust": "500",
+      "PrivateNetwork": "yes",
+      "PrivateMounts": "yes",
+      "NoNewPrivileges": "yes",
+      "KillMode": "control-group"
+    },
+    "cgroup_metrics": {
+      "memory.peak": "71622656",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "pids.peak": "11"
+    },
+    "postcheck": {
+      "final_unit_properties": {
+        "MainPID": "0",
+        "ControlPID": "0",
+        "ControlGroup": "",
+        "LoadState": "not-found",
+        "ActiveState": "inactive",
+        "SubState": "dead"
+      },
+      "oom_since_actual_start": [],
+      "cgroup_exists": false,
+      "residual_fixture_pids": [],
+      "residual_fixture_mounts": [],
+      "ssh": {
+        "MainPID": "406",
+        "NRestarts": "0",
+        "ActiveState": "active"
+      },
+      "swap_entries": 0,
+      "source_files_unchanged": true,
+      "success": true
+    },
+    "files_sha256": {
+      "result.json": "dbac47ff4781119c30fe258324c0ab1373c12d538bc309c004b08d1c9c257028",
+      "postcheck.json": "61b23525a7b303967717984fe3b6ac52d6f635452e5998a91b46a96b39132372",
+      "receipt.json": "3c3b1e084d46d43c9a826fb0188691eb63afa2b193c5219b01d866e7333a4693",
+      "source-sha256.json": "a6dfc7f680d2b413c7135940d02d64c58b5c7b99d765447d931f915aae7d77e4",
+      "source.tar": "b2a98712653f4278c6e55d3ddedb8afc2f721647e5b140132c166719fd64e2b8",
+      "fixture-driver.py": "7a57c41029e5df1a8db2e835cf0981bfcd51504d1dd2661b79bc64db279faa16"
+    },
+    "input_file_count": 44,
+    "repository_input_sha256": {
+      "plugins/nodequality/loader-policy.py": "189fda7f90cd91df37ddfecf206c15137d823128a75e7b22c850abb2e2a2fe92",
+      "plugins/nodequality/dependency-policy.py": "9424dded5fd6c74ff9888fa6e2e3d9482fe8db144fa4c572682fca3f8cf5b5de",
+      "plugins/nodequality/report-policy.py": "0c66e702084820e399a16b18b51ba331cd8edd406dd96ede7c2ee84f78c30245",
+      "plugins/nodequality/chroot-shim.sh": "6d12129f92b8869b9fd78ed5b73a2dff57c3fca82ccc7995fd777646e5ba79bc",
+      "plugins/nodequality/swap-policy.py": "1d6acda7821d013773b273d77db12973d7075631b0309614dadb9c5cfc09ff24",
+      "plugins/nodequality/runner.sh.tmpl": "6d7454beef4965ac681ef438ef14b2485a2c8327032aff3560ba2731edc5367b",
+      "plugins/nodequality/UPSTREAM.txt": "a4e331ce10e96e9063159e9beed5a59c454a5337590c6d4ceb1883b10a6f0d44",
+      "plugins/nodequality/source-helper.py": "9671c558c13518d9f2cf5802ebb83c757bfb5fd177193f2f51a9a37ea06f469c",
+      "plugins/nodequality/curl-shim.sh": "307b56270d67a71d3af667f6e17351bd115676bd3eecb6686b7be26931d0cfce",
+      "plugins/nodequality/data-policy.py": "0115f90f8ce521eab1472d8426b8f8dfbf1fefca427ae0fdfd557b346a8fdab3",
+      "plugins/nodequality/daily.py": "8f376ca7ef0616fedcf981c6ba671401a2e8ffb0c5ac9e4308e9e12a07c38a26",
+      "plugins/nodequality/exit-observer.sh": "b1f68e376ff7e9ee23b03bcfc854aa54440b30370ce7aada2be34ea79b06b257",
+      "plugins/nodequality/report.py": "5118a7cbe5ddb5d317e56606904bd301c30ac28519e8dcda106ce1151afc0b38",
+      "plugins/nodequality/source-lock.json": "16bc414c7f9bf79514b36f9cc3d8b0376a1805ad58f24f8d8be81ddeb8542dd7",
+      "tools/build-nodequality.sh": "055613da086403e992282aa347efb68efe0296355e841499eb1f9def2a8349a0",
+      "tools/test-nodequality-sources.py": "ae6ba4499dcd57f358bb87bc36b2b9e331e15ae425d6386e33b85b511eb8f1cd",
+      "tools/test-nodequality-report-policy.py": "8068ae0a00adbf3ad524c1c88f77c943063a1fab255d42bed48f41e9ba0a6382",
+      "tools/nodequality-source-fixture.py": "1d2a3c3e830a6a4c152ac122f2cb799168f95d5332c1c38855bf7cd269180f64",
+      "tools/test-nodequality-swap-policy.py": "5467733aa370fad06c174da3e85e808e25edf6acd7400bb5d6dcb93ec77c1c60",
+      "tools/test-nodequality-dependency-policy.py": "309403eeb2241c36f5109846eea49b2612393d1c019776a81be7dbe03357d4ed",
+      "tools/test-nodequality-data-policy.py": "cd4031a55496c7e00620ad8e6292c31e58a2f8c12a0f7c6f7f76893bde22acf7",
+      "tools/test-nodequality-loader-policy.py": "c9e491c05aee0f9be630c81aa564a37db45050370b686ac215f0fd852988100c",
+      "tools/test-nodequality.py": "cf5a7d55e69986266c9e1c59cdf459f7fe69479c9e56cc332cc5233d0cbb3910",
+      "tools/test-diagnostic-modes.py": "00522348739ef4adca56964d263c1951dfca798aacc12092f2de5240b73331c3",
+      "crates/protocol/tests/fixtures/TEST_ONLY.key": "21c747afcd9c2932cd2f10fc356028b46730d76eb57e0c820ea90fa44753c07c",
+      "crates/protocol/tests/fixtures/TEST_ONLY.pub": "1883353600a9b2869b72be791a44d6d86e17566042e1ee8becfdca1b3f7a24d1"
+    },
+    "bash": "5.2.15(1)-release",
+    "checks": [
+      {
+        "name": "loader",
+        "exit_code": 0,
+        "elapsed_seconds": 6.090592377999201,
+        "ran": 10,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "80a4ca20491d92a58599d4dc55bd8dbb329c9ef9b687af8021cd5d5568e80342"
+      },
+      {
+        "name": "source",
+        "exit_code": 0,
+        "elapsed_seconds": 4.7580763769983605,
+        "ran": 16,
+        "skipped": 1,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "92760b21bd0506ac58867cec3aa82aa2dd95cb0dd0826ac4bcbc48a15f28e2bc"
+      },
+      {
+        "name": "data",
+        "exit_code": 0,
+        "elapsed_seconds": 2.5367042099987884,
+        "ran": 6,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "e40965f1f6664af56e962533edfa98218ca2a87e10c646fd1aff4d9ea03984b7"
+      },
+      {
+        "name": "dependencies",
+        "exit_code": 0,
+        "elapsed_seconds": 1.0907450009999593,
+        "ran": 11,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "5ee4ad3d85ff59b0e767c77c41d0eacb32191d541dbdf409e1d857ab8beba661"
+      },
+      {
+        "name": "swap",
+        "exit_code": 0,
+        "elapsed_seconds": 0.7924697500002367,
+        "ran": 10,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "c107fc471a93d3cf527c69a7a8606660cb574dbbc63f958ab8507209a3484128"
+      },
+      {
+        "name": "original-body-fd",
+        "exit_code": 0,
+        "elapsed_seconds": 43.21507868700064,
+        "ran": 2,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "922fe42f53a98147954798ccb5b550170188f73ca666d8f169827cd7ffb6e8d0"
+      },
+      {
+        "name": "wrapper",
+        "exit_code": 0,
+        "elapsed_seconds": 2.7197548760013888,
+        "ran": 34,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "573a1e81cba2e233619e6a5595f420f33737b94da8dc52487a3a231847a2b7c1"
+      },
+      {
+        "name": "daily",
+        "exit_code": 0,
+        "elapsed_seconds": 2.3442992930013133,
+        "ran": 7,
+        "skipped": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "54d88bff028da0912244792b8a212190b1498d5becc85ba7b7c1cce51013dfba"
+      }
+    ]
+  },
+  "debian_chroot": {
+    "os": "Debian 12 arm64",
+    "scope": "Only fixed old/new loader functions, original chroot_run and production chroot shim. Inert printf payload, real native Bash/env chroot and private proc mount. No full upstream script, BenchOS, benchmarks, public requests or upload.",
+    "duration_seconds": 0.104,
+    "runtime_properties": {
+      "MainPID": "26808",
+      "ControlGroup": "/system.slice/sinan-nodequality-r11-chroot-v1.service",
+      "CPUWeight": "10",
+      "IOWeight": "10",
+      "MemoryMax": "268435456",
+      "MemorySwapMax": "0",
+      "TasksMax": "64",
+      "OOMScoreAdjust": "500",
+      "PrivateNetwork": "yes",
+      "PrivateMounts": "yes",
+      "NoNewPrivileges": "yes",
+      "KillMode": "control-group"
+    },
+    "cgroup_metrics": {
+      "memory.peak": "21327872",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+      "pids.peak": "5"
+    },
+    "postcheck": {
+      "final_unit_properties": {
+        "MainPID": "0",
+        "ControlPID": "0",
+        "ControlGroup": "",
+        "LoadState": "not-found",
+        "ActiveState": "inactive",
+        "SubState": "dead"
+      },
+      "oom_since_actual_start": [],
+      "cgroup_exists": false,
+      "residual_fixture_pids": [],
+      "residual_fixture_mounts": [],
+      "ssh": {
+        "MainPID": "406",
+        "NRestarts": "0",
+        "ActiveState": "active"
+      },
+      "swap_entries": 0,
+      "source_files_unchanged": true,
+      "success": true
+    },
+    "files_sha256": {
+      "result.json": "df9caac089eef4b142c26b5a96baec012c6891faf20dd9995f250b89cde9ef97",
+      "postcheck.json": "40c6e1717367684a16e08dbc1a91342fe589ecf4337bcb8320ed7e731cc651bb",
+      "receipt.json": "8e40a2a7dbfdee0439ba7a0bbcf6de650dcae4b91587d90a7297eaa616eb7bb8",
+      "source-sha256.json": "3c29a169f211f640f905f74ef753a20dba4b612957214aa951673a27ad981e40",
+      "source.tar": "c795c1790a3522492a615e55f95f34065d17c2000c293ce897f15c5a550f3b18",
+      "fixture-driver.py": "71502697a6992384b2fb1e69dd320120f52e20d0fa35d60634ee613bfa03e167"
+    },
+    "input_file_count": 44,
+    "repository_input_sha256": {
+      "plugins/nodequality/loader-policy.py": "189fda7f90cd91df37ddfecf206c15137d823128a75e7b22c850abb2e2a2fe92",
+      "plugins/nodequality/dependency-policy.py": "9424dded5fd6c74ff9888fa6e2e3d9482fe8db144fa4c572682fca3f8cf5b5de",
+      "plugins/nodequality/report-policy.py": "0c66e702084820e399a16b18b51ba331cd8edd406dd96ede7c2ee84f78c30245",
+      "plugins/nodequality/chroot-shim.sh": "6d12129f92b8869b9fd78ed5b73a2dff57c3fca82ccc7995fd777646e5ba79bc",
+      "plugins/nodequality/swap-policy.py": "1d6acda7821d013773b273d77db12973d7075631b0309614dadb9c5cfc09ff24",
+      "plugins/nodequality/runner.sh.tmpl": "6d7454beef4965ac681ef438ef14b2485a2c8327032aff3560ba2731edc5367b",
+      "plugins/nodequality/UPSTREAM.txt": "a4e331ce10e96e9063159e9beed5a59c454a5337590c6d4ceb1883b10a6f0d44",
+      "plugins/nodequality/source-helper.py": "9671c558c13518d9f2cf5802ebb83c757bfb5fd177193f2f51a9a37ea06f469c",
+      "plugins/nodequality/curl-shim.sh": "307b56270d67a71d3af667f6e17351bd115676bd3eecb6686b7be26931d0cfce",
+      "plugins/nodequality/data-policy.py": "0115f90f8ce521eab1472d8426b8f8dfbf1fefca427ae0fdfd557b346a8fdab3",
+      "plugins/nodequality/daily.py": "8f376ca7ef0616fedcf981c6ba671401a2e8ffb0c5ac9e4308e9e12a07c38a26",
+      "plugins/nodequality/exit-observer.sh": "b1f68e376ff7e9ee23b03bcfc854aa54440b30370ce7aada2be34ea79b06b257",
+      "plugins/nodequality/report.py": "5118a7cbe5ddb5d317e56606904bd301c30ac28519e8dcda106ce1151afc0b38",
+      "plugins/nodequality/source-lock.json": "16bc414c7f9bf79514b36f9cc3d8b0376a1805ad58f24f8d8be81ddeb8542dd7",
+      "tools/build-nodequality.sh": "055613da086403e992282aa347efb68efe0296355e841499eb1f9def2a8349a0",
+      "tools/test-nodequality-sources.py": "ae6ba4499dcd57f358bb87bc36b2b9e331e15ae425d6386e33b85b511eb8f1cd",
+      "tools/test-nodequality-report-policy.py": "8068ae0a00adbf3ad524c1c88f77c943063a1fab255d42bed48f41e9ba0a6382",
+      "tools/nodequality-source-fixture.py": "1d2a3c3e830a6a4c152ac122f2cb799168f95d5332c1c38855bf7cd269180f64",
+      "tools/test-nodequality-swap-policy.py": "5467733aa370fad06c174da3e85e808e25edf6acd7400bb5d6dcb93ec77c1c60",
+      "tools/test-nodequality-dependency-policy.py": "309403eeb2241c36f5109846eea49b2612393d1c019776a81be7dbe03357d4ed",
+      "tools/test-nodequality-data-policy.py": "cd4031a55496c7e00620ad8e6292c31e58a2f8c12a0f7c6f7f76893bde22acf7",
+      "tools/test-nodequality-loader-policy.py": "c9e491c05aee0f9be630c81aa564a37db45050370b686ac215f0fd852988100c",
+      "tools/test-nodequality.py": "cf5a7d55e69986266c9e1c59cdf459f7fe69479c9e56cc332cc5233d0cbb3910",
+      "tools/test-diagnostic-modes.py": "00522348739ef4adca56964d263c1951dfca798aacc12092f2de5240b73331c3",
+      "crates/protocol/tests/fixtures/TEST_ONLY.key": "21c747afcd9c2932cd2f10fc356028b46730d76eb57e0c820ea90fa44753c07c",
+      "crates/protocol/tests/fixtures/TEST_ONLY.pub": "1883353600a9b2869b72be791a44d6d86e17566042e1ee8becfdca1b3f7a24d1"
+    },
+    "cases": [
+      {
+        "function": "run_header",
+        "producer": "empty_failure",
+        "patched": false,
+        "exit_code": 0,
+        "consumer_executed": false,
+        "arguments": [],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "run_header",
+        "producer": "empty_failure",
+        "patched": true,
+        "exit_code": 70,
+        "consumer_executed": false,
+        "arguments": [],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "run_header",
+        "producer": "partial_failure",
+        "patched": false,
+        "exit_code": 0,
+        "consumer_executed": true,
+        "arguments": [],
+        "stdout_sha256": "fccfd514dba9979d08dab80cb110ae4351faf57dda51b2e7f92f12e71fcf9b78"
+      },
+      {
+        "function": "run_header",
+        "producer": "partial_failure",
+        "patched": true,
+        "exit_code": 70,
+        "consumer_executed": false,
+        "arguments": [],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "run_header",
+        "producer": "success",
+        "patched": false,
+        "exit_code": 0,
+        "consumer_executed": true,
+        "arguments": [],
+        "stdout_sha256": "fccfd514dba9979d08dab80cb110ae4351faf57dda51b2e7f92f12e71fcf9b78"
+      },
+      {
+        "function": "run_header",
+        "producer": "success",
+        "patched": true,
+        "exit_code": 0,
+        "consumer_executed": true,
+        "arguments": [],
+        "stdout_sha256": "fccfd514dba9979d08dab80cb110ae4351faf57dda51b2e7f92f12e71fcf9b78"
+      },
+      {
+        "function": "run_HardwareQuality",
+        "producer": "empty_failure",
+        "patched": false,
+        "exit_code": 0,
+        "consumer_executed": false,
+        "arguments": [
+          "-E",
+          "-V",
+          "-y",
+          "-o",
+          "/result/hardware.json"
+        ],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "run_HardwareQuality",
+        "producer": "empty_failure",
+        "patched": true,
+        "exit_code": 70,
+        "consumer_executed": false,
+        "arguments": [
+          "-E",
+          "-V",
+          "-y",
+          "-o",
+          "/result/hardware.json"
+        ],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "run_HardwareQuality",
+        "producer": "partial_failure",
+        "patched": false,
+        "exit_code": 0,
+        "consumer_executed": true,
+        "arguments": [
+          "-E",
+          "-V",
+          "-y",
+          "-o",
+          "/result/hardware.json"
+        ],
+        "stdout_sha256": "2a07457059ba6663c5e1ef7ffc4a2c4774e5519b59897e646172a6d2819cece8"
+      },
+      {
+        "function": "run_HardwareQuality",
+        "producer": "partial_failure",
+        "patched": true,
+        "exit_code": 70,
+        "consumer_executed": false,
+        "arguments": [
+          "-E",
+          "-V",
+          "-y",
+          "-o",
+          "/result/hardware.json"
+        ],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "run_HardwareQuality",
+        "producer": "success",
+        "patched": false,
+        "exit_code": 0,
+        "consumer_executed": true,
+        "arguments": [
+          "-E",
+          "-V",
+          "-y",
+          "-o",
+          "/result/hardware.json"
+        ],
+        "stdout_sha256": "2a07457059ba6663c5e1ef7ffc4a2c4774e5519b59897e646172a6d2819cece8"
+      },
+      {
+        "function": "run_HardwareQuality",
+        "producer": "success",
+        "patched": true,
+        "exit_code": 0,
+        "consumer_executed": true,
+        "arguments": [
+          "-E",
+          "-V",
+          "-y",
+          "-o",
+          "/result/hardware.json"
+        ],
+        "stdout_sha256": "2a07457059ba6663c5e1ef7ffc4a2c4774e5519b59897e646172a6d2819cece8"
+      },
+      {
+        "function": "run_ip_quality",
+        "producer": "empty_failure",
+        "patched": false,
+        "exit_code": 0,
+        "consumer_executed": false,
+        "arguments": [
+          "-6",
+          "-E",
+          "-y",
+          "-o",
+          "/result/ip.json"
+        ],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "run_ip_quality",
+        "producer": "empty_failure",
+        "patched": true,
+        "exit_code": 70,
+        "consumer_executed": false,
+        "arguments": [
+          "-6",
+          "-E",
+          "-y",
+          "-o",
+          "/result/ip.json"
+        ],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "run_ip_quality",
+        "producer": "partial_failure",
+        "patched": false,
+        "exit_code": 0,
+        "consumer_executed": true,
+        "arguments": [
+          "-6",
+          "-E",
+          "-y",
+          "-o",
+          "/result/ip.json"
+        ],
+        "stdout_sha256": "eb3dc0f1759752873103582913bdcce3074569824f124cb8637ed6aa16664e27"
+      },
+      {
+        "function": "run_ip_quality",
+        "producer": "partial_failure",
+        "patched": true,
+        "exit_code": 70,
+        "consumer_executed": false,
+        "arguments": [
+          "-6",
+          "-E",
+          "-y",
+          "-o",
+          "/result/ip.json"
+        ],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "run_ip_quality",
+        "producer": "success",
+        "patched": false,
+        "exit_code": 0,
+        "consumer_executed": true,
+        "arguments": [
+          "-6",
+          "-E",
+          "-y",
+          "-o",
+          "/result/ip.json"
+        ],
+        "stdout_sha256": "eb3dc0f1759752873103582913bdcce3074569824f124cb8637ed6aa16664e27"
+      },
+      {
+        "function": "run_ip_quality",
+        "producer": "success",
+        "patched": true,
+        "exit_code": 0,
+        "consumer_executed": true,
+        "arguments": [
+          "-6",
+          "-E",
+          "-y",
+          "-o",
+          "/result/ip.json"
+        ],
+        "stdout_sha256": "eb3dc0f1759752873103582913bdcce3074569824f124cb8637ed6aa16664e27"
+      },
+      {
+        "function": "run_net_quality",
+        "producer": "empty_failure",
+        "patched": false,
+        "exit_code": 0,
+        "consumer_executed": false,
+        "arguments": [
+          "-6",
+          "-E",
+          "-L",
+          "-y",
+          "-o",
+          "/result/net.json"
+        ],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "run_net_quality",
+        "producer": "empty_failure",
+        "patched": true,
+        "exit_code": 70,
+        "consumer_executed": false,
+        "arguments": [
+          "-6",
+          "-E",
+          "-L",
+          "-y",
+          "-o",
+          "/result/net.json"
+        ],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "run_net_quality",
+        "producer": "partial_failure",
+        "patched": false,
+        "exit_code": 0,
+        "consumer_executed": true,
+        "arguments": [
+          "-6",
+          "-E",
+          "-L",
+          "-y",
+          "-o",
+          "/result/net.json"
+        ],
+        "stdout_sha256": "8010103fe338cb5d3581c151de3f6b40a37549ca7cf292e0818605ef4364a8e1"
+      },
+      {
+        "function": "run_net_quality",
+        "producer": "partial_failure",
+        "patched": true,
+        "exit_code": 70,
+        "consumer_executed": false,
+        "arguments": [
+          "-6",
+          "-E",
+          "-L",
+          "-y",
+          "-o",
+          "/result/net.json"
+        ],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "run_net_quality",
+        "producer": "success",
+        "patched": false,
+        "exit_code": 0,
+        "consumer_executed": true,
+        "arguments": [
+          "-6",
+          "-E",
+          "-L",
+          "-y",
+          "-o",
+          "/result/net.json"
+        ],
+        "stdout_sha256": "8010103fe338cb5d3581c151de3f6b40a37549ca7cf292e0818605ef4364a8e1"
+      },
+      {
+        "function": "run_net_quality",
+        "producer": "success",
+        "patched": true,
+        "exit_code": 0,
+        "consumer_executed": true,
+        "arguments": [
+          "-6",
+          "-E",
+          "-L",
+          "-y",
+          "-o",
+          "/result/net.json"
+        ],
+        "stdout_sha256": "8010103fe338cb5d3581c151de3f6b40a37549ca7cf292e0818605ef4364a8e1"
+      },
+      {
+        "function": "run_net_trace",
+        "producer": "empty_failure",
+        "patched": false,
+        "exit_code": 0,
+        "consumer_executed": false,
+        "arguments": [
+          "-6",
+          "-E",
+          "-R",
+          "-n",
+          "-S",
+          "123",
+          "-o",
+          "/result/route.json"
+        ],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "run_net_trace",
+        "producer": "empty_failure",
+        "patched": true,
+        "exit_code": 70,
+        "consumer_executed": false,
+        "arguments": [
+          "-6",
+          "-E",
+          "-R",
+          "-n",
+          "-S",
+          "123",
+          "-o",
+          "/result/route.json"
+        ],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "run_net_trace",
+        "producer": "partial_failure",
+        "patched": false,
+        "exit_code": 0,
+        "consumer_executed": true,
+        "arguments": [
+          "-6",
+          "-E",
+          "-R",
+          "-n",
+          "-S",
+          "123",
+          "-o",
+          "/result/route.json"
+        ],
+        "stdout_sha256": "728e8a8318a534510ebd7559ec42890cbb752b698c039c45f02553d0b7f4c0ba"
+      },
+      {
+        "function": "run_net_trace",
+        "producer": "partial_failure",
+        "patched": true,
+        "exit_code": 70,
+        "consumer_executed": false,
+        "arguments": [
+          "-6",
+          "-E",
+          "-R",
+          "-n",
+          "-S",
+          "123",
+          "-o",
+          "/result/route.json"
+        ],
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "function": "run_net_trace",
+        "producer": "success",
+        "patched": false,
+        "exit_code": 0,
+        "consumer_executed": true,
+        "arguments": [
+          "-6",
+          "-E",
+          "-R",
+          "-n",
+          "-S",
+          "123",
+          "-o",
+          "/result/route.json"
+        ],
+        "stdout_sha256": "728e8a8318a534510ebd7559ec42890cbb752b698c039c45f02553d0b7f4c0ba"
+      },
+      {
+        "function": "run_net_trace",
+        "producer": "success",
+        "patched": true,
+        "exit_code": 0,
+        "consumer_executed": true,
+        "arguments": [
+          "-6",
+          "-E",
+          "-R",
+          "-n",
+          "-S",
+          "123",
+          "-o",
+          "/result/route.json"
+        ],
+        "stdout_sha256": "728e8a8318a534510ebd7559ec42890cbb752b698c039c45f02553d0b7f4c0ba"
+      }
+    ],
+    "system_binary_sha256": {
+      "/bin/bash": "f5918390c5b15392ad8835e8368a79c1ee9937fbb19f2349cccf5d4524183299",
+      "/lib/aarch64-linux-gnu/libc.so.6": "e4ac8ae1d81e4865e3aadedb962879cf9415903b3f2ba81ec75e9962b86ab8b0",
+      "/lib/aarch64-linux-gnu/libtinfo.so.6": "3486c8bf9712132d1834a4800d5002e37d4edc670daa9652b3d470eb813aec55",
+      "/lib/ld-linux-aarch64.so.1": "17538b8f9889a470c061f69a8fea8124da89627311cd16546c133a89f09056df",
+      "/usr/bin/env": "67a8c7fac47281a5ee335366bcd12f31aa7eeca008cef6eccad38304753ddee9"
+    },
+    "minimal_root_removed": true,
+    "private_proc_mount": "proc rw,nosuid,nodev,noexec,relatime"
+  },
+  "not_verified": [
+    "Complete upstream bootstrap, BenchOS or benchmark execution",
+    "Rootfs and secondary tool provenance, integrity, licenses and bounded packaging",
+    "Remaining cookies, browser impersonation, ads and upload paths",
+    "Authorization for third-party targets and provider access",
+    "Full NodeQuality under continuous proxy load and complete fault matrix",
+    "Formal signing, release, deployment or paused CI"
+  ]
+}

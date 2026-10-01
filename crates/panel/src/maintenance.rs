@@ -14,5 +14,13 @@ pub async fn run(state: AppState) {
         {
             tracing::error!(%error, "server expiry renewal failed");
         }
+        let now = sinan_protocol::now_timestamp();
+        if let Err(error) = crate::notifications::evaluate(&state.pool, state.started_at, now).await
+        {
+            tracing::error!(%error, "offline event evaluation failed");
+        }
+        if let Err(error) = crate::notifications::dispatch(&state.pool, now).await {
+            tracing::error!(%error, "notification delivery failed");
+        }
     }
 }

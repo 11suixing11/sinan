@@ -13,9 +13,9 @@ use uuid::Uuid;
 
 #[derive(serde::Serialize)]
 pub struct Overview {
-    server_id: i64,
-    probe: ProbeSpec,
-    results: Vec<ProbeResult>,
+    pub(crate) server_id: i64,
+    pub(crate) probe: ProbeSpec,
+    pub(crate) results: Vec<ProbeResult>,
 }
 
 pub async fn overview(
@@ -23,6 +23,13 @@ pub async fn overview(
     headers: HeaderMap,
 ) -> ApiResult<Json<Vec<Overview>>> {
     auth::require_admin(&state, &headers).await?;
+    read_overview(&state, false).await
+}
+
+pub(crate) async fn read_overview(
+    state: &AppState,
+    visible_only: bool,
+) -> ApiResult<Json<Vec<Overview>>> {
     // One indexed query for all cards; each target has an independent sample budget.
     let rows: Vec<(i64, serde_json::Value, serde_json::Value)> = sqlx::query_as(
         "SELECT p.server_id, p.spec, COALESCE(samples.results, '[]'::jsonb)
@@ -32,10 +39,11 @@ pub async fn overview(
              FROM (SELECT id, sampled_at, result FROM probe_results
                    WHERE server_id=p.server_id AND probe_id=p.id AND sampled_at>$1 AND sampled_at<=$2
                    ORDER BY sampled_at DESC, id DESC LIMIT 20) recent
-         ) samples ON TRUE ORDER BY p.server_id, p.id",
+         ) samples ON TRUE WHERE (NOT $3 OR COALESCE(s.asset_settings->>'hidden','false')<>'true') ORDER BY p.server_id, p.id",
     )
     .bind(now_millis() - 86_400_000)
     .bind(now_millis())
+    .bind(visible_only)
     .fetch_all(&state.pool).await?;
     Ok(Json(
         rows.into_iter()
@@ -60,7 +68,7 @@ pub async fn list(
     read(&state, server).await
 }
 
-async fn read(state: &AppState, server: i64) -> ApiResult<Json<Vec<ProbeSpec>>> {
+pub(crate) async fn read(state: &AppState, server: i64) -> ApiResult<Json<Vec<ProbeSpec>>> {
     let rows: Vec<serde_json::Value> =
         sqlx::query_scalar("SELECT spec FROM network_probes WHERE server_id=$1 ORDER BY id")
             .bind(server)
@@ -185,6 +193,14 @@ pub async fn history(
     Query(query): Query<HistoryQuery>,
 ) -> ApiResult<Json<Vec<ProbeResult>>> {
     auth::require_admin(&state, &headers).await?;
+    read_history(&state, server, query).await
+}
+
+pub(crate) async fn read_history(
+    state: &AppState,
+    server: i64,
+    query: HistoryQuery,
+) -> ApiResult<Json<Vec<ProbeResult>>> {
     let hours = query.hours.unwrap_or(24);
     if !(1..=24).contains(&hours) {
         return Err(ApiError::BadRequest("拨测历史范围须为 1 至 24 小时".into()));

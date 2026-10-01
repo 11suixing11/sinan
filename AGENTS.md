@@ -44,4 +44,6 @@
 
 2026-10-01 用户进一步授权 sing-box 插件的策略组、套餐组及可授权的两跳链路，覆盖上述对应排除项。按 [ADR 0035](docs/adr/0035-singbox-policy-package-groups.md) 实现：权限组与套餐分别分配，套餐使用不可变快照和原计量账本；独立入口到出口仅支持两台服务器，不扩大为任意拓扑或平台全局用户。不能把清空计量 epoch 当作重置套餐，也不能把订阅过滤当作运行时停用。保持旧用户/凭据兼容，不混跑新旧 publisher；生产迁移、发布与实机验收单独授权。
 
+2026-10-01 用户进一步授权服务器展示隐藏、可选公开看板、离线站内告警及 Telegram 通知、Agent 下载加速与服务器网卡流量矫正，并明确 Agent 二进制必须从 GitHub 下载，不能由面板提供。按 [ADR 0037](docs/adr/0037-server-operations-and-public-dashboard.md) 实现：安装和自更新保留独立验签，镜像请求不携带设备凭据；运行时与配置仍经面板；公开看板使用只读白名单及统一隐藏校验，流量矫正不改代理业务账本。覆盖旧 ADR 的 Agent 二进制面板同源下载限制，CI 暂停安排不变。
+
 详细架构约束见 `docs/adr/0001-declarative-snapshots.md` 至 `docs/adr/0011-loopback-local-api.md`。

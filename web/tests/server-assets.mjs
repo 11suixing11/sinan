@@ -39,8 +39,9 @@ try {
     entries.forEach(refreshTraffic)
     let failedPatch = false
     await page.route('**/api/**', async route => {
-      const request = route.request(), url = new URL(request.url()), path = url.pathname
+      const request = route.request(), url = new URL(request.url()), path = url.pathname.replace('/api/dashboard/', '/api/')
       const fulfill = (json, status = 200) => route.fulfill({ status, json })
+      if (path === '/api/access') return route.fulfill({ json: { authenticated: true, public_dashboard: false } })
       if (path === '/api/me') return fulfill({ id: 1 })
       if (request.method() !== 'GET') writes.push({ path, method: request.method(), body: request.postDataJSON() })
       if (path === '/api/servers' && request.method() === 'GET') return fulfill(entries)

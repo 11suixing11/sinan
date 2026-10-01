@@ -1,5 +1,7 @@
 # ADR 0017：minisign 发布制品、构建时信任根与 Release 导入
 
+> 2026-10-01 更新：[ADR 0037](0037-server-operations-and-public-dashboard.md) 按用户要求将 Agent 安装/自更新改为 GitHub Release 下载，支持独立 HTTPS 镜像且不发送设备凭据。下文面板同源下载仅继续约束运行时和配置；签名及编译时信任根要求不变。
+
 - 状态：已采纳，2026-09-30；先完成本文，再实施。正式信任根与正式签署由用户提供；实现先使用明确的测试根。
 - 用户决定：minisign、编译时多个公钥、`minisign-verify` 验签，CI 不取得发布私钥。
 
