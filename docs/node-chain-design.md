@@ -95,7 +95,7 @@ A 的入口路由：目标 = B 的内部 tag
 
 协议校验区分“代理提供的用户 TCP/UDP”与“连接该代理所需的下层承载”，从最终用户流量需求逐跳倒推。不能直接取所有跳的 TCP/UDP 交集。例如 HTTP 中间节点可以承载后续无额外 transport 的 Reality 出口所需的 TCP/TLS，而该 Reality 出口可用 XUDP 转发用户 UDP；HTTP 作为最终出口则只有 TCP。HTTP 中间节点不能直接承载后续 Hysteria2 所需的 UDP/QUIC。判断必须包含 transport、network、UoT/mux、目标平台和签名运行时构建特性，不能只按协议名称判断。参见固定 [VLESS](https://github.com/SagerNet/sing-box/blob/v1.14.2/protocol/vless/outbound.go) 与 [HTTP](https://github.com/SagerNet/sing-box/blob/v1.14.2/protocol/http/outbound.go) 实现。
 
-本次用官方 ARM64 1.14.2 仅执行了九个配置 `check`：订阅 HTTP 中间段到 Reality 出口、混合四段等结构被接受，重复 tag 和未知字段被拒绝；环、缺失 detour 及 HTTP 到 Hysteria2 也返回成功。这证明 `check` 不能代替自己的图和承载校验，见上游 [check 命令](https://github.com/SagerNet/sing-box/blob/v1.14.2/cmd/sing-box/cmd_check.go)。未启动服务、获取机场订阅或执行端到端流量。
+本次用固定上游源码版本的 ARM64 1.14.2 运行时仅执行了九个配置 `check`：订阅 HTTP 中间段到 Reality 出口、混合四段等结构被接受，重复 tag 和未知字段被拒绝；环、缺失 detour 及 HTTP 到 Hysteria2 也返回成功。这证明 `check` 不能代替自己的图和承载校验，见上游 [check 命令](https://github.com/SagerNet/sing-box/blob/v1.14.2/cmd/sing-box/cmd_check.go)。未启动服务、获取机场订阅或执行端到端流量。
 
 ## 后端资源模型与接口
 
