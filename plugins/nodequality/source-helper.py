@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and serve the runner's pinned first-level sources; never execute them."""
+"""Validate canonical sources and serve the fixed public-report policy variant."""
 import argparse
 import base64
 import hashlib
@@ -12,6 +12,8 @@ import sys
 
 MAX_FILE = 2 * 1024 * 1024
 MAX_BUNDLE = 8 * 1024 * 1024
+REPORT_POLICY_SHA256 = '0c66e702084820e399a16b18b51ba331cd8edd406dd96ede7c2ee84f78c30245'
+REPORT_ROLES = frozenset({'hardware.sh', 'ip.sh', 'net.sh'})
 FILES = {
     'NodeQuality.sh': ('LloydAsp/NodeQuality', 'NodeQuality.sh', 'LICENSE.nodequality'),
     'header.sh': ('LloydAsp/NodeQuality', 'part/header.sh', 'LICENSE.nodequality'),
@@ -113,8 +115,21 @@ def receive(path, stream):
         raise
 
 
+def report_policy():
+    path = Path(__file__).with_name('report-policy.py')
+    content = ordinary(path, 65536)
+    if hashlib.sha256(content).hexdigest() != REPORT_POLICY_SHA256:
+        raise ValueError('signed report policy helper SHA256 mismatch')
+    namespace = {'__name__': 'sinan_report_policy', '__file__': str(path)}
+    # Execute only the exact verified helper bytes, never a second path lookup.
+    # Its bounded transform does not execute upstream code or perform I/O.
+    exec(compile(content, str(path), 'exec'), namespace)
+    return namespace
+
+
 def pack(lock, directory):
     rows = validate(lock)
+    report_policy()
     files = {name: base64.b64encode(verified(ordinary(directory / name, MAX_FILE), row)).decode()
              for name, row in rows.items()}
     result = (json.dumps(dict(schema=1, lock=lock, files=files), sort_keys=True, separators=(',', ':')) + '\n').encode()
@@ -149,7 +164,15 @@ def serve(directory, arguments):
         raise ValueError('source directory must be private and ordinary')
     rows = validate(decode(ordinary(directory / 'source-lock.json', 65536)))
     name = ALIASES[arguments[1]]
-    return verified(ordinary(directory / name, MAX_FILE), rows[name])
+    canonical = verified(ordinary(directory / name, MAX_FILE), rows[name])
+    if name not in REPORT_ROLES:
+        return canonical
+    policy = report_policy()
+    patched = policy['transform'](name, canonical)
+    if (not isinstance(patched, bytes) or len(patched) > MAX_FILE + 2048
+            or hashlib.sha256(patched).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
+        raise ValueError('served report policy output SHA256 or byte limit mismatch')
+    return patched
 
 
 def main():

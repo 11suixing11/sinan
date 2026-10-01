@@ -22,7 +22,7 @@ from unittest import mock
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / 'plugins/nodequality'
-VERSION = 'a92fca6c0067df29ddd03fdc2fee6f3000f64545-r6'
+VERSION = 'a92fca6c0067df29ddd03fdc2fee6f3000f64545-r7'
 
 
 def module(name, path):
@@ -33,6 +33,8 @@ def module(name, path):
 
 
 helper = module('pinned_sources', PLUGIN / 'source-helper.py')
+policy = module('public_report_policy', PLUGIN / 'report-policy.py')
+fixture = module('source_fixture_util', ROOT / 'tools/nodequality-source-fixture.py')
 
 
 class SourceTests(unittest.TestCase):
@@ -46,10 +48,14 @@ class SourceTests(unittest.TestCase):
         for row in self.lock['files']:
             # This is shell code with an observable private side effect. Neither
             # packaging nor serving is allowed to execute even this inert code.
-            content = ("#!/bin/sh\nprintf '%s' '" + row['name'] + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+            content = fixture.inert_source(row['name'], policy)
             row['sha256'] = hashlib.sha256(content).hexdigest()
             row['size'] = len(content)
             (self.sources / row['name']).write_bytes(content)
+        self.fixture_plugin = self.root / 'fixture-plugin'
+        shutil.copytree(PLUGIN, self.fixture_plugin)
+        self.policy_outputs = fixture.prepare_policy(self.fixture_plugin,
+            {name: (self.sources / name).read_bytes() for name in helper.FILES})
         self.lock_path = self.root / 'source-lock.json'
         self.lock_path.write_text(json.dumps(self.lock))
         self.bundle_path = self.root / 'pinned-chain.json'
@@ -61,7 +67,7 @@ class SourceTests(unittest.TestCase):
         self.real_curl.write_text('#!/bin/sh\nprintf called > "' + str(self.called) + '"\nexit 0\n')
         self.real_curl.chmod(0o700)
         self.environment = dict(os.environ, SINAN_REAL_CURL=str(self.real_curl),
-                                SINAN_CHAIN_HELPER=str(PLUGIN / 'source-helper.py'),
+                                SINAN_CHAIN_HELPER=str(self.fixture_plugin / 'source-helper.py'),
                                 SINAN_CHAIN_DIRECTORY=str(self.materialized), NQ_SOURCE_EXECUTED=str(self.executed))
 
     def tearDown(self):
@@ -71,13 +77,13 @@ class SourceTests(unittest.TestCase):
         return subprocess.run(['bash', str(PLUGIN / 'curl-shim.sh'), *args], env=self.environment,
                               capture_output=True, timeout=3)
 
-    def test_all_five_actual_loader_requests_return_exact_original_bytes_without_execution_or_network(self):
+    def test_all_five_actual_loader_requests_return_expected_policy_bytes_without_execution_or_network(self):
         for url, name in helper.ALIASES.items():
             flag = '-sL' if name == 'swap.sh' else '-Ls'
             with self.subTest(name=name):
                 result = self.shim(flag, url)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(result.stdout, (self.sources / name).read_bytes())
+                self.assertEqual(result.stdout, self.policy_outputs.get(name, (self.sources / name).read_bytes()))
         self.assertFalse(self.called.exists())
         self.assertFalse(self.executed.exists())
         for row in self.lock['files']:
@@ -141,8 +147,8 @@ class SourceTests(unittest.TestCase):
             runner = runner.replace(guard, ':')
         for name, payload in [('NODEQUALITY_SOURCE', entry), ('NODEQUALITY_LICENSE', '# Synthetic license\n'),
                               ('PINNED_CHAIN', self.bundle_path.read_text())] + [
-                              (name, (PLUGIN / path).read_text()) for name, path in [
-                                  ('SOURCE_HELPER', 'source-helper.py'), ('REPORT_HELPER', 'report.py'),
+                              (name, (self.fixture_plugin / path).read_text()) for name, path in [
+                                  ('SOURCE_HELPER', 'source-helper.py'), ('REPORT_POLICY_HELPER', 'report-policy.py'), ('REPORT_HELPER', 'report.py'),
                                   ('EXIT_OBSERVER', 'exit-observer.sh'), ('DAILY_HELPER', 'daily.py'),
                                   ('CURL_SHIM', 'curl-shim.sh'), ('CHROOT_SHIM', 'chroot-shim.sh')]]:
             runner = runner.replace('@' + name + '@\n', payload)
@@ -154,7 +160,7 @@ class SourceTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, 'synthetic sources produce no benchmark report')
         for name in helper.ALIASES.values():
             self.assertTrue((workspace / ('captured-' + name)).exists(), result.stderr.decode())
-            self.assertEqual((workspace / ('captured-' + name)).read_bytes(), (self.sources / name).read_bytes())
+            self.assertEqual((workspace / ('captured-' + name)).read_bytes(), self.policy_outputs.get(name, (self.sources / name).read_bytes()))
         self.assertFalse(self.called.exists())
         self.assertFalse(self.executed.exists())
         self.assertFalse((workspace / '.runner').exists())
@@ -306,7 +312,7 @@ class SourceTests(unittest.TestCase):
     def build_tree(self):
         tree = self.root / 'project'
         (tree / 'tools').mkdir(parents=True)
-        shutil.copytree(PLUGIN, tree / 'plugins/nodequality')
+        shutil.copytree(self.fixture_plugin, tree / 'plugins/nodequality')
         shutil.copy2(ROOT / 'tools/build-nodequality.sh', tree / 'tools/build-nodequality.sh')
         # Only this private test tree has synthetic source hashes. The production
         # manifest remains unchanged and exposes no runtime source override.
@@ -376,6 +382,23 @@ sys.stdout.buffer.write((pathlib.Path(os.environ['NQ_INPUTS']) / matching[0]['na
         self.assertFalse((output / '.build.lock').exists())
         self.assertFalse(self.executed.exists())
 
+    def test_builder_rejects_a_changed_or_missing_report_policy_helper_before_artifact(self):
+        tree, environment = self.build_tree()
+        target = tree / 'plugins/nodequality/report-policy.py'
+        original = target.read_bytes()
+        for content in (original[:-1] + b'!', None):
+            if content is None:
+                target.unlink()
+            else:
+                target.write_bytes(content)
+            result = self.build(tree, environment, 'amd64')
+            self.assertNotEqual(result.returncode, 0)
+            output = self.root / 'artifacts/nodequality' / VERSION
+            self.assertFalse((output / 'amd64').exists())
+            self.assertFalse((output / 'SHA256SUMS').exists())
+            self.assertFalse((output / '.build.lock').exists())
+        self.assertFalse(self.executed.exists())
+
     def test_builder_rejects_a_source_commit_that_does_not_match_its_artifact_version(self):
         tree, environment = self.build_tree()
         for row in self.lock['files']:
@@ -426,6 +449,7 @@ sys.stdout.buffer.write((pathlib.Path(os.environ['NQ_INPUTS']) / matching[0]['na
         self.assertEqual(release.verify_bundle(bundle, [key], shutil.which('minisign'))['artifacts'][0]['version'], VERSION)
         with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
             content = archive.extractfile('nodequality').read()
+        self.assertIn((tree / 'plugins/nodequality/report-policy.py').read_bytes(), content)
         # Mutate an embedded license's base64 representation inside the runner.
         bundle_text = helper.pack(self.lock, self.sources)
         self.assertIn(bundle_text, content)

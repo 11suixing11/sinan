@@ -391,6 +391,7 @@ class BuildTests(unittest.TestCase):
                     runner = runner.replace(requirement, ":")
                 for marker, source in (("@NODEQUALITY_SOURCE@", upstream), ("@NODEQUALITY_LICENSE@", "fixture"),
                                        ("@SOURCE_HELPER@", (PLUGIN / "source-helper.py").read_text()),
+                                       ("@REPORT_POLICY_HELPER@", (PLUGIN / "report-policy.py").read_text()),
                                        ("@PINNED_CHAIN@", source_bundle()),
                                        ("@REPORT_HELPER@", (PLUGIN / "report.py").read_text()),
                                        ("@EXIT_OBSERVER@", (PLUGIN / "exit-observer.sh").read_text()),
@@ -412,7 +413,7 @@ class BuildTests(unittest.TestCase):
 
     def test_repeated_build_refuses_to_modify_the_existing_artifact_and_checksum(self):
         with tempfile.TemporaryDirectory() as directory:
-            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r6"
+            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r7"
             root = pathlib.Path(directory) / "nodequality" / version
             root.mkdir(parents=True)
             artifact = root / "amd64"
@@ -469,7 +470,7 @@ class BuildTests(unittest.TestCase):
             subprocess.run(["bash", "-n", str(script)], check=True)
         result = subprocess.run(["bash", str(PLUGIN / "runner.sh.tmpl"), "--version"],
                                 capture_output=True, text=True, check=True)
-        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r6")
+        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r7")
 
     def test_existing_architecture_checksums_are_not_replaced(self):
         script = (PLUGIN.parents[1] / "tools/build-nodequality.sh").read_text()
@@ -591,6 +592,7 @@ work_dir=$workspace/.nodequalityfixture
             ("NODEQUALITY_SOURCE", fixture),
             ("NODEQUALITY_LICENSE", "Synthetic test fixture; no upstream tests run.\n"),
             ("SOURCE_HELPER", (PLUGIN / "source-helper.py").read_text()),
+            ("REPORT_POLICY_HELPER", (PLUGIN / "report-policy.py").read_text()),
             ("PINNED_CHAIN", source_bundle()),
             ("REPORT_HELPER", (PLUGIN / "report.py").read_text()),
             ("EXIT_OBSERVER", (PLUGIN / "exit-observer.sh").read_text()),
