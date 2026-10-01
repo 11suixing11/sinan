@@ -2,7 +2,7 @@
 # Sinan runner for the original pinned NodeQuality script.
 set -euo pipefail
 umask 077
-version=a92fca6c0067df29ddd03fdc2fee6f3000f64545-r6
+version=a92fca6c0067df29ddd03fdc2fee6f3000f64545-r7
 usage() {
   cat <<'USAGE'
 Usage: nodequality --workspace <ABSOLUTE_DIRECTORY> --mode daily|full --ip-version both|ipv4|ipv6 --network-mode low|normal [--upload-report true|false]
@@ -15,7 +15,8 @@ hardware benchmark, bandwidth test, upstream script or public upload runs.
 Hardware, IP, network and return-route diagnostics run only when this command is
 explicitly started. Local output: result.txt, report.zip, log.txt and an optional
 report-url.txt and atomic section-*.json chapters in the private workspace. NodeQuality performs external downloads
-and tests. Public report upload is disabled unless --upload-report true is set.
+and tests. The entrypoint and three script report POSTs are disabled unless
+--upload-report true is set. Other requests and tool uploads remain separate.
 USAGE
 }
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
@@ -118,6 +119,9 @@ SINAN_NODEQUALITY_EXIT_OBSERVER
 cat > "$runtime/source-helper.py" <<'SINAN_NODEQUALITY_SOURCE_HELPER'
 @SOURCE_HELPER@
 SINAN_NODEQUALITY_SOURCE_HELPER
+cat > "$runtime/report-policy.py" <<'SINAN_NODEQUALITY_REPORT_POLICY'
+@REPORT_POLICY_HELPER@
+SINAN_NODEQUALITY_REPORT_POLICY
 cat > "$runtime/pinned-chain.json" <<'SINAN_NODEQUALITY_PINNED_CHAIN'
 @PINNED_CHAIN@
 SINAN_NODEQUALITY_PINNED_CHAIN

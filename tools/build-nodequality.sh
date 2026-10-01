@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Package the pinned, unmodified NodeQuality source as one executable runner.
+# Package canonical NodeQuality sources and the fixed public report policy.
 set -euo pipefail
 umask 022
 
@@ -8,12 +8,13 @@ usage() {
 Usage: tools/build-nodequality.sh <amd64|arm64> <ARTIFACT_ROOT>
 
 Build prerequisites: bash, curl, python3. No benchmark runs during packaging.
-Output: ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r6/<arch>
-        ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r6/SHA256SUMS
+Output: ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r7/<arch>
+        ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r7/SHA256SUMS
 
 Both targets contain one architecture-independent executable named nodequality.
-The original entrypoint, five first-level scripts and four full licenses are
-embedded verbatim. This does not pin or authorize rootfs and secondary tools.
+The canonical entrypoint, five first-level scripts and four full licenses are
+embedded verbatim. A fixed helper gates only three public report POST call sites
+when serving HW/IP/Net sources. Rootfs and secondary tools remain unpinned.
 Existing architecture files are immutable. Packaging verifies and retains the
 other architecture's checksum entry. Run architectures sequentially.
 USAGE
@@ -26,7 +27,7 @@ case "$arch" in amd64|arm64) ;; *) die 'architecture must be amd64 or arm64' ;; 
 [[ -n $2 ]] || die 'ARTIFACT_ROOT must not be empty'
 for tool in curl python3; do command -v "$tool" >/dev/null || die "missing build tool: $tool"; done
 upstream_revision=a92fca6c0067df29ddd03fdc2fee6f3000f64545
-version=$upstream_revision-r6
+version=$upstream_revision-r7
 output=$2/nodequality/$version
 [[ ! -L $output ]] || die 'output version directory must not be a symlink'
 mkdir -p "$output"
@@ -103,6 +104,7 @@ for marker, path in (
     ("NODEQUALITY_LICENSE", scratch / "LICENSE.nodequality"),
     ("PINNED_CHAIN", scratch / "pinned-chain.json"),
     ("SOURCE_HELPER", plugin / "source-helper.py"),
+    ("REPORT_POLICY_HELPER", plugin / "report-policy.py"),
     ("REPORT_HELPER", plugin / "report.py"),
     ("EXIT_OBSERVER", plugin / "exit-observer.sh"),
     ("DAILY_HELPER", plugin / "daily.py"),

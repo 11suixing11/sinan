@@ -1032,3 +1032,11 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 ## 2026-10-01：#104 文档冲突整合
 
 - 固定合入主线 `412e8fc`，唯一冲突为本文件双方追加记录，均完整保留。NodeQuality、SDK、core、Cargo.lock 与已验 `6d1e731` 输入保持；来源及 guest 验收不重跑，不以此认证主线新增业务。既有 Rust19 对应 `92800dd` 基线，整合后的面板编译输入另随下一项版本验收记录；CI 继续暂停。
+
+## 2026-10-01：NodeQuality 三处公开报告 POST 策略（关联 #65 独立项）
+
+- r7 将固定 report-policy helper 接入实际 builder、runner 与 source-helper serve；先核 canonical SHA，再固定变换 HW/IP/Net 三处公开报告 POST。默认 false，非法策略在 bootstrap/探测前拒绝；不修改隐私模式或 CPU/GPU 调用、`-o` 本地 JSON/ANSI 和面板采集。Net 增加局部空链接，避免禁止上传时显示继承的旧链接。canonical source-lock/许可证和 r2–r6 旧不可变制品保持，r4–r7 daily 兼容。
+- 私有组合夹具实际走嵌入 helper 与 shim；旧未 patch 负对照和 true 到自有回环 recorder，false/default 零 POST。三份既有真实源的静态 production transform 收据均核验 original/patched SHA，逆向移除固定变更后逐字节恢复；不执行有效上游脚本或真实探测。Mac Bash 3 的 stdin 模拟只证明接线，Linux 原 FD 与有限真实 chroot 环境继承分别待专用 guest 验证。
+- 已保留 r6 `6d1e731` 下载流上限补修并在受测 `bf0ad14` 执行 host 来源16、合成策略6、固定原文函数体组合2，全部通过且无跳过；3份原源的 production helper 静态收据可逆还原。固定重基到 r6 合流 `2d63c965` 仅解决双方 PROGRESS 追加记录，19份选定产品/测试/构建/Cargo输入SHA逐项不变，不重复host。此前 r7 版本阶段 wrapper34、daily7、release32（28通过/4既有跳过）另保留原快照归属。
+- 最终 Rust19 及 Debian guest 的原 FD/有限 chroot 收据由根任务单独记录，尚不以 Mac stdin 模拟签收 Linux；具体结果与源码身份见 [三处 POST 策略验收](docs/acceptance/nodequality-public-report-policy.md)。四个 workflow 保持暂停；仅登记未来测试命令，不触发/重启 CI，也不正式签名、发布或部署。
+- `mark.check.place`、Geekbench 自身上传、完整 rootfs/二级工具执行与授权仍未解决；#65/#28/#66 不关闭，全版本 full 门禁保留，不把三处 POST 禁止宣称为全部零上传或完整验机通过。
