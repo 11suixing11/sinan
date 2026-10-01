@@ -1,26 +1,18 @@
 import { useState } from 'react'
 import { AgentSettings } from './AgentSettings'
 import AgentTasks from './AgentTasks'
-import { api } from '../api'
-import { Badge, CopyField, ErrorNotice, Field, Icon, Loading, Modal, PageHeader, Refresh, Stat } from '../components'
+import { Badge, ErrorNotice, Icon, Loading, PageHeader, Refresh, Stat } from '../components'
 import { bytes, navigate, percent, time, uptime } from '../format'
-import { useAction, useResource } from '../hooks'
-import type { Enrollment, Server } from '../types'
+import { useResource } from '../hooks'
+import type { Server } from '../types'
 import ServerNavigation from './ServerNavigation'
+import ServerEnrollment from './ServerEnrollment'
 import { ServerPlugins } from '../plugins'
 
 export default function ServerDetail({ id }: { id: number }) {
   const server = useResource<Server>(`/api/servers/${id}`)
   const [pluginRevision, setPluginRevision] = useState(0)
-  const action = useAction()
-  const [enrollment, setEnrollment] = useState<Enrollment | null>(null)
   const [installing, setInstalling] = useState(false)
-  const [agentVersion, setAgentVersion] = useState('')
-  const enroll = (version = agentVersion) => {
-    setEnrollment(null)
-    const query = version.trim() ? `?agent_version=${encodeURIComponent(version.trim())}` : ''
-    void action.run(() => api<Enrollment>(`/api/servers/${id}/enrollment${query}`, 'POST'), setEnrollment)
-  }
   const refresh = () => { server.reload(); setPluginRevision(value => value + 1) }
   const entry = server.data
   if (!entry) return <><button className="back-link" onClick={() => navigate('/servers')}><Icon name="back" size={16} />返回服务器</button><ErrorNotice message={server.error} retry={server.reload} />{server.loading && <Loading />}</>
@@ -28,7 +20,7 @@ export default function ServerDetail({ id }: { id: number }) {
   const rows = [['操作系统', info.system], ['内核版本', info.kernel], ['系统架构', info.arch], ['主机名', info.hostname], ['处理器型号', info.cpu_model], ['核心数', info.cpu_cores], ['总内存', info.memory_total === undefined ? undefined : bytes(info.memory_total)], ['磁盘容量', info.disk_total === undefined ? undefined : bytes(info.disk_total)], ['虚拟化', info.virtualization], ['Agent 版本', info.agent_version], ['最近设备消息', entry.last_seen ? time(entry.last_seen) : undefined], ['最后心跳', entry.last_heartbeat_at ? time(entry.last_heartbeat_at) : '尚未记录'], ['最后指标', entry.metrics_sampled_at ? time(entry.metrics_sampled_at / 1000) : Object.keys(metrics).length ? '时间未知' : '尚未上报']]
   return <>
     <button className="back-link" onClick={() => navigate('/servers')}><Icon name="back" size={16} />返回服务器</button>
-    <PageHeader eyebrow={`服务器 #${entry.id}`} title={entry.name} description="系统概况、运行指标与设备状态。"><Badge tone={entry.online ? 'good' : 'neutral'}>{entry.online ? '在线' : entry.device_public_key ? '离线' : '待接入'}</Badge>{entry.metrics_stale && <Badge tone="warm">指标过期</Badge>}<Refresh onClick={refresh} /><button className="button button-primary" onClick={() => { setInstalling(true); setAgentVersion(''); enroll('') }}><Icon name="plus" size={16} />接入 / 升级</button></PageHeader>
+    <PageHeader eyebrow={`服务器 #${entry.id}`} title={entry.name} description="系统概况、运行指标与设备状态。"><Badge tone={entry.online ? 'good' : 'neutral'}>{entry.online ? '在线' : entry.device_public_key ? '离线' : '待接入'}</Badge>{entry.metrics_stale && <Badge tone="warm">指标过期</Badge>}<Refresh onClick={refresh} /><button className="button button-primary" onClick={() => setInstalling(true)}><Icon name="plus" size={16} />接入 / 升级</button></PageHeader>
     <ServerNavigation id={id} active="overview" />
     <ErrorNotice message={server.error} retry={refresh} />
     {!entry.online && <div className="notice">{entry.device_public_key ? '设备当前离线，以下指标是最近一次上报的数据。' : '设备尚未接入。点击“接入 / 升级”获取安装命令。'}</div>}
@@ -44,6 +36,6 @@ export default function ServerDetail({ id }: { id: number }) {
     <section className="panel"><div className="panel-heading"><h2>系统信息</h2><span className="subtle">缺失字段显示暂无数据</span></div><dl className="info-grid">{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value ?? '暂无数据'}</dd></div>)}</dl></section>
     <section className="panel"><div className="panel-heading"><h2>网络接口</h2><span className="subtle">服务器层面的累计计数</span></div>{Object.keys(metrics.network_interfaces ?? {}).length ? <div className="table-wrap"><table><thead><tr><th>接口</th><th>累计接收</th><th>累计发送</th><th>接收速率</th><th>发送速率</th></tr></thead><tbody>{Object.entries(metrics.network_interfaces ?? {}).map(([name, metric]) => <tr key={name}><td className="mono">{name}</td><td>{bytes(metric.received_bytes)}</td><td>{bytes(metric.transmitted_bytes)}</td><td>{metric.receive_bytes_per_sec === undefined ? '暂无数据' : `${bytes(metric.receive_bytes_per_sec)}/秒`}</td><td>{metric.transmit_bytes_per_sec === undefined ? '暂无数据' : `${bytes(metric.transmit_bytes_per_sec)}/秒`}</td></tr>)}</tbody></table></div> : <div className="inline-empty">设备尚未上报网络接口信息。</div>}</section>
     <ServerPlugins key={`${id}-${pluginRevision}`} server={entry} />
-    {installing && <Modal title="接入或升级设备" onClose={() => setInstalling(false)} busy={action.busy} wide><div className="modal-body"><Field label="Agent 版本" hint="留空选择最新的兼容签名版本；也可以指定已导入的版本。"><input value={agentVersion} onChange={event => setAgentVersion(event.target.value)} maxLength={96} placeholder="例如：0.3.0" disabled={action.busy} /></Field><button className="button button-secondary" disabled={action.busy} onClick={() => enroll()}>生成所选版本的命令</button><ErrorNotice message={action.error} />{enrollment ? <><p className="confirm-copy">在服务器上以 root 身份执行。升级时会保留原有设备身份和本地状态。</p><p className="helper">先按部署文档核对发布公钥并准备可信 sinan-bootstrap。旧的未签名缓存需要先完成迁移；预检失败会保留当前安装。</p>{enrollment.install_command ? <><p className="helper">目标 Agent 版本：{enrollment.installation?.version}</p><CopyField text={enrollment.install_command} label="复制安装命令" /></> : <ErrorNotice message={enrollment.warning ?? "请先导入已签名的 Agent 制品"} />}<p className="helper">令牌有效至 {time(enrollment.expires_at)}，仅供此设备使用。</p></> : action.busy ? <Loading /> : <button className="button button-secondary" onClick={() => enroll()}>重试</button>}</div><footer><button className="button button-secondary" disabled={action.busy} onClick={() => setInstalling(false)}>关闭</button></footer></Modal>}
+    {installing && <ServerEnrollment key={id} server={entry} onClose={() => { setInstalling(false); server.reload() }} />}
   </>
 }

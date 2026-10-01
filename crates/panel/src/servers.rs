@@ -12,8 +12,9 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::VerifyingKey;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sinan_protocol::{EnrollRequest, EnrollResponse, now_timestamp};
+use sinan_protocol::{AgentSettings, EnrollRequest, EnrollResponse, ProbeSpec, now_timestamp};
 use sqlx::{FromRow, PgPool, Row};
+use uuid::Uuid;
 
 const SERVER_COLUMNS: &str = "id, name, device_public_key, static_info, last_seen, last_heartbeat_at, NULLIF(metrics_sampled_at,0) AS metrics_sampled_at, latest_metrics, agent_settings, manifest_rev, capabilities";
 
@@ -64,6 +65,15 @@ pub struct ServerRequest {
     pub name: String,
 }
 
+#[derive(Deserialize)]
+pub struct CreateServerRequest {
+    pub name: String,
+    #[serde(default)]
+    pub agent_settings: AgentSettings,
+    #[serde(default)]
+    pub probes: Vec<ProbeSpec>,
+}
+
 pub async fn list(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -80,15 +90,42 @@ pub async fn list(
 pub async fn create(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(request): Json<ServerRequest>,
+    Json(mut request): Json<CreateServerRequest>,
 ) -> ApiResult<(StatusCode, Json<Server>)> {
     require_admin(&state, &headers).await?;
     let name = valid_name(&request.name)?;
-    let query = format!("INSERT INTO servers (name) VALUES ($1) RETURNING {SERVER_COLUMNS}");
+    if !request.agent_settings.valid() {
+        return Err(ApiError::BadRequest(
+            "采样与上传间隔必须在 1–60 秒内，上传间隔不能小于采样间隔".into(),
+        ));
+    }
+    if request.probes.len() > 32 {
+        return Err(ApiError::BadRequest("每台服务器最多配置 32 个拨测".into()));
+    }
+    for spec in &mut request.probes {
+        spec.id = Uuid::new_v4();
+        if !spec.valid() {
+            return Err(ApiError::BadRequest("拨测配置无效".into()));
+        }
+    }
+    let mut transaction = state.pool.begin().await?;
+    let query = format!(
+        "INSERT INTO servers (name, agent_settings) VALUES ($1, $2) RETURNING {SERVER_COLUMNS}"
+    );
     let server = sqlx::query_as::<_, Server>(&query)
         .bind(name)
-        .fetch_one(&state.pool)
+        .bind(json!(request.agent_settings))
+        .fetch_one(&mut *transaction)
         .await?;
+    for spec in request.probes {
+        sqlx::query("INSERT INTO network_probes (id, server_id, spec) VALUES ($1, $2, $3)")
+            .bind(spec.id)
+            .bind(server.id)
+            .bind(json!(spec))
+            .execute(&mut *transaction)
+            .await?;
+    }
+    transaction.commit().await?;
     Ok((StatusCode::CREATED, Json(server.with_online())))
 }
 
