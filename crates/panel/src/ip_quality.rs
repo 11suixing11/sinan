@@ -146,6 +146,8 @@ pub struct IpQuality {
 #[derive(Serialize)]
 pub struct ServerIpInfoView {
     pub ip_addresses: Vec<String>,
+    pub public_ip_addresses: Vec<String>,
+    pub private_ip_addresses: Vec<String>,
     pub quality: Vec<IpQuality>,
     pub providers: Vec<ProviderDescription>,
 }
@@ -158,9 +160,15 @@ pub async fn view(state: &AppState, server_id: i64) -> ApiResult<ServerIpInfoVie
             .await?
             .ok_or(ApiError::NotFound)?;
     let ips = reported_ips(&info);
+    let (public_ip_addresses, private_ip_addresses) = ips
+        .iter()
+        .cloned()
+        .partition(|ip| ip.parse::<IpAddr>().is_ok_and(public_ip));
     Ok(ServerIpInfoView {
         quality: cached(state, server_id, &ips).await?,
         ip_addresses: ips,
+        public_ip_addresses,
+        private_ip_addresses,
         providers: state.quality_providers.descriptions(),
     })
 }

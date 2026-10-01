@@ -1,5 +1,12 @@
 # 执行进度
 
+## 2026-10-01：公网 IP 展示与内网折叠（独立 PR）
+
+- IP 信息页原先为所有地址逐一展开质量卡片，Docker 私网等地址占满列表。后端复用既有公网判定，增加 `public_ip_addresses` / `private_ip_addresses`；前端直接展示公网 IPv4/IPv6，将内网及其他非公网地址合并到默认折叠、可键盘展开的列表，只有内网或尚无地址时禁用公网质量刷新。
+- 保留旧 `ip_addresses`、原查询上限、缓存与兼容路由，不修改 Agent 采集或查询入口。更新接口/验收文档，并使用固定 Bun 1.4.2 重建提交的 dist。
+- 本地前端 17 项测试、类型检查/构建通过；真实临时 PostgreSQL/回环 HTTP 的地址分类及旧路由/缓存兼容 2 项通过，0 失败/忽略；workspace fmt、panel 全 targets Clippy（warnings 为错误）、core 门禁与差异检查通过。构建后浏览器在 1280/390 宽度通过混合、仅内网、仅公网、空地址、默认折叠、键盘展开、刷新保留展开及无横向溢出检查，均无浏览器错误。
+- 验证只使用隔离数据库与模拟 API，未查询外部 IP 服务或部署到生产；完整 workspace 与远端 CI 未重跑，四个 workflow 按既有约定保持暂停。交付修复 PR，后续面板部署即可应用分组展示，无须等待 Agent 签名升级。
+
 ## 2026-10-01：补齐 NodeQuality ARM rootfs 静态证据（Issue #82 独立文档 PR）
 
 - [ARM 独立验收](docs/acceptance/nodequality-rootfs-arm-inventory.md)：先刷新固定 asset 345687500，单次取得 BenchOs-arm.tar.gz，实读 359,657,375 字节及 SHA256 与固定元数据一致，无下载重试。禁网、nonroot、只读、512 MiB/1 CPU 容器仅流式分析，保留读取边界并增加外层 120 秒硬截止和 finally 清理；不解压执行或读取原始配置。
