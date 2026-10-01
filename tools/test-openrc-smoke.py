@@ -70,12 +70,24 @@ class OpenrcFixtureTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("minisign"), "signed fixture verification requires minisign")
     def test_agent_version_signed_manifest_and_bootstrap_tag_agree(self):
         with tempfile.TemporaryDirectory() as temporary:
-            bundle = Path(temporary)
-            with patch.object(smoke, "BUNDLE", bundle):
+            directory = Path(temporary)
+            bundle = directory / "bundle"
+            bundle.mkdir(mode=0o700)
+            trust_directory = directory / "trust"
+            trust_file = smoke.provision_test_roots(trust_directory)
+            with patch.object(smoke, "BUNDLE", bundle), \
+                    patch.object(smoke, "TRUST_DIRECTORY", trust_directory), \
+                    patch.object(smoke, "TRUST_FILE", trust_file):
                 command = smoke.install_script("http://127.0.0.1:12345")
             expected_tag = f"agent-v{smoke.AGENT_VERSION}"
             self.assertEqual(command[command.index("--tag") + 1], expected_tag)
-            self.assertEqual(command[command.index("--trusted-keys") + 1], str(smoke.TRUST_FILE))
+            self.assertEqual(command[command.index("--trusted-keys") + 1], str(trust_file))
+            installer = trust_directory / "trusted-install.sh"
+            self.assertEqual(command[command.index("--trusted-installer") + 1], str(installer))
+            self.assertEqual(installer.read_bytes(), (bundle / "install.sh").read_bytes())
+            self.assertFalse(installer.is_symlink())
+            self.assertEqual(installer.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(trust_file.read_bytes(), PUBLIC_KEYS.read_bytes())
             release.verify_manifest(bundle, release.load_roots(PUBLIC_KEYS), "minisign", expected_tag)
             metadata = json.loads((bundle / "release.json").read_text())
             self.assertEqual(metadata["artifacts"][0]["version"], smoke.AGENT_VERSION)

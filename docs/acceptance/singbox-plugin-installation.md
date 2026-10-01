@@ -1,6 +1,6 @@
 # sing-box 双端插件与安装流程验收
 
-本次在统一分支 `remediation/all-diagnostics-20261001` 交付。面板插件管理节点、代理用户、链路、授权、订阅和套餐；设备上的普通 Agent/适配器负责签名下载、安装、配置对账及独立运行时健康确认。采用 Sinan 内的面板插件与设备插件，没有对接额外外部面板产品。操作说明见[安装与控制流程](../singbox-installation.md)，业务范围见 [ADR 0041](../adr/0041-singbox-plugin-lifecycle.md)。
+本次在统一分支 `remediation/all-diagnostics-20261001` 交付。面板插件管理节点、代理用户、链路、授权、订阅和套餐；设备上的普通 Agent/适配器负责签名下载、安装、配置对账及独立运行时健康确认。采用 Sinan 内的面板插件与设备插件，没有对接额外外部面板产品。操作说明见[安装与控制流程](../singbox-installation.md)，业务范围见 [ADR 0044](../adr/0044-singbox-plugin-lifecycle.md)。
 
 ## 实现与本地验证
 
@@ -40,3 +40,5 @@ fixture 模板保留原 User/Group、capability、NoNewPrivileges、CPUWeight100
 ## 仍未签收的范围
 
 公网 GitHub 制品导入 API、外部面板、生产部署、真实双机公网链路与持续代理业务没有在本次空配置安装验收中执行。完整 NodeQuality 的第三方工具/rootfs/许可证/上传门禁及联合负载矩阵、TcpQuality 注册执行全链路和整改总验继续保持待验；不恢复暂停的 CI，不创建单项 PR，不宣称整个目标已完成。
+
+最新主线整合安装表编号为 `0023_singbox_installation.sql`，保留主线0021节点设置/0022统计索引；上文旧0019/0021是各自历史冻结输入，不作为新组合已验收证据。SQLx迁移记录与校验不自动改写，旧编号已应用的数据库需单独制定保留数据的升级路径；未知状态不能按空白库处理。

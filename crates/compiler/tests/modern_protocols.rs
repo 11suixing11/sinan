@@ -33,6 +33,8 @@ fn nodes() -> Vec<Node> {
     .into_iter()
     .enumerate()
     .map(|(index, protocol_config)| Node {
+        enabled: true,
+        settings: Default::default(),
         id: index as i64 + 1,
         name: format!("Test {index}"),
         port: 20100 + index as u16,
@@ -174,6 +176,147 @@ fn manual_certificate_private_key_never_enters_client_config() {
     assert!(!client.contains("insecure"));
 }
 
+fn configured_nodes() -> Vec<Node> {
+    let mut model = nodes();
+    model[0].settings.hysteria2 = sinan_compiler::Hysteria2Settings {
+        up_mbps: Some(80),
+        down_mbps: Some(40),
+        ignore_client_bandwidth: false,
+        obfs_password: Some("synthetic-obfs-fixture".into()),
+    };
+    model[0].settings.tls_alpn = vec!["h3".into()];
+    model[3].settings.tuic = sinan_compiler::TuicSettings {
+        congestion_control: sinan_compiler::CongestionControl::Bbr,
+        auth_timeout_seconds: Some(5),
+        heartbeat_seconds: Some(8),
+        zero_rtt_handshake: true,
+    };
+    model[4].settings.anytls = sinan_compiler::AnyTlsSettings {
+        idle_session_check_seconds: Some(10),
+        idle_session_timeout_seconds: Some(20),
+        min_idle_session: Some(2),
+    };
+    model[4].settings.tcp_fast_open = true;
+    model[5].settings.tls_alpn = vec!["h2".into()];
+    model
+}
+
+#[test]
+fn protocol_settings_match_endpoint_direction_and_client_server_boundaries() {
+    let model = configured_nodes();
+    let server: Value = serde_json::from_str(&compile_server(&model).unwrap()).unwrap();
+    let client: Value = serde_json::from_str(&compile_client(&model, 1).unwrap()).unwrap();
+    assert_eq!(server["inbounds"][0]["up_mbps"], 80);
+    assert_eq!(client["outbounds"][1]["up_mbps"], 40);
+    assert_eq!(client["outbounds"][1]["down_mbps"], 80);
+    assert_eq!(
+        client["outbounds"][1]["obfs"],
+        server["inbounds"][0]["obfs"]
+    );
+    assert_eq!(server["inbounds"][3]["congestion_control"], "bbr");
+    assert_eq!(client["outbounds"][4]["congestion_control"], "bbr");
+    assert_eq!(server["inbounds"][3]["auth_timeout"], "5s");
+    assert!(client["outbounds"][4].get("auth_timeout").is_none());
+    assert_eq!(client["outbounds"][4]["heartbeat"], "8s");
+    assert_eq!(client["outbounds"][4]["zero_rtt_handshake"], true);
+    assert_eq!(client["outbounds"][5]["idle_session_check_interval"], "10s");
+    assert_eq!(client["outbounds"][5]["idle_session_timeout"], "20s");
+    assert_eq!(client["outbounds"][5]["min_idle_session"], 2);
+    assert!(server["inbounds"][4].get("idle_session_timeout").is_none());
+    assert_eq!(server["inbounds"][4]["tcp_fast_open"], true);
+    assert!(client["outbounds"][5].get("tcp_fast_open").is_none());
+    assert_eq!(server["inbounds"][5]["tls"]["alpn"], json!(["h2"]));
+    assert!(client["outbounds"][6]["tls"].get("alpn").is_none());
+    assert!(matches!(
+        compile_client(&model, 99),
+        Err(sinan_compiler::CompileError::NoAuthorizedNodes(99))
+    ));
+    let mut paused = model.clone();
+    for node in &mut paused {
+        node.enabled = false;
+    }
+    assert_eq!(
+        compile_server(&paused).unwrap(),
+        compile_server(&[]).unwrap()
+    );
+    let mut reversed = model.clone();
+    reversed.reverse();
+    assert_eq!(
+        compile_server(&model).unwrap(),
+        compile_server(&reversed).unwrap()
+    );
+}
+
+#[test]
+fn invalid_settings_and_cross_protocol_options_are_rejected() {
+    for settings in [
+        json!({"listen":"https://example.com"}),
+        json!({"listen":"224.0.0.1"}),
+        json!({"public_port":0}),
+        json!({"tcp_fast_open":true}),
+        json!({"tls_alpn":["h3","h3"]}),
+        json!({"tls_alpn":["bad\nvalue"]}),
+        json!({"hysteria2":{"up_mbps":10}}),
+        json!({"hysteria2":{"up_mbps":10,"down_mbps":10,"ignore_client_bandwidth":true}}),
+        json!({"hysteria2":{"obfs_password":"short"}}),
+        json!({"tuic":{"heartbeat_seconds":1}}),
+        json!({"reality":{"handshake_port":8443}}),
+        json!({"anytls":{"min_idle_session":1}}),
+    ] {
+        let mut model = nodes();
+        model[0].settings = serde_json::from_value(settings.clone()).unwrap();
+        assert!(compile_server(&model).is_err(), "accepted {settings}");
+        assert!(
+            compile_client(&model, 1).is_err(),
+            "accepted client {settings}"
+        );
+    }
+    let mut model = nodes();
+    model[5].settings.tls_alpn = vec!["h3".into()];
+    assert!(compile_server(&model).is_err());
+    assert!(
+        serde_json::from_value::<sinan_compiler::NodeSettings>(json!({"raw_json":{}})).is_err()
+    );
+}
+
+#[test]
+#[ignore = "requires the official v1.14.2 binary in SINAN_TEST_UPSTREAM; checks protocol fields without the optional accounting extension"]
+fn official_runtime_accepts_protocol_settings() {
+    let binary = std::env::var("SINAN_TEST_UPSTREAM").unwrap();
+    let directory = std::env::temp_dir().join(format!("sinan-settings-check-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let mut model = configured_nodes();
+    // The official archive omits with_v2ray_api. Its native parser still
+    // validates all newly introduced inbound and outbound protocol fields.
+    for force_bbr in [false, true] {
+        if force_bbr {
+            model[0].settings.hysteria2.up_mbps = None;
+            model[0].settings.hysteria2.down_mbps = None;
+            model[0].settings.hysteria2.ignore_client_bandwidth = true;
+        }
+        for (name, content) in [
+            ("server", compile_server(&model).unwrap()),
+            ("client", compile_client(&model, 1).unwrap()),
+        ] {
+            let mut native: Value = serde_json::from_str(&content).unwrap();
+            native.as_object_mut().unwrap().remove("experimental");
+            let path = directory.join(format!("{name}.json"));
+            std::fs::write(&path, serde_json::to_vec(&native).unwrap()).unwrap();
+            let output = std::process::Command::new(&binary)
+                .args(["check", "-c"])
+                .arg(path)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{name}, force_bbr={force_bbr}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
 #[test]
 #[ignore = "requires upstream v1.14.2 with QUIC, ACME, Naive and V2Ray API; set SINAN_TEST_SINGBOX"]
 fn upstream_accepts_every_protocol_and_acme_provider() {
@@ -183,6 +326,14 @@ fn upstream_accepts_every_protocol_and_acme_provider() {
     for (name, content) in [
         ("server", compile_server(&nodes()).unwrap()),
         ("client", compile_client(&nodes(), 1).unwrap()),
+        (
+            "configured-server",
+            compile_server(&configured_nodes()).unwrap(),
+        ),
+        (
+            "configured-client",
+            compile_client(&configured_nodes(), 1).unwrap(),
+        ),
     ] {
         let path = directory.join(format!("{name}.json"));
         std::fs::write(&path, content).unwrap();

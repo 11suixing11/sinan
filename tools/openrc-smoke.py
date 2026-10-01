@@ -205,9 +205,12 @@ def install_script(origin):
     RELEASE["install"](BUNDLE, proof)
     entry = json.loads(proof["metadata_json"])["artifacts"][0]
     (BUNDLE / entry["asset_name"]).write_bytes(AGENT)
+    installer = TRUST_DIRECTORY / "trusted-install.sh"
+    installer.write_bytes((BUNDLE / "install.sh").read_bytes())
+    installer.chmod(0o600)
     return ["python3", str(ROOT / "tools/bootstrap.py"), "--tag", f"agent-v{AGENT_VERSION}",
             "--panel", origin, "--trusted-keys", str(TRUST_FILE),
-            "--release-dir", str(BUNDLE)]
+            "--release-dir", str(BUNDLE), "--trusted-installer", str(installer)]
 
 
 def main():

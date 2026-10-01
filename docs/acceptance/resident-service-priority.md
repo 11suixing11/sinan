@@ -13,7 +13,7 @@ CPUWeight=1000
 
 负的 OOM 调整值降低这两个常驻进程被内核选择为 OOM 牺牲者的优先级；使用 -500 保留内核在极端内存压力下选择它们的空间。CPU 权重采用 1000，为默认 100 的十倍；CPU 争抢时优先分配给常驻服务，空闲机器仍可使用可用 CPU。没有添加 CPUQuota。
 
-安装器的 `@@AGENT_UNIT@@` 和 `@@RUNTIME_UNIT@@` 由 `tools/release.py render-installer` 直接替换为这两个文件的内容，仓库中没有另一份安装器内嵌单元需要修改。渲染出的安装器已逐字核对两个 heredoc 与源单元一致，并通过 shell 语法检查。
+安装器的 `@@AGENT_UNIT@@` 和 `@@RUNTIME_UNIT@@` 由 `tools/release.py render-installer` 直接替换为这两个文件的内容。当前独立 `deploy/bootstrap.sh` 也包含由 `tools/render-bootstrap.py` 生成的可信执行器与两份源单元；维护源单元时须同步重新生成入口，并在最终检查中核对生成内容。原提交渲染出的安装器已逐字核对两个 heredoc 与源单元一致，并通过 shell 语法检查；该历史结果不认证后续入口或当前整合提交。
 
 升级安装器写入单元后会执行 daemon-reload；已有进程的 OOM 调整应在下次服务启动时核对。此次验收没有重新安装、替换或重启已有 Agent 和运行时。
 
@@ -50,3 +50,5 @@ systemctl show sinan-agent.service sinan-singbox@main.service \
 ```
 
 本 PR 证明单元设置可由 systemd 和内核实际应用；完整 NodeQuality、持续代理流量、实际 OOM 压力以及心跳连续性仍需与诊断资源预算、预检和心跳解耦改动一起在专用节点验收。CPUWeight 是相对权重，负 OOM 调整也不保证极端内存压力下服务绝不会被杀。
+
+2026-10-01 五项 issue 批次核对两份源单元和独立 bootstrap 均保留 `OOMScoreAdjust=-500`、`CPUWeight=1000`，没有新增 CPUQuota。未在本批重新测试或操作真实服务；现有联合负载与日常链路证据归属见 [整改顺序](ordered-remediation.md)，完整上游负载继续待验。

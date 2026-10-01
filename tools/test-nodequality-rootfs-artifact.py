@@ -304,7 +304,7 @@ class DerivationTests(unittest.TestCase):
                 if entry["name"] == "nodequality":
                     self.assertEqual(set(entry["auxiliary_files"]), artifact.FILES - {artifact.BINARY})
             # A newly signed but wrong identity must still fail the explicit
-            # r18 file-set contract, independent of a valid test signature.
+            # namespaced offline file-set contract, independent of a valid test signature.
             for entry in metadata["artifacts"]:
                 if entry["name"] == "nodequality":
                     entry["auxiliary_files"].pop("rootfs-manifest.json")

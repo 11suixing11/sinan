@@ -420,7 +420,7 @@ class BuildTests(unittest.TestCase):
 
     def test_repeated_build_refuses_to_modify_the_existing_artifact_and_checksum(self):
         with tempfile.TemporaryDirectory() as directory:
-            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17"
+            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-sinan-native-r1"
             root = pathlib.Path(directory) / "nodequality" / version
             root.mkdir(parents=True)
             artifact = root / "amd64"
@@ -477,7 +477,7 @@ class BuildTests(unittest.TestCase):
             subprocess.run(["bash", "-n", str(script)], check=True)
         result = subprocess.run(["bash", str(PLUGIN / "runner.sh.tmpl"), "--version"],
                                 capture_output=True, text=True, check=True)
-        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17")
+        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-sinan-native-r1")
 
     def test_existing_architecture_checksums_are_not_replaced(self):
         script = (PLUGIN.parents[1] / "tools/build-nodequality.sh").read_text()
@@ -607,6 +607,10 @@ work_dir=$workspace/.nodequalityfixture
             ("RANKING_POLICY_HELPER", (PLUGIN / "ranking-policy.py").read_text()),
             ("IP_SCORE_POLICY_HELPER", (PLUGIN / "ip-score-policy.py").read_text()),
             ("BROWSER_POLICY_HELPER", (PLUGIN / "browser-policy.py").read_text()),
+            ("QUERY_POLICY_HELPER", (PLUGIN / "query-policy.py").read_text()),
+            ("ACCESS_POLICY_HELPER", (PLUGIN / "access-policy.py").read_text()),
+            ("NETFLIX_POLICY_HELPER", (PLUGIN / "netflix-policy.py").read_text()),
+            ("OPENAI_POLICY_HELPER", (PLUGIN / "openai-policy.py").read_text()),
             ("PINNED_CHAIN", source_bundle()),
             ("REPORT_HELPER", (PLUGIN / "report.py").read_text()),
             ("EXIT_OBSERVER", (PLUGIN / "exit-observer.sh").read_text()),
@@ -615,6 +619,7 @@ work_dir=$workspace/.nodequalityfixture
             ("CHROOT_SHIM", (PLUGIN / "chroot-shim.sh").read_text()),
         ):
             content = content.replace("@" + marker + "@\n", payload)
+        self.assertNotRegex(content, r"(?m)^@[A-Z_]+@$")
         path = self.root / "nodequality"
         path.write_text(content)
         path.chmod(0o755)

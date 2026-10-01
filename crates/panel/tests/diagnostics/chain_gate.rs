@@ -103,6 +103,9 @@ async fn queued_full_is_failed_without_finalizing_a_device_or_blocking_daily(
         "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14",
         "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r15",
         "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r16",
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17",
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18",
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1",
         diagnostics::PLUGIN_VERSION,
     ] {
         ids.push(saved_full(&panel, server, version, "queued").await?);

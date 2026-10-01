@@ -290,12 +290,13 @@ pub(crate) fn server(node: &Node, users: &[&Access]) -> Value {
     if let Some(tls) = node.protocol_config.tls() {
         result["tls"] = server_tls(node, tls);
     }
+    crate::settings::apply(node, &mut result, false);
     result
 }
 
 pub(crate) fn client(node: &Node, access: &Access) -> Value {
     let mut result = json!({"type": native_type(&node.protocol_config), "tag": format!("node-{}", node.id),
-        "server": crate::unbracket_host(&node.public_host), "server_port": node.port});
+        "server": crate::unbracket_host(&node.public_host), "server_port": node.public_port()});
     match &node.protocol_config {
         ProtocolConfig::VlessReality => {
             result["uuid"] = json!(access.uuid);
@@ -327,6 +328,7 @@ pub(crate) fn client(node: &Node, access: &Access) -> Value {
     if let Some(tls) = node.protocol_config.tls() {
         result["tls"] = client_tls(node, tls);
     }
+    crate::settings::apply(node, &mut result, true);
     result
 }
 

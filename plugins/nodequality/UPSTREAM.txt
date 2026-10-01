@@ -211,3 +211,21 @@ Sinan unified query chain (2026-10-01, runner r17):
 The main-line migrations and UI are integrated without repurposing historical
 acceptance receipts. Full runtime, rootfs, licensed tools and the complete load
 matrix still require their own frozen-node evidence.
+
+Sinan native policy lineage (2026-10-01, sinan-native-r1):
+- Main-line numeric r14-r18 and this branch's numeric policy history identify
+  different wrapper bytes. Historical receipts are retained with their actual
+  inputs; numeric identity alone cannot certify a particular helper chain.
+- The new default uses a92fca6c0067df29ddd03fdc2fee6f3000f64545-sinan-native-r1.
+  Its fixed IP chain composes the native browser/query/access/Netflix guards and
+  an OpenAI guard. The previous r17 still retained the upstream OpenAITest;
+  this new guard stops that borrowed-cookie request without duplicating it.
+- OpenAI is unknown, credential_not_configured/not_attempted. Checked time is
+  separate from actual attempt time; Attempted=false, Attempts=[], null elapsed.
+  No request, retry, cookie, browser identity or public authorization is used.
+- The explicit offline preparation now uses the distinct suffix
+  offline-rootfs-r1 and requires both signed rootfs auxiliary files. Normal
+  historic r2-r18 identities retain runner-only inventory, saved reports and
+  daily recovery; no newly built bytes reuse historical artifact identities.
+- Source/report helper identities are updated for this exact new composition.
+  All original sources and licenses remain; full starts remain rejected.

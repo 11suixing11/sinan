@@ -20,7 +20,7 @@ function QualityResult({ result }: { result: IpQuality }) {
   const successes = result.databases.filter(item => item.status === 'succeeded' && known(item) && !historical(item)).length
   const saved = result.databases.filter(item => known(item) && historical(item)).length
   return <div className="quality-result">
-    <div className="quality-summary"><Badge tone={successes > 0 && successes === result.databases.length ? 'good' : successes || saved ? 'warm' : 'neutral'}>{successes ? `${successes} / ${result.databases.length} 项数据有当前成功结果` : saved ? '当前没有有效成功结果' : '质量未知'}{saved > 0 && ` · ${saved} 项历史结果`}</Badge><span className="subtle">最近查询批次 {time(result.last_attempt_at ?? result.checked_at)}</span></div>
+    <div className="quality-summary"><Badge tone={successes > 0 && successes === result.databases.length ? 'good' : successes || saved ? 'warm' : 'neutral'}>{successes ? `${successes} / ${result.databases.length} 项数据有当前成功结果` : saved ? '当前没有有效成功结果' : '质量未知'}{saved > 0 && ` · ${saved} 项历史结果`}</Badge><span className="subtle">最近查询批次 {time(result.checked_at)}</span></div>
     <p className="helper">{result.provider === 'abuseipdb-api' ? '这些字段来自 AbuseIPDB 官方 API v2，描述其 IP 信息与近 30 天滥用置信度，评分 0 不代表干净。' : `这些响应视图来自同一 ${result.provider ?? 'check-place'} 查询入口；不是多个独立来源，标记和评分分别保留上游原值。`}缺失、空值或类型不能确认的字段表示未知，不推断为零分或干净。</p>
     <div className="quality-databases">{result.databases.map(database => {
       const past = historical(database), hasSaved = known(database)
@@ -31,6 +31,7 @@ function QualityResult({ result }: { result: IpQuality }) {
       <summary><span>{database.label}</span><Badge tone={hasSaved ? past ? 'warm' : 'good' : 'neutral'}>{hasSaved ? past ? '历史结果' : '本次已查询' : '未知'}</Badge></summary>
       <p className="helper">查询入口：{database.provider ?? 'check-place'} · 目标 IP：{database.target_ip ?? result.ip}</p>
       <p className="helper">{database.attempted_at != null ? `尝试于 ${time(database.attempted_at)}` : database.error_kind === 'not_attempted' ? '该轮尚未开始查询' : '旧记录未保存逐源查询时间'} · {database.elapsed_ms != null ? `耗时 ${database.elapsed_ms} 毫秒` : '耗时未知'}</p>
+      {database.attempted_at == null && database.last_attempt_at != null && <p className="helper">最近实际尝试于 {time(database.last_attempt_at)}</p>}
       {database.available === false && <p className="quality-database-error">入口当前不可用：{database.unavailable_reason ?? '来源未启用'}；已保存字段仅作为历史结果。</p>}
       {error && <><p className="helper">当前失败类别：{kind ? queryErrorLabels[kind] ?? '原因未分类' : '旧记录未分类'}{httpStatus != null && ` · HTTP ${httpStatus}`}</p><p className="quality-database-error">{error}</p></>}
       {hasSaved ? <><p className="helper">{past ? '正在显示历史结果' : '最近成功结果'} · {database.last_success_at != null ? `上次成功于 ${time(database.last_success_at)}` : '旧记录未保存成功时间'} · {database.fresh_until != null ? database.fresh_until <= now ? '数据已过期' : `数据有效期至 ${time(database.fresh_until)}` : '有效期未知'}</p><dl className="detail-list">{database.fields.map(field => <div key={field.label}><dt>{field.label}</dt><dd>{qualityValue(field, database.database) ?? '未知'}</dd></div>)}</dl></> : <p className="helper">没有已保存的成功结果，信息未知。</p>}

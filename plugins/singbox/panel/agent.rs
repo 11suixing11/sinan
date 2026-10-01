@@ -83,6 +83,24 @@ async fn prepare_manifest(
     config_rev: i64,
     bundle_sha256: String,
 ) -> ApiResult<ModuleManifest> {
+    let artifact = runtime_artifact(state, info).await?;
+    Ok(ModuleManifest {
+        kernel_version: "1.14.2".into(),
+        artifact,
+        config_rev: config_rev as u64,
+        bundle_url: format!(
+            "{}/api/agent/v1/bundles/{config_rev}",
+            state.config.public_url
+        ),
+        bundle_sha256,
+        stats_listen: "127.0.0.1:18085".into(),
+    })
+}
+
+pub(super) async fn runtime_artifact(
+    state: &AppState,
+    info: &Value,
+) -> ApiResult<sinan_protocol::Artifact> {
     let arch = match info["arch"].as_str() {
         Some("aarch64" | "arm64") => "arm64",
         Some("x86_64" | "amd64") => "amd64",
@@ -138,18 +156,7 @@ async fn prepare_manifest(
             Err(error) => return Err(error),
         }
     }
-    let artifact = artifact.ok_or(ApiError::NotFound)?;
-    Ok(ModuleManifest {
-        kernel_version: "1.14.2".into(),
-        artifact,
-        config_rev: config_rev as u64,
-        bundle_url: format!(
-            "{}/api/agent/v1/bundles/{config_rev}",
-            state.config.public_url
-        ),
-        bundle_sha256,
-        stats_listen: "127.0.0.1:18085".into(),
-    })
+    artifact.ok_or(ApiError::NotFound)
 }
 
 pub async fn bundle(state: &AppState, server_id: i64, rev: i64) -> ApiResult<String> {

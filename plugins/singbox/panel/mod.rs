@@ -6,12 +6,14 @@ pub mod chains;
 pub mod deployments;
 pub mod entitlements;
 mod node_protocol;
+mod node_settings;
 pub mod nodes;
 pub mod packages;
 pub mod policies;
 pub mod proxy_users;
 pub mod publisher;
 pub mod settings;
+pub mod statistics;
 pub mod subscriptions;
 pub mod usage;
 
@@ -25,6 +27,7 @@ use axum::{
 
 pub fn router() -> Router<AppState> {
     let management = Router::new()
+        .route("/statistics", get(statistics::summary))
         .route("/policy-groups", get(policies::list).post(policies::create))
         .route(
             "/policy-groups/{id}",
@@ -50,6 +53,7 @@ pub fn router() -> Router<AppState> {
         .route("/servers/{id}", get(settings::get))
         .route("/servers/{id}/enable", post(settings::enable))
         .route("/servers/{id}/deployments", get(deployments::get))
+        .route("/servers/{id}/deployments/check", post(deployments::check))
         .route("/nodes", get(nodes::list).post(nodes::create))
         .route(
             "/nodes/{id}",
@@ -66,6 +70,7 @@ pub fn router() -> Router<AppState> {
             "/users/{id}/subscription/reset",
             post(proxy_users::reset_subscription),
         )
+        .route("/users/{id}/subscription", get(subscriptions::preview))
         .route(
             "/users/{id}/accesses",
             get(accesses::list).post(accesses::grant),

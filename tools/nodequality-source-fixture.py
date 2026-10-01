@@ -10,20 +10,28 @@ class PolicyOutputs(dict):
     """Keep the r15 layer for the older isolated transformation regressions."""
     before_access = None
     before_netflix = None
+    before_openai = None
 
 
 def serve_before_access(helper, directory, arguments):
     # Older policy tests assert the identity of their own fixed layer. The new
     # access suite and final runner/packaging tests exercise the complete chain.
     # No production switch permits this bypass.
-    with mock.patch.object(helper, 'authorized_provider_access', side_effect=lambda role, data: data), mock.patch.object(helper, 'validated_netflix', side_effect=lambda role, data: data):
+    with mock.patch.object(helper, 'authorized_provider_access', side_effect=lambda role, data: data), mock.patch.object(helper, 'validated_netflix', side_effect=lambda role, data: data), mock.patch.object(helper, 'authorized_openai', side_effect=lambda role, data: data):
         return helper.serve(directory, arguments)
 
 
 def serve_before_netflix(helper, directory, arguments):
     # Isolated r16 assertions retain their exact source identity. The new
     # Netflix suite and final signed runner tests exercise the complete chain.
-    with mock.patch.object(helper, 'validated_netflix', side_effect=lambda role, data: data):
+    with mock.patch.object(helper, 'validated_netflix', side_effect=lambda role, data: data), mock.patch.object(helper, 'authorized_openai', side_effect=lambda role, data: data):
+        return helper.serve(directory, arguments)
+
+
+def serve_before_openai(helper, directory, arguments):
+    # Recover the fixed Netflix layer only in isolated historical assertions.
+    # Final source/runner tests and the OpenAI suite retain the complete chain.
+    with mock.patch.object(helper, 'authorized_openai', side_effect=lambda role, data: data):
         return helper.serve(directory, arguments)
 
 
@@ -50,7 +58,15 @@ def inert_source(name, policy):
         if name == 'net.sh':
             source += policy.NET_OUTPUT
         source += policy.SOURCES[name]['original_guard'] + b'}\n'
-    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ip_score_anchors(name) + browser_anchors(name) + query_anchors(name) + access_anchors(name) + netflix_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ip_score_anchors(name) + browser_anchors(name) + query_anchors(name) + access_anchors(name) + netflix_anchors(name) + openai_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+
+
+def openai_anchors(name):
+    if name != 'ip.sh':
+        return b''
+    # The access fixture already provides the unique save_json aggregate line.
+    # No upstream authorization bytes are copied into this private fixture.
+    return b'function OpenAITest(){\n: # Synthetic uncalled OpenAI function.\n}\n'
 
 
 def netflix_anchors(name):
@@ -355,4 +371,18 @@ def prepare_policy(plugin, contents):
         outputs[role] = patched
     netflix_path.write_bytes(content)
     helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
+    outputs.before_openai = dict(outputs)
+    openai_path = Path(plugin) / 'openai-policy.py'
+    openai = module('synthetic_openai_policy_input', openai_path)
+    content = openai_path.read_bytes()
+    identities = {}
+    for role in openai.SOURCES:
+        canonical = outputs[role]
+        patched = openai.patch(canonical)
+        identities[role] = {'source_sha256': hashlib.sha256(canonical).hexdigest(),
+                            'patched_sha256': hashlib.sha256(patched).hexdigest()}
+        outputs[role] = patched
+    content = assignment(content, 'SOURCES', identities)
+    openai_path.write_bytes(content)
+    helper.write_bytes(assignment(helper.read_bytes(), 'OPENAI_POLICY_SHA256', hashlib.sha256(content).hexdigest()))
     return outputs

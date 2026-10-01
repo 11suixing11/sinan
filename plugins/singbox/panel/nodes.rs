@@ -1,4 +1,4 @@
-use super::node_protocol::ProtocolInput;
+use super::{node_protocol::ProtocolInput, node_settings::SettingsInput};
 use crate::{
     AppState,
     auth::require_admin,
@@ -16,6 +16,9 @@ use sinan_protocol::now_timestamp;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateNode {
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub settings: SettingsInput,
     pub name: String,
     pub server_id: i64,
     pub public_host: String,
@@ -29,6 +32,8 @@ pub struct CreateNode {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateNode {
+    pub enabled: Option<bool>,
+    pub settings: Option<SettingsInput>,
     pub name: Option<String>,
     pub public_host: Option<String>,
     pub sni: Option<String>,
@@ -85,6 +90,8 @@ pub async fn create(
         (String::new(), String::new())
     };
     let mut node = NodeRow {
+        enabled: request.enabled.unwrap_or(true),
+        settings: request.settings.build(&serde_json::json!({}))?,
         id: i64::MAX,
         name: business::name(&request.name)?,
         server_id: request.server_id,
@@ -113,7 +120,7 @@ pub async fn create(
     }
     validate_server_config(&mut transaction, &node).await?;
     let query = format!(
-        "INSERT INTO nodes AS n (name,server_id,protocol,port,public_host,sni,private_key,public_key,short_id,protocol_config) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING {NODE_COLUMNS}"
+        "INSERT INTO nodes AS n (name,server_id,protocol,port,public_host,sni,private_key,public_key,short_id,protocol_config,enabled,settings) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING {NODE_COLUMNS}"
     );
     let node = sqlx::query_as::<_, NodeRow>(&query)
         .bind(node.name)
@@ -126,6 +133,8 @@ pub async fn create(
         .bind(node.public_key)
         .bind(node.short_id)
         .bind(node.protocol_config)
+        .bind(node.enabled)
+        .bind(node.settings)
         .fetch_one(&mut *transaction)
         .await
         .map_err(port_database_error)?;
@@ -146,6 +155,8 @@ pub async fn update(
         && request.sni.is_none()
         && request.port.is_none()
         && request.protocol_config.is_none()
+        && request.enabled.is_none()
+        && request.settings.is_none()
     {
         return Err(ApiError::BadRequest("至少提供一个修改字段".into()));
     }
@@ -166,12 +177,20 @@ pub async fn update(
         .await?
         .ok_or(ApiError::NotFound)?;
     let previous = (
+        node.enabled,
+        node.settings.clone(),
         node.name.clone(),
         node.public_host.clone(),
         node.sni.clone(),
         node.port,
         node.protocol_config.clone(),
     );
+    if let Some(enabled) = request.enabled {
+        node.enabled = enabled;
+    }
+    if let Some(settings) = request.settings {
+        node.settings = settings.build(&node.settings)?;
+    }
     if let Some(port) = request.port {
         node.port = validate_port(port)?;
         ensure_port_available(&mut transaction, server_id, node.port, Some(id)).await?;
@@ -203,7 +222,7 @@ pub async fn update(
     business::validate_node(&node)?;
     validate_server_config(&mut transaction, &node).await?;
     sqlx::query(
-        "UPDATE nodes SET name=$2,public_host=$3,sni=$4,port=$5,protocol_config=$6 WHERE id=$1",
+        "UPDATE nodes SET name=$2,public_host=$3,sni=$4,port=$5,protocol_config=$6,enabled=$7,settings=$8 WHERE id=$1",
     )
     .bind(id)
     .bind(&node.name)
@@ -211,11 +230,15 @@ pub async fn update(
     .bind(&node.sni)
     .bind(node.port)
     .bind(&node.protocol_config)
+    .bind(node.enabled)
+    .bind(&node.settings)
     .execute(&mut *transaction)
     .await
     .map_err(port_database_error)?;
     if previous
         != (
+            node.enabled,
+            node.settings.clone(),
             node.name.clone(),
             node.public_host.clone(),
             node.sni.clone(),

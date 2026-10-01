@@ -15,6 +15,9 @@ use tokio::{
 
 const IO_LIMIT: Duration = Duration::from_secs(2);
 
+mod pending;
+use pending::PendingFile;
+
 pub struct Journal {
     workspace: PathBuf,
     targets_file: String,
@@ -23,6 +26,26 @@ pub struct Journal {
     revisions: std::collections::BTreeMap<String, u64>,
     #[cfg(unix)]
     owner_uid: u32,
+    #[cfg(test)]
+    publication_gate: std::sync::Mutex<Option<PublicationGate>>,
+    #[cfg(test)]
+    publication_fault: std::sync::Mutex<Option<PublicationFault>>,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PublicationFault {
+    Write,
+    Sync,
+    Rename,
+}
+
+#[cfg(test)]
+struct PublicationGate {
+    writes_before: usize,
+    entered: std::sync::Arc<tokio::sync::Notify>,
+    release: std::sync::Arc<tokio::sync::Notify>,
+    probe_deadline: std::sync::Arc<std::sync::Mutex<Option<Instant>>>,
 }
 
 #[derive(Serialize)]
@@ -138,10 +161,43 @@ impl Journal {
                 revisions: Default::default(),
                 #[cfg(unix)]
                 owner_uid,
+                #[cfg(test)]
+                publication_gate: Default::default(),
+                #[cfg(test)]
+                publication_fault: Default::default(),
             })
         })
         .await
         .context("workspace/input inspection timed out")?
+    }
+
+    #[cfg(test)]
+    pub(crate) fn gate_publication_after(
+        &mut self,
+        writes_before: usize,
+        entered: std::sync::Arc<tokio::sync::Notify>,
+        release: std::sync::Arc<tokio::sync::Notify>,
+    ) -> std::sync::Arc<std::sync::Mutex<Option<Instant>>> {
+        let probe_deadline = std::sync::Arc::new(std::sync::Mutex::new(None));
+        self.publication_gate = std::sync::Mutex::new(Some(PublicationGate {
+            writes_before,
+            entered,
+            release,
+            probe_deadline: probe_deadline.clone(),
+        }));
+        probe_deadline
+    }
+
+    #[cfg(test)]
+    pub(crate) fn record_probe_deadline(&self, deadline: Instant) {
+        if let Some(gate) = self
+            .publication_gate
+            .lock()
+            .expect("publication gate")
+            .as_ref()
+        {
+            *gate.probe_deadline.lock().expect("probe deadline") = Some(deadline);
+        }
     }
 
     pub(crate) fn snapshot(&self, options: &Options) -> Result<Snapshot> {
@@ -211,60 +267,87 @@ impl Journal {
             .file_name()
             .and_then(|name| name.to_str())
             .context("invalid report file name")?;
-        let pending = target.with_file_name(format!(".{filename}.pending"));
+        let pending_path = target.with_file_name(format!(".{filename}.pending"));
+        let deadline = deadline.min(Instant::now() + IO_LIMIT);
+        ensure!(Instant::now() < deadline, "report publication timed out");
+        let mut pending = PendingFile::create(&pending_path)?;
         let operation = async {
-            let mut options = fs::OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            options.mode(0o600);
-            let mut file = options.open(&pending).await?;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::MetadataExt;
                 // The retained create_new handle belongs to the effective user.
                 // Reject foreign-owned workspaces before writing any report data.
                 ensure!(
-                    file.metadata().await?.uid() == self.owner_uid,
+                    pending.metadata()?.uid() == self.owner_uid,
                     "workspace must belong to the effective user"
                 );
             }
-            file.write_all(bytes).await?;
-            file.sync_all().await?;
-            drop(file);
-            fs::rename(&pending, target).await?;
+            #[cfg(test)]
+            self.fail_publication(PublicationFault::Write)?;
+            pending
+                .file
+                .as_mut()
+                .expect("pending writer")
+                .write_all(bytes)
+                .await?;
+            #[cfg(test)]
+            {
+                let gate = {
+                    let mut slot = self.publication_gate.lock().expect("publication gate");
+                    match slot.as_mut() {
+                        Some(gate) if gate.writes_before > 0 => {
+                            gate.writes_before -= 1;
+                            None
+                        }
+                        Some(_) => slot.take(),
+                        None => None,
+                    }
+                };
+                if let Some(gate) = gate {
+                    gate.entered.notify_one();
+                    gate.release.notified().await;
+                }
+            }
+            #[cfg(test)]
+            self.fail_publication(PublicationFault::Sync)?;
+            pending
+                .file
+                .as_mut()
+                .expect("pending writer")
+                .sync_all()
+                .await?;
             Ok::<_, anyhow::Error>(())
         };
-        timeout_at(deadline.min(Instant::now() + IO_LIMIT), operation)
+        let result = timeout_at(deadline, operation)
             .await
-            .context("report publication timed out")?
+            .context("report publication timed out")
+            .and_then(|result| result)
+            .and_then(|()| {
+                ensure!(Instant::now() < deadline, "report publication timed out");
+                #[cfg(test)]
+                self.fail_publication(PublicationFault::Rename)?;
+                pending.publish(target)
+            });
+        // Report cleanup errors without losing the publication's original error.
+        match (result, pending.cleanup()) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+            (Err(error), Err(cleanup)) => {
+                Err(error.context(format!("pending cleanup failed: {cleanup:#}")))
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn fail_publication(&self, point: PublicationFault) -> Result<()> {
+        let mut fault = self.publication_fault.lock().expect("publication fault");
+        if *fault == Some(point) {
+            fault.take();
+            anyhow::bail!("injected publication I/O failure");
+        }
+        Ok(())
     }
 }
 
 #[cfg(all(test, unix))]
-mod tests {
-    use crate::{
-        IpVersion, run,
-        tests::fixture::{Directory, target},
-    };
-
-    #[tokio::test]
-    async fn foreign_workspace_owner_is_rejected_before_report_data_is_written() {
-        let directory = Directory::new();
-        let (options, mut journal) = directory
-            .prepare(vec![target(1, "127.0.0.1", 1)], IpVersion::V4)
-            .await;
-        // Model the captured owner of a foreign-UID workspace without chown/root.
-        journal.owner_uid ^= 1;
-        let error = run(&options, &mut journal).await.unwrap_err();
-        assert!(error.to_string().contains("effective user"));
-        assert!(!directory.path.join("result.json").exists());
-        let pending = directory.path.join("sections/.tcp_scope.json.pending");
-        assert_eq!(std::fs::metadata(pending).unwrap().len(), 0);
-        assert_eq!(
-            std::fs::read_dir(directory.path.join("sections"))
-                .unwrap()
-                .count(),
-            1
-        );
-    }
-}
+mod tests;

@@ -45,7 +45,7 @@
 | `GET /api/servers/{id}` | 服务器详情 |
 | `PATCH /api/servers/{id}` | `{"name":"新名称"}`；可选 `asset_settings` 完整替换资产配置，省略则保留 |
 | `DELETE /api/servers/{id}` | 在线时先退役并等待回执，离线时软删除；成功返回 204 |
-| `POST /api/servers/{id}/enrollment` | 签发一次性接入令牌，无请求体；可选查询 `agent_version=0.3.0` 指定已导入版本 |
+| `POST /api/servers/{id}/enrollment` | 签发一次性接入令牌，无请求体；可选查询 `agent_version=0.3.0`、`platform=unix/windows`、`agent_target=auto/签名ABI`，指定版本、入口与兼容目标 |
 
 创建时 `agent_settings` 使用下文 Agent 设置的完整结构，省略时为 1 秒采样、3 秒批量上传、关闭自动更新、开启公网地址识别；上传间隔不能小于采样间隔，两者均须为 1–60 秒整数。`probes` 默认为空数组，结构与单条拨测创建一致，最多 32 条，传入的 `id` 由服务端重建。服务器、设置和初始拨测在同一事务中保存，任何配置无效或写入失败均不创建服务器。原仅包含 `name` 的请求保持兼容；重命名不会修改监控与拨测设置。接入命令单独签发，命令获取失败后可针对已创建的服务器重试。
 
@@ -85,7 +85,7 @@
 
 `last_seen` 为 Unix 秒，表示最近设备消息，距最后消息不超过 60 秒视为在线。`last_heartbeat_at` 为 Unix 秒，仅 heartbeat 消息更新，旧数据或尚无心跳时为 null。`metrics_sampled_at` 是既有遥测采样时间，单位毫秒；尚无指标或旧 telemetry.metrics 不含采样时间时为 null。`metrics_stale` 按 Agent 采样和上传设置计算；过期不清空最近指标，在线也可能指标过期。静态信息和指标字段见 [协议文档](protocol.md)。未采集到的指标缺省，前端显示“暂无数据”；不得把缺失值显示为测得的零。
 
-接入令牌响应为 `{token,expires_at,install_command,installation,warning}`。有兼容的签名 Agent 时，`installation={version,tag,bootstrap_url,install_command}`、`install_command` 为下载并验证官方独立入口的完整接入命令；缺少制品或指定版本不可用时，命令与版本为 null，并返回中文 warning。未指定版本时按已签 metadata 选择最新协议兼容版本，不使用面板产品版本。令牌 24 小时有效、成功注册后只能消费一次。复制完整命令到目标 Linux 服务器执行即可；命令下载固定官方 GitHub 入口并核对摘要，入口自动准备验证工具和验证已签发布。重新签发令牌可用于原设备升级，已经注册的服务器只接受同一设备公钥。设备注册、WebSocket、制品下载的鉴权方式见协议文档。`GET /install.sh?token=…&agent_version=…` 验证有效令牌后返回 JSON `{version,tag,bootstrap_url,install_command}`，不返回可执行面板脚本；可选版本与接入接口相同。
+接入令牌响应为 `{token,expires_at,install_command,installation,warning}`。有兼容签名 Agent 时，`installation={version,tag,target,platform,bootstrap_url,install_command}`；自动模式 `version="latest"`、`tag=null`，在目标服务器执行时识别 ABI 后选择最新兼容稳定版，显式选版返回精确 version/tag。`target` 默认 `auto`，`platform` 默认 `unix`（Shell，Linux/macOS/FreeBSD），`windows` 返回 PowerShell 单行命令。缺少所选平台/版本的签名 proof 时命令与 installation 为 null，并返回中文 warning。令牌 24 小时有效、成功注册后只能消费一次。重新签发可用于同一设备升级，已经注册的服务器只接受原设备公钥。`GET /install.sh?token=…&agent_version=…&agent_target=…&platform=…` 返回同一安装描述 JSON；`GET /install.ps1` 固定 Windows 入口。两者验证活跃令牌，不返回面板可执行脚本。完整命令下载固定官方 GitHub 入口并核对摘要，入口自动准备依赖与独立验证发布签名。独立入口内嵌的可信 Linux 安装执行器兼容旧 `agent-v0.3.0` 的完整签名 proof，不修改已发布资产，也不要求旧 Release 安装器支持预下载 Agent；其他平台仍需对应已签制品。
 
 删除服务器使用面板实际持有的 WebSocket 连接判定在线，与列表按最近 60 秒消息显示的 `online` 不同：
 
@@ -109,6 +109,8 @@
 
 元数据为 `{id,name,enabled,online,agent_supported,read_only,source,installation}`。source 为 `administrator`、兼容 `legacy_nodes` / `legacy_deployments` 或 null；旧能力标记仅保留历史记录，单独能力声明不自动启用。`installation={state,reason,target_rev,applied_rev}`，state 为 `not_enabled`、`queued`、`waiting_agent`、`offline`、`pending`、`ready` 或 `failed`，reason 提供中文原因。启用安排无部署服务器的首次安全配置，重复请求不延后待办；实际安装仍须签名制品、设备支持和应用确认。创建节点和读取部署需先启用，否则返回 409。未启用服务器详情不请求节点或部署；已有网卡遥测继续显示。详见 [安装流程](singbox-installation.md)。
 
+服务器插件页 `/#/servers/{id}/plugins` 只管理这一台服务器，原 `/#/system/plugins` 保留为服务器插件汇总页。插件目录选择服务器后只跳转；启用仍须管理员明确调用上述服务器级接口，不创建全局安装或启用状态。
+
 ## 节点
 
 | 方法与路径 | 请求或用途 |
@@ -116,7 +118,7 @@
 | `GET /api/plugins/sing-box/nodes` | 有效服务器下的节点列表 |
 | `POST /api/plugins/sing-box/nodes` | `{"name":"节点名称","server_id":1,"public_host":"node.example.com","sni":"www.example.com","port":443}`；`port` 可省略 |
 | `GET /api/plugins/sing-box/nodes/{id}` | 节点详情 |
-| `PATCH /api/plugins/sing-box/nodes/{id}` | 可选 `name`、`public_host`、`sni`、`port`，至少一个字段；省略 `port` 保留现值 |
+| `PATCH /api/plugins/sing-box/nodes/{id}` | 可选 `name`、`public_host`、`sni`、`port`、`protocol_config`、`enabled`、`settings`，至少一个字段；省略字段保留现值 |
 | `DELETE /api/plugins/sing-box/nodes/{id}` | 删除节点及现有授权，并安排重新发布 |
 
 节点对象：
@@ -177,6 +179,28 @@
 
 ## 自动发布与部署状态
 
+节点 POST/PATCH 新增 `enabled`（创建默认 true）与 `settings`：
+
+```json
+{
+  "enabled": true,
+  "settings": {
+    "listen": "::",
+    "public_port": 443,
+    "tcp_fast_open": false,
+    "tls_alpn": [],
+    "hysteria2": {
+      "up_mbps": 80,
+      "down_mbps": 40,
+      "ignore_client_bandwidth": false,
+      "obfs_enabled": true
+    }
+  }
+}
+```
+
+上例用于 HY2 节点。公共字段省略保留，`public_port:null` 恢复跟随监听端口；协议设置组省略保留，提供组时组内未提供项恢复该组默认值。仅 `hysteria2.obfs_password` 在启用混淆且省略/空字符串时保留原密码，没有原值则自动生成；`obfs_enabled:false` 清除。管理响应只含 `obfs_enabled`，不回显密码。未知字段、不匹配协议、非法端口/IP/ALPN/带宽/超时会原子拒绝。Reality、TUIC、AnyTLS 的字段与范围见[协议设置](proxy-protocols.md#节点连接与高级设置)和编译器 `NodeSettings`；旧 API 不传这些字段保持兼容。
+
 影响配置或订阅投影的节点、用户或授权变更在同一个数据库事务中更新对应服务器的 `dirty_at`；仅重置订阅令牌和字段未变的节点 PATCH 不触发发布。发布任务每秒检查一次，在最后一次变更后等待完整 5 秒，然后编译该服务器的完整快照。`dirty_at` 内部使用 Unix 毫秒，重启面板不会丢失待发布状态。新变更会重新开始合并窗口。
 
 原生配置及包序列化结果确定；包 SHA-256 与最新发布版本相同则不增加版本号。节点名称、公开地址等仅影响客户端的元数据，在这一情况下更新原版本的订阅快照。配置内容变化时增加服务器版本、保存完整包和模型快照，再通知 Agent 拉取。只有事务提交后才发送通知；通知丢失由设备心跳和重新对账恢复。
@@ -202,6 +226,8 @@
 
 从未发布时 `status` 为 `null`、`history` 为空。历史按版本倒序，最多 100 条，仅包含元数据。`target_rev` 是最新期望版本；`applied_rev` 是已知成功应用的版本；`last_result_rev` 是最后接受的应用结果版本；`healthy` 表示设备报告当前配置是否健康。失败后成功回滚时可以同时出现 `healthy=true` 和 `last_error`，界面应保留失败提示及当前实际版本。
 
+响应还含 `pending`（存在尚未发布的修改）、`enabled_nodes` 与 `authorized_nodes`（当前有有效授权的节点数）。管理员 `POST /api/plugins/sing-box/servers/{id}/deployments/check` 无请求体，返回 `{ready,checks:[{name,passed,detail}]}`，检查设备接入、60 秒在线、插件能力、设备制品验签能力及现有平台选择规则下的签名运行时。只有设备声明 `artifact:minisign-v1` 才能通过验签能力检查；面板保存已签运行时不能替代设备验签支持。只读检查不会安装、发布或重启；归档验签不随每次状态轮询执行。缺少制品返回检查未通过，内部验证错误不泄露密钥和路径。
+
 较旧的应用结果不能覆盖较新结果。认证设备在 hello/heartbeat 中报告已发布且高于面板记录的已应用版本时，面板补齐成功状态，以恢复应用成功但回报丢失的场景；最近目标版本的错误说明仍保留。
 
 ## 订阅
@@ -210,10 +236,24 @@
 
 - `GET /sub/{token}` 或 `?format=links`：标准 base64 编码的多行 `vless://` 分享链接，`text/plain`。
 - `GET /sub/{token}?format=singbox`：可导入的 sing-box JSON，包含本地混合代理入口、选择器及用户有权使用的节点。
+- 两种格式可附加 `download=true`，以固定 `sinan-用户ID.json` / `.txt` 文件名下载；响应含 `Referrer-Policy: no-referrer`。
 
 响应带 `Cache-Control: no-store`。订阅从服务器已应用且健康的版本快照生成，再与当前有效用户、节点和授权 UUID 取交集。待应用的新配置、其他用户 UUID、服务端私钥不会出现在订阅中。撤销授权立即从订阅移除；重新授权的新 UUID 要等相应版本成功应用后出现。只修改名称或公开地址且原生包不变时，合并窗口后无需等待一次空部署即可更新订阅元数据。
 
 无可用节点时 links 返回空文本，singbox 返回 409 和中文说明；删除用户或重置订阅链接后，旧令牌返回 404。不支持的格式返回 400。
+
+管理员 `GET /api/plugins/sing-box/users/{id}/subscription?format=singbox` 默认完整 JSON，复用上述同一快照与授权检查。返回 `{format,status,message,available_formats,granted_nodes,eligible_nodes,ready_nodes,content,filename,content_type,entitlement,subscription_url}`：
+
+- `status` 为 `ready`、`empty`、`blocked` 或 `format_unavailable`；后三种仍返回 200 以供界面解释状态，`content` 为 null。
+- `granted_nodes` 是当前未删除的授权投影数量；`eligible_nodes` 是套餐/启停资格有效且链路依赖符合条件的数量；`ready_nodes` 为最终快照交集的 `{id,name,protocol}`，不含内部链路秘密或其他用户凭据。
+- `entitlement` 复用套餐状态，额度/用量以十进制字符串返回。`subscription_url` 是本次事务读取的当前令牌地址，重置后重新获取即可更新。
+- `content` 在成功时为完整配置或 base64 分享链接字符串。禁止缓存，界面仅显式预览，复制/下载重新读取；不调用第三方转换服务。
+
+## 后台统计
+
+管理员 `GET /api/statistics?days=7` 返回服务器数量、网卡 `traffic` 汇总、逐日 `points` 和 `by_server` 前 8 排行；`GET /api/plugins/sing-box/statistics?days=7` 返回代理节点/用户数量、独立代理 `traffic`、`points`、`by_node` / `by_user` 前 8 排行。`days` 仅支持 7/30；未知查询字段拒绝。公开看板开关不会开放这些接口。
+
+流量以十进制字符串返回，没有记录用 null，真实零用 `"0"`；日期为 UTC 日起点。服务器统计排除删除服务器、包含隐藏服务器，并按当前选定网卡汇总原始日观测；不包含账单流量矫正。代理按批次结束日汇总并保留删除对象历史。完整口径见[统计仪表盘](statistics.md)。
 
 ## 流量与制品
 
@@ -231,11 +271,17 @@
 
 所有字节总量都是精确十进制字符串，避免浏览器整数精度损失。分组数组只包含有流量的项目；`deleted` 表示对应对象已删除，用于显示历史记录。按 `(server_id, epoch, seq)` 在事务中去重，持久化成功才确认，设备重传不会重复计费。这里的流量仅来自代理统计，与服务器网卡指标分开显示。
 
-`GET /api/artifacts` 返回签名与实际内容均验证通过的制品数组，每项包含 `name`、`version`、`arch`、`sha256`、`bytes`，例如 `{"name":"sing-box","version":"版本","arch":"amd64","sha256":"摘要","bytes":123}`。插件目录按组件身份归并不同版本和架构；`agent` 独立展示为基础组件，已登记插件为 `sing-box`、`nodequality`、`tcpquality`，未登记组件仅展示分发信息。此响应不是任何服务器的已安装列表，也不能代替服务器能力、版本或安全门禁检查。
+`GET /api/artifacts` 返回签名与实际内容均验证通过的制品数组，每项包含 `name`、`version`、`arch`、`sha256`、`bytes`，例如 `{"name":"sing-box","version":"版本","arch":"amd64","sha256":"摘要","bytes":123}`。`arch` 可为旧 `amd64/arm64` 或精确签名 ABI。插件目录按组件身份归并不同版本和架构；`agent` 独立展示为基础组件，已登记插件为 `sing-box`、`nodequality`、`tcpquality`，未登记组件仅展示分发信息。此响应不是任何服务器的已安装列表，也不能代替服务器能力、版本或安全门禁检查。
+
+界面入口为插件目录 `/#/plugins/catalog`，旧 `/#/artifacts` 书签继续可用。目录展示介绍与分发版本，选择服务器后跳转对应服务器的插件或诊断页，不发起安装、启用或任务；页面职责见 [插件目录与服务器执行边界](plugin-catalog.md)。
 
 `GET /api/artifacts/targets` 返回 `{default_targets,supported_targets}`，仅管理员可读取。默认目标由现有服务器上报的 Agent/运行时平台架构推断；没有可用上报时使用面板宿主平台。
 
-`POST /api/artifacts/import-release` 是部署维护接口，插件目录不提供此操作。请求 `{"tag":"agent-v0.3.0","targets":["linux-gnu-arm64"]}`，`targets` 可省略以自动匹配，不接受空数组、重复或未知目标。仅接受固定官方仓库的规范 tag，不接受 URL。成功返回 `{tag,targets,artifacts,signature_verified:true}`。完整 proof 验签后，仅下载所选平台的兼容制品；ARM 不下载 AMD。所选内容在同文件系统私有 staging 完成核对，随后公布本地清单。相同标签可追加目标或重导以修复缺失/损坏的普通文件；旧完整目录兼容。同一身份不同内容返回 409，并发导入返回 429；下载/验签失败保留原集合。草稿、缺签名、非法根、软链路径或内容篡改均拒绝；面板镜像缺少编译时公钥时也返回 409。此接口只准备已验证的分发文件，不安装或运行插件。目录布局、独立 bootstrap 和轮换步骤见部署文档与 ADR 0017、0037。
+`GET /api/artifacts/agent-versions` 需要管理员；`GET /api/bootstrap/versions?token=…` 需要有效接入令牌。查询可选 `target=auto/签名ABI`、`platform=unix/windows/linux`、`agent_version=latest/精确版本`。返回 `{versions:[{version,tag,targets,cached_targets,protocol_min,protocol_max}]}`，默认最新目录仅含稳定版并按数字版本降序，Linux 的显式合法预发布版本可单独查询；原生服务入口按现有服务管理器约束只提供稳定版。`targets` 来自完整签名 proof，`cached_targets` 只列已缓存且字节验证通过的 Agent；缺少缓存不隐藏合法签名目标。目录只提供候选，客户端须独立验签并检查本机 ABI/协议。
+
+`GET /api/bootstrap/{version}/{arch}?token=…` 验证接入令牌后仍返回 409：Agent 二进制必须从 GitHub Release 或独立 HTTPS 镜像下载，面板不提供 Agent。独立安装入口使用已签 metadata 的 asset_name 构造固定官方 tag 地址，只取本机系统/CPU/ABI，不向 GitHub/镜像发送 token 或设备凭据。
+
+`POST /api/artifacts/import-release` 是部署维护接口，插件目录不提供此操作。请求 `{"tag":"agent-v0.3.0","targets":["linux-gnu-arm64"]}`，`targets` 可省略以自动匹配，不接受空数组、重复或未知目标。仅接受固定官方仓库的规范 tag，不接受 URL。成功返回 `{tag,targets,artifacts,signature_verified:true}`。完整 proof 验签后，仅下载所选平台的兼容制品；ARM 不下载 AMD。所选内容在同文件系统私有 staging 完成核对，随后公布本地清单。相同标签可追加目标或重导以修复缺失/损坏的普通文件；旧完整目录兼容。同一身份不同内容返回 409，并发导入返回 429；下载/验签失败保留原集合。草稿、缺签名、非法根、软链路径或内容篡改均拒绝；面板镜像缺少编译时公钥时也返回 409。此接口只准备已验证的分发文件，不安装或运行插件。目录布局、独立 bootstrap 和轮换步骤见部署文档与 ADR 0017、0037、0038、0041。
 
 ## 服务器 IP 信息
 

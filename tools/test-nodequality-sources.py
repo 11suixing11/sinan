@@ -22,7 +22,7 @@ from unittest import mock
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / 'plugins/nodequality'
-VERSION = 'a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17'
+VERSION = 'a92fca6c0067df29ddd03fdc2fee6f3000f64545-sinan-native-r1'
 
 
 def module(name, path):
@@ -148,7 +148,7 @@ class SourceTests(unittest.TestCase):
         for name, payload in [('NODEQUALITY_SOURCE', entry), ('NODEQUALITY_LICENSE', '# Synthetic license\n'),
                               ('PINNED_CHAIN', self.bundle_path.read_text())] + [
                               (name, (self.fixture_plugin / path).read_text()) for name, path in [
-                                  ('SOURCE_HELPER', 'source-helper.py'), ('REPORT_POLICY_HELPER', 'report-policy.py'), ('SWAP_POLICY_HELPER', 'swap-policy.py'), ('DEPENDENCY_POLICY_HELPER', 'dependency-policy.py'), ('DATA_POLICY_HELPER', 'data-policy.py'), ('LOADER_POLICY_HELPER', 'loader-policy.py'), ('RANKING_POLICY_HELPER', 'ranking-policy.py'), ('IP_SCORE_POLICY_HELPER', 'ip-score-policy.py'), ('BROWSER_POLICY_HELPER', 'browser-policy.py'), ('QUERY_POLICY_HELPER', 'query-policy.py'), ('ACCESS_POLICY_HELPER', 'access-policy.py'), ('NETFLIX_POLICY_HELPER', 'netflix-policy.py'), ('REPORT_HELPER', 'report.py'),
+                                  ('SOURCE_HELPER', 'source-helper.py'), ('REPORT_POLICY_HELPER', 'report-policy.py'), ('SWAP_POLICY_HELPER', 'swap-policy.py'), ('DEPENDENCY_POLICY_HELPER', 'dependency-policy.py'), ('DATA_POLICY_HELPER', 'data-policy.py'), ('LOADER_POLICY_HELPER', 'loader-policy.py'), ('RANKING_POLICY_HELPER', 'ranking-policy.py'), ('IP_SCORE_POLICY_HELPER', 'ip-score-policy.py'), ('BROWSER_POLICY_HELPER', 'browser-policy.py'), ('QUERY_POLICY_HELPER', 'query-policy.py'), ('ACCESS_POLICY_HELPER', 'access-policy.py'), ('NETFLIX_POLICY_HELPER', 'netflix-policy.py'), ('OPENAI_POLICY_HELPER', 'openai-policy.py'), ('REPORT_HELPER', 'report.py'),
                                   ('EXIT_OBSERVER', 'exit-observer.sh'), ('DAILY_HELPER', 'daily.py'),
                                   ('CURL_SHIM', 'curl-shim.sh'), ('CHROOT_SHIM', 'chroot-shim.sh')]]:
             runner = runner.replace('@' + name + '@\n', payload)
@@ -382,21 +382,26 @@ sys.stdout.buffer.write((pathlib.Path(os.environ['NQ_INPUTS']) / matching[0]['na
         self.assertFalse((output / '.build.lock').exists())
         self.assertFalse(self.executed.exists())
 
-    def test_builder_rejects_a_changed_or_missing_report_policy_helper_before_artifact(self):
+    def test_builder_rejects_a_changed_or_missing_report_or_openai_helper_before_artifact(self):
         tree, environment = self.build_tree()
-        target = tree / 'plugins/nodequality/report-policy.py'
-        original = target.read_bytes()
-        for content in (original[:-1] + b'!', None):
-            if content is None:
-                target.unlink()
-            else:
-                target.write_bytes(content)
-            result = self.build(tree, environment, 'amd64')
-            self.assertNotEqual(result.returncode, 0)
-            output = self.root / 'artifacts/nodequality' / VERSION
-            self.assertFalse((output / 'amd64').exists())
-            self.assertFalse((output / 'SHA256SUMS').exists())
-            self.assertFalse((output / '.build.lock').exists())
+        for filename in ('report-policy.py', 'openai-policy.py'):
+            target = tree / 'plugins/nodequality' / filename
+            original = target.read_bytes()
+            try:
+                for content in (original[:-1] + b'!', None):
+                    with self.subTest(helper=filename, missing=content is None):
+                        if content is None:
+                            target.unlink()
+                        else:
+                            target.write_bytes(content)
+                        result = self.build(tree, environment, 'amd64')
+                        self.assertNotEqual(result.returncode, 0)
+                        output = self.root / 'artifacts/nodequality' / VERSION
+                        self.assertFalse((output / 'amd64').exists())
+                        self.assertFalse((output / 'SHA256SUMS').exists())
+                        self.assertFalse((output / '.build.lock').exists())
+            finally:
+                target.write_bytes(original)
         self.assertFalse(self.executed.exists())
 
     def test_builder_rejects_a_source_commit_that_does_not_match_its_artifact_version(self):
@@ -460,6 +465,7 @@ sys.stdout.buffer.write((pathlib.Path(os.environ['NQ_INPUTS']) / matching[0]['na
         self.assertIn((tree / 'plugins/nodequality/query-policy.py').read_bytes(), content)
         self.assertIn((tree / 'plugins/nodequality/access-policy.py').read_bytes(), content)
         self.assertIn((tree / 'plugins/nodequality/netflix-policy.py').read_bytes(), content)
+        self.assertIn((tree / 'plugins/nodequality/openai-policy.py').read_bytes(), content)
         # Mutate an embedded license's base64 representation inside the runner.
         bundle_text = helper.pack(self.lock, self.sources)
         self.assertIn(bundle_text, content)

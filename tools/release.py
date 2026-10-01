@@ -18,7 +18,7 @@ TEST_ONLY_PUBLIC_KEY = "RWS3NbDikg3VqWRlxJMUyaB1dTvErk0ptJ695xQ50Kyb+MmtynMhN/lq
 TEST_ONLY_ROTATION_PUBLIC_KEY = "RWRURVNUUk9UMjMuvo0ny3Mjs6QBwcE7XdZLzMDhDs2hwrXRGgN3moXl"
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 TEST_PUBLIC_KEY_DIRS = (SOURCE_ROOT / "fixtures", SOURCE_ROOT / "crates/protocol/tests/fixtures")
-NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17"
+NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-sinan-native-r1"
 SEGMENT = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}\Z")
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?\Z")
 MAX_BINARY = 256 * 1024 * 1024
@@ -151,7 +151,7 @@ def assemble(args):
                 auxiliary = {name: {"sha256": digest(content), "size": len(content)}
                              for name, content in files.items() if name != binary_name}
                 entry["auxiliary_files"] = auxiliary
-            if name == "nodequality" and version == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18":
+            if name == "nodequality" and version == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1":
                 from nodequality_rootfs_artifact import archive_files, validate_files
                 files = archive_files(data)
                 validate_files(files, version, arch)
@@ -178,18 +178,29 @@ def assemble(args):
     (output / "SHA256SUMS").write_bytes(checksums.encode("utf-8"))
 
 
-def render_installer(args):
-    text = read_regular(Path(args.template), 262144).decode("utf-8")
-    for marker, filename in (("@@AGENT_UNIT@@", args.agent_unit),
-                             ("@@RUNTIME_UNIT@@", args.runtime_unit)):
+def installer_source(template, agent_unit, runtime_unit, source_root=SOURCE_ROOT):
+    """Render audited static Linux installation logic for release or trusted bootstrap."""
+    source_root = Path(source_root)
+    text = read_regular(Path(template), 262144).decode("utf-8")
+    if "@@LEGACY_CHECKPOINT_PREFLIGHT@@" in text:
+        ensure(text.count("@@LEGACY_CHECKPOINT_PREFLIGHT@@") == 2, "missing or duplicate legacy preflight marker")
+        guard = read_regular(source_root / "tools/legacy_agent_checkpoint.py", 65536).decode("utf-8")
+        text = text.replace("@@LEGACY_CHECKPOINT_PREFLIGHT@@", guard.rstrip())
+    for marker, filename in (("@@AGENT_UNIT@@", agent_unit),
+                             ("@@RUNTIME_UNIT@@", runtime_unit)):
         ensure(text.count(marker) == 1, "missing or duplicate installer unit marker")
         text = text.replace(marker, read_regular(Path(filename), 65536).decode("utf-8").rstrip())
-    for marker, filename in (("@@AGENT_OPENRC@@", SOURCE_ROOT / "deploy/sinan-agent.openrc"),
-                             ("@@RUNTIME_OPENRC@@", SOURCE_ROOT / "plugins/sing-box/sinan-singbox.openrc")):
+    for marker, filename in (("@@AGENT_OPENRC@@", source_root / "deploy/sinan-agent.openrc"),
+                             ("@@RUNTIME_OPENRC@@", source_root / "plugins/sing-box/sinan-singbox.openrc")):
         if marker in text:
             ensure(text.count(marker) == 1, "duplicate installer unit marker")
             text = text.replace(marker, read_regular(filename, 65536).decode("utf-8").rstrip())
     ensure("@@" not in text, "unexpanded installer marker")
+    return text
+
+
+def render_installer(args):
+    text = installer_source(args.template, args.agent_unit, args.runtime_unit)
     output = Path(args.output)
     ensure(not output.exists(), "installer output exists")
     output.write_bytes(text.encode("utf-8"))
@@ -260,12 +271,12 @@ def verify_signature(bundle, roots, minisign):
     raise ValueError("no trusted key verifies the complete signature")
 
 
-def verify_manifest(bundle, roots, minisign, expected_tag=None):
+def verify_manifest(bundle, roots, minisign, expected_tag=None, protocol_version=1):
     verify_signature(Path(bundle), roots, minisign)
-    return validate_manifest(bundle, expected_tag)
+    return validate_manifest(bundle, expected_tag, protocol_version)
 
 
-def validate_manifest(bundle, expected_tag=None):
+def validate_manifest(bundle, expected_tag=None, protocol_version=1):
     """Validate contents only after an independently successful signature verifier."""
     bundle = Path(bundle)
     ensure(not bundle.is_symlink(), "bundle must not be a symlink")
@@ -288,7 +299,9 @@ def validate_manifest(bundle, expected_tag=None):
     ensure(type(metadata["schema"]) is int and metadata["schema"] == 1
            and metadata["source_repo"] == REPOSITORY, "wrong release identity")
     ensure(type(metadata["protocol_min"]) is int and type(metadata["protocol_max"]) is int
-           and metadata["protocol_min"] == 1 and metadata["protocol_max"] == 1,
+           and 1 <= metadata["protocol_min"] <= metadata["protocol_max"] <= 65535
+           and (protocol_version is None
+                or metadata["protocol_min"] <= protocol_version <= metadata["protocol_max"]),
            "unsupported protocol range")
     ensure(expected_tag is None or metadata["tag"] == expected_tag, "wrong release tag")
     ensure(isinstance(metadata["artifacts"], list) and 0 < len(metadata["artifacts"]) <= 30,
@@ -318,12 +331,15 @@ def validate_manifest(bundle, expected_tag=None):
                    and re.fullmatch(re.escape(TOOL_VERSION) + r"-[0-9a-f]{40}-r1", entry["version"])
                    and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
                    "wrong or incomplete native TCP artifact identity")
-        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18":
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1":
             from nodequality_rootfs_artifact import BINARY, FILES
             ensure(entry["format"] == "tar.gz" and entry["binary_name"] == BINARY
                    and entry["arch"] in ("amd64", "arm64")
                    and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
                    "wrong or incomplete offline NodeQuality artifact identity")
+        if entry["name"] == "nodequality" and entry["version"] != "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1":
+            ensure(not entry.get("auxiliary_files"),
+                   "runner-only NodeQuality identity cannot claim offline auxiliary files")
         if entry["name"] == "agent":
             binary_name = "sinan-agent.exe" if entry["arch"].startswith("windows-") else "sinan-agent"
             ensure(metadata["tag"] == "agent-v" + entry["version"] and entry["format"] == "raw"
@@ -350,7 +366,7 @@ def verify_bundle(bundle, roots, minisign, expected_tag=None, exact_assets=True)
         if entry["name"] == "tcpquality":
             from tcp_probe_artifact import archive_files, validate_files
             validate_files(archive_files(data), entry["version"], entry["arch"])
-        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18":
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1":
             from nodequality_rootfs_artifact import archive_files, validate_files
             validate_files(archive_files(data), entry["version"], entry["arch"])
     if exact_assets:

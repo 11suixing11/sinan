@@ -10,6 +10,7 @@ import io
 import json
 import os
 from pathlib import Path
+import platform
 import shlex
 import shutil
 import subprocess
@@ -153,6 +154,17 @@ class ReleaseTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.verify()
 
+    def test_signed_runner_only_nodequality_cannot_claim_offline_auxiliary_inventory(self):
+        def claim(metadata):
+            entry = next(item for item in metadata["artifacts"] if item["name"] == "nodequality")
+            entry["auxiliary_files"] = {
+                "rootfs.tar.gz": {"sha256": "0" * 64, "size": 1},
+                "rootfs-manifest.json": {"sha256": "1" * 64, "size": 1},
+            }
+        self.rewrite_metadata(claim)
+        with self.assertRaisesRegex(ValueError, "runner-only NodeQuality identity"):
+            release.verify_manifest(self.bundle, self.roots, "minisign", "agent-v0.3.0")
+
     def test_raw_artifact_cannot_claim_auxiliary_files(self):
         self.rewrite_metadata(lambda metadata: metadata["artifacts"][0].update(
             auxiliary_files={"extra.dll": {"sha256": "0" * 64, "size": 1}}))
@@ -274,9 +286,13 @@ class ReleaseTests(unittest.TestCase):
             self.verify()
 
     def test_signed_wrong_protocol_range(self):
-        self.rewrite_metadata(lambda data: data.update(protocol_max=2))
+        self.rewrite_metadata(lambda data: data.update(protocol_min=2, protocol_max=2))
         with self.assertRaises(ValueError):
             self.verify()
+
+    def test_signed_protocol_range_that_includes_this_client_is_compatible(self):
+        self.rewrite_metadata(lambda data: data.update(protocol_max=2))
+        self.assertEqual(self.verify()["protocol_max"], 2)
 
     def test_signed_unknown_metadata_field(self):
         self.rewrite_metadata(lambda data: data.update(public_keys=self.roots))
@@ -344,6 +360,9 @@ class ReleaseTests(unittest.TestCase):
             release.binary_bytes(gzip.compress(output.getvalue()), "tar.gz", "sing-box")
 
     def signed_executable_fixture(self):
+        self.installer_architecture = {"x86_64": "amd64", "amd64": "amd64",
+                                       "aarch64": "arm64", "arm64": "arm64"}[platform.machine()]
+        self.installer_asset = "agent-0.3.0-linux-musl-" + self.installer_architecture
         good_marker = self.directory / "trusted-agent-executed"
         bad_marker = self.directory / "untrusted-agent-executed"
 
@@ -358,17 +377,18 @@ class ReleaseTests(unittest.TestCase):
         good, bad = executable(good_marker), executable(bad_marker)
         size = max(len(good), len(bad)) + 64
         good, bad = good.ljust(size, b"\n"), bad.ljust(size, b"\n")
-        (self.bundle / "agent-0.3.0-linux-musl-amd64").write_bytes(good)
+        (self.bundle / self.installer_asset).write_bytes(good)
 
         def update(metadata):
             entry = next(item for item in metadata["artifacts"]
-                         if item["name"] == "agent" and item["arch"] == "amd64")
+                         if item["name"] == "agent" and item["arch"] == self.installer_architecture)
             entry.update(archive_size=size, binary_size=size, binary_sha256=release.digest(good))
 
         self.rewrite_metadata(update)
         manifest = self.bundle / "SHA256SUMS"
-        lines = [release.digest(good) + "  agent/0.3.0/amd64" if
-                 line.endswith("  agent/0.3.0/amd64") else line
+        proof_identity = "  agent/0.3.0/" + self.installer_architecture
+        lines = [release.digest(good) + proof_identity if
+                 line.endswith(proof_identity) else line
                  for line in manifest.read_text().splitlines()]
         manifest.write_text("\n".join(lines) + "\n")
         self.sign()
@@ -406,12 +426,14 @@ class ReleaseTests(unittest.TestCase):
             server.server_close()
             thread.join()
 
-    def installer_prefix(self, panel, forced_optimization=False, payload=None):
+    def installer_prefix(self, panel, forced_optimization=False, payload=None, target=None, core_root=None):
         if payload is not None:
-            (self.bundle / "agent-0.3.0-linux-musl-amd64").write_bytes(payload)
+            (self.bundle / self.installer_asset).write_bytes(payload)
         # Execute the actual production path through its first Agent execution.
         text = (ROOT / "deploy/install.sh.tmpl").read_text()
         text = text.split("# Reject unverifiable legacy caches", 1)[0] + "\nexit 0\n"
+        if core_root:
+            text = text.replace("/opt/sinan/core", str(core_root))
         if forced_optimization:
             text = text.replace("python3 -I - ", "python3 -I -O - ", 1)
         script = self.directory / "verified-installer-prefix.sh"
@@ -434,9 +456,11 @@ class ReleaseTests(unittest.TestCase):
                            PYTHONOPTIMIZE="1", PYTHONPATH=str(modules),
                            HTTP_PROXY="http://127.0.0.1:9", HTTPS_PROXY="http://127.0.0.1:9",
                            ALL_PROXY="socks5://127.0.0.1:9", NO_PROXY="", no_proxy="")
-        result = subprocess.run(["/bin/sh", str(script), "--bundle", str(self.bundle),
-                                 "--version", "0.3.0", "--panel", panel,
-                                 "--token-file", str(token)], env=environment,
+        arguments = ["/bin/sh", str(script), "--bundle", str(self.bundle),
+                     "--version", "0.3.0", "--panel", panel, "--token-file", str(token)]
+        if target:
+            arguments.extend(["--target", target])
+        result = subprocess.run(arguments, env=environment,
                                 capture_output=True, timeout=35)
         self.assertFalse(environment_marker.exists(), "installer imported an untrusted Python module")
         return result
@@ -464,6 +488,61 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(good_marker.read_text(), "verified")
             self.assertFalse(bad_marker.exists())
 
+    def signed_abi_fixture(self, abi):
+        good, _, marker, _ = self.signed_executable_fixture()
+        old_arch, old_asset = self.installer_architecture, self.installer_asset
+        target = "linux-" + abi + "-" + old_arch
+        self.installer_asset = "agent-0.3.0-" + target
+        (self.bundle / old_asset).rename(self.bundle / self.installer_asset)
+
+        def update(metadata):
+            entry = next(item for item in metadata["artifacts"]
+                         if item["name"] == "agent" and item["arch"] == old_arch)
+            entry.update(arch=target, asset_name=self.installer_asset)
+
+        self.rewrite_metadata(update)
+        manifest = self.bundle / "SHA256SUMS"
+        rows = dict(line.split("  ")[::-1] for line in manifest.read_text().splitlines())
+        rows["agent/0.3.0/" + target] = rows.pop("agent/0.3.0/" + old_arch)
+        manifest.write_text("".join(f"{rows[path]}  {path}\n" for path in sorted(rows)))
+        self.sign()
+        self.verify()
+        return good, marker, target
+
+    @unittest.skipUnless(os.getuid() == 0, "real installer prefix requires isolated Linux container root")
+    def test_installer_accepts_exact_signed_musl_identity(self):
+        good, marker, target = self.signed_abi_fixture("musl")
+        with self.panel_response(good) as (server, panel):
+            result = self.installer_prefix(panel, payload=good, target=target)
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertEqual(server.requests, 0)
+            self.assertEqual(marker.read_text(), "verified")
+
+    @unittest.skipUnless(os.getuid() == 0 and platform.libc_ver()[0] == "glibc",
+                         "GNU Agent prefix requires root on a GNU/glibc host")
+    def test_installer_accepts_exact_signed_gnu_identity(self):
+        good, marker, target = self.signed_abi_fixture("gnu")
+        with self.panel_response(good) as (server, panel):
+            result = self.installer_prefix(panel, payload=good, target=target)
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertEqual(server.requests, 0)
+            self.assertEqual(marker.read_text(), "verified")
+
+    @unittest.skipUnless(os.getuid() == 0, "protected executable staging test requires root")
+    def test_installer_refuses_writable_execution_parent_before_agent_execution(self):
+        good, _, marker, _ = self.signed_executable_fixture()
+        with tempfile.TemporaryDirectory(prefix="sinan-installer-parent-", dir="/root") as directory:
+            unsafe = Path(directory) / "unsafe-core"
+            unsafe.mkdir(mode=0o777)
+            unsafe.chmod(0o777)
+            with self.panel_response(good) as (server, panel):
+                result = self.installer_prefix(panel, payload=good, core_root=unsafe)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("root 保护".encode(), result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertEqual(server.requests, 0)
+            self.assertEqual(list(unsafe.iterdir()), [])
+
     @unittest.skipUnless(os.getuid() == 0, "real installer prefix requires isolated Linux container root")
     def test_installer_refuses_unbounded_body_at_signed_size(self):
         good, _, good_marker, bad_marker = self.signed_executable_fixture()
@@ -478,7 +557,7 @@ class ReleaseTests(unittest.TestCase):
     @unittest.skipUnless(os.getuid() == 0, "real installer prefix requires isolated Linux container root")
     def test_missing_preloaded_agent_never_falls_back_to_panel(self):
         good, _, good_marker, bad_marker = self.signed_executable_fixture()
-        (self.bundle / "agent-0.3.0-linux-musl-amd64").unlink()
+        (self.bundle / self.installer_asset).unlink()
         with self.panel_response(good, redirect=True) as (server, panel):
             result = self.installer_prefix(panel)
             self.assertNotEqual(result.returncode, 0)

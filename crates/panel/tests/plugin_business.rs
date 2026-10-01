@@ -235,6 +235,8 @@ async fn migration_case(pool: PgPool, binary: Option<std::path::PathBuf>) -> Res
         .execute(&pool)
         .await?;
     let node = Node {
+        enabled: true,
+        settings: Default::default(),
         id: node_id,
         name: "Imported node".into(),
         port,
@@ -304,6 +306,8 @@ async fn migration_case(pool: PgPool, binary: Option<std::path::PathBuf>) -> Res
     }
     for node in legacy.get_mut("nodes").unwrap().as_array_mut().unwrap() {
         node["protocol_config"] = json!({"type":"vless-reality"});
+        node["enabled"] = json!(true);
+        node["settings"] = json!({});
     }
     for access in legacy
         .get_mut("accesses")

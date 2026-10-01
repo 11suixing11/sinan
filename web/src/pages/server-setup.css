@@ -70,7 +70,7 @@
 .server-setup-modal .notice{margin:16px 0 0}
 .server-setup-modal .server-setup-footer{position:sticky;bottom:0;padding:16px 28px;background:#fff;border-color:#e2e8de;z-index:1;flex-wrap:wrap}
 .server-setup-footer>span{flex:1;min-width:120px;font-size:10px;color:#8a9781}
-.server-enrollment-version{display:flex;align-items:flex-start;gap:12px}
+.server-enrollment-version{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}
 .server-enrollment-version>.field{flex:1}
 .server-enrollment-version>.button{margin-top:23px;min-height:41px}
 .server-enrollment-command{margin-top:20px;border:1px solid #dce6d5;border-radius:8px;overflow:hidden;background:#f7faf3}
@@ -78,7 +78,7 @@
 .server-enrollment-command>div>span{display:flex;align-items:center;gap:6px;font-size:10px;color:#658255}
 .server-enrollment-command>div>small{font-size:9px;color:#91a082}
 .server-enrollment-command .copy-field{border:0;background:none;margin:0;padding:15px;align-items:flex-start}
-.server-enrollment-command .copy-field code{font-size:11px;line-height:2;color:#476540;max-height:240px;overflow:auto}
+.server-enrollment-command .copy-field code{font-size:11px;line-height:2;color:#476540;white-space:pre;word-break:normal;overflow-wrap:normal;overflow:auto;max-width:100%}
 .server-enrollment-command>p{font-size:9px;line-height:1.8;padding:0 15px 13px;margin:0;color:#8a9a7c}
 .server-enrollment-trust{display:flex;gap:9px;color:#7d8f6c;margin-top:16px}
 .server-enrollment-trust>svg{flex:none;margin-top:2px}

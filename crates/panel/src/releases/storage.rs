@@ -36,7 +36,7 @@ pub(super) async fn stored_paths(
     Ok(paths)
 }
 
-async fn existing_bytes(path: &Path, maximum: usize) -> Result<Option<Vec<u8>>> {
+pub(super) async fn existing_bytes(path: &Path, maximum: usize) -> Result<Option<Vec<u8>>> {
     if !ordinary_directory(path.parent().context("release file parent")?, false).await? {
         return Ok(None);
     }
@@ -55,7 +55,7 @@ async fn existing_bytes(path: &Path, maximum: usize) -> Result<Option<Vec<u8>>> 
     Ok(Some(ordinary_bytes(path, maximum).await?))
 }
 
-fn installer_valid(verified: &VerifiedRelease, bytes: &[u8]) -> bool {
+pub(super) fn installer_valid(verified: &VerifiedRelease, bytes: &[u8]) -> bool {
     bytes.len() <= MAX_INSTALLER
         && verified.checksum("install.sh") == Some(format!("{:x}", Sha256::digest(bytes)).as_str())
 }

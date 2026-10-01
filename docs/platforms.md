@@ -20,7 +20,7 @@ GNU Agent 已通过兼容层运行在 musl 宿主时，仍优先复用其旧 GNU
 
 GNU 宿主上的 musl Agent 按 `linux-musl-{arch}`、旧 `{arch}`、`linux-gnu-{arch}` 的顺序选择运行时，保留旧版本对已签缓存的选择，避免新增宿主识别后切换到同一证明中的其他摘要；GNU 宿主上的 GNU Agent 按 GNU 完整标识再旧目录选择。只有候选不存在才继续查找，签名或内容损坏直接失败。musl Agent 在 musl 宿主上的运行时只选择 `linux-musl-{arch}`，面板不能回退到 GNU。旧签名发布中的架构目录对 Agent 表示静态 musl、对 sing-box 表示 GNU，不能跨组件混用这一兼容规则；core 对其他旧插件保留通用签名兼容，不能据此让面板向这种设备提供 GNU sing-box。
 
-日常 CI 的 Agent 使用公开 TEST_ONLY 信任根，制品名称带 TEST_ONLY，禁止用于正式节点或发布；正式发布工作流当前生成 Linux 双架构六个组件制品；原生平台的生产签名 bundle、独立来源核验与发布验证须另行完成。Linux bootstrap 的静态安装器不代表原生平台已经具有相同的自动首装入口。
+日常 CI 的 Agent 使用公开 TEST_ONLY 信任根，制品名称带 TEST_ONLY，禁止用于正式节点或发布；正式发布工作流当前生成 Linux 双架构六个组件制品；原生平台的生产签名 bundle、独立来源核验与发布验证须另行完成。四个平台的单行入口现已实现：Shell 用于 Linux/macOS/FreeBSD，PowerShell 用于 Windows，自动检测 CPU/ABI 并选择兼容签名版本；见 [部署文档](deploy.md#复制安装命令)。当前正式 0.3.0 仅有旧 Linux 目标，原生正式制品与实机服务安装仍待独立发布验收。
 
 原生生产安装先独立验证签名、metadata 和待执行 Agent 的实际内容，将 proof 三文件保存在版本目录后再注册服务；`install-service` 在任何账户或服务修改前以编译根复验自身，并验证安装后的副本。缺少匹配 proof 的生产接入保持拒绝。
 
@@ -46,8 +46,8 @@ FreeBSD 的代理使用普通账户，默认应选择 1024 以上的节点端口
 
 ## 验证边界
 
-自动 [CI](../.github/workflows/ci.yml) 的 Agent 构建矩阵仅保留 Linux musl amd64/arm64，同时运行代码与 Compose 检查、OpenRC 监督与诊断，以及 systemd Reality 安装和计量验收。Ubuntu runner 固定为 `ubuntu-24.04` / `ubuntu-24.04-arm`。
+[CI](../.github/workflows/ci.yml) 包含 Linux musl amd64/arm64、代码与 Compose 检查、OpenRC 监督与诊断、systemd Reality 安装和计量定义，以及 GNU、macOS、Windows 和 FreeBSD 的全平台验证定义。Ubuntu runner 固定为 `ubuntu-24.04` / `ubuntu-24.04-arm`。所有 workflow 当前按用户要求暂停，没有由本任务触发、重跑或恢复。
 
-GNU 动态 Agent、完整 Linux 运行时矩阵、macOS ARM64、Windows 与 FreeBSD 双架构验证保留在仅手动触发的 [Platform validation](../.github/workflows/platforms.yml)。FreeBSD 使用同一二进制在 13.5、14、15 验证；原生任务检查注册、遥测补报、命令去重、拨测、升级回退、服务与回环代理流量。自动 CI 通过不代表手动平台任务已通过；成功结果须对应当前提交的 Actions。
+GNU 动态 Agent、完整 Linux 运行时矩阵、macOS ARM64、Windows 与 FreeBSD 双架构也保留仅手动触发的 [Platform validation](../.github/workflows/platforms.yml)，用于单独验收。FreeBSD 使用同一二进制在 13.5、14、15 验证；原生任务检查注册、遥测补报、命令去重、拨测、升级回退、服务与回环代理流量。自动 CI 通过不代表手动平台任务已通过；成功结果须对应当前提交的 Actions。
 
 GPU 实际负载、公网 Reality 客户端、真实 NodeQuality 性能和整机断电/重启由专用设备验收，见 [验收文档](e2e.md)。

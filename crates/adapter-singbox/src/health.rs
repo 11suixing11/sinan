@@ -4,8 +4,10 @@ use sinan_adapter_sdk::Prepared;
 use std::{io::ErrorKind, net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{
     net::{TcpStream, UdpSocket},
-    time::timeout,
+    time::{Instant, timeout_at},
 };
+
+mod socket;
 use tokio_rustls::{
     TlsConnector,
     rustls::{
@@ -35,21 +37,20 @@ pub(crate) fn budget(target: &Prepared) -> Duration {
 }
 
 pub(crate) async fn probe(listener: &Listener) -> bool {
-    matches!(
-        timeout(Duration::from_secs(2), probe_inner(listener)).await,
-        Ok(Ok(()))
-    )
+    probe_inner(listener, Instant::now() + Duration::from_secs(2))
+        .await
+        .is_ok()
 }
 
-async fn probe_inner(listener: &Listener) -> Result<()> {
+async fn probe_inner(listener: &Listener, deadline: Instant) -> Result<()> {
     let Some(tls) = &listener.tls else {
         match listener.transport {
             Transport::Tcp => {
-                TcpStream::connect(listener.address).await?;
+                timeout_at(deadline, TcpStream::connect(listener.address)).await??;
             }
             Transport::Udp => {
                 // UDP has no connect handshake. Service state and statistics are checked separately.
-                match UdpSocket::bind(listener.address).await {
+                match timeout_at(deadline, UdpSocket::bind(listener.address)).await? {
                     Err(error) if error.kind() == ErrorKind::AddrInUse => {}
                     _ => anyhow::bail!("UDP listener is not bound"),
                 }
@@ -84,37 +85,100 @@ async fn probe_inner(listener: &Listener) -> Result<()> {
     .with_safe_default_protocol_versions()?
     .with_root_certificates(roots)
     .with_no_client_auth();
+    config.alpn_protocols = tls["alpn"]
+        .as_array()
+        .map(|protocols| {
+            protocols
+                .iter()
+                .filter_map(|value| value.as_str().map(|value| value.as_bytes().to_vec()))
+                .collect()
+        })
+        .unwrap_or_else(|| {
+            if listener.transport == Transport::Udp {
+                vec![b"h3".to_vec()]
+            } else {
+                vec![]
+            }
+        });
     match listener.transport {
         Transport::Tcp => {
-            config.alpn_protocols = tls["alpn"]
-                .as_array()
-                .map(|protocols| {
-                    protocols
-                        .iter()
-                        .filter_map(|value| value.as_str().map(|value| value.as_bytes().to_vec()))
-                        .collect()
-                })
-                .unwrap_or_default();
-            let socket = TcpStream::connect(listener.address).await?;
-            TlsConnector::from(Arc::new(config))
-                .connect(ServerName::try_from(name.to_owned())?, socket)
-                .await?;
+            timeout_at(deadline, async {
+                let socket = TcpStream::connect(listener.address).await?;
+                TlsConnector::from(Arc::new(config))
+                    .connect(ServerName::try_from(name.to_owned())?, socket)
+                    .await?;
+                Ok::<_, anyhow::Error>(())
+            })
+            .await??;
         }
         Transport::Udp => {
-            config.alpn_protocols = vec![b"h3".to_vec()];
             let crypto = quinn::crypto::rustls::QuicClientConfig::try_from(config)?;
-            let bind: SocketAddr = if listener.address.is_ipv6() {
-                "[::1]:0"
+            // Reserve part of the same two-second budget for confirmed driver
+            // shutdown, including an unsuccessful or timed-out handshake.
+            let handshake_deadline = deadline - Duration::from_millis(100);
+            let bridge = match &listener.obfuscation {
+                Some(password) => Some(
+                    timeout_at(
+                        handshake_deadline,
+                        crate::obfuscation::Bridge::new(listener.address, password.clone()),
+                    )
+                    .await??,
+                ),
+                None => None,
+            };
+            let destination = bridge
+                .as_ref()
+                .map_or(listener.address, |bridge| bridge.address);
+            let bind: SocketAddr = if destination.is_ipv6() {
+                "[::]:0"
             } else {
-                "127.0.0.1:0"
+                "0.0.0.0:0"
             }
             .parse()?;
-            let mut endpoint = quinn::Endpoint::client(bind)?;
+            let socket = socket::Socket::bind(bind)?;
+            let runtime = Arc::new(socket::Runtime::default());
+            let mut endpoint = quinn::Endpoint::new_with_abstract_socket(
+                Default::default(),
+                None,
+                socket.clone(),
+                runtime.clone(),
+            )?;
             endpoint.set_default_client_config(quinn::ClientConfig::new(Arc::new(crypto)));
-            let connection = endpoint.connect(listener.address, name)?.await?;
-            connection.close(0u32.into(), b"health check complete");
-            endpoint.close(0u32.into(), b"health check complete");
+            let resources = socket::Resources {
+                endpoint,
+                socket,
+                runtime,
+            };
+            let result = timeout_at(handshake_deadline, async {
+                let connecting = resources.endpoint.connect(destination, name)?;
+                let connection = if let Some(bridge) = &bridge {
+                    tokio::select! {
+                        result = connecting => result?,
+                        result = bridge.forward() => {
+                            result?;
+                            anyhow::bail!("health bridge stopped before the handshake");
+                        }
+                    }
+                } else {
+                    connecting.await?
+                };
+                connection.close(0u32.into(), b"health check complete");
+                Ok::<_, anyhow::Error>(())
+            })
+            .await
+            .context("QUIC health handshake timed out")
+            .and_then(|result| result);
+            if let Some(bridge) = bridge {
+                bridge.close();
+            }
+            timeout_at(deadline, resources.finish())
+                .await
+                .context("QUIC health cleanup timed out")??;
+            result?;
         }
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

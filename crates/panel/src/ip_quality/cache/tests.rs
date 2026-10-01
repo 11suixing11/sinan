@@ -113,6 +113,7 @@ impl Source {
         // Fix only the clock to make persistence ordering and expiry deterministic.
         for entry in &mut values {
             entry.checked_at = at;
+            entry.last_attempt_at = Some(at);
             for dataset in &mut entry.databases {
                 dataset.attempted_at = Some(at);
                 dataset.last_success_at = (dataset.status == "succeeded").then_some(at);
@@ -317,6 +318,10 @@ async fn concurrent_admission_and_an_interrupted_refresh_use_durable_locks(
     )
     .await;
     failed[0].checked_at = now + 61;
+    failed[0].last_attempt_at = Some(now + 61);
+    for dataset in &mut failed[0].databases {
+        dataset.attempted_at = Some(now + 61);
+    }
     persist(&pool, id, &failed).await?;
     assert!(matches!(
         begin_refresh(&reopened, id, now + 62).await,
@@ -345,6 +350,60 @@ async fn a_deleted_server_cannot_replace_its_durable_cache(pool: PgPool) -> Resu
         Err(ApiError::NotFound)
     ));
     assert_eq!(read(&pool, id, &ips).await?[0].status, "succeeded");
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_waiting_batch_keeps_real_attempt_times_and_never_invents_a_first_attempt(
+    pool: PgPool,
+) -> Result<()> {
+    let id = server(&pool).await?;
+    let source = Source::start().await?;
+    let ips = ["192.0.2.1".into()];
+    let at = now_timestamp() - 120;
+    let initial = source.query(&ips, at).await;
+    persist(&pool, id, &initial).await?;
+    let mut waiting = initial[0].clone();
+    waiting.checked_at = at + 10;
+    waiting.last_attempt_at = None;
+    waiting.status = "failed".into();
+    for dataset in &mut waiting.databases {
+        dataset.status = "failed".into();
+        dataset.fields.clear();
+        dataset.error = Some("fixture request never started".into());
+        dataset.error_kind = Some(QueryErrorKind::NotAttempted);
+        dataset.attempted_at = None;
+        dataset.last_attempt_at = None;
+        dataset.elapsed_ms = None;
+        dataset.last_success_at = None;
+        dataset.fresh_until = None;
+    }
+    persist(&pool, id, &[waiting.clone()]).await?;
+    let saved = read(&pool, id, &ips).await?.remove(0);
+    assert_eq!(saved.checked_at, at + 10);
+    assert_eq!(saved.last_attempt_at, Some(at));
+    assert_eq!(saved.last_success_at, Some(at));
+    assert!(saved.databases.iter().all(|dataset| {
+        dataset.attempted_at.is_none()
+            && dataset.last_attempt_at == Some(at)
+            && dataset.historical
+            && !dataset.fields.is_empty()
+    }));
+
+    waiting.ip = "192.0.2.2".into();
+    for dataset in &mut waiting.databases {
+        dataset.target_ip = Some(waiting.ip.clone());
+    }
+    persist(&pool, id, &[waiting]).await?;
+    let unknown = read(&pool, id, &["192.0.2.2".into()]).await?.remove(0);
+    assert_eq!(unknown.last_attempt_at, None);
+    assert_eq!(unknown.last_success_at, None);
+    assert!(
+        unknown
+            .databases
+            .iter()
+            .all(|dataset| { dataset.last_attempt_at.is_none() && dataset.fields.is_empty() })
+    );
     Ok(())
 }
 

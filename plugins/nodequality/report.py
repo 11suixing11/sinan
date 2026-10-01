@@ -162,20 +162,33 @@ def save_section(root, name, text, complete):
 def save_section_locked(root, name, text, complete):
     path = root / ("section-" + name + ".json")
     previous = {}
+    if path.is_symlink():
+        # A dangling link is still rejected; exists() follows links and would
+        # otherwise let atomic publication silently replace the invalid entry.
+        raise ValueError("chapter output is not a bounded ordinary file")
     if path.exists():
-        if path.is_symlink() or not path.is_file() or path.stat().st_size > 512 * 1024:
+        if not path.is_file() or path.stat().st_size > 512 * 1024:
             raise ValueError("chapter output is not a bounded ordinary file")
         previous = json.loads(path.read_text())
+        if (not isinstance(previous, dict) or previous.get("name") != name
+                or not isinstance(previous.get("text"), str)
+                or type(previous.get("complete")) is not bool
+                or type(previous.get("revision")) is not int
+                or not 1 <= previous["revision"] <= 2**63 - 1):
+            raise ValueError("saved chapter metadata is invalid")
     if previous.get("complete") and not complete:
         return
     if previous.get("text") == text and previous.get("complete") == complete:
         return
+    if previous.get("revision", 0) == 2**63 - 1:
+        raise ValueError("saved chapter revision is exhausted")
     chapter = {"name": name, "text": text, "complete": complete,
                "revision": previous.get("revision", 0) + 1, "collected_at": int(time.time())}
     write_atomic(path, json.dumps(chapter, ensure_ascii=False).encode("utf-8"))
 
 
 def publish_sections(root, files, archive=False):
+    failed = []
     for index, (name, _) in enumerate(SECTIONS):
         text = bounded_text(files.get(name + ".log", b""))
         if not text:
@@ -190,7 +203,14 @@ def publish_sections(root, files, archive=False):
         # The pinned entry runs stages sequentially. A following log proves that
         # the preceding pipeline finished; archive capture proves the last stage.
         following = any(other + ".log" in files for other, _ in SECTIONS[index + 1:])
-        save_section(root, name, text, valid and (archive or following))
+        try:
+            save_section(root, name, text, valid and (archive or following))
+        except (OSError, ValueError):
+            # Keep the rejected sidecar untouched and publish the other chapters
+            # before reporting failure to the collector or live watcher.
+            failed.append(name)
+    if failed:
+        raise ValueError("chapter publication failed: " + ", ".join(failed))
 
 
 def snapshot(root):

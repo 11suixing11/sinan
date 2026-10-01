@@ -9,6 +9,8 @@ use uuid::Uuid;
 fn nodes() -> Vec<Node> {
     vec![
         Node {
+            enabled: true,
+            settings: Default::default(),
             id: 3,
             name: "测试节点 / 主入口".into(),
             port: 20000,
@@ -33,6 +35,8 @@ fn nodes() -> Vec<Node> {
             ],
         },
         Node {
+            enabled: true,
+            settings: Default::default(),
             id: 8,
             name: "空节点".into(),
             port: 20001,
@@ -89,6 +93,57 @@ fn empty_model_has_no_exposed_inbounds() {
         compile_server(&only_empty).unwrap(),
         compile_server(&[]).unwrap()
     );
+}
+
+#[test]
+fn settings_preserve_old_snapshots_and_separate_public_from_listening_endpoint() {
+    let mut model = nodes();
+    let old = serde_json::to_value(&model).unwrap();
+    assert!(old[0].get("enabled").is_none());
+    assert!(old[0].get("settings").is_none());
+    assert_eq!(
+        compile_server(&model).unwrap(),
+        compile_server(&serde_json::from_value::<Vec<Node>>(old).unwrap()).unwrap()
+    );
+    model[0].settings.listen = "127.0.0.1".into();
+    model[0].settings.public_port = Some(443);
+    model[0].settings.tcp_fast_open = true;
+    model[0].settings.reality.handshake_server = Some("handshake.example.com".into());
+    model[0].settings.reality.handshake_port = 8443;
+    model[0].settings.reality.fingerprint = sinan_compiler::Fingerprint::Firefox;
+    let native: Value = serde_json::from_str(&compile_server(&model).unwrap()).unwrap();
+    assert_eq!(native["inbounds"][0]["listen"], "127.0.0.1");
+    assert_eq!(native["inbounds"][0]["listen_port"], 20000);
+    assert_eq!(native["inbounds"][0]["tcp_fast_open"], true);
+    assert_eq!(
+        native["inbounds"][0]["tls"]["reality"]["handshake"],
+        serde_json::json!({"server":"handshake.example.com","server_port":8443})
+    );
+    let client: Value = serde_json::from_str(&compile_client(&model, 1).unwrap()).unwrap();
+    assert_eq!(client["outbounds"][1]["server_port"], 443);
+    assert_eq!(
+        client["outbounds"][1]["tls"]["utls"]["fingerprint"],
+        "firefox"
+    );
+    let links = String::from_utf8(
+        STANDARD
+            .decode(subscription_links(&model, 1).unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(links.contains("proxy.example.com:443?"));
+    assert!(links.contains("fp=firefox"));
+    model[0].enabled = false;
+    assert_eq!(
+        compile_server(&model).unwrap(),
+        compile_server(&[]).unwrap()
+    );
+    assert!(matches!(
+        compile_client(&model, 1),
+        Err(sinan_compiler::CompileError::NoAuthorizedNodes(1))
+    ));
+    assert_eq!(subscription_links(&model, 1).unwrap(), "");
+    assert_eq!(model[0].users.len(), 2);
 }
 
 #[test]

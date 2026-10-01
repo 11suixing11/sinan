@@ -48,10 +48,10 @@ sudo "$diagnostic_test_binary" real_systemd_diagnostic_ --ignored
 
 ## 兼容及验收边界
 
-本项的资源预算强制执行仅覆盖 systemd。OpenRC 继续保留已有的独立诊断进程、挂载命名空间、超时和进程清理行为，启动时明确记录警告：它不执行这些 systemd cgroup 预算，包括 MemorySwapMax。ServiceJob 中持久化的有限默认值不代表 OpenRC 已获得同等的内存、任务数、CPU/I/O 权重或 OOM 限制；其他原生平台未新增诊断服务支持。OpenRC 的总进程树资源限制需要另行实现和验收，不能用每进程 rlimit 代替上述 cgroup 限制。
+本项的资源预算强制执行仅覆盖 systemd。当前 `SystemServiceManager::start_diagnostic_job` 要求 systemd 及可验证的 swap 系统调用保护，OpenRC 新诊断明确拒绝，不能降级为仅输出预算警告后继续执行。旧 OpenRC 任务的观察和停止实现继续保留，以便恢复与清理；其他原生平台未新增诊断服务支持。ServiceJob 中持久化的有限默认值不代表 OpenRC 已获得同等的内存、任务数、CPU/I/O 权重或 OOM 限制，不能用每进程 rlimit 代替 cgroup 限制。
 
 新字段只影响此版本启动的新单元。升级期间已经运行的旧单元继续按已有 systemd 属性运行，默认反序列化用于恢复和观察，不会追溯设置属性或重跑任务。
 
 本项不新增可用内存/磁盘/负载预检，不调整常驻服务，也不实现诊断取消和章节完整度。小内存的真实完整验机、持续业务流量下的心跳/运行时存活、取消后的挂载清理需在后续保护项完成后联合验收。查询源的 403/429/超时和磁盘不足属于独立修复项，不以本项资源夹具认定已通过。
 
-本机 macOS 自动检查和 PostgreSQL 集成测试通过；Linux/systemd 专项在本机按原因忽略，远端 CI 和专用 Debian 12 完整验机待验。
+上文自动检查与真实夹具结果属于原资源预算提交，后续联合负载和日常链路记录见 [整改顺序](ordered-remediation.md)。2026-10-01 五项 issue 批次只审查已有预算与修正文档，未运行测试；最终整合测试及完整上游负载分别记录，不能沿用旧提交的结果认证当前代码。

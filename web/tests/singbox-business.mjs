@@ -21,7 +21,7 @@ try {
     const page = await browser.newPage({ viewport: { width, height: 900 } })
     const errors = [], requests = [], mutations = [], now = Math.floor(Date.now() / 1000)
     page.on('pageerror', error => errors.push(error.message))
-    const metadata = { id: 1, name: '纯监控验收服务器', enabled: false, source: null, read_only: false, online: true, agent_supported: false }
+    const metadata = { id: 1, name: '纯监控验收服务器', enabled: false, source: null, read_only: false, online: true, agent_supported: false, installation: { state: 'not_enabled', reason: '尚未启用插件；设备支持此插件不代表已安装', target_rev: 0, applied_rev: 0 } }
     const entry = { id: 1, name: metadata.name, online: true, device_public_key: 'test-only-key', static_info: { runtime_version: 'test-only-runtime' }, latest_metrics: { network_interfaces: { eth0: { received_bytes: 1024, transmitted_bytes: 2048 } } }, last_seen: now, manifest_rev: 0, capabilities: [] }
     const node = { id: 2, name: '插件代理节点', server_id: 1, protocol: 'vless-reality', port: 443, public_host: 'proxy.example.com', sni: 'www.example.com', public_key: 'public-test', short_id: '0123abcd' }
     const exitNode = { ...node, id: 3, name: '另一台服务器的出口', server_id: 2, public_host: 'exit.example.com' }
@@ -42,7 +42,7 @@ try {
       { ...exitMetadata, id: 4, name: '版本不一致的服务器', installation: { state: 'ready', reason: '不一致夹具不能认证应用成功。', target_rev: 4, applied_rev: 3 } },
       { ...exitMetadata, id: 5, name: '离线入口服务器', online: false, installation: { state: 'offline', reason: '入口夹具当前离线。', target_rev: 2, applied_rev: 1 } },
     ]
-    let chainsFailure = false, chainFixtures = false, pluginServersFailure = false, nodesEmpty = false
+    let chainsFailure = false, chainFixtures = false, pluginServersFailure = false, nodesEmpty = false, deploymentFailure = false
     await page.route('**/api/**', async route => {
       const path = new URL(route.request().url()).pathname
       requests.push(path)
@@ -59,10 +59,21 @@ try {
       else if (path === '/api/plugins/sing-box/servers/1/enable') {
         assert.equal(route.request().method(), 'POST')
         assert.deepEqual(route.request().postDataJSON(), {})
-        Object.assign(metadata, { enabled: true, source: 'administrator', installation: { state: 'queued', reason: '已安排首次安装，等待设备应用。', target_rev: 1, applied_rev: 0 } }); value = metadata
+        Object.assign(metadata, { enabled: true, source: 'administrator', installation: { state: 'queued', reason: '启用请求已保存，正在生成初始运行配置', target_rev: 0, applied_rev: 0 } }); value = metadata
       } else if (path === '/api/plugins/sing-box/servers/1/deployments') {
         assert.equal(metadata.enabled, true)
-        value = { status: metadata.installation?.state === 'ready' ? { module: 'singbox', target_rev: 1, applied_rev: 1, last_result_rev: 1, healthy: true, last_error: null, updated_at: now } : null, history: [] }
+        if (deploymentFailure) { await route.fulfill({ status: 500, json: { error: '部署夹具读取失败' } }); return }
+        const installation = metadata.installation
+        value = { status: installation?.target_rev > 0 ? { module: 'singbox', target_rev: installation.target_rev, applied_rev: installation.applied_rev, last_result_rev: installation.applied_rev, healthy: installation.state === 'ready', last_error: null, updated_at: now } : null,
+          pending: ['queued', 'pending'].includes(installation?.state), enabled_nodes: node.enabled === false ? 0 : 1, authorized_nodes: 0, history: [] }
+      } else if (path === '/api/plugins/sing-box/nodes/2') {
+        assert.equal(route.request().method(), 'PATCH')
+        const payload = route.request().postDataJSON()
+        assert.deepEqual(payload, { name: node.name, public_host: node.public_host, sni: node.sni, protocol_config: { type: 'vless-reality' }, port: 443, enabled: false,
+          settings: { listen: '0.0.0.0', public_port: 8443, tcp_fast_open: false, tls_alpn: [], reality: { handshake_server: 'handshake.example.com', handshake_port: 443, fingerprint: 'firefox' } } })
+        Object.assign(node, payload)
+        metadata.installation = { state: 'pending', reason: '节点设置已保存，等待设备应用。', target_rev: 2, applied_rev: 1 }
+        value = node
       } else if (path === '/api/plugins/sing-box/nodes') {
         assert.equal(metadata.enabled, true); value = nodesEmpty ? [] : chainFixtures ? [node, exitNode, ...additionalNodes] : [node, exitNode]
       } else if (path === '/api/plugins/sing-box/users') value = []
@@ -80,6 +91,7 @@ try {
       else if (path === '/api/servers/1/agent-settings') value = { sample_interval_secs: 1, upload_interval_secs: 3, discover_public_ips: false, auto_update: false }
       else if (path === '/api/servers/1/node-quality') value = { ip_addresses: [], quality: [], plugin_ready: false, plugin_reason: '夹具未启用诊断', reports: [] }
       else if (path === '/api/servers/1/enrollment') value = { token: 'TEST_ONLY_ENROLLMENT', expires_at: now + 3600, install_command: null, warning: '夹具未导入 Agent 制品。' }
+      else if (path === '/api/artifacts/agent-versions' && route.request().method() === 'GET') value = { versions: [] }
       else if (['/api/servers/1/probes', '/api/servers/1/probe-results', '/api/servers/1/commands'].includes(path)) value = []
       else if (path === '/api/security/totp') value = { enabled: false }
       else { errors.push(`Unexpected API: ${path}`); await route.fulfill({ status: 404, json: {} }); return }
@@ -131,9 +143,10 @@ try {
     await page.reload()
     await page.getByText('安装状态待确认', { exact: true }).waitFor()
     assert.equal(await page.getByText('已安装并运行', { exact: true }).count(), 0)
-    Object.assign(metadata, { source: 'agent_capability', read_only: true, agent_supported: true })
+    Object.assign(metadata, { source: 'legacy_nodes', read_only: true, agent_supported: true })
     await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '服务器插件', exact: true }).click()
     await page.getByText('保留已有启用记录', { exact: true }).waitFor()
+    await page.getByText('兼容已有代理节点', { exact: true }).waitFor()
     assert.equal(await page.getByRole('button', { name: '启用并安装 sing-box', exact: true }).count(), 0)
 
     // The server plugin route reads only this server and keeps conservative ACK semantics.
@@ -157,7 +170,43 @@ try {
     await page.getByRole('button', { name: '创建节点', exact: true }).click()
     assert.equal(await page.locator('select[name="server_id"]').inputValue(), '1')
     await page.getByRole('dialog').getByRole('button', { name: '取消', exact: true }).click()
+    // Main's node settings survive the unified listener/chain category merge.
+    const nodeMutationStart = mutations.length
+    await page.getByRole('row').filter({ has: page.getByText(node.name, { exact: true }) }).getByRole('button', { name: '编辑', exact: true }).click()
+    const nodeEditor = page.getByRole('dialog')
+    await nodeEditor.locator('input[name="listen"]').fill('0.0.0.0')
+    await nodeEditor.locator('input[name="public_port"]').fill('8443')
+    await nodeEditor.locator('input[name="enabled"]').uncheck()
+    await nodeEditor.getByText('协议高级设置', { exact: true }).click()
+    await nodeEditor.locator('input[name="handshake_server"]').fill('handshake.example.com')
+    await nodeEditor.locator('select[name="fingerprint"]').selectOption('firefox')
+    await nodeEditor.getByRole('button', { name: '保存并自动发布', exact: true }).click()
+    await page.getByText('节点已保存，正在等待自动发布与设备应用。', { exact: true }).waitFor()
+    await page.getByText('已设为停用', { exact: true }).waitFor()
+    await page.getByText('proxy.example.com:8443', { exact: true }).waitFor()
+    await page.getByText('监听 0.0.0.0 / 443', { exact: true }).waitFor()
+    assert.deepEqual(mutations.slice(nodeMutationStart), [{ path: '/api/plugins/sing-box/nodes/2', method: 'PATCH' }])
+    await page.getByRole('button', { name: '查看部署进度', exact: true }).click()
+    const deploymentDialog = page.getByRole('dialog')
+    await deploymentDialog.getByText('等待合并发布', { exact: true }).waitFor()
+    assert.equal(await deploymentDialog.getByText('目标配置已应用', { exact: true }).count(), 0)
+    await deploymentDialog.getByText('链路出口可能凭内部连接凭据监听。', { exact: false }).waitFor()
     metadata.installation = { state: 'ready', reason: '设备已确认目标配置，健康检查通过。', target_rev: 2, applied_rev: 2 }
+    await deploymentDialog.getByRole('button', { name: '刷新', exact: true }).click()
+    await deploymentDialog.getByText('目标配置已应用', { exact: true }).waitFor()
+    // A failed GET retains a historical snapshot in the resource hook, but the
+    // deployment dialog must withhold the current application confirmation.
+    deploymentFailure = true
+    await deploymentDialog.getByRole('button', { name: '刷新', exact: true }).click()
+    await deploymentDialog.getByText('部署夹具读取失败', { exact: true }).waitFor()
+    await deploymentDialog.getByText('应用状态待确认', { exact: true }).waitFor()
+    assert.equal(await deploymentDialog.getByText('目标配置已应用', { exact: true }).count(), 0)
+    deploymentFailure = false
+    await deploymentDialog.getByRole('button', { name: '重试', exact: true }).click()
+    await deploymentDialog.getByText('目标配置已应用', { exact: true }).waitFor()
+    await deploymentDialog.getByRole('button', { name: '关闭', exact: true }).click()
+    // The following independent chain scenarios start with an enabled entry.
+    node.enabled = true
     chainFixtures = true
     await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '两跳链路', exact: true }).click()
     await page.getByRole('heading', { name: '代理节点', exact: true, level: 1 }).waitFor()
@@ -277,10 +326,11 @@ try {
     await page.getByRole('link', { name: '系统管理员', exact: true }).click()
     await page.getByRole('heading', { name: '系统管理员', exact: true }).waitFor()
     assert.equal(await page.getByRole('button', { name: '创建代理用户', exact: true }).count(), 0)
+    assert.equal(await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '统计仪表盘', exact: true }).getAttribute('href'), '#/statistics')
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
     assert.deepEqual(errors, [])
     assert.equal(requests.some(path => ['/api/nodes', '/api/users', '/api/usage'].includes(path)), false)
     await page.close()
   }
-  console.log('PASS: dist desktop/mobile, support does not enable business, queued/failed/ready installation and conservative legacy fallback, overview/server-node selection/ungranted chain creation, either-endpoint server filtering/details/application states/unknown and stale-failure guards, listener/relay roles/enrollment navigation, administrator/proxy-user separation, canonical APIs')
+  console.log('PASS: dist desktop/mobile, support does not enable business, queued/failed/ready installation and conservative legacy fallback, overview/server-node selection/settings preservation/deployment stale-failure guard/ungranted chain creation, either-endpoint server filtering/details/application states/unknown and stale-failure guards, listener/relay roles/enrollment navigation, statistics route and administrator/proxy-user separation, canonical APIs')
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)) }

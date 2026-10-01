@@ -7,6 +7,7 @@ import Servers from './pages/Servers'
 import ServerDetail from './pages/ServerDetail'
 import Nodes from './plugins/singbox/Nodes'
 import SingboxOverview from './plugins/singbox/Overview'
+import { nodeRoute } from './plugins/singbox/nodeRoute'
 import ProxyUsers from './plugins/singbox/ProxyUsers'
 import Groups from './plugins/singbox/Groups'
 import Plugins from './pages/Plugins'
@@ -16,12 +17,13 @@ import Security from './pages/Security'
 import Settings from './pages/Settings'
 import Notifications from './pages/Notifications'
 import LatencyTasks from './pages/LatencyTasks'
+import Statistics from './pages/Statistics'
 import ServerToolPage from './pages/ServerToolPage'
 import { dashboardRoute } from './display/dashboard'
 
 const ServerDisplay = lazy(() => import('./display/ServerDisplay'))
 
-const navigation = [{ path: '/dashboard', label: '服务器看板', icon: 'activity', group: '服务器' }, { path: '/servers', label: '服务器', icon: 'server', group: '服务器' }, { path: '/latency', label: '延迟检测', icon: 'activity', group: '服务器' }, { path: '/plugins/sing-box', label: '代理服务', icon: 'box', group: 'sing-box 插件' }, { path: '/plugins/sing-box/nodes', label: '代理节点', icon: 'nodes', group: 'sing-box 插件' }, { path: '/plugins/sing-box/users', label: '代理用户', icon: 'users', group: 'sing-box 插件' }, { path: '/plugins/sing-box/groups', label: '策略与套餐', icon: 'nodes', group: 'sing-box 插件' }, { path: '/plugins/catalog', label: '插件目录', icon: 'box', group: '系统' }, { path: '/system/plugins', label: '服务器插件', icon: 'server', group: '系统' }, { path: '/system/settings', label: '看板与通知', icon: 'activity', group: '系统' }, { path: '/system/notifications', label: '告警通知', icon: 'activity', group: '系统' }, { path: '/system/administrator', label: '系统管理员', icon: 'lock', group: '系统' }]
+const navigation = [{ path: '/statistics', label: '统计仪表盘', icon: 'activity', group: '概览' }, { path: '/dashboard', label: '服务器看板', icon: 'activity', group: '服务器' }, { path: '/servers', label: '服务器', icon: 'server', group: '服务器' }, { path: '/latency', label: '延迟检测', icon: 'activity', group: '服务器' }, { path: '/plugins/sing-box', label: '代理服务', icon: 'box', group: 'sing-box 插件' }, { path: '/plugins/sing-box/nodes', label: '代理节点', icon: 'nodes', group: 'sing-box 插件' }, { path: '/plugins/sing-box/users', label: '代理用户', icon: 'users', group: 'sing-box 插件' }, { path: '/plugins/sing-box/groups', label: '策略与套餐', icon: 'nodes', group: 'sing-box 插件' }, { path: '/plugins/catalog', label: '插件目录', icon: 'box', group: '系统' }, { path: '/system/plugins', label: '服务器插件', icon: 'server', group: '系统' }, { path: '/system/settings', label: '看板与通知', icon: 'activity', group: '系统' }, { path: '/system/notifications', label: '告警通知', icon: 'activity', group: '系统' }, { path: '/system/administrator', label: '系统管理员', icon: 'lock', group: '系统' }]
 function Login({ onLogin, notice }: { onLogin: () => void; notice: string }) {
   const action = useAction()
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -57,14 +59,11 @@ export default function App() {
     window.addEventListener('hashchange', hash)
     return () => { active = false; controller.abort(); window.removeEventListener('sinan:unauthorized', unauthorized); window.removeEventListener('hashchange', hash) }
   }, [accessRevision])
-  const [route, search = ''] = path.split('?', 2)
-  const params = new URLSearchParams(search)
-  const selectedServer = Number(params.get('server'))
-  const serverId = Number.isSafeInteger(selectedServer) && selectedServer > 0 ? selectedServer : undefined
-  const kind = params.get('kind') === 'chains' ? 'chains' : 'direct'
+  const [route] = path.split('?', 2)
+  const nodePage = nodeRoute(path)
   const match = route.match(/^\/servers\/([1-9]\d*)(?:\/(ip-info|node-quality|tcp-quality|plugins))?$/)
   const display = dashboardRoute(route)
-  const current = navigation.find(item => route === item.path || (item.path === '/servers' && Boolean(match)) || (item.path === '/plugins/catalog' && isCatalogPath(route)))
+  const current = navigation.find(item => (route === item.path && (item.path !== '/plugins/sing-box/nodes' || nodePage !== null)) || (item.path === '/servers' && Boolean(match)) || (item.path === '/plugins/catalog' && isCatalogPath(route)))
   const title = display ? '服务器看板' : current?.label ?? '控制面板'
   useEffect(() => { document.title = `${title} · 司南` }, [title])
   if (session === null) return <div className="boot"><Brand /><Loading /></div>
@@ -75,9 +74,10 @@ export default function App() {
       : match[2] ? <ServerToolPage key={`${match[1]}/${match[2]}`} id={Number(match[1])} section={match[2] as 'ip-info' | 'node-quality' | 'tcp-quality'} />
         : <ServerDetail key={match[1]} id={Number(match[1])} />
     : route === '/servers' || route === '/' ? <Servers />
+      : route === '/statistics' ? <Statistics />
       : route === '/latency' ? <LatencyTasks />
       : route === '/plugins/sing-box' ? <SingboxOverview />
-        : route === '/plugins/sing-box/nodes' ? <Nodes key={`${serverId ?? 'all'}-${kind}`} serverId={serverId} initialKind={kind} />
+        : nodePage ? <Nodes key={`${nodePage.serverId ?? 'all'}-${nodePage.chains ? 'chains' : 'direct'}`} serverId={nodePage.serverId} initialKind={nodePage.chains ? 'chains' : 'direct'} />
         : route === '/plugins/sing-box/users' ? <ProxyUsers />
           : route === '/plugins/sing-box/groups' ? <Groups />
             : route === '/system/plugins' ? <Plugins />

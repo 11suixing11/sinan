@@ -48,3 +48,8 @@
 .plugin-workflow li { padding: .65rem 0 .65rem .35rem; }
 .plugin-workflow p { margin: .35rem 0; }
 .plugin-business-links { display: flex; flex-wrap: wrap; gap: .75rem; }
+
+@media (min-width: 801px) {
+  .sidebar nav { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+  .sidebar nav > .nav-entry, .sidebar > .brand-link, .sidebar > .nav-caption, .sidebar-bottom { flex-shrink: 0; }
+}

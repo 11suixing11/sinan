@@ -8,9 +8,12 @@ use sinan_adapter_sdk::{
 use std::{path::Path, time::Duration};
 use tokio::{io::AsyncReadExt, time::timeout};
 
-pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17";
+pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-sinan-native-r1";
 /// Explicit offline packaging preparation; not selected by the panel default.
-pub const OFFLINE_ROOTFS_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18";
+pub const OFFLINE_ROOTFS_VERSION: &str =
+    "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1";
+const RUNNER_R17_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17";
+const RUNNER_R18_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18";
 const ACCESS_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r16";
 const QUERY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r15";
 const BROWSER_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14";
@@ -72,6 +75,8 @@ fn supports_modes(version: &str) -> bool {
         version,
         VERSION
             | OFFLINE_ROOTFS_VERSION
+            | RUNNER_R17_VERSION
+            | RUNNER_R18_VERSION
             | ACCESS_VERSION
             | QUERY_VERSION
             | BROWSER_VERSION
@@ -93,6 +98,8 @@ fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String, String)> {
         spec.version.as_str(),
         VERSION
             | OFFLINE_ROOTFS_VERSION
+            | RUNNER_R17_VERSION
+            | RUNNER_R18_VERSION
             | ACCESS_VERSION
             | QUERY_VERSION
             | BROWSER_VERSION

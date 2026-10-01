@@ -111,7 +111,11 @@ class BrowserTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name) / 'sources'
             helper.materialize(helper.decode(helper.pack(helper.decode((PLUGIN / 'source-lock.json').read_bytes()), READONLY_SOURCES)), directory)
-            return sources.fixture.undo_queries(role, sources.fixture.serve_before_access(helper, directory, ['-Ls', {'ip.sh': 'https://IP.Check.Place', 'net.sh': 'https://Net.Check.Place'}[role]]))
+            # Preserve this layer's immutable identity by isolating all later
+            # access, Netflix and OpenAI stages through test-only mocks.
+            isolated = sources.fixture.serve_before_access(helper, directory,
+                ['-Ls', {'ip.sh': 'https://IP.Check.Place', 'net.sh': 'https://Net.Check.Place'}[role]])
+            return sources.fixture.undo_queries(role, isolated)
 
     def run_curl(self, arguments, *, wrapped=True, child=False, status=200, delay=False, expression=None):
         self.runtime()

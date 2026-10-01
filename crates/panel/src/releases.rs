@@ -1,6 +1,13 @@
+mod agents;
 mod network;
 mod selection;
 mod storage;
+
+pub(crate) use agents::selection_error;
+pub use agents::{
+    AgentVersion, AgentVersions, agent_versions, bootstrap_agent_versions, list_agent_versions,
+    select_agent_for_target,
+};
 
 use crate::{
     AppState, auth,
@@ -347,102 +354,16 @@ pub async fn entries(state: &AppState) -> ApiResult<Vec<crate::artifacts::Artifa
 }
 
 pub async fn select_agent(state: &AppState, version: Option<&str>) -> ApiResult<(String, String)> {
-    let mut candidates = Vec::new();
-    for release in released(state).await? {
-        let metadata = release.verified.metadata();
-        if metadata.protocol_min > PROTOCOL_MAX || metadata.protocol_max < PROTOCOL_MIN {
-            continue;
-        }
-        for entry in &metadata.artifacts {
-            if entry.name != "agent" || version.is_some_and(|v| v != entry.version) {
-                continue;
-            }
-            let artifact = release
-                .verified
-                .artifact(&entry.name, &entry.version, &entry.arch)
-                .map_err(invalid)?;
-            if !release.paths.contains(artifact.path()) {
-                continue;
-            }
-            stored_bytes(&release, &artifact).await.map_err(invalid)?;
-            let numbers: Option<Vec<u64>> =
-                entry.version.split('.').map(|v| v.parse().ok()).collect();
-            if let Some(numbers) = numbers.filter(|v| v.len() == 3) {
-                candidates.push((numbers, entry.version.clone(), metadata.tag.clone()));
-            }
-        }
-    }
-    candidates.sort();
-    candidates
-        .pop()
-        .map(|(_, version, tag)| (version, tag))
-        .ok_or_else(|| ApiError::Conflict("请先导入协议兼容且已签名的 Agent Release".into()))
+    select_agent_for_target(state, version, None).await
 }
 
-/// Selects a signed installer that can consume a separately downloaded Agent.
+/// Selects an Agent for the pinned independent Linux bootstrap.
+/// Release installers remain signed evidence; the bootstrap runs its own trusted executor.
 pub async fn select_installable_agent(
     state: &AppState,
     version: Option<&str>,
 ) -> ApiResult<(String, String)> {
-    const MARKER: &[u8] = b"# SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1";
-    let releases = released(state).await?;
-    inventory(&releases).map_err(invalid)?;
-    let mut candidates = Vec::new();
-    for release in releases {
-        let metadata = release.verified.metadata();
-        if metadata.protocol_min > PROTOCOL_MAX || metadata.protocol_max < PROTOCOL_MIN {
-            continue;
-        }
-        if metadata
-            .artifacts
-            .iter()
-            .filter(|entry| entry.name == "agent")
-            .any(|entry| {
-                metadata.tag != format!("agent-v{}", entry.version)
-                    || entry.format != "raw"
-                    || entry.binary_name
-                        != if entry.arch.starts_with("windows-") {
-                            "sinan-agent.exe"
-                        } else {
-                            "sinan-agent"
-                        }
-            })
-        {
-            continue;
-        }
-        let installer = ordinary_bytes(&release.directory.join("install.sh"), MAX_INSTALLER)
-            .await
-            .map_err(invalid)?;
-        checked(
-            release.verified.checksum("install.sh")
-                == Some(format!("{:x}", Sha256::digest(&installer)).as_str()),
-            "signed installer digest differs",
-        )?;
-        if installer
-            .split(|byte| *byte == b'\n')
-            .filter(|line| *line == MARKER)
-            .count()
-            != 1
-        {
-            continue;
-        }
-        for entry in &metadata.artifacts {
-            if entry.name != "agent"
-                || !matches!(entry.arch.as_str(), "amd64" | "arm64")
-                || entry.archive_size > 128 * 1024 * 1024
-                || version.is_some_and(|value| value != entry.version)
-            {
-                continue;
-            }
-            if let Some(numbers) = sinan_protocol::release_version(&entry.version) {
-                candidates.push((numbers, entry.version.clone(), metadata.tag.clone()));
-            }
-        }
-    }
-    candidates.sort();
-    candidates.pop().map(|(_, version, tag)| (version, tag)).ok_or_else(|| ApiError::Conflict(
-        "请导入支持 GitHub 预下载的兼容签名 Agent Release；当前公开 agent-v0.3.0 安装器仍依赖面板下载，不能用于新接入".into()
-    ))
+    select_agent_for_target(state, version, None).await
 }
 
 /// Returns only protocol-compatible, signed updates for the requested ABI.
@@ -452,6 +373,7 @@ pub async fn newer_agent(
     current: (u64, u64, u64),
 ) -> ApiResult<Option<sinan_protocol::AgentRelease>> {
     let releases = released(state).await?;
+    // Agent bytes come from GitHub, so the full signed proof authorizes uncached targets.
     let inventory = inventory(&releases).map_err(invalid)?;
     let mut candidates = Vec::new();
     for ((name, version, target), (index, artifact)) in inventory {

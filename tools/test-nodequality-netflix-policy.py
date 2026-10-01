@@ -240,15 +240,18 @@ class NetflixTests(unittest.TestCase):
         if not shutil.which('jq') or not shutil.which('curl'):
             self.skipTest('requires real jq and curl')
 
-    def production(self):
+    def production(self, *, before_openai=False):
         if READONLY_SOURCES is None:
             self.skipTest('requires the readonly verified 17-file upstream source cache')
         with tempfile.TemporaryDirectory() as name:
             target = Path(name) / 'sources'
             bundle = helper.decode(helper.pack(helper.decode((PLUGIN / 'source-lock.json').read_bytes()), READONLY_SOURCES))
             helper.materialize(bundle, target)
-            # Never apply a policy in the fixture instead of the actual final
-            # source-helper chain: its independently pinned output is required.
+            # Every runtime case uses the complete source-helper chain. Only
+            # historical identity/error controls isolate the later OpenAI layer.
+            if before_openai:
+                with mock.patch.object(helper, 'authorized_openai', side_effect=lambda role, content: content):
+                    return helper.serve(target, ['-Ls', 'https://IP.Check.Place'])
             return helper.serve(target, ['-Ls', 'https://IP.Check.Place'])
 
     @staticmethod
@@ -268,7 +271,7 @@ class NetflixTests(unittest.TestCase):
     def query(self, scenarios, *, previous=False, canonical=False, http=None,
               strict=False, extra='', repeat=False, streaming=False, ignore_filesize=False):
         self.runtime()
-        content = self.production()
+        content = self.production(before_openai=previous)
         if previous:
             content = self.undo(content)
         if canonical:
@@ -637,9 +640,12 @@ class NetflixTests(unittest.TestCase):
         self.assertEqual(reports[0]['Media']['Other'], {'Status': 'retained'})
 
     def test_production_hashes_syntax_and_unrelated_functions_are_unchanged(self):
-        new = self.production()
+        new = self.production(before_openai=True)
         old = self.undo(new)
-        self.assertEqual(policy.transform('ip.sh', old), new)
+        self.assertTrue(policy.transform('ip.sh', old) == new, 'fixed Netflix layer changed')
+        final = self.production()
+        self.assertEqual(body(final.decode(), 'MediaUnlockTest_Netflix'),
+                         body(new.decode(), 'MediaUnlockTest_Netflix'))
         for function in ('db_ipqs', 'db_ipregistry', 'MediaUnlockTest_YouTube_Premium',
                          'sinan_netflix_unknown', 'show_media', 'save_json'):
             self.assertEqual(body(new.decode(), function), body(old.decode(), function))

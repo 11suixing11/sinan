@@ -11,8 +11,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "plugins/nodequality"
-LEGACY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17"
-VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18"
+LEGACY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-sinan-native-r1"
+VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1"
 BINARY = "nodequality"
 FILES = {BINARY, "rootfs.tar.gz", "rootfs-manifest.json"}
 MAX_OUTER_STREAM = 256 * 1024 * 1024
@@ -74,6 +74,7 @@ HELPERS = {
     "RANKING_POLICY_HELPER": "ranking-policy.py", "IP_SCORE_POLICY_HELPER": "ip-score-policy.py",
     "BROWSER_POLICY_HELPER": "browser-policy.py", "QUERY_POLICY_HELPER": "query-policy.py",
     "ACCESS_POLICY_HELPER": "access-policy.py", "NETFLIX_POLICY_HELPER": "netflix-policy.py",
+    "OPENAI_POLICY_HELPER": "openai-policy.py",
     "REPORT_HELPER": "report.py", "EXIT_OBSERVER": "exit-observer.sh", "DAILY_HELPER": "daily.py",
     "CURL_SHIM": "curl-shim.sh", "CHROOT_SHIM": "chroot-shim.sh",
 }

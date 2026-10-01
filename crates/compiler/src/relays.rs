@@ -7,6 +7,8 @@ use uuid::Uuid;
 /// A dedicated two-hop route. Only the panel and the two runtimes receive this secret.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Relay {
+    #[serde(default)]
+    pub fingerprint: crate::Fingerprint,
     pub chain_id: i64,
     pub entry_node_id: i64,
     pub exit_node_id: i64,
@@ -42,8 +44,8 @@ pub fn compile_server_with_relays(
             || !ids.insert(relay.chain_id)
             || !entries.insert(relay.entry_node_id)
             || (entry.is_some() == exit.is_some())
-            || entry.is_some_and(|node| !node.protocol_config.is_reality())
-            || exit.is_some_and(|node| !node.protocol_config.is_reality())
+            || entry.is_some_and(|node| !node.enabled || !node.protocol_config.is_reality())
+            || exit.is_some_and(|node| !node.enabled || !node.protocol_config.is_reality())
             || relay.port == 0
             || !super::valid_public_host(&relay.public_host)
             || !super::valid_dns_name(&relay.sni)
@@ -62,7 +64,7 @@ pub fn compile_server_with_relays(
             config["outbounds"].as_array_mut().expect("compiled outbounds").push(json!({
                 "type":"vless", "tag":tag, "server":unbracket_host(&relay.public_host),
                 "server_port":relay.port, "uuid":relay.uuid, "flow":"xtls-rprx-vision",
-                "tls":{"enabled":true,"server_name":relay.sni,"utls":{"enabled":true,"fingerprint":"chrome"},
+                "tls":{"enabled":true,"server_name":relay.sni,"utls":{"enabled":true,"fingerprint":relay.fingerprint},
                     "reality":{"enabled":true,"public_key":relay.public_key,"short_id":relay.short_id}}
             }));
             rules.push(json!({"inbound":[format!("node-{}",relay.entry_node_id)],"action":"route","outbound":tag}));

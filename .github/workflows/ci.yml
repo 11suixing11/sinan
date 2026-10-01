@@ -73,6 +73,10 @@ jobs:
           python3 tools/test-nodequality-query-policy.py
           python3 tools/test-nodequality-access-policy.py
           python3 tools/test-nodequality-netflix-policy.py
+          python3 tools/test-nodequality-openai-policy.py
+          python3 tools/test-nodequality-rootfs.py
+          python3 tools/test-nodequality-rootfs-build.py
+          python3 tools/test-nodequality-rootfs-artifact.py
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - name: Run Rust and PostgreSQL tests

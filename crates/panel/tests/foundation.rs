@@ -747,7 +747,6 @@ async fn panel_never_serves_agent_binaries_even_with_a_live_token(pool: PgPool) 
     let server_id = panel.create_server(&cookie, "Bootstrap device").await?;
     let token = panel.token(&cookie, server_id).await?;
     let binary = b"test-agent-artifact";
-    let hash = format!("{:x}", Sha256::digest(binary));
     let artifact_dir = release_fixture::write(
         &panel.directory,
         "agent",
@@ -795,7 +794,10 @@ async fn panel_never_serves_agent_binaries_even_with_a_live_token(pool: PgPool) 
     assert_eq!(install.headers()[header::CACHE_CONTROL], "no-store");
     assert_eq!(install.headers()[header::CONTENT_TYPE], "application/json");
     let installation: Value = install.json().await?;
-    assert_eq!(installation["version"], version);
+    assert_eq!(installation["version"], "latest");
+    assert!(installation["tag"].is_null());
+    assert_eq!(installation["platform"], "unix");
+    assert_eq!(installation["target"], "auto");
     assert_eq!(
         installation["bootstrap_url"],
         sinan_panel::installation::bootstrap_url()
@@ -803,6 +805,7 @@ async fn panel_never_serves_agent_binaries_even_with_a_live_token(pool: PgPool) 
     let install_command = installation["install_command"].as_str().unwrap();
     assert!(install_command.contains("https://api.github.com/repos/theLucius7/sinan/git/blobs/"));
     assert!(install_command.contains("sha256sum -c"));
+    assert!(install_command.contains("--version") && install_command.contains("latest"));
     assert!(!install_command.contains("sudo sinan-bootstrap"));
     assert_eq!(
         panel
@@ -872,41 +875,38 @@ async fn panel_never_serves_agent_binaries_even_with_a_live_token(pool: PgPool) 
         StatusCode::UNAUTHORIZED
     );
 
-    #[cfg(unix)]
-    {
-        let outside = panel.directory.join("outside-artifact-root");
-        std::fs::write(&outside, binary)?;
-        std::fs::remove_file(artifact_dir.join("arm64"))?;
-        std::os::unix::fs::symlink(&outside, artifact_dir.join("arm64"))?;
-        std::fs::write(
-            artifact_dir.join("SHA256SUMS"),
-            format!("{hash}  amd64\n{hash}  arm64\n"),
-        )?;
-        assert_eq!(
-            panel
-                .client
-                .get(format!("{}/api/bootstrap/{version}/arm64", panel.base))
-                .query(&[("token", &token)])
-                .send()
-                .await?
-                .status(),
-            StatusCode::CONFLICT
-        );
-        std::fs::remove_file(artifact_dir.join("arm64"))?;
-        std::fs::write(artifact_dir.join("arm64"), binary)?;
-    }
-
     std::fs::write(artifact_dir.join("amd64"), b"corrupted-test-artifact")?;
+    let catalogue: Value = panel
+        .client
+        .get(format!("{}/api/bootstrap/versions", panel.base))
+        .query(&[("token", token.as_str()), ("target", "linux-gnu-amd64")])
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(catalogue["versions"][0]["targets"], json!(["amd64"]));
+    assert_eq!(catalogue["versions"][0]["cached_targets"], json!([]));
+    // The catalogue must still reject tampering with its complete signed proof.
+    let metadata = artifact_dir
+        .parent()
+        .context("component directory")?
+        .parent()
+        .context("release directory")?
+        .join("release.json");
+    let original = std::fs::read(&metadata)?;
+    std::fs::write(&metadata, b"tampered release metadata")?;
     assert_eq!(
         panel
             .client
-            .get(&bootstrap_url)
+            .get(format!("{}/api/bootstrap/versions", panel.base))
             .query(&[("token", &token)])
             .send()
             .await?
             .status(),
         StatusCode::CONFLICT
     );
+    std::fs::write(metadata, original)?;
     std::fs::write(artifact_dir.join("amd64"), binary)?;
     let key = SigningKey::generate(&mut rand::rngs::OsRng);
     panel
@@ -951,7 +951,240 @@ async fn panel_never_serves_agent_binaries_even_with_a_live_token(pool: PgPool) 
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn installation_requires_signed_preloaded_contract_and_uses_server_mirror(
+async fn signed_agent_versions_require_admin_or_live_enrollment_and_match_platforms(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let server = panel.create_server(&cookie, "Version choices").await?;
+    let token = panel.token(&cookie, server).await?;
+    let mut artifacts = Vec::new();
+    for target in [
+        "amd64",
+        "arm64",
+        "windows-amd64",
+        "macos-arm64",
+        "freebsd-arm64",
+    ] {
+        let binary_name = if target.starts_with("windows-") {
+            "sinan-agent.exe"
+        } else {
+            "sinan-agent"
+        };
+        let bytes = format!("fixture Agent {target}").into_bytes();
+        let mut entry =
+            release_support::entry("agent", "0.3.0", binary_name, "raw", &bytes, &bytes);
+        entry.arch = target.into();
+        entry.asset_name = sinan_protocol::release::canonical_asset_name(&entry)?;
+        artifacts.push((entry, bytes));
+    }
+    let directory = release_fixture::write_entries(&panel.directory, artifacts)?;
+    // Only one target is cached; all signed identities remain installable from GitHub.
+    for target in ["amd64", "windows-amd64", "macos-arm64", "freebsd-arm64"] {
+        std::fs::remove_file(directory.join("agent/0.3.0").join(target))?;
+    }
+    std::fs::write(
+        directory.join("inventory.json"),
+        serde_json::to_vec(&json!({"paths":["agent/0.3.0/arm64"]}))?,
+    )?;
+    let admin_url = format!("{}/api/artifacts/agent-versions", panel.base);
+    let bootstrap_url = format!("{}/api/bootstrap/versions", panel.base);
+    assert_eq!(
+        panel.client.get(&admin_url).send().await?.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        panel
+            .client
+            .get(&admin_url)
+            .query(&[("token", token.as_str())])
+            .send()
+            .await?
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        panel
+            .client
+            .get(&bootstrap_url)
+            .query(&[("token", "invalid")])
+            .send()
+            .await?
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        panel
+            .client
+            .get(&bootstrap_url)
+            .header(header::COOKIE, &cookie)
+            .send()
+            .await?
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let response = panel
+        .client
+        .get(&admin_url)
+        .header(header::COOKIE, &cookie)
+        .query(&[("platform", "unix"), ("target", "auto")])
+        .send()
+        .await?
+        .error_for_status()?;
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let catalogue: Value = response.json().await?;
+    assert_eq!(
+        catalogue["versions"][0]["targets"],
+        json!(["amd64", "arm64", "freebsd-arm64", "macos-arm64"])
+    );
+    assert_eq!(catalogue["versions"][0]["cached_targets"], json!(["arm64"]));
+    for (target, platform, expected) in [
+        ("linux-gnu-amd64", "unix", json!(["amd64"])),
+        ("linux-musl-arm64", "unix", json!(["arm64"])),
+        ("windows-amd64", "windows", json!(["windows-amd64"])),
+        ("macos-arm64", "unix", json!(["macos-arm64"])),
+        ("freebsd-arm64", "unix", json!(["freebsd-arm64"])),
+    ] {
+        let response = panel
+            .client
+            .get(&bootstrap_url)
+            .query(&[
+                ("token", token.as_str()),
+                ("target", target),
+                ("platform", platform),
+            ])
+            .send()
+            .await?
+            .error_for_status()?;
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        let catalogue: Value = response.json().await?;
+        assert_eq!(catalogue["versions"][0]["targets"], expected);
+        assert_eq!(catalogue["versions"][0]["version"], "0.3.0");
+        assert_eq!(catalogue["versions"][0]["tag"], "agent-v0.3.0");
+    }
+    for (name, value) in [("target", "riscv64"), ("platform", "unsupported")] {
+        assert_eq!(
+            panel
+                .client
+                .get(&admin_url)
+                .header(header::COOKIE, &cookie)
+                .query(&[(name, value)])
+                .send()
+                .await?
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            panel
+                .client
+                .get(&bootstrap_url)
+                .query(&[("token", token.as_str()), (name, value)])
+                .send()
+                .await?
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let token_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM enrollment_tokens WHERE server_id=$1")
+            .bind(server)
+            .fetch_one(&panel.state.pool)
+            .await?;
+    for (platform, target) in [
+        ("unsupported", "auto"),
+        ("unix", "riscv64"),
+        ("unix", "windows-amd64"),
+        ("windows", "macos-arm64"),
+    ] {
+        assert_eq!(
+            panel
+                .client
+                .post(format!("{}/api/servers/{server}/enrollment", panel.base))
+                .header(header::COOKIE, &cookie)
+                .header(header::ORIGIN, &panel.base)
+                .query(&[("platform", platform), ("agent_target", target)])
+                .send()
+                .await?
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+        let after: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM enrollment_tokens WHERE server_id=$1")
+                .bind(server)
+                .fetch_one(&panel.state.pool)
+                .await?;
+        assert_eq!(after, token_count, "invalid options must not issue a token");
+    }
+    for (platform, target, version) in [
+        ("unix", "linux-gnu-amd64", "latest"),
+        ("unix", "macos-arm64", "0.3.0"),
+        ("unix", "freebsd-arm64", "0.3.0"),
+        ("windows", "windows-amd64", "0.3.0"),
+    ] {
+        let issued: Value = panel
+            .client
+            .post(format!("{}/api/servers/{server}/enrollment", panel.base))
+            .header(header::COOKIE, &cookie)
+            .header(header::ORIGIN, &panel.base)
+            .query(&[
+                ("platform", platform),
+                ("agent_target", target),
+                ("agent_version", version),
+            ])
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        let installation = &issued["installation"];
+        assert_eq!(installation["platform"], platform);
+        assert_eq!(installation["target"], target);
+        assert_eq!(installation["version"], version);
+        if version == "latest" {
+            assert!(installation["tag"].is_null());
+        } else {
+            assert_eq!(installation["tag"], "agent-v0.3.0");
+        }
+        let command = issued["install_command"]
+            .as_str()
+            .context("installation command")?;
+        assert!(!command.contains('\n'), "the command must fit one line");
+        assert_eq!(command, installation["install_command"]);
+        assert!(command.contains(if platform == "windows" {
+            "powershell"
+        } else {
+            "sh -c"
+        }));
+    }
+    sqlx::query("UPDATE enrollment_tokens SET expires_at=0 WHERE server_id=$1")
+        .bind(server)
+        .execute(&panel.state.pool)
+        .await?;
+    assert_eq!(
+        panel
+            .client
+            .get(&bootstrap_url)
+            .query(&[("token", token.as_str())])
+            .send()
+            .await?
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        panel
+            .client
+            .get(&admin_url)
+            .header(header::COOKIE, &cookie)
+            .send()
+            .await?
+            .status(),
+        StatusCode::OK
+    );
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn installation_uses_independent_trusted_contract_and_preserves_server_mirror(
     pool: PgPool,
 ) -> Result<()> {
     let panel = TestPanel::start(pool).await?;
@@ -972,6 +1205,8 @@ async fn installation_requires_signed_preloaded_contract_and_uses_server_mirror(
     )?;
     let release = panel.directory.join("artifacts/releases/agent-v0.3.0");
     let marker = b"# SINAN_BOOTSTRAP_AGENT_SOURCE=preloaded-github-v1";
+    // The pinned bootstrap runs its own trusted executor, so legacy release scripts
+    // are signed evidence rather than the execution contract for new enrollment.
     for installer in [
         b"#!/bin/sh\nexit 0\n".to_vec(),
         [marker.as_slice(), b"\n", marker.as_slice(), b"\n"].concat(),
@@ -983,7 +1218,18 @@ async fn installation_requires_signed_preloaded_contract_and_uses_server_mirror(
             .query(&[("token", &token)])
             .send()
             .await?;
-        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(response.status(), StatusCode::OK);
+        let installation: Value = response.json().await?;
+        assert_eq!(installation["version"], "latest");
+        assert!(installation["tag"].is_null());
+        assert_eq!(
+            installation["bootstrap_url"],
+            sinan_panel::installation::bootstrap_url()
+        );
+        let command = installation["install_command"].as_str().unwrap();
+        assert!(command.contains(installation["bootstrap_url"].as_str().unwrap()));
+        assert!(command.contains("sha256sum -c"));
+        assert!(!command.contains("/install.sh"));
         let issued: Value = panel
             .client
             .post(format!("{}/api/servers/{server_id}/enrollment", panel.base))
@@ -994,8 +1240,8 @@ async fn installation_requires_signed_preloaded_contract_and_uses_server_mirror(
             .error_for_status()?
             .json()
             .await?;
-        assert!(issued["install_command"].is_null());
-        assert!(issued["warning"].as_str().unwrap().contains("预下载"));
+        assert!(issued["install_command"].is_string());
+        assert!(issued["warning"].is_null());
     }
     let installer = [b"#!/bin/sh\n".as_slice(), marker.as_slice(), b"\nexit 0\n"].concat();
     release_fixture::replace_signed_installer(&release, &installer)?;
@@ -1033,16 +1279,16 @@ async fn installation_requires_signed_preloaded_contract_and_uses_server_mirror(
     // Signed but incompatible Agent identities must not produce a command.
     let wrong_version =
         release_support::entry("agent", "0.3.1", "sinan-agent", "raw", binary, binary);
-    let mut non_linux =
-        release_support::entry("agent", "0.3.0", "sinan-agent", "raw", binary, binary);
-    non_linux.arch = "macos-arm64".into();
-    non_linux.asset_name = sinan_protocol::release::canonical_asset_name(&non_linux)?;
     let wrong_name =
         release_support::entry("agent", "0.3.0", "another-binary", "raw", binary, binary);
     let archive = release_fixture::archive("sinan-agent", binary)?;
     let wrong_format =
         release_support::entry("agent", "0.3.0", "sinan-agent", "tar.gz", &archive, binary);
-    for entry in [wrong_version, non_linux, wrong_name, wrong_format] {
+    let mut oversized =
+        release_support::entry("agent", "0.3.0", "sinan-agent", "raw", binary, binary);
+    oversized.archive_size = 128 * 1024 * 1024 + 1;
+    oversized.binary_size = oversized.archive_size;
+    for entry in [wrong_version, wrong_name, wrong_format, oversized] {
         let bytes = if entry.format == "tar.gz" {
             archive.clone()
         } else {

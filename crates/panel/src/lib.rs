@@ -19,6 +19,7 @@ pub mod notifications;
 pub mod plugins;
 pub mod probes;
 pub mod settings;
+pub mod statistics;
 pub mod traffic_correction;
 // Compatibility exports preserve the public Rust embedding API.
 pub use plugins::singbox::proxy_users as users;
@@ -89,6 +90,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/login", post(auth::login))
         .route("/api/logout", post(auth::logout))
         .route("/api/me", get(auth::me))
+        .route("/api/statistics", get(statistics::summary))
         .route("/api/settings", get(settings::get).patch(settings::update))
         .route("/api/notifications", get(notifications::list))
         .route(
@@ -223,6 +225,14 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/artifacts", get(artifacts::list))
         .route("/api/artifacts/targets", get(releases::target_options))
+        .route(
+            "/api/artifacts/agent-versions",
+            get(releases::list_agent_versions),
+        )
+        .route(
+            "/api/bootstrap/versions",
+            get(releases::bootstrap_agent_versions),
+        )
         .route("/api/artifacts/import-release", post(releases::import))
         .route("/api/bootstrap/{version}/{arch}", get(artifacts::bootstrap))
         .route("/install.sh", get(artifacts::install_script))

@@ -241,6 +241,8 @@ pub async fn remove(
 #[derive(Deserialize, Default)]
 pub struct EnrollmentQuery {
     pub agent_version: Option<String>,
+    pub agent_target: Option<String>,
+    pub platform: Option<String>,
 }
 
 pub async fn issue_enrollment(
@@ -264,19 +266,12 @@ pub async fn issue_enrollment(
     }
     let asset: AssetSettings = serde_json::from_value(exists.unwrap().get("asset_settings"))
         .map_err(anyhow::Error::from)?;
-    sqlx::query(
-        "INSERT INTO enrollment_tokens (token_hash, server_id, expires_at) VALUES ($1, $2, $3)",
-    )
-    .bind(hash_token(&token))
-    .bind(id)
-    .bind(expires_at)
-    .execute(&mut *transaction)
-    .await?;
-    transaction.commit().await?;
-    let selection = crate::installation::select(
+    let selection = crate::installation::select_with_mirror(
         &state,
         query.agent_version.as_deref(),
         &token,
+        query.platform.as_deref(),
+        query.agent_target.as_deref(),
         &asset.agent_mirror,
     )
     .await;
@@ -289,6 +284,15 @@ pub async fn issue_enrollment(
         Err(ApiError::Conflict(message)) => (None, None, Some(message)),
         Err(error) => return Err(error),
     };
+    sqlx::query(
+        "INSERT INTO enrollment_tokens (token_hash, server_id, expires_at) VALUES ($1, $2, $3)",
+    )
+    .bind(hash_token(&token))
+    .bind(id)
+    .bind(expires_at)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
     Ok(Json(
         json!({"token": token, "expires_at": expires_at, "install_command": install_command,
         "installation": installation, "warning": warning}),
