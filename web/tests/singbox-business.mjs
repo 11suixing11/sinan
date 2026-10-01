@@ -222,7 +222,8 @@ try {
     // A failed refresh must stop treating the previous successful snapshot as current.
     await page.goto(`${origin}/#/plugins/sing-box/nodes?kind=chains&server=1`)
     createdRow = page.getByRole('row').filter({ has: page.getByText('未授权验收链路', { exact: true }) })
-    await createdRow.getByText('目标配置已应用', { exact: true }).waitFor()
+    await createdRow.getByText('目标配置已应用', { exact: true }).first().waitFor()
+    assert.equal(await createdRow.getByText('目标配置已应用', { exact: true }).count(), 2)
     pluginServersFailure = true
     await page.getByRole('button', { name: '刷新', exact: true }).click()
     await page.getByText('服务器夹具读取失败', { exact: true }).waitFor()
