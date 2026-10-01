@@ -394,6 +394,9 @@ class BuildTests(unittest.TestCase):
                                        ("@REPORT_POLICY_HELPER@", (PLUGIN / "report-policy.py").read_text()),
                                        ("@SWAP_POLICY_HELPER@", (PLUGIN / "swap-policy.py").read_text()),
                                        ("@DEPENDENCY_POLICY_HELPER@", (PLUGIN / "dependency-policy.py").read_text()),
+                                       ("@DATA_POLICY_HELPER@", (PLUGIN / "data-policy.py").read_text()),
+                                       ("@LOADER_POLICY_HELPER@", (PLUGIN / "loader-policy.py").read_text()),
+                                       ("@RANKING_POLICY_HELPER@", (PLUGIN / "ranking-policy.py").read_text()),
                                        ("@PINNED_CHAIN@", source_bundle()),
                                        ("@REPORT_HELPER@", (PLUGIN / "report.py").read_text()),
                                        ("@EXIT_OBSERVER@", (PLUGIN / "exit-observer.sh").read_text()),
@@ -415,7 +418,7 @@ class BuildTests(unittest.TestCase):
 
     def test_repeated_build_refuses_to_modify_the_existing_artifact_and_checksum(self):
         with tempfile.TemporaryDirectory() as directory:
-            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r11"
+            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r12"
             root = pathlib.Path(directory) / "nodequality" / version
             root.mkdir(parents=True)
             artifact = root / "amd64"
@@ -472,7 +475,7 @@ class BuildTests(unittest.TestCase):
             subprocess.run(["bash", "-n", str(script)], check=True)
         result = subprocess.run(["bash", str(PLUGIN / "runner.sh.tmpl"), "--version"],
                                 capture_output=True, text=True, check=True)
-        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r11")
+        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r12")
 
     def test_existing_architecture_checksums_are_not_replaced(self):
         script = (PLUGIN.parents[1] / "tools/build-nodequality.sh").read_text()
@@ -597,6 +600,9 @@ work_dir=$workspace/.nodequalityfixture
             ("REPORT_POLICY_HELPER", (PLUGIN / "report-policy.py").read_text()),
             ("SWAP_POLICY_HELPER", (PLUGIN / "swap-policy.py").read_text()),
             ("DEPENDENCY_POLICY_HELPER", (PLUGIN / "dependency-policy.py").read_text()),
+            ("DATA_POLICY_HELPER", (PLUGIN / "data-policy.py").read_text()),
+            ("LOADER_POLICY_HELPER", (PLUGIN / "loader-policy.py").read_text()),
+            ("RANKING_POLICY_HELPER", (PLUGIN / "ranking-policy.py").read_text()),
             ("PINNED_CHAIN", source_bundle()),
             ("REPORT_HELPER", (PLUGIN / "report.py").read_text()),
             ("EXIT_OBSERVER", (PLUGIN / "exit-observer.sh").read_text()),

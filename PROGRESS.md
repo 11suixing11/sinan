@@ -1154,3 +1154,8 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 本机初检10项通过，含旧/新负对照、空/部分失败、成功恰好执行一次、供给中取消、真实source-helper校验拒绝、原始主调用/清理/观察器与既有章节保留。首轮测试调用参数拼写错误已修正，日志保留；冻结后的本机、Rust和专用Debian证据另记，尚未以初检签收完整能力。
 - 冻结6decf87后，本机132运行/127通过/5条件跳过，Rust/API19通过且Clippy/fmt/core/diff通过；专属PG55439停止、PID不存在、端口关闭。Debian有限组合96运行/95通过/1缺minisign跳过，另有原始chroot_run+生产shim+真实最小chroot30个旧/新对照全部通过。
 - 两套单元实际读回256MiB/Swap0/Tasks64等限制，峰值71,622,656B/11pids和21,327,872B/5pids，max/oom/oom_kill均0；结束无遗留进程、挂载和cgroup，SSH406重启0/同boot/swap0。各44份输入不变，26份仓库输入匹配冻结提交。详见[供给失败独立验收](docs/acceptance/nodequality-source-failure.md)和JSON索引；未执行完整上游，全部full门禁和总验收缺口保持，未恢复CI或正式发布部署。
+
+### NodeQuality r12：硬件百分位上传独立保护（关联 #65）
+
+- 已确认 get_mark 的本地评分计算后另行向 mark.check.place POST 本机分数，既有公开报告开关没有约束该请求。新增固定 ranking-policy：默认/false保留本地CPU/GPU/内存/磁盘评分，在提交前返回；true保留原请求/参数/解析。每次先清除旧百分位，失败不复用旧值；文本说明未知原因，JSON保留null并记录上传许可布尔值。
+- 版本升r12，嵌入helper并校验自身及输入/输出摘要，保留r11历史兼容；原始源码/许可证、全版本full门禁不变。代码初检来源16通过，Mac专项8运行/4通过/4因Bash3条件跳过，实际Bash5/HTTP验证待冻结后记录。未执行完整上游或绕过专有工具许可。

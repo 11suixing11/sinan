@@ -85,3 +85,19 @@ and its observed line 455. The fixed helper, input and output have SHA256
 checks. The original bundle is retained unmodified. These changes address
 source failures hidden by process substitution or partial streamed execution;
 they do not complete the separate full-toolchain audit or open full-start.
+
+Sinan r12 modifications (2026-10-01): ranking-policy.py gates HardwareQuality's
+mark.check.place score submission with the existing validated upload setting.
+The default/false path retains all local score computations and then returns
+before constructing or sending a percentile request. The true path preserves
+the existing request, timeout, payload and response parsing. Both paths clear
+old percentile values before each calculation, so failed requests cannot reuse
+previous percentiles. No benchmark or scoring formula is removed or replaced.
+
+The report explains why percentiles are unavailable with uploads disabled.
+Its JSON retains numeric local scores and null missing percentiles, and adds
+Benchmark.percentile_upload_allowed to record permission, not query success.
+The new helper is embedded and identity-checked like the existing policies;
+canonical sources/licenses remain intact. Geekbench and other tool traffic,
+rootfs provenance/licenses and full execution remain unresolved. This is not
+an approval to execute the complete toolchain or a claim of zero total upload.

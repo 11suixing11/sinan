@@ -203,6 +203,7 @@ def script_recipe(name):
     result += source_tests.fixture.swap_anchors(name).decode()
     result += source_tests.fixture.dependency_anchors(name).decode()
     result += source_tests.fixture.data_anchors(name).decode()
+    result += source_tests.fixture.ranking_anchors(name).decode()
     result += 'fixture_record script ' + kind + ' "$@"\n'
     result += '''
 mode_privacy=${FIXTURE_PRIVACY:-0}
