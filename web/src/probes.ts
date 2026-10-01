@@ -1,4 +1,4 @@
-export type Probe = { id: string; name: string; kind: 'tcp' | 'icmp'; target: string; port: number | null; interval_secs: number; carrier: string; enabled: boolean }
+export type Probe = { task_id?: string; id: string; name: string; kind: 'tcp' | 'icmp'; target: string; port: number | null; interval_secs: number; carrier: string; enabled: boolean }
 export type ProbeResult = { id: string; probe_id: string; sampled_at: number; latency_ms: number | null; loss_percent: number; error: string | null }
 export type ProbeOverview = { server_id: number; probe: Probe; results: ProbeResult[] }
 export type ProbeField = 'latency_ms' | 'loss_percent'

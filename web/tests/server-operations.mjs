@@ -44,6 +44,7 @@ try {
         if (method === 'PATCH') { Object.assign(settings, request.postDataJSON()); publicDashboard = settings.public_dashboard; delete settings.telegram_token }
         return respond(settings)
       }
+      if (path === '/api/alert-rules') return respond([])
       if (path === '/api/servers') return respond([device])
       if (path === '/api/servers/1') {
         if (method === 'PATCH') { const body = request.postDataJSON(); device.agent_settings.auto_update = body.auto_update; Object.assign(asset, body.asset_settings) }
@@ -103,7 +104,7 @@ try {
     await dialog.waitFor({ state: 'detached' })
     const correction = writes.find(write => write.path.endsWith('traffic-correction')).body
     assert.equal(correction.baseline_uploaded, '100'); assert.equal(correction.uploaded, '999')
-    await page.getByRole('link', { name: '离线告警', exact: true }).click()
+    await page.getByRole('link', { name: '告警通知', exact: true }).click()
     await page.getByText('持续离线', { exact: true }).waitFor()
     await page.getByText('模拟网络失败', { exact: true }).waitFor()
     assert.deepEqual(errors, [])
