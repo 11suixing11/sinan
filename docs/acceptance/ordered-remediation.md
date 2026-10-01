@@ -89,6 +89,8 @@
 
 用户改为整体交付后，集成分支正常保留main与r11–r13草稿实现，并完成[原生curl身份r14](nodequality-native-curl.md)和[Netflix错误判定r15](nodequality-query-errors.md)。这些证据只覆盖各自固定输入和受控请求，不补签完整负载、外部来源、旧客户端迁移或TCP整链。原有草稿在最终整体交付时统一整理，不再创建逐项新PR。
 
+[统一 r17 验收](unified-query-integration.md)进一步保留最新主线的目录、接入、监控与通知，完成公共 cookies/临时授权 guard、原始流读取上限、Netflix 页面和严格 Bash 补修。Rust/PG477通过、16条件忽略，前端构建与五套浏览器通过，专用 Debian 查询组合160个唯一方法最终全部通过；失败和补验分别保留。该结果不恢复完整执行门禁，也不认证注册节点自查、原生 TCP 实机整链或生产部署；用户无 Geekbench Pro 许可的当前条件单独记录。
+
 ## 旧订阅实际连接补充
 
 [固定979b998的专用Debian结果](imported-subscription-runtime.md)验证旧schema导入、真实迁移、原订阅两格式、同一Reality客户端/服务端进程迁移前后传输，以及真实计数写入与重复补传去重。该场景已通过；没有运行生产迁移或真实Agent重新发布，不改变P0完整执行仍待验的顺序条件。
