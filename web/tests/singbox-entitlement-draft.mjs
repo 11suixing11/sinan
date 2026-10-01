@@ -46,7 +46,8 @@ try {
     await page.route('**/api/**', async route => {
       const request = route.request(), pathname = new URL(request.url()).pathname, method = request.method()
       let value
-      if (pathname === '/api/me' && method === 'GET') value = { authenticated: true }
+      if (pathname === '/api/dashboard/access' && method === 'GET') value = { authenticated: true, public_dashboard: false }
+      else if (pathname === '/api/me' && method === 'GET') value = { authenticated: true }
       else if (pathname === `${prefix}/users` && method === 'GET') value = [user]
       else if (pathname === `${prefix}/nodes` && method === 'GET') value = nodes
       else if (pathname === `${prefix}/chains` && method === 'GET') value = []

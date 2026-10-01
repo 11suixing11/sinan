@@ -24,7 +24,8 @@ async function main() {
       const payload = method === 'GET' ? null : request.postDataJSON()
       if (method !== 'GET') writes.push({ pathname, method, payload })
       let data = []
-      if (pathname === '/api/me') data = {}
+      if (pathname === '/api/dashboard/access') data = { authenticated: true, public_dashboard: false }
+      else if (pathname === '/api/me') data = {}
       else if (pathname === `${root}/nodes`) data = nodes
       else if (pathname === `${root}/chains`) {
         if (method === 'POST') { data = { ...payload, id: chains.length + 1, available: true }; chains.push(data) }
