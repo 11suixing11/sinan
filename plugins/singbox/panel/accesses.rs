@@ -61,14 +61,14 @@ pub async fn grant(
             .await?
             .ok_or(ApiError::NotFound)?;
     business::lock_server(&mut transaction, server_id).await?;
-    let exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM nodes WHERE id=$1 AND deleted_at IS NULL)")
+    let config: serde_json::Value =
+        sqlx::query_scalar("SELECT protocol_config FROM nodes WHERE id=$1 AND deleted_at IS NULL")
             .bind(request.node_id)
-            .fetch_one(&mut *transaction)
-            .await?;
-    if !exists {
-        return Err(ApiError::NotFound);
-    }
+            .fetch_optional(&mut *transaction)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+    let config: sinan_compiler::ProtocolConfig =
+        serde_json::from_value(config).map_err(anyhow::Error::from)?;
     if let Some(access) = sqlx::query_as::<_, AccessView>(
         "SELECT user_id,node_id,uuid,stat_name FROM accesses WHERE user_id=$1 AND node_id=$2",
     )
@@ -80,7 +80,7 @@ pub async fn grant(
         transaction.commit().await?;
         return Ok(Json(access));
     }
-    let access = sqlx::query_as::<_, AccessView>("INSERT INTO accesses(user_id,node_id,uuid,stat_name) VALUES($1,$2,$3,$4) RETURNING user_id,node_id,uuid,stat_name").bind(id).bind(request.node_id).bind(Uuid::new_v4()).bind(sinan_compiler::stat_name(id, request.node_id)).fetch_one(&mut *transaction).await?;
+    let access = sqlx::query_as::<_, AccessView>("INSERT INTO accesses(user_id,node_id,uuid,stat_name,credential) VALUES($1,$2,$3,$4,$5) RETURNING user_id,node_id,uuid,stat_name").bind(id).bind(request.node_id).bind(Uuid::new_v4()).bind(sinan_compiler::stat_name(id, request.node_id)).bind(super::node_protocol::credential(config.credential_size())).fetch_one(&mut *transaction).await?;
     business::mark_dirty(&mut transaction, &[server_id]).await?;
     transaction.commit().await?;
     Ok(Json(access))

@@ -1,5 +1,16 @@
 # 执行进度
 
+## 2026-10-01：现代代理协议与自动证书
+
+- 按用户授权完成 Hysteria2、Shadowsocks 2022（AES-128/256）、TUIC v5、AnyTLS、Naive（HTTP/2，含 UDP over TCP）、Snell v6。新增协议模型、0014 兼容迁移、节点 API/界面、独立授权密码、确定性配置与完整 JSON 订阅。旧 Reality 配置字节、UUID、订阅路径/令牌、授权及历史用量保留。链接格式仍仅支持 Reality，混合协议请求显式提示使用 JSON。
+- TLS 支持手动 PEM 和 Let's Encrypt 自动申请、续期（HTTP-01/TLS-ALPN-01）。同机提供器合并域名；共享邮箱和验证方式可原子更新，端口冲突整体回滚。证书保存在已有 data/certificates，重载/回滚不删除。列表不回显证书私钥、节点 PSK 或授权密码；手动更新可保留旧证书，替换需成对匹配。
+- 适配器增加 TCP/UDP 识别和验证证书的 TLS/QUIC 握手，避免 ACME 异步签发期间提前报告健康。TUIC/HY2 使用 h3；AnyTLS 健康检查遵循实际 ALPN，已修复 TLS-ALPN 验证启用后的握手冲突。首次签发限 240 秒；SDK/core 只增加通用有界健康预算，超时仍恢复旧配置，未越过插件业务边界。
+- 本地验证：完整 `cargo test` 376 通过、12 条条件忽略；最终改动另复验编译器 13 项、数据库相关 6 项、对账 10 项（含新增等待超时回滚）及适配器 13 项（含真实累计统计与重载）通过。`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、core 边界检查通过。前端 9 项测试通过，Bun 1.4.2 构建通过并同步 dist；Python 112 项运行、106 通过、6 条已有条件跳过（临时 minisign 0.12 补齐签名工具）。
+- 真实运行时：本地从未修改的固定 sing-box v1.14.2 源码构建，编译器 13 项含原生 check 全部通过。新协议实测覆盖七种配置（SS2022 两种密钥长度）的 TCP/UDP 传输、用户计量隔离及重载撤销；HY2/AnyTLS 验证错误证书域名不会通过健康检查。Naive 使用实际 Cronet 出站，不以配置检查代替连接测试。
+- ACME 实测使用临时 Pebble CA/DNS，四种 TLS 协议共享证书，真实执行 HTTP-01 和 TLS-ALPN-01，验证证书持久复用及 60 秒短期证书到期后自动续期和重载恢复；未向公网 CA 请求证书，未修改系统信任库。可复现入口为 `tools/acme-smoke.py`。
+- 未验证范围：公网 Let's Encrypt 与真实 DNS/端口权限、长期驻留续期、macOS/FreeBSD/Windows 实机运行、生产部署与最终整合 CI。当前 CI 继续暂停，未触发或恢复，也不声明 main 全绿。使用方式和人工验收见 [协议与证书](docs/proxy-protocols.md)、[ADR 0034](docs/adr/0034-modern-protocols-and-certificates.md)。下一步可在专用测试机升级面板/Agent 后逐项实机验收。
+
+
 ## 2026-10-01：按用户要求暂时关闭 CI
 
 - 暂停仓库四个 GitHub Actions 工作流并取消正在运行或排队的检查，避免分支 push、PR 和 main 整合反复构建。保留全部工作流文件及既有历史结果，代码与文档工作继续使用相称的本地验证。

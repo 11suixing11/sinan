@@ -169,3 +169,11 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 - 合入上游 `13f2975` 后统一使用其 `runtime_platform` 实现，移除重复解析与选择逻辑。GNU 宿主上的静态 Agent 保留已有 musl、旧目录、GNU 运行时的优先级，以避免同一已签证明包含多个平台时改变现有不可变缓存的选择；Agent 自更新仍按编译 ABI。
 - 上游把扩展平台检查改为手动；按本次此前的多平台自动构建要求，`CI` 继续在 push/PR 构建全部平台，OpenRC 保留在 Linux musl 任务内。上游的独立手动平台工作流保留，便于按需复验。
 - macOS 的软链接继承进程 umask，`readlink` 又检查链接自身的读取权限；launchd 的 `umask 027` 因此会阻止普通运行账户解析 root 创建的 `current`。依据 [Apple XNU 的 symlink/readlink 实现](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/vfs/vfs_syscalls.c)，在 `SystemOps::atomic_symlink` 发布前使用 `chmod -h 755` 设置临时链接自身权限；不改变目标文件、私有目录权限或整个进程的 umask。仍保留签名、路径边界、摘要与离线缓存复验，并在 macOS CI 用 `umask 077` 检查链接可读、目标权限不变及悬空链接替换。
+
+
+## 2026-10-01：现代协议与证书
+
+- 用户授权新增六种协议并选择自动申请、续期，按 ADR 0034 在现有 sing-box 插件内扩展；原 MVP 排除项据此覆盖。旧 Reality 快照缺省为旧协议，新增字段不改变旧编译字节、凭据、订阅令牌与历史账本。
+- 初期 ACME 选择 HTTP-01/TLS-ALPN-01，无需引入 DNS 服务商令牌；同机共享一个提供器避免挑战监听冲突。共享邮箱与验证方式由现有 ACME 节点编辑原子同步，任何端口冲突均回滚。证书持久目录复用 data，不创建额外服务。
+- 新协议先统一使用完整 sing-box JSON；既有 links 格式保留 Reality，遇到其他协议显式提示切换，避免不完整订阅或假设非标准 Snell 分享 URI。客户端必须支持相应出站，Naive 的 Cronet 平台限制不等于服务端入站限制。
+- 签发为异步过程，服务启动与证书就绪分开判断；适配器增加实际 TLS/QUIC 握手，健康预算最多 240 秒，core 只处理通用有界预算。AnyTLS 的健康握手不擅自添加 HTTP ALPN，避免启用 TLS-ALPN 验证后与其协议协商冲突；TUIC/HY2 显式使用 h3。

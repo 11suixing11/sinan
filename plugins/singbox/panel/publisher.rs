@@ -48,7 +48,7 @@ async fn snapshot(tx: &mut Transaction<'_, Postgres>, server_id: i64) -> anyhow:
         .bind(server_id)
         .fetch_all(&mut **tx)
         .await?;
-    let rows = sqlx::query("SELECT a.node_id,a.user_id,a.uuid FROM accesses a JOIN users u ON u.id=a.user_id JOIN nodes n ON n.id=a.node_id WHERE n.server_id=$1 AND n.deleted_at IS NULL AND u.deleted_at IS NULL ORDER BY a.node_id,a.user_id")
+    let rows = sqlx::query("SELECT a.node_id,a.user_id,a.uuid,a.credential FROM accesses a JOIN users u ON u.id=a.user_id JOIN nodes n ON n.id=a.node_id WHERE n.server_id=$1 AND n.deleted_at IS NULL AND u.deleted_at IS NULL ORDER BY a.node_id,a.user_id")
         .bind(server_id).fetch_all(&mut **tx).await?;
     let mut accesses: BTreeMap<i64, Vec<Access>> = BTreeMap::new();
     for row in rows {
@@ -58,6 +58,7 @@ async fn snapshot(tx: &mut Transaction<'_, Postgres>, server_id: i64) -> anyhow:
             .push(Access {
                 user_id: row.get("user_id"),
                 uuid: row.get("uuid"),
+                credential: row.get("credential"),
             });
     }
     nodes
