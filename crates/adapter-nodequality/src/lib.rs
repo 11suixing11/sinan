@@ -8,7 +8,8 @@ use sinan_adapter_sdk::{
 use std::{path::Path, time::Duration};
 use tokio::{io::AsyncReadExt, time::timeout};
 
-pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r7";
+pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r8";
+const PUBLIC_REPORT_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r7";
 const PINNED_SOURCES_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r6";
 const PINNED_GATE_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5";
 const MODES_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4";
@@ -58,7 +59,11 @@ fn path_argument(path: &Path) -> Result<String> {
 fn supports_modes(version: &str) -> bool {
     matches!(
         version,
-        VERSION | PINNED_SOURCES_VERSION | PINNED_GATE_VERSION | MODES_VERSION
+        VERSION
+            | PUBLIC_REPORT_VERSION
+            | PINNED_SOURCES_VERSION
+            | PINNED_GATE_VERSION
+            | MODES_VERSION
     )
 }
 
@@ -66,6 +71,7 @@ fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String, String)> {
     if !matches!(
         spec.version.as_str(),
         VERSION
+            | PUBLIC_REPORT_VERSION
             | PINNED_SOURCES_VERSION
             | PINNED_GATE_VERSION
             | MODES_VERSION

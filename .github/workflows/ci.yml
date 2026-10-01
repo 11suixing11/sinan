@@ -63,6 +63,7 @@ jobs:
           python3 tools/test-diagnostic-modes.py
           python3 tools/test-nodequality-sources.py
           python3 tools/test-nodequality-report-policy.py
+          python3 tools/test-nodequality-swap-policy.py
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - name: Run Rust and PostgreSQL tests

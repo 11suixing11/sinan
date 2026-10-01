@@ -24,7 +24,16 @@ def inert_source(name, policy):
         if name == 'net.sh':
             source += policy.NET_OUTPUT
         source += policy.SOURCES[name]['original_guard'] + b'}\n'
-    return source + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+    return source + swap_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+
+
+def swap_anchors(name):
+    policy = module('fixture_swap_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/swap-policy.py')
+    if name == 'NodeQuality.sh':
+        return b'fixture_unused_entry_swaps(){\n' + b''.join(a for a, _ in policy.ENTRY_REPLACEMENTS) + b'}\n'
+    if name == 'hardware.sh':
+        return policy.HARDWARE_PREFIX + b':\ncleanup_local(){\n' + policy.SWAP_CLEANUP + b':\n}\n}\n'
+    return b''
 
 
 def prepare_policy(plugin, contents):
@@ -46,4 +55,16 @@ def prepare_policy(plugin, contents):
     path.write_bytes(content)
     helper = Path(plugin) / 'source-helper.py'
     helper.write_bytes(replace_once(helper.read_bytes(), original_helper_hash, hashlib.sha256(content).hexdigest().encode()))
+    swap_path = Path(plugin) / 'swap-policy.py'
+    swap = module('synthetic_swap_policy_input', swap_path)
+    content = swap_path.read_bytes()
+    original_swap_hash = hashlib.sha256(content).hexdigest().encode()
+    for role, spec in swap.SOURCES.items():
+        canonical = outputs.get(role, contents[role])
+        patched = swap.patch(role, canonical)
+        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
+        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
+        outputs[role] = patched
+    swap_path.write_bytes(content)
+    helper.write_bytes(replace_once(helper.read_bytes(), original_swap_hash, hashlib.sha256(content).hexdigest().encode()))
     return outputs
