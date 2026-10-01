@@ -37,7 +37,7 @@ class InventoryTests(unittest.TestCase):
                 member = tarfile.TarInfo(name)
                 member.mode, member.size = mode, len(content)
                 if kind == 'link':
-                    member.type, member.linkname, member.size = tarfile.SYMTYPE, '../../outside'
+                    member.type, member.linkname, member.size = tarfile.SYMTYPE, '../../outside', 0
                     archive.addfile(member)
                 else:
                     archive.addfile(member, io.BytesIO(content))

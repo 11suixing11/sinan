@@ -460,7 +460,7 @@ class AcceptanceContracts(unittest.TestCase):
             changed[field].update(mutation)
             with self.subTest(mutation=mutation), self.assertRaises(DRIVER.AcceptanceError):
                 self.verify([changed])
-        self.verify([upgraded, upgraded, upgraded])
+        self.verify([json.loads(json.dumps(upgraded)) for _ in range(3)])
         self.assertEqual(self.state["checkpoints"]["after"]["agent"]["pid"], 200)
 
     def test_pending_outbox_cannot_be_reported_as_a_stable_pass(self):

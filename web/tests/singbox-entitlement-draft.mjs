@@ -50,6 +50,7 @@ try {
       else if (pathname === '/api/me' && method === 'GET') value = { authenticated: true }
       else if (pathname === `${prefix}/users` && method === 'GET') value = [user]
       else if (pathname === `${prefix}/nodes` && method === 'GET') value = nodes
+      else if (pathname === `${prefix}/proxy-resources` && method === 'GET') value = nodes.map(node => ({ ...node, kind:'direct', server_name:`服务器 #${node.server_id}`, role:'direct', entry_node_id:null, tcp:true, udp:true, available:true, enabled:true, stage:'direct', reference_count:0 }))
       else if (pathname === `${prefix}/chains` && method === 'GET') value = []
       else if (pathname === `${prefix}/policy-groups` && method === 'GET') value = policies
       else if (pathname === `${prefix}/package-groups` && method === 'GET') value = packages
