@@ -1,0 +1,25 @@
+.nodes-page { min-width: 0; }
+body:has(.nodes-page) { min-width: 320px; }
+.nodes-page > .notice { flex-wrap: wrap; }
+@media (max-width: 360px) { .nodes-page .stats-grid { grid-template-columns: 1fr; } }
+.node-editor h3 { margin: 6px 0 18px; font-size: 15px; }
+.node-fields-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+.node-fields-grid > * { min-width: 0; }
+.node-switch { display: flex; align-items: flex-start; gap: 10px; padding: 12px 0 20px; font-size: 13px; }
+.node-switch input { width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px; }
+.node-switch small { display: block; margin-top: 6px; color: var(--text-muted, #727985); font-size: 12px; line-height: 1.65; }
+.node-advanced { border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 14px; margin: 18px 0; }
+.node-advanced summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.node-advanced[open] summary { margin-bottom: 20px; }
+.node-listen { display: block; color: var(--text-muted, #727985); margin-top: 6px; }
+.node-deployment p { font-size: 13px; line-height: 1.8; color: var(--text-muted, #727985); overflow-wrap: anywhere; }
+.node-deployment-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.node-deployment-heading h3 { font-size: 14px; }
+.node-deployment-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 24px 0; }
+.node-deployment-facts dt { color: var(--text-muted, #727985); font-size: 12px; }
+.node-deployment-facts dd { margin: 8px 0 0; font-size: 22px; }
+.node-checks { list-style: none; padding: 0; display: grid; gap: 16px; font-size: 13px; }
+.node-checks li { display: grid; grid-template-columns: 120px 1fr; gap: 12px; align-items: start; line-height: 1.7; }
+.node-checks .badge { justify-self: start; }
+.node-deployment-links { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 24px; font-size: 13px; }
+@media (max-width: 600px) { .node-fields-grid { grid-template-columns: 1fr; } .node-deployment-facts { grid-template-columns: 1fr; } .node-checks li { grid-template-columns: 1fr; gap: 5px; } }

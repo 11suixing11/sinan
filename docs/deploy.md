@@ -2,6 +2,37 @@
 
 所有命令在仓库根目录运行。
 
+## 面板统一安装与运维
+
+需要 Python 3、可访问的 Docker Engine 及支持 `up --wait` 的 Compose 插件。工具沿用本仓库的 Compose 和 Dockerfile，不自动安装 Docker、不修改 DNS/防火墙。核对 `deploy/release-public-keys.json` 与[发布信任根说明](release.md)后运行：
+
+```sh
+python3 scripts/panel.py install --public-url https://panel.example.com
+python3 scripts/panel.py status
+python3 scripts/panel.py doctor
+python3 scripts/panel.py logs --tail 100 --follow
+```
+
+首次初始化生成权限 600 的 `.env`、独立随机数据库和管理员密码，使用仓库内正式发布公钥作为构建根。管理员初始密码在本机环境文件中读取，工具不打印。`install` 的 URL 是面板对外地址；宿主仍只绑定 `127.0.0.1:8080`，公网 HTTPS 需按下文配置反向代理。可先 `init --public-url ...` 再检查配置；`--port` 只在首次初始化时有效，已有环境不会覆盖。
+
+所有命令支持 `--env-file /私有路径/.env`、`--project 项目名`，应与原安装保持一致。现有环境从旧流程创建时，请补齐经过核对的非空 `SINAN_RELEASE_PUBLIC_KEYS` 再构建。Shell 中同名 SINAN/Compose 环境变量不覆盖指定文件，避免误用数据库密码或项目卷；Docker 连接设置仍沿用操作者环境。
+
+```sh
+python3 scripts/panel.py backup --backup-dir /私有备份目录
+python3 scripts/panel.py upgrade --backup-dir /私有备份目录
+python3 scripts/panel.py stop
+python3 scripts/panel.py start
+```
+
+- `upgrade` 使用当前检出的源码；同步并审阅源码后执行。先暂停面板，备份 PostgreSQL 与制品卷，再恢复原容器、构建新镜像和启动等待健康。数据库不可用、任一备份失败都会阻止构建升级；尽力恢复原容器。Dockerfile 的 `/healthz` 健康检查使 `--wait` 等待面板健康，启动/迁移失败返回非零，不自动降级数据库。
+- 重复 `install` 保留密码、身份和数据卷；已有容器时同样先备份。若只剩旧数据库卷而无容器，拒绝跳过备份安装，应先用原镜像恢复服务再升级。`start` 不自动构建或替换已有容器，`stop` 保留全部卷。
+- `doctor` 只读检查 Compose 配置、Docker、数据库及面板本机 `/healthz`。不验证公网 HTTPS、CDN、Agent 的实际连接或订阅代理流量。
+- 备份目录 700、文件 600，含 `environment`、`database.dump`、`panel-data.tar.gz` 和 SHA-256 清单 `manifest.json`。只有清单 `complete=true` 且摘要匹配的目录才可作为完整备份。源码记录是备份时的当前 checkout，实际旧镜像 ID 另存为 `image`；镜像本体不包含在备份中，应另行保留。
+- 恢复先在隔离环境演练：核对摘要、恢复私有环境文件、以原镜像创建数据库服务，在面板停止时用 `pg_restore` 恢复数据库并解包制品到其数据卷，再启动匹配版本面板。不要把旧备份直接覆盖到正在写入的生产数据库；应用迁移后回滚需同时恢复数据库、制品与匹配镜像。当前管理工具不自动执行恢复。
+- 同一 checkout 的同一项目操作互斥。异常退出残留 `.local/panel-项目名.lock` 时，先确认没有其他安装/备份进程再删除该空目录；不要从多个 checkout 同时操作同一 Compose 项目。
+
+本轮执行情况见 PROGRESS；脚本夹具验证不等于真实容器安装、恢复或生产升级已经通过。下方保留原 Compose 手动方式。
+
 ## 真机已观测的部署问题
 
 - [Agent 版本选择](https://github.com/theLucius7/sinan/issues/3)：历史 0.1.0→0.2.0 真机专项曾需要覆盖旧安装脚本的版本与摘要。新的签名发布流程从已导入、协议兼容的 Release 选择 Agent，接入界面可以指定版本；面板产品版本不再决定 Agent 版本。

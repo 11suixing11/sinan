@@ -57,6 +57,8 @@ async fn actual_challenges_persistence_and_expired_certificate_renewal() -> Resu
         let data = directory.0.join("data");
         std::fs::create_dir(&data)?;
         let node = Node {
+            enabled: true,
+            settings: Default::default(),
             id: 1,
             name: "ACME test".into(),
             port: port().await?,

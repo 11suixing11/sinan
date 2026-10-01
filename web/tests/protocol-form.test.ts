@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { protocolRequest } from '../src/plugins/singbox/ProtocolFields'
+import { nodeSettingsRequest } from '../src/plugins/singbox/NodeSettingsFields'
 
 function form(values: Record<string, string>) {
   const form = new FormData()
@@ -25,4 +26,19 @@ test('switching to a protocol without TLS does not submit certificate material',
 test('incomplete manual replacement is sent for validation rather than silently discarded', () => {
   expect(protocolRequest(form({ protocol: 'hysteria2', tls_mode: 'manual', key: 'TEST_ONLY incomplete key' })))
     .toEqual({ type: 'hysteria2', tls: { mode: 'manual', certificate: '', key: 'TEST_ONLY incomplete key' } })
+})
+
+test('node settings preserve obfuscation secrets and clear a public port explicitly', () => {
+  const request = nodeSettingsRequest(form({ protocol:'hysteria2', listen:'::', public_port:'', obfs_enabled:'on', obfs_password:'', up_mbps:'80', down_mbps:'40' }))
+  expect(request.public_port).toBeNull()
+  expect(request).toHaveProperty('hysteria2', { up_mbps:80, down_mbps:40, ignore_client_bandwidth:false, obfs_enabled:true })
+  expect(request).not.toHaveProperty('hysteria2.obfs_password')
+})
+
+test('protocol changes cannot submit another protocol group', () => {
+  const request = nodeSettingsRequest(form({ protocol:'tuic', listen:'0.0.0.0', public_port:'443', congestion_control:'bbr', heartbeat_seconds:'10', obfs_enabled:'on', obfs_password:'TEST_ONLY stale field', handshake_port:'8443' }))
+  expect(request.public_port).toBe(443)
+  expect(request).not.toHaveProperty('hysteria2')
+  expect(request).not.toHaveProperty('reality')
+  expect(request).toHaveProperty('tuic.heartbeat_seconds', 10)
 })

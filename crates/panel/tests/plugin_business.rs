@@ -210,6 +210,8 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
         .execute(&pool)
         .await?;
     let node = Node {
+        enabled: true,
+        settings: Default::default(),
         id: node_id,
         name: "Imported node".into(),
         port: 443,
@@ -263,6 +265,8 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
     }
     for node in legacy.get_mut("nodes").unwrap().as_array_mut().unwrap() {
         node["protocol_config"] = json!({"type":"vless-reality"});
+        node["enabled"] = json!(true);
+        node["settings"] = json!({});
     }
     for access in legacy
         .get_mut("accesses")

@@ -19,7 +19,7 @@ pub(crate) fn provider(nodes: &[&Node]) -> Result<Option<Value>, CompileError> {
             ));
         }
         settings = Some((email, challenge));
-        if !node.users.is_empty() {
+        if node.enabled && !node.users.is_empty() {
             domains.insert(node.sni.to_ascii_lowercase());
         }
     }

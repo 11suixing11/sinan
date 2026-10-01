@@ -6,10 +6,12 @@ use sinan_compiler::{Access, Node};
 use sqlx::{FromRow, Postgres, Transaction};
 use x25519_dalek::{PublicKey, StaticSecret};
 
-pub(crate) const NODE_COLUMNS: &str = "n.id, n.name, n.server_id, n.protocol, n.port, n.public_host, n.sni, n.private_key, n.public_key, n.short_id, n.protocol_config";
+pub(crate) const NODE_COLUMNS: &str = "n.id, n.name, n.server_id, n.protocol, n.port, n.public_host, n.sni, n.private_key, n.public_key, n.short_id, n.protocol_config, n.enabled, n.settings";
 
 #[derive(FromRow)]
 pub(crate) struct NodeRow {
+    pub enabled: bool,
+    pub settings: serde_json::Value,
     pub id: i64,
     pub name: String,
     pub server_id: i64,
@@ -25,6 +27,8 @@ pub(crate) struct NodeRow {
 
 #[derive(Serialize)]
 pub struct NodeView {
+    pub enabled: bool,
+    pub settings: serde_json::Value,
     pub id: i64,
     pub name: String,
     pub server_id: i64,
@@ -40,6 +44,8 @@ pub struct NodeView {
 impl NodeRow {
     pub(crate) fn model(&self, users: Vec<Access>) -> anyhow::Result<Node> {
         Ok(Node {
+            enabled: self.enabled,
+            settings: serde_json::from_value(self.settings.clone())?,
             id: self.id,
             name: self.name.clone(),
             port: self.port.try_into()?,
@@ -57,6 +63,8 @@ impl NodeRow {
         let config: sinan_compiler::ProtocolConfig =
             serde_json::from_value(self.protocol_config).map_err(anyhow::Error::from)?;
         Ok(NodeView {
+            enabled: self.enabled,
+            settings: super::node_settings::view(self.settings)?,
             id: self.id,
             name: self.name,
             server_id: self.server_id,

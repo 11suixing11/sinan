@@ -16,6 +16,7 @@ pub(crate) struct Listener {
     pub address: SocketAddr,
     pub transport: Transport,
     pub tls: Option<serde_json::Value>,
+    pub obfuscation: Option<String>,
 }
 
 pub(crate) fn stats_address(address: &str) -> Result<SocketAddr> {
@@ -69,6 +70,22 @@ pub(crate) fn listen_addresses(spec: &RuntimeSpec) -> Result<Vec<Listener>> {
         } else {
             None
         };
+        let obfuscation = if let Some(obfs) = inbound.get("obfs") {
+            anyhow::ensure!(
+                kind == "hysteria2" && obfs["type"] == "salamander",
+                "unsupported obfuscation"
+            );
+            let password = obfs["password"]
+                .as_str()
+                .context("missing obfuscation password")?;
+            anyhow::ensure!(
+                (8..=256).contains(&password.len()),
+                "invalid obfuscation password length"
+            );
+            Some(password.to_owned())
+        } else {
+            None
+        };
         let port: u16 = inbound["listen_port"]
             .as_u64()
             .context("inbound has no listen port")?
@@ -90,6 +107,7 @@ pub(crate) fn listen_addresses(spec: &RuntimeSpec) -> Result<Vec<Listener>> {
                 address: SocketAddr::new(probe, port),
                 transport: *transport,
                 tls: tls.clone(),
+                obfuscation: obfuscation.clone(),
             });
         }
     }

@@ -10,6 +10,14 @@ async fn chain_is_private_billed_once_and_requires_both_applied_endpoints(
     let b = panel.create_server(&cookie, "Exit server").await?;
     let entry = id(&panel.create_node(&cookie, a, "Entry").await?)?;
     let exit = id(&panel.create_node(&cookie, b, "Exit").await?)?;
+    call(
+        &panel,
+        &cookie,
+        Method::PATCH,
+        &format!("/nodes/{exit}"),
+        Some(json!({"settings":{"public_port":8443,"reality":{"fingerprint":"firefox"}}})),
+    )
+    .await?;
     let chain = call(
         &panel,
         &cookie,
@@ -47,6 +55,11 @@ async fn chain_is_private_billed_once_and_requires_both_applied_endpoints(
         format!("chain-{chain_id}")
     );
     assert_eq!(entry_config["outbounds"][1]["uuid"], relay.to_string());
+    assert_eq!(entry_config["outbounds"][1]["server_port"], 8443);
+    assert_eq!(
+        entry_config["outbounds"][1]["tls"]["utls"]["fingerprint"],
+        "firefox"
+    );
     assert_eq!(
         exit_config["inbounds"][0]["users"][0]["uuid"],
         relay.to_string()
@@ -100,6 +113,48 @@ async fn chain_is_private_billed_once_and_requires_both_applied_endpoints(
     )
     .await?;
     assert_eq!(list.as_array().unwrap().len(), 1);
+    // Pausing either endpoint removes the chain, while preserving its grants.
+    for node in [entry, exit] {
+        call(
+            &panel,
+            &cookie,
+            Method::PATCH,
+            &format!("/nodes/{node}"),
+            Some(json!({"enabled":false})),
+        )
+        .await?;
+        assert!(eligible(&pool, uid, now_timestamp()).await?.is_empty());
+        assert_eq!(
+            panel.client.get(&sub).send().await?.status(),
+            StatusCode::CONFLICT
+        );
+        panel.publish_now().await?;
+        assert!(
+            latest_config(&pool, a).await?["inbounds"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            call(&panel, &cookie, Method::GET, "/chains", None).await?[0]["available"],
+            false
+        );
+        call(
+            &panel,
+            &cookie,
+            Method::PATCH,
+            &format!("/nodes/{node}"),
+            Some(json!({"enabled":true})),
+        )
+        .await?;
+        assert_eq!(eligible(&pool, uid, now_timestamp()).await?, vec![entry]);
+        panel.publish_now().await?;
+        applied(&pool).await?;
+        assert_eq!(
+            panel.client.get(&sub).send().await?.status(),
+            StatusCode::OK
+        );
+    }
     // Losing the exit revokes the entry; it must never fall back to direct.
     call(
         &panel,
