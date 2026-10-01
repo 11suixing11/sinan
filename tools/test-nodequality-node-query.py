@@ -205,6 +205,39 @@ class NodeQueryContracts(unittest.TestCase):
                 path.chmod(0o644)
                 self.assertTrue(all(item[0] is None for item in query.load_configuration().values()))
 
+    def test_real_fifo_configuration_is_rejected_without_waiting_for_a_writer(self):
+        with tempfile.TemporaryDirectory(prefix='sinan-node-query-fifo-') as directory:
+            path = Path(directory) / 'credentials.json'
+            os.mkfifo(path, mode=0o600)
+            script = '''
+import importlib.util, json, os, stat, sys, types
+from pathlib import Path
+from unittest.mock import patch
+spec = importlib.util.spec_from_file_location('fifo_query', sys.argv[1])
+query = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(query)
+query.CONFIG = Path(sys.argv[2])
+original = os.fstat
+def fileinfo(descriptor):
+    info = original(descriptor)
+    return types.SimpleNamespace(st_uid=0, st_mode=info.st_mode, st_size=info.st_size)
+parent = types.SimpleNamespace(st_uid=0, st_mode=stat.S_IFDIR | 0o755)
+with patch.object(Path, 'lstat', return_value=parent), patch.object(query.os, 'fstat', side_effect=fileinfo):
+    print(json.dumps(query.load_configuration()))
+'''
+            # Preserve the existing root/stat fixture contract, but open a real
+            # owned FIFO with no writer in a bounded, independently reaped child.
+            result = subprocess.run([sys.executable, '-c', script, str(ROOT / 'plugins/nodequality/node-query.py'), str(path)],
+                                    capture_output=True, text=True, timeout=3)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            configured = json.loads(result.stdout)
+            self.assertEqual(set(configured), set(query.PROVIDERS))
+            for key, reason in configured.values():
+                self.assertIsNone(key)
+                self.assertIn('无法安全读取或校验', reason)
+                self.assertIn('未执行查询', reason)
+                self.assertIn('信息未知', reason)
+
     def test_failure_source_does_not_erase_other_source_partial_success(self):
         def answer(provider, *args):
             if provider == 'dbip-node': raise query.QueryFailure('http_429', 'TEST_ONLY 限流，信息未知', 429)

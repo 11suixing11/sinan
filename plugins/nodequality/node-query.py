@@ -66,7 +66,7 @@ def load_configuration():
             info = parent.lstat()
             if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
                 raise ValueError('节点凭证目录必须由 root 管理且不可被其他用户写入')
-        descriptor = os.open(CONFIG, os.O_RDONLY | os.O_NOFOLLOW)
+        descriptor = os.open(CONFIG, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         try:
             info = os.fstat(descriptor)
             if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) not in {0o400, 0o600} or info.st_size > 8192:
