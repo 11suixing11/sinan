@@ -26,6 +26,18 @@ module_spec = importlib.util.spec_from_file_location("nodequality_report", PLUGI
 report = importlib.util.module_from_spec(module_spec)
 module_spec.loader.exec_module(report)
 
+
+def source_bundle():
+    """Use private inert fixtures instead of downloading or running upstream."""
+    lock = json.loads((PLUGIN / "source-lock.json").read_text())
+    files = {}
+    for row in lock["files"]:
+        content = ("# Synthetic inert source fixture: " + row["name"] + "\n").encode()
+        row["sha256"] = hashlib.sha256(content).hexdigest()
+        row["size"] = len(content)
+        files[row["name"]] = base64.b64encode(content).decode()
+    return json.dumps(dict(schema=1, lock=lock, files=files)) + "\n"
+
 # Verbatim post_cleanup from entrypoint a92fca6c, source SHA-256 4e1b2589...e0c018.
 # Fixtures pad it to its real line 440; the normal terminal exit is line 455.
 PINNED_POST_CLEANUP = '''function post_cleanup(){
@@ -378,6 +390,8 @@ class BuildTests(unittest.TestCase):
                     self.assertEqual(runner.count(requirement), 1)
                     runner = runner.replace(requirement, ":")
                 for marker, source in (("@NODEQUALITY_SOURCE@", upstream), ("@NODEQUALITY_LICENSE@", "fixture"),
+                                       ("@SOURCE_HELPER@", (PLUGIN / "source-helper.py").read_text()),
+                                       ("@PINNED_CHAIN@", source_bundle()),
                                        ("@REPORT_HELPER@", (PLUGIN / "report.py").read_text()),
                                        ("@EXIT_OBSERVER@", (PLUGIN / "exit-observer.sh").read_text()),
                                        ("@DAILY_HELPER@", (PLUGIN / "daily.py").read_text()),
@@ -398,7 +412,7 @@ class BuildTests(unittest.TestCase):
 
     def test_repeated_build_refuses_to_modify_the_existing_artifact_and_checksum(self):
         with tempfile.TemporaryDirectory() as directory:
-            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5"
+            version = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r6"
             root = pathlib.Path(directory) / "nodequality" / version
             root.mkdir(parents=True)
             artifact = root / "amd64"
@@ -455,7 +469,7 @@ class BuildTests(unittest.TestCase):
             subprocess.run(["bash", "-n", str(script)], check=True)
         result = subprocess.run(["bash", str(PLUGIN / "runner.sh.tmpl"), "--version"],
                                 capture_output=True, text=True, check=True)
-        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5")
+        self.assertEqual(result.stdout.strip(), "nodequality a92fca6c0067df29ddd03fdc2fee6f3000f64545-r6")
 
     def test_existing_architecture_checksums_are_not_replaced(self):
         script = (PLUGIN.parents[1] / "tools/build-nodequality.sh").read_text()
@@ -576,6 +590,8 @@ work_dir=$workspace/.nodequalityfixture
         for marker, payload in (
             ("NODEQUALITY_SOURCE", fixture),
             ("NODEQUALITY_LICENSE", "Synthetic test fixture; no upstream tests run.\n"),
+            ("SOURCE_HELPER", (PLUGIN / "source-helper.py").read_text()),
+            ("PINNED_CHAIN", source_bundle()),
             ("REPORT_HELPER", (PLUGIN / "report.py").read_text()),
             ("EXIT_OBSERVER", (PLUGIN / "exit-observer.sh").read_text()),
             ("DAILY_HELPER", (PLUGIN / "daily.py").read_text()),

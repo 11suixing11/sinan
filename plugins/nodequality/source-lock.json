@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "files": [
+    {
+      "name": "NodeQuality.sh",
+      "repository": "LloydAsp/NodeQuality",
+      "commit": "a92fca6c0067df29ddd03fdc2fee6f3000f64545",
+      "path": "NodeQuality.sh",
+      "sha256": "4e1b25894cadf908ef61fb0d9ce874a75524c6dafc2ea26f0477107288e0c018",
+      "size": 18083,
+      "license_file": "LICENSE.nodequality"
+    },
+    {
+      "name": "header.sh",
+      "repository": "LloydAsp/NodeQuality",
+      "commit": "a92fca6c0067df29ddd03fdc2fee6f3000f64545",
+      "path": "part/header.sh",
+      "sha256": "d6b1990f815bcdb42ac978941b9edf841556c4861e453c23e9bef41b66e4d03f",
+      "size": 534,
+      "license_file": "LICENSE.nodequality"
+    },
+    {
+      "name": "swap.sh",
+      "repository": "LloydAsp/NodeQuality",
+      "commit": "a92fca6c0067df29ddd03fdc2fee6f3000f64545",
+      "path": "part/swap.sh",
+      "sha256": "5406da3ab0ff47105f0c06dcbb9fbb34bbb9c5e78c801095c60597b8c6a9d43e",
+      "size": 1772,
+      "license_file": "LICENSE.nodequality"
+    },
+    {
+      "name": "hardware.sh",
+      "repository": "xykt/HardwareQuality",
+      "commit": "06f99880d516bb744afa2948261b9697c79789e2",
+      "path": "hardware.sh",
+      "sha256": "73e032ef5409e014cca411a71c677a76db19a94ef0a96a73827b41b2059cd86c",
+      "size": 162313,
+      "license_file": "LICENSE.hardware"
+    },
+    {
+      "name": "ip.sh",
+      "repository": "xykt/IPQuality",
+      "commit": "87397e2c3196ec796f5477c83343c2354df601ea",
+      "path": "ip.sh",
+      "sha256": "b30df5a3c2204276c54e99dcc5080b46f8a627667730aee7de63b109b8ecaecf",
+      "size": 108641,
+      "license_file": "LICENSE.ip"
+    },
+    {
+      "name": "net.sh",
+      "repository": "xykt/NetQuality",
+      "commit": "d5b99484d51286374d24b892c1b54235dc282148",
+      "path": "net.sh",
+      "sha256": "6c40fe1ae40d969255cb63075c94882733b82ba43831341eb1aadeea7b1fbfcd",
+      "size": 104082,
+      "license_file": "LICENSE.net"
+    },
+    {
+      "name": "LICENSE.nodequality",
+      "repository": "LloydAsp/NodeQuality",
+      "commit": "a92fca6c0067df29ddd03fdc2fee6f3000f64545",
+      "path": "LICENSE",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "size": 34523
+    },
+    {
+      "name": "LICENSE.hardware",
+      "repository": "xykt/HardwareQuality",
+      "commit": "06f99880d516bb744afa2948261b9697c79789e2",
+      "path": "LICENSE",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "size": 34523
+    },
+    {
+      "name": "LICENSE.ip",
+      "repository": "xykt/IPQuality",
+      "commit": "87397e2c3196ec796f5477c83343c2354df601ea",
+      "path": "LICENSE",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "size": 34523
+    },
+    {
+      "name": "LICENSE.net",
+      "repository": "xykt/NetQuality",
+      "commit": "d5b99484d51286374d24b892c1b54235dc282148",
+      "path": "LICENSE",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "size": 34523
+    }
+  ]
+}

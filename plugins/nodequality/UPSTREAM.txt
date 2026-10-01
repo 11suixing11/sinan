@@ -4,11 +4,33 @@ NodeQuality.sh SHA256: 4e1b25894cadf908ef61fb0d9ce874a75524c6dafc2ea26f047710728
 Upstream LICENSE SHA256: 8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef
 License: GNU Affero General Public License version 3
 
-The artifact contains the unmodified upstream script and full upstream license.
+The r6 artifact contains the unmodified entrypoint, five first-level scripts,
+four full repository licenses and source-lock.json source identities. Each
+original file retains all of its copyright and attribution notices verbatim.
+The signed runner binary includes the complete source bundle; there are no
+unsigned companion scripts or runtime source overrides.
+
+Additional pinned repositories and commits:
+HardwareQuality: https://github.com/xykt/HardwareQuality
+06f99880d516bb744afa2948261b9697c79789e2
+IPQuality: https://github.com/xykt/IPQuality
+87397e2c3196ec796f5477c83343c2354df601ea
+NetQuality: https://github.com/xykt/NetQuality
+d5b99484d51286374d24b892c1b54235dc282148
+All four repository LICENSE files are retained separately with their source
+identity, byte size and SHA256 in source-lock.json. These full texts are AGPL-3.0;
+that statement does not cover any downloaded rootfs, bundled binary or tool.
+
+The first-level host curl calls receive only the five locally verified scripts.
+Unknown source URLs fail without an online main-branch fallback. The exact
+existing BenchOS v0.0.2 download and report-upload call remain separate paths.
 The runner and its bounded report collector are maintained by Sinan.
 The chroot command shim maps the pinned loader's fixed AMD64 trace download to
 the corresponding upstream ARM64 asset on ARM64 hosts; source bytes stay intact.
-NodeQuality downloads BenchOS v0.0.2 and additional upstream test loaders at run
-time. Only an explicit administrator diagnostic action runs those tests.
+Rootfs provenance/licensing, secondary tools and data, and all external upload
+paths are still pending independent audits. The panel and adapter full-start
+gate remains closed for all supported versions. This r6 change alone neither
+enables nor certifies a complete NodeQuality diagnostic. Daily checks do not
+execute the embedded upstream sources.
 Linux runtime prerequisites: Bash >= 4, Python 3, curl, tar, base64, mount,
 umount, chroot, coreutils, and systemd with private mount namespaces.
