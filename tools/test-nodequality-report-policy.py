@@ -359,7 +359,7 @@ class PolicyTests(unittest.TestCase):
             private_policy = module('transform_fixture', plugin / 'report-policy.py')
             private_swap = module('swap_transform_fixture', plugin / 'swap-policy.py')
             for role in private_policy.SOURCES:
-                expected = source_tests.fixture.undo_browser(role, outputs[role])
+                expected = source_tests.fixture.undo_browser(role, outputs.before_access[role])
                 expected = source_tests.fixture.undo_ip_scores(role, expected)
                 expected = source_tests.fixture.undo_ranking(role, expected)
                 expected = source_tests.fixture.undo_data(role, expected, contents)

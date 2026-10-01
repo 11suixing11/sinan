@@ -151,3 +151,30 @@ Sinan integrated query guard (2026-10-01, runner r15):
   target IP, attempted time, curl elapsed time/status and per-title request data.
 - Other providers, public cookies and borrowed credentials are unchanged and
   still block full acceptance. All full-start gates and license checks remain.
+
+Sinan integrated provider access guard (2026-10-01, runner r16):
+- access-policy.py transforms only the exact r15 IP source, with fixed input,
+  output and helper SHA256 identities. The canonical sources and licenses remain.
+- read_ref no longer downloads public cookies or retries that download. The
+  webpage-derived keys, fallback key and embedded Disney authorization requests
+  are absent from the served functions. No credential literal is duplicated in
+  the policy or its tests.
+- ipregistry, DB-IP and Disney retain their report locations with an explicit
+  unknown/not_attempted reason until an authorized provider adapter is configured.
+  They perform no request. Checked time is separate from last_attempt_at=null;
+  Attempted=false, empty Attempts and null elapsed time record that distinction.
+  Missing DB-IP scores and affected factors remain unknown, not zero or false.
+- YouTube retains one anonymous native-curl request without cookies, browser
+  identity or retry. It has a 2 MiB response ceiling and records transport/HTTP,
+  timeout, empty/oversize or schema failures as unknown. Only a recognized public
+  Premium page with consistent country and availability markers enters the
+  existing page heuristic; that does not prove playback or current public schema.
+- Added metadata preserves existing report fields and unaffected source functions.
+  Formal credentials belong in dedicated authorized provider adapters; none are
+  accepted through general diagnostic arguments, snapshots or report fields here.
+
+This is a guard for these borrowed-access paths, not acceptance of every provider
+or completion of node-self integration. Other provider interpretation, rootfs,
+third-party tool licensing/traffic and the complete load matrix remain pending.
+All full-start gates stay closed; no formal release or production deployment is
+approved by this change.

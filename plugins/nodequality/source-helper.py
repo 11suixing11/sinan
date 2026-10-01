@@ -12,6 +12,7 @@ import sys
 
 MAX_FILE = 2 * 1024 * 1024
 MAX_BUNDLE = 8 * 1024 * 1024
+ACCESS_POLICY_SHA256 = '4923167dd7a483d47b58295078163b6404ce82cf8cc4a9e52ef20675105a78cf'
 QUERY_POLICY_SHA256 = 'e4ec8e34c9264b25b64d5ec6252f419762493be9b928d96beaba7addffe3aa00'
 BROWSER_POLICY_SHA256 = '04de9983ccbe2a7651011e3b05b1092cd0a25af950ff3a97f583536f4c693ef1'
 IP_SCORE_POLICY_SHA256 = 'f5ae90c823d6b6d993c9254369220f6128ac7169f41b557c603ab00f184f245f'
@@ -232,6 +233,27 @@ def query_policy():
     return namespace
 
 
+def access_policy():
+    path = Path(__file__).with_name('access-policy.py')
+    content = ordinary(path, 65536)
+    if hashlib.sha256(content).hexdigest() != ACCESS_POLICY_SHA256:
+        raise ValueError('signed provider access policy helper SHA256 mismatch')
+    namespace = {'__name__': 'sinan_access_policy', '__file__': str(path)}
+    exec(compile(content, str(path), 'exec'), namespace)
+    return namespace
+
+
+def authorized_provider_access(name, content):
+    if name != 'ip.sh':
+        return content
+    policy = access_policy()
+    result = policy['transform'](name, content)
+    if (not isinstance(result, bytes) or len(result) > MAX_FILE + 8192
+            or hashlib.sha256(result).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
+        raise ValueError('served provider access policy output SHA256 or byte limit mismatch')
+    return result
+
+
 def validated_query_results(name, content):
     if name != 'ip.sh':
         return content
@@ -320,6 +342,7 @@ def pack(lock, directory):
     ip_score_policy()
     browser_policy()
     query_policy()
+    access_policy()
     files = {name: base64.b64encode(verified(ordinary(directory / name, MAX_FILE), row)).decode()
              for name, row in rows.items()}
     result = (json.dumps(dict(schema=1, lock=lock, files=files), sort_keys=True, separators=(',', ':')) + '\n').encode()
@@ -363,7 +386,7 @@ def serve(directory, arguments):
             or hashlib.sha256(patched).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
         raise ValueError('served report policy output SHA256 or byte limit mismatch')
     prior = without_swap(name, patched) if name == 'hardware.sh' else patched
-    return validated_query_results(name, native_curl_identity(name, validated_ip_scores(name, percentile_policy(name, static_references(name, offline_dependencies(name, prior), directory, rows)))))
+    return authorized_provider_access(name, validated_query_results(name, native_curl_identity(name, validated_ip_scores(name, percentile_policy(name, static_references(name, offline_dependencies(name, prior), directory, rows))))))
 
 
 def main():

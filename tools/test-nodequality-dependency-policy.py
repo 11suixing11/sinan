@@ -177,7 +177,7 @@ L(){ printf cleanup; }
                     self.assertEqual(patched.splitlines()[454], b'    exit 1')
                 else:
                     url = next(url for url, value in helper.ALIASES.items() if value == role)
-                    patched = helper.serve(directory, ['-Ls', url])
+                    patched = sources.fixture.serve_before_access(helper, directory, ['-Ls', url])
                     start, stop = policy.installer_span(role, prior)
                     self.assertGreater(stop-start, len(policy.checks(role)))
                 patched = sources.fixture.undo_browser(role, patched)
@@ -209,7 +209,7 @@ L(){ printf cleanup; }
                     patched = helper.entrypoint(bundle)
                 else:
                     url = next(url for url, value in helper.ALIASES.items() if value == role)
-                    patched = helper.serve(directory, ['-Ls', url])
+                    patched = sources.fixture.serve_before_access(helper, directory, ['-Ls', url])
                 with self.subTest(role=role):
                     syntax = subprocess.run(['/bin/bash', '-n'], input=patched, capture_output=True, timeout=4)
                     self.assertEqual(syntax.returncode, 0, syntax.stderr)

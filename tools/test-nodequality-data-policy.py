@@ -156,7 +156,7 @@ class DataTests(unittest.TestCase):
             for role, requests in policy.REQUESTS.items():
                 prior = dependency.transform(role, report.transform(role, contents[role]))
                 url = next(url for url, value in helper.ALIASES.items() if value == role)
-                served = helper.serve(directory, ['-Ls', url])
+                served = source_tests.fixture.serve_before_access(helper, directory, ['-Ls', url])
                 prior_browser = source_tests.fixture.undo_browser(role, served)
                 prior_score = source_tests.fixture.undo_ip_scores(role, prior_browser)
                 self.assertEqual(hashlib.sha256(prior_score).hexdigest(), policy.SOURCES[role]['patched_sha256'])

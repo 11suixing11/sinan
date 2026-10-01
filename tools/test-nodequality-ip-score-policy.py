@@ -67,7 +67,7 @@ class ScoreTests(unittest.TestCase):
             target = Path(name) / 'sources'
             lock = helper.decode((PLUGIN / 'source-lock.json').read_bytes())
             helper.materialize(helper.decode(helper.pack(lock, READONLY_SOURCES)), target)
-            return helper.serve(target, ['-Ls', 'https://IP.Check.Place'])
+            return sources.fixture.serve_before_access(helper, target, ['-Ls', 'https://IP.Check.Place'])
 
     def value(self, response, path, kind):
         if shutil.which('jq') is None:

@@ -105,7 +105,7 @@ class QueryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as name:
             target = Path(name) / 'sources'
             helper.materialize(helper.decode(helper.pack(helper.decode((PLUGIN / 'source-lock.json').read_bytes()), READONLY_SOURCES)), target)
-            return helper.serve(target, ['-Ls', 'https://IP.Check.Place'])
+            return sources.fixture.serve_before_access(helper, target, ['-Ls', 'https://IP.Check.Place'])
 
     def query(self, scenarios, *, original=False, status=200, delay=False, payload=KNOWN):
         self.runtime()

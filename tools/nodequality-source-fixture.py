@@ -3,6 +3,20 @@ import ast
 import hashlib
 import importlib.util
 from pathlib import Path
+from unittest import mock
+
+
+class PolicyOutputs(dict):
+    """Keep the r15 layer for the older isolated transformation regressions."""
+    before_access = None
+
+
+def serve_before_access(helper, directory, arguments):
+    # Older policy tests assert the identity of their own fixed layer. The new
+    # access suite and final runner/packaging tests exercise the complete chain.
+    # No production switch permits this bypass.
+    with mock.patch.object(helper, 'authorized_provider_access', side_effect=lambda role, data: data):
+        return helper.serve(directory, arguments)
 
 
 def module(name, path):
@@ -28,7 +42,16 @@ def inert_source(name, policy):
         if name == 'net.sh':
             source += policy.NET_OUTPUT
         source += policy.SOURCES[name]['original_guard'] + b'}\n'
-    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ip_score_anchors(name) + browser_anchors(name) + query_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ip_score_anchors(name) + browser_anchors(name) + query_anchors(name) + access_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+
+
+def access_anchors(name):
+    if name != 'ip.sh':
+        return b''
+    policy = module('fixture_access_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/access-policy.py')
+    functions = b''.join((key + '(){\n: # Synthetic uncalled provider function.\n}\n').encode()
+                         for key in policy.FUNCTIONS)
+    return functions + b"fixture_unused_access_metadata(){\ncat <<'SINAN_FIXTURE_ACCESS'\n" + policy.JSON_ANCHOR + b'SINAN_FIXTURE_ACCESS\n}\n'
 
 
 def query_anchors(name):
@@ -176,7 +199,7 @@ def prepare_policy(plugin, contents):
     policy = module('synthetic_report_policy_input', path)
     content = path.read_bytes()
     original_helper_hash = hashlib.sha256(content).hexdigest().encode()
-    outputs = {}
+    outputs = PolicyOutputs()
     for role, spec in policy.SOURCES.items():
         canonical = contents[role]
         patched = policy.exact_replace(canonical, b'check_bash(){\n', policy.POLICY + b'check_bash(){\n')
@@ -287,5 +310,18 @@ def prepare_policy(plugin, contents):
         content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
         outputs[role] = patched
     query_path.write_bytes(content)
+    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
+    outputs.before_access = dict(outputs)
+    access_path = Path(plugin) / 'access-policy.py'
+    access = module('synthetic_access_policy_input', access_path)
+    content = access_path.read_bytes()
+    original_hash = hashlib.sha256(content).hexdigest().encode()
+    for role, spec in access.SOURCES.items():
+        canonical = outputs[role]
+        patched = access.patch(canonical)
+        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
+        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
+        outputs[role] = patched
+    access_path.write_bytes(content)
     helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
     return outputs
