@@ -117,6 +117,7 @@ async fn all_full_versions_are_denied_before_executing_or_creating_anything() {
     let privileged = FakePrivileged::default();
     for version in [
         VERSION,
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5",
         "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4",
         "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2",
         "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3",

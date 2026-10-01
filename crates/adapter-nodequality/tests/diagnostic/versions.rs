@@ -5,10 +5,11 @@ use super::*;
 const R2: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r2";
 const R3: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r3";
 const R4: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r4";
+const R5: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5";
 
 #[tokio::test]
 async fn saved_full_jobs_are_not_prepared_but_keep_each_report_version() {
-    for version in [R2, R3, R4, VERSION] {
+    for version in [R2, R3, R4, R5, VERSION] {
         let scratch = Scratch::new();
         let mut spec = scratch.spec();
         spec.version = version.into();
@@ -32,8 +33,8 @@ async fn saved_full_jobs_are_not_prepared_but_keep_each_report_version() {
 }
 
 #[tokio::test]
-async fn r4_and_r5_daily_jobs_keep_mode_targets_budget_and_saved_chapters() {
-    for version in [R4, VERSION] {
+async fn r4_r5_and_r6_daily_jobs_keep_mode_targets_budget_and_saved_chapters() {
+    for version in [R4, R5, VERSION] {
         let scratch = Scratch::new();
         let mut spec = scratch.spec();
         spec.version = version.into();

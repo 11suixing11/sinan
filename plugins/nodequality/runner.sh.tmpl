@@ -2,7 +2,7 @@
 # Sinan runner for the original pinned NodeQuality script.
 set -euo pipefail
 umask 077
-version=a92fca6c0067df29ddd03fdc2fee6f3000f64545-r5
+version=a92fca6c0067df29ddd03fdc2fee6f3000f64545-r6
 usage() {
   cat <<'USAGE'
 Usage: nodequality --workspace <ABSOLUTE_DIRECTORY> --mode daily|full --ip-version both|ipv4|ipv6 --network-mode low|normal [--upload-report true|false]
@@ -115,6 +115,13 @@ SINAN_NODEQUALITY_REPORT_HELPER
 cat > "$runtime/exit-observer.sh" <<'SINAN_NODEQUALITY_EXIT_OBSERVER'
 @EXIT_OBSERVER@
 SINAN_NODEQUALITY_EXIT_OBSERVER
+cat > "$runtime/source-helper.py" <<'SINAN_NODEQUALITY_SOURCE_HELPER'
+@SOURCE_HELPER@
+SINAN_NODEQUALITY_SOURCE_HELPER
+cat > "$runtime/pinned-chain.json" <<'SINAN_NODEQUALITY_PINNED_CHAIN'
+@PINNED_CHAIN@
+SINAN_NODEQUALITY_PINNED_CHAIN
+python3 "$runtime/source-helper.py" materialize "$runtime/pinned-chain.json" "$runtime/sources"
 cat > "$runtime/bin/curl" <<'SINAN_NODEQUALITY_CURL_SHIM'
 @CURL_SHIM@
 SINAN_NODEQUALITY_CURL_SHIM
@@ -129,6 +136,8 @@ export SINAN_REPORT_WORKSPACE=$workspace
 export SINAN_REPORT_HELPER=$runtime/report.py
 export SINAN_REPORT_UPSTREAM=$runtime/NodeQuality.sh
 export SINAN_UPLOAD_REPORT=$upload_report
+export SINAN_CHAIN_HELPER=$runtime/source-helper.py
+export SINAN_CHAIN_DIRECTORY=$runtime/sources
 export PATH="$runtime/bin:$PATH"
 ip_arguments=()
 case "$ip_version" in ipv4) ip_arguments=(-4) ;; ipv6) ip_arguments=(-6) ;; esac

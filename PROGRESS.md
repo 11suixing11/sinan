@@ -985,3 +985,13 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 清理后无本次 PID/cgroup 子进程、诊断单元、挂载、临时运行时目录或编译进程，根分区可用约 3.716GiB，swap 仍空。最终清理判据拒绝 PID=0 但 cgroup 读取失败的未确认结果。独立脚本的 14 个行为回归、Python 语法、core 分层与差异检查通过；四个 Actions workflow 仍 disabled_manually，没有触发 CI。两次原脚本/结果分别保存，未改写 v1 结果。
 - 该证据只证明有限联合负载：monitor-only 不注册诊断/代理适配器，六夹具不能代替管理员取消协议、Agent 诊断 checkpoint/outbox、真实 Panel/PG/UI、生产 Reality 或完整 NodeQuality。全文保留冻结输入、运行时正式验签边界、双 boot 区别、实际统计与缺口，见 [独立验收文档](docs/acceptance/p0-joint-load.md)。P0 总验仍未签收。
 - 合并前补修流量 worker 启动异常漏记和停止期间最后一次失败漏判：异常保存明确失败行，停止前必须存活，等待线程后重新核对最终流量及重放记录。本聊天本地行为回归 16 通过；原作者 14 项与私有脚本/结果/receipt 保留原归属，未在 guest 重演，不以新判据追认旧联合验收。正式签名/发布/部署及 CI 均未执行。
+
+## 2026-10-01：NodeQuality 首层五脚本固定来源（关联 #28 独立项）
+
+- r6 构建器从四仓完整提交获取入口、五首层脚本和四份完整 LICENSE，逐文件验证 SHA256/大小后原字节嵌入一个签名 runner；来源/版权信息和许可证不被删改。宿主 curl shim 在原入口真实通路按五个精确 URL 供给本地来源，未知请求拒绝且不能回退在线 main。helper 可独立输出固定清单、打包/校验/供给，不执行源码；有界普通文件读取拒绝 FIFO/符号链接。
+- 原硬件/IP/网络/回程参数、章节和历史 r2–r5 收集保留，r4–r6 日常入口保持；面板和 Agent 所有 full 门禁不变，不添加 `-p` 或减少原硬件能力。rootfs、二级工具/数据/二进制许可与所有上传路径仍未完整收敛，#28/#65 保持开放，不据此签收完整 NodeQuality。
+- macOS 新来源专项 12、旧 wrapper 34、日常 helper 7 通过；发布契约 32 项运行（28 通过/4 既有条件跳过）。真实私有 shim/runner PATH、单字节篡改/缺源、意外 URL、FIFO、两架构不可变/重建、完整 TEST_ONLY 签名覆盖及篡改拒绝有行为证明；恢复旧 shim 的三个用例出现 16 个预期失败断言/0 异常，证明接线路径不是未使用代码。没有执行上游脚本、rootfs、benchmark 或公网探测。
+- 冻结源码的 adapter 诊断 15、panel chain_gate HTTP/PostgreSQL 3、日常接口追加 1 项通过，0 失败/忽略；workspace fmt、adapter 全 targets Clippy（warnings 为错误）、core 分层和差异检查通过，自有 PG55439 已停止。完整 workspace/全部 panel/其它平台未重跑；独立步骤与来源摘要见 [验收文档](docs/acceptance/nodequality-pinned-first-level-sources.md)。
+- 专用 Debian 12 ARM64 guest 原单次运行 wrapper34全部通过、来源12运行（11通过/1缺minisign条件跳过）；18输入摘要前后不变，实际测试3.929184秒。清理核验以真实journal monotonic起点取证，OOM/夹具进程/挂载为空、unit inactive/not-found/cgroup不存在、SSH406重启0、同boot、swap0。只证明纯夹具的Linux/root包装/回收；本次限额只有systemd-run配置参数，运行期readback未持久化，不夸大为实机预算或完整验机/代理联合总验。
+- 保留已验61a源码快照aca2f62后，重定位到be6bf81形成受验71a778b；本项5Rust/18guest输入SHA逐个不变，SDK诊断接口、签名/runner/helper/build输入无上游差异，仅常驻Adapter默认方法及已有依赖边变化。同一19Rust专项与Clippy/fmt/core再过（收据51a6a036…）。最终固定92800dd形成受验d3ca6756，保留他项PROGRESS，五Rust/18guest/Cargo/trust输入仍相同；为覆盖panel/probes新编译输入再过同一19及Clippy/fmt/core（收据7021f9db…），PG已停、PID不存在/端口关闭。重复基线验证不增场景，不重复同字节guest或认证其它新能力；最终只补文档，受测源码不变。
+- 保持四个 workflow 暂停；未触发 CI、正式签名、发布或部署。后续仍按原整改顺序完成整条 NodeQuality 执行链修复与专用节点验收，不把五首层 pin 等同 rootfs/二级链完成。
