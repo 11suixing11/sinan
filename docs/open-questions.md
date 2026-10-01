@@ -148,9 +148,10 @@ macOS 27 的动态库加载器暴露了 Rust/LLVM 删除调试信息后的 LINKE
 
 ## 磁盘容量：容器挂载与文件系统去重
 
-- 磁盘总量沿用已挂载文件系统的容量口径，不改为裸块设备标称容量；已用空间仍为 `total_space - available_space`，包含普通进程不可用的保留空间，与 `df` 的 Used 列可能不同。静态总量、动态已用和逐盘列表共用一次筛选后的快照，读取失败、容量无效或溢出继续表示未知。
+- 磁盘总量沿用已挂载文件系统的容量口径，不改为裸块设备标称容量；已用空间仍为 `total_space - available_space`，包含普通进程不可用的保留空间，与 `df` 的 Used 列可能不同。Unix 的静态总量、动态已用和逐盘列表共用一次筛选后的快照，读取失败、容量无效或溢出继续表示未知。
 - [sysinfo 0.33.1 的 Linux 枚举](https://github.com/GuillaumeGomez/sysinfo/blob/v0.33.1/src/unix/linux/disk.rs)会返回 overlay 与单文件绑定挂载；原来仅按名称累加时，真实分区与名为 overlay 的视图各计一次。按[内核 overlayfs 语义](https://docs.kernel.org/filesystems/overlayfs.html)，Linux 排除非根 overlay/overlayfs/fuse.overlayfs 与单文件挂载；容器中的 `/` overlay 保留。
-- Unix 使用挂载点的设备标识去重绑定挂载与设备别名，优先保留根及较浅挂载；元数据不可读时回退设备名，无名时回退挂载路径。Btrfs [子卷共享文件系统存储](https://btrfs.readthedocs.io/en/latest/Subvolumes.html)，继续按可解析的源设备名称去重，不因子卷设备标识不同重复累加。Windows 按挂载路径区分卷，避免同名或无名卷互相覆盖；I/O 基线同时使用名称与挂载点。
+- Unix 使用挂载点的设备标识去重绑定挂载与设备别名，优先保留根及较浅挂载；元数据不可读时回退设备名，无名时回退挂载路径。Btrfs [子卷共享文件系统存储](https://btrfs.readthedocs.io/en/latest/Subvolumes.html)，继续按可解析的源设备名称去重，不因子卷设备标识不同重复累加；I/O 基线同时使用名称与挂载点。
+- Windows 保留原 sysinfo 逐盘列表与按名称首条去重的总量规则。[固定 sysinfo 的 Windows 枚举](https://github.com/GuillaumeGomez/sysinfo/blob/v0.33.1/src/windows/disk.rs)会为同一卷的每个挂载路径生成一条记录，因此不能仅凭路径将它们计为独立容量。不同卷标签相同或为空仍有既有歧义，须在取得真实卷 ID 后另行实现和原生验收；本项不声称修复该歧义、不新增 unsafe、依赖或外部命令。容量无效、溢出和首条记录的未知语义保留。
 - 不根据相等容量猜测两个文件系统是否同盘；容器内无法访问 overlay 后端时，也不推断它与额外目录卷的物理归属。此项修复不提供跨命名空间或所有存储池的物理容量映射。
 
 
