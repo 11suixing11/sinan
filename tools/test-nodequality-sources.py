@@ -22,7 +22,7 @@ from unittest import mock
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / 'plugins/nodequality'
-VERSION = 'a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14'
+VERSION = 'a92fca6c0067df29ddd03fdc2fee6f3000f64545-r15'
 
 
 def module(name, path):
