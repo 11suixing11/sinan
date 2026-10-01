@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Exercise the real PowerShell bootstrap functions without native service changes."""
+import base64
 import http.server
 import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -20,7 +22,7 @@ import release
 
 
 def quote(value):
-    return "'" + str(value).replace("'", "''") + "'"
+    return "'" + ''.join(character * 2 if character in "'\u2018\u2019\u201a\u201b" else character for character in str(value)) + "'"
 
 
 class PowerShellGenerationTests(unittest.TestCase):
@@ -88,6 +90,33 @@ class PowerShellBootstrapTests(unittest.TestCase):
         result = self.run_ps(f'$script:Roots=@({quote(key)}); Test-ReleaseSignature {quote(self.bundle)} {quote(shutil.which("minisign"))}')
         self.assertNotEqual(result.returncode, 0)
 
+    def test_non_executable_verifier_cannot_reuse_a_previous_success_exit(self):
+        blocked = self.directory / 'blocked-minisign.exe'
+        blocked.write_bytes(b'TEST ONLY non-executable verifier, never run')
+        blocked.chmod(0o600)
+        fake = 'untrusted comment: TEST ONLY\n' + base64.b64encode(b'ED' + b'\0' * 72).decode() + '\ntrusted comment: TEST ONLY\n' + base64.b64encode(b'\0' * 64).decode() + '\n'
+        (self.bundle / 'SHA256SUMS.minisig').write_text(fake)
+        key = release.load_roots(FIXTURES / 'public-keys.json')[0]
+        self.assert_ok(f'$script:Roots=@({quote(key)}); $global:LASTEXITCODE=0; $ErrorActionPreference="Continue"; $rejected=$false; try {{ Test-ReleaseSignature {quote(self.bundle)} {quote(blocked)} }} catch {{ $rejected=$true }}; Assert-Sinan $rejected "non-executable verifier accepted fake signature"; Assert-Sinan ($null -eq $global:LASTEXITCODE) "verifier reused stale native success"')
+
+    def test_real_verifier_rejects_bad_signature_and_can_continue_to_the_correct_root(self):
+        key = release.load_roots(FIXTURES / 'public-keys.json')[0]
+        wrong = release.load_roots(ROOT / 'deploy/release-public-keys.json', publication=True)[0]
+        original = (self.bundle / 'SHA256SUMS').read_bytes()
+        (self.bundle / 'SHA256SUMS').write_bytes(original + b'TEST ONLY tampering\n')
+        result = self.run_ps(f'$script:Roots=@({quote(key)}); $global:LASTEXITCODE=0; Test-ReleaseSignature {quote(self.bundle)} {quote(shutil.which("minisign"))}')
+        self.assertNotEqual(result.returncode, 0)
+        (self.bundle / 'SHA256SUMS').write_bytes(original)
+        self.assert_ok(f'$script:Roots=@({quote(wrong)},{quote(key)}); $global:LASTEXITCODE=7; Test-ReleaseSignature {quote(self.bundle)} {quote(shutil.which("minisign"))}; Assert-Sinan ($global:LASTEXITCODE -eq 0) "correct root was not attempted after wrong signature"')
+
+    def test_agent_native_calls_require_current_success_and_reject_failed_launch(self):
+        blocked = self.directory / 'blocked-agent.exe'
+        blocked.write_bytes(b'TEST ONLY non-executable Agent, never run')
+        blocked.chmod(0o600)
+        self.assert_ok(f'$global:LASTEXITCODE=0; $ErrorActionPreference="Continue"; $rejected=$false; try {{ Invoke-CheckedAgent {quote(blocked)} @("fixture") }} catch {{ $rejected=$true }}; Assert-Sinan $rejected "non-executable Agent accepted stale success"; Assert-Sinan ($null -eq $global:LASTEXITCODE) "Agent reused stale native exit"')
+        for status in (0, 7):
+            code = f'$global:LASTEXITCODE=0; $ErrorActionPreference="Continue"; $rejected=$false; try {{ Invoke-CheckedAgent {quote(PWSH)} @("-NoProfile","-NonInteractive","-Command","[Environment]::Exit({status})") }} catch {{ $rejected=$true }}; Assert-Sinan ($rejected -eq ${"true" if status else "false"}) "wrong current Agent status"; Assert-Sinan ($global:LASTEXITCODE -eq {status}) "wrong current native exit"'
+            self.assert_ok(code)
     def test_canonical_manifest_rejects_metadata_installer_and_duplicate_path_tampering(self):
         manifest = self.bundle / 'SHA256SUMS'
         original = manifest.read_bytes()
@@ -170,6 +199,40 @@ class PowerShellBootstrapTests(unittest.TestCase):
     def test_windows_architecture_uses_native_os_under_wow64(self):
         self.assert_ok('$env:PROCESSOR_ARCHITECTURE="AMD64"; $env:PROCESSOR_ARCHITEW6432="ARM64"; Assert-Sinan ((Get-HostTarget) -eq "windows-arm64") "wrong native architecture"; $env:PROCESSOR_ARCHITEW6432=""; Assert-Sinan ((Get-HostTarget) -eq "windows-amd64") "wrong native architecture"')
         self.assertNotEqual(self.run_ps('$env:PROCESSOR_ARCHITEW6432=""; $env:PROCESSOR_ARCHITECTURE="X86"; Get-HostTarget').returncode, 0)
+
+    @unittest.skipUnless(shutil.which('rustc'), 'requires rustc to exercise the actual launcher quote function')
+    def test_rust_launcher_quote_recovers_all_arguments_without_smart_quote_injection(self):
+        source = (ROOT / 'crates/panel/src/installation/windows.rs').read_text()
+        function = re.search(r'(?ms)^fn quote\(value: &str\) -> String \{.*?^\}', source).group()
+        harness = self.directory / 'quote.rs'
+        harness.write_text(function + '\nfn main() { for value in std::env::args().skip(1) { for byte in quote(&value).as_bytes() { print!("{byte:02x}"); } println!(); } }\n')
+        executable = self.directory / ('quote.exe' if os.name == 'nt' else 'quote')
+        subprocess.run(['rustc', '--edition=2024', '-C', 'debuginfo=0', str(harness), '-o', str(executable)], check=True, capture_output=True, timeout=30)
+
+        def rust_quote(values):
+            result = subprocess.run([str(executable), *values], check=True, capture_output=True, text=True, timeout=5)
+            return [bytes.fromhex(line).decode() for line in result.stdout.splitlines()]
+
+        delimiters = "'\u2018\u2019\u201a\u201b"
+        exploit = 'https://mirror.example.com/\u2019;[Environment]::Exit(61);\u2018tail'
+        # The original ASCII-only quoting executes the marker before payload dispatch.
+        old_payload = "Capture -Mirror '" + exploit.replace("'", "''") + "'"
+        old_outer = "'" + old_payload.replace("'", "''") + "'"
+        self.assertEqual(self.run_ps('$payload=' + old_outer + '; & ([ScriptBlock]::Create($payload))').returncode, 61)
+        mirrors = [f'https://mirror.example.com/{character};[Environment]::Exit(61);{character}tail' for character in delimiters]
+        mirrors.append('https://mirror.example.com/' + delimiters + '路径/😀')
+        for mirror in mirrors:
+            values = ['0.3.1', 'https://panel.example.com', 'fixture' + delimiters + '\n$([Environment]::Exit(61));', 'windows-arm64', mirror]
+            literals = rust_quote(values)
+            payload = 'Capture ' + ' '.join(f'-{name} {literal}' for name, literal in zip(('Version', 'Panel', 'Token', 'Target', 'Mirror'), literals))
+            outer = rust_quote([payload])[0]
+            code = 'function Capture { param([string]$Version,[string]$Panel,[string]$Token,[string]$Target,[string]$Mirror); foreach($value in @($Version,$Panel,$Token,$Target,$Mirror)) { [Console]::WriteLine([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($value))) } }\n'
+            code += '$payload=' + outer + '; & ([ScriptBlock]::Create($payload))'
+            output = self.assert_ok(code)
+            recovered = [base64.b64decode(line).decode('utf-16le') for line in output.splitlines()]
+            self.assertEqual(recovered, values)
+            # These are valid anonymous HTTPS mirror paths; no installation is run.
+            self.assert_ok('Assert-Mirror ' + literals[-1] + ' https://panel.example.com')
 
     def test_download_bounds_and_panel_redirects_and_numeric_version_selection(self):
         class Handler(http.server.BaseHTTPRequestHandler):

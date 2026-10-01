@@ -39,17 +39,24 @@ done
 case "$(uname -m)" in x86_64|amd64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; *) exit 1 ;; esac
 [ -n "$TARGET" ] || TARGET=$ARCH
 case "$TARGET" in "$ARCH"|"linux-musl-$ARCH"|"linux-gnu-$ARCH") ;; *) echo '所选 Agent 平台与本机架构不兼容' >&2; exit 1 ;; esac
+python3 -I - "$VERSION" <<'PY'
+@@LEGACY_CHECKPOINT_PREFLIGHT@@
+PY
 DOWNLOAD=$(mktemp -d)
 STAGE=
 PREVIOUS=$(readlink /opt/sinan/core/current 2>/dev/null || true)
 ACTIVATING=0
 COMPLETED=0
+CONFIGURATION_CHANGED=0
 if [ -f /etc/sinan/agent.toml ]; then cp -p /etc/sinan/agent.toml "$DOWNLOAD/agent.toml.previous"; fi
 if [ "$INIT" = systemd ] && [ -f /etc/systemd/system/sinan-agent.service ]; then cp -p /etc/systemd/system/sinan-agent.service "$DOWNLOAD/agent.service.previous"; fi
 if [ "$INIT" = openrc ] && [ -f /etc/init.d/sinan-agent ]; then cp -p /etc/init.d/sinan-agent "$DOWNLOAD/agent.openrc.previous"; fi
 cleanup() {
   result=$?
   trap - EXIT HUP INT TERM
+  if [ "$CONFIGURATION_CHANGED" = 1 ] && [ "$ACTIVATING" != 1 ] && [ "$COMPLETED" != 1 ] && [ -f "$DOWNLOAD/agent.toml.previous" ]; then
+    cp -p "$DOWNLOAD/agent.toml.previous" /etc/sinan/agent.toml
+  fi
   if [ "$ACTIVATING" = 1 ] && [ "$COMPLETED" != 1 ]; then
     printf '%s\n' '新 Agent 未通过启动检查，正在恢复上一版本。' >&2
     if [ "$INIT" = systemd ]; then systemctl stop sinan-agent.service || true
@@ -265,8 +272,12 @@ install -d -m 0755 -o root -g root /opt/sinan/plugins /opt/sinan/plugins/sing-bo
 install -d -m 0700 /etc/sinan /etc/sinan/identity /var/lib/sinan/core
 install -d -m 2750 -o root -g sinan-singbox /var/lib/sinan/plugins /var/lib/sinan/plugins/sing-box@main /var/lib/sinan/plugins/sing-box@main/revisions
 install -d -m 0750 -o sinan-singbox -g sinan-singbox /var/lib/sinan/plugins/sing-box@main/data
+CONFIGURATION_CHANGED=1
 "/opt/sinan/core/$VERSION/sinan-agent" enroll --panel "$PANEL" --token="$TOKEN"
 unset TOKEN
+python3 -I - "$VERSION" <<'PY'
+@@LEGACY_CHECKPOINT_PREFLIGHT@@
+PY
 ACTIVATING=1
 ln -s "$VERSION" "/opt/sinan/core/current.$$"
 mv -Tf "/opt/sinan/core/current.$$" /opt/sinan/core/current

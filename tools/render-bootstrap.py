@@ -9,7 +9,7 @@ import sys
 from release import ensure, installer_source, load_roots
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCES = ("tools/bootstrap.py", "tools/release.py", "tools/tcp_probe_artifact.py",
+SOURCES = ("tools/bootstrap.py", "tools/legacy_agent_checkpoint.py", "tools/release.py", "tools/tcp_probe_artifact.py",
            "tools/tcp_probe_notices.py", "tools/artifact_manifest.py",
            "deploy/release-public-keys.json")
 
