@@ -98,6 +98,21 @@ def verified(content, row):
     return content
 
 
+def receive(path, stream):
+    # Enforce the disk bound independently of curl version/Content-Length.
+    content = stream.read(MAX_FILE + 1)
+    if not content or len(content) > MAX_FILE:
+        raise ValueError('download is empty or exceeds its byte limit')
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(descriptor, 'wb') as output:
+            os.fchmod(output.fileno(), 0o600)
+            output.write(content)
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+
+
 def pack(lock, directory):
     rows = validate(lock)
     files = {name: base64.b64encode(verified(ordinary(directory / name, MAX_FILE), row)).decode()
@@ -139,10 +154,15 @@ def serve(directory, arguments):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=['downloads', 'pack', 'materialize', 'serve'])
+    parser.add_argument('operation', choices=['downloads', 'receive', 'pack', 'materialize', 'serve'])
     parser.add_argument('input', type=Path)
     parser.add_argument('remaining', nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.operation == 'receive':
+        if args.remaining:
+            raise ValueError('receive accepts only a new private target')
+        receive(args.input, sys.stdin.buffer)
+        return
     if args.operation == 'serve':
         sys.stdout.buffer.write(serve(args.input, args.remaining))
         return

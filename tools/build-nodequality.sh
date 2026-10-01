@@ -86,9 +86,10 @@ python3 "$plugin_dir/source-helper.py" downloads "$plugin_dir/source-lock.json" 
         [[ $source_url == "https://raw.githubusercontent.com/LloydAsp/NodeQuality/$upstream_revision/NodeQuality.sh" ]] \
           || die 'entrypoint source commit differs from the artifact version'
       fi
-      curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+      curl --disable --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
         --connect-timeout 15 --max-time 60 --max-filesize 2097152 \
-        "$source_url" -o "$scratch/$filename"
+        "$source_url" \
+        | python3 "$plugin_dir/source-helper.py" receive "$scratch/$filename"
     done
 python3 "$plugin_dir/source-helper.py" pack "$plugin_dir/source-lock.json" "$scratch" > "$scratch/pinned-chain.json"
 python3 - "$scratch" "$plugin_dir" <<'PY'

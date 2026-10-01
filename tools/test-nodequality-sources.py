@@ -8,12 +8,15 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
 import unittest
+import http.server
+import threading
 from unittest import mock
 
 sys.dont_write_bytecode = True
@@ -180,6 +183,98 @@ class SourceTests(unittest.TestCase):
             helper.decode(b'{"schema":1,"schema":1,"files":[]}')
         self.assertFalse(self.executed.exists())
 
+    def test_receive_accepts_small_payload_and_never_overwrites_or_writes_oversize(self):
+        target = self.root / 'received'
+        command = [sys.executable, str(PLUGIN / 'source-helper.py'), 'receive', str(target)]
+        content = (self.sources / 'ip.sh').read_bytes()
+        result = subprocess.run(['bash', '-c', 'umask 777; exec "$@"', 'bounded-receive'] + command,
+                                input=content, capture_output=True, timeout=3)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(target.read_bytes(), content)
+        self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+        self.assertNotEqual(subprocess.run(command, input=b'cannot replace', capture_output=True, timeout=3).returncode, 0)
+        self.assertEqual(target.read_bytes(), content)
+        for content in (b'', b'x' * (helper.MAX_FILE + 1)):
+            destination = self.root / 'not-created'
+            result = subprocess.run(command[:-1] + [str(destination)], input=content, capture_output=True, timeout=3)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(destination.exists())
+
+    def test_actual_chunked_and_declared_http_oversize_are_bounded_before_writing(self):
+        # Invoke the installed curl against a private loopback server. Do not
+        # rely on curl's --max-filesize: Bookworm 7.88 cannot bound this response.
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = 'HTTP/1.1'
+
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                self.close_connection = True
+                self.send_response(200)
+                self.send_header('Connection', 'close')
+                chunked = self.path == '/chunked'
+                if chunked:
+                    self.send_header('Transfer-Encoding', 'chunked')
+                else:
+                    self.send_header('Content-Length', str(helper.MAX_FILE + 1))
+                self.end_headers()
+                chunk = b'x' * 65536
+                try:
+                    for _ in range(helper.MAX_FILE // len(chunk)):
+                        self.wfile.write((f'{len(chunk):x}\r\n'.encode() + chunk + b'\r\n') if chunked else chunk)
+                    self.wfile.write(b'1\r\nx\r\n0\r\n\r\n' if chunked else b'x')
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        common = [shutil.which('curl'), '--disable', '--silent', '--show-error', '--noproxy', '*',
+                  '--connect-timeout', '1', '--max-time', '3']
+        try:
+            version = subprocess.run([common[0], '--disable', '--version'], capture_output=True, check=True, timeout=3)
+            match = re.match(rb'curl (\d+)\.(\d+)\.', version.stdout)
+            self.assertIsNotNone(match)
+            curl_version = tuple(int(value) for value in match.groups())
+            for shape in ('chunked', 'declared'):
+                url = f'http://127.0.0.1:{server.server_port}/{shape}'
+                control = self.root / ('curl-control-' + shape)
+                result = subprocess.run(common + ['--max-filesize', str(helper.MAX_FILE), '--output', str(control), url],
+                                        capture_output=True, timeout=4)
+                control_size = control.stat().st_size if control.exists() else 0
+                # Older packages may backport curl's size enforcement. Record
+                # either observed control without requiring the historical bug.
+                if shape == 'chunked' and curl_version < (8, 4) and result.returncode == 0:
+                    self.assertEqual(control_size, helper.MAX_FILE + 1)
+                else:
+                    self.assertEqual(result.returncode, 63, result.stderr)
+                    self.assertLessEqual(control_size, helper.MAX_FILE)
+                sys.stderr.write(f'curl={curl_version}, response={shape}, control_exit={result.returncode}, control_bytes={control_size}\n')
+                destination = self.root / ('receive-' + shape)
+                # Omitting curl's size option exercises the receiver's own bound
+                # even on a newer curl that would otherwise truncate the stream.
+                curl = subprocess.Popen(common + [url], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                try:
+                    result = subprocess.run([sys.executable, str(PLUGIN / 'source-helper.py'), 'receive', str(destination)],
+                                            stdin=curl.stdout, capture_output=True, timeout=4)
+                    curl.stdout.close()
+                    curl.wait(timeout=4)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(b'byte limit', result.stderr)
+                    self.assertFalse(destination.exists())
+                finally:
+                    if curl.poll() is None:
+                        curl.kill()
+                        curl.wait(timeout=2)
+                    curl.stdout.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+            self.assertFalse(thread.is_alive(), 'private HTTP server did not stop')
+
     def test_pack_rejects_modified_or_missing_license_without_partial_materialization(self):
         path = self.sources / 'LICENSE.hardware'
         path.write_bytes(path.read_bytes()[:-1] + b'!')
@@ -220,16 +315,15 @@ class SourceTests(unittest.TestCase):
         binaries.mkdir()
         fake = binaries / 'curl'
         fake.write_text('''#!/usr/bin/env python3
-import json, os, pathlib, shutil, sys
+import json, os, pathlib, sys
 args = sys.argv[1:]
-index = args.index('-o')
-url = args[index - 1]
+url = args[-1]
 lock = json.loads(pathlib.Path(os.environ['NQ_SOURCE_LOCK']).read_bytes())
 matching = [row for row in lock['files'] if url == 'https://raw.githubusercontent.com/' + row['repository'] + '/' + row['commit'] + '/' + row['path']]
 assert len(matching) == 1, 'unexpected online source URL'
 with pathlib.Path(os.environ['NQ_DOWNLOAD_LOG']).open('a') as output:
     output.write(url + '\\n')
-shutil.copyfile(pathlib.Path(os.environ['NQ_INPUTS']) / matching[0]['name'], args[index + 1])
+sys.stdout.buffer.write((pathlib.Path(os.environ['NQ_INPUTS']) / matching[0]['name']).read_bytes())
 ''')
         fake.chmod(0o700)
         environment = dict(os.environ, PATH=str(binaries) + ':' + os.environ['PATH'],
@@ -295,6 +389,20 @@ shutil.copyfile(pathlib.Path(os.environ['NQ_INPUTS']) / matching[0]['name'], arg
         output = self.root / 'artifacts/nodequality' / VERSION
         self.assertFalse((output / 'amd64').exists())
         self.assertFalse((output / 'SHA256SUMS').exists())
+        self.assertFalse(self.executed.exists())
+
+    def test_oversize_download_blocks_new_architecture_and_keeps_old_checksum(self):
+        tree, environment = self.build_tree()
+        self.assertEqual(self.build(tree, environment, 'amd64').returncode, 0)
+        output = self.root / 'artifacts/nodequality' / VERSION
+        prior = {name: (output / name).read_bytes() for name in ('amd64', 'SHA256SUMS')}
+        (self.sources / 'ip.sh').write_bytes(b'x' * (helper.MAX_FILE + 1))
+        result = self.build(tree, environment, 'arm64')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b'byte limit', result.stderr)
+        self.assertFalse((output / 'arm64').exists())
+        self.assertEqual(prior, {name: (output / name).read_bytes() for name in prior})
+        self.assertFalse((output / '.build.lock').exists())
         self.assertFalse(self.executed.exists())
 
     @unittest.skipUnless(shutil.which('minisign'), 'requires minisign for disclosed TEST_ONLY signing')
