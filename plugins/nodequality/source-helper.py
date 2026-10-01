@@ -296,6 +296,7 @@ def pack(lock, directory):
     loader_policy()
     ranking_policy()
     ip_score_policy()
+    netflix_policy()
     files = {name: base64.b64encode(verified(ordinary(directory / name, MAX_FILE), row)).decode()
              for name, row in rows.items()}
     result = (json.dumps(dict(schema=1, lock=lock, files=files), sort_keys=True, separators=(',', ':')) + '\n').encode()

@@ -374,9 +374,13 @@ class NetflixTests(unittest.TestCase):
                 if missing:
                     path.unlink()
                 else:
-                    path.write_bytes(path.read_bytes() + b'!')
+                    # Keep valid Python and the required final newline so the
+                    # fixed helper identity, rather than embedding syntax, rejects it.
+                    path.write_bytes(path.read_bytes() + b'\n# altered helper bytes\n')
                 run = fixture.build(tree, env, 'arm64')
                 self.assertNotEqual(run.returncode, 0)
+                if not missing:
+                    self.assertIn(b'signed Netflix policy helper SHA256 mismatch', run.stderr)
                 output = fixture.root/'artifacts/nodequality'/sources.VERSION
                 self.assertFalse((output/'arm64').exists())
                 self.assertFalse((output/'SHA256SUMS').exists())
