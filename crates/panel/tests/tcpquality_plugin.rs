@@ -185,16 +185,23 @@ async fn tcp_parameters_freeze_only_selected_configured_targets(pool: PgPool) ->
     );
     let mut changed = first.clone();
     changed["target"] = json!("changed.test");
+    let probe_path = format!(
+        "/api/servers/{server}/probes/{}",
+        first["id"].as_str().unwrap()
+    );
+    assert_eq!(
+        panel
+            .admin(Method::PATCH, &probe_path, &cookie, Some(changed))
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let mut metadata = first.clone();
+    metadata["name"] = json!("更新后的名称");
+    metadata["carrier"] = json!("更新后的线路备注");
+    metadata["enabled"] = json!(false);
     panel
-        .admin(
-            Method::PATCH,
-            &format!(
-                "/api/servers/{server}/probes/{}",
-                first["id"].as_str().unwrap()
-            ),
-            &cookie,
-            Some(changed),
-        )
+        .admin(Method::PATCH, &probe_path, &cookie, Some(metadata))
         .await?
         .error_for_status()?;
     let view: Value = panel
