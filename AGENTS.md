@@ -34,4 +34,6 @@
 
 当前整改额外授权服务器成本、续费到期、按账单日计算的网卡配额、可配置轻量周期拨测，以及 sing-box 插件的代理用户配额、重置周期和到期；按 [ADR 0023](docs/adr/0023-proxy-business-boundary.md) 分层，覆盖上述相关排除项。整改清单每一项独立 PR、独立验收，专用测试机验证资源场景，不在生产机器上反复运行完整验机。
 
+当前整改按 P0 保护服务器 → P0 IP 查询 → P1 sing-box 业务归位 → P1 共用诊断框架 → P2 TCP 接入的顺序验收。前置阶段未通过时，后续实现保留为准备工作，相关接入 PR 保持草稿，不以其 CI 结果宣称前置阶段完成。逐项记录故障场景、证据对应的源码和未验证范围；NodeQuality 历史报告可读与完整执行能力须分别验收。执行条件和当前缺口见 [整改顺序与验收状态](docs/acceptance/ordered-remediation.md)。续费、配额和周期监控仍属于之后的独立工作。
+
 详细架构约束见 `docs/adr/0001-declarative-snapshots.md` 至 `docs/adr/0011-loopback-local-api.md`。
