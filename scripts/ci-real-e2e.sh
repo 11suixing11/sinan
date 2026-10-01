@@ -70,11 +70,11 @@ traffic_specification = importlib.util.spec_from_file_location("e2e_traffic_evid
 traffic = importlib.util.module_from_spec(traffic_specification)
 traffic_specification.loader.exec_module(traffic)
 summary = {"passed": passed == "1", "last_phase": phase, "exit_code": int(exit_code), "runtime_version": "1.14.2"}
+if not summary["passed"]:
+    summary["failure_line"] = int(failure_line)
 traffic_evidence = traffic.load(Path(state_path).with_name(traffic.EVIDENCE_NAME))
 if traffic_evidence:
     summary["traffic"] = traffic_evidence
-if not summary["passed"]:
-    summary["failure_line"] = int(failure_line)
 readiness = Path(state_path).with_name("ready-timeout.json")
 if readiness.is_file():
     last = json.loads(readiness.read_text())

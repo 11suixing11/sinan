@@ -518,6 +518,76 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 最终整合 main `21e6a01`，保留诊断资源预算、有限流量补报、监控模式、任务页面与退役保护。使用独立 PostgreSQL 再跑上述 20 项专项测试，全部通过且无忽略；panel 全 targets Clippy（warnings 为错误）、workspace fmt 与差异空白检查通过。Bun 1.4.2 冻结锁文件安装及 TypeScript/Vite 构建通过，并重建合并后的 dist；此结果不代表最终提交的完整 workspace 或平台 CI 已通过。
 - 此项不修改缓存结构或覆盖语义；失败后保留历史成功结果由下一独立 PR 完成。新增 rustls 类型直接依赖的理由及替代方案记录于 [ADR 0024](docs/adr/0024-ip-provider-error-classification.md)。
 
+## 2026-10-01：修复签名与多平台 CI 的整合失败
+
+以下平台跟进小节记录当时列出的 fork 提交与 CI，不认证当前 main。当前四个工作流按用户要求暂停；历史记录中的下一轮 CI 待所有进行中的任务完成后统一安排，不提前触发或恢复。
+
+- 在 `main` 快进到上游 `45df3b1` 后修复，保留上游签名、设备退役、服务优先级和诊断基线。上游原 PR 已合并，此后只提交针对新基线的修复差异。
+- Windows 的已签证明改用原始字节保存，避免文本写入自动转换 CRLF；正式清单与安装器渲染也保留 LF。新增模拟 Windows 文本模式的回归，独立 minisign 验证正确签名并拒绝篡改，不放宽校验边界。
+- Windows CI 使用基于 protocol 现有测试支持的 Rust TEST_ONLY 签名 example，避免 cryptography ARM64 wheel 缺失后的 OpenSSL 本机构建；无新增依赖、无正式私钥输入。Linux OpenRC 与 Agent 行为步骤也保留公开失败摘要，便于后续定位。
+- 隔离 Alpine 复现普通运行账户执行代理时的 `Permission denied`，确认签名安装器新建的共享父目录受 umask 影响成为 0750。显式设置父目录可遍历权限后，真实 OpenRC 安装、重装、失败恢复、HUP、非 root 低端口能力、独立运行、default runlevel 和 systemd 安装命令契约均通过。此项运行在用户/挂载/进程/网络命名空间和临时根目录内，未安装宿主服务。
+- 本地 fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过（204 项成功，4 项原有实机专项忽略），实际签名 Agent 的注册、补报、双拨测、命令去重、成功升级及失败恢复全部通过。Python 71 项检查中 66 项通过、5 项需容器 root 的原有专项忽略；构建脚本 5 项、actionlint、Python 语法和 diff 检查通过。
+- 下一步：推送修复后核对完整 CI，特别是 Windows 两架构签名升级/原生服务、musl 两架构 OpenRC 及被前置失败阻断的真实 Reality 验收；本地通过不代替远端结果。
+
+### 首轮 CI 跟进：容器内测试信任根归属
+
+- `98287f4` 的主检查、Compose、GNU Agent、四种 Linux 运行时及 macOS 已通过。Windows 双架构通过公开 Rust 签名夹具构建与实际 Agent 签名升级/恢复，原生服务仍在运行；测试依赖和 CRLF 修复已覆盖之前的阻塞步骤。
+- 新增公开摘要确认 OpenRC 在 bootstrap 前拒绝源码中的测试公钥：Docker 的只读源码挂载仍属于宿主 runner，不能当作 root 受保护的操作员信任文件。夹具将明确公开的 TEST_ONLY 公钥复制到容器内 `/root` 下的私有临时目录，再按原有 bootstrap 流程验证；不修改生产权限检查。
+- 隔离 Alpine 中补跑全部 Python 检查，71 项全部通过、无忽略，包含安装器篡改拒绝、下载边界、重定向拒绝与受保护信任根专项。此前命名空间复现将源码所有者映射为 root，不能替代本轮发现的 Docker 所有权条件，后续另行模拟该条件。
+- 随后将临时源码副本设为命名空间内 UID/GID 1001，并只读挂载到 `/src`；新的 root 私有测试根通过严格 bootstrap，完整 OpenRC 服务流程再次通过。Windows AMD64 及 FreeBSD 双架构远端检查已成功，Windows ARM64 常驻服务仍待完成。
+
+### 第二轮跟进：OpenRC 通过与 Windows ARM64 运行时诊断
+
+- `df417a6` 的双架构 OpenRC 与后续 Agent 行为检查已通过，真实 Reality 验收已开始；主检查及 Compose 也通过。此前的签名根所有权阻塞已解除。
+- 第一轮 Windows ARM64 在原生运行时对账等待超时；任务已成功启动，现有事件显示它后来被停止，但不能据此确定应用失败原因。详细任务事件挤掉了公开摘要中的 ApplyResult，现将应用结果和最终 Agent 状态放到摘要末尾，事件改用紧凑格式，并只在一次性 CI 夹具为运行时加入 transcript。保留原有账户、启动参数、健康断言及等待期限，继续依据实际错误定位。
+
+### 同步上游后续修复与验收诊断
+
+- 合入上游 `541f52d` 的诊断资源预算、有界流量补报和 CI 修复；统一采用上游的 `ci-fixture-sign`、受保护 OpenRC 公钥目录及共享安装目录权限，删除重复签名 example。保留尚未合入上游的 Windows 签名字节回归、发布文件 LF 写入和原生服务诊断。
+- 第二轮 14 项通过，Windows ARM64 仍在首次运行时对账超时，Reality 任务失败但公开接口只有退出码。Reality 验收增加失败行号及公开错误注解，内容仅取现有白名单摘要；用含私有占位字段的状态验证其不会泄漏到注解，未公开安装凭证或完整日志。
+- 合并后本地 fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过（216 项成功、5 项原有实机专项忽略）；隔离 Alpine 的 71 项 Python 测试全部通过，真实 OpenRC 安装与普通账户遍历权限检查通过。上游 Rust 签名器通过 Windows 换行模拟和独立 minisign 正向/篡改拒绝验证。验收驱动 17 项、运行时缓存 3 项、工作流与脚本语法检查通过。
+- 下一步：继续定位 Windows ARM64 和 Reality 的失败，完整远端验收通过前不将此项标为完成。
+
+### Windows ARM64 冷启动时限
+
+- `1ea10e7` 的运行时 transcript 与任务事件确认：计划任务启动后约 28 秒 PowerShell 才开始执行脚本，30 秒健康期限届满即被 Agent 回滚，留给真实代理的启动时间约 2 秒；ApplyResult 连续报告 `runtime failed health check`。
+- Windows 运行时健康期限调整为有界 90 秒，服务状态查询允许底层 PowerShell 命令已有的 30 秒期限，避免在较短的外层超时反复取消查询。仍须通过计划任务状态、全部监听和统计 RPC 检查；Linux、macOS、FreeBSD 的时限不变。等待新的 Windows 原生冷启动、重载与独立服务验证。
+- 本地 fmt、Clippy 和完整 Rust/PostgreSQL 回归通过（216 项成功、5 项原有实机专项忽略）；Windows 冷启动行为以原生 CI 为准。
+
+### Windows 已通过，修复静态 Agent 的运行时 libc 选择
+
+- [cf93e4a 的 CI](https://github.com/imengying/sinan/actions/runs/36760693539) 中 Windows 双架构完整常驻服务通过，共 14/16 项成功。剩余失败为真实 Reality 安装后等待健康应用及上游新增的 systemd 资源预算专项。
+- Reality 公开摘要定位到 `install` 阶段的 `ready` 等待。代码确认静态 Agent 将编译时 musl 同时用于外部运行时下发；验收提供已签旧格式 GNU 运行时，面板会拒绝选择。保留 Agent 自更新使用的 `libc`，新增可选 `runtime_libc`，从系统程序有界 ELF 解释器信息识别宿主，面板下发及 core 签名/缓存预检一致采用宿主 ABI。无法识别与旧字段缺失的行为明确回退，不放宽签名、摘要或平台校验。
+- 新增协议兼容、GNU/musl ELF 与截断输入、签名运行时平台拒绝、GNU 宿主上的静态 Agent 下发及篡改拒绝回归；已有 Agent 更新测试同时证明 GNU 宿主仍选择 musl Agent 更新。Ubuntu 四种 Agent 行为任务增加实际宿主 libc 上报断言。主检查为两个真实 systemd 专项补充公开失败摘要与具体预算状态，保留所有限制断言。
+- fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过（221 项成功、5 项原有实机专项忽略），两个工作流语法与 core 分层检查通过。真实 Reality 和 systemd 资源预算仍须以下一轮 CI 为准。
+
+### 修复 systemd 排队任务被误判失败
+
+- `9cd112a` 的四种 Linux Agent、OpenRC、四种运行时和 Compose 已通过，包含 Ubuntu 上的实际宿主 libc 断言；本地实际签名 Agent 的注册、补报、命令、双拨测、升级和回退也通过。Reality 与原生服务继续执行。
+- 主检查公开摘要确认新预算专项在子进程测试首次状态查询得到 `result=success, code=0, status=0` 后提前失败；这是异步启动尚未执行的状态。读取 systemd `Job` 属性，非零待执行 Job 视为运行中，包括排队重启时仍残留上一次终态的情况；没有待执行 Job 的未启动单元仍不能被当作成功。
+- 新增排队启动/重启、空值/零值及非法 Job 标识回归，保留 OOM、TasksMax、PID 清理断言。fmt、Clippy、完整 Rust/PostgreSQL 检查通过（222 项成功、5 项原有实机专项忽略）；真实 systemd 验证交由新一轮 CI。
+
+### Reality 全流程与 systemd 预算通过，收敛 Windows 夹具竞态
+
+- [9cd112a 的 Reality 验收](https://github.com/imengying/sinan/actions/runs/36764089656) 已通过，覆盖签名安装、特权端口实际代理流量、重启与重载计量、重复安装、缓存篡改拒绝及在线退役。Windows ARM64、macOS 和 FreeBSD 双架构也通过；Windows AMD64 的常驻服务成功，但无服务升级夹具在读取被替换的 `pending-update.json` 时遇到短暂 `PermissionError`。
+- [e8d4e23 的主检查](https://github.com/imengying/sinan/actions/runs/36765073067) 已通过，包含真实 systemd 两项专项。Job 队列识别后，OOM、TasksMax、超时和停止后 PID 清理断言全部通过；其余平台仍在执行。
+- Windows 夹具读取更新状态时，对短暂共享冲突进行最多两秒的重读；持续拒绝仍抛出原异常，非 Windows 权限错误及无效 JSON 不重试。新增三项回归验证这些边界；隔离 Alpine 的全部 74 项 Python 检查通过，实际签名 Agent 的完整行为和升级回退流程再次通过。此项仅修改测试，不改变产品权限或文件写入行为。
+
+### 再次同步上游诊断保护与平台校验
+
+- 合入上游 `13f2975`，保留诊断资源预检、独占锁、运行中内存保护、候选升级缓存预检、原生服务独立签名复验、退役保护和 IP 查询错误分类。运行时 ABI、签名字节和 systemd 排队状态统一采用上游实现，删除重复的宿主解析模块与重复回归。
+- 当时用户确认保留每次 push/PR 的全平台自动构建；当前已按后续要求暂停，保留的工作流定义包括：Linux GNU/musl 双架构、macOS arm64、Windows 与 FreeBSD 双架构。OpenRC 继续在 musl 任务内验证；保留上游新增的 core 业务边界门禁和真实 systemd 串行执行。
+- 完整回归发现上游新增独占锁后，两项外部服务测试仍使用旧的权限夹具。更新夹具记录目录模式及所有者，验证 root/0700 锁目录与 `stat` 查询先于后端启动；不放宽产品权限检查。Reality 摘要回归同步新增参数，验证失败行号、公开注解和白名单摘要一致且不包含私有快照字段。
+- 合并后的 fmt、全 targets Clippy、完整 Rust/PostgreSQL 测试及 Agent 构建通过：260 项成功、0 失败，8 项需 root/systemd 或真实外部运行时的专项保持忽略。隔离 Alpine 的 81 项 Python 检查全部通过，真实 OpenRC 安装与恢复夹具通过；验收驱动 21 项、运行时缓存 3 项、构建脚本 5 项及环境初始化 3 项通过。Bun 前端构建与提交的 dist 一致，三份工作流 actionlint 和 core 门禁通过。
+- 本次完整合并源的非 Linux 原生服务、真实 systemd 五项专项与 Reality 全流程仍以随后远端 CI 为准；此前成功的独立运行记录不替代新提交的验收。
+
+### macOS 启动前复验与软链接读取权限
+
+- [5a8517e 的完整 CI](https://github.com/imengying/sinan/actions/runs/36767902951) 15/16 项通过：Windows 双架构、FreeBSD 双架构、四种 Linux Agent 与运行时、OpenRC、Compose、完整 Rust/PostgreSQL、真实 systemd 五项专项和 Reality 全流程均成功。唯一失败为 macOS 原生运行时启动，日志在启动前离线签名复验时报告 `Permission denied`。
+- macOS 的软链接创建继承 umask，读取链接目标需要链接自身的读取权限。launchd 使用 `umask 027`，root 创建的运行时 `current` 无法由普通运行账户读取。`SystemOps::atomic_symlink` 在 macOS 发布前对临时链接执行 `chmod -h 755`，失败则清理临时链接；目标文件权限、目录隔离、进程 umask 和签名验证保持原有约束。
+- 扩展现有原子写入回归，检查软链接可读、目标文件仍为 0640、替换为悬空链接和拒绝覆盖普通文件。自动与手动 macOS 工作流均用 `umask 077` 运行该回归，然后运行完整原生服务、缓存篡改拒绝和恢复验收。
+- 本地 fmt、全 targets Clippy、core 门禁、三份 workflow actionlint、构建脚本 5 项及 Agent/协议/编译器/适配器 Rust 回归通过（193 项成功，7 项实机专项忽略）。本轮本机重启后临时 PostgreSQL 环境已清除，面板没有代码变更；完整工作区、真实 systemd、macOS 权限语义与所有平台再次由新提交 CI 验证，尚不记为全部通过。
+
 ## 2026-10-01：专用 Debian 12 测试节点就绪（独立 PR）
 
 - 按明确授权停用选定节点原 xboard-node 业务并禁用自启动，保留配置和身份；447 MiB 内存、约 12 GiB 可用磁盘、已有 2 GiB swap。其余生产代理节点未运行完整硬件测试。
@@ -785,74 +855,10 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 
 冻结 `58868c4` 的 TCP API/目标单元5、core共用诊断生命周期40、TCP适配器与UID15、NodeQuality适配器15，共75项本地通过/0失败/忽略，workspace全targets Clippy及fmt/core通过。核对Linux/monitor-only登记边界、固定b562版本、六文件签名前及启动前校验、60秒/64MiB预算和旧NQ完整门禁；55432专用PG已停止。作者实际370+6 CI与Reality成功分别记录，不将不可执行API签名夹具或通用systemd验收称作新TCP实机完整执行链。正常保留作者提交并合入#76正式主线b152e2a，相关Rust/SQL/锁文件与已验58868c4原字节保持一致；最终主线CI单独跟进。
 
-## 历史平台 CI 跟进记录（PR #84 保留）
 
-以下记录对应各自列出的历史提交和 fork CI，不代表当前 main 已验证。当前四个工作流按用户要求暂停；记录中的下一轮 CI 待所有进行中任务完成后统一安排，不触发或恢复 CI。
+## 2026-10-01：同步上游与修复 PR #84 合并遗漏
 
-## 2026-10-01：修复签名与多平台 CI 的整合失败
-
-- 在 `main` 快进到上游 `45df3b1` 后修复，保留上游签名、设备退役、服务优先级和诊断基线。上游原 PR 已合并，此后只提交针对新基线的修复差异。
-- Windows 的已签证明改用原始字节保存，避免文本写入自动转换 CRLF；正式清单与安装器渲染也保留 LF。新增模拟 Windows 文本模式的回归，独立 minisign 验证正确签名并拒绝篡改，不放宽校验边界。
-- Windows CI 使用基于 protocol 现有测试支持的 Rust TEST_ONLY 签名 example，避免 cryptography ARM64 wheel 缺失后的 OpenSSL 本机构建；无新增依赖、无正式私钥输入。Linux OpenRC 与 Agent 行为步骤也保留公开失败摘要，便于后续定位。
-- 隔离 Alpine 复现普通运行账户执行代理时的 `Permission denied`，确认签名安装器新建的共享父目录受 umask 影响成为 0750。显式设置父目录可遍历权限后，真实 OpenRC 安装、重装、失败恢复、HUP、非 root 低端口能力、独立运行、default runlevel 和 systemd 安装命令契约均通过。此项运行在用户/挂载/进程/网络命名空间和临时根目录内，未安装宿主服务。
-- 本地 fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过（204 项成功，4 项原有实机专项忽略），实际签名 Agent 的注册、补报、双拨测、命令去重、成功升级及失败恢复全部通过。Python 71 项检查中 66 项通过、5 项需容器 root 的原有专项忽略；构建脚本 5 项、actionlint、Python 语法和 diff 检查通过。
-- 下一步：推送修复后核对完整 CI，特别是 Windows 两架构签名升级/原生服务、musl 两架构 OpenRC 及被前置失败阻断的真实 Reality 验收；本地通过不代替远端结果。
-
-### 首轮 CI 跟进：容器内测试信任根归属
-
-- `98287f4` 的主检查、Compose、GNU Agent、四种 Linux 运行时及 macOS 已通过。Windows 双架构通过公开 Rust 签名夹具构建与实际 Agent 签名升级/恢复，原生服务仍在运行；测试依赖和 CRLF 修复已覆盖之前的阻塞步骤。
-- 新增公开摘要确认 OpenRC 在 bootstrap 前拒绝源码中的测试公钥：Docker 的只读源码挂载仍属于宿主 runner，不能当作 root 受保护的操作员信任文件。夹具将明确公开的 TEST_ONLY 公钥复制到容器内 `/root` 下的私有临时目录，再按原有 bootstrap 流程验证；不修改生产权限检查。
-- 隔离 Alpine 中补跑全部 Python 检查，71 项全部通过、无忽略，包含安装器篡改拒绝、下载边界、重定向拒绝与受保护信任根专项。此前命名空间复现将源码所有者映射为 root，不能替代本轮发现的 Docker 所有权条件，后续另行模拟该条件。
-- 随后将临时源码副本设为命名空间内 UID/GID 1001，并只读挂载到 `/src`；新的 root 私有测试根通过严格 bootstrap，完整 OpenRC 服务流程再次通过。Windows AMD64 及 FreeBSD 双架构远端检查已成功，Windows ARM64 常驻服务仍待完成。
-
-### 第二轮跟进：OpenRC 通过与 Windows ARM64 运行时诊断
-
-- `df417a6` 的双架构 OpenRC 与后续 Agent 行为检查已通过，真实 Reality 验收已开始；主检查及 Compose 也通过。此前的签名根所有权阻塞已解除。
-- 第一轮 Windows ARM64 在原生运行时对账等待超时；任务已成功启动，现有事件显示它后来被停止，但不能据此确定应用失败原因。详细任务事件挤掉了公开摘要中的 ApplyResult，现将应用结果和最终 Agent 状态放到摘要末尾，事件改用紧凑格式，并只在一次性 CI 夹具为运行时加入 transcript。保留原有账户、启动参数、健康断言及等待期限，继续依据实际错误定位。
-
-### 同步上游后续修复与验收诊断
-
-- 合入上游 `541f52d` 的诊断资源预算、有界流量补报和 CI 修复；统一采用上游的 `ci-fixture-sign`、受保护 OpenRC 公钥目录及共享安装目录权限，删除重复签名 example。保留尚未合入上游的 Windows 签名字节回归、发布文件 LF 写入和原生服务诊断。
-- 第二轮 14 项通过，Windows ARM64 仍在首次运行时对账超时，Reality 任务失败但公开接口只有退出码。Reality 验收增加失败行号及公开错误注解，内容仅取现有白名单摘要；用含私有占位字段的状态验证其不会泄漏到注解，未公开安装凭证或完整日志。
-- 合并后本地 fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过（216 项成功、5 项原有实机专项忽略）；隔离 Alpine 的 71 项 Python 测试全部通过，真实 OpenRC 安装与普通账户遍历权限检查通过。上游 Rust 签名器通过 Windows 换行模拟和独立 minisign 正向/篡改拒绝验证。验收驱动 17 项、运行时缓存 3 项、工作流与脚本语法检查通过。
-- 下一步：继续定位 Windows ARM64 和 Reality 的失败，完整远端验收通过前不将此项标为完成。
-
-### Windows ARM64 冷启动时限
-
-- `1ea10e7` 的运行时 transcript 与任务事件确认：计划任务启动后约 28 秒 PowerShell 才开始执行脚本，30 秒健康期限届满即被 Agent 回滚，留给真实代理的启动时间约 2 秒；ApplyResult 连续报告 `runtime failed health check`。
-- Windows 运行时健康期限调整为有界 90 秒，服务状态查询允许底层 PowerShell 命令已有的 30 秒期限，避免在较短的外层超时反复取消查询。仍须通过计划任务状态、全部监听和统计 RPC 检查；Linux、macOS、FreeBSD 的时限不变。等待新的 Windows 原生冷启动、重载与独立服务验证。
-- 本地 fmt、Clippy 和完整 Rust/PostgreSQL 回归通过（216 项成功、5 项原有实机专项忽略）；Windows 冷启动行为以原生 CI 为准。
-
-### Windows 已通过，修复静态 Agent 的运行时 libc 选择
-
-- [cf93e4a 的 CI](https://github.com/imengying/sinan/actions/runs/36760693539) 中 Windows 双架构完整常驻服务通过，共 14/16 项成功。剩余失败为真实 Reality 安装后等待健康应用及上游新增的 systemd 资源预算专项。
-- Reality 公开摘要定位到 `install` 阶段的 `ready` 等待。代码确认静态 Agent 将编译时 musl 同时用于外部运行时下发；验收提供已签旧格式 GNU 运行时，面板会拒绝选择。保留 Agent 自更新使用的 `libc`，新增可选 `runtime_libc`，从系统程序有界 ELF 解释器信息识别宿主，面板下发及 core 签名/缓存预检一致采用宿主 ABI。无法识别与旧字段缺失的行为明确回退，不放宽签名、摘要或平台校验。
-- 新增协议兼容、GNU/musl ELF 与截断输入、签名运行时平台拒绝、GNU 宿主上的静态 Agent 下发及篡改拒绝回归；已有 Agent 更新测试同时证明 GNU 宿主仍选择 musl Agent 更新。Ubuntu 四种 Agent 行为任务增加实际宿主 libc 上报断言。主检查为两个真实 systemd 专项补充公开失败摘要与具体预算状态，保留所有限制断言。
-- fmt、全 targets Clippy、完整 Rust/PostgreSQL 回归通过（221 项成功、5 项原有实机专项忽略），两个工作流语法与 core 分层检查通过。真实 Reality 和 systemd 资源预算仍须以下一轮 CI 为准。
-
-### 修复 systemd 排队任务被误判失败
-
-- `9cd112a` 的四种 Linux Agent、OpenRC、四种运行时和 Compose 已通过，包含 Ubuntu 上的实际宿主 libc 断言；本地实际签名 Agent 的注册、补报、命令、双拨测、升级和回退也通过。Reality 与原生服务继续执行。
-- 主检查公开摘要确认新预算专项在子进程测试首次状态查询得到 `result=success, code=0, status=0` 后提前失败；这是异步启动尚未执行的状态。读取 systemd `Job` 属性，非零待执行 Job 视为运行中，包括排队重启时仍残留上一次终态的情况；没有待执行 Job 的未启动单元仍不能被当作成功。
-- 新增排队启动/重启、空值/零值及非法 Job 标识回归，保留 OOM、TasksMax、PID 清理断言。fmt、Clippy、完整 Rust/PostgreSQL 检查通过（222 项成功、5 项原有实机专项忽略）；真实 systemd 验证交由新一轮 CI。
-
-### Reality 全流程与 systemd 预算通过，收敛 Windows 夹具竞态
-
-- [9cd112a 的 Reality 验收](https://github.com/imengying/sinan/actions/runs/36764089656) 已通过，覆盖签名安装、特权端口实际代理流量、重启与重载计量、重复安装、缓存篡改拒绝及在线退役。Windows ARM64、macOS 和 FreeBSD 双架构也通过；Windows AMD64 的常驻服务成功，但无服务升级夹具在读取被替换的 `pending-update.json` 时遇到短暂 `PermissionError`。
-- [e8d4e23 的主检查](https://github.com/imengying/sinan/actions/runs/36765073067) 已通过，包含真实 systemd 两项专项。Job 队列识别后，OOM、TasksMax、超时和停止后 PID 清理断言全部通过；其余平台仍在执行。
-- Windows 夹具读取更新状态时，对短暂共享冲突进行最多两秒的重读；持续拒绝仍抛出原异常，非 Windows 权限错误及无效 JSON 不重试。新增三项回归验证这些边界；隔离 Alpine 的全部 74 项 Python 检查通过，实际签名 Agent 的完整行为和升级回退流程再次通过。此项仅修改测试，不改变产品权限或文件写入行为。
-
-### 再次同步上游诊断保护与平台校验
-
-- 合入上游 `13f2975`，保留诊断资源预检、独占锁、运行中内存保护、候选升级缓存预检、原生服务独立签名复验、退役保护和 IP 查询错误分类。运行时 ABI、签名字节和 systemd 排队状态统一采用上游实现，删除重复的宿主解析模块与重复回归。
-- 当时用户确认保留每次 push/PR 的全平台自动构建；当前已按后续要求暂停，保留的工作流定义包括：Linux GNU/musl 双架构、macOS arm64、Windows 与 FreeBSD 双架构。OpenRC 继续在 musl 任务内验证；保留上游新增的 core 业务边界门禁和真实 systemd 串行执行。
-- 完整回归发现上游新增独占锁后，两项外部服务测试仍使用旧的权限夹具。更新夹具记录目录模式及所有者，验证 root/0700 锁目录与 `stat` 查询先于后端启动；不放宽产品权限检查。Reality 摘要回归同步新增参数，验证失败行号、公开注解和白名单摘要一致且不包含私有快照字段。
-- 合并后的 fmt、全 targets Clippy、完整 Rust/PostgreSQL 测试及 Agent 构建通过：260 项成功、0 失败，8 项需 root/systemd 或真实外部运行时的专项保持忽略。隔离 Alpine 的 81 项 Python 检查全部通过，真实 OpenRC 安装与恢复夹具通过；验收驱动 21 项、运行时缓存 3 项、构建脚本 5 项及环境初始化 3 项通过。Bun 前端构建与提交的 dist 一致，三份工作流 actionlint 和 core 门禁通过。
-- 本次完整合并源的非 Linux 原生服务、真实 systemd 五项专项与 Reality 全流程仍以随后远端 CI 为准；此前成功的独立运行记录不替代新提交的验收。
-
-### macOS 启动前复验与软链接读取权限
-
-- [5a8517e 的完整 CI](https://github.com/imengying/sinan/actions/runs/36767902951) 15/16 项通过：Windows 双架构、FreeBSD 双架构、四种 Linux Agent 与运行时、OpenRC、Compose、完整 Rust/PostgreSQL、真实 systemd 五项专项和 Reality 全流程均成功。唯一失败为 macOS 原生运行时启动，日志在启动前离线签名复验时报告 `Permission denied`。
-- macOS 的软链接创建继承 umask，读取链接目标需要链接自身的读取权限。launchd 使用 `umask 027`，root 创建的运行时 `current` 无法由普通运行账户读取。`SystemOps::atomic_symlink` 在 macOS 发布前对临时链接执行 `chmod -h 755`，失败则清理临时链接；目标文件权限、目录隔离、进程 umask 和签名验证保持原有约束。
-- 扩展现有原子写入回归，检查软链接可读、目标文件仍为 0640、替换为悬空链接和拒绝覆盖普通文件。自动与手动 macOS 工作流均用 `umask 077` 运行该回归，然后运行完整原生服务、缓存篡改拒绝和恢复验收。
-- 本地 fmt、全 targets Clippy、core 门禁、三份 workflow actionlint、构建脚本 5 项及 Agent/协议/编译器/适配器 Rust 回归通过（193 项成功，7 项实机专项忽略）。本轮本机重启后临时 PostgreSQL 环境已清除，面板没有代码变更；完整工作区、真实 systemd、macOS 权限语义与所有平台再次由新提交 CI 验证，尚不记为全部通过。
+- `main` 快进到上游 `3f65b42`，已包含 PR #84 及最新的 IP 查询缓存、根插件目录、共用诊断服务、TCP 诊断登记与发布修复；保留全平台构建、macOS 软链接权限和 Windows 冷启动等已有修复。
+- 恢复合并前上游 `356350e` 的锁目录测试夹具及 umask/flock 断言、Reality 白名单流量证据汇总和被覆盖的进度记录。新增流量证据测试同步传入失败行号，并断言汇总保留该字段；未放宽服务权限、签名验证或公开证据边界。
+- 本地 workspace fmt、全 targets Clippy（warnings 为错误）、core 门禁、四份 workflow actionlint 和差异检查通过。Bun 1.4.2 冻结安装、前端构建及 5 项前端测试通过，重建 dist 与上游原字节一致。使用仓库 CI 的公开 TEST_ONLY 编译信任根、回环请求绕过本机代理后，除 panel 外的 Rust workspace 回归 259 项通过、0 失败、8 项既有实机专项忽略；Python 仓库与构建/环境/验收/诊断模式脚本共 169 项通过、0 失败、6 项既有条件跳过。
+- 本机没有 PostgreSQL，未重跑 panel 数据库集成测试；root 容器安装、原生 TCP 制品矩阵、真实服务、Reality 全流程及非 Linux 平台也未重新验收。遵循上游 AGENTS 的临时 CI 暂停约定，本次提交使用 `[skip ci]`，保留完整自动构建配置，不将本地结果记为新整合提交的远端 CI 全绿。
