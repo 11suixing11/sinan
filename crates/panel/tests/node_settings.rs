@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 mod business_support;
+mod release_fixture;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
 
@@ -229,8 +230,10 @@ async fn deployment_checks_distinguish_pending_unenrolled_and_missing_artifacts(
             .all(|item| item["passed"] == true)
     );
     assert_eq!(result["checks"][3]["passed"], false);
+    assert_eq!(result["checks"][3]["name"], "制品验签能力");
+    assert_eq!(result["checks"][4]["passed"], false);
     assert!(
-        result["checks"][3]["detail"]
+        result["checks"][4]["detail"]
             .as_str()
             .unwrap()
             .contains("缺少")
@@ -246,5 +249,83 @@ async fn deployment_checks_distinguish_pending_unenrolled_and_missing_artifacts(
     assert_eq!(progress["pending"], false);
     assert!(progress["status"]["target_rev"].as_i64().unwrap() > 0);
     assert_eq!(progress["status"]["applied_rev"], 0);
+    Ok(())
+}
+
+#[sqlx::test]
+async fn signed_runtime_cannot_make_an_agent_without_signature_support_ready(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool.clone()).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, ack) = panel
+        .authenticated_device(&cookie, "Signature readiness")
+        .await?;
+    panel.enable_plugin(&cookie, server).await?;
+    let binary = b"TEST_ONLY inert signed readiness runtime";
+    let archive = release_fixture::archive("sing-box", binary)?;
+    release_fixture::write(
+        &panel.state.config.data_dir,
+        "sing-box",
+        "1.14.2",
+        "sing-box",
+        &archive,
+        binary,
+        "tar.gz",
+    )?;
+    let check = format!("{ROOT}/servers/{server}/deployments/check");
+    for (capabilities, expected) in [
+        (json!(["singbox"]), false),
+        (
+            json!([
+                "singbox",
+                sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY
+            ]),
+            true,
+        ),
+    ] {
+        sqlx::query("UPDATE servers SET capabilities=$2,last_seen=$3 WHERE id=$1")
+            .bind(server)
+            .bind(capabilities)
+            .bind(sinan_protocol::now_timestamp())
+            .execute(&pool)
+            .await?;
+        let result: Value = panel
+            .admin(Method::POST, &check, &cookie, None)
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        assert_eq!(result["ready"], expected);
+        let checks = result["checks"].as_array().unwrap();
+        let signature = checks
+            .iter()
+            .find(|check| check["name"] == "制品验签能力")
+            .unwrap();
+        assert_eq!(signature["passed"], expected);
+        assert!(
+            checks
+                .iter()
+                .all(|check| { check["name"] == "制品验签能力" || check["passed"] == true })
+        );
+        // Exercise the actual authenticated manifest capability gate too.
+        let manifest = panel
+            .client
+            .get(format!("{}/api/agent/v1/manifest", panel.base))
+            .bearer_auth(&ack.session_token)
+            .send()
+            .await?;
+        assert_eq!(
+            manifest.status(),
+            if expected {
+                StatusCode::OK
+            } else {
+                StatusCode::CONFLICT
+            }
+        );
+        if !expected {
+            assert!(manifest.text().await?.contains("尚不支持制品验签"));
+        }
+    }
     Ok(())
 }

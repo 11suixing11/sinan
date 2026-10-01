@@ -216,6 +216,10 @@ def script_recipe(name):
     result += source_tests.fixture.ranking_anchors(name).decode()
     result += source_tests.fixture.ip_score_anchors(name).decode()
     result += source_tests.fixture.netflix_anchors(name).decode()
+    # Identity/access policy anchors stay in uncalled synthetic helpers; the
+    # real orchestration below still invokes only the recorded fixture probes.
+    result += source_tests.fixture.browser_anchors(name).decode()
+    result += source_tests.fixture.public_access_anchors(name).decode()
     result += 'fixture_record script ' + kind + ' "$@"\n'
     result += '''
 mode_privacy=${FIXTURE_PRIVACY:-0}

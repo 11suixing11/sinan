@@ -128,3 +128,50 @@ embedded credentials or retries, or certify unrelated boolean classifications.
 Those provider-access audits and the full-toolchain license/provenance work
 remain open. All full-start gates remain closed; this is not a full run or a
 formal signed release.
+
+Sinan r16 modifications (2026-10-01): report.py independently attempts every
+available chapter publication before reporting damaged saved metadata or a
+chapter-specific filesystem failure. Invalid sidecars remain untouched; valid
+chapter snapshots and the original local ZIP remain readable and can retry.
+The panel/adapter/package identity is new and r14 history remains supported.
+No upstream source, license, Netflix policy or complete-toolchain gate changes.
+
+Sinan r17 modifications (2026-10-01): browser-policy.py runs after the existing
+main r14 Netflix transformation. Inside each fixed IP/Net Bash shell it resolves
+native curl once, removes browser User-Agent and Sec-CH-UA/Sec-Fetch identity
+headers/options, disables the random browser generator call and exports the
+wrapper to child Bash. Native curl receives -q first so curlrc cannot inject
+browser headers. Missing option values, header files and extra configuration
+fail before any request. Request method/body, other headers and native result
+remain unchanged; this policy adds no retry. Original sources and licenses
+remain verbatim. Helper/input/output identities are fixed. r17 is a new artifact
+identity; historical r14/r15 artifacts must never be rebuilt or overwritten.
+
+The script-level report and swap safeguards already exist in main. They do not
+prove zero uploads or side effects from third-party binaries. Complete source,
+rootfs/tool provenance, redistribution approval, Geekbench upload permissions
+and controlled full-run acceptance remain unresolved for issues 28/65/66/82.
+Daily checks and old report recovery remain; full-start remains closed. The
+operator must supply auditable tool rights and the missing execution evidence
+before the complete toolchain can be restored. Source preparation is not that
+approval or acceptance.
+
+Sinan r18 modifications (2026-10-01): public-access-policy.py adds explicit
+unconfigured-access returns to the fixed IP source after r17 native curl.
+read_ref clears inherited Cookie data and returns before downloading/retrying
+public cookies. ipregistry/DB-IP and Disney+/YouTube Premium/ChatGPT keep their
+entrypoints and original source but return before borrowed keys/cookies are
+read or sent. Current arrays are reset; text and per-source ProviderAccess JSON
+record not_attempted/credential_not_configured, node_self execution, false
+Attempted and concrete reasons. Unavailable media region/type and ipregistry
+usage/company serialize as null. Other sources, the existing Netflix policy,
+original source/license bundle and panel's configured AbuseIPDB API remain.
+
+This is the unconfigured path, not a new licensed provider integration. Each
+of those node sources still requires an explicit authorized official adapter
+and independent acceptance to restore its authenticated capability. No panel
+credential is forwarded to nodes, no public access material is treated as
+operator permission, and no full-chain/license approval is claimed. Helper,
+input and output hashes are fixed; this new identity never replaces a signed
+historical artifact. Full starts remain gated; old report collection, cancel
+and daily modes retain compatibility with the supported r14/r15/r16/r17 jobs.

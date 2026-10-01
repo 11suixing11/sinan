@@ -6,7 +6,7 @@ import { useAction } from './hooks'
 import Servers from './pages/Servers'
 import ServerDetail from './pages/ServerDetail'
 import Nodes from './plugins/singbox/Nodes'
-import { resourceRoute } from './plugins/singbox/resourceTypes'
+import { nodeRoute } from './plugins/singbox/nodeRoute'
 import ProxyUsers from './plugins/singbox/ProxyUsers'
 import Groups from './plugins/singbox/Groups'
 import Plugins from './pages/Plugins'
@@ -61,7 +61,8 @@ export default function App() {
   const match = path.match(/^\/servers\/([1-9]\d*)(?:\/(ip-info|node-quality|tcp-quality|plugins))?$/)
   const proxyResource = resourceRoute(path)
   const display = dashboardRoute(path)
-  const current = navigation.find(item => path === item.path || (item.path === '/plugins/sing-box/nodes' && Boolean(proxyResource)) || (item.path === '/servers' && Boolean(match)) || (item.path === '/plugins/catalog' && isCatalogPath(path)))
+  const nodePage = nodeRoute(path)
+  const current = navigation.find(item => path === item.path || (item.path === '/servers' && Boolean(match)) || (item.path === '/plugins/sing-box/nodes' && nodePage !== null) || (item.path === '/plugins/catalog' && isCatalogPath(path)))
   const title = display ? '服务器看板' : current?.label ?? '控制面板'
   useEffect(() => { document.title = `${title} · 司南` }, [title])
   if (session === null) return <div className="boot"><Brand /><Loading /></div>
@@ -74,7 +75,7 @@ export default function App() {
     : path === '/servers' || path === '/' ? <Servers />
       : path === '/statistics' ? <Statistics />
       : path === '/latency' ? <LatencyTasks />
-      : path === '/plugins/sing-box/nodes' || proxyResource ? <Nodes selected={proxyResource ?? undefined} />
+      : nodePage ? nodePage.chains ? <Groups key="node-chains" initialTab="chains" /> : <Nodes key={nodePage.serverId ?? 'all-nodes'} serverId={nodePage.serverId} />
         : path === '/plugins/sing-box/users' ? <ProxyUsers />
           : path === '/plugins/sing-box/groups' ? <Groups />
             : path === '/system/plugins' ? <Plugins />

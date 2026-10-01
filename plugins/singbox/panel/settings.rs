@@ -12,9 +12,30 @@ use serde_json::Value;
 use sinan_protocol::now_timestamp;
 use sqlx::{FromRow, Postgres, Transaction};
 
-// A current device declaration, an explicit administrator choice or preserved
-// legacy configuration is evidence of enablement. Unknown capabilities are not.
-pub(super) const SOURCE_SQL: &str = "CASE WHEN s.capabilities ? 'singbox' THEN 'agent_capability' WHEN p.enabled AND p.source <> 'agent_capability' THEN p.source WHEN EXISTS(SELECT 1 FROM nodes n WHERE n.server_id=s.id) THEN 'legacy_nodes' WHEN EXISTS(SELECT 1 FROM deployments d WHERE d.server_id=s.id AND d.module='singbox') THEN 'legacy_deployments' END";
+// Enablement requires an administrator choice or preserved legacy configuration.
+// A device capability only establishes support, never installation or enablement.
+pub(super) const SOURCE_SQL: &str = "CASE WHEN p.enabled AND p.source <> 'agent_capability' THEN p.source WHEN EXISTS(SELECT 1 FROM nodes n WHERE n.server_id=s.id) THEN 'legacy_nodes' WHEN EXISTS(SELECT 1 FROM deployments d WHERE d.server_id=s.id AND d.module='singbox') THEN 'legacy_deployments' END";
+
+#[derive(Default, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InstallationState {
+    #[default]
+    NotEnabled,
+    Queued,
+    WaitingAgent,
+    Offline,
+    Pending,
+    Ready,
+    Failed,
+}
+
+#[derive(Default, Serialize)]
+pub struct Installation {
+    pub state: InstallationState,
+    pub reason: String,
+    pub target_rev: i64,
+    pub applied_rev: i64,
+}
 
 #[derive(Serialize, FromRow)]
 pub struct PluginServer {
@@ -33,6 +54,22 @@ pub struct PluginServer {
     pub agent_supported: bool,
     #[sqlx(default)]
     pub read_only: bool,
+    #[serde(skip)]
+    pub dirty_at: Option<i64>,
+    #[serde(skip)]
+    pub target_rev: Option<i64>,
+    #[serde(skip)]
+    pub applied_rev: Option<i64>,
+    #[serde(skip)]
+    pub last_result_rev: Option<i64>,
+    #[serde(skip)]
+    pub healthy: Option<bool>,
+    #[serde(skip)]
+    pub last_error: Option<String>,
+    #[serde(skip)]
+    pub manifest_error: Option<String>,
+    #[sqlx(skip)]
+    pub installation: Installation,
 }
 impl PluginServer {
     fn view(mut self) -> Self {
@@ -45,12 +82,78 @@ impl PluginServer {
             .last_seen
             .is_some_and(|seen| now_timestamp().saturating_sub(seen) <= 60);
         self.read_only = self.enabled && self.source.as_deref() != Some("administrator");
+        self.installation = self.installation_view();
         self
+    }
+
+    fn installation_view(&self) -> Installation {
+        let target = self.target_rev.filter(|revision| *revision > 0);
+        let supported = self.agent_supported
+            && self.capabilities.as_array().is_some_and(|capabilities| {
+                capabilities.iter().any(|capability| {
+                    capability.as_str()
+                        == Some(sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY)
+                })
+            });
+        let (state, reason) = if !self.enabled {
+            (
+                InstallationState::NotEnabled,
+                "尚未启用插件；设备支持此插件不代表已安装".into(),
+            )
+        } else if target.is_none() {
+            (
+                InstallationState::Queued,
+                "启用请求已保存，正在生成初始运行配置".into(),
+            )
+        } else if let Some(error) = self.manifest_error.as_ref() {
+            (InstallationState::Failed, error.clone())
+        } else if !supported {
+            (
+                InstallationState::WaitingAgent,
+                "等待支持 sing-box 及制品验签的 Agent；仅监控模式不能安装，请先调整设备安装模式"
+                    .into(),
+            )
+        } else if !self.online {
+            (
+                InstallationState::Offline,
+                "设备当前离线，启用请求会在重新连接后继续".into(),
+            )
+        } else if self.applied_rev == target
+            && self.healthy == Some(true)
+            && self.dirty_at.is_none()
+        {
+            (
+                InstallationState::Ready,
+                "设备已确认应用目标版本，运行时健康检查通过".into(),
+            )
+        } else if let Some(error) = self.last_error.as_ref().filter(|error| {
+            !error.is_empty() && self.last_result_rev.unwrap_or(0) >= target.unwrap_or(0)
+        }) {
+            (InstallationState::Failed, format!("设备应用失败：{error}"))
+        } else if self.last_result_rev.unwrap_or(0) >= target.unwrap_or(0)
+            && self.healthy == Some(false)
+        {
+            (
+                InstallationState::Failed,
+                "设备未通过运行时健康检查，尚未确认安装完成".into(),
+            )
+        } else {
+            (
+                InstallationState::Pending,
+                "等待设备下载已签制品、应用配置并确认健康；尚未确认安装完成".into(),
+            )
+        };
+        Installation {
+            state,
+            reason,
+            target_rev: target.unwrap_or(0),
+            applied_rev: self.applied_rev.unwrap_or(0),
+        }
     }
 }
 fn query() -> String {
     format!(
-        "SELECT s.id,s.name,s.last_seen,s.capabilities,{SOURCE_SQL} AS source FROM servers s LEFT JOIN server_plugins p ON p.server_id=s.id AND p.plugin='sing-box' WHERE s.deleted_at IS NULL"
+        "SELECT s.id,s.name,s.last_seen,s.capabilities,s.dirty_at,{SOURCE_SQL} AS source,m.target_rev,m.applied_rev,m.last_result_rev,m.healthy,m.last_error,e.error AS manifest_error FROM servers s LEFT JOIN server_plugins p ON p.server_id=s.id AND p.plugin='sing-box' LEFT JOIN server_module_status m ON m.server_id=s.id AND m.module='singbox' LEFT JOIN singbox_installation e ON e.server_id=s.id AND e.target_rev=m.target_rev WHERE s.deleted_at IS NULL"
     )
 }
 
@@ -85,8 +188,10 @@ pub async fn enable(
     auth::require_admin(&state, &headers).await?;
     let mut tx = state.pool.begin().await?;
     super::business::lock_server(&mut tx, id).await?;
-    sqlx::query("INSERT INTO server_plugins(server_id,plugin,source,enabled_at) VALUES($1,'sing-box','administrator',$2) ON CONFLICT(server_id,plugin) DO UPDATE SET enabled=TRUE,source=CASE WHEN server_plugins.source='agent_capability' THEN 'administrator' ELSE server_plugins.source END")
+    sqlx::query("INSERT INTO server_plugins(server_id,plugin,source,enabled_at) VALUES($1,'sing-box','administrator',$2) ON CONFLICT(server_id,plugin) DO UPDATE SET enabled=TRUE,source='administrator'")
         .bind(id).bind(now_timestamp()).execute(&mut *tx).await?;
+    sqlx::query("UPDATE servers SET dirty_at=COALESCE(dirty_at,FLOOR(EXTRACT(EPOCH FROM clock_timestamp())*1000)::bigint) WHERE id=$1 AND NOT EXISTS(SELECT 1 FROM deployments WHERE server_id=$1 AND module='singbox')")
+        .bind(id).execute(&mut *tx).await?;
     tx.commit().await?;
     let row = get(State(state), headers, Path(id)).await?.0;
     Ok((StatusCode::OK, Json(row)))

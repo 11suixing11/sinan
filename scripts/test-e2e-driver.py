@@ -335,6 +335,34 @@ class AcceptanceContracts(unittest.TestCase):
         self.assertEqual(panel.calls, calls)
         self.assertEqual(recovered["installation"]["version"], "0.3.0")
 
+    def test_install_accepts_portable_latest_and_keeps_explicit_upgrade_selection(self):
+        panel = EnrollmentPanel({"version":"latest", "tag":None})
+        state = self.installation_state()
+        with contextlib.redirect_stdout(io.StringIO()):
+            DRIVER.install(panel, state, self.state_path)
+        saved = json.loads(self.state_path.with_name("enrollment.json").read_text())
+        self.assertEqual(saved["version"], "latest")
+        self.assertIsNone(saved["tag"])
+        calls = list(panel.calls)
+        with contextlib.redirect_stdout(io.StringIO()):
+            DRIVER.install(panel, state, self.state_path)
+        self.assertEqual(panel.calls, calls)
+        with self.assertRaisesRegex(DRIVER.AcceptanceError, "指定的 Agent 版本"):
+            DRIVER.install(panel, state, self.state_path, agent_version="0.2.0")
+        with contextlib.redirect_stdout(io.StringIO()):
+            DRIVER.install(EnrollmentPanel({"version":"0.2.0", "tag":"agent-v0.2.0"}),
+                           state, self.state_path, refresh=True, agent_version="0.2.0")
+        saved = json.loads(self.state_path.with_name("enrollment.json").read_text())
+        self.assertEqual(saved["version"], "0.2.0")
+        self.assertEqual(saved["tag"], "agent-v0.2.0")
+
+    def test_latest_descriptor_rejects_fabricated_or_missing_tags(self):
+        for selection in ({"version":"latest", "tag":"agent-vlatest"}, {"version":"latest"},
+                          {"version":"0.3.0", "tag":None}):
+            with self.subTest(selection=selection), self.assertRaises(DRIVER.AcceptanceError):
+                DRIVER.install(EnrollmentPanel(selection), self.installation_state(), self.state_path)
+            self.assertFalse(self.state_path.with_name("enrollment.json").exists())
+
     def test_install_refuses_missing_mismatched_or_other_requested_release(self):
         for selection in (None, {}, {"version":"0.3.0", "tag":"agent-v0.2.0"}, {"version":"../escape", "tag":"agent-v../escape"}):
             with self.subTest(selection=selection):

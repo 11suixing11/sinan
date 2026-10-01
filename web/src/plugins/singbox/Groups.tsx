@@ -13,14 +13,14 @@ type Tab = 'policy-groups' | 'package-groups'
 type Editor = { kind: 'policy-groups'; value?: PolicyGroup } | { kind: 'package-groups'; value?: PackageGroup }
 const labels: Record<Tab, string> = { 'policy-groups': '策略组', 'package-groups': '套餐组' }
 
-export default function Groups() {
+export default function Groups({ initialTab = 'policy-groups' }: { initialTab?: Tab }) {
   const policies = useResource<PolicyGroup[]>(`${root}/policy-groups`)
   const packages = useResource<PackageGroup[]>(`${root}/package-groups`)
   const resources = useResource<ProxyResource[]>(`${root}/proxy-resources`)
   const chains = resources.data?.filter(resource => resource.kind === 'chain')
   const nodes = resources.data?.filter(resource => resource.kind === 'direct')
   const action = useAction()
-  const [tab, setTab] = useState<Tab>('policy-groups')
+  const [tab, setTab] = useState<Tab>(initialTab)
   const [editor, setEditor] = useState<Editor | null>(null)
   const [deleting, setDeleting] = useState<{ kind: Tab; id: number; name: string } | null>(null)
   const refresh = () => { policies.reload(); packages.reload(); resources.reload() }

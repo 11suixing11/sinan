@@ -120,6 +120,10 @@ pub(super) async fn query_sources(
                 } else {
                     "partial"
                 };
+                let last_attempt_at = databases
+                    .iter()
+                    .filter_map(|database| database.attempted_at)
+                    .max();
                 IpQuality {
                     ip: ip.clone(),
                     checked_at: now,
@@ -127,7 +131,7 @@ pub(super) async fn query_sources(
                     status: status.into(),
                     databases,
                     provider: provider.id().into(),
-                    last_attempt_at: Some(now),
+                    last_attempt_at,
                     last_success_at: None,
                     fresh_until: None,
                     last_error: BTreeMap::new(),

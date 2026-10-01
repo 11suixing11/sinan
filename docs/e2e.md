@@ -24,7 +24,7 @@ python3 scripts/e2e-driver.py --state "$E2E_PRIVATE/state.json" prepare \
 
 `prepare --port 443` 可显式指定节点监听端口，范围为 1–65535，保留统计接口 18085；省略时由面板在 20000–29999 分配。选择会在创建资源前保存，重试必须使用相同参数，旧版未记录显式端口的 state 仍可按自动分配模式恢复。已创建节点若被改端口，驱动会拒绝继续，避免把另一个配置当成本次验收。
 
-`prepare` 在私有目录保存 `enrollment.json`，包含一次性令牌、面板来源、服务器编号及独立选择的 Agent 版本和标签；按凭据保管并安全传到专用设备。面板不再提供可直接执行的安装脚本。令牌过期或准备升级时，重新签发安装描述；省略版本参数会选择最新的兼容签名版本：
+`prepare` 在私有目录保存 `enrollment.json`，包含一次性令牌、面板来源、服务器编号及独立选择的 Agent 版本和标签；按凭据保管并安全传到专用设备。自动选择描述为 `version=latest`、`tag=null`，安装器识别目标设备后才选择最新兼容稳定版本；这两个字段不是已经安装的版本证据。面板不再提供可直接执行的安装脚本。令牌过期或准备升级时，重新签发安装描述；需要可复现的跨版本验收时明确指定真实已签版本：
 
 ```sh
 python3 scripts/e2e-driver.py --state "$E2E_PRIVATE/state.json" install --refresh --agent-version 0.3.0
@@ -37,12 +37,14 @@ sudo python3 - "$E2E_PRIVATE/enrollment.json" <<'PY'
 import json, os, pathlib, subprocess, sys
 descriptor = json.loads(pathlib.Path(sys.argv[1]).read_text())
 environment = dict(os.environ, SINAN_ENROLLMENT_TOKEN=descriptor["token"])
-subprocess.run(["/usr/local/bin/sinan-bootstrap", "--tag", descriptor["tag"],
+subprocess.run(["/usr/local/bin/sinan-bootstrap", "--version", descriptor["version"],
                 "--panel", descriptor["origin"]], env=environment, check=True)
 PY
 ```
 
 Agent 与面板产品版本独立；接入选定版本必须已导入且协议兼容。已有未签名安装先按[发布文档](release.md)迁移验证缓存。历史 0.1.0→0.2.0 真机验收保留在 `PROGRESS.md`；当前签名流程及同版本重装不能替代那次跨版本验收。
+
+跨版本升级专项先导入旧版和目标版的完整签名 Release，使用 `install --refresh --agent-version <旧版本>` 在专用设备接入；已发布的未签 0.1.0/0.2.0 不能通过改写摘要变成已签版本。核对实际旧版和基线后，在同一个 state、服务器编号和设备身份上执行 `install --refresh --agent-version <目标版本>`，以新的令牌重新运行上述可信安装器。升级前后保存设备公钥、身份文件摘要、账本、已应用配置、运行时 PID 与持续双向流量结果；两台新设备上的不同版本不能作为原地升级证据。缺少已签版本、协议不兼容和目标平台没有可安装制品现在分别报告原因。
 
 ## 健康部署与独立客户端
 
@@ -65,6 +67,21 @@ python3 scripts/e2e-driver.py --state "$E2E_PRIVATE/state.json" traffic \
 ```
 
 可以把上下行阈值设为本次实际流量的合理下界。面板统计包含代理协议开销，不要求与 HTTP 文件大小严格相等。脚本仅对本次用户与节点查询，使用任意精度整数检查十进制总量、上下行同时增长且已确认用量没有倒退。
+
+### 传输预算与超时诊断
+
+隔离 Reality 验收每条 curl 固定为 **90 秒**，外层仅用 92 秒回收失控的 curl 进程；下载 2 MiB、上传 1 MiB，必须同时满足 HTTP 200、curl 退出 0 和完整载荷校验。`traffic --timeout 180` 是等待面板计量的预算，不会延长实际 curl 请求。公网人工请求也应事先固定时间预算、预期大小和次数，保存所有失败，不通过事后延时或重跑取代定位。
+
+发生超时时，在停止本次夹具前按顺序记录：
+
+1. 独立客户端至本地 SOCKS 入口的 TCP 可达性、客户端进程是否仍存在。
+2. 代理服务器至受控 HTTP 目标的直接 TCP/HTTP，以及 Reality 伪装目标的 TCP/TLS；核对目标自身在同一时间预算内能否完整响应。公网目标的直连与代理请求须使用相同载荷、方法和时限。
+3. 同一次代理请求的 curl 退出码、HTTP 状态、实际上下行字节、连接时间、首字节时间和总时长；例如 HTTP 200 但不足 2 MiB 且退出 28 仍为失败。
+4. 相同时间窗口内客户端/运行时 PID、重启数、配置摘要与服务状态，宿主 CPU 数、负载、可用内存，以及异常发生在升级/重载之前还是之后。服务 active 不能证明传输恢复。
+
+`scripts/e2e-traffic-evidence.py` 在隔离 CI 中保存固定字段白名单；失败时自动探测本次回环 HTTP、SOCKS 和运行时 TCP，以及本次私有 TLS 夹具并保留原退出码。它不会导出配置、凭据、完整响应或日志，不能用于任意公网地址。公网排查的地址、TLS 验证结果和私有日志由操作者保存在仓库外；不关闭 TLS 验证，不把生产节点用作负载夹具。
+
+[Issue #6](https://github.com/theLucius7/sinan/issues/6) 还包含固定 90 秒下的间歇失败和同源码一次重跑成功，根因尚未确定。现有取证和本节步骤没有修复其根因；回环 CI 的某次成功也不证明公网持续传输全部通过。
 
 ## 暂停、重启和重载
 

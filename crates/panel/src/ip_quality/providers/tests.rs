@@ -160,6 +160,7 @@ async fn query(source: &Source, configured: bool, ips: &[String], at: i64) -> Ve
     .await;
     for entry in &mut values {
         entry.checked_at = at;
+        entry.last_attempt_at = Some(at);
         for data in &mut entry.databases {
             data.attempted_at = Some(at);
             data.last_success_at = (data.status == "succeeded").then_some(at);

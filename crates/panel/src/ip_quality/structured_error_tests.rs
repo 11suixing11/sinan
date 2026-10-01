@@ -237,7 +237,7 @@ async fn batch_timeout_preserves_started_attempts_and_marks_waiting_requests() {
     let values = query_all_with_limit(
         &local_client(),
         &format!("http://{address}"),
-        &["192.0.2.1".into()],
+        &["192.0.2.1".into(), "2001:db8::1".into()],
         true,
         Duration::from_millis(50),
     )
@@ -266,4 +266,11 @@ async fn batch_timeout_preserves_started_attempts_and_marks_waiting_requests() {
         |entry| entry.error_kind == Some(QueryErrorKind::NotAttempted)
             && entry.elapsed_ms.is_none()
     ));
+    assert!(values[0].last_attempt_at.is_some());
+    assert_eq!(values[1].last_attempt_at, None);
+    assert!(values[1].databases.iter().all(|entry| {
+        entry.attempted_at.is_none()
+            && entry.elapsed_ms.is_none()
+            && entry.error_kind == Some(QueryErrorKind::NotAttempted)
+    }));
 }

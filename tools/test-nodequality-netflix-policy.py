@@ -311,7 +311,7 @@ class NetflixTests(unittest.TestCase):
         self.assertEqual(values[3].count('HTTP 429'), 2)
 
     def test_production_hashes_syntax_and_unrelated_functions_remain_unchanged(self):
-        new = self.production().encode()
+        new = sources.fixture.undo_browser('ip.sh', self.production().encode())
         old = sources.fixture.undo_netflix('ip.sh', new)
         self.assertEqual(hashlib.sha256(old).hexdigest(), policy.SOURCES['ip.sh']['source_sha256'])
         self.assertEqual(policy.transform('ip.sh', old), new)

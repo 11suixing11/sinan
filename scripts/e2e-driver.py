@@ -134,9 +134,12 @@ def installation_descriptor(value, state, agent_version=None):
     ensure(isinstance(value, dict), "安装描述缺失，请先导入兼容且已签名的 Release")
     version, tag = value.get("version"), value.get("tag")
     ensure(isinstance(version, str) and len(version) <= 128
-           and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?", version),
+           and (version == "latest"
+                or re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?", version)),
            "安装描述的 Agent 版本无效")
-    ensure(tag == "agent-v" + version, "安装描述的标签与 Agent 版本不一致")
+    ensure((version == "latest" and "tag" in value and tag is None)
+           or (version != "latest" and tag == "agent-v" + version),
+           "安装描述的标签与 Agent 版本不一致")
     ensure(agent_version is None or version == agent_version, "安装描述不是指定的 Agent 版本")
     token = value.get("token")
     ensure(isinstance(token, str) and 0 < len(token) <= 512

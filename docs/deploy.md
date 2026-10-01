@@ -26,6 +26,7 @@ python3 scripts/panel.py start
 
 - `upgrade` 使用当前检出的源码；同步并审阅源码后执行。先暂停面板，备份 PostgreSQL 与制品卷，再恢复原容器、构建新镜像和启动等待健康。数据库不可用、任一备份失败都会阻止构建升级；尽力恢复原容器。Dockerfile 的 `/healthz` 健康检查使 `--wait` 等待面板健康，启动/迁移失败返回非零，不自动降级数据库。
 - 重复 `install` 保留密码、身份和数据卷；已有容器时同样先备份。若只剩旧数据库卷而无容器，拒绝跳过备份安装，应先用原镜像恢复服务再升级。`start` 不自动构建或替换已有容器，`stop` 保留全部卷。
+- `install` 缺少环境文件时，先只读检查同一 Compose 项目的全部容器与数据卷；存在任一旧状态就拒绝生成新密码。请找回原私有环境文件后恢复服务并备份，不能用新生成的环境文件替代旧数据库凭据。`init` 只生成文件，不证明已有服务可使用新凭据。
 - `doctor` 只读检查 Compose 配置、Docker、数据库及面板本机 `/healthz`。不验证公网 HTTPS、CDN、Agent 的实际连接或订阅代理流量。
 - 备份目录 700、文件 600，含 `environment`、`database.dump`、`panel-data.tar.gz` 和 SHA-256 清单 `manifest.json`。只有清单 `complete=true` 且摘要匹配的目录才可作为完整备份。源码记录是备份时的当前 checkout，实际旧镜像 ID 另存为 `image`；镜像本体不包含在备份中，应另行保留。
 - 恢复先在隔离环境演练：核对摘要、恢复私有环境文件、以原镜像创建数据库服务，在面板停止时用 `pg_restore` 恢复数据库并解包制品到其数据卷，再启动匹配版本面板。不要把旧备份直接覆盖到正在写入的生产数据库；应用迁移后回滚需同时恢复数据库、制品与匹配镜像。当前管理工具不自动执行恢复。
@@ -85,6 +86,37 @@ panel.example.com {
 ```
 
 端口应与 `SINAN_PORT` 一致。先校验 Caddy 配置再重载，检查 HTTPS 健康接口以及实际设备在线状态。Caddy 支持 WebSocket；若前面还有 CDN，应确认设备 API、安装脚本、订阅和长连接都能到达 origin，且不会被缓存或访问策略拒绝。
+
+### 分开检查设备到 CDN 与 origin 的路径
+
+在独立客户端和实际接入设备各执行一次公开域名检查，随后仅在获准直达源站的设备执行第二条命令。下面使用保留示例地址；替换为本次面板域名与源站地址。`--resolve` 只改变这次请求的 DNS 结果，URL、Host、TLS SNI 和证书核对仍使用面板域名；不修改 hosts，不关闭证书验证，也不自动跳转。
+
+```sh
+curl --silent --show-error --noproxy '*' --proto '=https' \
+  --connect-timeout 5 --max-time 20 --output /dev/null \
+  --write-out 'cdn http=%{http_code} connect=%{time_connect}s tls=%{time_appconnect}s total=%{time_total}s\n' \
+  https://panel.example.com/healthz
+curl --silent --show-error --noproxy '*' --proto '=https' \
+  --resolve panel.example.com:443:192.0.2.10 \
+  --connect-timeout 5 --max-time 20 --output /dev/null \
+  --write-out 'origin http=%{http_code} connect=%{time_connect}s tls=%{time_appconnect}s total=%{time_total}s\n' \
+  https://panel.example.com/healthz
+```
+
+分别保存操作者、设备、时间、curl 退出码和 HTTP 状态。DNS/连接/TLS 失败时 HTTP 状态可能为 `000`；CDN 403 而直达 origin 200 只定位到两条路径存在差异，还需在私有 CDN/反代请求日志确认哪个组件拒绝。两条路径都返回 200 只证明健康接口可达。
+
+CDN 和反代应允许以下真实设备操作到达原有面板认证，保留 Authorization、查询参数、请求体和 WebSocket Upgrade。设备 API 不缓存、不使用浏览器验证码、交互式登录或会丢失 POST 的跳转；放行设备路径不取消面板认证。
+
+| 路径 | 必须单独验证的行为 |
+| --- | --- |
+| `/install.sh`、`/install.ps1`、`/api/bootstrap/versions` | 带有效一次性令牌取得安装描述/签名版本列表；描述为 JSON，不作为 shell 执行；禁止缓存含令牌响应 |
+| `POST /api/agent/v1/enroll` | 标准安装流程真实注册，返回服务器编号；仅在专用接入/升级步骤消费令牌，不用真实令牌做无效探测 |
+| `GET /api/agent/v1/ws` | 完成认证与 101 升级，稳定收到实际心跳；普通 GET 的 401 不能代替 WebSocket 成功 |
+| `/api/agent/v1/manifest`、`/settings`、`/update`、`/bundles/{rev}`、`/artifacts/{name}/{version}/{arch}` | 已认证 Agent 读取状态、设置、更新元数据、配置包和运行时/诊断制品，下载字节与签名校验完成 |
+| `/api/agent/v1/telemetry`、`/commands`、`/commands/{id}`、`/probes`、`/probe-results` | GET/POST 与压缩遥测请求体保持原样，面板实际 ACK 和数据更新可见 |
+| `/api/agent/v1/diagnostics` 及任务、章节、取消确认子路径；`/api/agent/v1/retirement/receipt` | 已启用功能按实际方法完成确认，不能只检查服务 active |
+
+表内缩写子路径均位于 `/api/agent/v1/` 下。未认证设备 API 的面板 401 是预期鉴权拒绝；注册 403 应核对面板授权及 CDN/WAF，429 应核对限速后等待允许的重试时间。不要公开完整响应、令牌或 Authorization；注册错误仅显示状态与排查方向。当前 Agent 二进制从 GitHub/独立镜像匿名下载，面板旧 Agent 文件接口返回 409 是既定行为，GitHub 下载路径需另行验证。
 
 面板镜像默认使用两个 Rust 编译任务，降低 LTO 构建时的内存压力。资源充足时可先执行 `docker compose --env-file .env -f deploy/docker-compose.yml build --build-arg CARGO_BUILD_JOBS=4 panel`，再执行 `up -d --wait`；后一步不要增加 `--build` 以覆盖刚才的参数。
 

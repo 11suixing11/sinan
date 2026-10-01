@@ -76,12 +76,24 @@ pub async fn enroll(config: &Config, token: &str) -> anyhow::Result<i64> {
         .json(&request)
         .send()
         .await
-        .context("enrollment request failed")?;
-    anyhow::ensure!(
-        response.status().is_success(),
-        "panel rejected enrollment with status {}",
-        response.status()
-    );
+        .context(
+            "enrollment request failed; check device DNS, TLS trust, and panel/CDN reachability",
+        )?;
+    let status = response.status();
+    if !status.is_success() {
+        let guidance = match status.as_u16() {
+            401 => "check the enrollment token validity",
+            403 => {
+                "check panel authorization and CDN/WAF access to /api/agent/v1/enroll; compare device CDN and origin paths while preserving TLS verification"
+            }
+            429 => "check panel/CDN rate limits and wait for the permitted retry interval",
+            300..=399 => {
+                "check the configured panel origin and proxy redirects; enrollment does not follow redirects"
+            }
+            _ => "check panel health and reverse proxy routing from this device",
+        };
+        anyhow::bail!("panel rejected enrollment with HTTP status {status}; {guidance}");
+    }
     let response: EnrollResponse = response.json().await?;
     anyhow::ensure!(response.server_id > 0, "invalid enrolled server identity");
     let id_path = config.identity_dir.join("server_id");

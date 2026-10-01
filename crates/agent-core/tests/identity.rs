@@ -192,6 +192,35 @@ async fn enrollment_persists_key_before_network_and_retries_keep_identity() -> R
 }
 
 #[tokio::test]
+async fn enrollment_reports_status_and_direction_without_echoing_untrusted_bodies() -> Result<()> {
+    let directory = Directory::new();
+    let mut panel = MockPanel::start().await?;
+    let config = directory.config(&panel.origin);
+    let token = "private-enrollment-token";
+    for (status, guidance) in [
+        ("401 Unauthorized", "token validity"),
+        ("403 Forbidden", "CDN/WAF"),
+        ("429 Too Many Requests", "rate limits"),
+        ("503 Service Unavailable", "panel health"),
+    ] {
+        let next_config = config.clone();
+        let task = tokio::spawn(async move { identity::enroll(&next_config, token).await });
+        let request = panel.next().await?;
+        request
+            .reply
+            .send(response(status, &json!({"error": token})))
+            .unwrap();
+        let error = task.await?.expect_err("a rejected request cannot enroll");
+        let message = format!("{error:#}");
+        assert!(message.contains(status), "{message}");
+        assert!(message.contains(guidance), "{message}");
+        assert!(!message.contains(token));
+        assert!(!config.identity_dir.join("server_id").exists());
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn enrollment_refuses_redirects_without_contacting_another_origin() -> Result<()> {
     let directory = Directory::new();
     let mut panel = MockPanel::start().await?;

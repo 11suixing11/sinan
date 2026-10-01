@@ -74,9 +74,7 @@ pub async fn select_with_mirror(
         })
         .collect();
     if versions.is_empty() {
-        return Err(crate::error::ApiError::Conflict(
-            "请先导入与所选平台兼容的已签名 Agent Release".into(),
-        ));
+        return Err(crate::releases::selection_error(state, version).await?);
     }
     let (version, tag) = if version.is_none_or(|value| value == "latest") {
         // Keep the command portable: the independent installer chooses after detecting its host.
