@@ -297,16 +297,21 @@ class EvidenceContracts(unittest.TestCase):
                     "curl_exit": 28, "error_kind": "timeout", "download_bytes": 0, "stderr": SECRET}],
                     "failure": {"fixture_tls": {"passed": False, "error_kind": "tls", "key": SECRET}}}))
         output = self.scratch / "summary.json"
-        argv = ["summary", str(self.scratch / "state.json"), str(output), "0", "first-traffic", "28", "0"]
+        argv = ["summary", str(self.scratch / "state.json"), str(output), "0", "first-traffic", "28", "0", "278"]
+        annotation = io.StringIO()
         with contextlib.chdir(ROOT), patch.object(EVIDENCE.sys, "argv", argv), \
-             patch.dict(EVIDENCE.os.environ, {}, clear=True), patch.object(EVIDENCE.subprocess, "run") as run:
+             patch.dict(EVIDENCE.os.environ, {"GITHUB_ACTIONS": "true"}, clear=True), \
+             contextlib.redirect_stdout(annotation), patch.object(EVIDENCE.subprocess, "run") as run:
             exec(compile(source, "ci-real-e2e.sh:write_summary", "exec"), {})
             run.assert_not_called()
         summary = json.loads(output.read_text())
         self.assertFalse(summary["passed"])
         self.assertEqual(summary["exit_code"], 28)
+        self.assertEqual(summary["failure_line"], 278)
         self.assertEqual(summary["traffic"]["transfers"][0]["download_bytes"], 0)
-        self.assertNotIn(SECRET, output.read_text())
+        self.assertEqual(annotation.getvalue(), "::error title=Reality acceptance failed::"
+                         + json.dumps(summary, ensure_ascii=True) + "\n")
+        self.assertNotIn(SECRET, output.read_text() + annotation.getvalue())
         shell = (ROOT / "scripts/ci-real-e2e.sh").read_text()
         cleanup = shell.split("cleanup() {", 1)[1].split("trap cleanup EXIT", 1)[0]
         self.assertLess(cleanup.index("failure \\\n"), cleanup.index("write_summary || true"))
