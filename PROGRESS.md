@@ -876,3 +876,11 @@ G1–G9 的 MVP 代码、中文界面、文档和部署入口均已实现，核�
 - 恢复合并前上游 `356350e` 的锁目录测试夹具及 umask/flock 断言、Reality 白名单流量证据汇总和被覆盖的进度记录。新增流量证据测试同步传入失败行号，并断言汇总保留该字段；未放宽服务权限、签名验证或公开证据边界。
 - 本地 workspace fmt、全 targets Clippy（warnings 为错误）、core 门禁、四份 workflow actionlint 和差异检查通过。Bun 1.4.2 冻结安装、前端构建及 5 项前端测试通过，重建 dist 与上游原字节一致。使用仓库 CI 的公开 TEST_ONLY 编译信任根、回环请求绕过本机代理后，除 panel 外的 Rust workspace 回归 259 项通过、0 失败、8 项既有实机专项忽略；Python 仓库与构建/环境/验收/诊断模式脚本共 169 项通过、0 失败、6 项既有条件跳过。
 - 本机没有 PostgreSQL，未重跑 panel 数据库集成测试；root 容器安装、原生 TCP 制品矩阵、真实服务、Reality 全流程及非 Linux 平台也未重新验收。遵循上游 AGENTS 的临时 CI 暂停约定，本次提交使用 `[skip ci]`，保留完整自动构建配置，不将本地结果记为新整合提交的远端 CI 全绿。
+
+
+## 2026-10-01：P0 IP 显式错误响应确认（Issue #42 独立窄项 PR）
+
+- 根非空/畸形 errors 与 AbuseIPDB 实际 data 响应容器的明确失败或不确定标志不再采纳默认 0 分；沿用字段不匹配分类和已有历史缓存语义。空 errors、真实 0/false 及旧无标志成功兼容；不递归解释 ASN/company 元数据，不增加查询来源、请求或数据库 schema。正式接口仍严格校验目标 IP、公网、版本及已知字段。
+- 独立验收见 [IP 响应确认](docs/acceptance/ip-response-confirmation.md)。专属回环 HTTP 与临时 PostgreSQL 先保存 73 分，再分别返回根 errors、data.success=false、data.errors；失败后换池读取仍保留历史 73、成功时间和有效期，其余六库继续成功，新 IP 未知。30 项 IP 专项全部通过、无失败/忽略；workspace fmt、panel 全 targets Clippy（warnings 为错误）与差异检查通过。临时 PostgreSQL 已停止。
+- 原解析器字段负对照实际 4 通过/2 预期失败，证明两个错误响应均误返回当前 0；真实 HTTP/PostgreSQL 新历史回归在原解析器下预期失败，恢复修复后通过。源身份与负对照步骤分别记录，不把负例失败当作修复失败或累加场景数。
+- 四个远端 workflow 仍 disabled_manually，未触发、重跑或恢复 CI；未重复完整 workspace、浏览器、平台、正式外部源或节点实机总验，不关闭 Issue #42 剩余验收，也不签收、发布或部署新增诊断能力。下一步按整改顺序继续独立实机验收。
