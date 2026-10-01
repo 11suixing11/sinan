@@ -69,12 +69,13 @@ pub async fn ingest(
             continue;
         }
         let elapsed = sample.sampled_at - checkpoint.sampled_at;
-        let reboot = checkpoint
-            .uptime_secs
-            .zip(sample.metrics.uptime_secs)
-            .is_some_and(|(old, new)| {
-                (i128::from(new) - i128::from(old) - i128::from(elapsed / 1000)).abs() > 5
-            });
+        let uptime = checkpoint.uptime_secs.zip(sample.metrics.uptime_secs);
+        let reboot = uptime.is_some_and(|(old, new)| new < old);
+        // Wall-clock corrections can change sampled_at without resetting counters.
+        // An uptime/timestamp mismatch alone cannot establish that a reboot occurred.
+        let timing_mismatch = uptime.is_some_and(|(old, new)| {
+            (i128::from(new) - i128::from(old) - i128::from(elapsed / 1000)).abs() > 5
+        });
         let changed = checkpoint
             .interfaces
             .keys()
@@ -116,8 +117,9 @@ pub async fn ingest(
                 entry.first.min(sample.sampled_at)
             };
             entry.last = entry.last.max(sample.sampled_at);
-            entry.incomplete |=
-                reset || (checkpoint.sampled_at > 0 && (elapsed > 300_000 || changed));
+            entry.incomplete |= reset
+                || timing_mismatch
+                || (checkpoint.sampled_at > 0 && (elapsed > 300_000 || changed));
         }
         checkpoint = Checkpoint {
             sampled_at: sample.sampled_at,

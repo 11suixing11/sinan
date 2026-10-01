@@ -256,7 +256,7 @@ async fn cycle_and_interface_edits_reaggregate_daily_history_without_resetting_i
 }
 
 #[sqlx::test]
-async fn reboot_and_storage_failure_keep_checkpoint_telemetry_and_daily_rows_consistent(
+async fn clock_jump_and_storage_failure_keep_checkpoint_telemetry_and_daily_rows_consistent(
     pool: PgPool,
 ) -> Result<()> {
     let panel = TestPanel::start(pool).await?;
@@ -271,8 +271,8 @@ async fn reboot_and_storage_failure_keep_checkpoint_telemetry_and_daily_rows_con
     sqlx::raw_sql("CREATE FUNCTION reject_daily_fixture() RETURNS TRIGGER AS $$ BEGIN RAISE EXCEPTION 'TEST_ONLY'; END; $$ LANGUAGE plpgsql;
         CREATE TRIGGER reject_daily_fixture BEFORE INSERT ON server_network_daily FOR EACH ROW EXECUTE FUNCTION reject_daily_fixture();")
         .execute(&panel.state.pool).await?;
-    let mut next = sample(at + 3_600_000, Some(3000), Some(5000));
-    next.metrics.uptime_secs = Some(200);
+    let mut next = sample(at + 3_600_000, Some(1010), Some(2020));
+    next.metrics.uptime_secs = Some(110);
     assert_eq!(
         send(&panel, &ack.session_token, vec![next.clone()])
             .await?
@@ -293,10 +293,61 @@ async fn reboot_and_storage_failure_keep_checkpoint_telemetry_and_daily_rows_con
         .error_for_status()?;
     assert_eq!(
         totals(&panel.state.pool, server).await?,
-        ("5000".into(), "3000".into())
+        ("20".into(), "10".into())
     );
     assert_eq!(
         summary(&panel.state.pool, server, at + 3_600_000).await?["incomplete"],
+        true
+    );
+    Ok(())
+}
+
+#[sqlx::test]
+async fn uptime_regression_counts_new_counters_even_when_they_increase(pool: PgPool) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, ack) = panel.authenticated_device(&cookie, "明确重启").await?;
+    let at = now_millis() - 10_000;
+    let mut first = sample(at, Some(1000), Some(2000));
+    first.metrics.uptime_secs = Some(100);
+    let mut next = sample(at + 1000, Some(3000), Some(5000));
+    next.metrics.uptime_secs = Some(10);
+    send(&panel, &ack.session_token, vec![first, next.clone()])
+        .await?
+        .error_for_status()?;
+    send(&panel, &ack.session_token, vec![next])
+        .await?
+        .error_for_status()?;
+    assert_eq!(
+        totals(&panel.state.pool, server).await?,
+        ("5000".into(), "3000".into())
+    );
+    assert_eq!(
+        summary(&panel.state.pool, server, at + 1000).await?["incomplete"],
+        true
+    );
+    Ok(())
+}
+
+#[sqlx::test]
+async fn clamped_wall_clock_keeps_monotonic_counter_deltas(pool: PgPool) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, ack) = panel.authenticated_device(&cookie, "时钟回拨").await?;
+    let at = now_millis() - 10_000;
+    let mut first = sample(at, Some(1000), Some(2000));
+    first.metrics.uptime_secs = Some(100);
+    let mut next = sample(at + 1, Some(1010), Some(2020));
+    next.metrics.uptime_secs = Some(110);
+    send(&panel, &ack.session_token, vec![first, next])
+        .await?
+        .error_for_status()?;
+    assert_eq!(
+        totals(&panel.state.pool, server).await?,
+        ("20".into(), "10".into())
+    );
+    assert_eq!(
+        summary(&panel.state.pool, server, at + 1).await?["incomplete"],
         true
     );
     Ok(())
