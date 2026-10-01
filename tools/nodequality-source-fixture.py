@@ -21,11 +21,29 @@ def replace_once(content, before, after):
 def inert_source(name, policy):
     source = ('#!/bin/sh\n# Synthetic inert fixture: ' + name + '\n').encode()
     if name in policy.SOURCES:
-        source += b'check_bash(){\n:; }\nfixture_report(){\n'
+        source += b'check_bash(){\n:; }\n'
+        if name in ('ip.sh', 'net.sh'):
+            source += b'check_bash\n'
+        source += b'fixture_report(){\n'
         if name == 'net.sh':
             source += policy.NET_OUTPUT
         source += policy.SOURCES[name]['original_guard'] + b'}\n'
-    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ip_score_anchors(name) + netflix_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ip_score_anchors(name) + netflix_anchors(name) + browser_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+
+
+def browser_anchors(name):
+    if name not in ('ip.sh', 'net.sh'):
+        return b''
+    return b'fixture_unused_browser_identity(){\ngenerate_random_user_agent\n}\n'
+
+
+def undo_browser(role, patched):
+    if role not in ('ip.sh', 'net.sh'):
+        return patched
+    policy = module('fixture_undo_browser', Path(__file__).resolve().parents[1] / 'plugins/nodequality/browser-policy.py')
+    for before, after in reversed(policy.REPLACEMENTS):
+        patched = replace_once(patched, after, before)
+    return patched
 
 
 def netflix_anchors(name):
@@ -36,6 +54,8 @@ def netflix_anchors(name):
 
 
 def undo_netflix(role, patched):
+    if role in ('ip.sh', 'net.sh') and b'SINAN_NATIVE_CURL=$(type -P curl)' in patched:
+        patched = undo_browser(role, patched)
     if role != 'ip.sh':
         return patched
     policy = module('fixture_undo_netflix', Path(__file__).resolve().parents[1] / 'plugins/nodequality/netflix-policy.py')
@@ -254,5 +274,17 @@ def prepare_policy(plugin, contents):
         content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
         outputs[role] = patched
     netflix_path.write_bytes(content)
+    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
+    browser_path = Path(plugin) / 'browser-policy.py'
+    browser = module('synthetic_browser_policy_input', browser_path)
+    content = browser_path.read_bytes()
+    original_hash = hashlib.sha256(content).hexdigest().encode()
+    for role, spec in browser.SOURCES.items():
+        canonical = outputs[role]
+        patched = browser.patch(canonical)
+        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
+        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
+        outputs[role] = patched
+    browser_path.write_bytes(content)
     helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
     return outputs

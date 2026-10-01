@@ -4,6 +4,8 @@ async fn saved_full(panel: &TestPanel, server: i64, version: &str, status: &str)
     let artifact = sinan_panel::artifacts::descriptor(
         &panel.state,
         "nodequality",
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r14",
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r16",
         diagnostics::PLUGIN_VERSION,
         "amd64",
     )

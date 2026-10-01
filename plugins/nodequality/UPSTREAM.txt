@@ -135,3 +135,23 @@ chapter-specific filesystem failure. Invalid sidecars remain untouched; valid
 chapter snapshots and the original local ZIP remain readable and can retry.
 The panel/adapter/package identity is new and r14 history remains supported.
 No upstream source, license, Netflix policy or complete-toolchain gate changes.
+
+Sinan r17 modifications (2026-10-01): browser-policy.py runs after the existing
+main r14 Netflix transformation. Inside each fixed IP/Net Bash shell it resolves
+native curl once, removes browser User-Agent and Sec-CH-UA/Sec-Fetch identity
+headers/options, disables the random browser generator call and exports the
+wrapper to child Bash. Native curl receives -q first so curlrc cannot inject
+browser headers. Missing option values, header files and extra configuration
+fail before any request. Request method/body, other headers and native result
+remain unchanged; this policy adds no retry. Original sources and licenses
+remain verbatim. Helper/input/output identities are fixed. r17 is a new artifact
+identity; historical r14/r15 artifacts must never be rebuilt or overwritten.
+
+The script-level report and swap safeguards already exist in main. They do not
+prove zero uploads or side effects from third-party binaries. Complete source,
+rootfs/tool provenance, redistribution approval, Geekbench upload permissions
+and controlled full-run acceptance remain unresolved for issues 28/65/66/82.
+Daily checks and old report recovery remain; full-start remains closed. The
+operator must supply auditable tool rights and the missing execution evidence
+before the complete toolchain can be restored. Source preparation is not that
+approval or acceptance.
