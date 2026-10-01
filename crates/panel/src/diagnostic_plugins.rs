@@ -4,6 +4,8 @@ pub mod nodequality;
 #[path = "../../../plugins/tcpquality/panel/mod.rs"]
 pub mod tcpquality;
 static NODEQUALITY: nodequality::NodeQualityPlugin = nodequality::NodeQualityPlugin;
+static NODE_IPQUALITY: nodequality::node_queries::NodeIpQualityPlugin =
+    nodequality::node_queries::NodeIpQualityPlugin;
 static TCPQUALITY: tcpquality::TcpQualityPlugin = tcpquality::TcpQualityPlugin;
 static REGISTERED: [&dyn DiagnosticPlugin; 2] = [&NODEQUALITY, &TCPQUALITY];
 pub fn all() -> &'static [&'static dyn DiagnosticPlugin] {
@@ -15,5 +17,11 @@ pub fn find(id: &str) -> Option<&'static dyn DiagnosticPlugin> {
 
 /// Jobs created before plugin registration belong to the original diagnostic plugin.
 pub fn for_job(job: &serde_json::Value) -> Option<&'static dyn DiagnosticPlugin> {
+    if job["plugin"].as_str() == Some("nodequality")
+        && job["version"].as_str() == Some(nodequality::node_queries::NODE_QUERY_VERSION)
+        && job["options"]["mode"].as_str() == Some("ip")
+    {
+        return Some(&NODE_IPQUALITY);
+    }
     find(job["plugin"].as_str().unwrap_or("nodequality"))
 }

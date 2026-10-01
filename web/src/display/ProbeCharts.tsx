@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { time } from '../format'
 import { useDashboardPoll } from './useDashboardPoll'
-import { carrierLabel, familyLabel, latency, loss, lossLabel, probeState, probeValue } from '../probes'
+import { familyLabel, latency, loss, lossLabel, networkLabel, probeState, probeValue } from '../probes'
 import type { Probe, ProbeResult } from '../probes'
 import Chart from './Chart'
 import { Icon } from './Icon'
@@ -15,8 +15,8 @@ function History({ id, probe, now, minutes, unavailable }: { id: number; probe: 
   return <>
     {results.error && <div className="d-notice d-error" role="alert"><span>{results.denied ? '拨测结果读取权限不可用，已清除历史数据。' : '拨测结果读取失败，已显示的曲线为历史数据。'}</span><button onClick={results.reload}>重试</button></div>}
     {results.loading && !results.data && <p className="d-history-loading" role="status">正在读取拨测结果…</p>}
-    <div className="d-probe-summary"><span>{carrierLabel(probe.carrier)} · {probe.monitor?.region || '地区未知'} · {familyLabel(probe.monitor?.address_family)} · {probe.kind === 'tcp' ? 'TCP 连接' : 'ICMP 回显'} · {probe.target}{probe.port ? `:${probe.port}` : ''}</span><span>{state}{latest && ` · ${time(latest.sampled_at / 1000)} · ${latest.address_family?.toUpperCase() || '采样家族未知'}`} </span><strong>{latency(state === '最近采样' ? probeValue(latest, 'latency_ms') : null)} · {lossLabel(probe)} {loss(state === '最近采样' ? probeValue(latest, 'loss_percent') : null)}</strong></div>
-    {latest?.error != null && <p className="d-notice">最近一次检测未完成，请在后台查看工具或权限错误。该次结果以空缺显示。</p>}
+    <div className="d-probe-summary"><span>{networkLabel(probe)} · {probe.monitor?.region || '地区未配置'} · {familyLabel(probe, latest)} · {probe.carrier && `${probe.carrier} · `}{probe.kind === 'tcp' ? 'TCP 连接' : 'ICMP 回显'} · {probe.target}{probe.port ? `:${probe.port}` : ''}</span><span>{state}{latest && ` · ${time(latest.sampled_at / 1000)}`}</span><strong>{latency(state === '最近采样' ? probeValue(latest, 'latency_ms') : null)} · {lossLabel(probe)} {loss(state === '最近采样' ? probeValue(latest, 'loss_percent') : null)}</strong></div>
+    {latest?.error != null && <p className="d-notice">{latest.attempts === 4 ? `已完成 4 次尝试，存在失败：${latest.error}。失败比例按实际尝试记录。` : `最近一次检测不可用：${latest.error}。该次结果以空缺显示。`}</p>}
     <div className="d-charts">
       <Chart {...props} title={`${probe.name} · 延迟`} format={latency} series={[{ label: '往返延迟', color: 'var(--d-info)', points: points.map(point => ({ at: point.sampled_at, value: probeValue(point, 'latency_ms') })) }]} />
       <Chart {...props} title={`${probe.name} · ${lossLabel(probe)}`} maximum={100} format={loss} series={[{ label: lossLabel(probe), color: 'var(--d-warning-bar)', points: points.map(point => ({ at: point.sampled_at, value: probeValue(point, 'loss_percent') })) }]} />
@@ -34,7 +34,7 @@ export default function ProbeCharts({ id, now, unavailable, publicView }: { id: 
     <div className="d-section-heading"><h2><Icon name="network" size={17} />延迟与丢包</h2><div className="d-segmented" role="group" aria-label="拨测时间范围">{[[60, '1 小时'], [360, '6 小时'], [1440, '24 小时']].map(([value, label]) => <button key={value} aria-pressed={minutes === value} onClick={() => setMinutes(Number(value))}>{label}</button>)}</div></div>
     {definitions.error && <div className="d-notice d-error" role="alert"><span>拨测配置读取失败。</span><button onClick={definitions.reload}>重试</button></div>}
     {definitions.loading && !definitions.data ? <div className="d-chart-empty" role="status">正在读取拨测配置…</div> : definitions.error && !definitions.data ? <div className="d-chart-empty d-glass">暂时无法读取拨测配置</div> : !probe ? <div className="d-chart-empty d-glass">尚无已配置的拨测项目{!publicView && <a className="d-button" href={`#/servers/${id}`}>前往后台配置拨测</a>}</div> : <>
-      <label className="d-probe-select">拨测目标<select aria-label="拨测目标" value={probe.id} onChange={event => setSelected(event.target.value)}>{probes.map(item => <option key={item.id} value={item.id}>{item.carrier ? `${item.carrier} · ` : ''}{item.name}{item.enabled ? '' : '（已暂停）'}</option>)}</select></label>
+      <label className="d-probe-select">拨测目标<select aria-label="拨测目标" value={probe.id} onChange={event => setSelected(event.target.value)}>{probes.map(item => <option key={item.id} value={item.id}>{networkLabel(item)} · {item.monitor?.region || '地区未配置'} · {item.carrier ? `${item.carrier} · ` : ''}{item.name}{item.enabled ? '' : '（已暂停）'}</option>)}</select></label>
       <History key={`${probe.id}/${minutes}`} id={id} probe={probe} now={now} minutes={minutes} unavailable={unavailable || Boolean(definitions.error)} />
       <p className="d-footnote">由服务器向配置的目标发起检测，每轮 4 次。ICMP 显示回显丢包率，TCP 显示连接失败率；延迟为成功响应的平均值。无响应为 100%，检测失败或缺少采样保留空缺。</p>
     </>}

@@ -1,6 +1,126 @@
 use super::*;
+use tokio::io::AsyncWriteExt;
+
+struct DownloadFile {
+    path: PathBuf,
+    file: Option<tokio::fs::File>,
+}
+
+impl DownloadFile {
+    fn create(parent: &Path) -> Result<Self> {
+        let path = parent.join(format!(".download-{}.tar.gz", Uuid::new_v4()));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        // Create synchronously so cancellation cannot orphan a pending file open.
+        let file = options.open(&path)?;
+        Ok(Self {
+            path,
+            file: Some(tokio::fs::File::from_std(file)),
+        })
+    }
+
+    async fn close(&mut self) -> Result<()> {
+        let mut file = self
+            .file
+            .take()
+            .context("download file is already closed")?;
+        file.flush().await?;
+        file.sync_all().await?;
+        Ok(())
+    }
+}
+
+impl Drop for DownloadFile {
+    fn drop(&mut self) {
+        drop(self.file.take());
+        // Only unlink the uniquely created file; never traverse a replacement.
+        if let Err(error) = std::fs::remove_file(&self.path)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!(%error, "cannot remove private artifact download");
+        }
+    }
+}
 
 impl PanelClient {
+    async fn download_archive(
+        &self,
+        value: &str,
+        verified: &VerifiedArtifact,
+        parent: &Path,
+    ) -> Result<DownloadFile> {
+        let expected_size = verified.metadata().archive_size;
+        ensure!(
+            (1..=MAX_DOWNLOAD as u64).contains(&expected_size),
+            "signed artifact exceeds download size limit"
+        );
+        let url = self.validate_url(value)?;
+        ensure_ordinary_directory_if_present(parent).await?;
+        let parent = tokio::fs::canonicalize(parent).await?;
+        ensure_ordinary_directory_if_present(&parent).await?;
+        let mut download = DownloadFile::create(&parent)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            download
+                .file
+                .as_ref()
+                .context("download file is closed")?
+                .set_permissions(std::fs::Permissions::from_mode(0o600))
+                .await?;
+        }
+        let response = self
+            .client
+            .get(url)
+            .bearer_auth(&self.session_token)
+            .send()
+            .await?;
+        ensure!(
+            response.status().is_success(),
+            "panel download returned HTTP {}",
+            response.status()
+        );
+        if let Some(length) = response.content_length() {
+            ensure!(
+                length <= MAX_DOWNLOAD as u64 && length == expected_size,
+                "download Content-Length differs from signed archive size"
+            );
+        }
+        let mut length = 0_u64;
+        let mut hash = Sha256::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            let next = length
+                .checked_add(chunk.len() as u64)
+                .context("download length overflow")?;
+            ensure!(
+                next <= expected_size && next <= MAX_DOWNLOAD as u64,
+                "download exceeds signed archive size limit"
+            );
+            download
+                .file
+                .as_mut()
+                .context("download file is closed")?
+                .write_all(&chunk)
+                .await?;
+            hash.update(&chunk);
+            length = next;
+        }
+        ensure!(length == expected_size, "download archive was truncated");
+        ensure!(
+            format!("{:x}", hash.finalize()) == verified.sha256(),
+            "download archive SHA256 differs from signed release"
+        );
+        download.close().await?;
+        Ok(download)
+    }
+
     pub async fn ensure_artifact(
         &self,
         artifact: &Artifact,
@@ -53,15 +173,15 @@ impl PanelClient {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
-        let bytes = self.download(&artifact.url, MAX_DOWNLOAD).await?;
-        verified.verify_archive(&bytes)?;
         ops.create_dir(&plugin, 0o755, None).await?;
-        let archive = plugin.join(format!(".download-{}.tar.gz", Uuid::new_v4()));
-        ops.write_file(&archive, &bytes, 0o600, None).await?;
+        ensure_ordinary_directory_if_present(&plugin).await?;
+        let download = self
+            .download_archive(&artifact.url, &verified, &plugin)
+            .await?;
         let staging = plugin.join(format!(".verified-{}", Uuid::new_v4()));
         let installed: Result<()> = async {
             ops.install_archive_files(
-                &archive,
+                &download.path,
                 &staging,
                 &descriptor.binary_name,
                 &descriptor.auxiliary_files,
@@ -106,15 +226,16 @@ impl PanelClient {
         }
         .await;
         // Resolve only the already controlled parent, never a replacement object.
-        if let Ok(parent) = tokio::fs::canonicalize(&plugin).await {
-            if let Some(name) = archive.file_name() {
-                let _ = ops.remove_path(&parent.join(name)).await;
-            }
-            if let Some(name) = staging.file_name() {
-                let _ = ops.remove_path(&parent.join(name)).await;
-            }
+        if let Ok(parent) = tokio::fs::canonicalize(&plugin).await
+            && let Some(name) = staging.file_name()
+        {
+            let _ = ops.remove_path(&parent.join(name)).await;
         }
         installed?;
         Ok(binary)
     }
 }
+
+#[cfg(test)]
+#[path = "cache/tests.rs"]
+mod tests;

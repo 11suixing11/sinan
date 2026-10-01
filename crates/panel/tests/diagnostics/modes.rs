@@ -2,6 +2,79 @@ use super::*;
 use uuid::Uuid;
 
 #[sqlx::test(migrations = "./migrations")]
+async fn daily_targets_exclude_unconfirmed_revoked_and_expired_monitoring_scope(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, _ack) = panel
+        .authenticated_device(&cookie, "日常授权范围夹具")
+        .await?;
+    capable(&panel, server).await?;
+    fixture(&panel).await?;
+    use sinan_protocol::ProbeAddressFamily::{Any, Ipv4};
+    let now = sinan_protocol::now_timestamp();
+    for (name, authorization, enabled, expires_at, family) in [
+        ("TEST_ONLY owned", Some(true), true, None, Any),
+        ("TEST_ONLY unconfirmed", None, true, None, Any),
+        ("TEST_ONLY revoked", Some(false), true, None, Any),
+        ("TEST_ONLY disabled", Some(true), false, None, Any),
+        ("TEST_ONLY expired", Some(true), true, Some(now - 1), Any),
+        (
+            "TEST_ONLY finite scope",
+            Some(true),
+            true,
+            Some(now + 600),
+            Any,
+        ),
+        ("TEST_ONLY restricted family", Some(true), true, None, Ipv4),
+    ] {
+        let id = Uuid::new_v4();
+        let mut spec: sinan_protocol::ProbeSpec = serde_json::from_value(json!({
+            "id":id,"name":name,"kind":"tcp","target":"127.0.0.1","port":443,
+            "interval_secs":60,"carrier":"","enabled":enabled
+        }))?;
+        crate::probe_support::authorize(&mut spec);
+        spec.monitor.as_mut().unwrap().address_family = family;
+        let identity = spec.identity();
+        let monitor = spec.monitor.as_mut().unwrap();
+        if let Some(authorized) = authorization {
+            let record = monitor.authorization.as_mut().unwrap();
+            record.enabled = authorized;
+            record.expires_at = expires_at;
+            record.identity = identity;
+        } else {
+            monitor.authorization = None;
+        }
+        let spec = serde_json::to_value(spec)?;
+        sqlx::query("INSERT INTO network_probes(id,server_id,spec) VALUES($1,$2,$3)")
+            .bind(id)
+            .bind(server)
+            .bind(spec)
+            .execute(&panel.state.pool)
+            .await?;
+    }
+    let record: Value = panel
+        .admin(
+            Method::POST,
+            &format!("/api/servers/{server}/node-quality/reports"),
+            &cookie,
+            Some(json!({"mode":"daily"})),
+        )
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let targets: Value =
+        serde_json::from_str(record["job"]["options"]["daily_targets"].as_str().unwrap())?;
+    assert_eq!(
+        targets,
+        json!([{"name":"TEST_ONLY owned","target":"127.0.0.1","port":443}])
+    );
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn modes_require_admin_confirmation_gate_capability_and_bound_daily_targets(
     pool: PgPool,
 ) -> Result<()> {

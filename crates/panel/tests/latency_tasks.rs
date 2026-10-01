@@ -11,9 +11,14 @@ use sinan_protocol::ProbeSpec;
 use sqlx::PgPool;
 
 fn spec() -> Value {
-    probe_support::authorized(
-        json!({"id":uuid::Uuid::nil(),"name":"统一线路","kind":"tcp","target":"probe.example.com","port":443,"interval_secs":30,"carrier":"测试线路","enabled":true}),
-    )
+    let mut spec = probe_support::authorized(
+        json!({"id":uuid::Uuid::nil(),"name":"统一线路","kind":"tcp","target":"127.0.0.1","port":443,"interval_secs":30,"carrier":"测试线路","enabled":true}),
+    );
+    spec["monitor"]["network"] = json!("telecom");
+    spec["monitor"]["region"] = json!("TEST_ONLY loopback");
+    spec["monitor"]["address_family"] = json!("ipv4");
+    spec["monitor"]["authorization"]["identity"]["address_family"] = json!("ipv4");
+    spec
 }
 
 #[sqlx::test]
@@ -44,16 +49,25 @@ async fn assignment_defaults_keep_wire_compatibility_and_preserve_measurement_id
     let path = format!("/api/latency-tasks/{}", task["id"].as_str().unwrap());
     let probes: Vec<ProbeSpec> = panel
         .client
-        .get(format!(
-            "{}/api/agent/v1/probes?authorization=1",
-            panel.base
-        ))
+        .get(format!("{}/api/agent/v1/probes/authorized", panel.base))
         .bearer_auth(&ack.session_token)
         .send()
         .await?
         .error_for_status()?
         .json()
         .await?;
+    let legacy: Vec<Value> = panel
+        .client
+        .get(format!("{}/api/agent/v1/probes", panel.base))
+        .bearer_auth(&ack.session_token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(legacy[0].as_object().unwrap().len(), 8);
+    assert_eq!(legacy[0]["enabled"], false);
+    assert!(probes[0].runnable(sinan_protocol::now_timestamp()));
     assert_eq!(probes.len(), 1);
     let probe_id = probes[0].id;
     assert_ne!(probe_id.to_string(), task["id"].as_str().unwrap());
@@ -102,10 +116,7 @@ async fn assignment_defaults_keep_wire_compatibility_and_preserve_measurement_id
         .error_for_status()?;
     let changed: Vec<ProbeSpec> = panel
         .client
-        .get(format!(
-            "{}/api/agent/v1/probes?authorization=1",
-            panel.base
-        ))
+        .get(format!("{}/api/agent/v1/probes/authorized", panel.base))
         .bearer_auth(&ack.session_token)
         .send()
         .await?
@@ -256,5 +267,113 @@ async fn group_capacity_and_default_assignment_are_atomic(pool: PgPool) -> Resul
             .await?,
         32
     );
+    Ok(())
+}
+
+#[sqlx::test]
+async fn authorization_metadata_is_scoped_immutable_and_revocation_preserves_history(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, ack) = panel
+        .authenticated_device(&cookie, "TEST_ONLY carrier")
+        .await?;
+    let task: Value = panel
+        .admin(
+            Method::POST,
+            "/api/latency-tasks",
+            &cookie,
+            Some(json!({"spec":spec(),"default_enabled":false,"server_ids":[server]})),
+        )
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let probes: Vec<ProbeSpec> = panel
+        .client
+        .get(format!("{}/api/agent/v1/probes/authorized", panel.base))
+        .bearer_auth(&ack.session_token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let probe = &probes[0];
+    assert_eq!(
+        probe.monitor.as_ref().unwrap().network,
+        sinan_protocol::ProbeNetwork::Telecom
+    );
+    let result = json!({"id":uuid::Uuid::new_v4(),"probe_id":probe.id,
+        "sampled_at":sinan_protocol::telemetry::now_millis()-1000,"latency_ms":null,
+        "loss_percent":100.0,"error":"TEST_ONLY TCP connection refused","address_family":"ipv4","attempts":4});
+    let endpoint = format!("{}/api/agent/v1/probe-results", panel.base);
+    for _ in 0..2 {
+        panel
+            .client
+            .post(&endpoint)
+            .bearer_auth(&ack.session_token)
+            .json(&json!({"results":[result.clone()]}))
+            .send()
+            .await?
+            .error_for_status()?;
+    }
+    let path = format!("/api/latency-tasks/{}", task["id"].as_str().unwrap());
+    for (field, value) in [
+        ("network", json!("mobile")),
+        ("region", json!("different TEST_ONLY region")),
+        ("address_family", json!("ipv6")),
+    ] {
+        let mut changed =
+            json!({"spec":task["spec"],"default_enabled":false,"server_ids":[server],"revision":1});
+        changed["spec"]["monitor"][field] = value;
+        assert_eq!(
+            panel
+                .admin(Method::PATCH, &path, &cookie, Some(changed))
+                .await?
+                .status(),
+            StatusCode::CONFLICT
+        );
+    }
+    let mut changed =
+        json!({"spec":task["spec"],"default_enabled":false,"server_ids":[server],"revision":1});
+    changed["spec"]["monitor"]["authorization"]["source"] = json!("");
+    assert_eq!(
+        panel
+            .admin(Method::PATCH, &path, &cookie, Some(changed.clone()))
+            .await?
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    changed["spec"] = task["spec"].clone();
+    changed["spec"]["enabled"] = json!(false);
+    changed["spec"]["monitor"]["authorization"]["enabled"] = json!(false);
+    panel
+        .admin(Method::PATCH, &path, &cookie, Some(changed))
+        .await?
+        .error_for_status()?;
+    let paused: Vec<ProbeSpec> = panel
+        .client
+        .get(format!("{}/api/agent/v1/probes/authorized", panel.base))
+        .bearer_auth(&ack.session_token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(paused[0].id, probe.id);
+    assert!(!paused[0].runnable(sinan_protocol::now_timestamp()));
+    let history: Vec<Value> = panel
+        .admin(
+            Method::GET,
+            &format!("/api/servers/{server}/probe-results?probe_id={}", probe.id),
+            &cookie,
+            None,
+        )
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(history, vec![result]);
     Ok(())
 }

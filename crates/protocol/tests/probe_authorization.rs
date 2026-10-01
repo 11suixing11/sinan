@@ -13,6 +13,7 @@ fn granted() -> ProbeSpec {
     let mut spec = legacy();
     let identity = spec.identity();
     spec.monitor = Some(ProbeMonitor {
+        network: sinan_protocol::ProbeNetwork::Other,
         region: "fixture region".into(),
         address_family: ProbeAddressFamily::Any,
         authorization: Some(ProbeAuthorization {
@@ -106,10 +107,22 @@ fn family_and_metadata_identity_never_relabel_existing_samples() {
     changed.monitor.as_mut().unwrap().region = "other region".into();
     assert!(!changed.same_measurement_identity(&original));
     changed = original.clone();
+    changed.monitor.as_mut().unwrap().network = sinan_protocol::ProbeNetwork::Mobile;
+    assert!(!changed.same_measurement_identity(&original));
+    changed = original.clone();
     changed.interval_secs = 60;
     changed.name = "renamed endpoint".into();
     assert!(changed.same_measurement_identity(&original));
     assert!(ProbeAddressFamily::Ipv4.allows("127.0.0.1".parse().unwrap()));
     assert!(!ProbeAddressFamily::Ipv4.allows("::1".parse().unwrap()));
     assert!(ProbeAddressFamily::Ipv6.allows("::1".parse().unwrap()));
+}
+
+#[test]
+fn legacy_results_omit_new_attempts_and_family_fields_without_changing_digest_input() {
+    let input = json!({"id":uuid::Uuid::nil(),"probe_id":uuid::Uuid::nil(),"sampled_at":1000,"latency_ms":null,"loss_percent":100.0,"error":"TEST_ONLY old unavailable result"});
+    let result: sinan_protocol::ProbeResult = serde_json::from_value(input.clone()).unwrap();
+    assert_eq!(result.attempts, None);
+    assert_eq!(result.address_family, None);
+    assert_eq!(serde_json::to_value(result).unwrap(), input);
 }

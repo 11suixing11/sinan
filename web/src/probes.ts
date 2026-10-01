@@ -1,8 +1,10 @@
+export type ProbeNetwork = 'other' | 'telecom' | 'unicom' | 'mobile'
+export type ProbeMonitoring = { network: ProbeNetwork; region: string; ip_version: 'auto' | 'ipv4' | 'ipv6'; authorization: { basis: 'unconfirmed' | 'owned' | 'permission'; confirmed: boolean; source: string; scope: string; expires_at: number | null } }
 export type ProbeIdentity = { kind: 'tcp' | 'icmp'; target: string; port: number | null; address_family: 'any' | 'ipv4' | 'ipv6' }
 export type ProbeAuthorization = { kind: 'owned' | 'consent'; source: string; scope: string; enabled: boolean; expires_at: number | null; identity: ProbeIdentity }
-export type ProbeMonitor = { region: string; address_family: ProbeIdentity['address_family']; authorization: ProbeAuthorization | null }
+export type ProbeMonitor = { network?: ProbeNetwork; region: string; address_family: ProbeIdentity['address_family']; authorization: ProbeAuthorization | null }
 export type Probe = { task_id?: string; id: string; name: string; kind: 'tcp' | 'icmp'; target: string; port: number | null; interval_secs: number; carrier: string; enabled: boolean; monitor?: ProbeMonitor | null; execution_authorized?: boolean | null }
-export type ProbeResult = { id: string; probe_id: string; sampled_at: number; latency_ms: number | null; loss_percent: number; error: string | null; address_family?: 'ipv4' | 'ipv6' | null }
+export type ProbeResult = { id: string; probe_id: string; sampled_at: number; latency_ms: number | null; loss_percent: number; error: string | null; address_family?: 'ipv4' | 'ipv6' | null; attempts?: 4 }
 export type ProbeOverview = { server_id: number; probe: Probe; results: ProbeResult[] }
 export type ProbeField = 'latency_ms' | 'loss_percent'
 
@@ -10,7 +12,21 @@ export const lossLabel = (probe: Pick<Probe, 'kind'>) => probe.kind === 'tcp' ? 
 export const latency = (value: number | null) => value === null ? '—' : `${value.toFixed(1)} ms`
 export const loss = (value: number | null) => value === null ? '—' : `${value.toFixed(1)}%`
 export const carrierLabel = (value: string) => (({ telecom: '电信', unicom: '联通', mobile: '移动' } as Record<string, string>)[value] ?? value) || '线路未知'
-export const familyLabel = (value?: ProbeIdentity['address_family']) => ({ any: '自动家族', ipv4: 'IPv4', ipv6: 'IPv6' }[value ?? 'any'])
+export const familyLabel = (probe: Probe, result?: ProbeResult) => result?.address_family ? (result.address_family === 'ipv4' ? 'IPv4' : 'IPv6') : probe.monitor?.address_family === 'ipv4' ? 'IPv4（配置）' : probe.monitor?.address_family === 'ipv6' ? 'IPv6（配置）' : '自动（实际版本未知）'
+export const networks: [ProbeNetwork, string][] = [['telecom', '电信'], ['unicom', '联通'], ['mobile', '移动'], ['other', '其他线路']]
+export const emptyMonitoring = (): ProbeMonitoring => ({ network: 'other', region: '', ip_version: 'auto', authorization: { basis: 'unconfirmed', confirmed: false, source: '', scope: '', expires_at: null } })
+export const networkLabel = (probe: Probe) => networks.find(([key]) => key === (probe.monitor?.network ?? probe.carrier))?.[1] ?? '其他线路'
+export function monitoringOf(probe: Probe): ProbeMonitoring {
+  const monitor = probe.monitor, authorization = monitor?.authorization
+  return { network: monitor?.network ?? 'other', region: monitor?.region ?? '', ip_version: monitor?.address_family === 'any' || !monitor ? 'auto' : monitor.address_family,
+    authorization: { basis: authorization ? authorization.kind === 'owned' ? 'owned' : 'permission' : 'unconfirmed', confirmed: Boolean(authorization?.enabled && authorizationMatches(probe)), source: authorization?.source ?? '', scope: authorization?.scope ?? '', expires_at: authorization?.expires_at ?? null } }
+}
+export function withMonitoring(probe: Probe, value: ProbeMonitoring): Probe {
+  const address_family = value.ip_version === 'auto' ? 'any' : value.ip_version, authorization = value.authorization
+  return { ...probe, monitor: { network: value.network, region: value.region, address_family,
+    authorization: authorization.basis === 'unconfirmed' ? null : { kind: authorization.basis === 'owned' ? 'owned' : 'consent', source: authorization.source, scope: authorization.scope, enabled: authorization.confirmed, expires_at: authorization.expires_at,
+      identity: { kind: probe.kind, target: probe.target.trim(), port: probe.port, address_family } } } }
+}
 
 export const probeIdentity = (probe: Probe): ProbeIdentity => ({ kind: probe.kind, target: probe.target.trim(), port: probe.port, address_family: probe.monitor?.address_family ?? 'any' })
 const sameIdentity = (left: ProbeIdentity, right: ProbeIdentity) => left.kind === right.kind && left.target === right.target && left.port === right.port && left.address_family === right.address_family
@@ -24,9 +40,11 @@ export function changeProbe(probe: Probe, part: Partial<Probe>): Probe {
 
 export function bindProbeAuthorization(probe: Probe): Probe {
   const { execution_authorized: _derived, ...payload } = probe
-  const monitor = payload.monitor
-  return monitor?.authorization ? { ...payload, monitor: { ...monitor, authorization: { ...monitor.authorization,
-    enabled: monitor.authorization.enabled && authorizationMatches(probe) } } } : payload
+  const monitor = payload.monitor, authorization = monitor?.authorization
+  if (!authorization) return { ...payload, enabled: false }
+  if (!authorization.source.trim() || !authorization.scope.trim()) return { ...payload, enabled: false, monitor: { ...monitor!, authorization: null } }
+  const confirmed = authorization.enabled && authorizationMatches(probe)
+  return { ...payload, enabled: payload.enabled && confirmed, monitor: { ...monitor!, authorization: { ...authorization, enabled: confirmed } } }
 }
 
 export function authorizationState(probe: Probe, now = Date.now()): string | null {
@@ -34,25 +52,25 @@ export function authorizationState(probe: Probe, now = Date.now()): string | nul
   if (authorization && !authorizationMatches(probe)) return '当前目标需重新确认授权'
   if (authorization?.expires_at != null && authorization.expires_at * 1000 <= now) return '授权已过期'
   if (authorization && !authorization.enabled) return '授权已撤销'
-  if (probe.execution_authorized === false || probe.monitor === null) return '未取得执行授权'
+  if (probe.execution_authorized === false || !authorization && probe.execution_authorized !== true) return '未取得执行授权'
   return null
 }
 
 // Legacy Agents also encode an unavailable measurement with an error and a numeric loss placeholder.
 export function probeValue(result: ProbeResult | undefined, field: ProbeField): number | null {
-  if (!result || result.error != null) return null
+  if (!result || result.error != null && result.attempts !== 4) return null
   const value = result[field]
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= (field === 'loss_percent' ? 100 : 60_000) ? value : null
 }
 
 export function probeState(probe: Probe, latest: ProbeResult | undefined, now: number, unavailable = false): string {
   if (unavailable) return '状态未知'
-  if (!probe.enabled) return '已暂停'
   const authorization = authorizationState(probe, now)
   if (authorization) return authorization
+  if (!probe.enabled) return '已暂停'
   if (!latest) return '等待采样'
   if (latest.sampled_at > now || now - latest.sampled_at > Math.max(60_000, probe.interval_secs * 3000)) return '采样已过期'
-  if (latest.error != null) return '检测不可用'
+  if (latest.error != null && latest.attempts !== 4) return '检测不可用'
   return '最近采样'
 }
 

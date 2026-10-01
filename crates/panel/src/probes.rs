@@ -114,6 +114,7 @@ pub(crate) fn presentation(mut spec: ProbeSpec) -> ProbeSpec {
 }
 
 pub(crate) fn prepare_write(spec: &mut ProbeSpec) -> ApiResult<()> {
+    spec.normalize();
     spec.execution_authorized = None;
     spec.name = spec.name.trim().into();
     spec.target = spec.target.trim().into();
@@ -137,20 +138,30 @@ pub async fn agent_list(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(query): Query<AgentProbeQuery>,
-) -> ApiResult<Json<Vec<ProbeSpec>>> {
+) -> ApiResult<Json<Vec<serde_json::Value>>> {
     let server = auth::require_agent(&state, &headers).await?;
     if query.authorization.is_some_and(|version| version != 1) {
         return Err(ApiError::BadRequest("拨测授权协议版本不支持".into()));
     }
+    Ok(Json(read(&state, server).await?.0.into_iter().map(|spec| {
+        let mut wire = serde_json::json!({"id":spec.id,"name":spec.name,"kind":spec.kind,"target":spec.target,
+            "port":spec.port,"interval_secs":spec.interval_secs,"carrier":spec.carrier,"enabled":false});
+        if query.authorization == Some(1) {
+            wire["enabled"] = serde_json::json!(spec.runnable_at(now_timestamp()));
+            if let Some(monitor) = spec.monitor { wire["monitor"] = serde_json::json!({"region":monitor.region,"address_family":monitor.address_family,"authorization":monitor.authorization}); }
+        }
+        wire
+    }).collect()))
+}
+
+pub async fn agent_authorized_list(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Vec<ProbeSpec>>> {
+    let server = auth::require_agent(&state, &headers).await?;
     let mut specs = read(&state, server).await?;
     for spec in &mut specs.0 {
-        spec.enabled = spec.runnable_at(now_timestamp());
         spec.execution_authorized = None;
-        if query.authorization != Some(1) {
-            // Old executors cannot enforce cached authorization expiry or address family.
-            spec.enabled = false;
-            spec.monitor = None;
-        }
     }
     Ok(specs)
 }
@@ -327,6 +338,7 @@ pub async fn ingest(
                 || r.latency_ms
                     .is_some_and(|v| !v.is_finite() || !(0.0..=60_000.0).contains(&v))
                 || r.error.as_ref().is_some_and(|v| v.len() > 1024)
+                || r.attempts.is_some_and(|attempts| attempts != 4)
                 || r.address_family == Some(sinan_protocol::ProbeAddressFamily::Any)
         })
     {

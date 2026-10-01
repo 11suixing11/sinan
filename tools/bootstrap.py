@@ -282,6 +282,12 @@ def select_artifact(metadata, version, actual, requested="auto"):
     ensure(metadata["tag"] == "agent-v" + version, "签名发布版本与所选版本不匹配")
     if not metadata["protocol_min"] <= PROTOCOL_VERSION <= metadata["protocol_max"]:
         raise IncompatibleRelease("签名 Agent 发布不支持此接入入口的协议版本")
+    # This minimum is the registered installation line, not evidence that an
+    # arbitrary newer executable implements it. All signed payload and native
+    # verify-installed/verify-cache checks remain mandatory after selection.
+    core = version.split("-")[0].split("+")[0]
+    if tuple(int(part) for part in core.split(".")) < (0, 3, 0):
+        raise IncompatibleRelease("历史 Agent 不支持当前标准安装与服务合同：0.1/0.2 原制品缺少所需的验签、缓存预检或 supervisor；补签元数据不能补齐命令，原身份和状态未修改")
     for target in compatible_targets(actual, requested):
         matches = [item for item in metadata["artifacts"] if
                    (item["name"], item["version"], item["arch"]) == ("agent", version, target)]

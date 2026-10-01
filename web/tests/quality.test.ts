@@ -18,7 +18,7 @@ test('legacy UI field types agree with every registered backend field', () => {
       checked += 1
     }
   }
-  expect(checked).toBe(60)
+  expect(checked).toBe(80)
 })
 
 test('legacy known labels cannot turn wrong scalar types into successful facts', () => {

@@ -9,6 +9,11 @@ use std::{path::Path, time::Duration};
 use tokio::{io::AsyncReadExt, time::timeout};
 
 pub const VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19";
+/// Explicit offline environment preparation, never the panel default.
+pub const OFFLINE_ROOTFS_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20";
+/// Configured official queries executed at the managed node egress.
+pub const NODE_QUERY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21";
+pub const NODE_QUERY_CAPABILITY: &str = "diagnostic:nodequality-node-query";
 const PUBLIC_ACCESS_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18";
 const BROWSER_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17";
 const REPORT_IO_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r16";
@@ -71,6 +76,8 @@ fn supports_modes(version: &str) -> bool {
     matches!(
         version,
         VERSION
+            | OFFLINE_ROOTFS_VERSION
+            | NODE_QUERY_VERSION
             | PUBLIC_ACCESS_VERSION
             | BROWSER_VERSION
             | REPORT_IO_VERSION
@@ -93,6 +100,8 @@ fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String, String)> {
     if !matches!(
         spec.version.as_str(),
         VERSION
+            | OFFLINE_ROOTFS_VERSION
+            | NODE_QUERY_VERSION
             | PUBLIC_ACCESS_VERSION
             | BROWSER_VERSION
             | REPORT_IO_VERSION
@@ -148,6 +157,7 @@ fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String, String)> {
                 | "mode"
                 | "daily_targets"
                 | "environment_section"
+                | "node_ips"
         ) {
             bail!("unsupported diagnostic option");
         }
@@ -216,8 +226,19 @@ fn valid_report_url(value: &str) -> bool {
 }
 
 impl DiagnosticAdapter for NodeQualityAdapter {
+    fn auxiliary_files_for_version(&self, version: &str) -> Vec<String> {
+        if version == OFFLINE_ROOTFS_VERSION {
+            vec!["rootfs.tar.gz".into(), "rootfs-manifest.json".into()]
+        } else {
+            Vec::new()
+        }
+    }
     fn capabilities(&self) -> Vec<String> {
-        vec![MODES_CAPABILITY.into(), FULL_START_GATE_CAPABILITY.into()]
+        vec![
+            MODES_CAPABILITY.into(),
+            FULL_START_GATE_CAPABILITY.into(),
+            NODE_QUERY_CAPABILITY.into(),
+        ]
     }
     fn describe(&self) -> DiagnosticDescriptor {
         DiagnosticDescriptor {
@@ -276,18 +297,29 @@ impl DiagnosticAdapter for NodeQualityAdapter {
                 .context("write daily targets timed out")??;
                 args.extend(["--targets-file".into(), path_argument(&path)?]);
             }
+            if let Some(ips) = &mode.ips {
+                let path = spec.job_dir.join("node-ips.json");
+                timeout(
+                    IO_TIMEOUT,
+                    privileged.write_file(&path, ips.as_bytes(), 0o600, None),
+                )
+                .await
+                .context("write frozen node IPs timed out")??;
+                args.extend(["--ips-file".into(), path_argument(&path)?]);
+                args.extend(["--job-id".into(), spec.id.clone()]);
+            }
             Ok(ServiceJob {
                 unit: format!("sinan-diagnostic-{}.service", spec.id),
                 program: spec.binary_path.clone(),
                 args,
                 working_directory: spec.job_dir.clone(),
                 timeout_secs: spec.timeout_secs,
-                memory_max: if mode.name == "daily" {
+                memory_max: if matches!(mode.name, "daily" | "ip") {
                     sinan_adapter_sdk::MemoryMax::new(64 * 1024 * 1024)?
                 } else {
                     Default::default()
                 },
-                tasks_max: if mode.name == "daily" {
+                tasks_max: if matches!(mode.name, "daily" | "ip") {
                     sinan_adapter_sdk::TasksMax::new(32)?
                 } else {
                     Default::default()

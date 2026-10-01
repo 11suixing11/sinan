@@ -11,6 +11,9 @@ use uuid::Uuid;
 
 pub type SharedState = Arc<Mutex<State>>;
 
+mod storage;
+pub(crate) use storage::StorageRetry;
+
 pub struct State {
     pub(crate) connection: Connection,
 }

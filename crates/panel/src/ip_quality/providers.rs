@@ -9,6 +9,8 @@ use std::net::IpAddr;
 
 const ABUSEIPDB_ENDPOINT: &str = "https://api.abuseipdb.com/api/v2/check";
 const OFFICIAL_DATABASES: [(&str, &str); 1] = [("abuseipdb-v2", "AbuseIPDB 官方 IP 查询")];
+const NODE_IPREGISTRY: [(&str, &str); 1] = [("ipregistry-v1", "Ipregistry 正式节点查询")];
+const NODE_DBIP: [(&str, &str); 1] = [("dbip-v2", "DB-IP 正式节点查询")];
 
 #[derive(Clone, Serialize)]
 pub struct ProviderDescription {
@@ -87,6 +89,8 @@ impl ProviderRegistry {
             Provider { id: "check-place", label: "check-place 聚合入口", kind: "aggregator", execution: "panel", adapter: Some(Adapter::CheckPlace { origin: super::PROVIDER_ORIGIN.into() }), reason: None, databases: &DATABASES },
             Provider { id: "abuseipdb-api", label: "AbuseIPDB 官方接口", kind: "credential_api", execution: "panel", adapter: credential.map(|key| Adapter::AbuseIpDb { endpoint: ABUSEIPDB_ENDPOINT.into(), key }), reason, databases: &OFFICIAL_DATABASES },
             Provider { id: "ipquality-node", label: "节点正式 IP 自查（日常诊断）", kind: "node_self", execution: "node", adapter: None, reason: Some("节点正式 IP 自查在 r19 日常诊断中使用节点操作者的私有正式凭据；本页仅查询面板缓存，不代节点执行或推断流媒体解锁。未配置与失败在各次诊断中逐源保留，旧成功报告仍可查看".into()), databases: &[] },
+            Provider { id: "ipregistry-node", label: "Ipregistry 正式节点接口", kind: "node_self", execution: "node", adapter: None, reason: Some("需要节点 root 私有配置中的正式 API 凭证与操作授权；先请求节点查询，配置和结果由 Agent 回报".into()), databases: &NODE_IPREGISTRY },
+            Provider { id: "dbip-node", label: "DB-IP 正式节点接口", kind: "node_self", execution: "node", adapter: None, reason: Some("需要节点 root 私有配置中的正式 API 凭证与操作授权；先请求节点查询，配置和结果由 Agent 回报".into()), databases: &NODE_DBIP },
         ] }
     }
 
@@ -130,8 +134,49 @@ impl ProviderRegistry {
             .filter(|provider| provider.adapter.is_some())
     }
 
+    pub fn descriptions_for(&self, quality: &[IpQuality]) -> Vec<ProviderDescription> {
+        let mut descriptions = self.descriptions();
+        for description in &mut descriptions {
+            if !matches!(
+                description.provider.as_str(),
+                "ipregistry-node" | "dbip-node"
+            ) {
+                continue;
+            }
+            if let Some(entry) = quality
+                .iter()
+                .find(|entry| entry.provider == description.provider)
+            {
+                description.enabled = entry
+                    .databases
+                    .iter()
+                    .any(|database| database.available == Some(true));
+                description.reason = if description.enabled {
+                    None
+                } else {
+                    entry
+                        .databases
+                        .iter()
+                        .find_map(|database| database.unavailable_reason.clone())
+                        .or(description.reason.take())
+                };
+            }
+        }
+        descriptions
+    }
+
     pub(super) fn mark_availability(&self, quality: &mut [IpQuality]) {
         for entry in quality {
+            if matches!(entry.provider.as_str(), "ipregistry-node" | "dbip-node") {
+                // Configuration belongs to the node. Panel environment must not overwrite its receipt.
+                for database in &mut entry.databases {
+                    database.available = Some(database.available.unwrap_or(false));
+                    if database.available == Some(false) && !database.fields.is_empty() {
+                        database.historical = true;
+                    }
+                }
+                continue;
+            }
             let provider = self
                 .providers
                 .iter()

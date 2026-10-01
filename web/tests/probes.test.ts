@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test'
-import { authorizationMatches, bindProbeAuthorization, changeProbe, lossLabel, probeSlots, probeState, probeTone, probeValue } from '../src/probes'
+import { familyLabel, authorizationMatches, bindProbeAuthorization, changeProbe, lossLabel, probeSlots, probeState, probeTone, probeValue } from '../src/probes'
 import type { Probe, ProbeResult } from '../src/probes'
 
-const probe: Probe = { id: 'probe', name: '回环', kind: 'icmp', target: '127.0.0.1', port: null, interval_secs: 10, carrier: '', enabled: true }
+const probe: Probe = { id: 'probe', name: '回环', kind: 'icmp', target: '127.0.0.1', port: null, interval_secs: 10, carrier: '', enabled: true, monitor: { region: '', address_family: 'any', authorization: { kind: 'owned', source: 'TEST_ONLY owner', scope: 'TEST_ONLY owned loopback measurement', enabled: true, expires_at: null, identity: { kind: 'icmp', target: '127.0.0.1', port: null, address_family: 'any' } } } }
 const point: ProbeResult = { id: 'point', probe_id: probe.id, sampled_at: 100_000, latency_ms: 0, loss_percent: 0, error: null }
 
 test('probes distinguish zero, total loss and unavailable legacy measurements', () => {
@@ -66,4 +66,15 @@ test('editing destination identity requires a fresh confirmation and submitting 
     expect(changeProbe(changed, authorized).monitor!.authorization!.enabled).toBe(false)
   }
   expect(changeProbe(authorized, { name: 'renamed', interval_secs: 60 }).monitor!.authorization!.enabled).toBe(true)
+})
+
+
+test('unconfirmed targets are inert and actual four failed connections keep measured loss', () => {
+  expect(probeState({ ...probe, monitor: null }, point, 101_000)).toBe('未取得执行授权')
+  const failed: ProbeResult = { ...point, latency_ms: null, loss_percent: 100, error: 'TEST_ONLY connection refused', attempts: 4, address_family: 'ipv6' }
+  expect(probeValue(failed, 'latency_ms')).toBeNull()
+  expect(probeValue(failed, 'loss_percent')).toBe(100)
+  expect(probeState(probe, failed, 101_000)).toBe('最近采样')
+  expect(familyLabel(probe, failed)).toBe('IPv6')
+  expect(probeValue({ ...failed, attempts: undefined }, 'loss_percent')).toBeNull()
 })

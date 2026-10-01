@@ -339,6 +339,7 @@ async fn acknowledged_usage_is_preserved_while_keys_and_configuration_are_remove
             loss_percent: 100.0,
             address_family: None,
             error: Some("TEST_ONLY_probe_error".into()),
+            attempts: None,
         })?;
         state.save_telemetry(&sinan_protocol::TelemetrySample {
             id: Uuid::new_v4(),

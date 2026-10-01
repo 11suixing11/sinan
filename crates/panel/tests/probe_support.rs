@@ -9,6 +9,7 @@ use sinan_protocol::{
 pub fn authorize(spec: &mut ProbeSpec) {
     let identity = spec.identity();
     spec.monitor = Some(ProbeMonitor {
+        network: sinan_protocol::ProbeNetwork::Other,
         region: String::new(),
         address_family: ProbeAddressFamily::Any,
         authorization: Some(ProbeAuthorization {

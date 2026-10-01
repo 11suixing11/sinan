@@ -13,13 +13,19 @@ pub async fn upload_section(
         ));
     }
     let mut tx = state.pool.begin().await?;
-    let row = sqlx::query("SELECT j.expected_sections FROM diagnostic_jobs j JOIN servers s ON s.id=j.server_id WHERE j.id=$1 AND j.server_id=$2 AND s.deleted_at IS NULL FOR UPDATE OF j")
+    let row = sqlx::query("SELECT j.expected_sections,j.job,j.created_at,j.expires_at FROM diagnostic_jobs j JOIN servers s ON s.id=j.server_id WHERE j.id=$1 AND j.server_id=$2 AND s.deleted_at IS NULL FOR UPDATE OF j")
         .bind(id).bind(server_id).fetch_optional(&mut *tx).await?.ok_or(ApiError::NotFound)?;
     let expected: Vec<String> = row.get("expected_sections");
     if expected.len() > sinan_protocol::DIAGNOSTIC_SECTION_COUNT || !expected.contains(&update.name)
     {
         return Err(ApiError::BadRequest("任务没有登记此报告章节".into()));
     }
+    let node_results = crate::diagnostic_plugins::nodequality::node_queries::parse_section(
+        &row.get::<Value, _>("job"),
+        &update,
+        row.get("created_at"),
+        row.get("expires_at"),
+    )?;
     let saved = sqlx::query(
         "SELECT text,complete,revision FROM diagnostic_report_sections WHERE job_id=$1 AND name=$2",
     )
@@ -35,7 +41,19 @@ pub async fn upload_section(
         {
             return Err(ApiError::Conflict("同一报告章节版本的内容不一致".into()));
         }
-        if revision as u64 >= update.revision
+        if revision as u64 == update.revision {
+            tx.commit().await?;
+            // Replayed durable sections repair a cache write that failed after
+            // the chapter committed. Job locks are released before server locks.
+            crate::diagnostic_plugins::nodequality::node_queries::persist_section(
+                &state,
+                server_id,
+                node_results,
+            )
+            .await?;
+            return Ok(StatusCode::NO_CONTENT);
+        }
+        if revision as u64 > update.revision
             || (saved.get::<bool, _>("complete") && !update.complete)
         {
             tx.commit().await?;
@@ -53,5 +71,11 @@ pub async fn upload_section(
         .bind(id).execute(&mut *tx).await?;
     // Execution status, terminal error and legacy text are deliberately preserved.
     tx.commit().await?;
+    crate::diagnostic_plugins::nodequality::node_queries::persist_section(
+        &state,
+        server_id,
+        node_results,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -1,4 +1,5 @@
 mod icmp;
+const CONFIGURATION_LEASE_SECS: i64 = 120;
 #[cfg(test)]
 mod scheduling_tests;
 
@@ -36,6 +37,8 @@ async fn synchronize(
     retirement: Arc<crate::retirement::Retirement>,
 ) -> Result<()> {
     let mut refreshed = Instant::now() - Duration::from_secs(31);
+    let mut configuration_storage = crate::state::StorageRetry::default();
+    let mut acknowledgment_storage = crate::state::StorageRetry::default();
     loop {
         {
             let _guard = retirement.gate.read().await;
@@ -45,7 +48,7 @@ async fn synchronize(
                     if refreshed.elapsed() >= Duration::from_secs(30) {
                         refreshed = Instant::now();
                         match client
-                            .get_json::<Vec<ProbeSpec>>("/api/agent/v1/probes?authorization=1")
+                            .get_json::<Vec<ProbeSpec>>("/api/agent/v1/probes/authorized")
                             .await
                         {
                             Ok(specs)
@@ -53,10 +56,16 @@ async fn synchronize(
                                     && specs.len() <= 32
                                     && specs.iter().all(ProbeSpec::valid) =>
                             {
-                                state
+                                let mut state = state
                                     .lock()
-                                    .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                                    .set_json("probes:configuration", &(now_timestamp(), specs))?;
+                                    .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+                                configuration_storage.finish(
+                                    "persist probe configuration",
+                                    state.set_json(
+                                        "probes:configuration",
+                                        &(now_timestamp(), specs),
+                                    ),
+                                )?;
                             }
                             Ok(_) => tracing::warn!("panel provided invalid probes"),
                             Err(error) => {
@@ -65,7 +74,8 @@ async fn synchronize(
                         }
                     }
                     if !retirement.requested()
-                        && let Err(error) = upload(&state, &client).await
+                        && let Err(error) =
+                            upload(&state, &client, &mut acknowledgment_storage).await
                     {
                         tracing::warn!(%error,"probe results retained for retry");
                     }
@@ -81,6 +91,7 @@ async fn sample_loop(
     ops: Arc<dyn Privileged>,
     retirement: Arc<crate::retirement::Retirement>,
 ) -> Result<()> {
+    let mut storage = crate::state::StorageRetry::default();
     let mut due = HashMap::<Uuid, Instant>::new();
     let mut configured = HashMap::<Uuid, ProbeSpec>::new();
     let mut running = HashMap::<Uuid, (ProbeSpec, AbortHandle)>::new();
@@ -97,13 +108,13 @@ async fn sample_loop(
                         let _guard = retirement.gate.read().await;
                         if retirement.requested() { continue; }
                         let mut state = state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
-                        let configuration = state.get_json::<(i64, Vec<ProbeSpec>)>("probes:configuration")?;
+                        let configuration = leased_configuration(&state)?;
                         let clock_offset_ms = state.get_json::<i64>("clock_offset_ms")?.unwrap_or(0);
-                        if !configuration.is_some_and(|(fetched, specs)| fetched > now_timestamp() - 86400 && spec.runnable_at(panel_now_millis(clock_offset_ms).div_euclid(1000)) && specs.contains(&spec)) {
+                        if !spec.runnable_at(panel_now_millis(clock_offset_ms).div_euclid(1000)) || !configuration.contains(&spec) {
                             continue;
                         }
                         result.sampled_at = result.sampled_at.saturating_add(state.get_json::<i64>("clock_offset_ms")?.unwrap_or(0));
-                        state.save_probe_result(&result)?;
+                        storage.finish("persist probe sample", state.save_probe_result(&result))?;
                     }
                     Ok((spec, None)) => { running.remove(&spec.id); }
                     Err(error) if error.is_cancelled() => {}
@@ -113,12 +124,11 @@ async fn sample_loop(
             _ = tick.tick() => {
                 let (configuration, clock_offset_ms) = {
                     let state = state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
-                    (state.get_json::<(i64, Vec<ProbeSpec>)>("probes:configuration")?,
+                    (leased_configuration(&state)?,
                         state.get_json::<i64>("clock_offset_ms")?.unwrap_or(0))
                 };
                 let panel_now = panel_now_millis(clock_offset_ms).div_euclid(1000);
-                let specs = configuration.filter(|(fetched, _)| !retirement.requested() && *fetched > now_timestamp() - 86400)
-                    .map(|(_, specs)| specs).unwrap_or_default();
+                let specs = if retirement.requested() { Vec::new() } else { configuration };
                 running.retain(|_, (spec, task)| {
                     let keep = specs.iter().any(|current| current.runnable_at(panel_now) && current == spec);
                     if !keep { task.abort(); }
@@ -148,7 +158,11 @@ async fn sample_loop(
     }
 }
 
-async fn upload(state: &SharedState, client: &PanelClient) -> Result<()> {
+async fn upload(
+    state: &SharedState,
+    client: &PanelClient,
+    storage: &mut crate::state::StorageRetry,
+) -> Result<()> {
     let results = state
         .lock()
         .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
@@ -168,11 +182,34 @@ async fn upload(state: &SharedState, client: &PanelClient) -> Result<()> {
                 .all(|id| batch.results.iter().any(|v| v.id == *id)),
         "invalid probe acknowledgment"
     );
-    state
+    let mut state = state
         .lock()
-        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-        .acknowledge_probes(&ack.ids)?;
+        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+    storage.finish(
+        "persist probe acknowledgment",
+        state.acknowledge_probes(&ack.ids),
+    )?;
     Ok(())
+}
+
+fn leased_configuration(state: &crate::State) -> Result<Vec<ProbeSpec>> {
+    let now = now_timestamp();
+    let panel_now =
+        panel_now_millis(state.get_json::<i64>("clock_offset_ms")?.unwrap_or(0)).div_euclid(1000);
+    Ok(state
+        .get_json::<(i64, Vec<ProbeSpec>)>("probes:configuration")?
+        .filter(|(fetched, specs)| {
+            *fetched <= now
+                && now.saturating_sub(*fetched) < CONFIGURATION_LEASE_SECS
+                && specs.len() <= 32
+        })
+        .map(|(_, specs)| {
+            specs
+                .into_iter()
+                .filter(|spec| spec.runnable_at(panel_now))
+                .collect()
+        })
+        .unwrap_or_default())
 }
 
 fn panel_now_millis(clock_offset_ms: i64) -> i64 {
@@ -188,6 +225,7 @@ async fn sample(spec: &ProbeSpec, ops: &dyn Privileged, clock_offset_ms: i64) ->
         loss_percent: 100.0,
         error: None,
         address_family: None,
+        attempts: None,
     };
     let deadline = spec
         .monitor
@@ -210,6 +248,7 @@ async fn sample(spec: &ProbeSpec, ops: &dyn Privileged, clock_offset_ms: i64) ->
         .and_then(|result| result)
     {
         Ok(measurement) => {
+            result.attempts = Some(4);
             result.loss_percent = f64::from(4 - measurement.received) * 25.0;
             result.latency_ms = measurement.latency_ms;
         }
@@ -256,23 +295,20 @@ async fn measure(
     match spec.kind {
         ProbeKind::Tcp => {
             let mut times = Vec::new();
+            let mut last_error = None;
             for _ in 0..4 {
                 ensure!(
                     spec.runnable_at(panel_now_millis(clock_offset_ms).div_euclid(1000)),
                     "probe authorization expired"
                 );
                 let started = Instant::now();
-                if matches!(
-                    timeout(Duration::from_secs(1), TcpStream::connect(address)).await,
-                    Ok(Ok(_))
-                ) {
-                    times.push(started.elapsed().as_secs_f64() * 1000.0);
+                match timeout(Duration::from_secs(1), TcpStream::connect(address)).await {
+                    Ok(Ok(_)) => times.push(started.elapsed().as_secs_f64() * 1000.0),
+                    Ok(Err(error)) => last_error = Some(format!("TCP connection failed: {error}")),
+                    Err(_) => last_error = Some("TCP connection timed out after 1 second".into()),
                 }
             }
-            ensure!(
-                !times.is_empty(),
-                "all four TCP connection attempts failed or timed out"
-            );
+            result.error = last_error.map(|error| error.chars().take(256).collect());
             Ok(icmp::Measurement {
                 received: times.len() as u32,
                 latency_ms: (!times.is_empty())
@@ -293,6 +329,7 @@ async fn measure(
 fn authorize_fixture(spec: &mut ProbeSpec) {
     let identity = spec.identity();
     spec.monitor = Some(sinan_protocol::ProbeMonitor {
+        network: sinan_protocol::ProbeNetwork::Other,
         region: String::new(),
         address_family: sinan_protocol::ProbeAddressFamily::Any,
         authorization: Some(sinan_protocol::ProbeAuthorization {
@@ -346,6 +383,18 @@ mod tests {
         let failed = sample(&spec, &crate::system::SystemOps, 0).await;
         assert_eq!(failed.loss_percent, 100.0);
         assert_eq!(failed.latency_ms, None);
+        assert_eq!(failed.attempts, Some(4));
+        assert_eq!(
+            failed.address_family,
+            Some(sinan_protocol::ProbeAddressFamily::Ipv4)
+        );
+        assert!(
+            failed
+                .error
+                .as_deref()
+                .is_some_and(|reason| reason.contains("TCP connection failed")
+                    || reason.contains("TCP connection timed out after 1 second"))
+        );
         Ok(())
     }
     #[tokio::test]
@@ -366,6 +415,52 @@ mod tests {
         let result = sample(&spec, &crate::system::SystemOps, 0).await;
         assert!(result.error.is_some());
         assert_eq!(result.latency_ms, None);
+    }
+    #[tokio::test]
+    async fn selected_ipv6_records_the_actual_family_and_rejects_wrong_family() -> Result<()> {
+        let listener = tokio::net::TcpListener::bind("[::1]:0").await?;
+        let mut spec: ProbeSpec = serde_json::from_value(
+            serde_json::json!({"id":Uuid::new_v4(),"name":"TEST_ONLY owned IPv6 listener","kind":"tcp","target":"::1","port":listener.local_addr()?.port(),"interval_secs":10,"carrier":"","enabled":true}),
+        )?;
+        authorize_fixture(&mut spec);
+        spec.monitor.as_mut().unwrap().address_family = sinan_protocol::ProbeAddressFamily::Ipv6;
+        let identity = spec.identity();
+        spec.monitor
+            .as_mut()
+            .unwrap()
+            .authorization
+            .as_mut()
+            .unwrap()
+            .identity = identity;
+        let measured = sample(&spec, &crate::system::SystemOps, 0).await;
+        assert_eq!(
+            measured.address_family,
+            Some(sinan_protocol::ProbeAddressFamily::Ipv6)
+        );
+        assert_eq!(measured.attempts, Some(4));
+        assert_eq!(measured.loss_percent, 0.0);
+        assert!(measured.latency_ms.is_some());
+        assert_eq!(measured.error, None);
+        spec.monitor.as_mut().unwrap().address_family = sinan_protocol::ProbeAddressFamily::Ipv4;
+        let identity = spec.identity();
+        spec.monitor
+            .as_mut()
+            .unwrap()
+            .authorization
+            .as_mut()
+            .unwrap()
+            .identity = identity;
+        let denied = sample(&spec, &crate::system::SystemOps, 0).await;
+        assert_eq!(denied.address_family, None);
+        assert_eq!(denied.attempts, None);
+        assert_eq!(denied.latency_ms, None);
+        assert!(
+            denied
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("no authorized-family unicast address"))
+        );
+        Ok(())
     }
     #[tokio::test]
     async fn ipv6_only_permission_never_connects_to_ipv4_listener() -> Result<()> {

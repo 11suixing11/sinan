@@ -38,7 +38,8 @@ fn command(platform: &str, address: IpAddr) -> Result<(&'static str, Vec<String>
         // Quiet mode can hide local send failures while still counting them as transmitted.
         "linux" => &["ping", "-n", "-c", "4", "-W", "1", "-w", "6"],
         "freebsd" => &["ping", "-n", "-c", "4", "-W", "1000", "-t", "6"],
-        "macos" if address.is_ipv6() => &["ping6", "-n", "-c", "4", "-X", "6"],
+        // Apple's ping6 has no deadline flag; the bounded executor enforces it.
+        "macos" if address.is_ipv6() => &["ping6", "-n", "-c", "4"],
         "macos" => &["ping", "-n", "-c", "4", "-W", "1000", "-t", "6"],
         _ => anyhow::bail!("ICMP is not supported on this platform"),
     };
@@ -301,10 +302,17 @@ mod tests {
                     assert_eq!(args[0], "LC_ALL=C");
                     assert_eq!(args.last().unwrap(), address);
                     assert!(!args.contains(&"-q".into()));
-                    assert!(args.contains(&"6".into()));
                     if platform == "macos" && address == "::1" {
-                        assert!(args.contains(&"-X".into()));
-                        assert!(!args.contains(&"-W".into()));
+                        assert_eq!(args[2], "ping6");
+                        assert_eq!(&args[3..5], ["-n", "-c"]);
+                        assert_eq!(args[5], "4");
+                        // BSD -w/-W/-t select node information queries or a
+                        // temporary source address, never a transfer deadline.
+                        for unrelated in ["-X", "-w", "-W", "-t"] {
+                            assert!(!args.contains(&unrelated.into()));
+                        }
+                    } else {
+                        assert!(args.contains(&"6".into()));
                     }
                 }
             }

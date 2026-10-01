@@ -163,6 +163,7 @@ async fn probes_preserve_missing_latency_deduplicate_and_acknowledge_deleted_tar
         loss_percent: 100.0,
         address_family: None,
         error: None,
+        attempts: None,
     };
     let endpoint = format!("{}/api/agent/v1/probe-results", panel.base);
     for _ in 0..2 {
@@ -263,6 +264,7 @@ async fn probe_destination_is_immutable_and_metadata_edits_preserve_offline_hist
         loss_percent: 0.0,
         address_family: None,
         error: None,
+        attempts: None,
     };
     let endpoint = format!("{}/api/agent/v1/probe-results", panel.base);
     panel
@@ -433,6 +435,7 @@ async fn probe_display_is_authenticated_target_bounded_and_preserves_full_day_hi
                 loss_percent: if index == 0 { 100.0 } else { 0.0 },
                 address_family: None,
                 error: (index == 1).then(|| "ICMP tool unavailable".into()),
+                attempts: None,
             })
         })
         .collect();

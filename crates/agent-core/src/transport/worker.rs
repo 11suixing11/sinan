@@ -1,5 +1,5 @@
 use super::Runtime;
-use crate::{artifacts::PanelClient, reconcile::Reconciler};
+use crate::{artifacts::PanelClient, reconcile::Reconciler, state::StorageRetry};
 use anyhow::Result;
 use sinan_protocol::{ApplyResult, ApplyStatus, Envelope};
 use std::{sync::Arc, time::Duration};
@@ -20,6 +20,7 @@ pub(super) async fn run(
     poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     sample.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut reported = sinan_protocol::AppliedRevisions::new();
+    let mut cleanup_storage = StorageRetry::default();
     loop {
         tokio::select! {
             _ = operations.tick(), if !reconcilers.is_empty() => {
@@ -55,7 +56,10 @@ pub(super) async fn run(
                         tracing::warn!(%module, %error, "usage sampling failed");
                     }
                 }
-                runtime.state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?.cleanup_acknowledged()?;
+                {
+                    let mut state = runtime.state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+                    cleanup_storage.finish("clean acknowledged state", state.cleanup_acknowledged())?;
+                }
                 continue;
             }
         }

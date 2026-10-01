@@ -106,23 +106,24 @@ try {
     await tcp.getByLabel('目标端口').fill('8443')
     await tcp.getByLabel('拨测间隔（秒）').fill('45')
     await tcp.getByLabel('线路备注').fill('测试线路')
+    await tcp.getByLabel('目标授权依据').selectOption('owned')
     await tcp.getByLabel('授权来源').fill('TEST_ONLY-owned-server')
-    await tcp.getByLabel('授权范围').fill('TCP 8443，每45秒')
-    await tcp.getByLabel('确认有权按上述范围检测此目标').check()
+    await tcp.getByLabel('授权适用范围').fill('TCP 8443，每45秒')
+    await tcp.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).check()
     for (const [label, changed, original, select] of [
       ['目标地址', 'other.example.com', 'probe.example.com', false],
       ['目标端口', '9443', '8443', false],
       ['检测方式', 'icmp', 'tcp', true],
-      ['地址家族', 'ipv6', 'any', true],
+      ['网络版本', 'ipv6', 'auto', true],
     ]) {
       const field = tcp.getByLabel(label)
       await (select ? field.selectOption(changed) : field.fill(changed))
-      assert.equal(await tcp.getByLabel('确认有权按上述范围检测此目标').isChecked(), false, `${label} must invalidate previous consent`)
+      assert.equal(await tcp.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).isChecked(), false, `${label} must invalidate previous consent`)
       await (select ? field.selectOption(original) : field.fill(original))
-      assert.equal(await tcp.getByLabel('确认有权按上述范围检测此目标').isChecked(), false, 'Returning to the original target never silently restores consent')
+      assert.equal(await tcp.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).isChecked(), false, 'Returning to the original target never silently restores consent')
       await dialog.getByRole('button', { name: '创建并继续' }).click()
       assert.equal(creates.length, 0, 'A fresh manual confirmation is required before posting the server')
-      await tcp.getByLabel('确认有权按上述范围检测此目标').check()
+      await tcp.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).check()
     }
     await dialog.getByRole('button', { name: '添加目标' }).click()
     const icmp = dialog.getByRole('group', { name: '拨测目标 2', exact: true })
@@ -130,10 +131,11 @@ try {
     assert.equal(await icmp.getByLabel('目标端口').count(), 0)
     await icmp.getByLabel('拨测名称').fill('本地回显')
     await icmp.getByLabel('目标地址').fill('::1')
-    await icmp.getByLabel('地址家族').selectOption('ipv6')
+    await icmp.getByLabel('网络版本').selectOption('ipv6')
+    await icmp.getByLabel('目标授权依据').selectOption('owned')
     await icmp.getByLabel('授权来源').fill('TEST_ONLY-owned-loopback')
-    await icmp.getByLabel('授权范围').fill('ICMP，自有IPv6回环')
-    await icmp.getByLabel('确认有权按上述范围检测此目标').check()
+    await icmp.getByLabel('授权适用范围').fill('ICMP，自有IPv6回环')
+    await icmp.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).check()
     await dialog.getByRole('button', { name: '添加目标' }).click()
     await dialog.getByRole('button', { name: '移除目标 3' }).click()
     assert.equal(await dialog.getByRole('group', { name: /拨测目标/ }).count(), 2)

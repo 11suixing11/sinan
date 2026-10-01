@@ -146,7 +146,7 @@ for tool in $TOOLS; do
   command -v "$tool" >/dev/null || { echo "系统软件源未提供所需工具: $tool" >&2; exit 1; }
 done
 fi
-cat > "$STAGING/bootstrap.py" <<'SINAN_BOOTSTRAP_0225530EE492EC59DF55A1A0E8C0D92B4A60164E1E46E4D901A4A6A794C98631'
+cat > "$STAGING/bootstrap.py" <<'SINAN_BOOTSTRAP_F69BB64E472FA6B6EA39BB927AA05B240DAEFF065A67225A7A4B424697BE7F08'
 #!/usr/bin/env python3
 """Trusted, operator-provisioned bootstrap; never fetched from the panel and executed."""
 
@@ -431,6 +431,12 @@ def select_artifact(metadata, version, actual, requested="auto"):
     ensure(metadata["tag"] == "agent-v" + version, "签名发布版本与所选版本不匹配")
     if not metadata["protocol_min"] <= PROTOCOL_VERSION <= metadata["protocol_max"]:
         raise IncompatibleRelease("签名 Agent 发布不支持此接入入口的协议版本")
+    # This minimum is the registered installation line, not evidence that an
+    # arbitrary newer executable implements it. All signed payload and native
+    # verify-installed/verify-cache checks remain mandatory after selection.
+    core = version.split("-")[0].split("+")[0]
+    if tuple(int(part) for part in core.split(".")) < (0, 3, 0):
+        raise IncompatibleRelease("历史 Agent 不支持当前标准安装与服务合同：0.1/0.2 原制品缺少所需的验签、缓存预检或 supervisor；补签元数据不能补齐命令，原身份和状态未修改")
     for target in compatible_targets(actual, requested):
         matches = [item for item in metadata["artifacts"] if
                    (item["name"], item["version"], item["arch"]) == ("agent", version, target)]
@@ -702,7 +708,7 @@ if __name__ == "__main__":
         main()
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise SystemExit(f"Bootstrap refused: {error}") from error
-SINAN_BOOTSTRAP_0225530EE492EC59DF55A1A0E8C0D92B4A60164E1E46E4D901A4A6A794C98631
+SINAN_BOOTSTRAP_F69BB64E472FA6B6EA39BB927AA05B240DAEFF065A67225A7A4B424697BE7F08
 
 cat > "$STAGING/legacy_agent_checkpoint.py" <<'SINAN_BOOTSTRAP_3787069DD3526732BC6A95C780003451986974D878DB9DFA33BDE240E46770DB'
 #!/usr/bin/env python3
@@ -983,7 +989,7 @@ if __name__ == "__main__":
         raise SystemExit("Legacy Agent refused: 旧状态路径无法安全读取，安装未切换") from None
 SINAN_BOOTSTRAP_3787069DD3526732BC6A95C780003451986974D878DB9DFA33BDE240E46770DB
 
-cat > "$STAGING/release.py" <<'SINAN_BOOTSTRAP_9CE5C3B80D40A0B6B62F1FB1AB5B45667826DD854DCCAA4E257F7F148074610D'
+cat > "$STAGING/release.py" <<'SINAN_BOOTSTRAP_46F91695DB2ED5EDDE57C19517049D30A42C4A64C1F099DA0C7CAD719374B0C1'
 #!/usr/bin/env python3
 """Build canonical release manifests and verify complete offline-signed bundles."""
 
@@ -1137,6 +1143,16 @@ def assemble(args):
                 auxiliary = {name: {"sha256": digest(content), "size": len(content)}
                              for name, content in files.items() if name != binary_name}
                 entry["auxiliary_files"] = auxiliary
+            if name == "nodequality" and version == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
+                from nodequality_rootfs_artifact import archive_files, validate_files
+                files = archive_files(data)
+                validate_files(files, version, arch)
+                auxiliary = {name: {"sha256": digest(content), "size": len(content)}
+                             for name, content in files.items() if name != binary_name}
+                entry["auxiliary_files"] = auxiliary
+            if name == "nodequality" and version == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21":
+                from nodequality_node_query_artifact import archive_files, validate_files
+                validate_files(archive_files(data), version, arch)
             binary = binary_bytes(data, archive_format, binary_name, auxiliary)
             entry.update(archive_size=len(data), binary_sha256=digest(binary),
                          binary_size=len(binary), asset_name=asset_name(entry))
@@ -1309,6 +1325,18 @@ def validate_manifest(bundle, expected_tag=None, protocol_version=1):
                    and re.fullmatch(re.escape(TOOL_VERSION) + r"-[0-9a-f]{40}-r1", entry["version"])
                    and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
                    "wrong or incomplete native TCP artifact identity")
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
+            from nodequality_rootfs_artifact import BINARY, FILES
+            ensure(entry["format"] == "tar.gz" and entry["binary_name"] == BINARY
+                   and entry["arch"] in ("amd64", "arm64")
+                   and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
+                   "wrong or incomplete offline NodeQuality artifact identity")
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21":
+            from nodequality_node_query_artifact import BINARY
+            ensure(entry["format"] == "tar.gz" and entry["binary_name"] == BINARY
+                   and entry["arch"] in ("amd64", "arm64")
+                   and not entry.get("auxiliary_files", {}),
+                   "wrong official node-query artifact identity")
         if entry["name"] == "agent":
             binary_name = "sinan-agent.exe" if entry["arch"].startswith("windows-") else "sinan-agent"
             ensure(metadata["tag"] == "agent-v" + entry["version"] and entry["format"] == "raw"
@@ -1334,6 +1362,12 @@ def verify_bundle(bundle, roots, minisign, expected_tag=None, exact_assets=True)
         ensure(len(binary) == entry["binary_size"] and digest(binary) == entry["binary_sha256"], "binary mismatch")
         if entry["name"] == "tcpquality":
             from tcp_probe_artifact import archive_files, validate_files
+            validate_files(archive_files(data), entry["version"], entry["arch"])
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
+            from nodequality_rootfs_artifact import archive_files, validate_files
+            validate_files(archive_files(data), entry["version"], entry["arch"])
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21":
+            from nodequality_node_query_artifact import archive_files, validate_files
             validate_files(archive_files(data), entry["version"], entry["arch"])
     if exact_assets:
         ensure({p.name for p in bundle.iterdir()} == expected_files, "missing or extra release assets")
@@ -1375,7 +1409,7 @@ if __name__ == "__main__":
         main()
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise SystemExit(f"Release verification failed: {error}") from error
-SINAN_BOOTSTRAP_9CE5C3B80D40A0B6B62F1FB1AB5B45667826DD854DCCAA4E257F7F148074610D
+SINAN_BOOTSTRAP_46F91695DB2ED5EDDE57C19517049D30A42C4A64C1F099DA0C7CAD719374B0C1
 
 cat > "$STAGING/tcp_probe_artifact.py" <<'SINAN_BOOTSTRAP_7C9C790035F22EC0554D1B922A5B960571792B991659DDFBF9C0A8E337C0BD0A'
 """Validate the complete, pinned native TCP artifact without executing it."""

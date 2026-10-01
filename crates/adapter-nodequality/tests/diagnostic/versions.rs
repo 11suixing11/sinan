@@ -23,7 +23,26 @@ const R8: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r8";
 #[tokio::test]
 async fn saved_full_jobs_are_not_prepared_but_keep_each_report_version() {
     for version in [
-        R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, VERSION,
+        R2,
+        R3,
+        R4,
+        R5,
+        R6,
+        R7,
+        R8,
+        R9,
+        R10,
+        R11,
+        R12,
+        R13,
+        R14,
+        R15,
+        R16,
+        R17,
+        R18,
+        VERSION,
+        sinan_adapter_nodequality::OFFLINE_ROOTFS_VERSION,
+        sinan_adapter_nodequality::NODE_QUERY_VERSION,
     ] {
         let scratch = Scratch::new();
         let mut spec = scratch.spec();
@@ -48,9 +67,26 @@ async fn saved_full_jobs_are_not_prepared_but_keep_each_report_version() {
 }
 
 #[tokio::test]
-async fn r4_through_r19_daily_jobs_keep_mode_targets_budget_and_saved_chapters() {
+async fn r4_through_r21_daily_jobs_keep_mode_targets_budget_and_saved_chapters() {
     for version in [
-        R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, VERSION,
+        R4,
+        R5,
+        R6,
+        R7,
+        R8,
+        R9,
+        R10,
+        R11,
+        R12,
+        R13,
+        R14,
+        R15,
+        R16,
+        R17,
+        R18,
+        VERSION,
+        sinan_adapter_nodequality::OFFLINE_ROOTFS_VERSION,
+        sinan_adapter_nodequality::NODE_QUERY_VERSION,
     ] {
         let scratch = Scratch::new();
         let mut spec = scratch.spec();
@@ -132,4 +168,68 @@ async fn saved_r4_job_rejects_a_different_artifact_version() {
             .is_err()
     );
     assert!(!spec.job_dir.join("daily-targets.json").exists());
+}
+
+#[tokio::test]
+async fn official_node_queries_require_exact_version_and_private_bounded_inputs() {
+    use sinan_adapter_nodequality::{NODE_QUERY_VERSION, OFFLINE_ROOTFS_VERSION};
+    let scratch = Scratch::new();
+    let mut spec = scratch.spec();
+    spec.version = NODE_QUERY_VERSION.into();
+    spec.timeout_secs = 90;
+    spec.options = BTreeMap::from([
+        ("mode".into(), "ip".into()),
+        ("node_ips".into(), r#"["8.8.8.8"]"#.into()),
+    ]);
+    let privileged = FakePrivileged {
+        artifact_version: Some(NODE_QUERY_VERSION.into()),
+        ..Default::default()
+    };
+    let adapter = NodeQualityAdapter::new();
+    let job = adapter.prepare(&spec, &privileged).await.unwrap();
+    assert_eq!(job.memory_max.get(), 64 * 1024 * 1024);
+    assert_eq!(job.tasks_max.get(), 32);
+    assert!(
+        job.args
+            .windows(2)
+            .any(|args| args == ["--job-id", &spec.id])
+    );
+    assert_eq!(
+        std::fs::read_to_string(spec.job_dir.join("node-ips.json")).unwrap(),
+        spec.options["node_ips"]
+    );
+    for (key, value) in [
+        ("node_ips", "[]"),
+        ("node_ips", r#"["127.0.0.1"]"#),
+        ("node_ips", r#"["8.8.8.8","8.8.8.8"]"#),
+        ("node_ips", r#"["2001:db8::1"]"#),
+        ("node_ips", r#"["2001:2::1"]"#),
+        ("node_ips", r#"["3fff::1"]"#),
+        ("node_ips", r#"["3fff:fff:ffff:ffff:ffff:ffff:ffff:ffff"]"#),
+        ("node_ips", r#"["192.88.99.1"]"#),
+        ("network_mode", "normal"),
+        ("upload_report", "true"),
+        ("daily_targets", "[]"),
+    ] {
+        let mut invalid = spec.clone();
+        invalid.options.insert(key.into(), value.into());
+        assert!(adapter.prepare(&invalid, &privileged).await.is_err());
+    }
+    for version in [VERSION, OFFLINE_ROOTFS_VERSION] {
+        let mut invalid = spec.clone();
+        invalid.version = version.into();
+        assert!(adapter.prepare(&invalid, &privileged).await.is_err());
+    }
+    let mut unbounded = spec.clone();
+    unbounded.timeout_secs = 91;
+    assert!(adapter.prepare(&unbounded, &privileged).await.is_err());
+    assert!(
+        adapter
+            .auxiliary_files_for_version(NODE_QUERY_VERSION)
+            .is_empty()
+    );
+    assert_eq!(
+        adapter.auxiliary_files_for_version(OFFLINE_ROOTFS_VERSION),
+        ["rootfs.tar.gz", "rootfs-manifest.json"]
+    );
 }
