@@ -2,7 +2,7 @@
 
 集成源码的统一交付入口为 [PR #151](https://github.com/theLucius7/sinan/pull/151)；服务器与插件业务主流程、各项证据及尚未签收范围见 [交付索引](integrated-delivery.md)。
 
-2026-10-03 最新收尾：最后一份功能提交 `5adda2d` 已推送；784 份功能输入及 19 份 dist 摘要保持。Debian12 ARM64 受限离线构建、原生 Agent／面板核对、TEST_ONLY 签名／新 Agent 验签及自有单元清理完成，见[本次记录](remote-native-build.md)。原 1GiB 编译单元 OOM、目录准备权限失败、[独立 VM 两次磁盘保护停止](registered-native-preparation.md)及未知项均保留。仅编译预算明确改为4GiB，产品诊断预算和管理预留不降；AMD64、可安装的正式签名包、当前七场景注册日常／三设备托管矩阵及服务器插件安装仍待。下表的待验条件、完整入口门禁与 CI 暂停保持，交付源码不代表生产环境已切换。
+2026-10-03 作者 `fb3845b` 的准备收尾（对应其 `864767c` / `5adda2d` 原冻结输入；不认证本聊天 `053f9c33` 与 25 个 dist）：最后一份功能提交 `5adda2d` 已推送；784 份功能输入及 19 份 dist 摘要保持。Debian12 ARM64 受限离线构建、原生 Agent／面板核对、TEST_ONLY 签名／新 Agent 验签及自有单元清理完成，见[本次记录](remote-native-build.md)。原 1GiB 编译单元 OOM、目录准备权限失败、[独立 VM 两次磁盘保护停止](registered-native-preparation.md)及未知项均保留。仅编译预算明确改为4GiB，产品诊断预算和管理预留不降；AMD64、可安装的正式签名包、当前七场景注册日常／三设备托管矩阵及服务器插件安装仍待。下表的待验条件、完整入口门禁与 CI 暂停保持，交付源码不代表生产环境已切换。
 
 本机历史 inert fixture 的 26 个报告采集器残留已独立记录为 [Issue #152](https://github.com/theLucius7/sinan/issues/152)；运行所有权和异常收尾整改的实现及集中验收边界见 [watcher 生命周期](nodequality-watcher-lifecycle.md)。旧“无残留”结果只对应其原始受验环境，不能替代本次父 KILL／异常路径。
 
