@@ -1942,3 +1942,13 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 本地 Bun 75 通过、1476 断言；TS/Vite、core 边界、fmt、Agent core 全 targets Clippy 通过。core 全 targets 270 通过、8 条件忽略；含 13 项磁盘测试。首次受沙箱影响的运行失败及之后授权重跑分开记录，没有复用此前全工作区通过数字。
 - 实际 dist 的 dashboard、server-display、server-assets、display-data、telemetry-settings、monitoring、server-operations 七套隔离浏览器回归通过，覆盖桌面/手机、真实零值/不可用、历史/目标授权、隐藏/公开切换、取消与超时及后台汇率错误。末轮缓存修复后只重跑相关 Bun/build/display-data，不声称七套最终同时重跑。截图已目视核对；细节见[本轮验证](docs/acceptance/dashboard-nodeflare-refresh.md)。
 - 未运行远端 CI、整个 Rust 工作区/PostgreSQL、实机部署或真实通知/汇率提供方请求；8 项条件测试未执行。自动续期修复已具备；NodeFlare 的流量重置时区仍未移植，本轮不更改现有 UTC 账本边界。下一步为提交审查，正式部署与跨平台实机能力单独验证。
+
+
+## 2026-10-03 PR #151 最终主线兼容与集中本地验证
+
+- 普通保留作者至 `98ad8c14` 和 main `4839752c`；旧 0001–0039 迁移、数值 API/版本/凭据与主线 Passkey、DDNS、看板全部保留，新 0040–0045 和 ADR 0061–0074 分别登记。具体契约与证据边界见 [集中验收记录](docs/acceptance/pr151-main-compatibility.md)。
+- 冻结 `053f9c33` 完整 Rust/PostgreSQL 新执行 100 metadata 目标、80 批：993/0/23；fmt/core/全targets Clippy通过。umask077、真实mac双栈回环ICMP、实际面板/PG虚拟WebAuthn各1另列，不改变default23忽略。失败旧轮990/2/23、992/1/23与零执行Clippy原记录保留。
+- 前端Bun138/2128 expect、双强制TSVite、25dist逐字；当前44 Chromium为首43完整通过加display-data整套补验，私有API范围。实际compiled debug-embed同25资产GET/HEAD通过，非正式发布构建。
+- Python70完整suite覆盖883完整方法成功、106方法skip、1父方法含10子例skip，另1classskip，1464子例成功；3 GNU Bash重复38方法/73子例单列。失败suite partial/空事件退出0均不认证；逐suite输入与实际收据映射。正式账户、Linux设备与WindowsPS未新增签收。
+- 节点DELETE正常复用共享退役清理；有界引用详情与损坏身份拒绝保持。watcher/Bash/复制FD和时钟修复只调整各自实际夹具或外部验证环境，产品预算及full门禁不降。自己的PG55432和HTTP已停。
+- 四源码CI仍暂停，取消/未执行不算通过；不正式签署发布部署，不以本地结果关闭实机/权利/公网根因issue。后续 #155 的高级设置与刷新集成另用其实际冻结输入验证，不能用这里的993或44套认证新源码。
