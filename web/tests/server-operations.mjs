@@ -25,7 +25,8 @@ try {
     const context = await browser.newContext({ viewport: { width, height: 1000 } })
     const page = await context.newPage(), errors = [], writes = []
     page.on('pageerror', error => errors.push(error.message))
-    let signedIn = false, publicDashboard = true
+    let signedIn = false, publicDashboard = true, rejectLogin = false
+    const sessions = []
     const settings = { public_dashboard: true, offline_alerts: true, offline_minutes: 5, telegram_enabled: false, telegram_chat_id: '', telegram_token_configured: true }
     const now = Date.now(), second = Math.floor(now / 1000)
     const asset = { region: 'JP', group_name: '主力', tags: [], hidden: false, offline_notify: true, agent_mirror: '', price: '12.00', currency: 'CNY', billing_cycle: 30, expires_at: second + 86400, auto_renewal: false, traffic_limit: '1000000', traffic_limit_type: 'sum', reset_day: 1, network_interface: '' }
@@ -35,7 +36,13 @@ try {
       const request = route.request(), path = new URL(request.url()).pathname, method = request.method()
       const respond = (json, status = 200) => route.fulfill({ status, json })
       if (path === '/api/dashboard/access') return respond({ authenticated: signedIn, public_dashboard: publicDashboard })
-      if (path === '/api/login') { signedIn = true; return respond({}) }
+      if (path === '/api/login') {
+        sessions.push({ path, body: request.postDataJSON() })
+        if (rejectLogin) return respond({ error: '测试登录失败' }, 401)
+        signedIn = true
+        return respond({})
+      }
+      if (path === '/api/logout') { signedIn = false; sessions.push({ path }); return respond({}) }
       if (method !== 'GET') writes.push({ path, body: request.postDataJSON() })
       if (path.startsWith('/api/dashboard/') && !signedIn && !publicDashboard) return respond({ error: '请先登录' }, 401)
       if (path === '/api/dashboard/exchange-rates') return respond({base:'CNY',rates:{CNY:1},rate_dates:{},rate_date:null,fetched_at:null,stale:true,status:'unavailable'})
@@ -73,10 +80,19 @@ try {
     await page.getByRole('button', { name: '刷新服务器详情' }).click()
     await page.getByRole('heading', { name: '欢迎回来' }).waitFor()
     assert.equal(await page.locator('.d-detail').count(), 0)
-    signedIn = true
     await page.goto(`${origin}/#/system/settings`)
-    await page.reload()
+    await page.getByRole('heading', { name: '欢迎回来' }).waitFor()
+    assert.equal(await page.locator('.sidebar').count(), 0)
+    rejectLogin = true
+    await page.getByLabel('管理员密码', { exact: true }).fill('TEST_ONLY')
+    await page.getByLabel(/^二步验证码/).fill('123456')
+    await page.getByRole('button', { name: '登录面板' }).click()
+    await page.getByText('密码或验证码不正确、已过期或已使用，请重新输入。', { exact: true }).waitFor()
+    assert.equal(await page.locator('.sidebar').count(), 0)
+    rejectLogin = false
+    await page.getByRole('button', { name: '登录面板' }).click()
     await page.getByRole('heading', { name: '看板与通知', exact: true }).waitFor()
+    assert.deepEqual(sessions.slice(0, 2), [0, 1].map(() => ({ path: '/api/login', body: { password: 'TEST_ONLY', totp_code: '123456' } })))
     await page.getByRole('switch', { name: /^公开服务器看板/ }).uncheck()
     await page.getByLabel('离线告警阈值（分钟）', { exact: false }).fill('8')
     if (screenshots) await page.screenshot({ path: resolve(screenshots, `operations-settings-${width}.png`), fullPage: true, animations: 'disabled' })
@@ -112,8 +128,16 @@ try {
     await page.getByRole('link', { name: '告警通知', exact: true }).click()
     await page.getByText('持续离线', { exact: true }).waitFor()
     await page.getByText('模拟网络失败', { exact: true }).waitFor()
+    await page.getByRole('button', { name: /退出登录/ }).click()
+    await page.getByRole('heading', { name: '欢迎回来' }).waitFor()
+    assert.equal(await page.locator('.sidebar').count(), 0)
+    assert.equal(sessions.filter(session => session.path === '/api/logout').length, 1)
+    await page.getByLabel('管理员密码', { exact: true }).fill('TEST_ONLY')
+    await page.getByRole('button', { name: '登录面板' }).click()
+    await page.getByText('持续离线', { exact: true }).waitFor()
+    assert.equal(await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '告警通知', exact: true }).getAttribute('aria-current'), 'page')
     assert.deepEqual(errors, [])
-    results.push({ width, publicAccess: 'passed', revocation: 'passed', settings: 'passed', operations: 'passed' })
+    results.push({ width, publicAccess: 'passed', revocation: 'passed', sessions: 'passed', settings: 'passed', operations: 'passed' })
     await context.close()
   }
   console.log(JSON.stringify(results))
