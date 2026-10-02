@@ -68,6 +68,16 @@ try {
     assert.equal(await page.getByText('另一台服务器', { exact: false }).count(), 0)
     await page.getByRole('button', { name: '启用 DDNS 插件', exact: true }).click()
     await page.getByRole('button', { name: '添加规则' }).click()
+    const providerForm = page.getByRole('dialog')
+    for (const provider of ['tencent', 'aliyun', 'huawei']) {
+      await providerForm.getByLabel('DNS 提供方').selectOption(provider)
+      assert.equal(await providerForm.getByLabel('访问密钥 Secret').count(), 1)
+      await providerForm.getByLabel('访问密钥 ID').fill('TEST_ONLY_CLOUD_ID')
+      await providerForm.getByLabel('访问密钥 Secret').fill('TEST_ONLY_CLOUD_SECRET')
+      assert.equal(await providerForm.getByLabel('启用 Cloudflare 代理').count(), 0)
+    }
+    await providerForm.getByLabel('DNS 提供方').selectOption('cloudflare')
+    assert.equal(await providerForm.getByLabel('访问密钥 Secret').count(), 0)
     const dialog = page.getByRole('dialog')
     await dialog.getByLabel('规则名称', { exact: true }).fill('家庭 IPv6')
     await dialog.getByLabel('完整域名', { exact: false }).fill('node.example.com')
@@ -150,7 +160,7 @@ try {
     assert.equal(await page.getByRole('button', { name: '立即同步', exact: true }).isDisabled(), true)
     assert.equal(await page.getByRole('button', { name: '启用', exact: true }).isDisabled(), true, 'A disabled server plugin cannot re-enable its rule')
     await page.getByRole('button', { name: '删除', exact: true }).click()
-    await dialog.getByText(/Cloudflare 中的 DNS 记录会保留/).waitFor()
+    await dialog.getByText(/云服务中的 DNS 记录会保留/).waitFor()
     await dialog.getByRole('button', { name: '确认删除' }).click()
     await page.getByRole('heading', { name: '尚未配置动态解析' }).waitFor()
     const hiddenReads = reads.length

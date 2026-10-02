@@ -18,3 +18,11 @@ describe('DDNS credentials and status', () => {
     expect(ddnsMessage('rate_limited')).toContain('重试')
   })
 })
+
+test('cloud provider credentials are sent only as a pair and stale Cloudflare tokens are omitted', () => {
+  const config: DdnsConfig = { provider: 'tencent', line: '0', name: '测试', server_id: 1, zone_id: 'example.com', record_name: 'node.example.com', record_type: 'A', ttl: 600, proxied: false, interval_secs: 300, enabled: false, adopt_existing: false }
+  const write = ddnsWrite(config, 'TEST_ONLY_OLD_CF_TOKEN', 2, ' TEST_ONLY_ID ', ' TEST_ONLY_SECRET ')
+  expect(write).toEqual({ config, revision: 2, access_key_id: 'TEST_ONLY_ID', access_key_secret: 'TEST_ONLY_SECRET' })
+  expect(ddnsWrite(config, '', 3)).toEqual({ config, revision: 3 })
+  expect(ddnsMessage('submitted')).toContain('等待')
+})

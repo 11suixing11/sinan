@@ -23,8 +23,9 @@ import { dashboardRoute } from './display/dashboard'
 
 const ServerDisplay = lazy(() => import('./display/ServerDisplay'))
 const Ddns = lazy(() => import('./plugins/ddns/Ddns'))
+const Alicloud = lazy(() => import('./plugins/alicloud/Alicloud'))
 
-const navigation = [{ path: '/statistics', label: '统计仪表盘', icon: 'activity', group: '概览' }, { path: '/dashboard', label: '服务器看板', icon: 'activity', group: '服务器' }, { path: '/servers', label: '服务器', icon: 'server', group: '服务器' }, { path: '/latency', label: '延迟检测', icon: 'activity', group: '服务器' }, { path: '/plugins/ddns', label: '动态域名解析', icon: 'nodes', group: 'DDNS 插件' }, { path: '/plugins/sing-box/nodes', label: '代理节点', icon: 'nodes', group: 'sing-box 插件' }, { path: '/plugins/sing-box/users', label: '代理用户', icon: 'users', group: 'sing-box 插件' }, { path: '/plugins/sing-box/groups', label: '策略与套餐', icon: 'nodes', group: 'sing-box 插件' }, { path: '/plugins/catalog', label: '插件目录', icon: 'box', group: '系统' }, { path: '/system/plugins', label: '服务器插件', icon: 'server', group: '系统' }, { path: '/system/settings', label: '看板与通知', icon: 'activity', group: '系统' }, { path: '/system/notifications', label: '告警通知', icon: 'activity', group: '系统' }, { path: '/system/administrator', label: '系统管理员', icon: 'lock', group: '系统' }]
+const navigation = [{ path: '/statistics', label: '统计仪表盘', icon: 'activity', group: '概览' }, { path: '/dashboard', label: '服务器看板', icon: 'activity', group: '服务器' }, { path: '/servers', label: '服务器', icon: 'server', group: '服务器' }, { path: '/latency', label: '延迟检测', icon: 'activity', group: '服务器' }, { path: '/plugins/alicloud', label: '阿里云 CDT', icon: 'activity', group: '云服务插件' }, { path: '/plugins/ddns', label: '动态域名解析', icon: 'nodes', group: 'DDNS 插件' }, { path: '/plugins/sing-box/nodes', label: '代理节点', icon: 'nodes', group: 'sing-box 插件' }, { path: '/plugins/sing-box/users', label: '代理用户', icon: 'users', group: 'sing-box 插件' }, { path: '/plugins/sing-box/groups', label: '策略与套餐', icon: 'nodes', group: 'sing-box 插件' }, { path: '/plugins/catalog', label: '插件目录', icon: 'box', group: '系统' }, { path: '/system/plugins', label: '服务器插件', icon: 'server', group: '系统' }, { path: '/system/settings', label: '看板与通知', icon: 'activity', group: '系统' }, { path: '/system/notifications', label: '告警通知', icon: 'activity', group: '系统' }, { path: '/system/administrator', label: '系统管理员', icon: 'lock', group: '系统' }]
 function Login({ onLogin, notice }: { onLogin: () => void; notice: string }) {
   const action = useAction()
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -78,6 +79,7 @@ export default function App() {
     : path === '/servers' || path === '/' ? <Servers />
       : path === '/statistics' ? <Statistics />
       : path === '/latency' ? <LatencyTasks />
+      : path === '/plugins/alicloud' ? <Suspense fallback={<Loading />}><Alicloud /></Suspense>
       : path === '/plugins/ddns' ? <Suspense fallback={<Loading />}><Ddns /></Suspense>
       : nodePage || proxyResource ? <Nodes key={nodePage?.serverId ?? (nodePage?.chains ? 'node-chains' : 'all-nodes')} serverId={nodePage?.serverId} chainsOnly={nodePage?.chains} selected={proxyResource ?? undefined} />
         : path === '/plugins/sing-box/users' ? <ProxyUsers />

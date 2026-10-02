@@ -50,8 +50,8 @@ export default function PluginCatalog() {
   const catalog = pluginCatalog(resource.data ?? [])
   const unavailable = !!resource.error || !resource.data
   return <>
-    <PageHeader eyebrow="服务器扩展" title="插件目录" description="了解每个插件的用途，再选择要使用它的服务器。同一插件的不同版本与架构集中展示。"><Refresh onClick={resource.reload} /></PageHeader>
-    <div className="notice quiet-notice"><Icon name="server" size={19} /><div><strong>按服务器启用插件，执行位置见插件说明</strong><p>设备插件由 Agent 下载、校验和执行；面板插件使用已上报的数据处理任务。下载包已验证，不代表服务器已安装或已就绪。</p></div></div>
+    <PageHeader eyebrow="服务器扩展" title="插件目录" description="了解每个插件的用途，再进入账号或服务器管理。同一插件的不同版本与架构集中展示。"><Refresh onClick={resource.reload} /></PageHeader>
+    <div className="notice quiet-notice"><Icon name="server" size={19} /><div><strong>按插件说明管理云账号或服务器</strong><p>设备插件由 Agent 下载、校验和执行；面板插件使用已上报的数据处理任务。下载包已验证，不代表服务器已安装或已就绪。</p></div></div>
     <ErrorNotice message={resource.error} retry={resource.reload} />
     {resource.loading && !resource.data && <Loading />}
     <div className="catalog-grid" aria-label="插件目录">
@@ -61,7 +61,7 @@ export default function PluginCatalog() {
           {!!plugin.architectures.length && <div className="catalog-architectures"><span>已收录架构</span>{plugin.architectures.map(arch => <Badge key={arch}>{arch}</Badge>)}</div>}
           {plugin.execution === 'panel' ? <p className="catalog-package-note">随面板提供，无需设备下载包。</p> : <Packages item={plugin} unavailable={unavailable} />}
         </div>
-        <div className="catalog-actions"><span>执行位置：{plugin.execution === 'panel' ? '面板' : '服务器 Agent'}</span><button className="button button-secondary" onClick={() => setSelected(plugin)}>选择服务器<Icon name="arrow" size={15} /></button></div>
+        <div className="catalog-actions"><span>执行位置：{plugin.execution === 'panel' ? '面板' : '服务器 Agent'}</span><button className="button button-secondary" onClick={() => plugin.panelPath ? navigate(plugin.panelPath) : setSelected(plugin)}>{plugin.panelPath ? '进入云服务管理' : '选择服务器'}<Icon name="arrow" size={15} /></button></div>
       </article>)}
     </div>
     <section className="panel catalog-agent" aria-label="基础组件"><div className="panel-heading"><h2>服务器 Agent</h2><Badge>基础组件，不是插件</Badge></div><div className="panel-body"><p className="catalog-description">采集服务器状态，接收面板配置，并管理服务器上的插件。接入或升级请在具体服务器页面操作。</p><Packages item={catalog.agent} unavailable={unavailable} /><a className="text-button" href="#/servers">管理服务器接入 <Icon name="arrow" size={15} /></a></div></section>

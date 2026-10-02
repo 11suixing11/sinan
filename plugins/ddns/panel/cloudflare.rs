@@ -11,26 +11,14 @@ use std::{
 
 const RESPONSE_LIMIT: usize = 256 * 1024;
 
-#[derive(Clone, Copy, Debug)]
-pub(super) struct Failure {
-    pub code: &'static str,
-    pub retry_after: i64,
-}
-
-impl From<&'static str> for Failure {
-    fn from(code: &'static str) -> Self {
-        Self {
-            code,
-            retry_after: 0,
-        }
-    }
-}
+pub(super) use crate::plugins::cloud_api::Failure;
 
 pub(super) struct Cloudflare {
     client: Client,
     base: Url,
 }
 
+#[derive(Debug)]
 pub(super) struct Outcome {
     pub record_id: String,
     pub status: &'static str,
@@ -148,11 +136,6 @@ impl Cloudflare {
             return Err("provider_rejected".into());
         }
         Ok(envelope)
-    }
-
-    #[cfg(test)]
-    pub async fn reconcile(&self, rule: &Rule, ip: IpAddr) -> Result<Outcome, Failure> {
-        self.reconcile_guarded(rule, ip, || async { Ok(()) }).await
     }
 
     pub async fn reconcile_guarded<G, Check, Checked>(

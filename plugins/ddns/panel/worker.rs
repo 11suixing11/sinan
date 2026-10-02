@@ -1,8 +1,9 @@
 use super::{
     LEASE_SECS, REQUEST_BUDGET,
-    cloudflare::{Cloudflare, Failure, Outcome},
+    cloudflare::{Failure, Outcome},
     load,
     model::{self, Rule},
+    providers::Providers,
 };
 use crate::error::{ApiError, ApiResult};
 use futures_util::{StreamExt, stream};
@@ -73,6 +74,10 @@ pub(super) async fn complete(
 ) -> ApiResult<()> {
     let now = sinan_protocol::now_timestamp();
     match result {
+        Ok((_, outcome)) if outcome.status == "submitted" => {
+            sqlx::query("UPDATE ddns_rules SET record_id=$3,status='submitted',error_code=NULL,failures=0,lease_id=NULL,lease_until=0,next_run_at=$4 WHERE id=$1 AND lease_id=$2 AND revision=$5")
+                .bind(rule.id).bind(lease).bind(outcome.record_id).bind(now+60).bind(rule.revision).execute(pool).await?;
+        }
         Ok((ip, outcome)) => {
             sqlx::query("UPDATE ddns_rules SET record_id=$3,last_ip=$4,last_success_at=$5,status=$6,error_code=NULL,failures=0,lease_id=NULL,lease_until=0,next_run_at=$7 WHERE id=$1 AND lease_id=$2 AND revision=$8")
                 .bind(rule.id).bind(lease).bind(outcome.record_id).bind(ip.to_string()).bind(now).bind(outcome.status).bind(now+i64::from(rule.config.interval_secs)).bind(rule.revision).execute(pool).await?;
@@ -86,6 +91,7 @@ pub(super) async fn complete(
                     | "no_public_ip"
                     | "address_changed"
                     | "plugin_disabled"
+                    | "provider_pending"
             );
             let failures = if waiting {
                 0
@@ -152,7 +158,7 @@ pub(super) async fn sync_with(
     pool: &PgPool,
     id: Uuid,
     force: bool,
-    provider: &Cloudflare,
+    provider: &Providers,
 ) -> ApiResult<()> {
     let Some((lease, rule)) = claim(pool, id, force).await? else {
         return Ok(());
@@ -179,7 +185,7 @@ pub(super) async fn sync_with(
 }
 
 pub(super) async fn sync(pool: &PgPool, id: Uuid, force: bool) -> ApiResult<()> {
-    let provider = Cloudflare::new()
+    let provider = Providers::new()
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("DDNS client initialization failed")))?;
     sync_with(pool, id, force, &provider).await
 }

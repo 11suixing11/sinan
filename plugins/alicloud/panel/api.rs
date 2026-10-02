@@ -1,0 +1,399 @@
+use super::{
+    account_on,
+    client::Cloud,
+    failure, lock,
+    model::{self, Account, Operation, Resource, Target},
+    operations, resource,
+};
+use crate::{
+    AppState, auth,
+    error::{ApiError, ApiResult},
+};
+use axum::{
+    Json, Router,
+    extract::{Path, State},
+    http::{HeaderMap, StatusCode},
+    routing::{get, patch, post},
+};
+use serde::Deserialize;
+use serde_json::{Value, json};
+use uuid::Uuid;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/api/plugins/alicloud", get(list))
+        .route("/api/plugins/alicloud/accounts", post(create_account))
+        .route(
+            "/api/plugins/alicloud/accounts/{id}",
+            patch(update_account).delete(remove_account),
+        )
+        .route(
+            "/api/plugins/alicloud/accounts/{id}/refresh",
+            post(refresh_account),
+        )
+        .route("/api/plugins/alicloud/resources", post(create_resource))
+        .route(
+            "/api/plugins/alicloud/resources/{id}",
+            patch(update_resource).delete(remove_resource),
+        )
+        .route(
+            "/api/plugins/alicloud/resources/{id}/refresh",
+            post(refresh_resource),
+        )
+        .route(
+            "/api/plugins/alicloud/resources/{id}/preview",
+            post(preview),
+        )
+        .route(
+            "/api/plugins/alicloud/operations/{id}/confirm",
+            post(confirm),
+        )
+        .route("/api/plugins/alicloud/operations/{id}/cancel", post(cancel))
+        .route(
+            "/api/plugins/alicloud/operations/{id}/dismiss",
+            post(dismiss),
+        )
+}
+async fn list(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    auth::require_admin(&state, &headers).await?;
+    let accounts: Vec<Account> =
+        sqlx::query_as("SELECT * FROM alicloud_accounts WHERE NOT archived ORDER BY name,id")
+            .fetch_all(&state.pool)
+            .await?;
+    let resources: Vec<Resource> =
+        sqlx::query_as("SELECT * FROM alicloud_resources WHERE NOT archived ORDER BY name,id")
+            .fetch_all(&state.pool)
+            .await?;
+    let operations: Vec<Operation> = sqlx::query_as("SELECT * FROM alicloud_operations ORDER BY (status IN ('queued','running','uncertain')) DESC,created_at DESC,id LIMIT 100").fetch_all(&state.pool).await?;
+    Ok(Json(
+        json!({"accounts":accounts,"resources":resources,"operations":operations}),
+    ))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AccountWrite {
+    name: String,
+    site: String,
+    enabled: bool,
+    auto_enabled: bool,
+    limit_gb: i64,
+    access_key_id: Option<String>,
+    access_key_secret: Option<String>,
+    revision: Option<i64>,
+}
+impl AccountWrite {
+    fn validate(&self) -> ApiResult<()> {
+        model::label(&self.name)?;
+        if !matches!(self.site.as_str(), "china" | "international")
+            || !(1..=1_000_000_000).contains(&self.limit_gb)
+        {
+            return Err(ApiError::BadRequest(
+                "请选择账号站点，并填写 1–1000000000 GB 的自动降速阈值".into(),
+            ));
+        }
+        Ok(())
+    }
+    fn credentials(&self, previous: Option<&Account>) -> ApiResult<(String, String)> {
+        let key = self.access_key_id.as_deref().unwrap_or("").trim();
+        let secret = self.access_key_secret.as_deref().unwrap_or("").trim();
+        if key.is_empty() && secret.is_empty() {
+            if let Some(account) = previous {
+                return Ok((
+                    account.access_key_id.clone(),
+                    account.access_key_secret.clone(),
+                ));
+            }
+        } else if crate::plugins::cloud_api::credential(key)
+            && crate::plugins::cloud_api::credential(secret)
+        {
+            return Ok((key.into(), secret.into()));
+        }
+        Err(ApiError::BadRequest(
+            "请同时填写有效的访问密钥 ID 和 Secret；编辑时同时留空保留".into(),
+        ))
+    }
+}
+async fn create_account(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(input): Json<AccountWrite>,
+) -> ApiResult<(StatusCode, Json<Value>)> {
+    auth::require_admin(&state, &headers).await?;
+    input.validate()?;
+    let (key, secret) = input.credentials(None)?;
+    let id = Uuid::new_v4();
+    let mut tx = state.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(739104831)")
+        .execute(&mut *tx)
+        .await?;
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM alicloud_accounts WHERE NOT archived")
+            .fetch_one(&mut *tx)
+            .await?;
+    if count >= 8 {
+        return Err(ApiError::Conflict("最多登记 8 个云账号".into()));
+    }
+    sqlx::query("INSERT INTO alicloud_accounts(id,name,site,access_key_id,access_key_secret,enabled,auto_enabled,limit_gb) VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
+        .bind(id).bind(input.name.trim()).bind(input.site).bind(key).bind(secret).bind(input.enabled).bind(input.auto_enabled).bind(input.limit_gb).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok((StatusCode::CREATED, Json(json!({"id":id}))))
+}
+async fn update_account(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(input): Json<AccountWrite>,
+) -> ApiResult<StatusCode> {
+    auth::require_admin(&state, &headers).await?;
+    input.validate()?;
+    let mut tx = lock(&state.pool, id).await?;
+    let previous = account_on(&mut tx, id).await?;
+    if input.revision != Some(previous.revision) {
+        return Err(ApiError::Conflict("账号配置已变化，请刷新后重试".into()));
+    }
+    let (key, secret) = input.credentials(Some(&previous))?;
+    // Any edit invalidates queued authorization and cached billing evidence.
+    sqlx::query("UPDATE alicloud_accounts SET name=$2,site=$3,access_key_id=$4,access_key_secret=$5,enabled=$6,auto_enabled=$7,limit_gb=$8,revision=revision+1,bill=NULL,traffic=NULL,traffic_error=NULL,error_code=NULL,next_run_at=0 WHERE id=$1")
+        .bind(id).bind(input.name.trim()).bind(input.site).bind(key).bind(secret).bind(input.enabled).bind(input.auto_enabled).bind(input.limit_gb).execute(&mut *tx).await?;
+    sqlx::query("UPDATE alicloud_operations SET status='cancelled',updated_at=$2 WHERE resource_id IN (SELECT id FROM alicloud_resources WHERE account_id=$1) AND status IN ('preview','queued')")
+        .bind(id).bind(sinan_protocol::now_timestamp()).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn remove_account(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> ApiResult<StatusCode> {
+    auth::require_admin(&state, &headers).await?;
+    let mut tx = lock(&state.pool, id).await?;
+    account_on(&mut tx, id).await?;
+    let has_resources: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM alicloud_resources WHERE account_id=$1 AND NOT archived)",
+    )
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if has_resources {
+        return Err(ApiError::Conflict("请先移除该账号登记的云资源".into()));
+    }
+    sqlx::query("UPDATE alicloud_accounts SET archived=true,enabled=false,auto_enabled=false,access_key_id='',access_key_secret='',bill=NULL,traffic=NULL WHERE id=$1").bind(id).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn refresh_account(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> ApiResult<StatusCode> {
+    auth::require_admin(&state, &headers).await?;
+    let mut tx = lock(&state.pool, id).await?;
+    let account = account_on(&mut tx, id).await?;
+    if !account.enabled {
+        return Err(ApiError::Conflict("请先启用云账号".into()));
+    }
+    let last: i64 = sqlx::query_scalar("SELECT last_attempt_at FROM alicloud_accounts WHERE id=$1")
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+    let now = sinan_protocol::now_timestamp();
+    if last + 60 > now
+        || (account.error_code.as_deref() == Some("rate_limited") && account.next_run_at > now)
+    {
+        return Err(ApiError::Busy);
+    }
+    sqlx::query("UPDATE alicloud_accounts SET next_run_at=0 WHERE id=$1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResourceWrite {
+    account_id: Uuid,
+    name: String,
+    kind: String,
+    region: String,
+    cloud_id: String,
+    auto_enabled: bool,
+    cap_mbps: i64,
+    revision: Option<i64>,
+}
+impl ResourceWrite {
+    fn validate(&self) -> ApiResult<()> {
+        model::label(&self.name)?;
+        if !matches!(self.kind.as_str(), "ecs" | "eip")
+            || !model::identifier(&self.region, "")
+            || !model::identifier(
+                &self.cloud_id,
+                if self.kind == "ecs" { "i-" } else { "eip-" },
+            )
+            || !(1..=100).contains(&self.cap_mbps)
+        {
+            return Err(ApiError::BadRequest(
+                "请填写有效的资源类型、地域、资源标识，以及 1–100 Mbps 的自动降速目标".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+async fn create_resource(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(input): Json<ResourceWrite>,
+) -> ApiResult<(StatusCode, Json<Value>)> {
+    auth::require_admin(&state, &headers).await?;
+    input.validate()?;
+    let mut tx = lock(&state.pool, input.account_id).await?;
+    account_on(&mut tx, input.account_id).await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(739104832)")
+        .execute(&mut *tx)
+        .await?;
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM alicloud_resources WHERE NOT archived")
+            .fetch_one(&mut *tx)
+            .await?;
+    if count >= 32 {
+        return Err(ApiError::Conflict("最多登记 32 个云资源".into()));
+    }
+    let id = Uuid::new_v4();
+    let result=sqlx::query("INSERT INTO alicloud_resources(id,account_id,name,kind,region,cloud_id,auto_enabled,cap_mbps) VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
+        .bind(id).bind(input.account_id).bind(input.name.trim()).bind(input.kind).bind(input.region).bind(input.cloud_id).bind(input.auto_enabled).bind(input.cap_mbps).execute(&mut *tx).await;
+    if result.as_ref().is_err_and(|e| {
+        e.as_database_error()
+            .is_some_and(|e| e.is_unique_violation())
+    }) {
+        return Err(ApiError::Conflict(
+            "该地域和资源已登记，请勿用多个账号重复管理".into(),
+        ));
+    }
+    result?;
+    sqlx::query("UPDATE alicloud_accounts SET next_run_at=0 WHERE id=$1")
+        .bind(input.account_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok((StatusCode::CREATED, Json(json!({"id":id}))))
+}
+async fn update_resource(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(input): Json<ResourceWrite>,
+) -> ApiResult<StatusCode> {
+    auth::require_admin(&state, &headers).await?;
+    input.validate()?;
+    let initial = resource(&state.pool, id).await?;
+    let mut tx = lock(&state.pool, initial.account_id).await?;
+    let current: Resource =
+        sqlx::query_as("SELECT * FROM alicloud_resources WHERE id=$1 AND NOT archived")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+    if Some(current.revision) != input.revision
+        || input.account_id != current.account_id
+        || input.kind != current.kind
+        || input.region != current.region
+        || input.cloud_id != current.cloud_id
+    {
+        return Err(ApiError::Conflict(
+            "配置已变化，或尝试修改固定的账号、类型、地域和资源标识；请刷新或另行登记".into(),
+        ));
+    }
+    sqlx::query("UPDATE alicloud_resources SET name=$2,auto_enabled=$3,cap_mbps=$4,revision=revision+1 WHERE id=$1").bind(id).bind(input.name.trim()).bind(input.auto_enabled).bind(input.cap_mbps).execute(&mut *tx).await?;
+    sqlx::query("UPDATE alicloud_operations SET status='cancelled',updated_at=$2 WHERE resource_id=$1 AND status IN ('preview','queued')").bind(id).bind(sinan_protocol::now_timestamp()).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn remove_resource(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> ApiResult<StatusCode> {
+    auth::require_admin(&state, &headers).await?;
+    let resource = resource(&state.pool, id).await?;
+    let mut tx = lock(&state.pool, resource.account_id).await?;
+    operations::idle(&mut tx, id).await?;
+    sqlx::query("UPDATE alicloud_resources SET archived=true,auto_enabled=false,revision=revision+1 WHERE id=$1").bind(id).execute(&mut *tx).await?;
+    sqlx::query("UPDATE alicloud_operations SET status='cancelled',updated_at=$2 WHERE resource_id=$1 AND status='preview'").bind(id).bind(sinan_protocol::now_timestamp()).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn refresh_resource(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<model::Snapshot>> {
+    auth::require_admin(&state, &headers).await?;
+    let resource = resource(&state.pool, id).await?;
+    let mut tx = lock(&state.pool, resource.account_id).await?;
+    let account = account_on(&mut tx, resource.account_id).await?;
+    if !account.enabled {
+        return Err(ApiError::Conflict("请先启用云账号".into()));
+    }
+    let snapshot = Cloud::new()
+        .map_err(failure)?
+        .snapshot(&account, &resource)
+        .await
+        .map_err(failure)?;
+    operations::snapshot_on(&mut tx, id, &snapshot).await?;
+    tx.commit().await?;
+    Ok(Json(snapshot))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Preview {
+    target: Target,
+    revision: i64,
+}
+async fn preview(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(input): Json<Preview>,
+) -> ApiResult<Json<Operation>> {
+    auth::require_admin(&state, &headers).await?;
+    Ok(Json(
+        operations::preview(
+            &state.pool,
+            id,
+            input.target,
+            input.revision,
+            &Cloud::new().map_err(failure)?,
+        )
+        .await?,
+    ))
+}
+async fn confirm(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> ApiResult<(StatusCode, Json<Operation>)> {
+    auth::require_admin(&state, &headers).await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(operations::confirm(&state.pool, id).await?),
+    ))
+}
+async fn cancel(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> ApiResult<StatusCode> {
+    auth::require_admin(&state, &headers).await?;
+    operations::cancel(&state.pool, id, false).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn dismiss(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> ApiResult<StatusCode> {
+    auth::require_admin(&state, &headers).await?;
+    operations::cancel(&state.pool, id, true).await?;
+    Ok(StatusCode::NO_CONTENT)
+}

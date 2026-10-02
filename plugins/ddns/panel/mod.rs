@@ -1,6 +1,7 @@
 mod api;
 mod cloudflare;
 mod model;
+mod providers;
 mod settings;
 #[cfg(test)]
 mod tests;

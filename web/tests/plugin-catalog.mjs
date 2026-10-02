@@ -88,7 +88,7 @@ try {
     await page.getByRole('button', { name: '启用 DDNS 插件', exact: true }).waitFor()
     assert.deepEqual(mutations, [])
     await openCatalog('/artifacts')
-    assert.equal(await cards.count(), 4)
+    assert.equal(await cards.count(), 5)
     assert.equal(await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '插件目录' }).getAttribute('aria-current'), 'page')
     assert.equal(await page.title(), '插件目录 · 司南')
     assert.equal(await page.getByRole('link', { name: '制品', exact: true }).count(), 0)
@@ -124,7 +124,7 @@ try {
     inventory = []
     await page.getByRole('button', { name: '刷新', exact: true }).click()
     await page.getByText('暂无下载包', { exact: true }).first().waitFor()
-    assert.equal(await cards.count(), 4)
+    assert.equal(await cards.count(), 5)
     assert.equal(await page.locator('[data-catalog-plugin="ddns"]').getByText('面板插件', { exact: true }).count(), 1)
     assert.equal(await cards.locator('summary').count(), 0)
     inventory = packages

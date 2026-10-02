@@ -257,3 +257,140 @@ async fn only_new_static_reports_are_fresh_and_missing_public_ip_never_contacts_
     );
     Ok(())
 }
+
+#[sqlx::test]
+async fn multicloud_credentials_are_write_only_rotated_together_and_default_lines_are_unique(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool.clone()).await?;
+    let cookie = panel.admin_cookie().await?;
+    let server = panel.create_server(&cookie, "TEST_ONLY multicloud").await?;
+    panel
+        .admin(
+            Method::POST,
+            &format!("/api/plugins/ddns/servers/{server}/enable"),
+            &cookie,
+            None,
+        )
+        .await?
+        .error_for_status()?;
+    for provider in ["tencent", "aliyun", "huawei"] {
+        let mut body = input(server);
+        body.as_object_mut().unwrap().remove("api_token");
+        body["config"]["provider"] = provider.into();
+        body["access_key_id"] = "TEST_ONLY_ACCESS_ID".into();
+        body["access_key_secret"] = "TEST_ONLY_ACCESS_SECRET".into();
+        if provider != "huawei" {
+            body["config"]["zone_id"] = "example.com".into();
+        }
+        let response = panel
+            .admin(
+                Method::POST,
+                "/api/plugins/ddns/rules",
+                &cookie,
+                Some(body.clone()),
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let rule: Value = response.json().await?;
+        assert!(!rule.to_string().contains("TEST_ONLY_ACCESS"));
+        assert!(!rule.to_string().contains("access_key"));
+        assert_eq!(
+            rule["config"]["line"],
+            match provider {
+                "tencent" => "0",
+                "aliyun" => "default",
+                _ => "",
+            }
+        );
+        assert_eq!(
+            panel
+                .admin(Method::POST, "/api/plugins/ddns/rules", &cookie, Some(body))
+                .await?
+                .status(),
+            StatusCode::CONFLICT
+        );
+        let path = format!("/api/plugins/ddns/rules/{}", rule["id"].as_str().unwrap());
+        let mut edit =
+            json!({"config":rule["config"],"revision":1,"access_key_id":"TEST_ONLY_NEW_ID"});
+        assert_eq!(
+            panel
+                .admin(Method::PATCH, &path, &cookie, Some(edit.clone()))
+                .await?
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+        edit["access_key_secret"] = "TEST_ONLY_NEW_SECRET".into();
+        let updated: Value = panel
+            .admin(Method::PATCH, &path, &cookie, Some(edit))
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        assert_eq!(updated["revision"], 2);
+        assert!(!updated.to_string().contains("TEST_ONLY_NEW"));
+        let edit = json!({"config":updated["config"],"revision":2});
+        panel
+            .admin(Method::PATCH, &path, &cookie, Some(edit))
+            .await?
+            .error_for_status()?;
+    }
+    assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM ddns_rules WHERE access_key_secret='TEST_ONLY_NEW_SECRET' AND api_token=''").fetch_one(&pool).await?,3);
+    Ok(())
+}
+
+#[sqlx::test(migrations = false)]
+async fn upgrade_keeps_cloudflare_tokens_history_and_all_original_migration_checksums(
+    pool: PgPool,
+) -> Result<()> {
+    use sqlx::migrate::Migrator;
+    use std::borrow::Cow;
+    use uuid::Uuid;
+    let migrations = sqlx::migrate!();
+    let previous = Migrator {
+        migrations: Cow::Owned(
+            migrations
+                .iter()
+                .filter(|m| m.version <= 35)
+                .cloned()
+                .collect(),
+        ),
+        ..Migrator::DEFAULT
+    };
+    previous.run(&pool).await?;
+    let server: i64 =
+        sqlx::query_scalar("INSERT INTO servers(name) VALUES('TEST_ONLY old DDNS') RETURNING id")
+            .fetch_one(&pool)
+            .await?;
+    let config = input(server)["config"].clone();
+    let id = Uuid::new_v4();
+    sqlx::query("INSERT INTO ddns_rules(id,server_id,config,api_token,record_id,last_ip,last_success_at) VALUES($1,$2,$3,$4,'record2','192.0.2.1',123)").bind(id).bind(server).bind(&config).bind(TOKEN).execute(&pool).await?;
+    let before: Vec<(i64, Vec<u8>)> =
+        sqlx::query_as("SELECT version,checksum FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(&pool)
+            .await?;
+    migrations.run(&pool).await?;
+    migrations.run(&pool).await?;
+    let after:(Value,String,String,String,i64,String,String)=sqlx::query_as("SELECT config,api_token,record_id,last_ip,last_success_at,access_key_id,access_key_secret FROM ddns_rules WHERE id=$1").bind(id).fetch_one(&pool).await?;
+    assert_eq!(
+        after,
+        (
+            config,
+            TOKEN.into(),
+            "record2".into(),
+            "192.0.2.1".into(),
+            123,
+            String::new(),
+            String::new()
+        )
+    );
+    assert_eq!(
+        sqlx::query_as::<_, (i64, Vec<u8>)>(
+            "SELECT version,checksum FROM _sqlx_migrations WHERE version<=35 ORDER BY version"
+        )
+        .fetch_all(&pool)
+        .await?,
+        before
+    );
+    Ok(())
+}
