@@ -93,6 +93,8 @@
 - [真实注册 Agent 的日常诊断故障矩阵](registered-nodequality-daily.md)
 - [共用诊断任务服务验收](shared-diagnostic-service.md)
 
+- [作者原生制品交接及提交收尾](native-artifact-handoff.md)
+
 ## 原生 TCP 与制品发布
 
 - [原生 TCP 固定源码与签名制品：独立验收](native-tcp-artifacts.md)
