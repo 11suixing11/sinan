@@ -1,6 +1,8 @@
 # 执行进度
 
-## PR151 主线整合检查点
+## PR151 历史整合检查点（整合初期，当时未验）
+
+本段保存当时状态；最新本聊天冻结输入及结果见[集中本地验证](docs/acceptance/pr151-main-compatibility.md)。
 
 基线为主线 `666b79c` 与作者 `10f5f3c`。本聊天正在集中合并实现，尚未执行此输入的统一验证。保留数字 ID 订阅来源及 mixed 路径历史，新 UUID 节点／ordered 路径使用独立接口和追加迁移；既有正式制品版本、full 门禁、CI 暂停及实机待验范围保持。下面的作者旧验证只认证其各自冻结输入。
 
@@ -35,7 +37,14 @@
 - 当前 Vite 仍提示主 JavaScript 包超过 500 kB，本轮未把结构整理扩大为性能拆包。CI 继续暂停；未进行生产迁移、真实云操作、发布或实机能力签收。下一步按整理后的目录推进后续功能，真实环境验证仍遵循原验收门禁。
 
 <!-- 以下保留 PR151 作者分支的历史进度及其冻结验证边界；不计作本聊天整合验证。 -->
-## 2026-10-03：独立 Debian 12 原生准备尝试及收尾
+## 2026-10-03：ARM64 原生制品准备完成及集成收尾
+
+- 继续同一集成 PR151，先集中完成私有受限构建编排再冻结。封存源码来自864767c，最后功能提交5adda2d；784功能输入含19 dist与当前分支逐项相同，SHA256仍504880b192ff8ee705774fbe80e8d3c5e52a651c896c124771a214ffb582a623。使用已有Debian12 ARM64共享构建主机，不运行硬件诊断、注册设备或修改生产业务；不冒称专用测试节点。
+- 原1GiB单元离线编译进入面板后OOM，所属journal明确oom-kill，清理及最终inactive/not-found确认。仅构建MemoryMax明确调整到4GiB，所有产品诊断预算与宿主4GiB磁盘/2GiB可用内存管理预留保持。fresh-r2目录准备权限失败及4096B空目录保留；只修该阶段固定sudo编排与新目录归属，在fresh-r3重新认证原始归档，不复用展开源码/旧target。新目录6GiB、两数据目录9GiB独立守卫不降。
+- 统一补验结果：控制语法/九份输入传输认证完成；普通账户、无网络、CPU100%/零swap/128tasks/900秒限额实际读回，ARM64原生Agent与面板离线构建退出0，ELF/glibc/Agent版本、固定sing-box1.14.2及TEST_ONLY签名/新Agent验签通过。准备用时304秒，正式发布拒绝测试根；installer为inert测试资产，不安装服务器插件。原始收据/日志/签名/二进制保留，自有构建单元清理及另一次只读inactive/not-found确认。Linux ARM64缓存充分性现有实际证明，完整锁仍缺七份Windows payload，AMD64未认证。
+- 见[本次记录](docs/acceptance/remote-native-build.md)及[机器摘要](docs/acceptance/evidence/remote-native-build.json)。先前VM两次磁盘拒绝/正常停机保留；未变Rust/前端测试不重复。交付索引、验收状态与PR描述统一收尾，仍只有现有PR151；四源码CI继续暂停。完整NodeQuality许可/工厂、当前注册日常/三设备托管/账本及联合故障矩阵、正式发布和服务器插件安装/生产切换仍待验，整体实机目标未签收。
+
+## 2026-10-03：独立 Debian 12 原生准备尝试及收尾（前次记录）
 
 - 私有编排集中完成、冻结后实际创建独立 Debian12 ARM64 VM（2 CPU／2560 MiB／8 GiB），无宿主挂载、代理传播、SSH agent／业务端口转发。784 功能输入含19 dist，摘要保持报告采集器受验值；固定源码、锁定 registry、工具链和 runtime 分项认证后传输。旧测试 VM 正常停止，原磁盘、缓存、失败和部分材料保留。
 - APT update/install 实际退出0并确认进程收尾，六包版本只读取证；首次原生入口通过资源准入并开始编译，随后宿主余量4,188,483,584B触发4GiB预留。guard取消连接、正常停机并确认Stopped，原target733144KiB保留；中断日志／峰值／OOM未完整取得，重启后空单元不替代原证据。
@@ -1953,3 +1962,13 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 本地 Bun 75 通过、1476 断言；TS/Vite、core 边界、fmt、Agent core 全 targets Clippy 通过。core 全 targets 270 通过、8 条件忽略；含 13 项磁盘测试。首次受沙箱影响的运行失败及之后授权重跑分开记录，没有复用此前全工作区通过数字。
 - 实际 dist 的 dashboard、server-display、server-assets、display-data、telemetry-settings、monitoring、server-operations 七套隔离浏览器回归通过，覆盖桌面/手机、真实零值/不可用、历史/目标授权、隐藏/公开切换、取消与超时及后台汇率错误。末轮缓存修复后只重跑相关 Bun/build/display-data，不声称七套最终同时重跑。截图已目视核对；细节见[本轮验证](docs/acceptance/dashboard-nodeflare-refresh.md)。
 - 未运行远端 CI、整个 Rust 工作区/PostgreSQL、实机部署或真实通知/汇率提供方请求；8 项条件测试未执行。自动续期修复已具备；NodeFlare 的流量重置时区仍未移植，本轮不更改现有 UTC 账本边界。下一步为提交审查，正式部署与跨平台实机能力单独验证。
+
+
+## 2026-10-03 PR #151 最终主线兼容与集中本地验证
+
+- 普通保留作者至 `98ad8c14` 和 main `4839752c`；旧 0001–0039 迁移、数值 API/版本/凭据与主线 Passkey、DDNS、看板全部保留，新 0040–0045 和 ADR 0061–0074 分别登记。具体契约与证据边界见 [集中验收记录](docs/acceptance/pr151-main-compatibility.md)。
+- 冻结 `053f9c33` 完整 Rust/PostgreSQL 新执行 100 metadata 目标、80 批：993/0/23；fmt/core/全targets Clippy通过。umask077、真实mac双栈回环ICMP、实际面板/PG虚拟WebAuthn各1另列，不改变default23忽略。失败旧轮990/2/23、992/1/23与零执行Clippy原记录保留。
+- 前端Bun138/2128 expect、双强制TSVite、25dist逐字；当前44 Chromium为首43完整通过加display-data整套补验，私有API范围。实际compiled debug-embed同25资产GET/HEAD通过，非正式发布构建。
+- Python70完整suite覆盖883完整方法成功、106方法skip、1父方法含10子例skip，另1classskip，1464子例成功；3 GNU Bash重复38方法/73子例单列。失败suite partial/空事件退出0均不认证；逐suite输入与实际收据映射。正式账户、Linux设备与WindowsPS未新增签收。
+- 节点DELETE正常复用共享退役清理；有界引用详情与损坏身份拒绝保持。watcher/Bash/复制FD和时钟修复只调整各自实际夹具或外部验证环境，产品预算及full门禁不降。自己的PG55432和HTTP已停。
+- 四源码CI仍暂停，取消/未执行不算通过；不正式签署发布部署，不以本地结果关闭实机/权利/公网根因issue。后续 #155 的高级设置与刷新集成另用其实际冻结输入验证，不能用这里的993或44套认证新源码。
