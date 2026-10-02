@@ -250,7 +250,7 @@ try {
     await enable(manager.locator('[data-source-id="1"]').getByRole('button', { name: '删除来源', exact: true })); await manager.locator('[data-source-id="1"]').getByRole('button', { name: '删除来源', exact: true }).click(); await dialog.getByRole('button', { name: '确认删除', exact: true }).click(); await dialog.getByRole('alert').filter({ hasText: '#7' }).waitFor()
     assert.equal(await manager.locator('[data-source-id="1"]').count(), 1)
     deleteConflict = false; await dialog.getByRole('button', { name: '确认删除', exact: true }).click(); await dialog.waitFor({ state: 'hidden' }); await manager.locator('[data-source-id="1"]').waitFor({ state: 'hidden' })
-    oldNodesFailure = false; await page.getByRole('button', { name: '刷新', exact: true }).click(); await enable(page.getByRole('button', { name: '创建两跳链路', exact: true })); await page.getByRole('button', { name: '创建两跳链路', exact: true }).click()
+    oldNodesFailure = false; await page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).click(); await enable(page.getByRole('button', { name: '创建两跳链路', exact: true })); await page.getByRole('button', { name: '创建两跳链路', exact: true }).click()
     assert.equal(await dialog.locator('[name=name]').inputValue(), '必须保留的两跳草稿')
     assert.equal(await dialog.locator('[name=exit_node_id] option').filter({ hasText: '外部示例节点' }).count(), 0)
     await dialog.getByRole('button', { name: '取消', exact: true }).click()

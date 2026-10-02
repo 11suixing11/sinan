@@ -189,6 +189,10 @@ try {
     await dialog.getByRole('button',{name:'取消',exact:true}).click()
     await page.locator('[data-resource-key="chain:102"]').getByText('失响应链路',{exact:true}).waitFor()
     await page.reload()
+    // The route still carries the earlier server=2 scope; explicitly clear it for these independent entry-server=1 scenarios.
+    await page.waitForFunction(() => document.querySelector('select[aria-label="按服务器筛选"]')?.value === '2')
+    assert.equal(await page.getByRole('combobox',{name:'按服务器筛选',exact:true}).inputValue(),'2')
+    await page.getByRole('combobox',{name:'按服务器筛选',exact:true}).selectOption('')
     // Changing a rejected draft gets a new request key; it never mutates the old request body.
     mode='reject-draft';await enabled(create);await create.click();dialog=page.getByRole('dialog')
     await dialog.locator('[name=server_id]').selectOption('1')

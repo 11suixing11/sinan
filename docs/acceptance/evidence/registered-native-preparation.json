@@ -1,0 +1,289 @@
+{
+  "attempts": [
+    {
+      "base_allocated_limit_bytes": 5368709120,
+      "budget_before": {
+        "at": 1790958947.160934,
+        "base_allocated_bytes": 1874411520,
+        "host_free_bytes": 8561852416
+      },
+      "budget_last": {
+        "at": 1790959120.370741,
+        "base_allocated_bytes": 3658817536,
+        "host_free_bytes": 4188483584
+      },
+      "cleanup": {
+        "confirmed": true,
+        "files_deleted": false,
+        "normal_stop": true,
+        "old_vm_touched": false,
+        "status": "Stopped"
+      },
+      "command_returncodes": [
+        -15,
+        0
+      ],
+      "failure_code": "host_disk_reserve_rejected",
+      "finished_at": 1790959124.885222,
+      "hard_quota": false,
+      "host_free_reserve_bytes": 4294967296,
+      "maximum_base_allocated_bytes": 3658817536,
+      "minimum_host_free_bytes": 4188483584,
+      "operation": "run",
+      "operation_id": "5bd9b06e-6cb0-41b9-bcde-07afb4db2469",
+      "receipt_identity": {
+        "sha256": "2b2d2f36468dd7a111d3a019b012648aea5a483eb7fd6255737695d7701ba819",
+        "size": 2359
+      },
+      "started_at": 1790958947.1596181,
+      "status": "failed"
+    },
+    {
+      "base_allocated_limit_bytes": 6442450944,
+      "budget_before": {
+        "at": 1790960683.48212,
+        "base_allocated_bytes": 3799334912,
+        "host_free_bytes": 6280900608
+      },
+      "budget_last": {
+        "at": 1790960741.227747,
+        "base_allocated_bytes": 4733796352,
+        "host_free_bytes": 4287057920
+      },
+      "cleanup": {
+        "confirmed": true,
+        "files_deleted": false,
+        "normal_stop": true,
+        "old_vm_touched": false,
+        "status": "Stopped"
+      },
+      "command_returncodes": [
+        -15,
+        0
+      ],
+      "failure_code": "host_disk_reserve_rejected",
+      "finished_at": 1790960744.904695,
+      "hard_quota": false,
+      "host_free_reserve_bytes": 4294967296,
+      "maximum_base_allocated_bytes": 4733796352,
+      "minimum_host_free_bytes": 4287057920,
+      "operation": "resume",
+      "operation_id": "bec790c3-927f-4000-a55f-1de74657abc4",
+      "receipt_identity": {
+        "sha256": "0eb9f10d18eb9e604bab3457624ae56f73b5b497ad2e3f631380fc8fb9c42790",
+        "size": 2368
+      },
+      "started_at": 1790960683.480973,
+      "status": "failed"
+    }
+  ],
+  "embedded_dist_files": 19,
+  "fresh_r2": {
+    "cache_source": "receipt_whitelisted_regular_cache_index_public_config_only",
+    "cargo_home_required_fresh": true,
+    "control_syntax": "passed",
+    "controls_frozen_before_transfer": true,
+    "guest_completion_receipt_collected": false,
+    "guest_completion_status": "unknown_after_host_cancellation",
+    "native_build_success": false,
+    "original_outputs_preserved": true,
+    "output_required_fresh": true,
+    "successful_original_apt_not_repeated_by_code": true,
+    "target_required_fresh": true
+  },
+  "inputs": {
+    "frozen-inputs.json": {
+      "sha256": "a89478a3b78b410c9bbcc327695d9440e5d161c1c1f55315d6e1a4cf2b45952e",
+      "size": 123195
+    },
+    "prepare-stage.py": {
+      "sha256": "f54bc8401d9a5c267fa87d85bb9b27a6994ed62aec248a8ef8b2445357153816",
+      "size": 33291
+    },
+    "readonly-native-cache.tar.gz": {
+      "sha256": "cc2e466edc7d816574d750570db9b10c1cd19c3eadfc99b8af7aa4f057d4e9c7",
+      "size": 292725099
+    },
+    "resume-native.py": {
+      "sha256": "812069045421456dedc31b3416d89cff6dd5de25f8ed32962d5560607fe950ce",
+      "size": 22394
+    },
+    "runtime": {
+      "sha256": "fee83ca8457c94449dd04aa17a51830cbc9b449a4dda290e995d3366188e0302",
+      "size": 86063568
+    },
+    "source.tar.gz": {
+      "sha256": "f0c0fc1c390ac166b756b0d5de504cc742069dc0563ffa466351c67cbd779deb",
+      "size": 2028049
+    },
+    "stage-freeze-r6.json": {
+      "sha256": "f6972b71d5959d8481ec998d60ea306756cff9f71a3536c310d062da979c578d",
+      "size": 2071
+    },
+    "stage-plan.json": {
+      "sha256": "277cb436f88884ba2d49af220be1fa220b37c2cf0b08afc4c8247070eca16717",
+      "size": 1350
+    },
+    "supplement-receipt.json": {
+      "sha256": "6327cc783352666cfde12518799cb31a55468c973617138044f72e00086d5c2b",
+      "size": 169381
+    },
+    "supplement.tar.gz": {
+      "sha256": "f815e331f364331f406a08eb2c060440dcf03d35e3ead3a2f6f144797c3db6e1",
+      "size": 13052743
+    }
+  },
+  "limitations": [
+    "Guard polling is not a filesystem hard quota; measured reserve overshoot is retained.",
+    "Normal VM shutdown does not prove diagnostic cancellation or all mount/cgroup checks.",
+    "No new native binary, signature or prepared receipt is accepted as passing.",
+    "Failed logs, old VM disks, cache and interrupted build outputs are retained."
+  ],
+  "locked_registry": {
+    "missing_index_records": [],
+    "missing_payloads": [
+      {
+        "name": "winapi",
+        "version": "0.3.9"
+      },
+      {
+        "name": "winapi-i686-pc-windows-gnu",
+        "version": "0.4.0"
+      },
+      {
+        "name": "winapi-x86_64-pc-windows-gnu",
+        "version": "0.4.0"
+      },
+      {
+        "name": "windows",
+        "version": "0.57.0"
+      },
+      {
+        "name": "windows-sys",
+        "version": "0.48.0"
+      },
+      {
+        "name": "windows-sys",
+        "version": "0.52.0"
+      },
+      {
+        "name": "windows-sys",
+        "version": "0.61.2"
+      }
+    ],
+    "native_target_cache_sufficient": "not_verified",
+    "old_expanded_sources_restored": false,
+    "old_target_reused": false,
+    "packages": 384,
+    "whole_lock_cache_complete": false
+  },
+  "original_guest_evidence": {
+    "apt_install": {
+      "cleanup_confirmed": true,
+      "cleanup_failure_type": null,
+      "failure_code": null,
+      "failure_type": null,
+      "log_bytes_total": 14179,
+      "returncode": 0
+    },
+    "apt_update": {
+      "cleanup_confirmed": true,
+      "cleanup_failure_type": null,
+      "failure_code": null,
+      "failure_type": null,
+      "log_bytes_total": 870,
+      "returncode": 0
+    },
+    "inspection_boot_id": "f196fe02-1e90-490c-bd73-8d033bd8d3d4",
+    "installed_versions": {
+      "binutils": "2.40-2",
+      "ca-certificates": "20250419~deb12u1",
+      "curl": "7.88.1-10+deb12u15",
+      "gcc": "4:12.2.0-3",
+      "libc6-dev": "2.36-9+deb12u14",
+      "minisign": "0.11-1"
+    },
+    "kernel": "6.1.0-50-cloud-arm64",
+    "native_preflight": {
+      "budgets": {
+        "build_timeout_secs": 900,
+        "disk_reserve_bytes": 1610612736,
+        "memory_reserve_bytes": 268435456,
+        "minimum_free_bytes": 4294967296
+      },
+      "capacity": {
+        "available_memory_bytes": 2197086208,
+        "output_free_bytes": 5484412928,
+        "target_free_bytes": 5484412928
+      },
+      "run_id": "7d62afa3-68e7-4bd0-baa7-f7b664447377",
+      "source_identity": {
+        "cargo_lock_sha256": "a614a0403d44c5d1ffe87d5336ecafc5b69e57e5d5e40a7336cdb4179b83c34e",
+        "file_count": 784,
+        "frozen_inputs_sha256": "a89478a3b78b410c9bbcc327695d9440e5d161c1c1f55315d6e1a4cf2b45952e",
+        "functional_sha256": "504880b192ff8ee705774fbe80e8d3c5e52a651c896c124771a214ffb582a623",
+        "head": "864767c4161379b919abc6d579b4147c1067127e"
+      },
+      "test_only": true
+    },
+    "original_boot_id": "40c0a63e-2556-4ed0-92b0-41e0269e6811",
+    "original_build_cgroup_peak_bytes": null,
+    "original_build_log_complete": false,
+    "original_build_oom_events": null,
+    "package_query_exit": 0,
+    "post_restart_build_units": "",
+    "read_only_receipt": {
+      "sha256": "cd9f2966daf70191c43da316ced4bb5369bb31cae7e563057c669b227a12219b",
+      "size": 15945
+    },
+    "retained_original_target_kib": 733144,
+    "stage_result": "stage_cancelled"
+  },
+  "outcome": {
+    "full_nodequality": "not_run",
+    "native_preparation": "incomplete_host_disk_reserve",
+    "official_release": false,
+    "production_deployed": false,
+    "registered_daily_matrix": "not_run",
+    "singbox_plugin_installed_on_server": false,
+    "source_ci": "four_workflows_disabled_manually",
+    "test_only_package_success": false,
+    "three_device_managed_matrix": "not_run"
+  },
+  "recorded_on": "2026-10-03",
+  "schema": 1,
+  "scope": "independent_debian12_native_preparation_attempt",
+  "source": {
+    "cargo_lock_sha256": "a614a0403d44c5d1ffe87d5336ecafc5b69e57e5d5e40a7336cdb4179b83c34e",
+    "file_count": 784,
+    "frozen_inputs_sha256": "a89478a3b78b410c9bbcc327695d9440e5d161c1c1f55315d6e1a4cf2b45952e",
+    "functional_sha256": "504880b192ff8ee705774fbe80e8d3c5e52a651c896c124771a214ffb582a623",
+    "head": "864767c4161379b919abc6d579b4147c1067127e"
+  },
+  "vm": {
+    "architecture": "aarch64",
+    "base_image_sha256": "89e109ffe8b1370b3bd0b59c9795b0db664cb4046fb143d6b1d1320adeaefcdf",
+    "business_port_forwarding": false,
+    "config": {
+      "sha256": "809d2fdd9e7d2140c63b5a52eb2dbca68d6376d1b894b75a62ce6b59e27fbfcb",
+      "size": 875
+    },
+    "cpus": 2,
+    "distribution": "Debian 12",
+    "final_state": "Stopped",
+    "host_mounts": false,
+    "memory_bytes": 2684354560,
+    "normal_stop_confirmed": true,
+    "old_vm": {
+      "deleted": false,
+      "name": "sinan-p0-debian12",
+      "old_materials_retained": true,
+      "resized": false,
+      "schema": 1,
+      "status": "stopped_confirmed"
+    },
+    "proxy_environment_propagation": false,
+    "root_disk_bytes": 8589934592,
+    "ssh_agent_forwarding": false
+  }
+}

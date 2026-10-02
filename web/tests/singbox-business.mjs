@@ -124,7 +124,6 @@ try {
       else if (path === '/api/servers/1/enrollment') value = { token: 'TEST_ONLY_ENROLLMENT', expires_at: now + 3600, install_command: null, warning: '夹具未导入 Agent 制品。' }
       else if (path === '/api/artifacts/agent-versions' && route.request().method() === 'GET') value = { versions: [] }
       else if (['/api/servers/1/probes', '/api/servers/1/probe-results', '/api/servers/1/commands'].includes(path)) value = []
-      else if (path === '/api/security/passkeys') value = { configuration: { enabled: false, reason: 'TEST_ONLY 未启用' }, keys: [] }
       else if (path === '/api/security/totp') value = { enabled: false }
       else if (path === '/api/security/passkeys') value = { configuration: { enabled: false, reason: 'TEST_ONLY 未启用', origin: `http://127.0.0.1:${server.address().port}` }, keys: [] }
       else if (path.endsWith('/runtime-operations')) value = { supported:false,online:false,retiring:false,operations:[] }
@@ -246,6 +245,8 @@ try {
     await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '链路', exact: true }).click()
     await page.getByRole('heading', { name: '代理节点', exact: true, level: 1 }).waitFor()
     await page.getByRole('heading', { name: /^有序链路与资源引用/, level: 2 }).waitFor()
+    // The Nodes component and these headings remain mounted across category hash changes.
+    await page.locator('nav[aria-label="节点资源类型"] a[aria-current="page"]').filter({ hasText: /^链路$/ }).waitFor()
     assert.equal(await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '链路', exact: true }).getAttribute('aria-current'), 'page')
     assert.equal(await page.locator('nav[aria-label="主导航"]').getByRole('link', { name: '两跳链路', exact: true }).count(), 0)
     const chainMutationStart = mutations.length
@@ -261,7 +262,9 @@ try {
     // The server query includes any managed segment and never shows unrelated chains.
     assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=chains&server=1')
     await page.getByText(`筛选范围：任一受管段属于「${metadata.name}」的链路。`, { exact: false }).waitFor()
-    await page.getByText('本服务器作为出口', { exact: true }).waitFor()
+    const reverseRow = page.locator('[data-resource-key="chain:11"]')
+    await reverseRow.locator('td').first().locator('strong').filter({ hasText: /^本服务器作为出口$/ }).waitFor()
+    await reverseRow.locator('small').filter({ hasText: /^本服务器作为出口$/ }).waitFor()
     assert.equal(await page.getByText('无关服务器链路', { exact: true }).count(), 0)
     let createdRow = page.getByRole('row').filter({ has: page.getByText('未授权验收链路', { exact: true }) })
     assert.equal(await createdRow.getByRole('link', { name: metadata.name, exact: true }).getAttribute('href'), '#/servers/1')
@@ -290,10 +293,13 @@ try {
     await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '直连节点', exact: true }).click()
     await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption('2')
     await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '链路', exact: true }).click()
+    await page.locator('nav[aria-label="节点资源类型"] a[aria-current="page"]').filter({ hasText: /^链路$/ }).waitFor()
+    await page.waitForFunction(() => document.querySelector('select[aria-label="按服务器筛选"]')?.value === '2')
     await page.getByText('未授权验收链路', { exact: true }).waitFor()
     assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=chains&server=2')
     assert.equal(await page.getByRole('row').count(), 2)
-    assert.equal(await page.getByText('本服务器作为出口', { exact: true }).count(), 0)
+    assert.equal(await reverseRow.count(), 0, 'The unrelated reverse chain is absent in the server=2 scope')
+    await createdRow.locator('small').filter({ hasText: /^本服务器作为出口$/ }).waitFor()
     assert.equal(await page.getByText('无关服务器链路', { exact: true }).count(), 0)
     // Equal revisions alone cannot certify a still-pending dirty configuration.
     exitMetadata.installation = { state: 'pending', reason: '新配置仍待发布确认，版本相等不足以确认应用。', target_rev: 3, applied_rev: 3 }
@@ -368,7 +374,9 @@ try {
     await page.getByText('共享端点 · 1 条链路引用', { exact: true }).waitFor()
     chainsFailure = true
     await page.reload()
-    await page.getByText('链路夹具读取失败', { exact: true }).waitFor()
+    // Flat and ordered projections report their own failed reads in separate panels.
+    await page.locator('.nodes-page > [role="alert"]').getByText('链路夹具读取失败', { exact: true }).waitFor()
+    await page.locator('section[aria-label="有序链路与资源引用"]').getByText('链路夹具读取失败', { exact: true }).waitFor()
     assert.equal(await page.getByRole('button',{name:'创建节点',exact:true}).first().isDisabled(),true)
     assert.equal(await page.getByRole('button',{name:'创建两跳链路',exact:true}).isDisabled(),true)
     assert.equal(await page.getByText('目标配置已应用',{exact:true}).count(),0)

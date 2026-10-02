@@ -281,30 +281,7 @@ pub async fn remove(
     Path(id): Path<i64>,
 ) -> ApiResult<StatusCode> {
     require_admin(&state, &headers).await?;
-    let mut transaction = state.pool.begin().await?;
-    super::entitlements::lock(&mut transaction).await?;
-    let server_id: i64 =
-        sqlx::query_scalar("SELECT server_id FROM nodes WHERE id=$1 AND deleted_at IS NULL")
-            .bind(id)
-            .fetch_optional(&mut *transaction)
-            .await?
-            .ok_or(ApiError::NotFound)?;
-    business::lock_server(&mut transaction, server_id).await?;
-    ensure_unreferenced_on(&mut transaction, id).await?;
-    let result = sqlx::query("UPDATE nodes SET deleted_at=$2 WHERE id=$1 AND deleted_at IS NULL")
-        .bind(id)
-        .bind(sinan_protocol::now_timestamp())
-        .execute(&mut *transaction)
-        .await?;
-    if result.rows_affected() == 0 {
-        return Err(ApiError::NotFound);
-    }
-    sqlx::query("DELETE FROM accesses WHERE node_id=$1")
-        .bind(id)
-        .execute(&mut *transaction)
-        .await?;
-    business::mark_dirty(&mut transaction, &[server_id]).await?;
-    transaction.commit().await?;
+    super::proxy_resources::remove_direct_node(&state, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
