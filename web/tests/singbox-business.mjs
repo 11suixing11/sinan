@@ -262,7 +262,9 @@ try {
     // The server query includes any managed segment and never shows unrelated chains.
     assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=chains&server=1')
     await page.getByText(`筛选范围：任一受管段属于「${metadata.name}」的链路。`, { exact: false }).waitFor()
-    await page.getByText('本服务器作为出口', { exact: true }).waitFor()
+    const reverseRow = page.locator('[data-resource-key="chain:11"]')
+    await reverseRow.locator('td').first().locator('strong').filter({ hasText: /^本服务器作为出口$/ }).waitFor()
+    await reverseRow.locator('small').filter({ hasText: /^本服务器作为出口$/ }).waitFor()
     assert.equal(await page.getByText('无关服务器链路', { exact: true }).count(), 0)
     let createdRow = page.getByRole('row').filter({ has: page.getByText('未授权验收链路', { exact: true }) })
     assert.equal(await createdRow.getByRole('link', { name: metadata.name, exact: true }).getAttribute('href'), '#/servers/1')
@@ -291,10 +293,13 @@ try {
     await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '直连节点', exact: true }).click()
     await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption('2')
     await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '链路', exact: true }).click()
+    await page.locator('nav[aria-label="节点资源类型"] a[aria-current="page"]').filter({ hasText: /^链路$/ }).waitFor()
+    await page.waitForFunction(() => document.querySelector('select[aria-label="按服务器筛选"]')?.value === '2')
     await page.getByText('未授权验收链路', { exact: true }).waitFor()
     assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=chains&server=2')
     assert.equal(await page.getByRole('row').count(), 2)
-    assert.equal(await page.getByText('本服务器作为出口', { exact: true }).count(), 0)
+    assert.equal(await reverseRow.count(), 0, 'The unrelated reverse chain is absent in the server=2 scope')
+    await createdRow.locator('small').filter({ hasText: /^本服务器作为出口$/ }).waitFor()
     assert.equal(await page.getByText('无关服务器链路', { exact: true }).count(), 0)
     // Equal revisions alone cannot certify a still-pending dirty configuration.
     exitMetadata.installation = { state: 'pending', reason: '新配置仍待发布确认，版本相等不足以确认应用。', target_rev: 3, applied_rev: 3 }

@@ -109,7 +109,10 @@ try {
     assert.equal(await dialog.getByLabel('任务名称').inputValue(), '保留的目标草稿')
     const missingServer = dialog.getByRole('checkbox', { name: '服务器 #1（已不存在，原选择保留）', exact: false })
     assert.equal(await missingServer.isChecked(), true)
-    await missingServer.uncheck()
+    // Cancelling this missing choice removes its controlled checkbox from the DOM.
+    await missingServer.click()
+    await missingServer.waitFor({ state: 'hidden' })
+    assert.equal(await missingServer.count(), 0)
     assert.equal(writes.length, 0, 'Explicitly removing a missing server edits only the retained local draft')
     await dialog.getByRole('button', { name: '保存任务', exact: true }).click()
     await dialog.waitFor({ state: 'detached' })
