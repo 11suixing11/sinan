@@ -166,8 +166,16 @@ def signal_owned_group(row, number):
     # until cleanup has signaled and observed every remaining live member.
     status = process.poll()
     if status is None:
-        current = (os.getpgid(process.pid), os.getsid(process.pid))
-        if current != expected:
+        try:
+            current = (os.getpgid(process.pid), os.getsid(process.pid))
+        except ProcessLookupError:
+            # Exit can happen after the first live observation. Only a second
+            # nonreaping exit observation permits the retained spawn identity.
+            status = process.poll()
+            if type(status) is not int or process.reaped is not False:
+                raise
+            current = None
+        if current is not None and current != expected:
             raise RuntimeError("owned direct child's process group changed")
     elif type(status) is not int:
         raise RuntimeError("owned leader has no known nonreaping exit observation")
@@ -621,7 +629,8 @@ class ReadinessContracts(unittest.TestCase):
                 self.assertEqual(actual['identity_reservation_retained'], live)
 
     def test_group_signals_require_known_unreaped_spawn_identity_and_exact_live_leader(self):
-        for case in ('exited', 'live', 'reaped', 'live_drift', 'unknown_spawn', 'unknown_status', 'live_permission_error'):
+        for case in ('exited', 'live', 'exit_race', 'missing_live', 'reaped', 'live_drift',
+                     'unknown_spawn', 'unknown_status', 'live_permission_error'):
             with self.subTest(case=case):
                 process = mock.Mock(pid=1234, reaped=False)
                 process.poll.return_value = 0 if case == 'exited' else None
@@ -632,23 +641,34 @@ class ReadinessContracts(unittest.TestCase):
                     del row['spawn_group_identity']
                 elif case == 'unknown_status':
                     process.poll.return_value = 'TEST_ONLY unknown status'
+                elif case in ('exit_race', 'missing_live'):
+                    process.poll.side_effect = (None, 0 if case == 'exit_race' else None)
                 with mock.patch.object(os, 'getpgid', return_value=5678 if case == 'live_drift' else 1234) as pgid, \
                         mock.patch.object(os, 'getsid', return_value=1234) as sid, \
                         mock.patch(__name__ + '.group_has_live_members', return_value=True), \
                         mock.patch.object(os, 'killpg') as kill:
+                    if case in ('exit_race', 'missing_live'):
+                        pgid.side_effect = ProcessLookupError('TEST_ONLY leader metadata disappeared')
                     if case == 'live_permission_error':
                         kill.side_effect = PermissionError('TEST_ONLY live group permission error')
                         with self.assertRaises(PermissionError):
                             signal_owned_group(row, signal.SIGTERM)
-                    elif case in ('exited', 'live'):
+                    elif case in ('exited', 'live', 'exit_race'):
                         signal_owned_group(row, signal.SIGTERM)
                         kill.assert_called_once_with(1234, signal.SIGTERM)
+                    elif case == 'missing_live':
+                        with self.assertRaises(ProcessLookupError):
+                            signal_owned_group(row, signal.SIGTERM)
+                        kill.assert_not_called()
                     else:
                         with self.assertRaises(RuntimeError):
                             signal_owned_group(row, signal.SIGTERM)
                         kill.assert_not_called()
                     if case in ('exited', 'reaped', 'unknown_spawn', 'unknown_status'):
                         pgid.assert_not_called()
+                        sid.assert_not_called()
+                    elif case in ('exit_race', 'missing_live'):
+                        pgid.assert_called_once_with(1234)
                         sid.assert_not_called()
                 self.assertEqual(process.reaped, case == 'reaped')
 
