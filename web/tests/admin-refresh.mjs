@@ -152,7 +152,12 @@ try {
       assert.equal(writes.length, 0, 'Same-event manual reload must invalidate old form callbacks')
       if (portal) {
         await wait(() => portal.reached > 0, 'Manual reload must include the selected user access panel')
-        assert.equal(await page.locator('.panel').filter({ has: page.getByRole('heading', { name: '用户 Passkey 入口' }) }).locator('.loading').count(), 1, 'An explicit reload exposes loading immediately')
+        const panel = page.locator('.panel').filter({ has: page.getByRole('heading', { name: '用户 Passkey 入口' }) })
+        assert.equal(await panel.locator('.loading').count(), 0, 'A known portal snapshot remains visible during its explicit refresh')
+        assert.equal(await panel.getByText('尚未开通用户入口。', { exact: true }).count(), 1, 'The original access state is retained while its current read is held')
+        assert.equal(await panel.getByText('TEST_ONLY 尚未启用', { exact: true }).count(), 1, 'The disabled configuration reason remains readable')
+        assert(await panel.getByRole('button', { name: '生成开通链接', exact: true }).isDisabled(), 'Retained access data must not enable a current write')
+        assert.equal(await input.inputValue(), 'TEST_ONLY 未保存草稿')
         finish(portalPath)
       }
       finish(readPath)
