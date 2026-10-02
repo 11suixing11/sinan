@@ -1131,6 +1131,7 @@ async fn requested_retirement_quiesces_task_update_and_telemetry_workers() -> Re
     let (_clients, receiver) = watch::channel(Some(client));
     let mut workers = JoinSet::new();
     workers.spawn(crate::tasks::run(
+        fixture.identity.server_id,
         true,
         fixture.state.clone(),
         Arc::new(SystemOps),
