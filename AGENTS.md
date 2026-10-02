@@ -58,4 +58,6 @@
 
 详细架构约束见 `docs/adr/0001-declarative-snapshots.md` 至 `docs/adr/0011-loopback-local-api.md`。
 
+2026-10-02 用户授权管理员与现有代理用户使用 Passkey，并明确用户入口仅适配代理业务。按 [ADR 0059](docs/adr/0059-passkeys-and-proxy-user-access.md) 实施：通用 WebAuthn 服务与管理员包装留在面板，代理用户入口、开通链接及独立会话位于 sing-box 插件；不增加平台全局用户、公开注册或多管理员。保留密码/TOTP 和旧订阅，开通/恢复不得使用订阅令牌。另按 [ADR 0060](docs/adr/0060-ddns-dual-stack-creation.md) 支持 DDNS 的 IPv4、IPv6、双栈选择，一次表单以事务创建 A/AAAA 两条独立规则。CI 暂停与实机门禁保持。
+
 2026-10-02 用户进一步授权参考 CDT-Monitor 补齐 ECS 手动/自动启停、KeepCharging/StopCharging、流量阈值、每日计划、抢占式保活与账单/余额缓存，按 ADR 0058 实施。仅开发模拟验证，不操作真实云资源或发送真实通知，CI 继续暂停。

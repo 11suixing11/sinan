@@ -6,6 +6,8 @@
 
 ## 入口、整合与待验条件
 
+- [管理员/代理用户 Passkey 与 DDNS 双栈本地验证](passkeys-and-ddns.md)
+
 - [第二批五项问题源码整改（2026-10-01）](issues-batch-2.md)
 - [第五批：服务器资产、NIC、拨测、套餐及显式安装](issues-batch-five.md)
 - [开放 issue 第一批：#3、#4、#6、#14、#15](issues-batch-one.md)

@@ -12,6 +12,7 @@
 | 查看流量趋势与统计口径 | [统计仪表盘](statistics.md) |
 | 配置地区、成本、到期、续费及网卡额度 | [服务器资产](server-assets.md) |
 | 配置延迟检测、告警、Telegram 与 Webhook | [延迟检测与通知](monitoring.md) |
+| 管理管理员及代理用户的通行密钥 | [Passkey 登录与开通](passkeys.md) |
 | 查找插件并选择执行服务器 | [插件目录与执行边界](plugin-catalog.md) |
 
 ## 插件与代理业务

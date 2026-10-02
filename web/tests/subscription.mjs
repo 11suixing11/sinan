@@ -35,6 +35,7 @@ try {
       const request = route.request(), url = new URL(request.url()), path = url.pathname
       const respond = json => route.fulfill({ json })
       if (path === '/api/dashboard/access') return respond({ authenticated: mode !== 'unauthorized', public_dashboard: false })
+      if (path === '/api/plugins/sing-box/users/1/portal') return respond({ configuration: { enabled: false, reason: 'TEST_ONLY 未启用', origin }, keys: 0, url: null, activation_expires_at: null })
       if (path === '/api/plugins/sing-box/users') return respond([user])
       if (path === '/api/plugins/sing-box/nodes') return respond(nodes)
       if (path === '/api/plugins/sing-box/proxy-resources') return respond(nodes.map(node => ({...node,kind:'direct',entry_node_id:null})))

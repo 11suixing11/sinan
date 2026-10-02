@@ -7,6 +7,7 @@ use crate::{AppState, auth, exchange, notifications, settings, statistics};
 
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
+        .merge(auth::passkeys::routes())
         .route("/api/login", post(auth::login))
         .route("/api/logout", post(auth::logout))
         .route("/api/me", get(auth::me))

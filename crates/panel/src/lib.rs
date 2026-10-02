@@ -17,6 +17,7 @@ pub mod ip_quality;
 pub mod latency_tasks;
 pub mod maintenance;
 pub mod notifications;
+pub mod passkeys;
 pub mod plugins;
 pub mod probes;
 pub mod settings;

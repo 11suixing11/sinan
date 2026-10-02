@@ -46,6 +46,13 @@ try {
         rules.push({ id: 'test-rule', config: body.config, revision: 1, token_configured: true, busy: false, plugin_enabled: true, server_name: '测试服务器', candidate_ip: '2001:db8::10', ip_status: 'ready', ip_received_at: now, last_ip: null, last_success_at: null, attempted_at: null, next_run_at: 0, status: 'pending', error_code: null, failures: 0 })
         return respond(rules[0], 201)
       }
+      if (path === '/api/plugins/ddns/rules/dual-stack') {
+        if (failSave) return respond({ error: '测试：双栈其中一种记录已存在' }, 409)
+        const body = request.postDataJSON()
+        const pair = ['A', 'AAAA'].map(record_type => ({ id: `dual-${record_type}`, config: { ...body.config, record_type }, revision: 1, token_configured: true, busy: false, plugin_enabled: true, server_name: '测试服务器', candidate_ip: null, ip_status: 'no_public_ip', ip_received_at: now, last_ip: null, last_success_at: null, next_run_at: 0, status: 'pending', error_code: null, failures: 0 }))
+        rules.push(...pair)
+        return respond({ rules: pair }, 201)
+      }
       if (path === '/api/plugins/ddns/rules/test-rule') {
         if (method === 'DELETE') { rules = []; return route.fulfill({ status: 204 }) }
         const body = request.postDataJSON()
@@ -83,7 +90,7 @@ try {
     await dialog.getByLabel('完整域名', { exact: false }).fill('node.example.com')
     await dialog.getByLabel('Zone ID', { exact: false }).fill('00000000000000000000000000000001')
     await dialog.getByLabel('API Token', { exact: false }).fill('TEST_ONLY_CLOUDFLARE_TOKEN')
-    await dialog.getByLabel('记录类型', { exact: false }).selectOption('AAAA')
+    await dialog.getByLabel('IP 类型', { exact: false }).selectOption('AAAA')
     await settle()
     const draftReads = reads.length
     await advance(15_000)
@@ -163,6 +170,26 @@ try {
     await dialog.getByText(/云服务中的 DNS 记录会保留/).waitFor()
     await dialog.getByRole('button', { name: '确认删除' }).click()
     await page.getByRole('heading', { name: '尚未配置动态解析' }).waitFor()
+    await page.getByRole('button', { name: '启用 DDNS 插件', exact: true }).click()
+    await page.getByRole('button', { name: '添加规则' }).click()
+    assert.deepEqual(await dialog.getByLabel('IP 类型').locator('option').allTextContents(), ['仅 IPv4', '仅 IPv6', 'IPv4 和 IPv6'])
+    await dialog.getByLabel('IP 类型').selectOption('dual')
+    await dialog.getByLabel('规则名称', { exact: true }).fill('家庭双栈')
+    await dialog.getByLabel('完整域名', { exact: false }).fill('dual.example.com')
+    await dialog.getByLabel('Zone ID', { exact: false }).fill('00000000000000000000000000000001')
+    await dialog.getByLabel('API Token', { exact: false }).fill('TEST_ONLY_CLOUDFLARE_TOKEN')
+    failSave = true
+    await dialog.getByRole('button', { name: '保存规则' }).click()
+    await dialog.getByRole('alert').filter({ hasText: '测试：双栈其中一种记录已存在' }).waitFor()
+    assert.equal(await dialog.getByLabel('IP 类型').inputValue(), 'dual')
+    assert.equal(await dialog.getByLabel('规则名称', { exact: true }).inputValue(), '家庭双栈')
+    failSave = false
+    await dialog.getByRole('button', { name: '保存规则' }).click()
+    await dialog.waitFor({ state: 'hidden' })
+    assert.equal(writes.at(-1).path, '/api/plugins/ddns/rules/dual-stack')
+    assert.equal(writes.at(-1).body.api_token, 'TEST_ONLY_CLOUDFLARE_TOKEN')
+    await page.getByRole('heading', { name: '家庭双栈', exact: true }).first().waitFor()
+    assert.equal(await page.getByRole('heading', { name: '家庭双栈', exact: true }).count(), 2)
     const hiddenReads = reads.length
     await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }); document.dispatchEvent(new Event('visibilitychange')) })
     await advance(15_000)

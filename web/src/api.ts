@@ -1,7 +1,7 @@
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message) }
 }
-export async function api<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
+export async function api<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal, adminSession = true): Promise<T> {
   let response: Response
   try {
     response = await fetch(path, { method, credentials: 'same-origin', cache: 'no-store', signal,
@@ -16,7 +16,7 @@ export async function api<T>(path: string, method = 'GET', body?: unknown, signa
     const text = await response.text()
     let message = `请求未完成（${response.status}），请稍后重试。`
     try { const value = JSON.parse(text); if (typeof value.error === 'string') message = value.error } catch { /* Framework responses may be plain text. */ }
-    if (response.status === 401 && path !== '/api/login') window.dispatchEvent(new Event('sinan:unauthorized'))
+    if (response.status === 401 && adminSession && path !== '/api/login' && !path.startsWith('/api/login/passkey/')) window.dispatchEvent(new Event('sinan:unauthorized'))
     throw new ApiError(response.status, message)
   }
   if (response.status === 204) return undefined as T
