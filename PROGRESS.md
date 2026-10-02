@@ -1,5 +1,11 @@
 # 执行进度
 
+## 2026-10-03：按用户要求集中收尾提交
+
+- 核对最后一份功能提交 `5adda2d` 已推送，工作区干净；同一个集成草稿 [PR #151](https://github.com/theLucius7/sinan/pull/151) 的远端 head 与本地一致。更新 [交付索引](docs/acceptance/integrated-delivery.md) 的当前功能基线和 [验收状态](docs/acceptance/ordered-remediation.md)，保留各步骤原始通过、失败及待验条件。
+- 用户要求“继续，赶紧收尾提交”，本轮停止扩大实现和测试范围。独立新 VM／当前注册日常矩阵只完成只读核对及部分私有编排准备；补充 registry 脚本未执行，新 VM 预算守卫未实现，未创建新 VM、复制新 guest 材料或运行 native 构建／签名／注册矩阵。旧 VM、磁盘、缓存和失败材料保持。
+- 本轮只改三份交付文档，没有重跑测试或构建；差异核对后一次提交／推送并更新现有 PR。最近采集器步骤的 74 项集中验收保持其原证据边界，不扩充为当前 Linux 或完整负载通过。完整 NodeQuality 许可／工厂、真实托管及账本／故障总验、正式发布和服务器安装／生产部署仍未完成；CI 继续暂停，整体实机目标没有签收。
+
 ## 2026-10-02：报告采集器运行所有权与 fixture 异常收尾
 
 - 原源码交付后恢复目标推进；基线 `6eaa172` 的只读进程盘点发现 20 个旧 NodeQuality inert fixture watcher，全部 PPID=1、工作目录已删除。现场先固定到私有证据，新增 [Issue #152](https://github.com/theLucius7/sinan/issues/152) 并归入原 milestone，既有失败和旧材料保留。
