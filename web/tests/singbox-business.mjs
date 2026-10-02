@@ -106,6 +106,7 @@ try {
         metadata.installation = { state:'pending',reason:'新链路已保存，两端配置仍待设备应用。',target_rev:2,applied_rev:2 }
         chains.push(chain); value = {request_id:body.request_id,chain_ids:[9],entry_node_ids:[2]}
       } else if (path === '/api/plugins/sing-box/users') value = []
+      else if (/^\/api\/plugins\/sing-box\/users\/\d+\/portal$/.test(path)) value = { configuration: { enabled: false, reason: 'TEST_ONLY 未启用', origin: `http://127.0.0.1:${server.address().port}` }, keys: 0, url: null, activation_expires_at: null }
       else if (path === '/api/plugins/sing-box/chains') {
         if (route.request().method() === 'POST') {
           assert.deepEqual(route.request().postDataJSON(), { name: '未授权验收链路', entry_node_id: 2, exit_node_id: 3 })
@@ -125,6 +126,7 @@ try {
       else if (['/api/servers/1/probes', '/api/servers/1/probe-results', '/api/servers/1/commands'].includes(path)) value = []
       else if (path === '/api/security/passkeys') value = { configuration: { enabled: false, reason: 'TEST_ONLY 未启用' }, keys: [] }
       else if (path === '/api/security/totp') value = { enabled: false }
+      else if (path === '/api/security/passkeys') value = { configuration: { enabled: false, reason: 'TEST_ONLY 未启用', origin: `http://127.0.0.1:${server.address().port}` }, keys: [] }
       else if (path.endsWith('/runtime-operations')) value = { supported:false,online:false,retiring:false,operations:[] }
       else { errors.push(`Unexpected API: ${path}`); await route.fulfill({ status: 404, json: {} }); return }
       await route.fulfill({ json: value })

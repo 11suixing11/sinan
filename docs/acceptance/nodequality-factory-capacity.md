@@ -1,6 +1,6 @@
 # 离线工厂容量与失败证据验收
 
-本步骤在统一交付分支集中完成实现、测试代码和文档后冻结，没有中途测试。冻结后的失败保留原记录，修复后仅补验受影响或尚未执行的范围。决策和操作接口见 [ADR 0048](../adr/0065-nodequality-factory-capacity.md)、[工厂说明](../nodequality-rootfs-factory.md)，数值、原收据摘要及失败对应关系见[机器记录](evidence/nodequality-factory-capacity.json)。
+本步骤在统一交付分支集中完成实现、测试代码和文档后冻结，没有中途测试。冻结后的失败保留原记录，修复后仅补验受影响或尚未执行的范围。决策和操作接口见 [ADR 0065](../adr/0065-nodequality-factory-capacity.md)、[工厂说明](../nodequality-rootfs-factory.md)，数值、原收据摘要及失败对应关系见[机器记录](evidence/nodequality-factory-capacity.json)。
 
 ## 实现范围
 

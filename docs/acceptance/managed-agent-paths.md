@@ -6,7 +6,7 @@
 
 Agent 本地配置可设置 `panel_ca_file`，默认未设置时保持原有公共证书根。HTTPS 注册、面板制品下载、WSS 认证连接和退役确认使用相同附加信任；证书链、有效期、主机名、面板 origin 和制品签名继续分别核对。独立 GitHub 下载和公网发现不采用该私有 CA。管理员通过本地配置选择信任文件，面板不能下发新的信任根，环境变量也不能关闭验证。
 
-信任文件是绝对普通 PEM 路径，拒绝路径中的符号链接、超限文件、超限证书、私钥及非证书材料，加载失败在产生注册身份前拒绝。配置示例见 [agent-private-panel.example.toml](../../deploy/agent-private-panel.example.toml)，决策见 [ADR 0057](../adr/0074-private-panel-certificate-authorities.md)。本地私有 CA 不替代正式制品发布公钥。
+信任文件是绝对普通 PEM 路径，拒绝路径中的符号链接、超限文件、超限证书、私钥及非证书材料，加载失败在产生注册身份前拒绝。配置示例见 [agent-private-panel.example.toml](../../deploy/agent-private-panel.example.toml)，决策见 [ADR 0074](../adr/0074-private-panel-certificate-authorities.md)。本地私有 CA 不替代正式制品发布公钥。
 
 ## 三个入口及证据边界
 

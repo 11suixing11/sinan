@@ -19,7 +19,7 @@ export function ruleError(current: DdnsCurrent, draft: DdnsRule, enabled = false
   return !rule || !server || rule.busy || !sameRevision(draft.revision, rule.revision) ||
     rule.config.server_id !== draft.config.server_id || (enabled && (!rule.config.enabled || !rule.plugin_enabled || !server.enabled)) ? changed : ''
 }
-export function editorError(current: DdnsCurrent, config: DdnsConfig, draft?: DdnsRule) {
+export function editorError(current: DdnsCurrent, config: DdnsConfig, draft?: DdnsRule, slots: 1 | 2 = 1) {
   const data = current()
   if (!data) return stale
   if (draft) {
@@ -27,7 +27,7 @@ export function editorError(current: DdnsCurrent, config: DdnsConfig, draft?: Dd
     if (reason) return reason
     if ((config.provider ?? 'cloudflare') !== (draft.config.provider ?? 'cloudflare') || config.zone_id !== draft.config.zone_id ||
       config.record_name !== draft.config.record_name || config.record_type !== draft.config.record_type || (config.line ?? '') !== (draft.config.line ?? '')) return changed
-  } else if (data.rules.length >= 32) return '最多配置 32 条动态解析规则。'
+  } else if (data.rules.length + slots > 32) return slots === 2 ? '双栈需要两条规则名额，最多配置 32 条动态解析规则。' : '最多配置 32 条动态解析规则。'
   const server = data.servers.find(item => item.id === config.server_id)
   return !server || (config.enabled && !server.enabled) ? changed : ''
 }

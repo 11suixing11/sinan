@@ -60,14 +60,14 @@
 
 - 本步接入有序受管／外部节点向量、不可变路径与依赖、候选准备／切换／恢复屏障／旧身份清理、完整授权与订阅资格、来源跟随和管理员固定版本。core 仅执行签名计划内 probe UUID，链路与计量保持在插件和 compiler；具体回环控制有界且不暴露秘密。策略组和代理用户统一读取资源，节点页展示当前／候选／恢复向量、引用保护及 CAS 重放。
 - 修改期间未运行测试、构建、格式检查或 SSH；整步完成后冻结，集中验收失败收齐后暂停测试集中修复，仅补失败或受影响范围。最终 751 份功能输入 SHA256 `4e7eb49b2098c7089528b0badc1a638e91d552e0ac5bb5c029bb919d0705ba2e`；Rust 工作区按实际测试去重 736 通过、0 失败、19 条件忽略，Bun 93/1421 断言、TS/Vite 成功构建一次、10 个实际 dist 浏览器通过。全工作区 all-targets Clippy、修复后受影响 Clippy、fmt、core 分层及差异检查通过；真实 PostgreSQL 与所属 socket 已清理。
-- 专用 Debian12 ARM64 的当前 compiler 三／四跳输出通过 native check、TCP/UDP、具体出站 HTTPS HEAD、逐跳及 B 出口、X 停止无旁路、入口单次计数；640 MiB/零 swap/96 tasks，峰值约 101 MiB、54 tasks，无 OOM且自有进程/端口释放。统计及客户端端口显式变换，不能写成未经变换的生产 bundle、真实 Agent 发布或面板账本整链通过。实际出口、逐跳、UDP、原生 check 与 HTTPS HEAD 分开记录，见 [ADR 0056](docs/adr/0073-ordered-path-publication-and-native-probe.md)、[本步验收](docs/acceptance/ordered-paths.md) 和 [机器收据](docs/acceptance/ordered-paths-local.json)。
+- 专用 Debian12 ARM64 的当前 compiler 三／四跳输出通过 native check、TCP/UDP、具体出站 HTTPS HEAD、逐跳及 B 出口、X 停止无旁路、入口单次计数；640 MiB/零 swap/96 tasks，峰值约 101 MiB、54 tasks，无 OOM且自有进程/端口释放。统计及客户端端口显式变换，不能写成未经变换的生产 bundle、真实 Agent 发布或面板账本整链通过。实际出口、逐跳、UDP、原生 check 与 HTTPS HEAD 分开记录，见 [ADR 0073](docs/adr/0073-ordered-path-publication-and-native-probe.md)、[本步验收](docs/acceptance/ordered-paths.md) 和 [机器收据](docs/acceptance/ordered-paths-local.json)。
 - 集中修复发布 RR 并发旧快照、policy SQL、普通节点 ABI 兼容和共享服务器证明失效误判；保留未知屏障、完整向量、历史回执、失败和过期的安全门槛。首轮 28 项失败、后续失败和夹具修正均保留日志；仅最后一例重跑，未重复已过 Web/native。整步一次提交／推送，不新增单项 PR。
 - CI 继续暂停，无正式制品签署、生产迁移或部署；原完整 NodeQuality 许可、builder 和持续业务联合负载门禁保持，整体目标仍在进行。
 
 ## 2026-10-02：订阅来源与不可变节点版本（整步实现与集中验收）
 
 - 本步集中完成 HTTPS／粘贴／文件输入、四格式有界解析、来源任务与取消、身份 epoch、不可变批次／节点版本及节点页管理。失败保留旧成功，来源更换与迟到结果核对 revision／epoch／parser／claim；普通输出不回显完整 URL、认证、原文、配置或摘要。来源支持受保护更新／替换、归档／恢复、精确幂等收据及保历史软删除，未知／不支持／身份不唯一／当前缺失分别展示。
-- 修改期间未运行测试或构建；全部实现、测试代码及文档完成后冻结统一验收。依赖锁仅增加固定 saphyr-parser 0.1.0 与 arraydeque 0.5.1，旧依赖版本保持；必要性和许可证见 [ADR 0055](docs/adr/0072-subscription-source-lifecycle.md)。最终 712 份功能输入 SHA256 `d990f0ee99d354a15e9732bcac465565a19c4382664cb71744a37f1182e60669`，面板 10 targets 166 通过、0 失败、1 既有实机条件忽略；新增 parser 12／fetch 13／Worker 5／来源 API 8 均通过。Bun 83 项／1346 断言、单次 TS/Vite 构建、7 组实际 dist 浏览器通过，来源流程覆盖 1440／390／320 宽度。
+- 修改期间未运行测试或构建；全部实现、测试代码及文档完成后冻结统一验收。依赖锁仅增加固定 saphyr-parser 0.1.0 与 arraydeque 0.5.1，旧依赖版本保持；必要性和许可证见 [ADR 0072](docs/adr/0072-subscription-source-lifecycle.md)。最终 712 份功能输入 SHA256 `d990f0ee99d354a15e9732bcac465565a19c4382664cb71744a37f1182e60669`，面板 10 targets 166 通过、0 失败、1 既有实机条件忽略；新增 parser 12／fetch 13／Worker 5／来源 API 8 均通过。Bun 83 项／1346 断言、单次 TS/Vite 构建、7 组实际 dist 浏览器通过，来源流程覆盖 1440／390／320 宽度。
 - 最终验收的 Rc 类型错误、Worker 宏内 if 排版和三个 Clippy 告警集中修正；原日志保留。截图夹具因测试时钟影响淡入动画，修夹具后只补来源浏览器及 12 张最终截图，已过构建／Bun／其它六浏览器保留。fmt、面板全 targets Clippy、core 分层与 diff 通过；所属 PostgreSQL／socket 已清理。179 份 Agent／core／SDK／协议／编译器和三个诊断适配器输入逐字不变，未重复验收。具体范围见 [本步验收](docs/acceptance/subscription-sources.md) 和 [机器收据](docs/acceptance/subscription-sources-local.json)。
 - 整步一次提交／推送，不新增单项 PR。当前来源解析不表示节点网络在线，旧两跳仍不能使用外部节点；完整有序混合路径、版本化发布、真实三／四跳与不旁路继续后续完成。公网订阅、原诊断／builder／许可／持续代理联合负载等实机条件保持；CI 继续暂停，无生产部署、正式签署或发布，整体目标仍在进行。
 
@@ -75,12 +75,12 @@
 
 - 核对已有 sing-box 安装、用户／授权、节点、两跳编译和套餐实现，完成统一资源列表／详情、一次原子创建独立入口与链路、不可变幂等收据及完整资源删除。旧、新节点删除共用策略和链路引用保护；链路入口不重复展示，共享出口和旧订阅／流量保持。原删除缺口已创建 [Issue #147](https://github.com/theLucius7/sinan/issues/147) 并归入现有 milestone。
 - 后端、前端、迁移、回归代码和文档集中修改结束后统一验收，最终冻结 684 份功能输入，SHA256 `fa2b73ce38817a2f030b55b1c9d70ec1a02eb901532a8cfaba244e4071e26fb8`。面板 9 targets 有效去重 128 通过、1 既有真实 sing-box 条件忽略；Bun 69 项／1255 断言、单次 TS/Vite 构建与 6 组实际 dist 浏览器通过。新资源页覆盖 1440／390／320 宽度、失响应后角色变化的原批次重放、30 秒提交期限及旧节点读取失败仍可清理。
-- 初轮业务浏览器筛选前提与 PostgreSQL 损坏夹具违反既有类型约束分别修正，只补验失败组／方法和尚未执行范围；已过构建、Bun、其它浏览器、面板库和 7 个新集成方法保留，原失败日志保持。最终 fmt、面板 all-targets Clippy、core 分层和 diff 通过；自有数据库和所属 socket 已清理，250 份 Agent／SDK／协议／编译／诊断输入逐字不变而未重测。设计、具体通过和未验边界见 [ADR 0054](docs/adr/0071-proxy-resource-batch-lifecycle.md)、[验收记录](docs/acceptance/proxy-resources.md) 与 [机器收据](docs/acceptance/proxy-resources-local.json)。
+- 初轮业务浏览器筛选前提与 PostgreSQL 损坏夹具违反既有类型约束分别修正，只补验失败组／方法和尚未执行范围；已过构建、Bun、其它浏览器、面板库和 7 个新集成方法保留，原失败日志保持。最终 fmt、面板 all-targets Clippy、core 分层和 diff 通过；自有数据库和所属 socket 已清理，250 份 Agent／SDK／协议／编译／诊断输入逐字不变而未重测。设计、具体通过和未验边界见 [ADR 0071](docs/adr/0071-proxy-resource-batch-lifecycle.md)、[验收记录](docs/acceptance/proxy-resources.md) 与 [机器收据](docs/acceptance/proxy-resources-local.json)。
 - 本步仍为既有受管 Reality 两跳。订阅来源、外部节点、完整有序混合路径及实际候选探测继续后续实施，原 builder、许可、完整验机、联合负载及新增诊断签收条件不缩小；CI 继续暂停，无签署、发布或生产部署。
 
 ## 2026-10-02：IPQuality 最小闭包贯穿工厂（整步实现与集中验收）
 
-- 静态检查确认原工厂只要求十一种直接包存在，完整 NodeQuality 库存也可满足；已创建 [Issue #146](https://github.com/theLucius7/sinan/issues/146) 并加入现有 milestone。现已补齐真实派生重验证、隔离求解、精确包／源公开证明及 prepare/build/export/制品的同一摘要链；私有父身份保存在准备上下文，共用扩展默认关闭。设计及结果见 [ADR 0053](docs/adr/0070-ipquality-minimal-profile-chain.md) 和 [本步验收](docs/acceptance/ipquality-minimal-profile.md)。
+- 静态检查确认原工厂只要求十一种直接包存在，完整 NodeQuality 库存也可满足；已创建 [Issue #146](https://github.com/theLucius7/sinan/issues/146) 并加入现有 milestone。现已补齐真实派生重验证、隔离求解、精确包／源公开证明及 prepare/build/export/制品的同一摘要链；私有父身份保存在准备上下文，共用扩展默认关闭。设计及结果见 [ADR 0070](docs/adr/0070-ipquality-minimal-profile-chain.md) 和 [本步验收](docs/acceptance/ipquality-minimal-profile.md)。
 - 集中实现后冻结 678 份功能输入，SHA256 `34303534adf539eac2d91a45b4d8793c7f56dd35a3d56e7ce9701b100b520053`。八组工具合同有效去重 230 通过、0 跳过／失败／错误；首轮新增夹具模块替换范围错误修复后，只补验受影响的 15 项，产品及其它受验输入保持。两个未改容量算法的 600 MiB loop 场景提前具名排除，不计通过，初始日志保留。
 - 专用 Debian 12 ARM64 增加独立 1536 MiB 输出盘，正常停机／启动两次，关闭自动格式化后 UUID 保持，原根盘和父缓存不变。首次空 slice 识别拒绝发生在存储动作前，原记录保留；仅修明确无进程、无活跃子服务的稳定观察，未知仍拒绝。
 - 仅一次真实离线派生成功，约 14.33 秒，从旧只读缓存选出 130 包、91 对应源版本、289 源文件，无新增下载或正文复制。新输出峰值约 58.53 MiB，结束可用约 1.34 GiB；256 MiB 单元内有回收压力、OOM 为 0，管理预留保持，所属进程／挂载／cgroup 清理确认，存储变更后 SSH／启动基线保持。实际 prepare/build/export 尚未执行，不能将派生成功当作工厂或 Agent／持续代理联合运行通过。
@@ -92,7 +92,7 @@
 - 集中补齐旧认证缓存的显式派生入口、严格父/子库存与只读身份、隔离 APT 最小选择、签名索引展开及资源预算、新派生收据与绑定。旧完整 collection 不改 kind，不重复生成 HTTP 收集历史；prepare/build/export 与完整验机门禁保持。
 - 修改期间未运行测试、构建、收集、源码转换或安装；整步冻结后统一验收，失败仅修具体原因并补验受影响范围。最终 676 份功能输入 SHA256 `58a5fce9d1cf6db5acdb11627d4db19bb53ab72a71eae5f3d895f676d93b732f`，五组工具合同去重 117 通过、0 跳过/失败/错误；夹具 Essential/等长变更问题与真实 Linux 小归档 2 GiB 预分配 MemoryError 均修复，初始证据保留。gzip/tar 单次读取有界，完整尾部与累计限制保持。
 - 独立 Debian 12 ARM64 虚拟机仅尝试一次真实派生，父缓存内核只读；进入 APT 前因磁盘管理预留不足拒绝，9.84 秒、退出 1，无派生成功收据。保持 512 MiB 磁盘/1024 inode 预留、256 MiB 内存/零 swap，回收压力实际记录，OOM 为 0；失败证据保留，所属输出/进程/挂载/cgroup 已清理，旧父记录与 SSH 基线保持。没有降低准入、隐式扩容或删除旧材料重试；正向选择与派生仍待容量充足环境。
-- 501 份既有 Rust/前端输入与 19 份 dist 相对 `c6ffbdb` 逐字不变，沿用其证据而未重复测试/构建。分层与 diff 通过；执行约束见 [ADR 0052](docs/adr/0069-ipquality-derived-debian-inputs.md) 与 [验收记录](docs/acceptance/ipquality-derived-inputs.md)。实际最小 builder/image、许可证/对应源签名制品、联合负载、aws-jp0、完整验机及混合订阅链路等整体剩余事项保持待验；CI 继续暂停，未签署、发布或部署。
+- 501 份既有 Rust/前端输入与 19 份 dist 相对 `c6ffbdb` 逐字不变，沿用其证据而未重复测试/构建。分层与 diff 通过；执行约束见 [ADR 0069](docs/adr/0069-ipquality-derived-debian-inputs.md) 与 [验收记录](docs/acceptance/ipquality-derived-inputs.md)。实际最小 builder/image、许可证/对应源签名制品、联合负载、aws-jp0、完整验机及混合订阅链路等整体剩余事项保持待验；CI 继续暂停，未签署、发布或部署。
 
 ## 2026-10-02：独立节点出口 IPQuality（整步实现与本地验收）
 
@@ -100,7 +100,7 @@
 - 新节点 JSON 使用已有认证章节接口，以任务、工具、源码、签名归档、IP 版本和执行窗口核对，面板缓存投影与章节保存共用 server→job 事务。迁移 0027 增加单调任务序号，按实际来源和出口保存最近尝试/成功/错误，晚到旧任务不能覆盖新观察；NAT 出口、历史出口与网卡地址分开。
 - IP 信息页接入独立节点自查、逐源请求记录、部分章节、等待设备确认取消，以及读取失败/跨服务器回调守卫。能力和匹配制品缺失时显示未知并拒绝创建，代理业务或另一项同机诊断仍受共用互斥保护。
 - 遵照“中途不要测试，修改完一个大步骤提交”，集中修改完成并冻结后才执行本地统一验收；发现失败后仅修复并补验受影响范围，保留其它未变输入的通过证据。最终 672 份功能输入 SHA256 `8dae808a159fe3b4636c230316ac63c17cfc5680da7f19546110d2949822672e`：Rust 11 crates/72 targets 去重 646 通过、18 条件忽略；Python 11 suites 去重 237 通过、19 既有平台条件跳过，新 policy 27/27；Bun 58/1154 断言、单次 TS/Vite 构建和 8 组桌面/手机实际 dist 浏览器通过。fmt、warnings-deny Clippy、core 分层与 diff 通过；自有 PostgreSQL 已停止并确认清理，未执行第三方查询或生产负载。
-- 尚未签署、发布或部署新制品。原生最小 builder 审核、完整实际对应源制品、专用 Linux/systemd/挂载/持续代理流量矩阵继续待验；aws-jp0、完整验机许可、混合订阅链路等整体整改剩余事项不缩小。CI 继续暂停，相关 Issue 保持开放。执行合同见 [ADR 0051](docs/adr/0068-independent-node-ipquality.md) 与 [验收清单](docs/acceptance/node-ipquality.md)。
+- 尚未签署、发布或部署新制品。原生最小 builder 审核、完整实际对应源制品、专用 Linux/systemd/挂载/持续代理流量矩阵继续待验；aws-jp0、完整验机许可、混合订阅链路等整体整改剩余事项不缩小。CI 继续暂停，相关 Issue 保持开放。执行合同见 [ADR 0068](docs/adr/0068-independent-node-ipquality.md) 与 [验收清单](docs/acceptance/node-ipquality.md)。
 
 ## 2026-10-01：开放 issue 第一批（#3、#4、#6、#14、#15）
 

@@ -277,7 +277,7 @@ try {
     // A clean snapshot is also unwritable while the real header refresh is pending.
     assert.equal(failures.size, 0)
     await enabled(direct)
-    await recoverRead(`${prefix}/proxy-resources`, page.getByRole('button', { name: '刷新', exact: true }), async () => {
+    await recoverRead(`${prefix}/proxy-resources`, page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }), async () => {
       assert.equal(await direct.isDisabled(), true)
       assert.equal(await direct.isChecked(), false)
       assert.equal(accessWrites.length, 0)
@@ -285,7 +285,7 @@ try {
     await enabled(direct)
     // Each direct-grant dependency must independently block writes after a failed GET.
     for (const dependency of [`${prefix}/users`, `${prefix}/proxy-resources`, `${prefix}/users/1/accesses`]) {
-      await failedRead(dependency, () => page.getByRole('button', { name: '刷新', exact: true }).click())
+      await failedRead(dependency, () => page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).click())
       assert.equal(await direct.isDisabled(), true)
       assert.equal(await direct.isChecked(), false)
       assert.equal(await page.getByText(user.name, { exact: true }).count() > 0, true, 'last good data remains visible')
@@ -296,7 +296,7 @@ try {
       await enabled(direct)
     }
     // A metrics-only failure has no authority over access edits.
-    await failedRead(`${prefix}/usage`, () => page.getByRole('button', { name: '刷新', exact: true }).click())
+    await failedRead(`${prefix}/usage`, () => page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).click())
     await enabled(direct)
     const grantSaved = page.waitForResponse(response => new URL(response.url()).pathname === `${prefix}/users/1/accesses` && response.request().method() === 'POST' && response.status() === 200)
     const grantReadback = page.waitForResponse(async response => new URL(response.url()).pathname === `${prefix}/users/1/accesses` && response.request().method() === 'GET' && response.status() === 200 && (await response.json()).some(access => access.user_id === 1 && access.node_id === 1 && access.direct_grant === true))
@@ -310,7 +310,7 @@ try {
     assert.equal(await direct.isChecked(), true, 'the real successful access readback must select the controlled switch')
     assert.deepEqual(accessWrites, [{ node_id: 1 }])
     failures.delete(`${prefix}/usage`)
-    await page.getByRole('button', { name: '刷新', exact: true }).click()
+    await page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).click()
 
     await page.getByRole('button', { name: '编辑', exact: true }).click()
     dialog = page.getByRole('dialog')
@@ -366,7 +366,7 @@ try {
     // Existing unavailable IDs remain visible when opening, and after recovery removes them.
     policies[0].chain_ids = [42]
     chainEntries.push({ id: 42, name: '已不可用旧链路', entry_node_id: 99, exit_node_id: 100, available: false })
-    await page.getByRole('button', { name: '刷新', exact: true }).click()
+    await page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).click()
     const originalPolicyRow = page.getByRole('row').filter({ has: page.getByText('原策略', { exact: true }) })
     await originalPolicyRow.getByRole('button', { name: '编辑', exact: true }).click()
     dialog = page.getByRole('dialog')

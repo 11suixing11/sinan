@@ -665,6 +665,52 @@ raise SystemExit(int(os.environ.get("NQ_FIXTURE_CURL_EXIT", "0")))
         target.write_text(source)
         target.chmod(0o755)
 
+    def test_exit_preserves_primary_status_and_exposes_unconfirmed_watcher_cleanup(self):
+        template = (PLUGIN / 'native-runner.sh.tmpl').read_text()
+        start = 'cleanup() {\n'
+        end = 'trap \'finish "$?"\' EXIT\n'
+        self.assertEqual(template.count(start), 1)
+        self.assertEqual(template.count(end), 1)
+        cleanup = template[template.index(start):template.index(end) + len(end)]
+        runtime = self.workspace / '.runner'
+        runtime.mkdir()
+        (runtime / 'report.py').write_text('# TEST_ONLY inert marker, never executed\n')
+        script = self.root / 'TEST_ONLY-cleanup.sh'
+        script.write_text('''#!/bin/bash
+set -euo pipefail
+workspace=$1
+runtime=$workspace/.runner
+watcher_pid=123456789
+# Each command below is a shell function. No real watcher or process signal,
+# timer, snapshot interpreter or filesystem removal is invoked by this fixture.
+kill(){ [[ $TEST_ONLY_UNCONFIRMED == true ]]; }
+sleep(){ printf '%s\\n' pause >> "$TEST_ONLY_TRACE"; }
+python3(){ printf '%s\\n' snapshot >> "$TEST_ONLY_TRACE"; }
+rm(){ printf '%s\\n' removal >> "$TEST_ONLY_TRACE"; }
+rmdir(){ printf '%s\\n' unlock >> "$TEST_ONLY_TRACE"; }
+umount(){ :; }
+mountpoint(){ return 1; }
+''' + cleanup + 'exit "$TEST_ONLY_EXIT"\n')
+        for unconfirmed in (False, True):
+            for original in (0, 7, 130, 143):
+                with self.subTest(unconfirmed=unconfirmed, original_exit=original):
+                    trace = self.root / ('cleanup-' + str(unconfirmed) + '-' + str(original))
+                    environment = dict(self.environment, TEST_ONLY_UNCONFIRMED=str(unconfirmed).lower(),
+                                       TEST_ONLY_EXIT=str(original), TEST_ONLY_TRACE=str(trace))
+                    result = self.processes.run(['/bin/bash', str(script), str(self.workspace)],
+                                                env=environment, timeout=3)
+                    self.assertEqual(result.returncode, 1 if unconfirmed and original == 0 else original,
+                                     result.stderr)
+                    rows = trace.read_text().splitlines()
+                    if unconfirmed:
+                        self.assertEqual(rows, ['pause'] * 40)
+                        self.assertIn(b'private workspace retained', result.stderr)
+                        self.assertTrue(runtime.is_dir())
+                        self.assertTrue((runtime / 'report.py').is_file())
+                    else:
+                        self.assertEqual(rows, ['snapshot', 'removal', 'unlock'])
+                        self.assertEqual(result.stderr, b'')
+
     def runner(self, mode="report"):
         fixture = '''#!/usr/bin/env bash
 set -uo pipefail

@@ -1,6 +1,6 @@
 # IPQuality 最小闭包贯穿验收
 
-阶段：整步实现及集中验收完成，八组有效合同共 230 项通过；独立 Debian 12 ARM64 上实际离线派生成功。尚未实际 prepare/build/export，也没有获准的 builder、可发布最小 rootfs 或节点运行签收。可机读结果见 [本步收据](ipquality-minimal-profile-local.json)，设计见 [ADR 0053](../adr/0070-ipquality-minimal-profile-chain.md)，原缺口见 [Issue #146](https://github.com/theLucius7/sinan/issues/146)。
+阶段：整步实现及集中验收完成，八组有效合同共 230 项通过；独立 Debian 12 ARM64 上实际离线派生成功。尚未实际 prepare/build/export，也没有获准的 builder、可发布最小 rootfs 或节点运行签收。可机读结果见 [本步收据](ipquality-minimal-profile-local.json)，设计见 [ADR 0070](../adr/0070-ipquality-minimal-profile-chain.md)，原缺口见 [Issue #146](https://github.com/theLucius7/sinan/issues/146)。
 
 ## 本步范围
 

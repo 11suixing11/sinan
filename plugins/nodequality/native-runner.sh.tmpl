@@ -113,7 +113,15 @@ cleanup() {
   rm -rf -- "$runtime"
   rmdir -- "$workspace/.runner.lock" 2>/dev/null || true
 }
-trap cleanup EXIT
+finish() {
+  local status=$1
+  trap - EXIT
+  if ! cleanup; then
+    [[ $status != 0 ]] || status=1
+  fi
+  exit "$status"
+}
+trap 'finish "$?"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM HUP
 mkdir "$runtime" "$runtime/bin"

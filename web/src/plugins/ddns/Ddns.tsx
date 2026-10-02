@@ -18,13 +18,14 @@ function Editor({ rule, servers, current, close, saved }: { rule?: DdnsRule; ser
   const [key, setKey] = useState(''), [secret, setSecret] = useState('')
   const provider = config.provider ?? 'cloudflare', cloudflare = provider === 'cloudflare', namedZone = provider === 'tencent' || provider === 'aliyun'
   const action = useAction()
-  const writeError = () => editorError(current, config, rule) || (cloudflare ? !rule && !token.trim() ? '请填写 Cloudflare API Token。' : ''
+  const slots = !rule && addressMode === 'dual' ? 2 : 1
+  const writeError = () => editorError(current, config, rule, slots) || (cloudflare ? !rule && !token.trim() ? '请填写 Cloudflare API Token。' : ''
     : Boolean(key.trim()) !== Boolean(secret.trim()) || (!rule && (!key.trim() || !secret.trim())) ? '请同时填写访问密钥 ID 与 Secret。' : '')
   const change = (part: Partial<DdnsConfig>) => setConfig(value => ({ ...value, ...part }))
   return <Modal title={rule ? `编辑动态解析 · ${rule.config.name}` : '添加动态解析'} busy={action.busy} onClose={close} wide className="ddns-editor"><form onSubmit={event => {
     event.preventDefault()
-    void action.run(() => { const reason = writeError(); if (reason) throw new Error(reason); return api(rule ? `/api/plugins/ddns/rules/${rule.id}` : '/api/plugins/ddns/rules', rule ? 'PATCH' : 'POST', ddnsWrite(config, token, rule?.revision, key, secret)) }, () => { setToken(''); setKey(''); setSecret(''); saved() })
-  }}><div className="modal-body"><ErrorNotice message={action.error || editorError(current, config, rule)} /><fieldset disabled={action.busy}>
+    void action.run(() => { const reason = writeError(); if (reason) throw new Error(reason); return api(rule ? `/api/plugins/ddns/rules/${rule.id}` : addressMode === 'dual' ? '/api/plugins/ddns/rules/dual-stack' : '/api/plugins/ddns/rules', rule ? 'PATCH' : 'POST', ddnsWrite(config, token, rule?.revision, key, secret)) }, () => { setToken(''); setKey(''); setSecret(''); saved() })
+  }}><div className="modal-body"><ErrorNotice message={action.error || editorError(current, config, rule, slots)} /><fieldset disabled={action.busy}>
     <div className="ddns-provider"><strong>{providers[provider]}</strong><span>从 Agent 上报的公网地址更新 DNS</span></div>
     <Field label="DNS 提供方"><select value={provider} disabled={Boolean(rule)} onChange={event => { const next = event.target.value as NonNullable<DdnsConfig['provider']>; change({ provider: next, zone_id: '', line: '', proxied: false, ttl: next === 'cloudflare' ? 1 : 600 }); setToken(''); setKey(''); setSecret('') }}>{Object.entries(providers).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></Field>
     <div className="form-grid"><Field label="规则名称"><input value={config.name} required maxLength={128} onChange={event => change({ name: event.target.value })} placeholder="例如：家庭服务器 IPv4" /></Field>

@@ -1,6 +1,6 @@
 # 统一代理资源与批量链路验收
 
-阶段：整步实现与本地集中验收完成。设计见 [ADR 0054](../adr/0071-proxy-resource-batch-lifecycle.md)，旧引用删除缺口见 [Issue #147](https://github.com/theLucius7/sinan/issues/147)。本步为既定代理节点设计的资源管理与原子创建阶段，不宣称订阅来源或有序混合路径已实现。
+阶段：整步实现与本地集中验收完成。设计见 [ADR 0071](../adr/0071-proxy-resource-batch-lifecycle.md)，旧引用删除缺口见 [Issue #147](https://github.com/theLucius7/sinan/issues/147)。本步为既定代理节点设计的资源管理与原子创建阶段，不宣称订阅来源或有序混合路径已实现。
 
 ## 实现范围
 

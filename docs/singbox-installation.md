@@ -34,6 +34,6 @@ flowchart LR
 
 独立验收记录见[双端插件安装与恢复](acceptance/singbox-plugin-installation.md)，区分源码测试、专用节点实际安装和仍未验证的公网/生产范围。
 
-统一分支的安装准备表由 `0021_singbox_installation.sql` 建立，保留主线的 `0019` 延迟任务与 `0020` 通知迁移。旧验收按当时的 `0019_singbox_installation.sql` 执行；编号后移后的完整迁移组合仍须在新整合版本补验，不能复用旧收据宣称通过。业务决策见 [ADR 0044](adr/0061-singbox-plugin-lifecycle.md)。
+统一分支的安装准备表由 `0021_singbox_installation.sql` 建立，保留主线的 `0019` 延迟任务与 `0020` 通知迁移。旧验收按当时的 `0019_singbox_installation.sql` 执行；编号后移后的完整迁移组合仍须在新整合版本补验，不能复用旧收据宣称通过。业务决策见 [ADR 0061](adr/0061-singbox-plugin-lifecycle.md)。
 
 最新主线整合安装表编号为 `0023_singbox_installation.sql`，保留主线0021节点设置/0022统计索引；上文旧0019/0021是各自历史冻结输入，不作为新组合已验收证据。SQLx迁移记录与校验不自动改写，旧编号已应用的数据库需单独制定保留数据的升级路径；未知状态不能按空白库处理。

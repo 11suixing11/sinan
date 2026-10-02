@@ -102,6 +102,7 @@ async function main() {
       } else if (pathname === `${root}/users`) data = [{ id: 1, name: '测试用户', subscription_token: 'TEST_ONLY', subscription_url: 'https://panel.example.com/s/TEST_ONLY' }]
       else if (pathname === `${root}/usage`) data = { uplink: '40', downlink: '60', total: '100', by_user: [{ user_id: 1, name: '测试用户', deleted: false, uplink: '40', downlink: '60' }], by_node: [] }
       else if (pathname === `${root}/users/1/accesses`) data = groupIds.includes(1) ? [{ user_id: 1, node_id: 1, uuid: 'TEST_ONLY', stat_name: 'u1_n1', direct_grant: false }, { user_id: 1, node_id: 2, uuid: 'TEST_ONLY_CHAIN', stat_name: 'u1_n2', direct_grant: false }] : []
+      else if (pathname === `${root}/users/1/portal`) data = { configuration: { enabled: false, reason: 'TEST_ONLY 未启用', origin: origin.origin }, keys: 0, url: null, activation_expires_at: null }
       else if (pathname === `${root}/users/1/policy-groups`) {
         if (method === 'PUT') groupIds = payload.group_ids
         data = { group_ids: groupIds }

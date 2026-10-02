@@ -79,3 +79,13 @@ test('legacy Cloudflare drafts stay readable, but stale revisions and vanished s
   expect(editorError(() => ({ ...data, servers: [] }), config, rule)).not.toBe('')
   expect(ruleError(() => ({ ...data, rules: [{ ...rule, revision: undefined as unknown as number }] }), rule)).not.toBe('')
 })
+
+test('dual-stack creation reserves two slots from the current snapshot', () => {
+  const config: DdnsConfig = { name: 'TEST_ONLY dual', server_id: 1, zone_id: '0'.repeat(32), record_name: 'dual.example.com', record_type: 'A', ttl: 1, proxied: false, enabled: true, interval_secs: 300, adopt_existing: false }
+  const data = { rules: Array.from({ length: 31 }, (_, index) => ({ id: `TEST_ONLY ${index}`, config, revision: 1, busy: false, plugin_enabled: true } as DdnsRule)), servers: [{ id: 1, name: 'TEST_ONLY server', online: false, enabled: true }] }
+  expect(editorError(() => data, config)).toBe('')
+  expect(editorError(() => data, config, undefined, 2)).toContain('两条')
+  expect(editorError(() => undefined, config, undefined, 2)).not.toBe('')
+  data.rules.pop()
+  expect(editorError(() => data, config, undefined, 2)).toBe('')
+})

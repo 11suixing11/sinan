@@ -291,7 +291,7 @@ panel_ca_file = "/etc/sinan/trust/panel-ca.pem"
 
 参见 [配置示例](../deploy/agent-private-panel.example.toml)。该字段省略时继续使用公有 webpki 根；设置后附加证书只用于此 Agent 的面板注册、制品与配置下载、认证 WSS 和退役回执。面板下载仍要求同一 origin，证书主机名与有效期校验继续生效。GitHub 下载、公网地址探测、安装入口及独立代理运行时不会加载此文件。
 
-文件最多 256 KiB、32 张完整 PEM 证书，不能包含私钥或其他 PEM 块；路径必须是绝对普通文件，文件及其上级目录都不能为符号链接。macOS 等存在系统目录别名的平台应填写真实路径，例如 `/private/etc/sinan/trust/panel-ca.pem`。将 CA 放在设备身份、运行配置与安装目录之外，确保退役清理凭据后仍可确认回执。CA 与发布制品公钥各自独立，添加它不会授权未签名制品。修改 CA 后重启 Agent，使所有面板连接使用新信任；仅更新文件不会替换现有 TLS 连接的信任集。详细边界见 [ADR 0057](adr/0074-private-panel-certificate-authorities.md)。
+文件最多 256 KiB、32 张完整 PEM 证书，不能包含私钥或其他 PEM 块；路径必须是绝对普通文件，文件及其上级目录都不能为符号链接。macOS 等存在系统目录别名的平台应填写真实路径，例如 `/private/etc/sinan/trust/panel-ca.pem`。将 CA 放在设备身份、运行配置与安装目录之外，确保退役清理凭据后仍可确认回执。CA 与发布制品公钥各自独立，添加它不会授权未签名制品。修改 CA 后重启 Agent，使所有面板连接使用新信任；仅更新文件不会替换现有 TLS 连接的信任集。详细边界见 [ADR 0074](adr/0074-private-panel-certificate-authorities.md)。
 
 ### 远程命令的本地授权
 
