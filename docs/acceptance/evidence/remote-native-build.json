@@ -1,0 +1,405 @@
+{
+  "all_prior_vm_materials_and_failures_preserved": true,
+  "amd64_native_prepared": false,
+  "arm64_native_prepared": true,
+  "attempts": [
+    {
+      "actual_build_limits": {
+        "CPUQuotaPerSecUSec": "1s",
+        "CPUWeight": "50",
+        "CapabilityBoundingSet": "",
+        "Group": "1000",
+        "IOWeight": "50",
+        "MemoryMax": "1073741824",
+        "MemorySwapMax": "0",
+        "NoNewPrivileges": "yes",
+        "OOMScoreAdjust": "500",
+        "PrivateDevices": "yes",
+        "PrivateNetwork": "yes",
+        "PrivateTmp": "yes",
+        "ProtectControlGroups": "yes",
+        "ProtectHome": "tmpfs",
+        "ProtectKernelModules": "yes",
+        "ProtectKernelTunables": "yes",
+        "ProtectSystem": "strict",
+        "RestrictSUIDSGID": "yes",
+        "RuntimeMaxUSec": "15min",
+        "TasksMax": "128",
+        "User": "1000"
+      },
+      "actual_cgroup_limits": {
+        "cpu.max": "100000 100000",
+        "memory.max": "1073741824",
+        "memory.swap.max": "0",
+        "pids.max": "128"
+      },
+      "artifacts_prepared": false,
+      "build_cleanup_record_identity": {
+        "sha256": "fd02bd60a5c13704d9294c90789ea495bcba3df0c84f941b320bfd2435dcaa78",
+        "size": 340
+      },
+      "build_record_identity": {
+        "sha256": "ae9f033b810fde55fef4c80c1ea5d764a8e6fbae3f182286d83fe8bb621d3fda",
+        "size": 12340
+      },
+      "cause": "owned_unit_memory_limit_oom",
+      "cleanup_confirmed": true,
+      "cleanup_only_owned_unit": true,
+      "command_failure_code": "controlled_command_failed",
+      "final_unit_state": "MainPID=0\nControlGroup=\nLoadState=not-found\nActiveState=inactive\nSubState=dead\nJob=\n",
+      "finished_at": 1790963944,
+      "host_oom_status": "not_assessed",
+      "journal_confirmed_owned_unit_oom": true,
+      "journal_identity": {
+        "sha256": "6e202d9190aa5f13e44e38e9d35806eb28f2d48c617671c3e676e0214055ade6",
+        "size": 2620
+      },
+      "journal_query_exit": 0,
+      "materials_preserved": true,
+      "phase": "native_build",
+      "resources": {
+        "max_root_allocated_bytes": 2528350208,
+        "min_host_available_memory_bytes": 22104977408,
+        "min_host_free_bytes": 72955105280,
+        "min_host_free_inodes": 6228246
+      },
+      "run_id": "ed790dd9-9a23-4242-a0da-e3f52f6357c4",
+      "shared_host_limits": {
+        "disk_reserve_bytes": 4294967296,
+        "maximum_saved_samples": 256,
+        "memory_reserve_bytes": 2147483648,
+        "minimum_free_inodes": 16384,
+        "poll_interval_secs": 1,
+        "root_allocated_limit_bytes": 6442450944,
+        "saved_interval_secs": 10
+      },
+      "started_at": 1790963660,
+      "status": "failed",
+      "unit_memory_peak_bytes": null,
+      "unit_oom_kill_count": null
+    },
+    {
+      "cause": "unprivileged_retained_evidence_accounting_permission_denied",
+      "empty_workspace_allocated_bytes": 4096,
+      "empty_workspace_inspection_identity": {
+        "sha256": "724338d5026fa60bfcc681908713d91b744affa198f8380882cfa31497e1b29c",
+        "size": 418
+      },
+      "empty_workspace_preserved": true,
+      "final_unit_state": "MainPID=0\nLoadState=not-found\nActiveState=inactive\nJob=\n",
+      "phase": "fresh_directory_setup",
+      "receipt_identity": {
+        "sha256": "b1fab4d127acd0c9f41853905c607e2ce3726f6f32d5ec2c616353086c6f8f47",
+        "size": 4451
+      },
+      "run_id": "45750b01-0bd8-4b95-8837-e966210991f7",
+      "status": "failed",
+      "transfer_or_build_started": false,
+      "unit_started": false
+    },
+    {
+      "actual_build_limits": {
+        "CPUQuotaPerSecUSec": "1s",
+        "CPUWeight": "50",
+        "CapabilityBoundingSet": "",
+        "Group": "1000",
+        "IOWeight": "50",
+        "MemoryMax": "4294967296",
+        "MemorySwapMax": "0",
+        "NoNewPrivileges": "yes",
+        "OOMScoreAdjust": "500",
+        "PrivateDevices": "yes",
+        "PrivateNetwork": "yes",
+        "PrivateTmp": "yes",
+        "ProtectControlGroups": "yes",
+        "ProtectHome": "tmpfs",
+        "ProtectKernelModules": "yes",
+        "ProtectKernelTunables": "yes",
+        "ProtectSystem": "strict",
+        "RestrictSUIDSGID": "yes",
+        "RuntimeMaxUSec": "15min",
+        "TasksMax": "128",
+        "User": "1000"
+      },
+      "actual_cgroup_limits": {
+        "cpu.max": "100000 100000",
+        "memory.max": "4294967296",
+        "memory.swap.max": "0",
+        "pids.max": "128"
+      },
+      "artifacts_prepared": true,
+      "binaries": {
+        "sinan-agent": {
+          "sha256": "6ad099b2cfff6c3fcbd5f1e80650b25367110686ddadb06a6b5efe6a9d88bcac",
+          "size": 64672800
+        },
+        "sinan-panel": {
+          "sha256": "9a8344432a4081ba652eb1f701d677cffefecdced29ccf7517fb75688707fb74",
+          "size": 71074216
+        }
+      },
+      "build_cleanup_confirmed": true,
+      "build_cleanup_record_identity": {
+        "sha256": "75fb83c0744e58f2a08d71ced3ec679400560c2f34a19b4015ce17c35bef0b36",
+        "size": 340
+      },
+      "build_plan_identity": {
+        "sha256": "b8a6ea70ae74d4ac6875f6d69de0063f9b122c7b347baf1d2c498ea2b9cf1c78",
+        "size": 1461
+      },
+      "cleanup_only_owned_unit": true,
+      "cleanup_proof_source": "builder_owned_unit_cleanup_and_separate_readonly_collection",
+      "collection_control_identity": {
+        "sha256": "5ae16e5a6eb4298baf208bcfcfaae7fa78c77b3a9b88f234cb243afb8644033b",
+        "size": 2981
+      },
+      "control_files": {
+        "host-native-build.py": {
+          "sha256": "842e45d83289ed8c2538a4826151350953835d7531202ee2ad011267a858da4a",
+          "size": 31001
+        },
+        "input-helper.py": {
+          "sha256": "111cd8b5ff65d308bd14f292237cc334aea701f5461e97ffb7dc04a11a564e5e",
+          "size": 13771
+        },
+        "input-plan.json": {
+          "sha256": "b7e107f11c48ead865009532c9ca18d653936fec0b6cd026dc8d7a3e9811ee72",
+          "size": 1869
+        },
+        "osga-build-supervisor.py": {
+          "sha256": "026d615097ff91fe5ca3bde2079ed1e15fe1594ff09d9ffc6a801187b2e23485",
+          "size": 22925
+        },
+        "plan.md": {
+          "sha256": "e64e544c22cfd21e645dcebe2a52f21bb6fedc19ec3a296d5090ea2df109035e",
+          "size": 3024
+        },
+        "transfer-plan.json": {
+          "sha256": "e6e40731029c84954c8f0fd6c26c1875c113e461a405fe285e8e6b0b316ebdef",
+          "size": 2282
+        }
+      },
+      "control_syntax_identity": {
+        "sha256": "75b779ebb081c0b80af0cf5a5f3b1305b70dde1cd66dedc26bbc101f330b3617",
+        "size": 339
+      },
+      "controls_freeze_identity": {
+        "sha256": "f8e5f2225edf72534f489f7548e560bb001fee8fb17a57e02ab0d19edbdf6af9",
+        "size": 3793
+      },
+      "declared_budget_bytes": {
+        "build_memory": 4294967296,
+        "counted_two_roots_phase_limit": 9663676416,
+        "host_disk_reserve": 4294967296,
+        "host_memory_reserve": 2147483648,
+        "new_root_limit": 6442450944,
+        "preserved_empty_r2_directory_overhead": 4096
+      },
+      "elapsed_seconds": 304,
+      "execution_receipt_identity": {
+        "sha256": "3dd6a88be21819cef9501369354da1d41a459bb9b421582ea86c9fd99d130d5c",
+        "size": 36353
+      },
+      "existing_package_versions": [
+        {
+          "name": "binutils",
+          "status": "install ok installed",
+          "version": "2.40-2"
+        },
+        {
+          "name": "ca-certificates",
+          "status": "install ok installed",
+          "version": "20250419~deb12u1"
+        },
+        {
+          "name": "curl",
+          "status": "install ok installed",
+          "version": "7.88.1-10+deb12u15"
+        },
+        {
+          "name": "gcc",
+          "status": "install ok installed",
+          "version": "4:12.2.0-3"
+        },
+        {
+          "name": "libc6-dev",
+          "status": "install ok installed",
+          "version": "2.36-9+deb12u14"
+        },
+        {
+          "name": "minisign",
+          "status": "install ok installed",
+          "version": "0.11-1"
+        }
+      ],
+      "final_unit_state": "MainPID=0\nControlGroup=\nLoadState=not-found\nActiveState=inactive\nSubState=dead\nJob=\n",
+      "finished_at": 1790965826,
+      "host_packages_modified": false,
+      "input_receipt_identity": {
+        "sha256": "0bf9e73fd8863ac12db356f5901da6902e3fdf02d1d15af0df3180e1c0fcf0d0",
+        "size": 3432
+      },
+      "materials_preserved": true,
+      "native_build_exit": 0,
+      "native_build_log_identity": {
+        "sha256": "9b2c5976722fc778eacd3ab1c6bc0fec56c6e3f4a8446a29975da40f88a87b56",
+        "size": 11659
+      },
+      "native_target": "aarch64-unknown-linux-gnu",
+      "native_target_cache_sufficient": "verified_by_actual_offline_build",
+      "phase": "fresh_native_build",
+      "prepared_record_identity": {
+        "sha256": "723128d36524c8e928a3120b9420fe48b09f3c83fa2462da802921e5fbb60a49",
+        "size": 16447
+      },
+      "private_collection_identity": {
+        "sha256": "b57b5352a6d22353b978020f8d58982ef847d72d94f9fd5a48ab74d97b289cf7",
+        "size": 38805
+      },
+      "release": {
+        "checksums_sha256": "5c74fb0da126b6f571a59453bf41768c3aeb4c77e4d75b720dbad953ecd6fca7",
+        "metadata": {
+          "artifacts": [
+            {
+              "arch": "linux-gnu-arm64",
+              "archive_size": 64672800,
+              "asset_name": "agent-0.3.1-linux-gnu-arm64",
+              "binary_name": "sinan-agent",
+              "binary_sha256": "6ad099b2cfff6c3fcbd5f1e80650b25367110686ddadb06a6b5efe6a9d88bcac",
+              "binary_size": 64672800,
+              "format": "raw",
+              "name": "agent",
+              "version": "0.3.1"
+            },
+            {
+              "arch": "linux-gnu-arm64",
+              "archive_size": 29485347,
+              "asset_name": "sing-box-1.14.2-linux-gnu-arm64.tar.gz",
+              "binary_name": "sing-box",
+              "binary_sha256": "fee83ca8457c94449dd04aa17a51830cbc9b449a4dda290e995d3366188e0302",
+              "binary_size": 86063568,
+              "format": "tar.gz",
+              "name": "sing-box",
+              "version": "1.14.2"
+            }
+          ],
+          "protocol_max": 1,
+          "protocol_min": 1,
+          "schema": 1,
+          "source_repo": "theLucius7/sinan",
+          "tag": "agent-v0.3.1"
+        },
+        "metadata_sha256": "4f9658128b995217518d7b07314359640820c94755b374f213a93a9b7207fa66",
+        "official_publication_rejected": true,
+        "runtime_tags": [
+          "with_gvisor",
+          "with_quic",
+          "with_dhcp",
+          "with_wireguard",
+          "with_utls",
+          "with_acme",
+          "with_clash_api",
+          "with_tailscale",
+          "with_ccm",
+          "with_ocm",
+          "with_cloudflared",
+          "with_naive_outbound",
+          "with_usbip",
+          "with_openvpn",
+          "with_openconnect",
+          "badlinkname",
+          "tfogo_checklinkname0",
+          "with_v2ray_api"
+        ],
+        "signature_sha256": "b6703390b923ddae38016fd5e6d2c923d20d8c3399418c0265f7c354b9019de9",
+        "test_only": true
+      },
+      "resources": {
+        "max_phase_allocated_bytes": 5695778816,
+        "max_root_allocated_bytes": 3167395840,
+        "min_host_available_memory_bytes": 22027853824,
+        "min_host_free_bytes": 69787459584,
+        "min_host_free_inodes": 6205622,
+        "resource_polls": 267
+      },
+      "run_id": "f7c98d0a-5e5a-4a08-a222-cb817853920c",
+      "runtime": {
+        "sha256": "fee83ca8457c94449dd04aa17a51830cbc9b449a4dda290e995d3366188e0302",
+        "size": 86063568
+      },
+      "runtime_installed": false,
+      "shared_host_limits": {
+        "disk_reserve_bytes": 4294967296,
+        "maximum_saved_samples": 256,
+        "memory_reserve_bytes": 2147483648,
+        "minimum_free_inodes": 16384,
+        "phase_allocated_limit_bytes": 9663676416,
+        "poll_interval_secs": 1,
+        "root_allocated_limit_bytes": 6442450944,
+        "saved_interval_secs": 10
+      },
+      "source_identity": {
+        "cargo_lock_sha256": "a614a0403d44c5d1ffe87d5336ecafc5b69e57e5d5e40a7336cdb4179b83c34e",
+        "file_count": 784,
+        "frozen_inputs_sha256": "a89478a3b78b410c9bbcc327695d9440e5d161c1c1f55315d6e1a4cf2b45952e",
+        "functional_sha256": "504880b192ff8ee705774fbe80e8d3c5e52a651c896c124771a214ffb582a623",
+        "head": "864767c4161379b919abc6d579b4147c1067127e"
+      },
+      "started_at": 1790965522,
+      "status": "prepared",
+      "supervisor_remote_cleanup_asserted": false,
+      "toolchain": [
+        "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+        "binary: rustc",
+        "commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452",
+        "commit-date: 2026-07-14",
+        "host: aarch64-unknown-linux-gnu",
+        "release: 1.97.1",
+        "LLVM version: 22.1.6"
+      ],
+      "transfer_receipt_identity": {
+        "sha256": "26f74de39893df494ecaba544b011c0b66306aeceec70a6b7593f1e614a56f9b",
+        "size": 12021
+      },
+      "unit_journal_exit": 0,
+      "unit_journal_oom_messages_present": false,
+      "unit_memory_peak_bytes": null,
+      "unit_oom_kill_count": null,
+      "whole_lock_cache_complete": false
+    }
+  ],
+  "current_preparation_repo_head": "98ad8c14a47e33026671aa72ef5b423b01f15c6f",
+  "embedded_dist_files": 19,
+  "execution_context": "shared_build_host",
+  "functional_source_changed": false,
+  "gates": {
+    "current_business_ledger_matrix": "not_run",
+    "dedicated_physical_acceptance": "not_run",
+    "full_nodequality": "not_run",
+    "host_packages_modified": false,
+    "officially_published": false,
+    "production_deployed": false,
+    "real_three_device_managed_paths": "not_run",
+    "registered_daily_matrix": "not_run",
+    "runtime_installed": false,
+    "source_ci": "disabled_manually"
+  },
+  "inert_test_only_installer": true,
+  "last_functional_commit": "5adda2db2cc2155d9f74a9e0dbf30076bebee11e",
+  "missing_windows_payload_count": 7,
+  "native_target_cache_sufficient": "verified_by_actual_offline_build",
+  "official_publication_rejected": true,
+  "producer": "private-resource-limited-native-builder",
+  "recorded_date": "2026-10-03",
+  "schema": 1,
+  "scope": "actual_arm64_native_artifact_preparation_only",
+  "source_identity": {
+    "cargo_lock_sha256": "a614a0403d44c5d1ffe87d5336ecafc5b69e57e5d5e40a7336cdb4179b83c34e",
+    "file_count": 784,
+    "frozen_inputs_sha256": "a89478a3b78b410c9bbcc327695d9440e5d161c1c1f55315d6e1a4cf2b45952e",
+    "functional_sha256": "504880b192ff8ee705774fbe80e8d3c5e52a651c896c124771a214ffb582a623",
+    "head": "864767c4161379b919abc6d579b4147c1067127e"
+  },
+  "unchanged_rust_frontend_tests_repeated": false,
+  "whole_lock_cache_complete": false
+}

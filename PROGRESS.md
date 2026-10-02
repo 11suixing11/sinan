@@ -1,6 +1,13 @@
 # 执行进度
 
-## 2026-10-03：独立 Debian 12 原生准备尝试及收尾
+## 2026-10-03：ARM64 原生制品准备完成及集成收尾
+
+- 继续同一集成 PR151，先集中完成私有受限构建编排再冻结。封存源码来自864767c，最后功能提交5adda2d；784功能输入含19 dist与当前分支逐项相同，SHA256仍504880b192ff8ee705774fbe80e8d3c5e52a651c896c124771a214ffb582a623。使用已有Debian12 ARM64共享构建主机，不运行硬件诊断、注册设备或修改生产业务；不冒称专用测试节点。
+- 原1GiB单元离线编译进入面板后OOM，所属journal明确oom-kill，清理及最终inactive/not-found确认。仅构建MemoryMax明确调整到4GiB，所有产品诊断预算与宿主4GiB磁盘/2GiB可用内存管理预留保持。fresh-r2目录准备权限失败及4096B空目录保留；只修该阶段固定sudo编排与新目录归属，在fresh-r3重新认证原始归档，不复用展开源码/旧target。新目录6GiB、两数据目录9GiB独立守卫不降。
+- 统一补验结果：控制语法/九份输入传输认证完成；普通账户、无网络、CPU100%/零swap/128tasks/900秒限额实际读回，ARM64原生Agent与面板离线构建退出0，ELF/glibc/Agent版本、固定sing-box1.14.2及TEST_ONLY签名/新Agent验签通过。准备用时304秒，正式发布拒绝测试根；installer为inert测试资产，不安装服务器插件。原始收据/日志/签名/二进制保留，自有构建单元清理及另一次只读inactive/not-found确认。Linux ARM64缓存充分性现有实际证明，完整锁仍缺七份Windows payload，AMD64未认证。
+- 见[本次记录](docs/acceptance/remote-native-build.md)及[机器摘要](docs/acceptance/evidence/remote-native-build.json)。先前VM两次磁盘拒绝/正常停机保留；未变Rust/前端测试不重复。交付索引、验收状态与PR描述统一收尾，仍只有现有PR151；四源码CI继续暂停。完整NodeQuality许可/工厂、当前注册日常/三设备托管/账本及联合故障矩阵、正式发布和服务器插件安装/生产切换仍待验，整体实机目标未签收。
+
+## 2026-10-03：独立 Debian 12 原生准备尝试及收尾（前次记录）
 
 - 私有编排集中完成、冻结后实际创建独立 Debian12 ARM64 VM（2 CPU／2560 MiB／8 GiB），无宿主挂载、代理传播、SSH agent／业务端口转发。784 功能输入含19 dist，摘要保持报告采集器受验值；固定源码、锁定 registry、工具链和 runtime 分项认证后传输。旧测试 VM 正常停止，原磁盘、缓存、失败和部分材料保留。
 - APT update/install 实际退出0并确认进程收尾，六包版本只读取证；首次原生入口通过资源准入并开始编译，随后宿主余量4,188,483,584B触发4GiB预留。guard取消连接、正常停机并确认Stopped，原target733144KiB保留；中断日志／峰值／OOM未完整取得，重启后空单元不替代原证据。
