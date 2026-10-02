@@ -94,6 +94,18 @@ pub async fn create(
     Ok((StatusCode::CREATED, Json(node.view()?)))
 }
 
+/// Creation inside the caller's topology transaction also serves catalog clones.
+pub(crate) async fn create_on(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    request: CreateNode,
+) -> ApiResult<NodeView> {
+    business::lock_server(transaction, request.server_id).await?;
+    super::settings::require_enabled(transaction, request.server_id).await?;
+    let node = create_locked(transaction, request).await?;
+    business::mark_dirty(transaction, &[node.server_id]).await?;
+    node.view()
+}
+
 /// The caller owns the topology and server locks. Batch creation uses the same
 /// protocol, certificate, settings, port and whole-server checks as one node.
 pub(super) async fn create_locked(
@@ -317,6 +329,14 @@ pub async fn remove(
     require_admin(&state, &headers).await?;
     super::proxy_resources::remove_direct_node(&state, id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Shared catalog deletion retains the same unresolved ownership and retired-host guards.
+pub(crate) async fn remove_on(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: i64,
+) -> ApiResult<()> {
+    super::proxy_resources::remove_direct_node_on(transaction, id).await
 }
 
 pub(super) fn validate_port(port: i64) -> ApiResult<i32> {

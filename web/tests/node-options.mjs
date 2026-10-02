@@ -6,6 +6,7 @@ import { resolve, extname, sep } from 'node:path'
 import { flatResourceFixtures, proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
 
 // Shipped dist with private loopback API responses; native compiler and persistence checks are separate.
+const catalogView = resources => resources.map(resource => ({ ...resource, original_name: resource.name, tags: [], note: '', sort_order: resource.id, revision: '1'.repeat(64), metadata_revision: 0 }))
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
 const root = process.env.SINAN_WEB_DIST ?? fileURLToPath(new URL('../dist/', import.meta.url))
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' }
@@ -56,6 +57,7 @@ try {
       else if(path==='/api/plugins/sing-box/servers') value=servers
       else if(path==='/api/plugins/sing-box/usage') value={total:'0',by_node:[],by_user:[],uplink:'0',downlink:'0'}
       else if(path==='/api/plugins/sing-box/proxy-resources') value=flatResourceFixtures(nodes, servers, chains)
+      else if(path==='/api/plugins/sing-box/node-catalog') value=catalogView(flatResourceFixtures(nodes, servers, chains))
       else if(path==='/api/plugins/sing-box/ordered-proxy-resources') value=richResources()
       else if(path==='/api/plugins/sing-box/subscription-sources' || path==='/api/plugins/sing-box/ordered-subscription-sources') value=[]
       else if(path==='/api/plugins/sing-box/nodes') value=nodes

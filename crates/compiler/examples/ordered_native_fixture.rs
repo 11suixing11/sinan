@@ -332,6 +332,7 @@ fn execute() -> Result<()> {
     ];
     let sources = [
         ("lib.rs", include_bytes!("../src/lib.rs").as_slice()),
+        ("client.rs", include_bytes!("../src/client.rs").as_slice()),
         ("relays.rs", include_bytes!("../src/relays.rs").as_slice()),
         (
             "external.rs",

@@ -41,6 +41,8 @@
 
 ## 代理业务、协议与混合链路
 
+- [ADR 0076：节点库、来源预览与外部订阅授权](0076-node-catalog-and-external-access.md)
+
 - [ADR 0020：链式中转的内部凭证、入口计量与依赖发布](0020-chained-transit.md)
 - [ADR 0023：服务器核心与 sing-box 代理业务分层](0023-proxy-business-boundary.md)
 - [ADR 0030：sing-box 业务搬迁与服务器启用证据](0030-singbox-plugin-business.md)

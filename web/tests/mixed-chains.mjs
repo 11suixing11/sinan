@@ -4,6 +4,7 @@ import { readFile, mkdir } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolve, extname, sep } from 'node:path'
 
+const catalogView = resources => resources.map(resource => ({ ...resource, original_name: resource.name, tags: [], note: '', sort_order: resource.id, revision: '1'.repeat(64), metadata_revision: 0 }))
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
 const root = fileURLToPath(new URL('../dist/', import.meta.url))
 const server = createServer(async (request, response) => {
@@ -37,6 +38,7 @@ try {
       if(path==='/api/plugins/sing-box/servers')return reply([1,2,3].map(id=>({id,name:`测试服务器 ${id}`,enabled:true,online:true,agent_supported:true})))
       if(path==='/api/plugins/sing-box/nodes')return reply(nodes)
       if(path==='/api/plugins/sing-box/proxy-resources')return reply(resources)
+      if(path==='/api/plugins/sing-box/node-catalog')return reply(catalogView(resources))
       if(path==='/api/plugins/sing-box/subscription-sources')return reply([source])
       if(path==='/api/plugins/sing-box/subscription-sources/10/nodes')return reply([external])
       if(path==='/api/plugins/sing-box/usage')return reply({total:'0',uplink:'0',downlink:'0',by_node:[],by_user:[]})
@@ -69,6 +71,8 @@ try {
       if(path==='/api/plugins/sing-box/users')return reply([{id:1,name:'测试代理用户',subscription_url:'https://panel.example.com/sub/TEST_ONLY',subscription_token:'TEST_ONLY'}])
       if(path==='/api/plugins/sing-box/users/1/portal')return reply({configuration:{enabled:false,reason:'TEST_ONLY 未启用',origin:`http://127.0.0.1:${server.address().port}`},keys:0,url:null,activation_expires_at:null})
       if(path.endsWith('/users/1/policy-groups'))return reply({group_ids:[]})
+      if(path.endsWith('/users/1/external-accesses'))return reply({revision:0,accesses:[],available_nodes:[]})
+      if(path.endsWith('/users/1/portal'))return reply({configuration:{enabled:false,reason:'TEST_ONLY 未启用',origin:'https://panel.example.com'},keys:0,url:null,activation_expires_at:null})
       if(path.endsWith('/users/1/entitlement'))return reply({user_id:1,package_group_id:null,monthly_bytes:null,starts_at:null,expires_at:null,used_bytes:'0',status:'unmetered',allowed:true})
       if(path.endsWith('/accesses'))return reply([])
       errors.push(`Unexpected ${method} ${path}`);return route.fulfill({status:404,json:{error:'Unexpected API'}})
@@ -122,8 +126,9 @@ try {
     if(process.env.SINAN_UI_SCREENSHOT_DIR){await dialog.evaluate(element=>{element.scrollTop=0});await page.screenshot({path:resolve(process.env.SINAN_UI_SCREENSHOT_DIR,`mixed-chain-detail-${width}.png`)})}
     await dialog.getByRole('button',{name:'关闭',exact:true}).click()
     await page.getByLabel('按类型筛选').selectOption('chain')
-    await page.getByRole('link',{name:'原两跳链路',exact:true}).waitFor()
-    assert.equal(await page.getByRole('link',{name:'受管出口',exact:true}).count(),0)
+    const catalogRows = page.locator(width < 768 ? '.catalog-card' : '.catalog-table tbody tr')
+    await catalogRows.filter({hasText:'原两跳链路'}).getByRole('link',{name:'详情',exact:true}).waitFor()
+    assert.equal(await catalogRows.filter({hasText:'受管出口'}).count(),0)
     await page.getByRole('link',{name:'策略与套餐',exact:true}).click()
     assert.equal(await page.getByRole('button',{name:'两跳链路',exact:true}).count(),0)
     await page.getByRole('button',{name:'创建策略组'}).click()

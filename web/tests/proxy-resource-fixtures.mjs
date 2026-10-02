@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 // Explicit public API fixtures. This is test data, not the backend projection implementation.
 export const pathFixtureUuid = value => `00000000-0000-4000-8000-${String(value).padStart(12, '0')}`
 export function legacyPathFields(exit) {
@@ -50,4 +51,9 @@ export function flatResourceFixtures(nodes, servers, chains = []) {
     managed_middle_server_ids: resource.hops.filter(hop => hop.kind === 'managed' && hop.position < resource.hops.length).map(hop => hop.endpoint.server_id),
     managed_exit_server_ids: resource.exit ? [resource.exit.server_id] : [],
   }))
+}
+
+// Public synthetic catalog DTOs; these do not implement backend/private token generation.
+export function catalogResourceFixtures(resources) {
+  return resources.map(resource => ({ ...resource, original_name: resource.name, tags: [], note: '', sort_order: resource.id, revision: createHash('sha256').update(JSON.stringify(resource)).digest('hex'), metadata_revision: 0 }))
 }

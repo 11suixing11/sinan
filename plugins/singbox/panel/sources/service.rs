@@ -9,12 +9,10 @@ use crate::{
 };
 use serde_json::Value;
 use sqlx::{FromRow, PgConnection, PgPool};
-use std::sync::{Arc, OnceLock};
-use tokio::sync::Semaphore;
+use tokio::sync::OwnedSemaphorePermit;
 use uuid::Uuid;
 
 const SCHEDULER_LOCK: i64 = 831_240_051;
-static PERMITS: OnceLock<Arc<Semaphore>> = OnceLock::new();
 
 pub(super) async fn queue(pool: &PgPool, source_id: i64) -> ApiResult<Job> {
     let mut tx = pool.begin().await?;
@@ -53,6 +51,10 @@ pub(super) fn kick(state: &AppState) {
 
 pub async fn refresh_due(state: &AppState) -> anyhow::Result<()> {
     let now = sinan_protocol::now_timestamp();
+    sqlx::query("DELETE FROM singbox_source_previews WHERE expires_at <= $1")
+        .bind(now)
+        .execute(&state.pool)
+        .await?;
     // A crashed worker cannot retain a running slot indefinitely. Results still
     // require both the source revision and the live job state at commit.
     let mut tx = state.pool.begin().await?;
@@ -62,7 +64,7 @@ pub async fn refresh_due(state: &AppState) -> anyhow::Result<()> {
     sqlx::query("UPDATE singbox_source_jobs SET state='failed',phase='finished',error_code='worker_interrupted',finished_at=$1 WHERE (state='running' AND lease_expires_at<$1) OR (state IN ('queued','running') AND parser_version<>$2)")
         .bind(now).bind(PARSER_VERSION).execute(&mut *tx).await?;
     tx.commit().await?;
-    let due: Vec<i64> = sqlx::query_scalar("SELECT id FROM singbox_subscription_sources s WHERE kind='url' AND NOT archived AND deleted_at IS NULL AND COALESCE(next_refresh_at,0)<=$1 AND NOT EXISTS(SELECT 1 FROM singbox_source_jobs j WHERE j.source_id=s.id AND j.state IN ('queued','running')) ORDER BY next_refresh_at NULLS FIRST,id LIMIT 16")
+    let due: Vec<i64> = sqlx::query_scalar("SELECT id FROM singbox_subscription_sources s WHERE kind='url' AND auto_refresh AND NOT archived AND deleted_at IS NULL AND COALESCE(next_refresh_at,0)<=$1 AND NOT EXISTS(SELECT 1 FROM singbox_source_jobs j WHERE j.source_id=s.id AND j.state IN ('queued','running')) ORDER BY next_refresh_at NULLS FIRST,id LIMIT 16")
         .bind(now).fetch_all(&state.pool).await?;
     for id in due {
         if let Err(error) = queue(&state.pool, id).await
@@ -89,6 +91,7 @@ struct Input {
     etag: Option<String>,
     last_modified: Option<String>,
     cache_valid: bool,
+    user_agent: String,
 }
 
 async fn claim(pool: &PgPool) -> ApiResult<Option<Input>> {
@@ -104,13 +107,13 @@ async fn claim(pool: &PgPool) -> ApiResult<Option<Input>> {
     if running >= 4 {
         return Ok(None);
     }
-    let input: Option<Input> = sqlx::query_as("SELECT j.id,j.source_id,j.settings_revision,j.identity_epoch,s.kind,s.secret_url,s.secret_authorization,s.secret_content,s.current_revision_id,s.etag,s.last_modified,COALESCE(s.cache_settings_revision=j.settings_revision AND s.cache_identity_epoch=j.identity_epoch AND r.parser_version=j.parser_version,FALSE) AS cache_valid FROM singbox_source_jobs j JOIN singbox_subscription_sources s ON s.id=j.source_id LEFT JOIN singbox_source_revisions r ON r.id=s.current_revision_id WHERE j.state='queued' AND NOT s.archived AND s.deleted_at IS NULL AND j.settings_revision=s.settings_revision AND j.identity_epoch=s.identity_epoch AND j.parser_version=$1 ORDER BY j.created_at,j.id LIMIT 1 FOR UPDATE OF j,s SKIP LOCKED")
+    let input: Option<Input> = sqlx::query_as("SELECT j.id,j.source_id,j.settings_revision,j.identity_epoch,s.kind,s.secret_url,s.secret_authorization,s.secret_content,s.user_agent,s.current_revision_id,s.etag,s.last_modified,COALESCE(s.cache_settings_revision=j.settings_revision AND s.cache_identity_epoch=j.identity_epoch AND r.parser_version=j.parser_version,FALSE) AS cache_valid FROM singbox_source_jobs j JOIN singbox_subscription_sources s ON s.id=j.source_id LEFT JOIN singbox_source_revisions r ON r.id=s.current_revision_id WHERE j.state='queued' AND NOT s.archived AND s.deleted_at IS NULL AND j.settings_revision=s.settings_revision AND j.identity_epoch=s.identity_epoch AND j.parser_version=$1 ORDER BY j.created_at,j.id LIMIT 1 FOR UPDATE OF j,s SKIP LOCKED")
         .bind(PARSER_VERSION).fetch_optional(&mut *tx).await?;
     if let Some(input) = &input {
         let now = sinan_protocol::now_timestamp();
         sqlx::query("UPDATE singbox_source_jobs SET state='running',phase=$2,started_at=$3,lease_expires_at=$3+90 WHERE id=$1")
             .bind(input.id).bind(if input.kind == "url" { "downloading" } else { "parsing" }).bind(now).execute(&mut *tx).await?;
-        sqlx::query("UPDATE singbox_subscription_sources SET last_attempt_at=$2,next_refresh_at=CASE WHEN kind='url' THEN $2+refresh_interval_seconds ELSE NULL END WHERE id=$1")
+        sqlx::query("UPDATE singbox_subscription_sources SET last_attempt_at=$2,next_refresh_at=CASE WHEN kind='url' AND auto_refresh THEN $2+refresh_interval_seconds ELSE NULL END WHERE id=$1")
             .bind(input.source_id).bind(now).execute(&mut *tx).await?;
     }
     tx.commit().await?;
@@ -119,8 +122,7 @@ async fn claim(pool: &PgPool) -> ApiResult<Option<Input>> {
 
 async fn drain(state: &AppState) -> ApiResult<()> {
     for _ in 0..4 {
-        let permits = PERMITS.get_or_init(|| Arc::new(Semaphore::new(4))).clone();
-        let Ok(permit) = permits.try_acquire_owned() else {
+        let Ok(permit) = parse::try_admit() else {
             break;
         };
         let Some(input) = claim(&state.pool).await? else {
@@ -128,11 +130,10 @@ async fn drain(state: &AppState) -> ApiResult<()> {
         };
         let pool = state.pool.clone();
         tokio::spawn(async move {
-            let _permit = permit;
             let source_id = input.source_id;
             let job_id = input.id;
             let result = tokio::select! {
-                result = run(&pool, &input) => result,
+                result = run(&pool, &input, permit) => result,
                 _ = wait_for_cancellation(&pool, input.id) => Ok(()),
             };
             if let Err(error) = result {
@@ -188,7 +189,11 @@ impl From<ApiError> for WorkerError {
     }
 }
 
-async fn run(pool: &PgPool, input: &Input) -> Result<(), WorkerError> {
+async fn run(
+    pool: &PgPool,
+    input: &Input,
+    permit: OwnedSemaphorePermit,
+) -> Result<(), WorkerError> {
     let result = if input.kind == "url" {
         fetch::download(
             input
@@ -206,6 +211,7 @@ async fn run(pool: &PgPool, input: &Input) -> Result<(), WorkerError> {
             } else {
                 None
             },
+            &input.user_agent,
         )
         .await?
     } else {
@@ -220,35 +226,50 @@ async fn run(pool: &PgPool, input: &Input) -> Result<(), WorkerError> {
             ),
             etag: None,
             last_modified: None,
+            traffic: None,
         }
     };
-    let parsed = if let Some(body) = result.body {
+    let (parsed, _permit) = if let Some(body) = result.body {
         sqlx::query(
             "UPDATE singbox_source_jobs SET phase='parsing' WHERE id=$1 AND state='running'",
         )
         .bind(input.id)
         .execute(pool)
         .await?;
-        Some(
-            tokio::task::spawn_blocking(move || {
-                let digest = parse::digest(&body);
-                parse::parse(&body).map(|batch| (digest, batch))
-            })
-            .await
-            .map_err(|_| ImportError("parser_interrupted"))??,
-        )
+        let (_body, body_sha256, batch, permit) = parse::admitted_parse(body, permit).await?;
+        (Some((body_sha256, batch)), permit)
     } else {
-        None
+        (None, permit)
     };
-    commit(pool, input, parsed, result.etag, result.last_modified).await
+    commit_result(
+        pool,
+        input,
+        parsed,
+        result.etag,
+        result.last_modified,
+        result.traffic,
+    )
+    .await
 }
 
+#[cfg(test)]
 async fn commit(
     pool: &PgPool,
     input: &Input,
     parsed: Option<(String, ParsedBatch)>,
     etag: Option<String>,
     last_modified: Option<String>,
+) -> Result<(), WorkerError> {
+    commit_result(pool, input, parsed, etag, last_modified, None).await
+}
+
+async fn commit_result(
+    pool: &PgPool,
+    input: &Input,
+    parsed: Option<(String, ParsedBatch)>,
+    etag: Option<String>,
+    last_modified: Option<String>,
+    traffic: Option<Value>,
 ) -> Result<(), WorkerError> {
     let mut tx = pool.begin().await?;
     super::super::entitlements::lock(&mut tx).await?;
@@ -263,39 +284,16 @@ async fn commit(
     let now = sinan_protocol::now_timestamp();
     let not_modified = parsed.is_none();
     let revision_id = if let Some((body_sha256, batch)) = parsed {
-        let rejected: Value = serde_json::to_value(&batch.rejected)
-            .map_err(|_| ImportError("parser_result_invalid"))?;
-        let revision: i64 = sqlx::query_scalar("INSERT INTO singbox_source_revisions(source_id,settings_revision,identity_epoch,parser_version,body_sha256,format,supported_count,unsupported_count,rejected_nodes,fetched_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id")
-            .bind(input.source_id).bind(input.settings_revision).bind(input.identity_epoch).bind(PARSER_VERSION).bind(body_sha256).bind(batch.format).bind(batch.nodes.len() as i32).bind(batch.rejected.len() as i32).bind(rejected).bind(now).fetch_one(&mut *tx).await?;
-        sqlx::query("UPDATE singbox_external_nodes SET present=FALSE,identity_unique=TRUE WHERE source_id=$1 AND identity_epoch=$2")
-            .bind(input.source_id).bind(input.identity_epoch).execute(&mut *tx).await?;
-        for key in batch.ambiguous_keys {
-            sqlx::query("UPDATE singbox_external_nodes SET present=TRUE,identity_unique=FALSE,last_seen_revision_id=$4 WHERE source_id=$1 AND identity_epoch=$2 AND identity_key=$3")
-                .bind(input.source_id).bind(input.identity_epoch).bind(key).bind(revision).execute(&mut *tx).await?;
-        }
-        for node in batch.nodes {
-            let node_id: i64 = sqlx::query_scalar("INSERT INTO singbox_external_nodes(source_id,identity_epoch,identity_key,name,present,identity_unique,last_seen_revision_id) VALUES($1,$2,$3,$4,TRUE,TRUE,$5) ON CONFLICT(source_id,identity_epoch,identity_key) DO UPDATE SET name=EXCLUDED.name,present=TRUE,identity_unique=TRUE,last_seen_revision_id=EXCLUDED.last_seen_revision_id RETURNING id")
-                .bind(input.source_id).bind(input.identity_epoch).bind(&node.identity_key).bind(&node.name).bind(revision).fetch_one(&mut *tx).await?;
-            let config = serde_json::to_value(&node.outbound)
-                .map_err(|_| ImportError("parser_result_invalid"))?;
-            let hash = parse::digest(
-                &serde_json::to_vec(&config).map_err(|_| ImportError("parser_result_invalid"))?,
-            );
-            let capabilities = serde_json::to_value(
-                node.outbound
-                    .capabilities()
-                    .map_err(|_| ImportError("parser_result_invalid"))?,
-            )
-            .map_err(|_| ImportError("parser_result_invalid"))?;
-            let version: i64 = sqlx::query_scalar("INSERT INTO singbox_external_node_versions(external_node_id,source_id,source_revision_id,identity_epoch,parser_version,name,config_json,config_sha256,capabilities_json,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id")
-                .bind(node_id).bind(input.source_id).bind(revision).bind(input.identity_epoch).bind(PARSER_VERSION).bind(node.name).bind(config).bind(hash).bind(capabilities).bind(now).fetch_one(&mut *tx).await?;
-            sqlx::query("UPDATE singbox_external_nodes SET current_version_id=$2 WHERE id=$1")
-                .bind(node_id)
-                .bind(version)
-                .execute(&mut *tx)
-                .await?;
-        }
-        revision
+        super::revisions::save_on(
+            &mut tx,
+            input.source_id,
+            input.settings_revision,
+            input.identity_epoch,
+            &body_sha256,
+            batch,
+            now,
+        )
+        .await?
     } else {
         if !input.cache_valid {
             return Err(ImportError("unexpected_not_modified").into());
@@ -304,6 +302,11 @@ async fn commit(
             .current_revision_id
             .ok_or(ImportError("unexpected_not_modified"))?
     };
+    super::revisions::save_traffic_on(&mut tx, input.source_id, traffic, now).await?;
+    if not_modified {
+        sqlx::query("UPDATE singbox_subscription_sources SET changes=jsonb_build_object('added',0,'updated',0,'missing',0,'unsupported',(SELECT unsupported_count FROM singbox_source_revisions WHERE id=$2)) WHERE id=$1")
+            .bind(input.source_id).bind(revision_id).execute(&mut *tx).await?;
+    }
     sqlx::query("UPDATE singbox_subscription_sources SET current_revision_id=$2,last_success_at=$3,last_error=NULL,etag=$4,last_modified=$5,cache_settings_revision=$6,cache_identity_epoch=$7 WHERE id=$1")
         .bind(input.source_id).bind(revision_id).bind(now).bind(etag.or_else(|| not_modified.then(|| input.etag.clone()).flatten())).bind(last_modified.or_else(|| not_modified.then(|| input.last_modified.clone()).flatten())).bind(input.settings_revision).bind(input.identity_epoch).execute(&mut *tx).await?;
     sqlx::query("UPDATE singbox_source_jobs SET state='succeeded',phase='finished',result_revision_id=$2,finished_at=$3 WHERE id=$1 AND state='running'")
@@ -332,6 +335,63 @@ mod tests {
 
     async fn fixture(pool: &PgPool) -> Result<i64> {
         Ok(sqlx::query_scalar("INSERT INTO singbox_subscription_sources(name,kind,secret_content,created_at) VALUES('fixture','inline','http://proxy.example.com:443',0) RETURNING id").fetch_one(pool).await?)
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn successful_fetch_metadata_updates_atomically_and_failure_retains_cache(
+        pool: PgPool,
+    ) -> Result<()> {
+        let source = fixture(&pool).await?;
+        queue(&pool, source).await?;
+        let input = claim(&pool).await?.context("claim")?;
+        let body = b"http://proxy.example.com:443#fixture";
+        commit_result(
+            &pool,
+            &input,
+            Some((parse::digest(body), parse::parse(body)?)),
+            Some("test-etag".into()),
+            None,
+            Some(serde_json::json!({"download":12,"total":100})),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("first metadata commit"))?;
+        let first = super::super::model::get_on(&pool, source).await?;
+        ensure!(first.traffic["download"] == 12 && first.traffic["updated_at"].is_i64());
+        ensure!(
+            first.changes == serde_json::json!({"added":1,"updated":0,"missing":0,"unsupported":0})
+        );
+        queue(&pool, source).await?;
+        let unchanged = claim(&pool).await?.context("unchanged claim")?;
+        ensure!(unchanged.cache_valid);
+        commit_result(
+            &pool,
+            &unchanged,
+            None,
+            None,
+            None,
+            Some(serde_json::json!({"download":20,"total":100})),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("304 metadata commit"))?;
+        let cached = super::super::model::get_on(&pool, source).await?;
+        ensure!(
+            cached.traffic["download"] == 20
+                && cached.current_revision_id == first.current_revision_id
+        );
+        ensure!(
+            cached.changes
+                == serde_json::json!({"added":0,"updated":0,"missing":0,"unsupported":0})
+        );
+        queue(&pool, source).await?;
+        let failed = claim(&pool).await?.context("failed claim")?;
+        fail(&pool, &failed, "download_failed").await?;
+        let retained = super::super::model::get_on(&pool, source).await?;
+        ensure!(
+            retained.stale
+                && retained.traffic == cached.traffic
+                && retained.current_revision_id == cached.current_revision_id
+        );
+        Ok(())
     }
 
     #[sqlx::test(migrations = "./migrations")]

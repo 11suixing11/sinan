@@ -1,3 +1,4 @@
+import { catalogResourceFixtures } from './proxy-resource-fixtures.mjs'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { readFile, mkdir } from 'node:fs/promises'
@@ -33,6 +34,7 @@ try {
       else if (path === '/api/plugins/sing-box/servers') value = pluginServers
       else if (path === '/api/plugins/sing-box/usage') value = { total:'0', by_node:[], by_user:[], uplink:'0',downlink:'0' }
       else if (path === '/api/plugins/sing-box/proxy-resources') value = nodes.map(node => ({ ...node, kind:'direct', server_name:'测试服务器', role:'direct', entry_node_id:null, tcp:true, udp:true, available:true, stage:'direct', reference_count:0 }))
+      else if (path === '/api/plugins/sing-box/node-catalog') value = catalogResourceFixtures(nodes.map(node => ({ ...node, kind:'direct', server_name:'测试服务器', role:'direct', entry_node_id:null, tcp:true, udp:true, available:true, stage:'direct', reference_count:0 })))
       else if (path === '/api/plugins/sing-box/subscription-sources') value = []
       else if (path === '/api/plugins/sing-box/nodes' && method === 'GET') value = nodes
       else if (path === '/api/plugins/sing-box/ordered-proxy-resources' && method === 'GET') value = proxyResourceFixtures(nodes, pluginServers)
@@ -78,7 +80,8 @@ try {
     assert.equal(writes[0].settings.hysteria2.obfs_enabled,true)
     assert.equal(writes[0].settings.hysteria2.up_mbps,80)
     assert.equal(Object.hasOwn(writes[0].settings.hysteria2,'obfs_password'),false)
-    await page.getByText('proxy.example.com:443',{exact:true}).waitFor()
+    const currentRow = page.locator(width < 768 ? '.catalog-card[data-resource-key="direct:1"]' : '.catalog-table [data-resource-key="direct:1"]')
+    await currentRow.getByText('proxy.example.com:443',{exact:true}).waitFor()
     await page.getByRole('button',{name:'查看部署进度'}).click()
     await dialog.getByText('等待合并发布',{exact:true}).waitFor()
     await dialog.getByRole('button',{name:'检查部署条件'}).click()
@@ -88,7 +91,7 @@ try {
     await dialog.getByText('最新配置应用失败',{exact:true}).waitFor()
     assert.equal(await dialog.getByText('目标配置已应用',{exact:true}).count(),0)
     await dialog.getByRole('button',{name:'关闭',exact:true}).click()
-    await page.getByRole('button',{name:'编辑',exact:true}).click()
+    await currentRow.getByRole('button',{name:'编辑',exact:true}).click()
     await dialog.locator('[name=enabled]').uncheck()
     await dialog.locator('[name=public_port]').fill('')
     rejected=true
@@ -100,7 +103,7 @@ try {
     await dialog.waitFor({state:'hidden'})
     assert.equal(writes.at(-1).enabled,false)
     assert.equal(writes.at(-1).settings.public_port,null)
-    await page.getByText('已设为停用',{exact:true}).waitFor()
+    await currentRow.getByText('已停用',{exact:true}).waitFor()
     if (process.env.SINAN_UI_SCREENSHOT_DIR) await page.screenshot({path:resolve(process.env.SINAN_UI_SCREENSHOT_DIR,`node-list-${width}.png`)})
     const layout = await page.evaluate(() => ({width:innerWidth, scroll:document.documentElement.scrollWidth, overflow:[...document.querySelectorAll('main *')].filter(el => el.getBoundingClientRect().right > innerWidth + 1).slice(0,8).map(el => ({tag:el.tagName,class:el.className,right:el.getBoundingClientRect().right}))}))
     assert.equal(layout.scroll <= layout.width,true,JSON.stringify(layout))

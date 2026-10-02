@@ -61,3 +61,5 @@
   .source-preview { padding: 16px 14px; }
   .source-preview .table-wrap { margin-right: -14px; padding-right: 14px; }
 }
+
+.source-traffic{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:10px 0}.source-import-steps,.source-import-summary{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}.source-import-summary small{color:var(--muted)}.source-import-table{max-height:420px;overflow:auto}.source-import-table input[type=checkbox]{width:16px;height:16px}.source-import-table td{overflow-wrap:anywhere;max-width:280px}

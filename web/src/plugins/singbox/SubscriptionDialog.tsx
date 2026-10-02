@@ -11,7 +11,8 @@ export type SubscriptionFormat = 'singbox' | 'links'
 type Subscription = {
   format: SubscriptionFormat; status: 'ready' | 'empty' | 'blocked' | 'format_unavailable'; message: string
   subscription_url: string; available_formats: string[]; granted_nodes: number; eligible_nodes: number
-  ready_nodes: { id: number; name: string; protocol: string }[]
+  ready_nodes: { kind?: 'managed' | 'external'; id: number; name: string; protocol: string; source_last_error?: string | null }[]
+  managed_nodes?: number; external_nodes?: number; external_granted_nodes?: number
   content: string | null; filename: string; content_type: string
   entitlement: { status: string; allowed: boolean; monthly_bytes: string | null; used_bytes: string; expires_at: number | null }
 }
@@ -68,6 +69,9 @@ export default function SubscriptionDialog({ user, format, onFormatChange, onClo
     return () => { alive.current = false; ++sequence.current; controller.current?.abort() }
   }, [load])
   const current = data?.format === format ? data : null
+  useEffect(() => {
+    if (data?.external_granted_nodes && format !== 'singbox') { setPreview(false); onFormatChange('singbox') }
+  }, [data?.external_granted_nodes, format, onFormatChange])
   const ready = current?.status === 'ready' && current.content !== null
   const busy = loading || working !== null
   const link = current ? address(current) : ''
@@ -101,14 +105,15 @@ export default function SubscriptionDialog({ user, format, onFormatChange, onClo
   }
   return <Modal title={`${user.name} 的订阅`} onClose={onClose} wide className="subscription-dialog">
     <div className="modal-body">
-      <div className="subscription-toolbar"><Field label="订阅格式"><select value={format} disabled={busy} onChange={event => { setPreview(false); setData(null); onFormatChange(event.target.value as SubscriptionFormat) }}>{Object.entries(formatNames).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></Field><button className="button button-secondary" disabled={busy} onClick={() => void load()}><Icon name="refresh" size={15} />刷新状态</button></div>
+      <div className="subscription-toolbar"><Field label="订阅格式"><select value={format} disabled={busy} onChange={event => { setPreview(false); setData(null); onFormatChange(event.target.value as SubscriptionFormat) }}>{Object.entries(formatNames).map(([value, name]) => <option key={value} value={value} disabled={value === 'links' && Boolean(current?.external_granted_nodes)}>{name}</option>)}</select></Field><button className="button button-secondary" disabled={busy} onClick={() => void load()}><Icon name="refresh" size={15} />刷新状态</button></div>
       <ErrorNotice message={error} retry={busy ? undefined : () => void load()} />
       {notice && <div className="notice notice-success" role="status">{notice}</div>}
       {loading && <Loading />}
       {current && <>
         <div className="subscription-status"><Badge tone={current.status === 'ready' ? 'good' : current.status === 'blocked' ? 'bad' : 'warm'}>{statusNames[current.status]}</Badge><p>{current.message}</p></div>
         <dl className="subscription-facts"><div><dt>已授权 / 符合套餐条件 / 可用节点</dt><dd>{current.granted_nodes} / {current.eligible_nodes} / {current.ready_nodes.length}</dd></div><div><dt>套餐状态</dt><dd>{statusText[current.entitlement.status as keyof typeof statusText] ?? '未知状态'}</dd></div><div><dt>本期已用 / 每月额度</dt><dd>{bytes(current.entitlement.used_bytes)} / {current.entitlement.monthly_bytes === null ? '不限量' : bytes(current.entitlement.monthly_bytes)}</dd></div><div><dt>到期时间</dt><dd>{current.entitlement.expires_at === null ? '不限期' : time(current.entitlement.expires_at)}</dd></div></dl>
-        <div className="subscription-nodes"><h3>已应用且健康的节点</h3>{current.ready_nodes.length ? <ul>{current.ready_nodes.map(node => <li key={node.id}><span>{node.name}</span><small>{protocolNames[node.protocol] ?? node.protocol}</small></li>)}</ul> : <p className="helper">暂无可用节点；等待授权、套餐条件或设备部署状态更新后刷新。</p>}</div>
+        <div className="subscription-nodes"><h3>{current.external_granted_nodes ? '当前可订阅节点' : '已应用且健康的节点'}</h3>{current.ready_nodes.length ? <ul>{current.ready_nodes.map(node => <li key={`${node.kind ?? 'managed'}-${node.id}`}><span>{node.name}</span><small>{node.kind === 'external' ? '外部 · ' : ''}{protocolNames[node.protocol] ?? node.protocol}{node.source_last_error ? ' · 保留上次成功版本' : ''}</small></li>)}</ul> : <p className="helper">暂无可用节点；等待授权、套餐条件或节点状态更新后刷新。</p>}</div>
+        {!!current.external_granted_nodes && <p className="helper">受管 {Number.isSafeInteger(current.managed_nodes) && current.managed_nodes! >= 0 ? current.managed_nodes : '—'} 个 · 外部 {Number.isSafeInteger(current.external_nodes) && current.external_nodes! >= 0 ? current.external_nodes : '—'} 个。外部用量未知，由提供方计量；取消分配或套餐受限会停止后续订阅获取，已下载的外部凭据仍由提供方控制。</p>}
         <p className="helper">当前可用格式：{current.available_formats.map(value => formatNames[value as SubscriptionFormat]).filter(Boolean).join('、') || '暂无'}。刚授权的节点需要等待设备成功应用。</p>
       </>}
       <section className="subscription-address" aria-label="订阅地址"><h3>订阅地址</h3>{link ? <code tabIndex={0}>{link}</code> : <p className="helper">获取成功后显示当前订阅地址。</p>}<button className="button button-secondary button-small" disabled={busy || !link || current?.status === 'format_unavailable'} onClick={() => void perform('address')}><Icon name="copy" size={15} />复制订阅地址</button></section>

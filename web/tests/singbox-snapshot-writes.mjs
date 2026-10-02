@@ -69,6 +69,7 @@ try {
         else if (method === 'GET' && path === `${prefix}/policy-groups`) value = policies
         else if (method === 'GET' && path === `${prefix}/package-groups`) value = packages
         else if (method === 'GET' && path === `${prefix}/usage`) value = usage
+        else if (method === 'GET' && /^\/api\/plugins\/sing-box\/users\/\d+\/external-accesses$/.test(path)) value = { revision: 0, accesses: [], available_nodes: [] }
         else if (method === 'GET' && /^\/api\/plugins\/sing-box\/users\/\d+\/accesses$/.test(path)) value = [{ user_id: Number(path.split('/')[5]), node_id: 1, uuid: 'TEST_ONLY', stat_name: 'TEST_ONLY_fixture', direct_grant: direct }]
         else if (method === 'GET' && /^\/api\/plugins\/sing-box\/users\/\d+\/policy-groups$/.test(path)) value = { group_ids: [...groupIds] }
         else if (method === 'GET' && /^\/api\/plugins\/sing-box\/users\/\d+\/entitlement$/.test(path)) value = entitlement(Number(path.split('/')[5]))

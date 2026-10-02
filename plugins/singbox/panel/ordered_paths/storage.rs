@@ -211,7 +211,7 @@ pub(crate) async fn referenced_servers(
     connection: &mut PgConnection,
     id: i64,
 ) -> ApiResult<Vec<i64>> {
-    Ok(sqlx::query_scalar("SELECT DISTINCT server_id FROM (SELECT n.server_id FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id WHERE c.id=$1 UNION SELECT h.managed_server_id FROM singbox_ordered_chain_hops h JOIN singbox_chains c ON c.id=h.chain_id WHERE c.id=$1 AND h.kind='managed' AND h.generation=ANY(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation]) UNION SELECT n.server_id FROM singbox_chains c JOIN nodes n ON n.id=c.exit_node_id WHERE c.id=$1) refs ORDER BY server_id").bind(id).fetch_all(connection).await?)
+    Ok(sqlx::query_scalar("SELECT DISTINCT server_id FROM (SELECT n.server_id FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id WHERE c.id=$1 UNION SELECT h.managed_server_id FROM singbox_ordered_chain_hops h JOIN singbox_chains c ON c.id=h.chain_id WHERE c.id=$1 AND h.kind='managed' AND (h.generation=ANY(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation]) OR EXISTS(SELECT 1 FROM unnest(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation]) AS selected(generation) WHERE selected.generation IS NOT NULL AND NOT EXISTS(SELECT 1 FROM singbox_ordered_chain_versions v WHERE v.chain_id=c.id AND v.generation=selected.generation))) UNION SELECT n.server_id FROM singbox_chains c JOIN nodes n ON n.id=c.exit_node_id WHERE c.id=$1) refs ORDER BY server_id").bind(id).fetch_all(connection).await?)
 }
 // This checks the managed runtime dependencies of an already frozen lineage.
 // Archiving, replacing or losing a subscription source stops new references and
@@ -256,7 +256,8 @@ pub(crate) async fn source_dependencies(
     Ok(sqlx::query_as("SELECT c.id AS chain_id,c.name AS chain_name,h.generation,CASE WHEN h.generation=c.applied_generation THEN 'applied' WHEN h.generation=c.candidate_generation THEN 'candidate' ELSE 'recovery' END AS state,h.position AS hop_position,h.external_node_id,h.node_version_id,h.identity_epoch FROM singbox_chains c JOIN singbox_ordered_chain_hops h ON h.chain_id=c.id WHERE h.source_id=$1 AND (c.deleted_at IS NULL OR c.phase<>'retired') AND h.generation=ANY(ARRAY[c.applied_generation,c.candidate_generation,c.recovery_generation]) ORDER BY c.id,h.generation,h.position").bind(source_id).fetch_all(connection).await?)
 }
 /// Share exact mutation ownership with the public configuration-lock projection.
-/// Dedicated entries remain owned even when their generation pointers are damaged.
+/// Dedicated entries and every saved hop remain owned when any selected
+/// immutable generation is missing; confirmed retirement releases that fallback.
 pub(crate) async fn node_configuration_references(
     connection: &mut PgConnection,
     node_ids: &[i64],
@@ -274,7 +275,7 @@ pub(crate) async fn node_configuration_references(
             SELECT h.managed_node_id AS node_id,c.id,c.name FROM singbox_ordered_chain_hops h
             JOIN singbox_chains c ON c.id=h.chain_id
             WHERE (c.deleted_at IS NULL OR c.phase<>'retired')
-                AND h.generation=ANY(ARRAY[c.applied_generation,c.candidate_generation,c.recovery_generation])
+                AND (h.generation=ANY(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation]) OR EXISTS(SELECT 1 FROM unnest(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation]) AS selected(generation) WHERE selected.generation IS NOT NULL AND NOT EXISTS(SELECT 1 FROM singbox_ordered_chain_versions v WHERE v.chain_id=c.id AND v.generation=selected.generation)))
         ) refs WHERE node_id=ANY($1) ORDER BY node_id,id",
     )
     .bind(node_ids)

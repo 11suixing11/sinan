@@ -50,6 +50,7 @@ COMPILER_LEGACY_SOURCES = COMPILER_COMMON_SOURCES | {"settings.rs"}
 COMPILER_SPLIT_SOURCES = COMPILER_COMMON_SOURCES | {
     "settings/mod.rs", "settings/apply.rs", "settings/transport.rs", "settings/validate.rs",
 }
+COMPILER_CLIENT_SOURCES = COMPILER_SPLIT_SOURCES | {"client.rs"}
 PORT_NAMES = {"a", "m", "b", "x", "client", "stats_a", "stats_m", "stats_b", "https", "tcp_echo", "udp_echo", "handshake", "controller"}
 DEADLINE = None
 
@@ -266,7 +267,7 @@ def pointer_assign(value, pointer, replacement):
 
 def compiler_source_identity(value):
     require(isinstance(value, dict), "compiler_source_identity_missing")
-    require(frozenset(value) in (COMPILER_LEGACY_SOURCES, COMPILER_SPLIT_SOURCES), "compiler_source_identity_missing")
+    require(frozenset(value) in (COMPILER_LEGACY_SOURCES, COMPILER_SPLIT_SOURCES, COMPILER_CLIENT_SOURCES), "compiler_source_identity_missing")
     require(all(isinstance(digest, str) and len(digest) == 64
                 and all(character in "0123456789abcdef" for character in digest)
                 for digest in value.values()), "compiler_source_identity_missing")

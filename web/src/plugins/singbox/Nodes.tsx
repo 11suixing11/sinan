@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
-import { Confirm, Empty, ErrorNotice, Field, FormDialog, Icon, Loading, PageHeader, Refresh, Stat } from '../../components'
+import { Confirm, ErrorNotice, Field, FormDialog, Icon, PageHeader, Refresh, Stat } from '../../components'
 import { bytes } from '../../format'
 import { resourceWriteError, useAction, useResource } from '../../hooks'
 import type { Node, PluginServer, Usage } from '../../types'
@@ -10,12 +10,12 @@ import NodeDeployment from './NodeDeployment'
 import SubscriptionSources from './SubscriptionSources'
 import ChainEditor from './ChainEditor'
 import ProxyResourceDetail from './ProxyResourceDetail'
-import ProxyResourceTable from './ProxyResourceTable'
+import NodeCatalog from './NodeCatalog'
 import type { ProxyResource, ResourceKey } from './resourceTypes'
-import { flatResourceInScope, resourceLink } from './resourceTypes'
+import { resourceLink } from './resourceTypes'
 import OrderedResources from './OrderedResources'
 import type { ProxyResourceFilter, ProxyResourceServerRole, ProxyResource as OrderedResource } from './groupTypes'
-import { filterProxyResources, validatedSnapshot, validProxyResources } from './groupTypes'
+import { validatedSnapshot, validProxyResources } from './groupTypes'
 import './nodes.css'
 
 export default function Nodes({ serverId, chainsOnly = false, selected, initialKind, initialServerRole }: { serverId?: number; chainsOnly?: boolean; selected?: ResourceKey; initialKind?: ProxyResourceFilter; initialServerRole?: ProxyResourceServerRole }) {
@@ -25,7 +25,7 @@ export default function Nodes({ serverId, chainsOnly = false, selected, initialK
   const orderedHistory = useRef<OrderedResource[] | undefined>(undefined)
   const ordered = validatedSnapshot(orderedQuery, validProxyResources, orderedHistory.current)
   if (ordered.fresh) orderedHistory.current = ordered.data
-  const selectedOrdered = selected?.kind === 'chain' ? ordered.data?.find(resource => resource.kind === selected.kind && resource.id === selected.id && resource.path_kind === 'ordered') : undefined
+  const selectedOrdered = selected?.kind === 'chain' ? ordered.data?.find(resource => resource.kind === selected.kind && resource.id === selected.id) : undefined
   const showFlatDetail = selected && !selectedOrdered && (resources.data?.some(resource => resource.kind === selected.kind && resource.id === selected.id) || ordered.fresh)
   const servers = useResource<PluginServer[]>('/api/plugins/sing-box/servers')
   const usage = useResource<Usage>('/api/plugins/sing-box/usage')
@@ -36,7 +36,9 @@ export default function Nodes({ serverId, chainsOnly = false, selected, initialK
   const [filter, setFilter] = useState(serverId === undefined ? '' : String(serverId))
   const currentFilter = useRef(filter)
   useEffect(() => { const value = serverId === undefined ? '' : String(serverId); currentFilter.current = value; setFilter(value) }, [serverId])
-  const [kind, setKind] = useState(initialKind === 'direct' ? 'direct' : chainsOnly ? 'chain' : ''), [role, setRole] = useState(''), [search, setSearch] = useState('')
+  const [kind, setKind] = useState(initialKind === 'direct' ? 'direct' : chainsOnly ? 'chain' : '')
+  const [catalogRevision, setCatalogRevision] = useState(0)
+  const [catalogMetadata, setCatalogMetadata] = useState<ResourceKey | null>(null)
   useEffect(() => { setKind(initialKind === 'direct' ? 'direct' : chainsOnly ? 'chain' : '') }, [initialKind, chainsOnly])
   const [creatingChain, setCreatingChain] = useState(false)
   const [createdChains, setCreatedChains] = useState<number[]>([])
@@ -45,11 +47,9 @@ export default function Nodes({ serverId, chainsOnly = false, selected, initialK
   const enabledServers = servers.data?.filter(server => server.enabled) ?? []
   const canCreate = !resourceWriteError(nodes, resources, servers) && enabledServers.length > 0 && (!filter || enabledServers.some(server => server.id === Number(filter)))
   const all = resources.data ?? []
-  const richKeys = new Set((ordered.data ?? []).map(resource => `${resource.kind}:${resource.id}`))
   const inventoryCount = all.length + (ordered.data?.filter(resource => resource.kind === 'chain' && resource.path_kind === 'ordered' && !all.some(flat => flat.kind === resource.kind && flat.id === resource.id)).length ?? 0)
-  const visible = all.filter(resource => !richKeys.has(`${resource.kind}:${resource.id}`) && flatResourceInScope(resource, filter ? Number(filter) : undefined, initialServerRole) && (!kind || resource.kind === kind) && (!role || resource.role === role) && (!search || `${resource.name} ${resource.public_host}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())))
   const canCreateChain = canCreate && Boolean(nodes.data && resources.data && !nodes.error && !resources.error)
-  const refresh = () => { nodes.reload(); resources.reload(); orderedQuery.reload(); servers.reload(); usage.reload() }
+  const refresh = () => { nodes.reload(); resources.reload(); orderedQuery.reload(); servers.reload(); usage.reload(); setCatalogRevision(value => value + 1) }
   const creationError = () => resourceWriteError(nodes, resources, servers) || (!servers.getCurrent()?.some(server => server.enabled && (!currentFilter.current || server.id === Number(currentFilter.current))) ? '当前筛选中没有可用的入口服务器，请明确选择后再创建。' : '')
   const writeError = (value?: { kind: 'direct' | 'chain'; id: number }) => {
     const stale = resourceWriteError(nodes, resources, servers)
@@ -74,18 +74,16 @@ export default function Nodes({ serverId, chainsOnly = false, selected, initialK
     void action.run(() => api(editor === 'new' ? '/api/plugins/sing-box/nodes' : `/api/plugins/sing-box/nodes/${editor?.id}`, editor === 'new' ? 'POST' : 'PATCH', request), () => { setEditor(null); setSaved(serverId); refresh() })
   }
   return <div className="nodes-page" onInvalidCapture={event => { if (event.target instanceof HTMLElement) { const details = event.target.closest('details'); if (details) details.open = true } }}>
-    <PageHeader eyebrow="sing-box 插件" title="代理节点" description="统一管理直连节点与有序链路；从受管节点或订阅来源选择中间段和最终出口。"><Refresh onClick={refresh} /><button className="button button-primary" disabled={!canCreate} onClick={() => edit('new')}><Icon name="plus" size={18} />创建节点</button><button className="button button-secondary" disabled={!canCreateChain || creatingChain} onClick={() => { if (creationError()) return; action.clearError(); setCreatingChain(true); setCreatedChains([]) }}>创建链路</button></PageHeader>
+    <PageHeader eyebrow="sing-box 插件" title="代理节点" description="统一管理受管节点、有序链路与外部节点，整理来源并分配订阅。"><Refresh onClick={refresh} /><button className="button button-primary" disabled={!canCreate} onClick={() => edit('new')}><Icon name="plus" size={18} />创建节点</button><button className="button button-secondary" disabled={!canCreateChain || creatingChain} onClick={() => { if (creationError()) return; action.clearError(); setCreatingChain(true); setCreatedChains([]) }}>创建链路</button></PageHeader>
     <div className="stats-grid"><Stat icon="nodes" label="代理资源" value={resources.data && ordered.data ? inventoryCount : '—'} note="直连节点与独立链路入口" /><Stat icon="server" label="所在服务器" value={resources.data ? new Set(all.map(node => node.server_id)).size : '—'} note="每台服务器运行一份完整配置" /><Stat icon="nodes" label="物理监听数" value={nodes.data ? nodes.data.length : '—'} note="受管节点监听，不重复计算链路引用" /><Stat icon="activity" label="累计代理流量" value={usage.data ? bytes(usage.data.total) : '—'} note="含已删除节点的历史用量" /></div>
     <ErrorNotice message={resources.error || nodes.error || servers.error || usage.error} retry={refresh} />
     {saved !== null && <div className="notice" role="status"><span>资源已保存，正在等待自动发布与设备应用。</span><button className="text-button" onClick={() => setDeployment(saved)}>查看部署进度</button></div>}
     {!!createdChains.length && <div className="notice" role="status"><span>已保存 {createdChains.length} 条链路，正在等待依赖与路径验证。</span><a href={resourceLink({ kind: 'chain', id: createdChains[0] })}>查看链路详情</a></div>}
     {creatingChain && <ChainEditor writeError={() => writeError()} getCurrent={() => ({ nodes: nodes.getCurrent() ?? [], resources: resources.getCurrent() ?? [], servers: servers.getCurrent()?.filter(server => server.enabled) ?? [], entryServerIds: servers.getCurrent()?.filter(server => server.enabled && (!currentFilter.current || server.id === Number(currentFilter.current))).map(server => server.id) ?? [] })} nodes={nodes.data ?? []} resources={all} servers={enabledServers.filter(server => !filter || server.id === Number(filter))} availableServers={enabledServers} onClose={() => setCreatingChain(false)} onSaved={receipt => { setCreatingChain(false); setCreatedChains(receipt.chain_ids); refresh() }} />}
-    <section className="panel"><div className="panel-heading resource-list-heading"><h2>全部代理资源 <span className="count">{all.length}</span></h2><div className="resource-filters"><div className="search-box resource-search"><input aria-label="搜索代理资源" placeholder="搜索名称或公开地址" value={search} onChange={event => setSearch(event.target.value)} /></div><select className="filter-select" aria-label="按服务器筛选" value={filter} onChange={event => { currentFilter.current = event.target.value; setFilter(event.target.value) }}><option value="">全部服务器</option>{filter && !enabledServers.some(server => server.id === Number(filter)) && <option value={filter}>指定服务器尚未启用或不存在</option>}{enabledServers.map(server => <option key={server.id} value={server.id}>{server.name}</option>)}</select><select className="filter-select" aria-label="按类型筛选" value={kind} onChange={event => setKind(event.target.value)}><option value="">全部类型</option><option value="direct">直连节点</option><option value="chain">链路</option></select><select className="filter-select" aria-label="按角色筛选" value={role} onChange={event => setRole(event.target.value)}><option value="">全部角色</option><option value="direct">仅作直连</option><option value="managed_hop">受管内部段</option><option value="chain_entry">独立链路入口</option></select></div></div>
-      {resources.loading && !resources.data ? <Loading /> : !visible.length && ordered.data?.some(resource => filterProxyResources([resource], kind === 'chain' ? 'chains' : kind === 'direct' ? 'direct' : 'all', filter ? Number(filter) : undefined, initialServerRole).length) ? <p className="inline-empty">资源的路径、引用与操作见下方资源列表。</p> : !visible.length ? <Empty icon="nodes" title={filter || kind || role || search ? '没有符合条件的代理资源' : '创建你的第一个节点'} description={enabledServers.length ? '创建直连节点，或使用独立入口与有序代理段创建链路。' : '先在系统的插件设置中为服务器启用 sing-box，再创建代理节点。'}>{enabledServers.length ? <button className="button button-primary" disabled={!canCreate} onClick={() => edit('new')}><Icon name="plus" size={17} />创建节点</button> : <a className="button button-primary" href="#/system/plugins">插件设置</a>}</Empty> : <ProxyResourceTable resources={visible} nodes={nodes.data ?? []} usage={usage.data ?? undefined} onEdit={edit} onDelete={resource => { if (writeError(resource)) return; action.clearError(); setDeleting(resource) }} onDeployment={setDeployment} />}
-    </section>
+    <NodeCatalog nodes={nodes.data ?? []} servers={enabledServers} getServers={() => servers.getCurrent()} usage={usage.data ?? undefined} server={filter} getServer={() => currentFilter.current} onServer={value => { currentFilter.current = value; setFilter(value) }} kind={kind} onKind={setKind} excludedKeys={(ordered.data ?? []).filter(resource => resource.kind === 'chain' && resource.path_kind === 'legacy').map(resource => `${resource.kind}:${resource.id}`)} metadataTarget={catalogMetadata} onMetadataOpened={() => setCatalogMetadata(null)} initialServerRole={initialServerRole} refreshRevision={catalogRevision} onChanged={refresh} managedWriteError={() => writeError() || resourceWriteError(ordered)} onEdit={edit} onDelete={resource => { if (writeError(resource)) return; action.clearError(); setDeleting(resource) }} onDeployment={setDeployment} />
     <div className="notice quiet-notice"><Icon name="check" size={18} /><div><strong>配置自动发布</strong><p>变更后等待 5 秒合并发布。未授权给任何用户的节点不会监听端口；订阅只包含设备已成功应用的配置。</p></div></div>
-    <OrderedResources resourcesQuery={orderedQuery} nodesQuery={nodes} serversQuery={servers} usage={usage} flatKeys={all.map(resource => `${resource.kind}:${resource.id}`)} selected={selectedOrdered} onCloseSelected={() => { window.location.hash = '/plugins/sing-box/nodes' }} filter={filter} kind={kind === 'chain' ? 'chains' : kind === 'direct' ? 'direct' : 'all'} initialServerRole={initialServerRole} getServerId={() => currentFilter.current ? Number(currentFilter.current) : undefined} onEdit={edit} onChanged={refresh} />
-    {!creatingChain && <SubscriptionSources onChange={resources.reload} />}
+    <div hidden={kind === 'external'}><OrderedResources resourcesQuery={orderedQuery} nodesQuery={nodes} serversQuery={servers} usage={usage} hideFlatRows onOrganize={resource => setCatalogMetadata({ kind: resource.kind, id: resource.id })} flatKeys={all.map(resource => `${resource.kind}:${resource.id}`)} selected={selectedOrdered} onCloseSelected={() => { window.location.hash = '/plugins/sing-box/nodes' }} filter={filter} kind={kind === 'chain' ? 'chains' : kind === 'direct' ? 'direct' : 'all'} initialServerRole={initialServerRole} getServerId={() => currentFilter.current ? Number(currentFilter.current) : undefined} onEdit={edit} onChanged={refresh} /></div>
+    {!creatingChain && <SubscriptionSources onChange={refresh} />}
     {showFlatDetail && selected && <ProxyResourceDetail key={`${selected.kind}-${selected.id}`} selected={selected} onClose={() => { window.location.hash = '/plugins/sing-box/nodes' }} onChanged={refresh} onEdit={node => { window.location.hash = '/plugins/sing-box/nodes'; edit(node) }} onDelete={resource => { if (writeError(resource)) return; window.location.hash = '/plugins/sing-box/nodes'; action.clearError(); setDeleting(resource) }} onDeployment={id => { window.location.hash = '/plugins/sing-box/nodes'; setDeployment(id) }} />}
     {editor && <FormDialog wide className="node-editor" title={editor === 'new' ? '创建节点' : '编辑节点'} onClose={() => setEditor(null)} onSubmit={submit} busy={action.busy} submitDisabled={Boolean(editorError)} error={editorError || action.error} submitLabel={editor === 'new' ? '创建并自动发布' : '保存并自动发布'}>
       <h3>基本信息</h3><div className="node-fields-grid">

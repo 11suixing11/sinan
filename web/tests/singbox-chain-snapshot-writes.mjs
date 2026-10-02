@@ -1,3 +1,4 @@
+import { catalogResourceFixtures } from './proxy-resource-fixtures.mjs'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdir, readFile } from 'node:fs/promises'
@@ -68,6 +69,7 @@ try {
           else if (path === `${prefix}/nodes`) value = nodes
           else if ([`${prefix}/ordered-proxy-resources`, `${prefix}/ordered-subscription-sources`].includes(path)) value = []
           else if (path === `${prefix}/proxy-resources`) value = resources
+      else if (path === `${prefix}/node-catalog`) value = catalogResourceFixtures(resources)
           else if (path === `${prefix}/usage`) value = { total: '0', uplink: '0', downlink: '0', by_node: [], by_user: [] }
           else if (path === `${prefix}/subscription-sources`) value = []
           else { totals.unexpected.push(`${method} ${path}`); return route.fulfill({ status: 404, json: {} }) }

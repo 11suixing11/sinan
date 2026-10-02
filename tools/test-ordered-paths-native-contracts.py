@@ -29,6 +29,7 @@ LEGACY = COMMON | {"settings.rs"}
 SPLIT = COMMON | {
     "settings/mod.rs", "settings/apply.rs", "settings/transport.rs", "settings/validate.rs",
 }
+CLIENT = SPLIT | {"client.rs"}
 
 
 def source_map(names):
@@ -36,13 +37,13 @@ def source_map(names):
 
 
 class CompilerSourceIdentityContracts(unittest.TestCase):
-    def test_exact_historical_and_split_source_sets_are_accepted(self):
-        for names in (LEGACY, SPLIT):
+    def test_exact_historical_split_and_client_source_sets_are_accepted(self):
+        for names in (LEGACY, SPLIT, CLIENT):
             with self.subTest(source_count=len(names)):
                 controller.compiler_source_identity(source_map(names))
 
     def test_same_size_renaming_cannot_replace_a_source_identity(self):
-        for names in (LEGACY, SPLIT):
+        for names in (LEGACY, SPLIT, CLIENT):
             for original in sorted(names):
                 with self.subTest(source_count=len(names), original=original):
                     value = source_map(names)
@@ -52,7 +53,8 @@ class CompilerSourceIdentityContracts(unittest.TestCase):
 
     def test_missing_extra_and_mixed_layouts_are_rejected(self):
         for names in (COMMON, LEGACY | SPLIT, SPLIT | {"TEST_ONLY_extra.rs"},
-                      SPLIT - {"settings/validate.rs"}, LEGACY | {"settings/mod.rs"}):
+                      SPLIT - {"settings/validate.rs"}, LEGACY | {"settings/mod.rs"},
+                      CLIENT - {"settings/validate.rs"}, LEGACY | {"client.rs"}):
             with self.subTest(names=sorted(names)), \
                     self.assertRaisesRegex(controller.Rejected, "compiler_source_identity_missing"):
                 controller.compiler_source_identity(source_map(names))
@@ -70,12 +72,12 @@ class CompilerSourceIdentityContracts(unittest.TestCase):
                 value["lib.rs"] = digest
                 controller.compiler_source_identity(value)
 
-    def test_current_producer_binds_every_split_source_file(self):
+    def test_current_producer_binds_every_client_source_file(self):
         example = ROOT / "crates/compiler/examples/ordered_native_fixture.rs"
         section = example.read_text().split("let sources = [", 1)[1].split("];", 1)[0]
         rows = re.findall(r'\(\s*"([^"]+)",\s*include_bytes!\("../src/([^"]+)"\)\.as_slice\(\),?\s*\)', section)
-        self.assertEqual(len(rows), len(SPLIT))
-        self.assertEqual({name for name, _ in rows}, SPLIT)
+        self.assertEqual(len(rows), len(CLIENT))
+        self.assertEqual({name for name, _ in rows}, CLIENT)
         self.assertTrue(all(name == relative for name, relative in rows))
         identities = {name: hashlib.sha256(
             (ROOT / "crates/compiler/src" / relative).read_bytes()).hexdigest()
@@ -149,7 +151,7 @@ class CompilationManifestContracts(unittest.TestCase):
             "native_binary_sha256": self.inputs["native_binary_sha256"],
             "compiler_input_sha256": controller.sha_file(self.prepared / "compiler-input.json"),
             "generator_source_sha256": "b" * 64,
-            "compiler_sources": source_map(SPLIT), "cases": [],
+            "compiler_sources": source_map(CLIENT), "cases": [],
         }
         for case_name in ("three", "four"):
             files = {}
@@ -191,8 +193,8 @@ class CompilationManifestContracts(unittest.TestCase):
     def validate(self):
         return controller.compilation(self.args, self.prepared, self.inputs)
 
-    def test_full_manifest_accepts_both_exact_source_layouts_without_native_execution(self):
-        for names in (LEGACY, SPLIT):
+    def test_full_manifest_accepts_all_exact_source_layouts_without_native_execution(self):
+        for names in (LEGACY, SPLIT, CLIENT):
             with self.subTest(source_count=len(names)):
                 self.manifest["compiler_sources"] = source_map(names)
                 self.save_manifest()

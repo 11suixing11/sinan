@@ -416,21 +416,38 @@ pub async fn remove(
 pub(super) async fn remove_direct_node(state: &AppState, id: i64) -> ApiResult<()> {
     let mut tx = state.pool.begin().await?;
     super::entitlements::lock(&mut tx).await?;
+    remove_direct_node_on(&mut tx, id).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// The caller owns the common topology lock; preserve retained server identities.
+pub(super) async fn remove_direct_node_on(
+    tx: &mut Transaction<'_, Postgres>,
+    id: i64,
+) -> ApiResult<()> {
     let server: i64 =
         sqlx::query_scalar("SELECT server_id FROM nodes WHERE id=$1 AND deleted_at IS NULL")
             .bind(id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?
             .ok_or(ApiError::NotFound)?;
-    lock_cleanup_servers(&mut tx, &[server]).await?;
+    lock_cleanup_servers(tx, &[server]).await?;
     // Return actionable public references before the conservative corruption
     // guard. Missing frozen versions must still retain their cleanup owner.
-    ensure_node_unreferenced(&mut tx, id).await?;
-    super::nodes::ensure_unreferenced_on(&mut tx, id).await?;
-    soft_delete_node(&mut tx, id).await?;
-    business::mark_dirty(&mut tx, &[server]).await?;
-    tx.commit().await?;
+    ensure_direct_node_unreferenced_on(tx, id).await?;
+    soft_delete_node(tx, id).await?;
+    business::mark_dirty(tx, &[server]).await?;
     Ok(())
+}
+
+/// Dependency preflight also serves an atomic catalog batch before any deletion.
+pub(super) async fn ensure_direct_node_unreferenced_on(
+    tx: &mut Transaction<'_, Postgres>,
+    id: i64,
+) -> ApiResult<()> {
+    ensure_node_unreferenced(tx, id).await?;
+    super::nodes::ensure_unreferenced_on(tx, id).await
 }
 
 async fn remove_chain_resource(state: &AppState, id: i64) -> ApiResult<()> {
@@ -442,13 +459,27 @@ async fn remove_chain_resource(state: &AppState, id: i64) -> ApiResult<()> {
     }
     let servers = super::ordered_paths::storage::referenced_servers(&mut tx, id).await?;
     lock_cleanup_servers(&mut tx, &servers).await?;
-    ensure_chain_unreferenced(&mut tx, id).await?;
-    // Protect even legacy/corrupt direct references to this dedicated entry.
-    let policies = node_policies(&mut tx, chain.entry_node_id).await?;
+    ensure_chain_entry_unreferenced_on(&mut tx, id, chain.entry_node_id).await?;
+    sqlx::query("UPDATE singbox_chains SET deleted_at=$2,route_enabled=FALSE,phase=CASE WHEN path_kind='ordered' THEN 'retiring' ELSE 'retired' END,applied_generation=CASE WHEN path_kind='legacy' THEN NULL ELSE applied_generation END WHERE id=$1").bind(id).bind(now_timestamp()).execute(&mut *tx).await?;
+    soft_delete_node(&mut tx, chain.entry_node_id).await?;
+    business::mark_dirty(&mut tx, &servers).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Common deletion preflight for rich and numeric catalog resources. Retained
+/// raw identities still own cleanup even when immutable projections are damaged.
+pub(super) async fn ensure_chain_entry_unreferenced_on(
+    tx: &mut Transaction<'_, Postgres>,
+    id: i64,
+    entry_node_id: i64,
+) -> ApiResult<()> {
+    ensure_chain_unreferenced(tx, id).await?;
+    let policies = node_policies(tx, entry_node_id).await?;
     if !policies.is_empty() {
         return Err(reference_error(policies, vec![]));
     }
-    let other_refs = node_chain_references(&mut tx, chain.entry_node_id)
+    let other_refs = node_chain_references(tx, entry_node_id)
         .await?
         .into_iter()
         .filter(|reference| reference.id != id)
@@ -456,10 +487,13 @@ async fn remove_chain_resource(state: &AppState, id: i64) -> ApiResult<()> {
     if !other_refs.is_empty() {
         return Err(reference_error(vec![], other_refs));
     }
-    sqlx::query("UPDATE singbox_chains SET deleted_at=$2,route_enabled=FALSE,phase=CASE WHEN path_kind='ordered' THEN 'retiring' ELSE 'retired' END,applied_generation=CASE WHEN path_kind='legacy' THEN NULL ELSE applied_generation END WHERE id=$1").bind(id).bind(now_timestamp()).execute(&mut *tx).await?;
-    soft_delete_node(&mut tx, chain.entry_node_id).await?;
-    business::mark_dirty(&mut tx, &servers).await?;
-    tx.commit().await?;
+    let retained: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_chains c WHERE c.id<>$1 AND (c.deleted_at IS NULL OR (c.path_kind='ordered' AND c.phase<>'retired')) AND (c.entry_node_id=$2 OR c.exit_node_id=$2)) OR EXISTS(SELECT 1 FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.chain_id<>$1 AND h.managed_node_id=$2) OR EXISTS(SELECT 1 FROM singbox_ordered_chain_hops h JOIN singbox_chains c ON c.id=h.chain_id WHERE h.chain_id<>$1 AND (c.deleted_at IS NULL OR c.phase<>'retired') AND h.managed_node_id=$2 AND (h.generation=ANY(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation]) OR EXISTS(SELECT 1 FROM unnest(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation]) AS selected(generation) WHERE selected.generation IS NOT NULL AND NOT EXISTS(SELECT 1 FROM singbox_ordered_chain_versions v WHERE v.chain_id=c.id AND v.generation=selected.generation))))")
+        .bind(id).bind(entry_node_id).fetch_one(&mut **tx).await?;
+    if retained {
+        return Err(ApiError::Conflict(
+            "链路入口仍被其它保留路径引用，请先完成引用清理".into(),
+        ));
+    }
     Ok(())
 }
 

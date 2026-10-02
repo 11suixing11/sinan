@@ -1,3 +1,4 @@
+import { catalogResourceFixtures } from './proxy-resource-fixtures.mjs'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
@@ -90,6 +91,8 @@ try {
         assert.equal(route.request().method(), 'GET')
         if (chainsFailure) { await route.fulfill({ status:500,json:{error:'链路夹具读取失败'} }); return }
         value = nodesEmpty ? [] : flatResourceFixtures([node,exitNode,...additionalNodes],[metadata,exitMetadata,...otherMetadata],chainFixtures ? [...chains,...additionalChains] : chains).filter(resource => chainFixtures || resource.kind === 'chain' || [2,3].includes(resource.id))
+      } else if (path === '/api/plugins/sing-box/node-catalog') {
+        value = catalogResourceFixtures(nodesEmpty ? [] : flatResourceFixtures([node,exitNode,...additionalNodes],[metadata,exitMetadata,...otherMetadata],chainFixtures ? [...chains,...additionalChains] : chains).filter(resource => chainFixtures || resource.kind === 'chain' || [2,3].includes(resource.id)))
       } else if (path === '/api/plugins/sing-box/ordered-proxy-resources') {
         if (chainsFailure) { await route.fulfill({ status:500,json:{error:'链路夹具读取失败'} }); return }
         value = nodesEmpty ? [] : proxyResourceFixtures([node,exitNode,...additionalNodes],[metadata,exitMetadata,...otherMetadata],chainFixtures ? [...chains,...additionalChains] : chains).filter(resource => chainFixtures || resource.kind === 'chain' || [2,3].includes(resource.id))
@@ -297,7 +300,7 @@ try {
     await page.waitForFunction(() => document.querySelector('select[aria-label="按服务器筛选"]')?.value === '2')
     await page.getByText('未授权验收链路', { exact: true }).waitFor()
     assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=chains&server=2')
-    assert.equal(await page.getByRole('row').count(), 2)
+    assert.equal(await page.locator('.proxy-resource-table').getByRole('row').count(), 2)
     assert.equal(await reverseRow.count(), 0, 'The unrelated reverse chain is absent in the server=2 scope')
     await createdRow.locator('small').filter({ hasText: /^本服务器作为出口$/ }).waitFor()
     assert.equal(await page.getByText('无关服务器链路', { exact: true }).count(), 0)
@@ -331,7 +334,7 @@ try {
     await page.getByRole('link', { name: '查看全部链路', exact: true }).click()
     await page.getByText('筛选范围：全部服务器的链路。', { exact: true }).waitFor()
     await page.getByText('未授权验收链路', { exact: true }).waitFor()
-    assert.equal(await page.getByRole('row').count(), 4)
+    assert.equal(await page.locator('.proxy-resource-table').getByRole('row').count(), 4)
     await page.goto(`${origin}/#/plugins/sing-box/nodes?kind=chains&server=999`)
     await page.getByText('此服务器暂无已确认关联的链路', { exact: true }).waitFor()
     assert.equal(await page.getByText('未授权验收链路', { exact: true }).count(), 0)
@@ -365,13 +368,15 @@ try {
     const recoveredResources = page.waitForResponse(response => new URL(response.url()).pathname === '/api/plugins/sing-box/proxy-resources' && response.request().method() === 'GET' && response.status() === 200)
     await refreshPage()
     await recoveredResources
-    await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 1 && document.querySelector('[data-resource-key="direct:3"]'))
-    await page.locator('[data-resource-key="direct:3"]').waitFor()
-    assert.equal(await page.locator('[data-resource-key="direct:2"]').count(),0)
+    const currentCatalog = page.locator(width < 768 ? '.catalog-card' : '.catalog-table tbody tr')
+    const direct3 = page.locator(`${width < 768 ? '.catalog-card' : '.catalog-table tbody tr'}[data-resource-key="direct:3"]`)
+    await direct3.waitFor()
+    assert.equal(await currentCatalog.count(), 1)
+    assert.equal(await page.locator(`${width < 768 ? '.catalog-card' : '.catalog-table tbody tr'}[data-resource-key="direct:2"]`).count(),0)
     await page.getByText('普通节点需为代理用户授权并等待设备成功应用配置', { exact: false }).waitFor()
     await page.getByText('出口可使用内部连接凭据监听，无需为出口单独授权用户。', { exact: false }).waitFor()
     await page.goto(`${origin}/#/plugins/sing-box/nodes`)
-    await page.getByText('共享端点 · 1 条链路引用', { exact: true }).waitFor()
+    await page.getByRole('button', { name: /· 1 个引用$/ }).waitFor()
     chainsFailure = true
     await page.reload()
     // Flat and ordered projections report their own failed reads in separate panels.

@@ -147,6 +147,7 @@ try {
         groupWrites.push({ pathname, method }); packages.splice(1, 1); value = {}
       }
       else if (pathname === `${prefix}/usage` && method === 'GET') { usageReads.push(Date.now()); value = usage }
+      else if (pathname === `${prefix}/users/1/external-accesses` && method === 'GET') value = { revision: 0, accesses: [], available_nodes: [] }
       else if (pathname === `${prefix}/users/1/accesses` && method === 'GET') value = [...new Set([...groupIds, ...directIds])].map(id => ({ user_id: 1, node_id: id, uuid: 'TEST_ONLY', stat_name: `fixture_${id}`, direct_grant: directIds.has(id) }))
       else if (pathname === `${prefix}/users/1/accesses` && method === 'POST') {
         const payload = request.postDataJSON(); assert.deepEqual(payload, { node_id: 1 })

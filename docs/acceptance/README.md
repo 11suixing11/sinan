@@ -39,6 +39,8 @@
 
 ## 代理业务、链路与运行时
 
+- [节点库与外部授权本地验证](node-catalog-20261003.md)
+
 - [混合链路本地隔离夹具记录](mixed-path-local-fixtures.md)
 - [混合链路面板与发布状态验证](mixed-path-panel.md)
 - [核心与代理业务边界：独立验收](proxy-business-boundary.md)

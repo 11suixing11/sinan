@@ -1,3 +1,4 @@
+import { catalogResourceFixtures } from './proxy-resource-fixtures.mjs'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdir, readFile } from 'node:fs/promises'
@@ -47,6 +48,7 @@ try {
       else if (method === 'GET' && path === `${prefix}/servers`) value=servers
       else if (method === 'GET' && [ `${prefix}/subscription-sources`, `${prefix}/ordered-subscription-sources` ].includes(path)) value=[]
       else if (method === 'GET' && path === `${prefix}/proxy-resources`) value=flatResourceFixtures(nodes,servers,chains)
+      else if (method === 'GET' && path === `${prefix}/node-catalog`) value=catalogResourceFixtures(flatResourceFixtures(nodes,servers,chains))
       else if (method === 'GET' && path === `${prefix}/nodes`) {
         if (nodesFailure) {await route.fulfill({status:500,json:{error:'旧节点设置无法解析'}});return}
         value=nodes
@@ -96,7 +98,7 @@ try {
           return
         }
         await route.fulfill({status:201,json:result});return
-      } else if (method === 'DELETE' && path === `${prefix}/ordered-proxy-resources/direct/2`) {
+      } else if (method === 'DELETE' && path === `${prefix}/nodes/2`) {
         await route.fulfill({status:409,json:{error:'出口被链路引用：既有链路 #1；请先解除引用。',references:{policies:[],chains:[{id:1,name:'既有链路',role:'exit'}]}}});return
       } else if (method === 'DELETE' && path === `${prefix}/ordered-proxy-resources/chain/1`) {
         assert(broken && nodesFailure,'broken resources must remain cleanable when the old nodes API fails')
@@ -111,12 +113,16 @@ try {
     const enabled = async locator => {await locator.waitFor();const end=Date.now()+7000;while(await locator.isDisabled() && Date.now()<end) await page.waitForTimeout(20);assert.equal(await locator.isDisabled(),false)}
     const filterTabs = page.getByRole('navigation',{name:'节点资源类型',exact:true})
     const screenshot = async name => {if (process.env.SINAN_UI_SCREENSHOT_DIR) {await mkdir(process.env.SINAN_UI_SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:resolve(process.env.SINAN_UI_SCREENSHOT_DIR,`proxy-${name}-${width}.png`)})}}
+    const catalogRows = page.locator(width < 768 ? '.catalog-card' : '.catalog-table tbody tr')
+    const directKey = id => page.locator(`${width < 768 ? '.catalog-card' : '.catalog-table tbody tr'}[data-resource-key="direct:${id}"]`)
+    const resourceCount = async () => await catalogRows.count() + await page.locator('.proxy-resource-table tbody tr').count()
+    const waitCount = async count => { const deadline = Date.now() + 8000; while (await resourceCount() !== count) { assert(Date.now() < deadline, `Expected ${count} visible resources`); await page.waitForTimeout(20) } }
     await page.goto(`${origin}/#/plugins/sing-box/nodes`)
     await enabled(create)
-    assert.equal(await page.locator('tbody tr').count(),4)
-    assert.equal(await page.locator('[data-resource-key="direct:1"]').count(),1)
+    assert.equal(await resourceCount(),4)
+    assert.equal(await directKey(1).count(),1)
     assert.equal(await page.locator('[data-resource-key="chain:1"]').count(),1)
-    assert.equal(await page.locator('[data-resource-key="direct:3"]').count(),0)
+    assert.equal(await directKey(3).count(),0)
     assert.equal(await page.locator('.stat').filter({hasText:'代理资源'}).locator('strong').innerText(),'4')
     assert.equal(await page.locator('.stat').filter({hasText:'物理监听数'}).locator('strong').innerText(),'4')
     await screenshot('resources')
@@ -128,17 +134,17 @@ try {
     assert.equal(await dialog.getByText('目标配置已应用',{exact:true}).count(),0)
     await dialog.getByRole('button',{name:'关闭',exact:true}).click()
     await filterTabs.getByRole('link',{name:'直连节点',exact:true}).click()
-    await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 3)
-    assert.equal(await page.locator('tbody tr').count(),3)
+    await waitCount(3)
+    assert.equal(await resourceCount(),3)
     await filterTabs.getByRole('link',{name:'链路',exact:true}).click()
-    await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 1)
-    assert.equal(await page.locator('tbody tr').count(),1)
+    await waitCount(1)
+    assert.equal(await resourceCount(),1)
     await page.getByRole('combobox',{name:'按服务器筛选',exact:true}).selectOption('2')
     await page.getByText('筛选范围：任一受管段属于「服务器 2」的链路。',{exact:false}).waitFor()
-    assert.equal(await page.locator('tbody tr').count(),1)
+    assert.equal(await resourceCount(),1)
     await filterTabs.getByRole('link',{name:'全部',exact:true}).click()
-    await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 2)
-    assert.equal(await page.locator('tbody tr').count(),2)
+    await waitCount(2)
+    assert.equal(await resourceCount(),2)
     await page.getByRole('combobox',{name:'按服务器筛选',exact:true}).selectOption('')
     await enabled(create);await create.click();dialog=page.getByRole('dialog')
     await dialog.locator('[name=server_id]').selectOption('1')
@@ -177,7 +183,7 @@ try {
     const blockedRetry = dialog.getByRole('button',{name:'重试原批次',exact:true}), replayWriteCount = writes.length
     await dialog.getByRole('alert').filter({hasText:'链路身份已变更'}).waitFor()
     assert.equal(await blockedRetry.isDisabled(),true)
-    assert.equal(await page.locator('[data-resource-key="direct:1"]').count(),0)
+    assert.equal(await directKey(1).count(),0)
     assert.equal(await dialog.locator('[name=entry_node_id]').inputValue(),'1')
     assert.equal(await dialog.locator('[name=name]').inputValue(),'失响应链路')
     await dialog.locator('form').evaluate(form => form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
@@ -235,7 +241,7 @@ try {
     assert.equal(await dialog.getByRole('button',{name:'添加一条链路',exact:true}).isDisabled(),true)
     assert.equal(writes.length,writeCount)
     await dialog.getByRole('button',{name:'取消',exact:true}).click()
-    await page.locator('[data-resource-key="direct:2"]').getByRole('button',{name:'删除',exact:true}).click();dialog=page.getByRole('dialog')
+    await directKey(2).getByRole('button',{name:'删除',exact:true}).click();dialog=page.getByRole('dialog')
     await dialog.getByRole('button',{name:'确认删除',exact:true}).click()
     await dialog.getByRole('alert').filter({hasText:'既有链路 #1'}).waitFor()
     assert(nodes.some(node => node.id === 2))
@@ -258,11 +264,11 @@ try {
     malformed=true;await page.locator('header.page-header').getByRole('button',{name:'刷新',exact:true}).click()
     await page.getByRole('alert').filter({hasText:'资源信息格式不完整'}).waitFor()
     assert.equal(await create.isDisabled(),true)
-    assert.equal(await page.locator('[data-resource-key="direct:2"]').count(),1)
-    assert.equal(await page.locator('[data-resource-key="direct:2"]').getByRole('button',{name:'删除',exact:true}).isDisabled(),true)
+    assert.equal(await directKey(2).count(),1)
+    assert.equal(await directKey(2).getByRole('button',{name:'删除',exact:true}).isDisabled(),true)
     malformed=false;resourceFailure=true;await page.locator('header.page-header').getByRole('button',{name:'刷新',exact:true}).click()
     await page.getByRole('alert').filter({hasText:'资源快照读取被拒绝'}).waitFor()
-    await page.locator('[data-resource-key="direct:2"]').getByText('资源状态待确认',{exact:true}).waitFor()
+    await directKey(2).getByText('资源状态待确认',{exact:true}).waitFor()
     assert.equal(await create.isDisabled(),true)
     resourceFailure=false;await page.locator('header.page-header').getByRole('button',{name:'刷新',exact:true}).click();await enabled(create)
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),true)

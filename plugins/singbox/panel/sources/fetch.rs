@@ -11,6 +11,49 @@ pub(super) struct FetchResult {
     pub body: Option<Vec<u8>>,
     pub etag: Option<String>,
     pub last_modified: Option<String>,
+    pub traffic: Option<serde_json::Value>,
+}
+
+pub(super) const DEFAULT_USER_AGENT: &str = "Sinan-subscription-import/1";
+
+pub(super) fn validate_user_agent(value: &str) -> Result<(), ImportError> {
+    if value.is_empty()
+        || value.len() > 256
+        || !value.is_ascii()
+        || value.bytes().any(|byte| !(32..127).contains(&byte))
+        || value.trim().is_empty()
+    {
+        Err(ImportError("invalid_source_user_agent"))
+    } else {
+        Ok(())
+    }
+}
+
+pub(super) fn parse_traffic(value: &str) -> Option<serde_json::Value> {
+    if value.len() > 4096 {
+        return None;
+    }
+    let mut fields = serde_json::Map::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for field in value.split(';') {
+        let Some((key, value)) = field.trim().split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        if !matches!(key, "upload" | "download" | "total" | "expire") {
+            continue;
+        }
+        let value = value.trim();
+        if !seen.insert(key) || value.is_empty() || !value.bytes().all(|v| v.is_ascii_digit()) {
+            return None;
+        }
+        let number = value.parse::<i64>().ok()?;
+        if key == "expire" && number == 0 {
+            continue;
+        }
+        fields.insert(key.into(), number.into());
+    }
+    (!fields.is_empty()).then_some(serde_json::Value::Object(fields))
 }
 
 pub(super) fn validate_url(value: &str) -> Result<Url, ImportError> {
@@ -62,10 +105,12 @@ pub(super) async fn download(
     authorization: Option<&str>,
     etag: Option<&str>,
     last_modified: Option<&str>,
+    user_agent: &str,
 ) -> Result<FetchResult, ImportError> {
+    validate_user_agent(user_agent)?;
     tokio::time::timeout(
         Duration::from_secs(20),
-        download_inner(value, authorization, etag, last_modified),
+        download_inner(value, authorization, etag, last_modified, user_agent),
     )
     .await
     .map_err(|_| ImportError("download_timeout"))?
@@ -76,6 +121,7 @@ async fn download_inner(
     authorization: Option<&str>,
     etag: Option<&str>,
     last_modified: Option<&str>,
+    user_agent: &str,
 ) -> Result<FetchResult, ImportError> {
     let origin = validate_url(value)?;
     if let Some(authorization) = authorization {
@@ -114,7 +160,7 @@ async fn download_inner(
             .resolve_to_addrs(host, &addresses)
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(20))
-            .user_agent("Sinan-subscription-import/1")
+            .user_agent(user_agent)
             .build()
             .map_err(|_| ImportError("download_client_failed"))?;
         let request = build_request(&client, &origin, &url, authorization, etag, last_modified)?;
@@ -130,6 +176,11 @@ async fn download_inner(
                 body: None,
                 etag: response_header(&response, header::ETAG),
                 last_modified: response_header(&response, header::LAST_MODIFIED),
+                traffic: response_header(
+                    &response,
+                    header::HeaderName::from_static("subscription-userinfo"),
+                )
+                .and_then(|value| parse_traffic(&value)),
             });
         }
         if response.status().is_redirection() {
@@ -153,6 +204,11 @@ async fn download_inner(
         let encoding = response_header(&response, header::CONTENT_ENCODING).unwrap_or_default();
         let etag = response_header(&response, header::ETAG);
         let last_modified = response_header(&response, header::LAST_MODIFIED);
+        let traffic = response_header(
+            &response,
+            header::HeaderName::from_static("subscription-userinfo"),
+        )
+        .and_then(|value| parse_traffic(&value));
         let mut body = Vec::new();
         while let Some(chunk) = response
             .chunk()
@@ -169,6 +225,7 @@ async fn download_inner(
             body: Some(body),
             etag,
             last_modified,
+            traffic,
         });
     }
     Err(ImportError("redirect_limit"))
@@ -295,6 +352,54 @@ fn public_address(address: IpAddr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subscription_traffic_is_partial_bounded_and_never_guesses_missing_fields() {
+        assert_eq!(
+            parse_traffic("upload=12; download=30; total=100; expire=2000000000"),
+            Some(
+                serde_json::json!({"upload":12,"download":30,"total":100,"expire":2000000000_i64})
+            )
+        );
+        assert_eq!(
+            parse_traffic("total=0; expire=0; unknown=value"),
+            Some(serde_json::json!({"total":0}))
+        );
+        for invalid in [
+            "upload=-1",
+            "total=1.5",
+            "total=9223372036854775808",
+            "download=1; download=2",
+            "expire=0; expire=1",
+            "unknown=value",
+            "upload=+1",
+        ] {
+            assert!(parse_traffic(invalid).is_none(), "{invalid}");
+        }
+        assert!(parse_traffic(&" ".repeat(4097)).is_none());
+    }
+
+    #[test]
+    fn source_user_agent_cannot_inject_headers_or_grow_unbounded() {
+        for valid in [
+            DEFAULT_USER_AGENT,
+            "sing-box/1.14.2",
+            "Client (test; compat)",
+        ] {
+            assert!(validate_user_agent(valid).is_ok());
+        }
+        for invalid in [
+            "",
+            " ",
+            "agent\r\nAuthorization: secret",
+            "agent\tvalue",
+            "中文",
+            "agent\u{7f}",
+        ] {
+            assert!(validate_user_agent(invalid).is_err());
+        }
+        assert!(validate_user_agent(&"a".repeat(257)).is_err());
+    }
     use std::io::Write;
 
     #[test]

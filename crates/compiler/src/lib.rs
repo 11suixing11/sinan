@@ -2,6 +2,7 @@
 
 mod relays;
 pub use relays::{Relay, compile_server_with_relays};
+pub mod client;
 pub mod external;
 #[path = "paths/mod.rs"]
 mod ordered_paths;
