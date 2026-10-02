@@ -9,6 +9,7 @@ import { dashboardServer } from './dashboard'
 import { assetDate, assetPrice, defaultAssets, expiryState, trafficSize } from '../server-assets'
 import { useCurrency } from './CurrencyContext'
 import { convert, money, remainingCost } from './currency'
+import CurrencyReference from './CurrencyReference'
 
 export function Metric({ label, value, detail, display }: { label: string; value: number | null; detail: string; display?: string }) {
   const tone = value !== null && value >= 90 ? 'danger' : value !== null && value >= 75 ? 'warning' : 'good'
@@ -44,7 +45,7 @@ export const ServerCard = memo(function ServerCard({ server, unavailable, probes
       <div className={`d-data-grid ${showAsset ? '' : 'd-data-two'}`}>
         <div className="d-data" title="实时速率" aria-label="实时速率"><span className="d-good"><Icon name="up" size={12} />{live ? speed(up) : '—'}</span><span className="d-info"><Icon name="down" size={12} />{live ? speed(down) : '—'}</span></div>
         <div className="d-data" title="累计流量" aria-label="累计流量"><span><Icon name="up" size={12} />{size(network(metrics, 'transmitted_bytes'))}</span><span><Icon name="down" size={12} />{size(network(metrics, 'received_bytes'))}</span></div>
-        {showAsset && <div className="d-data" aria-label="剩余价值与到期"><span className={expiry.tone === 'bad' ? 'd-danger' : expiry.tone === 'warm' ? 'd-warning' : ''} title={`到期 ${assetDate(asset.expires_at)}（UTC）`}><Icon name="calendar" size={12} />{expiry.label}</span><span title={`剩余价值 ${money(remainder, currency)}`}><Icon name="wallet" size={12} />{money(remainder, currency)}</span></div>}
+        {showAsset && <div className="d-data" aria-label="剩余价值与到期"><span className={expiry.tone === 'bad' ? 'd-danger' : expiry.tone === 'warm' ? 'd-warning' : ''} title={`到期 ${assetDate(asset.expires_at)}（UTC）`}><Icon name="calendar" size={12} />{expiry.label}</span><span title={`剩余价值 ${money(remainder, currency)}`}><Icon name="wallet" size={12} />{money(remainder, currency)}</span>{asset.price !== null && <CurrencyReference from={asset.currency} to={currency} compact />}</div>}
       </div>
       <ProbeQuality probes={probes} now={now} online={server.online} unavailable={probeError || unavailable} loading={probeLoading} />
       {!live && server.online && <div className="d-card-foot d-warning" title={`最近采样 ${sampleTime}`}>{unavailable ? '状态待确认' : server.metrics_stale ? '指标已过期' : '采样时间未知'}</div>}
