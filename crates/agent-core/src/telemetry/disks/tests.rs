@@ -34,7 +34,7 @@ fn mount(
     )
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn device_mount(
     name: &'static str,
     path: &'static str,
