@@ -3,7 +3,7 @@ use sinan_protocol::now_timestamp;
 use sqlx::{PgPool, Row};
 use std::net::{IpAddr, SocketAddr};
 
-pub(super) async fn consume(pool: &PgPool, peer: SocketAddr) -> ApiResult<()> {
+pub(crate) async fn consume(pool: &PgPool, peer: SocketAddr) -> ApiResult<()> {
     let ip = match peer.ip() {
         IpAddr::V6(address) => address
             .to_ipv4_mapped()

@@ -40,6 +40,7 @@ impl Fixture {
             telemetry_live: Arc::default(),
             pool: PgPoolOptions::new().connect_lazy("postgres://fixture@127.0.0.1/unused")?,
             login_permits: Arc::new(Semaphore::new(4)),
+            passkeys: Arc::new(sinan_panel::passkeys::Service::new("http://127.0.0.1")),
             quality_permits: Arc::new(Semaphore::new(2)),
             quality_providers: Arc::default(),
             release_permits: Arc::new(Semaphore::new(1)),

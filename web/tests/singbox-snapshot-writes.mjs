@@ -61,6 +61,7 @@ try {
         if (method === 'GET' && /^\/api\/plugins\/sing-box\/users\/\d+\//.test(path) && !users.some(user => user.id === Number(path.split('/')[5]))) { await route.fulfill({ status: 404, json: { error: 'TEST_ONLY 代理用户已不存在' } }); return }
         let value
         if (method === 'GET' && (path === '/api/dashboard/access' || path === '/api/me')) value = { authenticated: true, public_dashboard: false }
+        else if (method === 'GET' && /^\/api\/plugins\/sing-box\/users\/\d+\/portal$/.test(path)) value = { configuration: { enabled: false, reason: 'TEST_ONLY 未启用', origin }, keys: 0, url: null, activation_expires_at: null }
         else if (method === 'GET' && path === `${prefix}/users`) value = users
         else if (method === 'GET' && path === `${prefix}/nodes`) value = nodes
         else if (method === 'GET' && path === `${prefix}/proxy-resources`) value = resources

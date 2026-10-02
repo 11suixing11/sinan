@@ -37,6 +37,18 @@ impl TestPanel {
     }
 
     pub async fn start_with_public_url(pool: PgPool, public_url: Option<&str>) -> Result<Self> {
+        Self::start_configured(pool, public_url, false).await
+    }
+
+    pub async fn start_with_localhost(pool: PgPool) -> Result<Self> {
+        Self::start_configured(pool, None, true).await
+    }
+
+    async fn start_configured(
+        pool: PgPool,
+        public_url: Option<&str>,
+        localhost: bool,
+    ) -> Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let listen = listener.local_addr()?;
         let base = format!("http://{listen}");
@@ -48,9 +60,13 @@ impl TestPanel {
             Config {
                 database_url: String::new(),
                 listen,
-                public_url: public_url
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| base.clone()),
+                public_url: public_url.map(str::to_owned).unwrap_or_else(|| {
+                    if localhost {
+                        format!("http://localhost:{}", listen.port())
+                    } else {
+                        base.clone()
+                    }
+                }),
                 data_dir: directory.clone(),
                 admin_password: Some(PASSWORD.into()),
             },

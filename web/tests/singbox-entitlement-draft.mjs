@@ -48,6 +48,7 @@ try {
       let value
       if (pathname === '/api/dashboard/access' && method === 'GET') value = { authenticated: true, public_dashboard: false }
       else if (pathname === '/api/me' && method === 'GET') value = { authenticated: true }
+      else if (pathname === `${prefix}/users/1/portal` && method === 'GET') value = { configuration: { enabled: false, reason: 'TEST_ONLY 未启用', origin }, keys: 0, url: null, activation_expires_at: null }
       else if (pathname === `${prefix}/users` && method === 'GET') value = [user]
       else if (pathname === `${prefix}/nodes` && method === 'GET') value = nodes
       else if (pathname === `${prefix}/proxy-resources` && method === 'GET') value = nodes.map(node => ({ ...node, kind:'direct', server_name:`服务器 #${node.server_id}`, role:'direct', entry_node_id:null, tcp:true, udp:true, available:true, enabled:true, stage:'direct', reference_count:0, entry_eligible:true }))
