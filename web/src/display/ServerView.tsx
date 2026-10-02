@@ -52,6 +52,5 @@ export default function ServerView({ id, now }: { id: number; now: number }) {
       ] as [string, ReactNode][] : []),
       ['交换内存', `${size(metrics.swap_used)} / ${size(metrics.swap_total)}`], ['TCP / UDP 连接', `${count(metrics.tcp_connections)} / ${count(metrics.udp_connections)}`], ['系统负载（1 / 5 / 15 分钟）', [metrics.load_1, metrics.load_5, metrics.load_15].map(value => number(value) === null ? '—' : value!.toFixed(2)).join(' / ')],
     ]} /></div>
-    <p className="d-footnote">{resource.modern ? '状态每 3 秒读取，静态信息每 30 秒读取。采集、状态上报与历史写入采用各自间隔；实时样本只有在持久写入后才计入历史。' : '页面展示设备上报的信息，每 5 秒刷新状态。'}隐藏页面会暂停并取消读取。网卡累计可能因重启归零，不等同于代理用户用量。</p>
   </div>
 }

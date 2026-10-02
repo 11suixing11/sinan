@@ -6,7 +6,7 @@ const empty = <T,>(path: string | null): Snapshot<T> => ({ path, error: '', upda
 
 // Every request has its own identity. Hidden pages abort in-flight reads, and a
 // late response from an old route or cleared authorization cannot restore data.
-export function useDashboardPoll<T>(path: string | null, interval: number, paused: boolean, identity = '') {
+export function useDashboardPoll<T>(path: string | null, interval: number, paused: boolean, identity = '', reconcile?: (previous: T | undefined, incoming: T) => T) {
   const key = path === null ? null : `${identity}\n${path}`
   const [snapshot, setSnapshot] = useState<Snapshot<T>>(() => empty(key))
   const trigger = useRef<() => void>(() => {})
@@ -16,7 +16,10 @@ export function useDashboardPoll<T>(path: string | null, interval: number, pause
   useEffect(() => {
     let active = true, controller: AbortController | undefined, timeout: number | undefined
     const cancel = () => { window.clearTimeout(timeout); const pending = controller; controller = undefined; pending?.abort() }
-    const update = (patch: Partial<Snapshot<T>>) => setSnapshot(current => ({ ...(current.path === key ? current : empty<T>(key)), ...patch }))
+    const update = (patch: Partial<Snapshot<T>> | ((current: Snapshot<T>) => Partial<Snapshot<T>>)) => setSnapshot(current => {
+      const previous = current.path === key ? current : empty<T>(key)
+      return { ...previous, ...(typeof patch === 'function' ? patch(previous) : patch) }
+    })
     update({ loading: Boolean(path) && !paused })
     const load = async (manual = false) => {
       if (!path || controller || document.visibilityState !== 'visible' || (paused && !manual)) return
@@ -26,7 +29,7 @@ export function useDashboardPoll<T>(path: string | null, interval: number, pause
       timeout = window.setTimeout(() => { timedOut = true; request.abort() }, 12_000)
       try {
         const result = await api<T>(path, 'GET', undefined, request.signal)
-        if (active && controller === request && !request.signal.aborted) update({ data: result, updatedAt: Date.now(), error: '', denied: false })
+        if (active && controller === request && !request.signal.aborted) update(current => ({ data: reconcile ? reconcile(current.data, result) : result, updatedAt: Date.now(), error: '', denied: false }))
       } catch (reason) {
         if (active && controller === request && (!request.signal.aborted || timedOut)) {
           const denied = reason instanceof ApiError && [401, 403, 404].includes(reason.status)
@@ -50,6 +53,6 @@ export function useDashboardPoll<T>(path: string | null, interval: number, pause
       active = false; cancel(); trigger.current = () => {}; reset.current = () => {}; window.clearInterval(timer)
       document.removeEventListener('visibilitychange', refresh); window.removeEventListener('online', refresh)
     }
-  }, [path, key, interval, paused])
+  }, [path, key, interval, paused, reconcile])
   return { ...(snapshot.path === key ? snapshot : empty<T>(key)), reload, clear }
 }

@@ -33,8 +33,12 @@ export function money(amount: number | null, currency: string): string {
 
 export function remainingCost(asset: ServerAssets | undefined, now: number): number | null {
   const amount = price(asset?.price)
-  if (amount === null || !asset || asset.billing_cycle <= 0 || asset.expires_at === null || !Number.isFinite(asset.expires_at)) return null
-  return amount * Math.max(0, Math.min(1, (asset.expires_at * 1000 - now) / (asset.billing_cycle * 86_400_000)))
+  if (amount === null || !asset || !Number.isFinite(asset.billing_cycle) || asset.billing_cycle < 0 || asset.expires_at === null || !Number.isFinite(asset.expires_at) || !Number.isFinite(now)) return null
+  const remainingDays = Math.max(0, (asset.expires_at * 1000 - now) / 86_400_000)
+  if (remainingDays === 0) return 0
+  // A prepaid term may span several billing periods. One-time purchases retain
+  // their entered value until expiry, but never contribute to monthly spending.
+  return asset.billing_cycle === 0 ? amount : amount * remainingDays / asset.billing_cycle
 }
 
 export function costSummary(servers: Server[], currency: string, quote: ExchangeRates | undefined, now: number) {

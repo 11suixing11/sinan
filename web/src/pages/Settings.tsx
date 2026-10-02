@@ -6,6 +6,7 @@ import AlertRules from './AlertRules'
 import WebhookSettings from './WebhookSettings'
 import NotificationChannels from './NotificationChannels'
 import TelemetryPolicy from './TelemetryPolicy'
+import ExchangeRateSettings from './ExchangeRateSettings'
 import './server-setup.css'
 import './monitoring.css'
 
@@ -35,5 +36,5 @@ function Form({ initial }: { initial: Preferences }) {
 
 export default function Settings() {
   const resource = useResource<Preferences>('/api/settings', 0)
-  return <><PageHeader eyebrow="系统设置" title="看板与通知" description="设置看板访问权限、通知渠道及服务器告警规则。"><a className="button button-secondary" href="#/system/notifications">查看告警通知</a></PageHeader><ErrorNotice message={resource.error} retry={resource.reload} />{resource.data ? <><Form initial={resource.data} /><TelemetryPolicy /><WebhookSettings /><NotificationChannels /><AlertRules /></> : resource.loading ? <Loading /> : null}</>
+  return <><PageHeader eyebrow="系统设置" title="看板与通知" description="设置看板访问权限、显示币种、通知渠道及服务器告警规则。"><a className="button button-secondary" href="#/system/notifications">查看告警通知</a></PageHeader><ExchangeRateSettings /><ErrorNotice message={resource.error} retry={resource.reload} />{resource.data ? <><Form initial={resource.data} /><TelemetryPolicy /><WebhookSettings /><NotificationChannels /><AlertRules /></> : resource.loading ? <Loading /> : null}</>
 }

@@ -36,3 +36,18 @@ body:has(.monitoring-settings), body:has(.notification-delivery), body:has(.moni
 .notification-delivery + .notification-delivery { margin-top: 12px; }
 .notification-delivery { min-width: 160px; white-space: normal; }
 @media (max-width: 650px) { .notification-channel-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.exchange-rate-settings .panel-heading, .exchange-rate-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.exchange-rate-preference { display: flex; align-items: start; flex-wrap: wrap; gap: 16px; }
+.exchange-rate-preference .field { flex: 1 1 240px; margin: 0; }
+.exchange-rate-preference > button { margin-top: 25px; }
+.exchange-rate-heading { margin-top: 24px; }
+.exchange-rate-heading h3 { margin: 0; font-size: 14px; }
+.exchange-rate-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin: 20px 0; font-size: 12px; }
+.exchange-rate-meta dt { color: var(--muted); margin-bottom: 6px; }
+.exchange-rate-meta dd { margin: 0; overflow-wrap: anywhere; }
+.exchange-rate-table summary { cursor: pointer; color: var(--green); font-size: 13px; }
+.exchange-rate-table .table-scroll { overflow-x: auto; margin-top: 14px; }
+.exchange-rate-table table { width: 100%; }
+.exchange-rate-table th, .exchange-rate-table td { padding: 12px; white-space: nowrap; text-align: left; }
+@media (max-width: 600px) { .exchange-rate-preference > button { margin-top: 0; } .exchange-rate-meta { grid-template-columns: minmax(0, 1fr); } }

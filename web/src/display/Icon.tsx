@@ -6,8 +6,8 @@ const paths: Record<string, ReactNode> = {
   list: <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M3 15h18M9 3v18" /></>,
   pause: <><path d="M8 5v14M16 5v14" /></>,
   play: <path d="m8 4 12 8-12 8Z" />,
-  maximize: <path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" />,
-  minimize: <path d="M3 8h5V3m13 5h-5V3M8 21v-5H3m13 5v-5h5" />,
+  wallet: <><path d="M20 8V5a2 2 0 0 0-2-2H6a3 3 0 0 0 0 6h14v12H6a3 3 0 0 1-3-3V6" /><path d="M20 12h-5v5h5" /></>,
+  calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 11h18" /></>,
   search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></>,
   sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" /></>,
   moon: <path d="M20 14A9 9 0 0 1 10 4a9 9 0 1 0 10 10Z" />,
@@ -17,6 +17,15 @@ const paths: Record<string, ReactNode> = {
   clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
   network: <><rect x="9" y="2" width="6" height="5" rx="1" /><rect x="2" y="17" width="6" height="5" rx="1" /><rect x="16" y="17" width="6" height="5" rx="1" /><path d="M12 7v5M5 17v-5h14v5" /></>,
   user: <><circle cx="12" cy="12" r="9" /><circle cx="12" cy="9" r="3" /><path d="M5.5 18a7 7 0 0 1 13 0" /></>,
+}
+
+export function Region({ region }: { region?: string }) {
+  const code = region?.trim().toUpperCase()
+  if (!code) return null
+  const flag = /^[A-Z]{2}$/.test(code) ? String.fromCodePoint(...[...code].map(letter => 0x1f1e6 + letter.charCodeAt(0) - 65)) : null
+  let label = region
+  if (flag) { try { label = new Intl.DisplayNames(['zh-CN'], { type: 'region' }).of(code) } catch { /* Keep the configured region when display names are unavailable. */ } }
+  return <span className={`d-region ${flag ? 'd-region-flag' : ''}`} title={label} aria-label={label}>{flag ?? region}</span>
 }
 
 export function Icon({ name, size = 18 }: { name: string; size?: number }) {

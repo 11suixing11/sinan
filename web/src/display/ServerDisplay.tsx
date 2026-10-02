@@ -4,7 +4,6 @@ import { Icon } from './Icon'
 import Overview from './Overview'
 import ServerView from './ServerView'
 import { dashboardHome } from './dashboard'
-import FullscreenButton from './FullscreenButton'
 import { CurrencyProvider } from './CurrencyContext'
 import './display.css'
 import './dashboard.css'
@@ -34,8 +33,7 @@ export default function ServerDisplay({ serverId }: { serverId?: number }) {
   }, [])
   return <CurrencyProvider><div className="server-display" data-theme={theme}>
     <a className="d-skip" href="#display-main" onClick={event => { event.preventDefault(); document.getElementById('display-main')?.focus() }}>跳到服务器信息</a>
-    <header className="d-site-header"><div className="d-container d-header-inner"><a className="d-brand" href={dashboardHome} aria-label="司南服务器看板"><Brand /></a><div className="d-header-actions"><FullscreenButton /><button className="d-icon-button" aria-label={theme === 'dark' ? '切换浅色主题' : '切换深色主题'} title={theme === 'dark' ? '浅色主题' : '深色主题'} onClick={toggle}><Icon name={theme === 'dark' ? 'sun' : 'moon'} /></button><a className="d-admin-link" href={serverId ? `#/servers/${serverId}` : '#/servers'}><Icon name="user" /><span>进入后台</span></a></div></div></header>
+    <header className="d-site-header"><div className="d-container d-header-inner"><a className="d-brand" href={dashboardHome} aria-label="司南服务器看板"><Brand /></a><div className="d-header-actions"><button className="d-icon-button" aria-label={theme === 'dark' ? '切换浅色主题' : '切换深色主题'} title={theme === 'dark' ? '浅色主题' : '深色主题'} onClick={toggle}><Icon name={theme === 'dark' ? 'sun' : 'moon'} /></button><a className="d-icon-button" aria-label="进入后台" title="进入后台" href={serverId ? `#/servers/${serverId}` : '#/servers'}><Icon name="user" /></a></div></div></header>
     <main className="d-container d-main" id="display-main" tabIndex={-1}>{serverId ? <ServerView key={serverId} id={serverId} now={now} /> : <Overview now={now} />}</main>
-    <footer className="d-container d-site-footer"><span>司南 · 服务器看板</span><div><a href="https://github.com/theLucius7/sinan" target="_blank" rel="noreferrer">项目源码</a><a href="/notices/NodeFlare.txt" target="_blank" rel="noreferrer">界面来源与许可</a></div></footer>
   </div></CurrencyProvider>
 }
