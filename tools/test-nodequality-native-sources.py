@@ -119,14 +119,17 @@ class SourceTests(unittest.TestCase):
                 self.assertEqual(result.stdout, b'')
         self.assertFalse(self.called.exists())
 
-    def test_only_the_two_existing_exact_rootfs_download_shapes_remain_separate(self):
+    def test_both_former_exact_rootfs_download_shapes_have_no_network_fallback(self):
         for asset in ('BenchOs.tar.gz', 'BenchOs-arm.tar.gz'):
-            url = 'https://github.com/LloydAsp/NodeQuality/releases/download/v0.0.2/' + asset
-            self.assertEqual(self.shim('-L#o', 'BenchOs.tar.gz', url).returncode, 0)
-            self.assertTrue(self.called.exists())
-            self.called.unlink()
-            self.assertNotEqual(self.shim('-Ls', url).returncode, 0)
-            self.assertFalse(self.called.exists())
+            with self.subTest(asset=asset):
+                url = 'https://github.com/LloydAsp/NodeQuality/releases/download/v0.0.2/' + asset
+                result = self.shim('-L#o', 'BenchOs.tar.gz', url)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(b'online fallback is forbidden', result.stderr)
+                self.assertEqual(result.stdout, b'')
+                self.assertNotEqual(self.shim('-Ls', url).returncode, 0)
+                self.assertFalse(self.called.exists())
+                self.assertFalse(self.executed.exists())
 
     def test_real_runner_path_routes_all_loader_calls_to_the_signed_bundle(self):
         workspace = self.root / 'workspace'
