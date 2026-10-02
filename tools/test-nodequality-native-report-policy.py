@@ -609,9 +609,11 @@ class WiringTests(unittest.TestCase):
             {name: (self.base.sources / name).read_bytes() for name in source_tests.helper.FILES})
         self.tree, self.env = self.base.build_tree()
         self.plugin = self.tree / 'plugins/nodequality'
-        # Only the private test copy relaxes host/root/Bash prerequisites.
+        # Only this private inert copy bypasses the full gate and host prerequisites.
         path = self.plugin / 'native-runner.sh.tmpl'
         text = path.read_text()
+        self.assertEqual(text.count(source_tests.FULL_START_GUARD), 1)
+        text = text.replace(source_tests.FULL_START_GUARD, ':')
         for guard in ("[[ $EUID == 0 ]] || die 'diagnostics require root'", "[[ ${BASH_VERSINFO[0]} -ge 4 ]] || die 'diagnostics require Bash >= 4'"):
             self.assertEqual(text.count(guard), 1)
             text = text.replace(guard, ':')

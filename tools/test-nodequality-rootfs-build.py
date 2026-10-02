@@ -577,7 +577,7 @@ else:
         with self.assertRaises(ValueError):
             reader.finish()
 
-    @unittest.skipUnless(hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'), 'Linux waitid/WNOWAIT child collector required')
+    @unittest.skipUnless(sys.platform == 'linux' and hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'), 'Linux waitid/WNOWAIT child collector required')
     def test_bounded_child_output_and_deadline_reap_owned_producer(self):
         # Runs only tiny owned Python snippets, not gpgv/mmdebstrap/rootfs tools.
         with self.assertRaises(ValueError):
@@ -600,7 +600,7 @@ else:
         with self.assertRaises(ValueError):
             BUILD.read_regular(self.lock_path, 1)
 
-    @unittest.skipUnless(hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'), 'Linux waitid/WNOWAIT child collector required')
+    @unittest.skipUnless(sys.platform == 'linux' and hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'), 'Linux waitid/WNOWAIT child collector required')
     def test_selector_creation_and_registration_failure_reap_real_child(self):
         real_spawn = subprocess.Popen
         children = []
@@ -628,7 +628,7 @@ else:
                     os.kill(process.pid, 0)
         selector.close.assert_called_once()
 
-    @unittest.skipUnless(hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'), 'Linux waitid/WNOWAIT child collector required')
+    @unittest.skipUnless(sys.platform == 'linux' and hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'), 'Linux waitid/WNOWAIT child collector required')
     def test_cleanup_errors_do_not_replace_original_registration_failure(self):
         real_spawn = subprocess.Popen
         children = []
