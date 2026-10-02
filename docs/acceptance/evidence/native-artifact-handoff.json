@@ -1,0 +1,102 @@
+{
+  "archive_created": false,
+  "build_run_id": "f7c98d0a-5e5a-4a08-a222-cb817853920c",
+  "code": "local_disk_reserve",
+  "control_files": {
+    "handoff-packer.py": {
+      "sha256": "b283bb55402fd8aa64e570960056b11aa32510f1cad5f2a661816e285431133d",
+      "size": 34651
+    },
+    "handoff-plan.json": {
+      "sha256": "7f760339a2c88749cc6de4e11e9580f1dc13f67fe3fb3118daa157f3ff7ec0ac",
+      "size": 465
+    },
+    "handoff-supervisor.py": {
+      "sha256": "2095c15b16fb4489d4f3e37a4565be8ad662494797ba3b55d9cb60235dcfe9e3",
+      "size": 32945
+    },
+    "plan.md": {
+      "sha256": "096e6f66b92028827420830c3bc1339d14cef196ade465dff9de974d65e2c505",
+      "size": 6520
+    }
+  },
+  "control_syntax": "passed",
+  "control_syntax_identity": {
+    "sha256": "38dfe83daa4fdaeaa37c5510768fd6fd6f84ea539a0de0d955a883705e51a8a4",
+    "size": 484
+  },
+  "controls_freeze_identity": {
+    "sha256": "49869f1c1797499b8ad07be8ef25684e9d3dd931ede41023fd5c9ae2ceb853af",
+    "size": 578
+  },
+  "current_main_artifacts_authenticated": false,
+  "declared_local_disk_reserve_bytes": 4294967296,
+  "dedicated_node_probe": {
+    "cleanup": {
+      "agent_reaped": true,
+      "confirmed": true,
+      "new_socket_removed": true
+    },
+    "elapsed_seconds": 12.181,
+    "failure_layer": "unknown",
+    "final_old_backup_bytes_reauthentication": "not_reached_after_failed_ssh",
+    "key_load_exit": 0,
+    "network_attempts": 1,
+    "old_backup_mutations": false,
+    "private_receipt_identity": {
+      "sha256": "a206c6d4f453f46e6a6cda3cacc74477bcc3f7e926b1ea0bc7a2a92292af10d5",
+      "size": 1197
+    },
+    "remote_mutations": false,
+    "ssh_exit": 255,
+    "status": "failed",
+    "via_proxy_command": true
+  },
+  "delivery_main_head": "f185de93c07ba835448b3cfc0697745ec962142a",
+  "elapsed_seconds": 0,
+  "execution_receipt_identity": {
+    "sha256": "fb3a81262a901e90e6722f0ac0674a32e4198d33bd25828d7f09b7084ea54ef4",
+    "size": 1083
+  },
+  "gates": {
+    "current_business_ledger_matrix": "not_run",
+    "full_nodequality": "not_run",
+    "officially_published": false,
+    "production_deployed": false,
+    "real_three_device_managed_paths": "not_run",
+    "registered_daily_matrix": "not_run",
+    "runtime_installed": false,
+    "source_ci": "disabled_manually"
+  },
+  "handoff_id": "524c5626-0cfd-446b-87cf-a56c0164f37c",
+  "handoff_network_attempts": 0,
+  "materials_preserved": true,
+  "original_build_reauthenticated_in_this_attempt": false,
+  "original_prepared_receipt": {
+    "sha256": "723128d36524c8e928a3120b9420fe48b09f3c83fa2462da802921e5fbb60a49",
+    "size": 16447
+  },
+  "post_refusal_disk_observation": {
+    "free_bytes": 3629436928,
+    "is_trigger_sample": false,
+    "observed_at": 1790969525
+  },
+  "recorded_date": "2026-10-03",
+  "remote_cleanup_requirement": "not_required_no_remote_start",
+  "remote_stage_created": false,
+  "remote_unit_started": false,
+  "retry_performed": false,
+  "schema": 1,
+  "scope": "immutable_author_snapshot_test_only_native_artifact_handoff",
+  "source_identity": {
+    "cargo_lock_sha256": "a614a0403d44c5d1ffe87d5336ecafc5b69e57e5d5e40a7336cdb4179b83c34e",
+    "file_count": 784,
+    "frozen_inputs_sha256": "a89478a3b78b410c9bbcc327695d9440e5d161c1c1f55315d6e1a4cf2b45952e",
+    "functional_sha256": "504880b192ff8ee705774fbe80e8d3c5e52a651c896c124771a214ffb582a623",
+    "head": "864767c4161379b919abc6d579b4147c1067127e"
+  },
+  "source_identity_scope": "author_frozen_input_only",
+  "status": "refused_before_remote_bootstrap",
+  "supervisor_default_remote_outer_cleanup": "unknown",
+  "unchanged_rust_frontend_tests_repeated": false
+}
