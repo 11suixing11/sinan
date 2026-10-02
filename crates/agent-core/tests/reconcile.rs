@@ -37,6 +37,7 @@ impl Fixture {
         let config = Config {
             settings: sinan_protocol::AgentSettings::default(),
             panel_url: "http://127.0.0.1:8080".into(),
+            panel_ca_file: None,
             identity_dir: directory.join("identity"),
             state_db: directory.join("state.db"),
             runtime_root: directory.join("runtime"),

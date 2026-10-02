@@ -7,6 +7,8 @@ use tokio::{net::TcpListener, task::JoinSet};
 use tokio_tungstenite::accept_async;
 use uuid::Uuid;
 
+#[cfg(unix)]
+mod panel_ca;
 mod readiness;
 mod runtime_control;
 
@@ -103,6 +105,8 @@ async fn backlog_and_legacy_giant_preserve_heartbeat_control_ack_and_restart_rep
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let config = Config {
         panel_url: format!("http://{}", listener.local_addr()?),
+
+        panel_ca_file: None,
         state_db: directory.0.join("state.db"),
         identity_dir: directory.0.join("identity"),
         runtime_root: directory.0.join("runtime"),
@@ -246,6 +250,8 @@ async fn blocked_collection_preserves_real_twenty_second_heartbeat_and_control()
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let config = Config {
         panel_url: format!("http://{}", listener.local_addr()?),
+
+        panel_ca_file: None,
         state_db: directory.0.join("state.db"),
         identity_dir: directory.0.join("identity"),
         runtime_root: directory.0.join("runtime"),
@@ -363,6 +369,8 @@ async fn cancellation_request_is_persisted_without_waiting_for_cleanup_or_delayi
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let config = Config {
         panel_url: format!("http://{}", listener.local_addr()?),
+
+        panel_ca_file: None,
         state_db: directory.0.join("state.db"),
         identity_dir: directory.0.join("identity"),
         runtime_root: directory.0.join("runtime"),

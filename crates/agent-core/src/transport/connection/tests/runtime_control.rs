@@ -10,6 +10,8 @@ async fn checkpoint_enqueue_does_not_wait_for_the_control_worker_or_delay_heartb
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let config = Config {
         panel_url: format!("http://{}", listener.local_addr()?),
+
+        panel_ca_file: None,
         state_db: directory.0.join("state.db"),
         identity_dir: directory.0.join("identity"),
         runtime_root: directory.0.join("runtime"),
@@ -115,6 +117,8 @@ async fn recovery_floor_refusal_keeps_heartbeat_and_durable_control_failure_avai
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let config = Config {
         panel_url: format!("http://{}", listener.local_addr()?),
+
+        panel_ca_file: None,
         state_db: directory.0.join("state.db"),
         identity_dir: directory.0.join("identity"),
         runtime_root: directory.0.join("runtime"),

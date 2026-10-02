@@ -325,7 +325,7 @@ impl Retirement {
             .receipt
             .as_ref()
             .context("missing signed retirement receipt")?;
-        let client = reqwest::Client::builder()
+        let client = crate::panel_tls::client_builder(self.config.panel_ca_file.as_deref())?
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(self.config.operation_timeout_secs))

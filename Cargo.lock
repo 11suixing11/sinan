@@ -2528,8 +2528,11 @@ dependencies = [
  "ed25519-dalek",
  "flate2",
  "futures-util",
+ "libc",
  "rand 0.8.8",
  "reqwest",
+ "rustls",
+ "rustls-pki-types",
  "rusqlite",
  "rusqlite_migration",
  "serde",
@@ -2541,10 +2544,12 @@ dependencies = [
  "tar",
  "thiserror",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite 0.28.0",
  "toml",
  "tracing",
  "uuid",
+ "webpki-roots 1.0.9",
 ]
 
 [[package]]

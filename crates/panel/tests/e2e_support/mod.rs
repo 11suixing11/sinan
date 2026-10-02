@@ -114,6 +114,7 @@ impl Harness {
                 ..Default::default()
             },
             panel_url: self.base.clone(),
+            panel_ca_file: None,
             identity_dir: root.join("identity"),
             state_db: root.join("state.db"),
             runtime_root: root.join("runtime"),

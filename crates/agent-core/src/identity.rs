@@ -62,7 +62,7 @@ pub async fn enroll(config: &Config, token: &str) -> anyhow::Result<i64> {
         write_once(&key_path, &key.to_bytes())?;
     }
     let signing_key = read_key(&key_path)?;
-    let client = reqwest::Client::builder()
+    let client = crate::panel_tls::client_builder(config.panel_ca_file.as_deref())?
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(config.operation_timeout_secs))
         .build()?;

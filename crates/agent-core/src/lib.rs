@@ -8,6 +8,7 @@ pub mod artifacts;
 pub mod config;
 pub mod fake;
 pub mod identity;
+mod panel_tls;
 pub mod reconcile;
 pub mod retirement;
 mod runtime_platform;

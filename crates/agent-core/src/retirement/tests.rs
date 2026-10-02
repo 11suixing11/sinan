@@ -112,6 +112,70 @@ impl Fixture {
 }
 
 #[tokio::test]
+async fn private_panel_ca_delivers_signed_retirement_after_identity_removal() -> Result<()> {
+    use crate::panel_tls::test_support::{CertificateKind, HttpServer, Material};
+    let fixture = Fixture::new()?;
+    let material = Material::new().await?;
+    let mut server = HttpServer::start(&material, CertificateKind::Valid, 204, Vec::new()).await?;
+    let mut config = fixture.config.clone();
+    config.panel_url = server.origin.clone();
+    config.panel_ca_file = Some(material.ca.clone());
+    config.operation_timeout_secs = 3;
+    fs::write(config.identity_dir.join("panel_origin"), &config.panel_url)?;
+    let trusted = Retirement::new(
+        config.clone(),
+        fixture.state.clone(),
+        vec![Arc::new(FakeAdapter::default())],
+        Arc::new(SystemOps),
+        fixture.services.clone(),
+    )?;
+    let request_id = Uuid::new_v4();
+    trusted.request(&fixture.identity, RetirementRequest { request_id })?;
+    trusted.prepare().await?;
+    trusted.complete(&fixture.identity).await?;
+    assert_eq!(trusted.read()?.unwrap().phase, Phase::Completed);
+    for name in ["device.key", "server_id", "panel_origin"] {
+        assert!(!config.identity_dir.join(name).exists());
+    }
+    assert!(!config.runtime_root.join("demo@main").exists());
+    assert!(
+        material.ca.exists(),
+        "panel trust must survive removal of device credentials"
+    );
+
+    let mut without_ca = config;
+    without_ca.panel_ca_file = None;
+    let untrusted = Retirement::new(
+        without_ca,
+        fixture.state.clone(),
+        vec![Arc::new(FakeAdapter::default())],
+        Arc::new(SystemOps),
+        fixture.services.clone(),
+    )?;
+    let rejected = untrusted.deliver_receipt().await.unwrap_err();
+    assert!(rejected.chain().any(|source| {
+        source
+            .downcast_ref::<reqwest::Error>()
+            .is_some_and(reqwest::Error::is_connect)
+    }));
+    assert_eq!(trusted.read()?.unwrap().phase, Phase::Completed);
+    assert!(!server.has_pending_request());
+    trusted.deliver_receipt().await?;
+    let received = server.next().await?;
+    assert_eq!(received.target, "/api/agent/v1/retirement/receipt");
+    let receipt: RetirementReceipt = serde_json::from_slice(&received.body)?;
+    assert_eq!(receipt.request_id, request_id);
+    assert_eq!(receipt.server_id, fixture.identity.server_id);
+    fixture.identity.signing_key.verifying_key().verify(
+        &retirement_receipt_message(receipt.server_id, receipt.request_id),
+        &Signature::from_slice(&URL_SAFE_NO_PAD.decode(receipt.signature)?)?,
+    )?;
+    assert_eq!(trusted.read()?.unwrap().phase, Phase::Acknowledged);
+    server.stop().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn monitor_only_cannot_abandon_a_managed_installation() -> Result<()> {
     let fixture = Fixture::new()?;
     assert!(ensure_monitor_only_allowed(&fixture.config).is_err());

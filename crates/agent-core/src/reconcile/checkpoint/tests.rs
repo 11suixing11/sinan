@@ -86,6 +86,7 @@ impl Fixture {
         let config = Config {
             settings: Default::default(),
             panel_url: "http://127.0.0.1:8080".into(),
+            panel_ca_file: None,
             identity_dir: root.join("identity"),
             state_db: root.join("state.db"),
             runtime_root: root.join("runtime"),

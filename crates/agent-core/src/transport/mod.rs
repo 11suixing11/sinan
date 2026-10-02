@@ -383,6 +383,7 @@ mod tests {
         let config = Config {
             settings: sinan_protocol::AgentSettings::default(),
             panel_url: format!("http://{}", panel.local_addr()?),
+            panel_ca_file: None,
             identity_dir: directory.0.join("identity"),
             state_db: directory.0.join("state.db"),
             runtime_root: directory.0.join("runtime"),

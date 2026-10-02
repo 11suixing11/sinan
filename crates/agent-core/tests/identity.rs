@@ -26,6 +26,7 @@ impl Directory {
         Config {
             settings: sinan_protocol::AgentSettings::default(),
             panel_url: origin.into(),
+            panel_ca_file: None,
             identity_dir: self.0.join("identity"),
             state_db: self.0.join("state.db"),
             runtime_root: self.0.join("runtime"),

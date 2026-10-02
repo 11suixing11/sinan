@@ -9,6 +9,8 @@ async fn empty_cache_keeps_host_identity_until_a_real_snapshot_arrives() -> Resu
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let config = Config {
         panel_url: format!("http://{}", listener.local_addr()?),
+
+        panel_ca_file: None,
         state_db: directory.0.join("state.db"),
         identity_dir: directory.0.join("identity"),
         runtime_root: directory.0.join("runtime"),
