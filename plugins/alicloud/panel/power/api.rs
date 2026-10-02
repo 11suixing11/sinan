@@ -190,9 +190,8 @@ async fn resume(
     input: Option<Json<Revision>>,
 ) -> ApiResult<StatusCode> {
     auth::require_admin(&state, &headers).await?;
-    let Json(input) = input.ok_or_else(|| {
-        ApiError::BadRequest("请携带当前资源修订号恢复自动策略".into())
-    })?;
+    let Json(input) =
+        input.ok_or_else(|| ApiError::BadRequest("请携带当前资源修订号恢复自动策略".into()))?;
     resume_on(&state.pool, id, input.revision).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -209,7 +208,9 @@ pub(super) async fn resume_on(pool: &sqlx::PgPool, id: Uuid, revision: i64) -> A
         return Err(ApiError::BadRequest("仅 ECS 支持启停策略".into()));
     }
     if r.revision != revision {
-        return Err(ApiError::Conflict("启停策略或资源配置已变化，请刷新后重试".into()));
+        return Err(ApiError::Conflict(
+            "启停策略或资源配置已变化，请刷新后重试".into(),
+        ));
     }
     operations::idle(&mut tx, id).await?;
     sqlx::query("UPDATE alicloud_resources SET manual_hold=false,next_power_at=0,revision=revision+1 WHERE id=$1")

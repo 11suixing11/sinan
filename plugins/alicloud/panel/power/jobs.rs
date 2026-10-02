@@ -326,7 +326,13 @@ pub(in super::super) async fn process(pool: &PgPool, id: Uuid, cloud: &Cloud) ->
                 } else {
                     60
                 };
-                defer(&mut tx, id, r.id, observed_at + error.retry_after.max(cooldown)).await?;
+                defer(
+                    &mut tx,
+                    id,
+                    r.id,
+                    observed_at + error.retry_after.max(cooldown),
+                )
+                .await?;
             }
         }
     }

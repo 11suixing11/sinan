@@ -144,9 +144,9 @@ pub(super) async fn query(client: &Aliyun, account: &Account, now: i64) -> Resul
                 (row.unit == "GB"
                     && entry["Item"] == "PayAsYouGoBill"
                     && !row.instance_id.is_empty())
-                    .then_some(())
-                    .and_then(|_| micro_gb(&row.usage))
-                    .and_then(|v| sum.checked_add(v))
+                .then_some(())
+                .and_then(|_| micro_gb(&row.usage))
+                .and_then(|v| sum.checked_add(v))
             });
             rows.push(row);
         }

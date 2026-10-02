@@ -305,14 +305,20 @@ async fn bill_errors_preserve_old_display_but_revoke_control_authority(pool: PgP
     );
 }
 
-
 #[sqlx::test]
-async fn refund_adjustment_and_missing_bill_identity_keep_rows_without_control_authority(pool: PgPool) {
+async fn refund_adjustment_and_missing_bill_identity_keep_rows_without_control_authority(
+    pool: PgPool,
+) {
     let (id, _) = seed(&pool, "ecs").await;
     let mut account = account(&pool, id).await;
     account.auto_enabled = true;
     let now = sinan_protocol::now_timestamp();
-    for kind in [Some("Refund"), Some("Adjustment"), Some("SubscriptionOrder"), None] {
+    for kind in [
+        Some("Refund"),
+        Some("Adjustment"),
+        Some("SubscriptionOrder"),
+        None,
+    ] {
         let mut suspect = row("1000", "known-instance");
         if let Some(kind) = kind {
             suspect["Item"] = kind.into();
@@ -320,7 +326,10 @@ async fn refund_adjustment_and_missing_bill_identity_keep_rows_without_control_a
             suspect.as_object_mut().unwrap().remove("Item");
         }
         let mock = Mock::start(vec![bill(1, 2, vec![row("0", "valid-instance"), suspect])]).await;
-        let value = Cloud::local(&mock.endpoint).bill(&account, now).await.unwrap();
+        let value = Cloud::local(&mock.endpoint)
+            .bill(&account, now)
+            .await
+            .unwrap();
         assert_eq!(value.rows.len(), 2);
         assert_eq!(value.rows[1].usage, "1000");
         assert!(value.usage_micro_gb.is_none());
@@ -329,15 +338,31 @@ async fn refund_adjustment_and_missing_bill_identity_keep_rows_without_control_a
         mock.exhausted();
     }
     let mut missing_identity = row("1000", "valid-instance");
-    missing_identity.as_object_mut().unwrap().remove("InstanceID");
+    missing_identity
+        .as_object_mut()
+        .unwrap()
+        .remove("InstanceID");
     let mock = Mock::start(vec![bill(1, 1, vec![missing_identity])]).await;
-    assert!(Cloud::local(&mock.endpoint).bill(&account, now).await.unwrap().usage_micro_gb.is_none());
+    assert!(
+        Cloud::local(&mock.endpoint)
+            .bill(&account, now)
+            .await
+            .unwrap()
+            .usage_micro_gb
+            .is_none()
+    );
     mock.exhausted();
     let mock = Mock::start(vec![bill(1, 1, vec![row("0", "valid-instance")])]).await;
-    assert_eq!(Cloud::local(&mock.endpoint).bill(&account, now).await.unwrap().usage_micro_gb, Some(0));
+    assert_eq!(
+        Cloud::local(&mock.endpoint)
+            .bill(&account, now)
+            .await
+            .unwrap()
+            .usage_micro_gb,
+        Some(0)
+    );
     mock.exhausted();
 }
-
 
 #[sqlx::test]
 async fn repeated_billing_dimensions_with_changed_values_are_not_additional_usage(pool: PgPool) {
@@ -347,7 +372,18 @@ async fn repeated_billing_dimensions_with_changed_values_are_not_additional_usag
     let mut changed = row("200", "same-instance");
     changed["NickName"] = "different display metadata".into();
     changed["PretaxAmount"] = "2.00".into();
-    let mock = Mock::start(vec![bill(1, 2, vec![row("100", "same-instance")]), bill(2, 2, vec![changed])]).await;
-    assert_eq!(Cloud::local(&mock.endpoint).bill(&account, now).await.unwrap_err().code, "billing_incomplete");
+    let mock = Mock::start(vec![
+        bill(1, 2, vec![row("100", "same-instance")]),
+        bill(2, 2, vec![changed]),
+    ])
+    .await;
+    assert_eq!(
+        Cloud::local(&mock.endpoint)
+            .bill(&account, now)
+            .await
+            .unwrap_err()
+            .code,
+        "billing_incomplete"
+    );
     mock.exhausted();
 }

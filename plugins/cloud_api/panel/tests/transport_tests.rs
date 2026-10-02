@@ -1,4 +1,4 @@
-use super::super::{transport, Failure};
+use super::super::{Failure, transport};
 use axum::{
     Router,
     body::{Body, Bytes},

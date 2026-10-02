@@ -87,7 +87,10 @@ async fn lost_create_receipts_cannot_turn_matching_addresses_into_ownership() {
         first.push(if provider == Provider::Aliyun {
             Reply::ok("AddDomainRecord", json!({"RequestId":"lost-record-id"}))
         } else {
-            Reply::ok("CreateRecord", json!({"Response":{"RequestId":"lost-record-id"}}))
+            Reply::ok(
+                "CreateRecord",
+                json!({"Response":{"RequestId":"lost-record-id"}}),
+            )
         });
         let mock = Mock::start(first).await;
         assert_eq!(

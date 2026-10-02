@@ -162,7 +162,10 @@ async fn update_account(
         let unresolved: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM alicloud_operations o JOIN alicloud_resources r ON r.id=o.resource_id WHERE r.account_id=$1 AND o.status IN ('running','uncertain')) OR EXISTS(SELECT 1 FROM alicloud_power_jobs j JOIN alicloud_resources r ON r.id=j.resource_id WHERE r.account_id=$1 AND j.status IN ('running','uncertain'))")
             .bind(id).fetch_one(&mut *tx).await?;
         if unresolved {
-            return Err(ApiError::Conflict("此账号仍有已发送或结果待核对的云操作，请先核对或结束跟踪，再更换站点及访问密钥".into()));
+            return Err(ApiError::Conflict(
+                "此账号仍有已发送或结果待核对的云操作，请先核对或结束跟踪，再更换站点及访问密钥"
+                    .into(),
+            ));
         }
     }
     // Any edit invalidates queued authorization and cached billing evidence.
@@ -339,8 +342,12 @@ async fn remove_resource(
     auth::require_admin(&state, &headers).await?;
     let resource = resource(&state.pool, id).await?;
     let mut tx = lock(&state.pool, resource.account_id).await?;
-    let current: Resource = sqlx::query_as("SELECT * FROM alicloud_resources WHERE id=$1 AND NOT archived")
-        .bind(id).fetch_optional(&mut *tx).await?.ok_or(ApiError::NotFound)?;
+    let current: Resource =
+        sqlx::query_as("SELECT * FROM alicloud_resources WHERE id=$1 AND NOT archived")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(ApiError::NotFound)?;
     if input.is_some_and(|Json(input)| input.revision != current.revision) {
         return Err(ApiError::Conflict("资源配置已变化，请刷新后重试".into()));
     }
@@ -360,8 +367,12 @@ async fn refresh_resource(
     let initial = resource(&state.pool, id).await?;
     let mut tx = lock(&state.pool, initial.account_id).await?;
     let account = account_on(&mut tx, initial.account_id).await?;
-    let resource: Resource = sqlx::query_as("SELECT * FROM alicloud_resources WHERE id=$1 AND NOT archived")
-        .bind(id).fetch_optional(&mut *tx).await?.ok_or(ApiError::NotFound)?;
+    let resource: Resource =
+        sqlx::query_as("SELECT * FROM alicloud_resources WHERE id=$1 AND NOT archived")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(ApiError::NotFound)?;
     if !account.enabled {
         return Err(ApiError::Conflict("请先启用云账号".into()));
     }
