@@ -2,7 +2,7 @@
 
 集成源码的统一交付入口为 [PR #151](https://github.com/theLucius7/sinan/pull/151)；服务器与插件业务主流程、各项证据及尚未签收范围见 [交付索引](integrated-delivery.md)。
 
-2026-10-03 按用户“赶紧收尾提交”要求，最后一份功能提交 `5adda2d` 已推送，本轮只补齐交付记录。新的专用 VM、当前源码 native 重建与七场景真实注册日常矩阵未执行；私有准备脚本不升级为验收结果。下表的待验条件、完整入口门禁与 CI 暂停保持，交付源码不代表服务器插件已安装或生产环境已切换。
+2026-10-03 最新环境准备：最后一份功能提交 `5adda2d` 已推送；独立 Debian12 VM、冻结材料传输及 APT 已完成，native 构建与全新 r2 恢复均因宿主磁盘预留保护停止，正常停机确认。没有可签收的新二进制／签名、七场景注册日常矩阵或服务器插件安装。[实际准备记录](registered-native-preparation.md)保留两次失败及未知项。下表的待验条件、完整入口门禁与 CI 暂停保持，交付源码不代表生产环境已切换。
 
 本机历史 inert fixture 的 26 个报告采集器残留已独立记录为 [Issue #152](https://github.com/theLucius7/sinan/issues/152)；运行所有权和异常收尾整改的实现及集中验收边界见 [watcher 生命周期](nodequality-watcher-lifecycle.md)。旧“无残留”结果只对应其原始受验环境，不能替代本次父 KILL／异常路径。
 

@@ -1,6 +1,13 @@
 # 执行进度
 
-## 2026-10-03：按用户要求集中收尾提交
+## 2026-10-03：独立 Debian 12 原生准备尝试及收尾
+
+- 私有编排集中完成、冻结后实际创建独立 Debian12 ARM64 VM（2 CPU／2560 MiB／8 GiB），无宿主挂载、代理传播、SSH agent／业务端口转发。784 功能输入含19 dist，摘要保持报告采集器受验值；固定源码、锁定 registry、工具链和 runtime 分项认证后传输。旧测试 VM 正常停止，原磁盘、缓存、失败和部分材料保留。
+- APT update/install 实际退出0并确认进程收尾，六包版本只读取证；首次原生入口通过资源准入并开始编译，随后宿主余量4,188,483,584B触发4GiB预留。guard取消连接、正常停机并确认Stopped，原target733144KiB保留；中断日志／峰值／OOM未完整取得，重启后空单元不替代原证据。
+- 修复受影响编排后冻结 fresh-r2，仅原始缓存白名单可共享，新Cargo home/target/output不复用旧结果，成功APT不重跑。明确把本阶段新增占用上限从5GiB调到6GiB保留失败材料，宿主4GiB预留及VM/native限额不变；再次运行因余量4,287,057,920B保护取消，正常停机确认，guest最终完成收据未知。停止重试，没有可签收native／签名／注册矩阵或插件安装结果。
+- [独立记录](docs/acceptance/registered-native-preparation.md)及[机器摘要](docs/acceptance/evidence/registered-native-preparation.json)保留原失败／来源身份／预算／停机；仅统一更新记录后一次提交到现有PR151。产品源码和dist不变，未重复Rust/前端测试；四源码CI继续暂停，完整NodeQuality许可/工厂/联合负载与真实托管总验仍待，未生产部署或正式发布。
+
+## 2026-10-03：按用户要求集中收尾提交（前次记录）
 
 - 核对最后一份功能提交 `5adda2d` 已推送，工作区干净；同一个集成草稿 [PR #151](https://github.com/theLucius7/sinan/pull/151) 的远端 head 与本地一致。更新 [交付索引](docs/acceptance/integrated-delivery.md) 的当前功能基线和 [验收状态](docs/acceptance/ordered-remediation.md)，保留各步骤原始通过、失败及待验条件。
 - 用户要求“继续，赶紧收尾提交”，本轮停止扩大实现和测试范围。独立新 VM／当前注册日常矩阵只完成只读核对及部分私有编排准备；补充 registry 脚本未执行，新 VM 预算守卫未实现，未创建新 VM、复制新 guest 材料或运行 native 构建／签名／注册矩阵。旧 VM、磁盘、缓存和失败材料保持。
