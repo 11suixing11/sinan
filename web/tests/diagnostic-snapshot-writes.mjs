@@ -18,7 +18,11 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 const origin = `http://127.0.0.1:${server.address().port}`, totals = { scenarios: 0, blocked: 0, recovered: 0, requests: 0, external: [], unexpected: [], errors: [] }
 const browser = await chromium.launch({ headless: true, ...(process.env.SINAN_CHROME_PATH ? { executablePath: process.env.SINAN_CHROME_PATH } : {}) })
 const wait = async (condition, description) => { const deadline = Date.now() + 12000; while (!await condition()) { assert(Date.now() < deadline, description); await new Promise(resolve => setTimeout(resolve, 20)) } }
-const forceClick = button => button.evaluate(element => { element.disabled = false; element.click() })
+const forceClick = button => button.evaluate(element => {
+  const disabled = element.disabled
+  element.disabled = false
+  try { element.click() } finally { element.disabled = disabled }
+})
 try {
   for (const width of [1440, 390]) for (const plugin of ['nodequality', 'tcpquality']) {
     const page = await browser.newPage({ viewport: { width, height: 1000 } }); page.setDefaultTimeout(12000)
