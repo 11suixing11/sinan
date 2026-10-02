@@ -208,7 +208,8 @@ try {
     await page.getByRole('dialog').getByRole('button', { name: '取消', exact: true }).click()
     // Main's node settings survive the unified listener/chain category merge.
     const nodeMutationStart = mutations.length
-    await page.getByRole('row').filter({ has: page.getByText(node.name, { exact: true }) }).getByRole('button', { name: '编辑', exact: true }).click()
+    const editedCatalogNode = page.locator(`${width < 768 ? '.catalog-card' : '.catalog-table tbody tr'}[data-resource-key="direct:2"]`)
+    await editedCatalogNode.getByRole('button', { name: '编辑', exact: true }).click()
     const nodeEditor = page.getByRole('dialog')
     await nodeEditor.locator('input[name="listen"]').fill('0.0.0.0')
     await nodeEditor.locator('input[name="public_port"]').fill('8443')
@@ -218,9 +219,17 @@ try {
     await nodeEditor.locator('select[name="fingerprint"]').selectOption('firefox')
     await nodeEditor.getByRole('button', { name: '保存并自动发布', exact: true }).click()
     await page.getByText('资源已保存，正在等待自动发布与设备应用。', { exact: true }).waitFor()
-    await page.getByText('已设为停用', { exact: true }).waitFor()
-    await page.getByText('proxy.example.com:8443', { exact: true }).waitFor()
-    await page.getByText('监听 0.0.0.0 / 443', { exact: true }).waitFor()
+    await editedCatalogNode.getByText('已停用', { exact: true }).waitFor()
+    await editedCatalogNode.getByText('proxy.example.com:8443', { exact: true }).waitFor()
+    // The catalog shows the public endpoint. Reopen the persisted node rather
+    // than expecting the former direct-row listener summary.
+    await editedCatalogNode.getByRole('button', { name: '编辑', exact: true }).click()
+    const persistedNodeEditor = page.getByRole('dialog')
+    assert.equal(await persistedNodeEditor.locator('input[name="listen"]').inputValue(), '0.0.0.0')
+    assert.equal(await persistedNodeEditor.locator('input[name="port"]').inputValue(), '443')
+    assert.equal(await persistedNodeEditor.locator('input[name="public_port"]').inputValue(), '8443')
+    assert.equal(await persistedNodeEditor.locator('input[name="enabled"]').isChecked(), false)
+    await persistedNodeEditor.getByRole('button', { name: '取消', exact: true }).click()
     assert.deepEqual(mutations.slice(nodeMutationStart), [{ path: '/api/plugins/sing-box/nodes/2', method: 'PATCH' }])
     await page.getByRole('button', { name: '查看部署进度', exact: true }).click()
     const deploymentDialog = page.getByRole('dialog')
