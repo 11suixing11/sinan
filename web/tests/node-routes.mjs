@@ -5,6 +5,7 @@ import { resolve, extname, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
 
+const catalogView = resources => resources.map(resource => ({ ...resource, original_name: resource.name, tags: [], note: '', sort_order: resource.id, revision: '1'.repeat(64), metadata_revision: 0 }))
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
 const root = fileURLToPath(new URL('../dist/', import.meta.url))
 const server = createServer(async (request, response) => {
@@ -32,33 +33,34 @@ try {
       else if (path === '/api/plugins/sing-box/proxy-resources') data = nodes.map(node => ({ ...node, kind:'direct', server_name:`服务器${node.server_id}`, enabled:true, available:true, role:'direct', entry_node_id:null, tcp:true, udp:true, legacy:false, active_generation:null, pending_generation:null, minimum_generation:0, stage:'direct', last_error:null, reference_count:0, entry_eligible:true }))
       else if (path === '/api/plugins/sing-box/ordered-proxy-resources') data = proxyResourceFixtures(nodes, servers)
       else if (path === '/api/plugins/sing-box/ordered-subscription-sources') data = []
+      else if (path === '/api/plugins/sing-box/node-catalog') data = catalogView(nodes.map(node => ({ ...node, kind:'direct', server_name:`服务器${node.server_id}`, enabled:true, available:true, role:'direct', entry_node_id:null, tcp:true, udp:true, legacy:false, active_generation:null, pending_generation:null, minimum_generation:0, stage:'direct', last_error:null, reference_count:0, entry_eligible:true })))
       else if (path === '/api/plugins/sing-box/subscription-sources') data = []
       else if (path === '/api/plugins/sing-box/usage') data = { total:'0', uplink:'0', downlink:'0', by_node:[], by_user:[] }
       else if (['policy-groups','package-groups','chains'].some(key => path === `/api/plugins/sing-box/${key}`)) data = []
       else { errors.push(`Unexpected API ${path}`); return route.fulfill({ status:404, json:{} }) }
       await route.fulfill({ json:data })
     })
+    const catalogRows = page.locator(width < 768 ? '.catalog-card' : '.catalog-table tbody tr')
     await page.goto(`${origin}/#/plugins/sing-box/nodes?server=2`)
     await page.getByRole('heading', { name:'代理节点', exact:true }).waitFor({ timeout:3000 })
-    await page.waitForFunction(() => document.querySelector('.filter-select')?.value === '2')
-    await page.getByRole('row').filter({has:page.getByText('服务器2节点',{exact:true})}).waitFor()
-    assert.equal(await page.locator('tbody tr').count(), 1)
-    assert.match(await page.locator('tbody tr').innerText(), /服务器2节点/)
+    await page.waitForFunction(() => document.querySelector('[aria-label="按服务器筛选"]')?.value === '2')
+    assert.equal(await catalogRows.count(), 1)
+    assert.match(await catalogRows.innerText(), /服务器2节点/)
     assert.equal(await page.getByRole('navigation', { name:'主导航' }).getByRole('link', { name:'代理节点', exact:true }).getAttribute('aria-current'), 'page')
     await page.getByRole('button', { name:'创建节点', exact:true }).first().click()
     assert.equal(await page.getByRole('dialog').locator('[name=server_id]').inputValue(), '2')
     await page.getByRole('dialog').getByRole('button', { name:'取消', exact:true }).click()
     await page.evaluate(() => { location.hash = '/plugins/sing-box/nodes?server=1' })
-    await page.waitForFunction(() => document.querySelector('.filter-select')?.value === '1')
-    assert.match(await page.locator('tbody tr').innerText(), /服务器1节点/)
+    await page.waitForFunction(() => document.querySelector('[aria-label="按服务器筛选"]')?.value === '1')
+    assert.match(await catalogRows.innerText(), /服务器1节点/)
     await page.evaluate(() => { location.hash = '/plugins/sing-box/nodes?server=3' })
-    await page.waitForFunction(() => document.querySelector('.filter-select')?.value === '3')
+    await page.waitForFunction(() => document.querySelector('[aria-label="按服务器筛选"]')?.value === '3')
     assert.equal(await page.getByRole('button', { name:'创建节点', exact:true }).first().isDisabled(), true)
-    assert.equal(await page.locator('tbody tr').count(), 0)
+    assert.equal(await catalogRows.count(), 0)
     await page.evaluate(() => { location.hash = '/plugins/sing-box/nodes?kind=chains' })
     await page.getByLabel('按类型筛选').waitFor()
     assert.equal(await page.getByLabel('按类型筛选').inputValue(), 'chain')
-    assert.equal(await page.locator('tbody tr').count(), 0)
+    assert.equal(await catalogRows.count(), 0)
     await page.getByRole('button', { name:'创建链路', exact:true }).click()
     const chain = page.getByRole('region', { name:'创建链路', exact:true })
     await chain.getByRole('heading', { name:'创建链路', exact:true }).waitFor()

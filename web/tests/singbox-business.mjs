@@ -1,3 +1,4 @@
+import { catalogResourceFixtures } from './proxy-resource-fixtures.mjs'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
@@ -79,7 +80,7 @@ try {
         assert.equal(route.request().method(), 'PATCH')
         const payload = route.request().postDataJSON()
         assert.deepEqual(payload, { name: node.name, public_host: node.public_host, sni: node.sni, protocol_config: { type: 'vless-reality' }, port: 443, enabled: false,
-          settings: { listen: '0.0.0.0', public_port: 8443, tcp_fast_open: false, tls_alpn: [], reality: { handshake_server: 'handshake.example.com', handshake_port: 443, fingerprint: 'firefox' } } })
+          settings: { listen: '0.0.0.0', public_port: 8443, tcp_fast_open: false, disable_tcp_keep_alive: false, tcp_keep_alive_seconds: null, tcp_keep_alive_interval_seconds: null, tls_alpn: [], tls_min_version: null, tls_max_version: null, tls_handshake_timeout_seconds: null, transport: { type: 'tcp' }, reality: { handshake_server: 'handshake.example.com', handshake_port: 443, fingerprint: 'firefox', max_time_difference_seconds: null, flow: 'vision' } } })
         Object.assign(node, payload)
         metadata.installation = { state: 'pending', reason: '节点设置已保存，等待设备应用。', target_rev: 2, applied_rev: 1 }
         value = node
@@ -90,6 +91,8 @@ try {
         assert.equal(route.request().method(), 'GET')
         if (chainsFailure) { await route.fulfill({ status:500,json:{error:'链路夹具读取失败'} }); return }
         value = nodesEmpty ? [] : flatResourceFixtures([node,exitNode,...additionalNodes],[metadata,exitMetadata,...otherMetadata],chainFixtures ? [...chains,...additionalChains] : chains).filter(resource => chainFixtures || resource.kind === 'chain' || [2,3].includes(resource.id))
+      } else if (path === '/api/plugins/sing-box/node-catalog') {
+        value = catalogResourceFixtures(nodesEmpty ? [] : flatResourceFixtures([node,exitNode,...additionalNodes],[metadata,exitMetadata,...otherMetadata],chainFixtures ? [...chains,...additionalChains] : chains).filter(resource => chainFixtures || resource.kind === 'chain' || [2,3].includes(resource.id)))
       } else if (path === '/api/plugins/sing-box/ordered-proxy-resources') {
         if (chainsFailure) { await route.fulfill({ status:500,json:{error:'链路夹具读取失败'} }); return }
         value = nodesEmpty ? [] : proxyResourceFixtures([node,exitNode,...additionalNodes],[metadata,exitMetadata,...otherMetadata],chainFixtures ? [...chains,...additionalChains] : chains).filter(resource => chainFixtures || resource.kind === 'chain' || [2,3].includes(resource.id))
@@ -205,7 +208,8 @@ try {
     await page.getByRole('dialog').getByRole('button', { name: '取消', exact: true }).click()
     // Main's node settings survive the unified listener/chain category merge.
     const nodeMutationStart = mutations.length
-    await page.getByRole('row').filter({ has: page.getByText(node.name, { exact: true }) }).getByRole('button', { name: '编辑', exact: true }).click()
+    const editedCatalogNode = page.locator(`${width < 768 ? '.catalog-card' : '.catalog-table tbody tr'}[data-resource-key="direct:2"]`)
+    await editedCatalogNode.getByRole('button', { name: '编辑', exact: true }).click()
     const nodeEditor = page.getByRole('dialog')
     await nodeEditor.locator('input[name="listen"]').fill('0.0.0.0')
     await nodeEditor.locator('input[name="public_port"]').fill('8443')
@@ -215,9 +219,17 @@ try {
     await nodeEditor.locator('select[name="fingerprint"]').selectOption('firefox')
     await nodeEditor.getByRole('button', { name: '保存并自动发布', exact: true }).click()
     await page.getByText('资源已保存，正在等待自动发布与设备应用。', { exact: true }).waitFor()
-    await page.getByText('已设为停用', { exact: true }).waitFor()
-    await page.getByText('proxy.example.com:8443', { exact: true }).waitFor()
-    await page.getByText('监听 0.0.0.0 / 443', { exact: true }).waitFor()
+    await editedCatalogNode.getByText('已停用', { exact: true }).waitFor()
+    await editedCatalogNode.getByText('proxy.example.com:8443', { exact: true }).waitFor()
+    // The catalog shows the public endpoint. Reopen the persisted node rather
+    // than expecting the former direct-row listener summary.
+    await editedCatalogNode.getByRole('button', { name: '编辑', exact: true }).click()
+    const persistedNodeEditor = page.getByRole('dialog')
+    assert.equal(await persistedNodeEditor.locator('input[name="listen"]').inputValue(), '0.0.0.0')
+    assert.equal(await persistedNodeEditor.locator('input[name="port"]').inputValue(), '443')
+    assert.equal(await persistedNodeEditor.locator('input[name="public_port"]').inputValue(), '8443')
+    assert.equal(await persistedNodeEditor.locator('input[name="enabled"]').isChecked(), false)
+    await persistedNodeEditor.getByRole('button', { name: '取消', exact: true }).click()
     assert.deepEqual(mutations.slice(nodeMutationStart), [{ path: '/api/plugins/sing-box/nodes/2', method: 'PATCH' }])
     await page.getByRole('button', { name: '查看部署进度', exact: true }).click()
     const deploymentDialog = page.getByRole('dialog')
@@ -297,7 +309,7 @@ try {
     await page.waitForFunction(() => document.querySelector('select[aria-label="按服务器筛选"]')?.value === '2')
     await page.getByText('未授权验收链路', { exact: true }).waitFor()
     assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=chains&server=2')
-    assert.equal(await page.getByRole('row').count(), 2)
+    assert.equal(await page.locator('.proxy-resource-table').getByRole('row').count(), 2)
     assert.equal(await reverseRow.count(), 0, 'The unrelated reverse chain is absent in the server=2 scope')
     await createdRow.locator('small').filter({ hasText: /^本服务器作为出口$/ }).waitFor()
     assert.equal(await page.getByText('无关服务器链路', { exact: true }).count(), 0)
@@ -331,7 +343,7 @@ try {
     await page.getByRole('link', { name: '查看全部链路', exact: true }).click()
     await page.getByText('筛选范围：全部服务器的链路。', { exact: true }).waitFor()
     await page.getByText('未授权验收链路', { exact: true }).waitFor()
-    assert.equal(await page.getByRole('row').count(), 4)
+    assert.equal(await page.locator('.proxy-resource-table').getByRole('row').count(), 4)
     await page.goto(`${origin}/#/plugins/sing-box/nodes?kind=chains&server=999`)
     await page.getByText('此服务器暂无已确认关联的链路', { exact: true }).waitFor()
     assert.equal(await page.getByText('未授权验收链路', { exact: true }).count(), 0)
@@ -365,13 +377,15 @@ try {
     const recoveredResources = page.waitForResponse(response => new URL(response.url()).pathname === '/api/plugins/sing-box/proxy-resources' && response.request().method() === 'GET' && response.status() === 200)
     await refreshPage()
     await recoveredResources
-    await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 1 && document.querySelector('[data-resource-key="direct:3"]'))
-    await page.locator('[data-resource-key="direct:3"]').waitFor()
-    assert.equal(await page.locator('[data-resource-key="direct:2"]').count(),0)
+    const currentCatalog = page.locator(width < 768 ? '.catalog-card' : '.catalog-table tbody tr')
+    const direct3 = page.locator(`${width < 768 ? '.catalog-card' : '.catalog-table tbody tr'}[data-resource-key="direct:3"]`)
+    await direct3.waitFor()
+    assert.equal(await currentCatalog.count(), 1)
+    assert.equal(await page.locator(`${width < 768 ? '.catalog-card' : '.catalog-table tbody tr'}[data-resource-key="direct:2"]`).count(),0)
     await page.getByText('普通节点需为代理用户授权并等待设备成功应用配置', { exact: false }).waitFor()
     await page.getByText('出口可使用内部连接凭据监听，无需为出口单独授权用户。', { exact: false }).waitFor()
     await page.goto(`${origin}/#/plugins/sing-box/nodes`)
-    await page.getByText('共享端点 · 1 条链路引用', { exact: true }).waitFor()
+    await page.getByRole('button', { name: /· 1 个引用$/ }).waitFor()
     chainsFailure = true
     await page.reload()
     // Flat and ordered projections report their own failed reads in separate panels.

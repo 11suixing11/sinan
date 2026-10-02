@@ -251,9 +251,7 @@ pub(crate) fn server(node: &Node, users: &[&Access]) -> Value {
         .map(|access| {
             let name = stat_name(access.user_id, node.id);
             match &node.protocol_config {
-                ProtocolConfig::VlessReality => {
-                    json!({"name": name, "uuid": access.uuid, "flow": "xtls-rprx-vision"})
-                }
+                ProtocolConfig::VlessReality => reality_identity(node, name, access.uuid),
                 ProtocolConfig::Tuic { .. } => {
                     json!({"name": name, "uuid": access.uuid, "password": access.credential})
                 }
@@ -300,7 +298,9 @@ pub(crate) fn client(node: &Node, access: &Access) -> Value {
     match &node.protocol_config {
         ProtocolConfig::VlessReality => {
             result["uuid"] = json!(access.uuid);
-            result["flow"] = json!("xtls-rprx-vision");
+            if node.settings.reality.flow == crate::RealityFlow::Vision {
+                result["flow"] = json!("xtls-rprx-vision");
+            }
             result["tls"] = json!({"enabled": true, "server_name": node.sni,
                 "utls": {"enabled": true, "fingerprint": "chrome"},
                 "reality": {"enabled": true, "public_key": node.public_key, "short_id": node.short_id}});
@@ -339,4 +339,12 @@ fn native_type(protocol: &ProtocolConfig) -> &str {
         ProtocolConfig::SnellV6 { .. } => "snell",
         other => other.kind(),
     }
+}
+
+pub(crate) fn reality_identity(node: &Node, name: String, uuid: uuid::Uuid) -> Value {
+    let mut identity = json!({"name":name,"uuid":uuid});
+    if node.settings.reality.flow == crate::RealityFlow::Vision {
+        identity["flow"] = json!("xtls-rprx-vision");
+    }
+    identity
 }

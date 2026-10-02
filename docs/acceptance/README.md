@@ -1,5 +1,7 @@
 # 验收记录索引
 
+- [PR155 节点目录、来源与外部授权整合：本聊天本地证据](pr155-root-integration-20261003.md)
+
 [文档导航](../README.md) · [执行进度](../../PROGRESS.md) · [整改顺序与当前门禁](ordered-remediation.md)
 
 本目录保留每次检查对应的源码、运行条件与未验证范围。源码审查、本地隔离测试、历史 CI 和实机签收分别成立；文件名含“验收”不表示所有场景已通过。当前 CI 暂停，NodeQuality 完整执行及后续诊断能力仍按整改顺序签收。查当前状态先读上面的门禁和 PROGRESS，再查具体记录。
@@ -40,6 +42,8 @@
 - [心跳与遥测隔离的独立验收](telemetry-isolation.md)
 
 ## 代理业务、链路与运行时
+
+- [节点库与外部授权本地验证](node-catalog-20261003.md)
 
 - [混合链路本地隔离夹具记录](mixed-path-local-fixtures.md)
 - [混合链路面板与发布状态验证](mixed-path-panel.md)

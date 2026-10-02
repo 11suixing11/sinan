@@ -2,34 +2,20 @@ import { useState } from 'react'
 import { Field } from '../../components'
 import type { Node } from '../../types'
 
-export type NodeSettings = {
-  listen: string; public_port: number | null; tcp_fast_open: boolean; tls_alpn: string[];
-  reality: { handshake_server: string | null; handshake_port: number; fingerprint: string };
-  hysteria2: { up_mbps: number | null; down_mbps: number | null; ignore_client_bandwidth: boolean; obfs_enabled: boolean };
-  tuic: { congestion_control: string; auth_timeout_seconds: number | null; heartbeat_seconds: number | null; zero_rtt_handshake: boolean };
-  anytls: { idle_session_check_seconds: number | null; idle_session_timeout_seconds: number | null; min_idle_session: number | null };
-}
-const number = (form: FormData, key: string) => { const value = String(form.get(key) ?? '').trim(); return value ? Number(value) : null }
-export function nodeSettingsRequest(form: FormData) {
-  const protocol = String(form.get('protocol'))
-  const settings = { listen: String(form.get('listen') ?? '::').trim(), public_port: number(form, 'public_port'), tcp_fast_open: form.get('tcp_fast_open') === 'on', tls_alpn: String(form.get('tls_alpn') ?? '').split(',').map(value => value.trim()).filter(Boolean) }
-  if (protocol === 'vless-reality') return { ...settings, reality: { handshake_server: String(form.get('handshake_server') ?? '').trim() || null, handshake_port: number(form, 'handshake_port') ?? 443, fingerprint: String(form.get('fingerprint') ?? 'chrome') } }
-  if (protocol === 'hysteria2') return { ...settings, hysteria2: { up_mbps: number(form, 'up_mbps'), down_mbps: number(form, 'down_mbps'), ignore_client_bandwidth: form.get('ignore_client_bandwidth') === 'on', obfs_enabled: form.get('obfs_enabled') === 'on', ...(form.get('obfs_password') ? { obfs_password: String(form.get('obfs_password')) } : {}) } }
-  if (protocol === 'tuic') return { ...settings, tuic: { congestion_control: String(form.get('congestion_control') ?? 'cubic'), auth_timeout_seconds: number(form, 'auth_timeout_seconds'), heartbeat_seconds: number(form, 'heartbeat_seconds'), zero_rtt_handshake: form.get('zero_rtt_handshake') === 'on' } }
-  if (protocol === 'anytls') return { ...settings, anytls: { idle_session_check_seconds: number(form, 'idle_session_check_seconds'), idle_session_timeout_seconds: number(form, 'idle_session_timeout_seconds'), min_idle_session: number(form, 'min_idle_session') } }
-  return settings
-}
+export { nodeSettingsRequest } from './nodeSettingsForm'
+export type { NodeSettings } from './nodeSettingsForm'
+import TransportFields from './NodeTransportFields'
+import ExtraProtocolFields from './ExtraProtocolFields'
 
 export function ConnectionFields({ node }: { node: Node | 'new' }) {
   const settings = node === 'new' ? undefined : node.settings
   return <>
     <Field label="监听地址" hint="填写服务器本机 IP。:: 监听 IPv6，通常同时接受 IPv4；仅 IPv4 可填 0.0.0.0。"><input name="listen" required defaultValue={settings?.listen ?? '::'} maxLength={45} spellCheck={false} /></Field>
     <Field label="公开端口" hint="客户端连接使用的端口。留空跟随监听端口；有 NAT 映射时填写映射后的端口。"><input name="public_port" type="number" min={1} max={65535} step={1} defaultValue={settings?.public_port ?? ''} placeholder="与监听端口相同" /></Field>
-    <label className="node-switch"><input name="enabled" type="checkbox" defaultChecked={node === 'new' || node.enabled !== false} /><span>启用节点<small>停用后保留授权与历史流量，等待设备应用配置后停止监听。</small></span></label>
   </>
 }
 
-function Seconds({ name, label, value, hint }: { name: string; label: string; value?: number | null; hint?: string }) {
+export function Seconds({ name, label, value, hint }: { name: string; label: string; value?: number | null; hint?: string }) {
   return <Field label={label} hint={hint ?? '留空使用运行时默认值。'}><input name={name} type="number" min={1} max={3600} step={1} defaultValue={value ?? ''} placeholder="使用默认值" /></Field>
 }
 
@@ -37,14 +23,35 @@ export default function ProtocolSettings({ protocol, node }: { protocol: string;
   const settings = node === 'new' ? undefined : node.settings
   const [obfs, setObfs] = useState(settings?.hysteria2?.obfs_enabled ?? false)
   const [bbr, setBbr] = useState(settings?.hysteria2?.ignore_client_bandwidth ?? false)
+  const [disableKeepAlive, setDisableKeepAlive] = useState(settings?.disable_tcp_keep_alive ?? false)
   const tls = ['hysteria2', 'tuic', 'anytls', 'naive'].includes(protocol)
   const tcp = !['hysteria2', 'tuic'].includes(protocol)
-  return <details className="node-advanced"><summary>协议高级设置</summary><div className="node-fields-grid">
+  return <>
+    <details className="node-advanced"><summary>监听与连接</summary><div className="node-fields-grid">
     {tcp && <label className="node-switch"><input name="tcp_fast_open" type="checkbox" defaultChecked={settings?.tcp_fast_open ?? false} /><span>TCP Fast Open<small>默认关闭，需要服务器系统支持。</small></span></label>}
+    {tcp && <>
+      <label className="node-switch"><input name="disable_tcp_keep_alive" type="checkbox" checked={disableKeepAlive} onChange={event => setDisableKeepAlive(event.target.checked)} /><span>关闭 TCP 保活</span></label>
+      <fieldset className="node-field-group" disabled={disableKeepAlive}>
+        <Seconds name="tcp_keep_alive_seconds" label="TCP 空闲保活（秒）" value={settings?.tcp_keep_alive_seconds} />
+        <Seconds name="tcp_keep_alive_interval_seconds" label="TCP 保活间隔（秒）" value={settings?.tcp_keep_alive_interval_seconds} />
+      </fieldset>
+    </>}
+    {!tcp && <p className="helper">此协议使用 QUIC，无 TCP 监听参数。</p>}
+    </div></details>
+    {(tls || protocol === 'vless-reality') && <details className="node-advanced"><summary>TLS 设置</summary><div className="node-fields-grid">
+    {tls && <>
+      <Field label="最低 TLS 版本" hint={protocol === 'naive' ? '仅服务端使用。' : !tcp ? 'QUIC 使用 TLS 1.3。' : undefined}><select name="tls_min_version" defaultValue={settings?.tls_min_version ?? ''}><option value="">默认</option><option value="1.2">TLS 1.2</option><option value="1.3">TLS 1.3</option></select></Field>
+      <Field label="最高 TLS 版本" hint={protocol === 'naive' ? '仅服务端使用。' : undefined}><select name="tls_max_version" defaultValue={settings?.tls_max_version ?? ''}><option value="">默认</option>{tcp && <option value="1.2">TLS 1.2</option>}<option value="1.3">TLS 1.3</option></select></Field>
+    </>}
+    {tcp && <Seconds name="tls_handshake_timeout_seconds" label="TLS 握手超时（秒）" value={settings?.tls_handshake_timeout_seconds} hint="服务端设置，留空使用默认值。" />}
     {tls && <Field label="TLS ALPN" hint={protocol === 'naive' ? '留空使用默认值；自定义仅支持 h2。' : '多个值用英文逗号分隔。留空沿用默认值，Hysteria2 / TUIC 默认为 h3。'}><input name="tls_alpn" maxLength={263} defaultValue={settings?.tls_alpn?.join(', ') ?? ''} placeholder={['hysteria2', 'tuic'].includes(protocol) ? 'h3' : protocol === 'naive' ? 'h2' : '使用默认值'} autoComplete="off" /></Field>}
+    </div></details>}
+    {protocol === 'vless-reality' && <TransportFields settings={settings} />}
+    <details className="node-advanced"><summary>协议高级设置</summary><div className="node-fields-grid">
     {protocol === 'vless-reality' && <>
       <Field label="Reality 握手目标" hint="留空跟随伪装域名。可指定域名或 IP，不含端口与路径。"><input name="handshake_server" defaultValue={settings?.reality?.handshake_server ?? ''} placeholder="与伪装域名相同" maxLength={253} spellCheck={false} /></Field>
       <Field label="Reality 握手端口"><input name="handshake_port" type="number" min={1} max={65535} defaultValue={settings?.reality?.handshake_port ?? 443} required /></Field>
+      <Seconds name="max_time_difference_seconds" label="Reality 时间容差（秒）" value={settings?.reality?.max_time_difference_seconds} hint="服务端允许的客户端时钟偏差，留空不额外限制。" />
       <Field label="客户端 TLS 指纹" hint="同步写入 sing-box 配置与 VLESS 分享链接。"><select name="fingerprint" defaultValue={settings?.reality?.fingerprint ?? 'chrome'}>{[['chrome', 'Chrome'], ['firefox', 'Firefox'], ['safari', 'Safari'], ['edge', 'Edge'], ['ios', 'iOS'], ['android', 'Android'], ['randomized', '随机']].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
     </>}
     {protocol === 'hysteria2' && <>
@@ -65,5 +72,7 @@ export default function ProtocolSettings({ protocol, node }: { protocol: string;
       <Seconds name="idle_session_timeout_seconds" label="闲置会话超时（秒）" value={settings?.anytls?.idle_session_timeout_seconds} hint="客户端设置，留空使用 30 秒默认值。" />
       <Field label="最少保留闲置会话" hint="客户端设置，留空或 0 不额外保留。"><input name="min_idle_session" type="number" min={0} max={128} step={1} defaultValue={settings?.anytls?.min_idle_session ?? ''} placeholder="0" /></Field>
     </>}
-  </div></details>
+    <ExtraProtocolFields protocol={protocol} settings={settings} />
+    {protocol === 'naive' && <p className="helper">Naive 使用 HTTP/2，安全参数在 TLS 设置中配置。</p>}
+  </div></details></>
 }

@@ -100,6 +100,7 @@ fn acceptance(generation: u64) -> ManagedAcceptance {
 fn legacy_bytes_and_public_subscriptions_remain_unchanged() {
     let entry = node(1, true);
     let relay = Relay {
+        settings: Default::default(),
         fingerprint: Default::default(),
         chain_id: 11,
         entry_node_id: 1,
@@ -111,6 +112,14 @@ fn legacy_bytes_and_public_subscriptions_remain_unchanged() {
         public_key: URL_SAFE_NO_PAD.encode([2; 32]),
         short_id: "1234abcd".into(),
     };
+    let mut historical = serde_json::to_value(&relay).unwrap();
+    historical.as_object_mut().unwrap().remove("settings");
+    let historical: Relay = serde_json::from_value(historical).unwrap();
+    assert_eq!(
+        compile_server_with_relays(std::slice::from_ref(&entry), std::slice::from_ref(&relay))
+            .unwrap(),
+        compile_server_with_relays(std::slice::from_ref(&entry), &[historical]).unwrap()
+    );
     assert_eq!(
         compile_server(std::slice::from_ref(&entry)).unwrap(),
         compile_server_with_paths(std::slice::from_ref(&entry), &[], &[], &[], None).unwrap()
@@ -346,6 +355,77 @@ fn internal_acceptances_share_frozen_listeners_without_changing_accounting() {
         restored["experimental"]["v2ray_api"]["stats"]["users"],
         json!([])
     );
+}
+
+#[test]
+fn ordered_managed_transports_keep_private_acceptance_flow_and_required_features() {
+    for transport in [
+        json!({"type":"tcp"}),
+        json!({"type":"ws","path":"/private","host":"edge.example.com","max_early_data":1024,"early_data_header_name":"Sec-WebSocket-Protocol"}),
+        json!({"type":"httpupgrade","path":"/private","host":"edge.example.com"}),
+        json!({"type":"grpc","service_name":"private.service"}),
+    ] {
+        let mut frozen = snapshot(2);
+        frozen.node.settings = serde_json::from_value(json!({
+            "reality":{"flow":"none"},"transport":transport,"public_port":8443
+        }))
+        .unwrap();
+        let identity = Uuid::from_u128(3001);
+        let ordered = path(vec![PathHop::Managed {
+            endpoint: Box::new(frozen.clone()),
+            relay_uuid: identity,
+        }]);
+        let accept = ManagedAcceptance {
+            endpoint: frozen.clone(),
+            chain_id: ordered.chain_id,
+            generation: ordered.generation,
+            position: 1,
+            relay_uuid: identity,
+        };
+        let entry = compile(&[node(1, true)], std::slice::from_ref(&ordered), &[]);
+        let outgoing = entry["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|value| value["tag"] == "chain-11-g1-h1")
+            .unwrap();
+        assert_eq!(outgoing["server_port"], 8443);
+        assert_eq!(outgoing["uuid"], identity.to_string());
+        assert!(outgoing.get("flow").is_none());
+        assert_eq!(
+            required_build_tags(&ordered).contains(&"with_grpc".to_string()),
+            transport["type"] == "grpc"
+        );
+        let mut live = frozen.node.clone();
+        live.users = node(2, true).users;
+        let direct: Value =
+            serde_json::from_str(&compile_client(&[live.clone()], 7).unwrap()).unwrap();
+        assert_eq!(outgoing["transport"], direct["outbounds"][1]["transport"]);
+        assert!(
+            !serde_json::to_string(&direct)
+                .unwrap()
+                .contains(&identity.to_string())
+        );
+        for local in [vec![live], vec![]] {
+            let exit = compile(&local, &[], std::slice::from_ref(&accept));
+            let identities = exit["inbounds"][0]["users"].as_array().unwrap();
+            let internal = identities
+                .iter()
+                .find(|user| user["uuid"] == identity.to_string())
+                .unwrap();
+            assert_eq!(internal["name"], "relay_11_g1_h1");
+            assert!(internal.get("flow").is_none());
+            assert_eq!(
+                exit["experimental"]["v2ray_api"]["stats"]["users"],
+                if local.is_empty() {
+                    json!([])
+                } else {
+                    json!(["u7_n2"])
+                }
+            );
+            assert_eq!(exit, compile(&local, &[], std::slice::from_ref(&accept)));
+        }
+    }
 }
 
 #[test]

@@ -1,3 +1,4 @@
+import { catalogResourceFixtures } from './proxy-resource-fixtures.mjs'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdir, readFile } from 'node:fs/promises'
@@ -33,6 +34,7 @@ const forceClick = (button, reload = false) => button.evaluate((element, reload)
 }, reload)
 try {
   for (const width of [1440, 390]) {
+    const originalChain = page => page.locator(`${width < 768 ? '.catalog-card' : '.catalog-table tbody tr'}[data-resource-key="chain:7"]`)
     const fixture = async (routeHash, callback) => {
       const page = await browser.newPage({ viewport: { width, height: 1000 } }); page.setDefaultTimeout(10000)
       page.on('pageerror', error => totals.errors.push(error.message))
@@ -68,6 +70,7 @@ try {
           else if (path === `${prefix}/nodes`) value = nodes
           else if ([`${prefix}/ordered-proxy-resources`, `${prefix}/ordered-subscription-sources`].includes(path)) value = []
           else if (path === `${prefix}/proxy-resources`) value = resources
+      else if (path === `${prefix}/node-catalog`) value = catalogResourceFixtures(resources)
           else if (path === `${prefix}/usage`) value = { total: '0', uplink: '0', downlink: '0', by_node: [], by_user: [] }
           else if (path === `${prefix}/subscription-sources`) value = []
           else { totals.unexpected.push(`${method} ${path}`); return route.fulfill({ status: 404, json: {} }) }
@@ -113,7 +116,7 @@ try {
       assert.equal(await control.page.getByRole('region', { name: '创建链路', exact: true }).count(), 0); assert.equal(control.writes.length, 0); ++totals.blocked
       control.fail(path); await control.page.getByText('TEST_ONLY 链路相关读取失败', { exact: true }).first().waitFor(); await forceClick(button)
       assert.equal(await control.page.getByRole('region', { name: '创建链路', exact: true }).count(), 0); assert.equal(control.writes.length, 0); ++totals.blocked
-      await control.page.getByRole('link', { name: 'TEST_ONLY 原链路', exact: true }).waitFor()
+      await originalChain(control.page).getByText('TEST_ONLY 原链路', { exact: true }).waitFor()
       control.recover(path); await refreshReads(control.page); await button.click()
       await control.page.getByRole('region', { name: '创建链路', exact: true }).waitFor(); assert.equal(control.writes.length, 0)
     })
@@ -125,7 +128,7 @@ try {
           assert.deepEqual(control.writes[0].body.items, [{ name: 'TEST_ONLY 原选择草稿', entry: mode === 'new' ? { mode: 'new', server_id: 1, public_host: '127.0.0.1', sni: 'localhost', port: null } : { mode: 'existing', node_id: 1 }, hops: [{ kind: 'managed', node_id: 2 }] }])
         })
         await fixture(hash, async control => {
-          await control.page.getByRole('row').filter({ hasText: 'TEST_ONLY 原链路' }).getByRole('button', { name: '删除', exact: true }).click()
+          await originalChain(control.page).getByRole('button', { name: '删除', exact: true }).click()
           const button = control.page.getByRole('dialog').getByRole('button', { name: '确认删除', exact: true })
           await block(control, dependency, reload => forceClick(button, reload), () => button.click())
           assert.deepEqual(control.writes, [{ method: 'DELETE', path: `${prefix}/proxy-resources/chain/7` }])
@@ -191,7 +194,7 @@ try {
       assert.deepEqual(control.writes[0].body.items[0].hops, [{ kind: 'managed', node_id: 2 }])
     })
     await fixture('/plugins/sing-box/nodes', async control => {
-      await control.page.getByRole('row').filter({ hasText: 'TEST_ONLY 原链路' }).getByRole('button', { name: '删除', exact: true }).click()
+      await originalChain(control.page).getByRole('button', { name: '删除', exact: true }).click()
       control.resources.splice(control.resources.findIndex(value => value.kind === 'chain'), 1); await refresh(control.page)
       const dialog = control.page.getByRole('dialog'); await dialog.getByText('此代理资源已不存在，请重新选择；当前草稿已保留。', { exact: true }).waitFor()
       await forceClick(dialog.getByRole('button', { name: '确认删除', exact: true })); assert.equal(control.writes.length, 0); ++totals.blocked

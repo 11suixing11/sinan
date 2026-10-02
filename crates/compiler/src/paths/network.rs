@@ -117,8 +117,14 @@ pub fn required_build_tags(path: &OrderedPath) -> Vec<String> {
     let mut tags = BTreeSet::from(["with_v2ray_api", "with_clash_api"]);
     for hop in &path.hops {
         match hop {
-            PathHop::Managed { .. } => {
+            PathHop::Managed { endpoint, .. } => {
                 tags.insert("with_utls");
+                if matches!(
+                    &endpoint.node.settings.transport,
+                    crate::NodeTransport::Grpc { .. }
+                ) {
+                    tags.insert("with_grpc");
+                }
             }
             PathHop::External { outbound, .. } => {
                 if matches!(

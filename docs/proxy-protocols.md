@@ -16,19 +16,25 @@
 
 ## 节点连接与高级设置
 
-参考 3X-UI 的入站设置分组和 S-UI 的监听/客户端地址分离，具体原生字段按固定 sing-box 1.14.2 实现，见 [ADR 0042](adr/0042-node-settings-and-panel-operations.md)。
+参考 3X-UI 的入站设置分组和 S-UI 的监听/客户端地址分离，具体原生字段按固定 sing-box 1.14.2 实现，见 [ADR 0042](adr/0042-node-settings-and-panel-operations.md) 和 [ADR 0075](adr/0075-node-options-and-background-refresh.md)。
 
 | 字段 | 行为 |
 |---|---|
 | 启用节点 | 默认开启。关闭后立即移出订阅资格，设备应用整包后停止监听；授权、凭据和历史保留。链路任一端停用会使入口失效，不会退化为直连 |
 | 监听地址 / 监听端口 | 本机 IP，默认 `::`；IPv4 可填 `0.0.0.0`。端口仍在每台服务器内唯一，停用节点继续占用其分配记录 |
 | 公开地址 / 公开端口 | 客户端与内部链路连接端点；公开端口留空跟随监听端口，NAT 场景可分别填写。修改不会自动设置端口映射或网络策略 |
-| TCP Fast Open | 默认关闭，仅 TCP 入站可选，需要系统支持 |
+| TCP Fast Open / 保活 | 仅 TCP 入站可选。Fast Open 默认关闭，需系统支持；保活空闲与间隔为 1–3600 秒，留空使用默认值，关闭保活时不发送时长 |
+| TLS 版本 / 握手超时 | 证书协议可指定 TLS 1.2/1.3 的范围，QUIC 必须可使用 1.3；Naive 版本范围仅服务端生效。Reality、AnyTLS、Naive 服务端握手超时 1–3600 秒，留空默认 |
+| VLESS 传输 / 流控 | 默认 TCP + Vision，也可使用无 flow 的 TCP、WebSocket、HTTPUpgrade、gRPC；非 TCP 传输自动关闭 Vision。WS 可设路径、Host、提前数据大小及请求头，HTTPUpgrade 可设路径/Host，gRPC 可设服务名；同步编译服务端、客户端、分享链接与受管链路 |
 | TLS ALPN | 证书协议可设置最多 8 个不重复 ASCII 值；留空沿用默认值。Naive 仅允许 h2，客户端自行协商；不适用于 Reality |
-| Reality | 握手目标默认跟随 SNI，握手端口默认 443；客户端指纹同时写入 JSON、分享链接与内部链路 |
-| Hysteria2 | 上下行带宽同时留空或填写 1–1000000 Mbps，以服务器为视角，客户端自动交换方向。强制 BBR 与手填带宽互斥；Salamander 混淆密码可自动生成，编辑留空保留，关闭清除 |
-| TUIC | CUBIC / BBR / New Reno，认证超时与心跳 1–3600 秒；留空用原生默认值。0-RTT 默认关闭，启用需接受重放风险 |
-| AnyTLS | 客户端闲置会话检查/超时 1–3600 秒，保留数量 0–128；留空使用原生默认值 |
+| Reality | 握手目标默认跟随 SNI，握手端口默认 443；客户端指纹同时写入 JSON、分享链接与内部链路；时间容差 1–3600 秒仅服务端，留空不额外限制 |
+| Hysteria2 | 上下行带宽同时留空或填写 1–1000000 Mbps，以服务器为视角，客户端自动交换方向。强制 BBR 与手填带宽互斥；Salamander 混淆密码可自动生成，编辑留空保留，关闭清除。BBR 档位为标准/保守/激进，仅协商 BBR 时生效；服务端可设置字符串伪装响应（状态码 200–599、内容类型、最多 16 KiB 内容；固定版本只在 200 响应时支持自定义内容类型，非 200 使用运行时决定的类型） |
+| TUIC | CUBIC / BBR / New Reno，认证超时与心跳 1–3600 秒；留空用原生默认值。0-RTT 默认关闭，启用需接受重放风险。客户端 UDP 转发模式为原生 UDP、QUIC 流或 sing-box UDP over stream，互斥生成原生字段 |
+| AnyTLS | 客户端闲置会话检查/超时 1–3600 秒，保留数量 0–128；留空使用原生默认值。服务端填充策略每行一项、最多 8 KiB，包含 `stop` 及合法编号/填充区间；空列表恢复默认 |
+| Snell v6 | 默认、关闭整形或不安全原始传输模式；两端模式一致，连接复用仅客户端 |
+| Shadowsocks 2022 | 客户端 UDP over TCP；两端启用多路复用与填充，客户端可选 h2mux/smux/yamux。连接数/最少流数与每连接最大流数互斥，数量 1–1024；关闭复用恢复默认参数 |
+
+编辑时完整回显已保存的高级设置，清空可选值恢复默认；协议组一旦提交，未提供的组内字段恢复该组默认值。存活混合链路引用的节点提前显示关联链路，只允许修改名称和启用状态；更改连接参数应先替换链路中的节点。
 
 管理接口不会回显混淆密码或服务端私钥。升级本次 Agent 后再使用 HY2 混淆和自定义 QUIC ALPN：旧 Agent 的普通 QUIC 健康探测无法正确验证这些监听器。新适配器执行实际混淆 QUIC/TLS 握手，错误密码或证书域名均不能通过。
 
@@ -70,6 +76,7 @@ SINAN_TEST_SINGBOX=/tmp/sing-box cargo test -p sinan-panel --test protocol_runti
 
 ```sh
 SINAN_TEST_UPSTREAM=/tmp/upstream/sing-box cargo test -p sinan-compiler --test modern_protocols official_runtime_accepts_protocol_settings -- --ignored
+SINAN_TEST_UPSTREAM=/tmp/upstream/sing-box cargo test -p sinan-compiler --test node_transports official_runtime_accepts_all_transports_and_both_relay_formats -- --ignored
 SINAN_TEST_UPSTREAM=/tmp/upstream/sing-box cargo test -p sinan-adapter-singbox obfuscated_quic_health_checks -- --ignored
 ```
 

@@ -25,7 +25,7 @@ python3 scripts/panel.py install --public-url https://panel.example.com
 | 统计与资产 | 网卡与代理流量趋势、服务器排行、成本到期、续费记录、流量额度与每日汇率缓存；管理统计仅管理员可见 | [统计](docs/statistics.md)、[资产](docs/server-assets.md) |
 | Agent 运维 | 系统信息、远程命令执行状态与取消、自动更新；运行时状态、脱敏日志、重启和部署重试 | [运维](docs/agent-runtime-and-chains.md) |
 | 监控与通知 | 统一 TCP/ICMP 任务，离线、资源、到期和流量提醒，Telegram/Webhook 独立投递与重试 | [监控](docs/monitoring.md) |
-| sing-box 插件 | 代理节点、用户授权、策略与套餐、订阅预览/复制/下载；机场订阅与有序混合链路 | [协议](docs/proxy-protocols.md)、[套餐](docs/singbox-groups.md)、[链路](docs/agent-runtime-and-chains.md) |
+| sing-box 插件 | 节点库、批量整理、外部节点直接授权、策略与套餐、订阅预览/复制/下载；机场订阅与有序混合链路 | [节点库](docs/node-catalog.md)、[协议](docs/proxy-protocols.md)、[套餐](docs/singbox-groups.md)、[链路](docs/agent-runtime-and-chains.md) |
 | DDNS 插件 | 复用 Agent 上报的 IP，选择 IPv4、IPv6 或双栈；同步 Cloudflare、腾讯云、阿里云、华为云 A/AAAA 记录 | [DDNS](docs/ddns.md) |
 | 阿里云插件 | CDT 用量与账单、ECS/EIP 公网带宽、ECS 启停、阈值与每日计划、抢占式保活、账单和余额缓存 | [阿里云管理](docs/alicloud.md) |
 | 诊断插件 | 独立 IP 查询、NodeQuality 和 TCP 连接诊断；任务受设备能力、授权及安全门禁约束 | [插件目录](docs/plugin-catalog.md)、[验收边界](docs/acceptance/ordered-remediation.md) |

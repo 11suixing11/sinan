@@ -6,13 +6,60 @@ use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sinan_compiler::external::ExternalOutbound;
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, OnceLock},
+};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 
 pub const MAX_BODY: usize = 2 * 1024 * 1024;
 pub const MAX_NODES: usize = 5000;
 pub const MAX_DEPTH: usize = 64;
 pub const MAX_SCALAR: usize = 64 * 1024;
 pub const PARSER_VERSION: &str = "sinan-subscriptions-2";
+
+const PARSER_CONCURRENCY: usize = 4;
+static PARSER_PERMITS: OnceLock<Arc<Semaphore>> = OnceLock::new();
+
+fn new_admission() -> Arc<Semaphore> {
+    Arc::new(Semaphore::new(PARSER_CONCURRENCY))
+}
+
+pub(super) fn try_admit() -> Result<OwnedSemaphorePermit, TryAcquireError> {
+    PARSER_PERMITS
+        .get_or_init(new_admission)
+        .clone()
+        .try_acquire_owned()
+}
+
+async fn blocking_with_permit<T: Send + 'static>(
+    permit: OwnedSemaphorePermit,
+    operation: impl FnOnce() -> Result<T, ImportError> + Send + 'static,
+) -> Result<(OwnedSemaphorePermit, T), ImportError> {
+    tokio::task::spawn_blocking(move || {
+        // A cancelled waiter cannot stop an already-running blocking task.
+        // Its real work therefore owns the admission slot until completion.
+        let result = operation()?;
+        // Successful parsed results remain admitted while their caller waits
+        // for persistence; otherwise large batches could accumulate unbounded.
+        Ok((permit, result))
+    })
+    .await
+    .map_err(|_| ImportError("parser_interrupted"))?
+}
+
+pub(super) async fn admitted_parse(
+    body: Vec<u8>,
+    permit: OwnedSemaphorePermit,
+) -> Result<(Vec<u8>, String, ParsedBatch, OwnedSemaphorePermit), ImportError> {
+    let (permit, (body, body_sha256, batch)) = blocking_with_permit(permit, move || {
+        let batch = parse(&body)?;
+        let body_sha256 = digest(&body);
+        Ok((body, body_sha256, batch))
+    })
+    .await?;
+    Ok((body, body_sha256, batch, permit))
+}
 
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{0}")]
@@ -284,4 +331,111 @@ pub(super) fn decode_base64(value: &str) -> Result<Vec<u8>, ImportError> {
         }
     }
     Err(ImportError("invalid_base64_configuration"))
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn cancellation_keeps_real_blocking_work_in_the_shared_budget() {
+        let permits = new_admission();
+        let occupied: Vec<_> = (0..PARSER_CONCURRENCY - 1)
+            .map(|_| permits.clone().try_acquire_owned().expect("available slot"))
+            .collect();
+        let permit = permits.clone().try_acquire_owned().expect("last slot");
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let waiter = tokio::spawn(blocking_with_permit(permit, move || {
+            let _ = started_tx.send(());
+            release_rx
+                .recv_timeout(Duration::from_secs(2))
+                .map_err(|_| ImportError("fixture_timeout"))?;
+            Ok(())
+        }));
+        tokio::time::timeout(Duration::from_secs(2), started_rx)
+            .await
+            .expect("bounded task start")
+            .expect("started");
+        waiter.abort();
+        assert!(waiter.await.expect_err("cancelled waiter").is_cancelled());
+        assert_eq!(permits.available_permits(), 0);
+        assert!(permits.clone().try_acquire_owned().is_err());
+        release_tx.send(()).expect("release real blocking task");
+        let returned =
+            tokio::time::timeout(Duration::from_secs(2), permits.clone().acquire_owned())
+                .await
+                .expect("slot returned after completion")
+                .expect("open admission");
+        assert_eq!(permits.available_permits(), 0);
+        drop(returned);
+        drop(occupied);
+        assert_eq!(permits.available_permits(), PARSER_CONCURRENCY);
+    }
+
+    #[tokio::test]
+    async fn parser_success_rejection_and_interruption_return_only_their_owned_slot() {
+        let permits = new_admission();
+        let input = b"http://proxy.example.com:443#TEST_ONLY-node".to_vec();
+        let permit = permits.clone().try_acquire_owned().expect("available slot");
+        let (body, body_sha256, batch, pending) = admitted_parse(input.clone(), permit)
+            .await
+            .expect("parsed fixture");
+        assert_eq!(body, input);
+        assert_eq!(body_sha256, digest(&input));
+        assert_eq!(batch.nodes.len(), 1);
+        assert_eq!(permits.available_permits(), PARSER_CONCURRENCY - 1);
+        drop(pending);
+        assert_eq!(permits.available_permits(), PARSER_CONCURRENCY);
+        let permit = permits.clone().try_acquire_owned().expect("available slot");
+        assert!(matches!(
+            admitted_parse(vec![b'x'; MAX_BODY + 1], permit).await,
+            Err(ImportError("body_limit"))
+        ));
+        assert_eq!(permits.available_permits(), PARSER_CONCURRENCY);
+        let permit = permits.clone().try_acquire_owned().expect("available slot");
+        let result: Result<(OwnedSemaphorePermit, ()), ImportError> =
+            blocking_with_permit(permit, || panic!("TEST_ONLY parser interruption")).await;
+        assert!(matches!(result, Err(ImportError("parser_interrupted"))));
+        assert_eq!(permits.available_permits(), PARSER_CONCURRENCY);
+    }
+
+    #[tokio::test]
+    async fn parsed_pending_results_keep_the_slot_until_persist_or_cancellation() {
+        let permits = new_admission();
+        let occupied: Vec<_> = (0..PARSER_CONCURRENCY - 1)
+            .map(|_| permits.clone().try_acquire_owned().expect("available slot"))
+            .collect();
+        let permit = permits.clone().try_acquire_owned().expect("last slot");
+        let (parsed_tx, parsed_rx) = tokio::sync::oneshot::channel();
+        let (finish_tx, finish_rx) = tokio::sync::oneshot::channel();
+        let pending = tokio::spawn(async move {
+            let (_body, _body_sha256, _batch, _permit) = admitted_parse(
+                b"http://proxy.example.com:443#TEST_ONLY-pending".to_vec(),
+                permit,
+            )
+            .await
+            .expect("parsed fixture");
+            let _ = parsed_tx.send(());
+            let _ = finish_rx.await;
+        });
+        tokio::time::timeout(Duration::from_secs(2), parsed_rx)
+            .await
+            .expect("bounded parser completion")
+            .expect("pending persistence");
+        assert_eq!(permits.available_permits(), 0);
+        assert!(permits.clone().try_acquire_owned().is_err());
+        pending.abort();
+        assert!(
+            pending
+                .await
+                .expect_err("cancelled pending result")
+                .is_cancelled()
+        );
+        assert_eq!(permits.available_permits(), 1);
+        assert!(finish_tx.send(()).is_err());
+        drop(occupied);
+        assert_eq!(permits.available_permits(), PARSER_CONCURRENCY);
+    }
 }

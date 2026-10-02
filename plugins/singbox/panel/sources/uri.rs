@@ -210,6 +210,8 @@ fn vmess(encoded: &str) -> Result<(ExternalOutbound, String), ImportError> {
             "fp",
             "allowInsecure",
             "packetEncoding",
+            "ed",
+            "eh",
         ]
         .contains(&key.as_str())
     }) {
@@ -217,7 +219,7 @@ fn vmess(encoded: &str) -> Result<(ExternalOutbound, String), ImportError> {
     }
     let field = |key: &str| input.get(key).and_then(Value::as_str).unwrap_or_default();
     if input.iter().any(|(key, value)| {
-        !["v", "port", "aid", "allowInsecure"].contains(&key.as_str()) && !value.is_string()
+        !["v", "port", "aid", "allowInsecure", "ed"].contains(&key.as_str()) && !value.is_string()
     }) {
         return Err(ImportError("invalid_vmess_parameter"));
     }
@@ -238,10 +240,14 @@ fn vmess(encoded: &str) -> Result<(ExternalOutbound, String), ImportError> {
         ("alpn", "alpn"),
         ("fp", "fp"),
         ("packetEncoding", "packetEncoding"),
+        ("eh", "eh"),
     ] {
         if !field(source).is_empty() {
             params.insert(destination.into(), field(source).into());
         }
+    }
+    if input.contains_key("ed") {
+        params.insert("ed".into(), numeric(input, "ed", None)?.to_string());
     }
     if let Some(value) = input.get("allowInsecure") {
         let value = match value {
@@ -398,6 +404,37 @@ fn transport(output: &mut Value, params: &mut BTreeMap<String, String>) -> Resul
         }
         "grpc" => move_string(params, "serviceName", &mut transport, "service_name"),
         _ => {}
+    }
+    if kind == "ws" {
+        if let Some(value) = params.remove("ed") {
+            if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err(ImportError("invalid_websocket_early_data"));
+            }
+            let size = value
+                .parse::<u16>()
+                .map_err(|_| ImportError("invalid_websocket_early_data"))?;
+            transport["max_early_data"] = json!(size);
+        }
+        if let Some(header) = params.remove("eh") {
+            reqwest::header::HeaderName::from_bytes(header.as_bytes())
+                .map_err(|_| ImportError("invalid_websocket_early_data_header"))?;
+            if header.len() > 128
+                || transport["max_early_data"].as_u64().unwrap_or_default() == 0
+                || [
+                    "host",
+                    "connection",
+                    "upgrade",
+                    "content-length",
+                    "transfer-encoding",
+                    "sec-websocket-key",
+                    "sec-websocket-version",
+                ]
+                .contains(&header.to_ascii_lowercase().as_str())
+            {
+                return Err(ImportError("invalid_websocket_early_data_header"));
+            }
+            transport["early_data_header_name"] = json!(header);
+        }
     }
     output["transport"] = transport;
     Ok(())

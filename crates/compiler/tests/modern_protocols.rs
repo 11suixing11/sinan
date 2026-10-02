@@ -8,6 +8,9 @@ use sinan_compiler::{
 };
 use uuid::Uuid;
 
+#[path = "modern_protocols/advanced.rs"]
+mod advanced;
+
 fn nodes() -> Vec<Node> {
     let tls = TlsConfig::Acme {
         email: "admin@example.com".into(),
@@ -183,6 +186,7 @@ fn configured_nodes() -> Vec<Node> {
         down_mbps: Some(40),
         ignore_client_bandwidth: false,
         obfs_password: Some("synthetic-obfs-fixture".into()),
+        ..Default::default()
     };
     model[0].settings.tls_alpn = vec!["h3".into()];
     model[3].settings.tuic = sinan_compiler::TuicSettings {
@@ -190,11 +194,13 @@ fn configured_nodes() -> Vec<Node> {
         auth_timeout_seconds: Some(5),
         heartbeat_seconds: Some(8),
         zero_rtt_handshake: true,
+        ..Default::default()
     };
     model[4].settings.anytls = sinan_compiler::AnyTlsSettings {
         idle_session_check_seconds: Some(10),
         idle_session_timeout_seconds: Some(20),
         min_idle_session: Some(2),
+        ..Default::default()
     };
     model[4].settings.tcp_fast_open = true;
     model[5].settings.tls_alpn = vec!["h2".into()];
@@ -285,14 +291,41 @@ fn official_runtime_accepts_protocol_settings() {
     let binary = std::env::var("SINAN_TEST_UPSTREAM").unwrap();
     let directory = std::env::temp_dir().join(format!("sinan-settings-check-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&directory).unwrap();
-    let mut model = configured_nodes();
+    let mut model = advanced::configured_nodes();
     // The official archive omits with_v2ray_api. Its native parser still
     // validates all newly introduced inbound and outbound protocol fields.
-    for force_bbr in [false, true] {
+    for variant in 0..4 {
+        let force_bbr = variant > 0;
         if force_bbr {
             model[0].settings.hysteria2.up_mbps = None;
             model[0].settings.hysteria2.down_mbps = None;
             model[0].settings.hysteria2.ignore_client_bandwidth = true;
+        }
+        if variant == 1 {
+            model[0].settings.hysteria2.bbr_profile = sinan_compiler::BbrProfile::Aggressive;
+            model[3].settings.tuic.udp_relay_mode = sinan_compiler::TuicUdpRelayMode::QuicStream;
+            model[6].settings.snell.mode = sinan_compiler::SnellMode::UnsafeRaw;
+            let mux = &mut model[1].settings.shadowsocks.multiplex;
+            mux.protocol = sinan_compiler::MultiplexProtocol::Yamux;
+            mux.max_connections = None;
+            mux.min_streams = None;
+            mux.max_streams = Some(8);
+        } else if variant == 2 {
+            model[0].settings.hysteria2.bbr_profile = sinan_compiler::BbrProfile::Standard;
+            model[3].settings.tuic.udp_relay_mode = sinan_compiler::TuicUdpRelayMode::Native;
+            model[6].settings.snell.mode = sinan_compiler::SnellMode::Default;
+            model[1].settings.shadowsocks.multiplex.protocol =
+                sinan_compiler::MultiplexProtocol::H2mux;
+            model[4].settings.anytls.padding_scheme = vec!["stop=8".into()];
+            model[5].settings.tls_min_version = Some(sinan_compiler::TlsVersion::V12);
+            model[5].settings.tls_max_version = Some(sinan_compiler::TlsVersion::V12);
+        } else if variant == 3 {
+            model[6].settings.tcp_keep_alive_seconds = None;
+            model[6].settings.tcp_keep_alive_interval_seconds = None;
+            model[6].settings.disable_tcp_keep_alive = true;
+            let masquerade = model[0].settings.hysteria2.masquerade.as_mut().unwrap();
+            masquerade.status_code = 404;
+            masquerade.content_type.clear();
         }
         for (name, content) in [
             ("server", compile_server(&model).unwrap()),
@@ -309,7 +342,7 @@ fn official_runtime_accepts_protocol_settings() {
                 .unwrap();
             assert!(
                 output.status.success(),
-                "{name}, force_bbr={force_bbr}: {}",
+                "{name}, variant={variant}: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
         }

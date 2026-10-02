@@ -30,6 +30,7 @@ fn legacy_relay(id: i64, frozen: &FrozenVersion) -> ApiResult<Relay> {
         return Err(ApiError::Conflict("旧链路没有完整的受管出口快照".into()));
     };
     Ok(Relay {
+        settings: endpoint.node.settings.clone(),
         fingerprint: endpoint.node.settings.reality.fingerprint,
         chain_id: id,
         entry_node_id: frozen.entry.node.id,

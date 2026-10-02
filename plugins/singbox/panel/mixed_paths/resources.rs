@@ -22,8 +22,8 @@ pub async fn list(
     Ok(Json(resources_on(&mut tx).await?))
 }
 
-async fn resources_on(tx: &mut Transaction<'_, Postgres>) -> ApiResult<Vec<Value>> {
-    let nodes=sqlx::query("SELECT n.id,n.name,n.server_id,s.name AS server_name,n.protocol,n.public_host,n.port,n.enabled,(SELECT COUNT(DISTINCT h.chain_id) FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.managed_node_id=n.id) AS reference_count, (n.enabled AND n.protocol='vless-reality' AND NOT EXISTS(SELECT 1 FROM accesses a WHERE a.node_id=n.id) AND NOT EXISTS(SELECT 1 FROM singbox_policy_nodes p WHERE p.node_id=n.id) AND NOT EXISTS(SELECT 1 FROM singbox_live_chains c WHERE c.entry_node_id=n.id OR c.exit_node_id=n.id) AND NOT EXISTS(SELECT 1 FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.managed_node_id=n.id)) AND (NOT EXISTS(SELECT 1 FROM singbox_chains oc WHERE oc.path_kind='ordered' AND (oc.deleted_at IS NULL OR oc.phase<>'retired') AND oc.entry_node_id=n.id) AND NOT EXISTS(SELECT 1 FROM singbox_ordered_chain_hops oh JOIN singbox_chains oc ON oc.id=oh.chain_id WHERE oc.path_kind='ordered' AND (oc.deleted_at IS NULL OR oc.phase<>'retired') AND oh.managed_node_id=n.id AND oh.generation=ANY(ARRAY[oc.desired_generation,oc.applied_generation,oc.candidate_generation,oc.recovery_generation]))) AS entry_eligible FROM nodes n JOIN servers s ON s.id=n.server_id WHERE n.deleted_at IS NULL AND s.deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM singbox_chains c WHERE c.entry_node_id=n.id AND (c.deleted_at IS NULL OR (c.path_kind='ordered' AND c.phase<>'retired'))) ORDER BY n.id").fetch_all(&mut **tx).await?;
+pub(crate) async fn resources_on(tx: &mut Transaction<'_, Postgres>) -> ApiResult<Vec<Value>> {
+    let nodes=sqlx::query("SELECT n.id,n.name,n.server_id,s.name AS server_name,n.protocol,n.public_host,n.port,n.enabled,(SELECT COUNT(DISTINCT h.chain_id) FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.managed_node_id=n.id) AS reference_count, (n.enabled AND n.protocol='vless-reality' AND NOT EXISTS(SELECT 1 FROM accesses a WHERE a.node_id=n.id) AND NOT EXISTS(SELECT 1 FROM singbox_policy_nodes p WHERE p.node_id=n.id) AND NOT EXISTS(SELECT 1 FROM singbox_live_chains c WHERE c.entry_node_id=n.id OR c.exit_node_id=n.id) AND NOT EXISTS(SELECT 1 FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.managed_node_id=n.id)) AND (NOT EXISTS(SELECT 1 FROM singbox_chains oc WHERE oc.path_kind='ordered' AND (oc.deleted_at IS NULL OR oc.phase<>'retired') AND oc.entry_node_id=n.id) AND NOT EXISTS(SELECT 1 FROM singbox_ordered_chain_hops oh JOIN singbox_chains oc ON oc.id=oh.chain_id WHERE oc.path_kind='ordered' AND (oc.deleted_at IS NULL OR oc.phase<>'retired') AND oh.managed_node_id=n.id AND (oh.generation=ANY(ARRAY[oc.desired_generation,oc.applied_generation,oc.candidate_generation,oc.recovery_generation]) OR EXISTS(SELECT 1 FROM unnest(ARRAY[oc.desired_generation,oc.applied_generation,oc.candidate_generation,oc.recovery_generation]) AS selected(generation) WHERE selected.generation IS NOT NULL AND NOT EXISTS(SELECT 1 FROM singbox_ordered_chain_versions v WHERE v.chain_id=oc.id AND v.generation=selected.generation))))) AS entry_eligible FROM nodes n JOIN servers s ON s.id=n.server_id WHERE n.deleted_at IS NULL AND s.deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM singbox_chains c WHERE c.entry_node_id=n.id AND (c.deleted_at IS NULL OR (c.path_kind='ordered' AND c.phase<>'retired'))) ORDER BY n.id").fetch_all(&mut **tx).await?;
     let mut result = Vec::new();
     for n in nodes {
         let count: i64 = n.get("reference_count");
@@ -166,44 +166,37 @@ pub async fn remove(
     }
     let mut tx = state.pool.begin().await?;
     super::super::entitlements::lock(&mut tx).await?;
-    let used: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_policy_chains WHERE chain_id=$1)")
-            .bind(id)
-            .fetch_one(&mut *tx)
-            .await?;
-    if used {
-        return Err(ApiError::Conflict("请先从策略组移除此链路".into()));
-    }
+    remove_on(&mut tx, id).await?;
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub(crate) async fn remove_on(tx: &mut Transaction<'_, Postgres>, id: i64) -> ApiResult<()> {
     let entry: i64 =
         sqlx::query_scalar("SELECT entry_node_id FROM singbox_live_chains WHERE id=$1 FOR UPDATE")
             .bind(id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?
             .ok_or(ApiError::NotFound)?;
-    let hosts:Vec<i64>=sqlx::query_scalar("SELECT server_id FROM nodes WHERE id=$2 UNION SELECT managed_server_id FROM singbox_chain_hops WHERE chain_id=$1 AND managed_server_id IS NOT NULL UNION SELECT e.server_id FROM singbox_chains c JOIN nodes e ON e.id=c.exit_node_id WHERE c.id=$1 ORDER BY 1").bind(id).bind(entry).fetch_all(&mut *tx).await?;
-    super::super::proxy_resources::lock_cleanup_servers(&mut tx, &hosts).await?;
-    let retained_reference: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_chains c WHERE c.id<>$1 AND (c.deleted_at IS NULL OR (c.path_kind='ordered' AND c.phase<>'retired')) AND (c.entry_node_id=$2 OR c.exit_node_id=$2)) OR EXISTS(SELECT 1 FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.chain_id<>$1 AND h.managed_node_id=$2) OR EXISTS(SELECT 1 FROM singbox_ordered_chain_hops h JOIN singbox_chains c ON c.id=h.chain_id WHERE h.chain_id<>$1 AND (c.deleted_at IS NULL OR c.phase<>'retired') AND h.managed_node_id=$2 AND h.generation=ANY(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation]))")
-        .bind(id).bind(entry).fetch_one(&mut *tx).await?;
-    if retained_reference {
-        return Err(ApiError::Conflict(
-            "链路入口仍被其它保留路径引用，请先完成引用清理".into(),
-        ));
-    }
+    let hosts:Vec<i64>=sqlx::query_scalar("SELECT server_id FROM nodes WHERE id=$2 UNION SELECT managed_server_id FROM singbox_chain_hops WHERE chain_id=$1 AND managed_server_id IS NOT NULL UNION SELECT e.server_id FROM singbox_chains c JOIN nodes e ON e.id=c.exit_node_id WHERE c.id=$1 ORDER BY 1").bind(id).bind(entry).fetch_all(&mut **tx).await?;
+    super::super::proxy_resources::lock_cleanup_servers(tx, &hosts).await?;
+    super::super::proxy_resources::ensure_chain_entry_unreferenced_on(tx, id, entry).await?;
     sqlx::query("UPDATE nodes SET enabled=FALSE,deleted_at=$2 WHERE id=$1")
         .bind(entry)
         .bind(sinan_protocol::now_timestamp())
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     sqlx::query("DELETE FROM accesses WHERE node_id=$1")
         .bind(entry)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
-    sqlx::query("UPDATE singbox_chains SET deleted_at=$2 WHERE id=$1")
+    // Legacy resources also own the rich immutable projection. Complete its
+    // local retirement without changing any saved snapshot or request receipt.
+    sqlx::query("UPDATE singbox_chains SET deleted_at=$2,route_enabled=FALSE,phase=CASE WHEN path_kind='legacy' THEN 'retired' ELSE phase END,applied_generation=CASE WHEN path_kind='legacy' THEN NULL ELSE applied_generation END WHERE id=$1")
         .bind(id)
         .bind(sinan_protocol::now_timestamp())
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
-    super::super::business::mark_dirty(&mut tx, &hosts).await?;
-    tx.commit().await?;
-    Ok(StatusCode::NO_CONTENT)
+    super::super::business::mark_dirty(tx, &hosts).await?;
+    Ok(())
 }

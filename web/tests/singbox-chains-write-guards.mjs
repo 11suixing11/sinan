@@ -1,3 +1,4 @@
+import { catalogResourceFixtures } from './proxy-resource-fixtures.mjs'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
@@ -54,6 +55,7 @@ try {
       else if (method === 'GET' && pathname === `${prefix}/usage`) value = {total:'0',uplink:'0',downlink:'0',by_node:[],by_user:[]}
       else if (method === 'GET' && [ `${prefix}/subscription-sources`, `${prefix}/ordered-subscription-sources` ].includes(pathname)) value = []
       else if (method === 'GET' && pathname === `${prefix}/proxy-resources`) value = flatResourceFixtures(nodes, [...servers,...baseServers.filter(base => !servers.some(server => server.id === base.id))], chains)
+      else if (method === 'GET' && pathname === `${prefix}/node-catalog`) value = catalogResourceFixtures(flatResourceFixtures(nodes, [...servers,...baseServers.filter(base => !servers.some(server => server.id === base.id))], chains))
       else if (method === 'GET' && pathname === `${prefix}/ordered-proxy-resources`) value = proxyResourceFixtures(nodes, [...servers,...baseServers.filter(base => !servers.some(server => server.id === base.id))], chains)
       else if (method === 'GET' && pathname === `${prefix}/chains`) value = chains
       else if (method === 'POST' && pathname === `${prefix}/chains/ordered-batch`) {

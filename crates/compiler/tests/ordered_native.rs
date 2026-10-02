@@ -211,6 +211,7 @@ fn exact_native_checks_three_and_four_hops_acceptances_and_legacy_bytes() {
     )
     .unwrap();
     let relay = Relay {
+        settings: Default::default(),
         fingerprint: Default::default(),
         chain_id: 11,
         entry_node_id: 1,

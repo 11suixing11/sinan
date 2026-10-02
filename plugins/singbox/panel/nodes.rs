@@ -3,7 +3,7 @@ use crate::{
     AppState,
     auth::require_admin,
     error::{ApiError, ApiResult},
-    plugins::singbox::business::{self, NODE_COLUMNS, NodeRow, NodeView},
+    plugins::singbox::business::{self, NODE_COLUMNS, NodeChainReference, NodeRow, NodeView},
 };
 use axum::{
     Json,
@@ -51,11 +51,12 @@ pub async fn list(
     let rows = sqlx::query_as::<_, NodeRow>(&query)
         .fetch_all(&state.pool)
         .await?;
-    Ok(Json(
-        rows.into_iter()
-            .map(NodeRow::view)
-            .collect::<ApiResult<_>>()?,
-    ))
+    let mut views = rows
+        .into_iter()
+        .map(NodeRow::view)
+        .collect::<ApiResult<Vec<_>>>()?;
+    populate_references(&state.pool, &mut views).await?;
+    Ok(Json(views))
 }
 
 pub async fn get(
@@ -72,7 +73,9 @@ pub async fn get(
         .fetch_optional(&state.pool)
         .await?
         .ok_or(ApiError::NotFound)?;
-    Ok(Json(node.view()?))
+    let mut view = node.view()?;
+    populate_references(&state.pool, std::slice::from_mut(&mut view)).await?;
+    Ok(Json(view))
 }
 
 pub async fn create(
@@ -89,6 +92,18 @@ pub async fn create(
     business::mark_dirty(&mut transaction, &[node.server_id]).await?;
     transaction.commit().await?;
     Ok((StatusCode::CREATED, Json(node.view()?)))
+}
+
+/// Creation inside the caller's topology transaction also serves catalog clones.
+pub(crate) async fn create_on(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    request: CreateNode,
+) -> ApiResult<NodeView> {
+    business::lock_server(transaction, request.server_id).await?;
+    super::settings::require_enabled(transaction, request.server_id).await?;
+    let node = create_locked(transaction, request).await?;
+    business::mark_dirty(transaction, &[node.server_id]).await?;
+    node.view()
 }
 
 /// The caller owns the topology and server locks. Batch creation uses the same
@@ -185,6 +200,12 @@ pub async fn update(
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or(ApiError::NotFound)?;
+    // Older rows omit settings added after their creation. Compare normalized
+    // models so saving identical defaults neither changes frozen paths nor
+    // schedules a needless publication.
+    let normalized: sinan_compiler::NodeSettings =
+        serde_json::from_value(node.settings).map_err(anyhow::Error::from)?;
+    node.settings = serde_json::to_value(normalized).map_err(anyhow::Error::from)?;
     let previous_node = node.clone();
     let previous = (
         node.enabled,
@@ -272,7 +293,32 @@ pub async fn update(
         business::mark_dirty(&mut transaction, &[server_id]).await?;
     }
     transaction.commit().await?;
-    Ok(Json(node.view()?))
+    let mut view = node.view()?;
+    populate_references(&state.pool, std::slice::from_mut(&mut view)).await?;
+    Ok(Json(view))
+}
+
+async fn populate_references(pool: &sqlx::PgPool, nodes: &mut [NodeView]) -> ApiResult<()> {
+    let ids = nodes.iter().map(|node| node.id).collect::<Vec<_>>();
+    let mut connection = pool.acquire().await?;
+    let rows =
+        super::ordered_paths::storage::node_configuration_references(&mut connection, &ids).await?;
+    for (node_id, id, name) in rows {
+        if let Some(node) = nodes.iter_mut().find(|node| node.id == node_id) {
+            node.configuration_locked = true;
+            if node.referenced_chains.len() < 32 {
+                node.referenced_chains.push(NodeChainReference {
+                    id,
+                    name: name
+                        .chars()
+                        .filter(|value| !value.is_control())
+                        .take(128)
+                        .collect(),
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 pub async fn remove(
@@ -283,6 +329,14 @@ pub async fn remove(
     require_admin(&state, &headers).await?;
     super::proxy_resources::remove_direct_node(&state, id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Shared catalog deletion retains the same unresolved ownership and retired-host guards.
+pub(crate) async fn remove_on(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: i64,
+) -> ApiResult<()> {
+    super::proxy_resources::remove_direct_node_on(transaction, id).await
 }
 
 pub(super) fn validate_port(port: i64) -> ApiResult<i32> {

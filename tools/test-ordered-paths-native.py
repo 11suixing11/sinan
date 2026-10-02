@@ -40,6 +40,17 @@ MAX_FILE = 2 * 1024 * 1024
 MAX_OUTPUT = 256 * 1024
 MAX_ROWS = 4096
 REQUIRED_TAGS = {"with_clash_api", "with_v2ray_api", "with_utls", "with_quic"}
+COMPILER_COMMON_SOURCES = frozenset({
+    "lib.rs", "relays.rs", "external.rs", "protocols.rs", "certificates.rs",
+    "paths/mod.rs", "paths/model.rs", "paths/network.rs", "paths/context.rs",
+    "paths/validate.rs", "paths/render.rs", "paths/transport_validation.rs",
+    "paths/outbound_validation.rs",
+})
+COMPILER_LEGACY_SOURCES = COMPILER_COMMON_SOURCES | {"settings.rs"}
+COMPILER_SPLIT_SOURCES = COMPILER_COMMON_SOURCES | {
+    "settings/mod.rs", "settings/apply.rs", "settings/transport.rs", "settings/validate.rs",
+}
+COMPILER_CLIENT_SOURCES = COMPILER_SPLIT_SOURCES | {"client.rs"}
 PORT_NAMES = {"a", "m", "b", "x", "client", "stats_a", "stats_m", "stats_b", "https", "tcp_echo", "udp_echo", "handshake", "controller"}
 DEADLINE = None
 
@@ -254,6 +265,14 @@ def pointer_assign(value, pointer, replacement):
     item[part] = replacement
 
 
+def compiler_source_identity(value):
+    require(isinstance(value, dict), "compiler_source_identity_missing")
+    require(frozenset(value) in (COMPILER_LEGACY_SOURCES, COMPILER_SPLIT_SOURCES, COMPILER_CLIENT_SOURCES), "compiler_source_identity_missing")
+    require(all(isinstance(digest, str) and len(digest) == 64
+                and all(character in "0123456789abcdef" for character in digest)
+                for digest in value.values()), "compiler_source_identity_missing")
+
+
 def compilation(args, directory, inputs):
     parent = path_absolute(args.compiled_dir)
     manifest_file = checked_relative(parent, "compilation-manifest.json")
@@ -262,7 +281,7 @@ def compilation(args, directory, inputs):
     require(manifest.get("schema") == 1 and manifest.get("test_only") is True and manifest.get("runtime_version") == "1.14.2", "invalid_compilation_contract")
     require(manifest.get("native_binary_sha256") == inputs["native_binary_sha256"] and manifest.get("compiler_input_sha256") == sha_file(directory / "compiler-input.json"), "compiled_input_binding_mismatch")
     require(manifest.get("generator_source_sha256") == args.generator_source_sha256.lower(), "generator_source_binding_mismatch")
-    require(isinstance(manifest.get("compiler_sources"), dict) and len(manifest["compiler_sources"]) == 14 and all(len(value) == 64 for value in manifest["compiler_sources"].values()), "compiler_source_identity_missing")
+    compiler_source_identity(manifest.get("compiler_sources"))
     require([case.get("name") for case in manifest["cases"]] == ["three", "four"], "complete_path_cases_required")
     for case in manifest["cases"]:
         require(set(case["files"]) == {"A", "M", "B", "client"}, "product_role_missing")

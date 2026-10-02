@@ -132,7 +132,7 @@ pub async fn create(
     }
     // A dedicated entry prevents silently turning an existing direct grant into a chain.
     // Exits may be shared, but cannot themselves be chain entries (no cycles/nesting).
-    let conflict: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_live_chains WHERE entry_node_id=ANY($1) OR exit_node_id=$2) OR EXISTS(SELECT 1 FROM accesses WHERE node_id=$2) OR EXISTS(SELECT 1 FROM singbox_policy_nodes WHERE node_id=$2) OR EXISTS(SELECT 1 FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.managed_node_id=$2) OR EXISTS(SELECT 1 FROM singbox_chains c WHERE c.path_kind='ordered' AND (c.deleted_at IS NULL OR c.phase<>'retired') AND c.entry_node_id=ANY($1)) OR EXISTS(SELECT 1 FROM singbox_ordered_chain_hops h JOIN singbox_chains c ON c.id=h.chain_id WHERE c.path_kind='ordered' AND (c.deleted_at IS NULL OR c.phase<>'retired') AND h.managed_node_id=$2 AND h.generation=ANY(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation]))")
+    let conflict: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_live_chains WHERE entry_node_id=ANY($1) OR exit_node_id=$2) OR EXISTS(SELECT 1 FROM accesses WHERE node_id=$2) OR EXISTS(SELECT 1 FROM singbox_policy_nodes WHERE node_id=$2) OR EXISTS(SELECT 1 FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.managed_node_id=$2) OR EXISTS(SELECT 1 FROM singbox_chains c WHERE c.path_kind='ordered' AND (c.deleted_at IS NULL OR c.phase<>'retired') AND c.entry_node_id=ANY($1)) OR EXISTS(SELECT 1 FROM singbox_ordered_chain_hops h JOIN singbox_chains c ON c.id=h.chain_id WHERE c.path_kind='ordered' AND (c.deleted_at IS NULL OR c.phase<>'retired') AND h.managed_node_id=$2 AND (h.generation=ANY(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation]) OR EXISTS(SELECT 1 FROM unnest(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation]) AS selected(generation) WHERE selected.generation IS NOT NULL AND NOT EXISTS(SELECT 1 FROM singbox_ordered_chain_versions v WHERE v.chain_id=c.id AND v.generation=selected.generation))))")
         .bind(vec![request.entry_node_id, request.exit_node_id]).bind(request.entry_node_id).fetch_one(&mut *tx).await?;
     if conflict {
         return Err(ApiError::Conflict(
@@ -237,6 +237,7 @@ pub(crate) async fn load(
             );
             Ok(Relay {
                 fingerprint: settings.reality.fingerprint,
+                settings: settings.clone(),
                 chain_id: r.chain_id,
                 entry_node_id: r.entry_node_id,
                 exit_node_id: r.exit_node_id,

@@ -1,3 +1,4 @@
+import { catalogResourceFixtures } from './proxy-resource-fixtures.mjs'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdir, readFile } from 'node:fs/promises'
@@ -48,6 +49,7 @@ try {
         if (oldNodesFailure) { await route.fulfill({ status: 500, json: { error: '旧节点元数据损坏' } }); return }
         value = nodes
       } else if (method === 'GET' && path === `${prefix}/proxy-resources`) value = flatResourceFixtures(nodes, servers)
+      else if (method === 'GET' && path === `${prefix}/node-catalog`) value = catalogResourceFixtures(flatResourceFixtures(nodes, servers))
       else if (method === 'GET' && path === `${prefix}/ordered-proxy-resources`) value = proxyResourceFixtures(nodes, servers)
       else if (method === 'GET' && path === `${prefix}/subscription-sources`) value = []
       else if (method === 'GET' && path === `${prefix}/usage`) value = { total: '0', uplink: '0', downlink: '0', by_node: [], by_user: [] }

@@ -1,0 +1,49 @@
+import { flatResourceInScope } from './resourceTypes'
+import type { ProxyResource } from './resourceTypes'
+
+export type CatalogNode = Omit<ProxyResource, 'kind' | 'role' | 'server_id' | 'server_name' | 'protocol' | 'public_host' | 'port'> & {
+  kind: 'direct' | 'chain' | 'external'; role: ProxyResource['role'] | 'external'
+  server_id: number | null; server_name: string | null; protocol: string | null; public_host: string | null; port: number | null
+  original_name: string; tags: string[]; note: string; sort_order: number; revision: string
+  source_id?: number; source_name?: string; version_id?: number | null; identity_epoch?: number
+}
+export const catalogKey = (node: Pick<CatalogNode, 'kind' | 'id'>) => `${node.kind}:${node.id}`
+export const catalogRef = (node: CatalogNode) => ({ kind: node.kind, id: node.id, revision: node.revision })
+export type CatalogFilter = { serverRole?: 'any' | 'entry' | 'middle' | 'exit'; search: string; kind: string; protocol: string; tag: string; status: string; source: string; server: string; role: string }
+export function filterCatalog(nodes: CatalogNode[], filter: CatalogFilter): CatalogNode[] {
+  const query = filter.search.trim().toLocaleLowerCase()
+  return nodes.filter(node => (!filter.kind || node.kind === filter.kind)
+    && (!filter.protocol || node.protocol === filter.protocol) && (!filter.tag || node.tags.includes(filter.tag))
+    && (!filter.source || node.source_id === Number(filter.source)) && catalogInScope(node, filter.server, filter.serverRole)
+    && (!filter.role || node.role === filter.role)
+    && (!filter.status || (filter.status === 'disabled' ? !node.enabled : filter.status === 'available' ? node.enabled && node.available : node.enabled && !node.available))
+    && (!query || [node.name, node.original_name, node.public_host ?? '', node.note, ...node.tags].join(' ').toLocaleLowerCase().includes(query)))
+}
+export function renamed(name: string, mode: string, value: string, replacement = ''): string {
+  return (mode === 'prefix' ? value + name : mode === 'suffix' ? name + value : value ? name.split(value).join(replacement) : name).trim()
+}
+export function parsedTags(value: string): string[] { return [...new Set(value.split(/[,，\n]/).map(tag => tag.trim()).filter(Boolean))] }
+export function tagsError(tags: string[]): string { return tags.length > 16 || tags.some(tag => new TextEncoder().encode(tag).length > 64) ? '最多 16 个标签，每个标签不超过 64 字节。' : '' }
+
+const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
+const integer = (value: unknown, minimum = 0): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum
+const text = (value: unknown) => typeof value === 'string'
+export const validCatalogRevision = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
+export function validCatalogNode(value: unknown): value is CatalogNode {
+  if (!object(value) || !['direct', 'chain', 'external'].includes(String(value.kind)) || !integer(value.id, 1) || !validCatalogRevision(value.revision) || !['name', 'original_name', 'note', 'stage'].every(key => text(value[key])) || !Array.isArray(value.tags) || !value.tags.every(text) || !integer(value.sort_order, Number.MIN_SAFE_INTEGER) || !['enabled', 'available', 'tcp', 'udp'].every(key => typeof value[key] === 'boolean') || !integer(value.reference_count)) return false
+  if (!['protocol', 'public_host'].every(key => value[key] === null || text(value[key])) || !(value.port === null || integer(value.port, 1) && value.port <= 65535)) return false
+  if (value.kind === 'external') return value.role === 'external' && value.server_id === null && value.server_name === null && integer(value.source_id, 1) && text(value.source_name) && integer(value.identity_epoch, 1) && (value.version_id === null || integer(value.version_id, 1))
+  return ['direct', 'managed_hop', 'chain_entry'].includes(String(value.role)) && integer(value.server_id, 1) && text(value.server_name) && text(value.protocol) && text(value.public_host) && integer(value.port, 1)
+}
+export function validCatalog(value: unknown): value is CatalogNode[] {
+  return Array.isArray(value) && value.every(validCatalogNode) && new Set(value.map(catalogKey)).size === value.length
+}
+export function catalogInScope(node: CatalogNode, server: string, role: 'any' | 'entry' | 'middle' | 'exit' = 'any') {
+  if (!server) return true
+  return node.kind !== 'external' && Number.isSafeInteger(Number(server)) && Number(server) > 0 && flatResourceInScope(node as ProxyResource, Number(server), role)
+}
+export function catalogMutationError(current: CatalogNode[] | undefined, frozen: CatalogNode[], server: string, role: 'any' | 'entry' | 'middle' | 'exit' = 'any') {
+  if (!current || !validCatalog(current) || !frozen.length || frozen.some(node => !validCatalogNode(node))) return '节点信息尚未确认或修订号不完整；当前草稿已保留。'
+  if (frozen.some(node => { const row = current.find(value => catalogKey(value) === catalogKey(node)); return !row || row.revision !== node.revision || !catalogInScope(row, server, role) })) return '所选节点已更新、不存在或离开当前服务器范围；请重新确认，当前草稿已保留。'
+  return ''
+}

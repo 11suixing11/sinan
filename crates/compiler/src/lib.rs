@@ -2,6 +2,7 @@
 
 mod relays;
 pub use relays::{Relay, compile_server_with_relays};
+pub mod client;
 pub mod external;
 #[path = "paths/mod.rs"]
 mod ordered_paths;
@@ -28,8 +29,10 @@ mod protocols;
 pub use protocols::{AcmeChallenge, ProtocolConfig, SsMethod, TlsConfig};
 mod settings;
 pub use settings::{
-    AnyTlsSettings, CongestionControl, Fingerprint, Hysteria2Settings, NodeSettings,
-    RealitySettings, TuicSettings,
+    AnyTlsSettings, BbrProfile, CongestionControl, Fingerprint, Hysteria2Masquerade,
+    Hysteria2Settings, MultiplexProtocol, MultiplexSettings, NodeSettings, NodeTransport,
+    RealityFlow, RealitySettings, ShadowsocksSettings, SnellMode, SnellSettings, TlsVersion,
+    TuicSettings, TuicUdpRelayMode,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -170,8 +173,11 @@ pub fn subscription_links(nodes: &[Node], user_id: i64) -> Result<String, Compil
     let links: Vec<_> = accesses.into_iter().map(|(node, access)| {
         let host = unbracket_host(&node.public_host);
         let host = if host.contains(':') { format!("[{host}]") } else { host.to_string() };
+        let flow = if node.settings.reality.flow == RealityFlow::Vision { "&flow=xtls-rprx-vision" } else { "" };
+        let transport = node.settings.transport.link_parameters().into_iter()
+            .map(|(key,value)| format!("&{key}={}",percent_encode(&value))).collect::<String>();
         format!(
-            "vless://{}@{}:{}?encryption=none&flow=xtls-rprx-vision&security=reality&sni={}&fp={}&pbk={}&sid={}&type=tcp#{}",
+            "vless://{}@{}:{}?encryption=none{flow}&security=reality&sni={}&fp={}&pbk={}&sid={}{transport}#{}",
             access.uuid, host, node.public_port(), percent_encode(&node.sni),
             serde_json::to_value(node.settings.reality.fingerprint).expect("fingerprint").as_str().expect("fingerprint string"), percent_encode(&node.public_key),
             percent_encode(&node.short_id), percent_encode(&node.name)
