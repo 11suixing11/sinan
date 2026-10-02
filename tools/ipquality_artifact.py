@@ -235,6 +235,7 @@ def validate_source_offer(value, files, version, arch, progress=None):
 
 
 def check_license_review(review, metadata, manifest):
+    check_minimal_profile(metadata, manifest)
     licenses = decode(metadata['usr/share/sinan-rootfs/license-inventory.json'])
     sources = decode(metadata['usr/share/sinan-rootfs/source-inventory.json'])
     inputs = decode(metadata['usr/share/sinan-rootfs/inputs-lock.json'])
@@ -267,6 +268,31 @@ def check_license_review(review, metadata, manifest):
     profile = module('sinan_ipquality_tools', ROOT / 'tools/ipquality-rootfs.py')
     ensure({item['command'] for item in licenses.get('tools', [])} == set(profile.TOOLS),
            'rootfs contains another diagnostic tool profile')
+
+
+def check_minimal_profile(metadata, manifest):
+    """Require the signed exact selection; host replay remains a factory gate."""
+    build = factory()
+    prefix = 'usr/share/sinan-rootfs/'
+    name = prefix + 'ipquality-profile.json'
+    ensure(name in metadata, 'minimal IPQuality profile proof is absent')
+    content = metadata[name]
+    proof = decode(content)
+    lock = decode(metadata[prefix + 'inputs-lock.json'])
+    build.INPUT_PROFILE.validate_public(proof, lock)
+    ensure(content == build.canonical(proof) + b'\n', 'minimal profile proof bytes are not canonical')
+    provenance = decode(metadata[prefix + 'provenance.json'])
+    ensure(provenance.get('profile_proof_sha256') == digest(content),
+           'factory provenance does not bind the minimal profile')
+    paths = {entry['path']: entry for entry in manifest['entries']}
+    ensure(paths.get(name, {}).get('type') == 'file'
+           and paths[name].get('sha256') == digest(content)
+           and paths[name].get('size') == len(content), 'runtime manifest does not bind the minimal profile')
+    permitted = {prefix + item for item in ('provenance.json', 'inputs-lock.json', 'source-inventory.json',
+                                           'license-inventory.json', 'ipquality-profile.json')}
+    ensure(all(path == prefix.rstrip('/') or path in permitted for path in paths if path.startswith(prefix)),
+           'runtime provenance contains unreviewed or private factory evidence')
+    return proof
 
 
 def validate_files(files, version, arch, intake_parent=None, progress=None):
@@ -307,7 +333,8 @@ def validate_files(files, version, arch, intake_parent=None, progress=None):
                 destination.write(content[offset:offset + 1024 * 1024])
         helper.verify_archive(path, manifest)
         names = ['usr/share/sinan-rootfs/' + name for name in
-                 ('provenance.json', 'inputs-lock.json', 'source-inventory.json', 'license-inventory.json')]
+                 ('provenance.json', 'inputs-lock.json', 'source-inventory.json', 'license-inventory.json',
+                  'ipquality-profile.json')]
         metadata = helper.read_metadata(path, manifest, names)
     provenance = decode(metadata['usr/share/sinan-rootfs/provenance.json'])
     ensure(provenance.get('kind') == 'sinan-ipquality-debian12-preparation'
@@ -318,6 +345,7 @@ def validate_files(files, version, arch, intake_parent=None, progress=None):
     for key in ('inputs_lock', 'source_inventory', 'license_inventory'):
         ensure(provenance.get(key + '_sha256') == digest(metadata['usr/share/sinan-rootfs/' + key.replace('_', '-') + '.json']),
                'factory provenance does not bind its complete inventories')
+    check_minimal_profile(metadata, manifest)
     sources = unpack(files['source.tar.gz'], maximum=MAX_SOURCE)
     ensure('license-review.json' in sources and info.get('license_review_sha256') == digest(sources['license-review.json']),
            'actual license review is absent from corresponding source')
@@ -328,12 +356,17 @@ def validate_files(files, version, arch, intake_parent=None, progress=None):
     for name in ('plugins/ipquality/source-helper.py', 'plugins/ipquality/SOURCE.md',
                  'tools/build-ipquality.py', 'tools/ipquality_artifact.py', 'tools/ipquality-rootfs.py',
                  'tools/nodequality-rootfs-build.py', 'tools/nodequality-rootfs-collect.py',
-                 'tools/ipquality-inputs.py', 'tools/ipquality-inputs-capacity.py', 'LICENSE'):
+                 'tools/ipquality-inputs.py', 'tools/ipquality-inputs-capacity.py',
+                 'tools/ipquality-profile.py', 'LICENSE'):
         ensure(sources.get(name) == runtime().ordinary(ROOT / name, MAX_SOURCE),
                'complete corresponding Sinan source differs or is absent: ' + name)
-    for name in ('inputs-lock.json', 'source-inventory.json', 'license-inventory.json'):
+    for name in ('inputs-lock.json', 'source-inventory.json', 'license-inventory.json', 'ipquality-profile.json'):
         ensure(sources.get('debian/' + name) == metadata['usr/share/sinan-rootfs/' + name],
                'corresponding Debian source-offer metadata differs')
+    ensure('debian/ipquality-profile-private.json' not in sources
+           and not any(name.startswith(('debian/input-ledger', 'debian/tool-evidence',
+                                        'debian/ipquality-profile-replay-')) for name in sources),
+           'corresponding source contains private factory evidence')
     lock = runtime().ordinary(PLUGIN / 'source-lock.json', MAX_SOURCE)
     ensure(sources.get('plugins/ipquality/source-lock.json') == lock and info.get('source_lock_sha256') == digest(lock),
            'fixed upstream source lock differs')

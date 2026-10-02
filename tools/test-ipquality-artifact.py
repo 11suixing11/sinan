@@ -4,6 +4,7 @@ import gzip
 import io
 from pathlib import Path
 import tarfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -92,6 +93,52 @@ class ArtifactTests(unittest.TestCase):
         self.assertNotEqual(node.PROVENANCE_KIND, original.PROVENANCE_KIND)
         self.assertTrue(original.PENDING)
         self.assertNotEqual(node.PENDING, original.PENDING)
+        self.assertIsNone(original.INPUT_PROFILE)
+        self.assertIsNotNone(node.INPUT_PROFILE)
+
+    def minimal_metadata(self):
+        # Shape/replay admission is exercised by test-ipquality-profile.py.
+        # These inert bytes isolate the signed archive/provenance connection.
+        prefix = 'usr/share/sinan-rootfs/'
+        proof = {'schema': 1, 'scope': 'TEST_ONLY signed metadata propagation'}
+        content = artifact.canonical(proof)
+        metadata = {prefix + 'ipquality-profile.json': content,
+                    prefix + 'inputs-lock.json': b'{"scope":"TEST_ONLY"}',
+                    prefix + 'provenance.json': artifact.canonical({'profile_proof_sha256': artifact.digest(content)})}
+        manifest = {'entries': [{'path': prefix + 'ipquality-profile.json', 'type': 'file',
+                                 'sha256': artifact.digest(content), 'size': len(content)}]}
+        validator = SimpleNamespace(INPUT_PROFILE=SimpleNamespace(validate_public=lambda value, lock: value),
+                                    canonical=lambda value: artifact.canonical(value).rstrip(b'\n'))
+        return metadata, manifest, validator
+
+    def test_minimal_profile_proof_is_mandatory_even_before_license_claim(self):
+        with self.assertRaisesRegex(ValueError, 'profile proof is absent'):
+            artifact.check_minimal_profile({}, {'entries': []})
+        with self.assertRaisesRegex(ValueError, 'profile proof is absent'):
+            artifact.check_license_review({'schema': 1, 'reviewed': True}, {}, {'entries': []})
+
+    def test_signed_minimal_profile_bytes_require_both_provenance_and_runtime_binding(self):
+        metadata, manifest, validator = self.minimal_metadata()
+        with patch.object(artifact, 'factory', return_value=validator):
+            self.assertEqual(artifact.check_minimal_profile(metadata, manifest)['schema'], 1)
+            for key, value in (('sha256', 'f' * 64), ('size', 0), ('type', 'symlink')):
+                changed = {'entries': [dict(manifest['entries'][0], **{key: value})]}
+                with self.subTest(key=key), self.assertRaisesRegex(ValueError, 'runtime manifest'):
+                    artifact.check_minimal_profile(metadata, changed)
+            changed = dict(metadata)
+            changed['usr/share/sinan-rootfs/provenance.json'] = artifact.canonical({'profile_proof_sha256': 'f' * 64})
+            with self.assertRaisesRegex(ValueError, 'factory provenance'):
+                artifact.check_minimal_profile(changed, manifest)
+
+    def test_signed_archive_rejects_raw_private_factory_evidence(self):
+        metadata, manifest, validator = self.minimal_metadata()
+        for private in ('ipquality-profile-private.json', 'input-ledger.json', 'tool-evidence.json',
+                        'ipquality-profile-replay-host.json'):
+            changed = {'entries': manifest['entries'] + [{'path': 'usr/share/sinan-rootfs/' + private,
+                                                         'type': 'file', 'sha256': 'f' * 64, 'size': 1}]}
+            with self.subTest(private=private), patch.object(artifact, 'factory', return_value=validator), \
+                    self.assertRaisesRegex(ValueError, 'private factory evidence'):
+                artifact.check_minimal_profile(metadata, changed)
 
     def test_packaged_runner_embeds_exact_verifier_and_no_online_bootstrap(self):
         value = artifact.runner()

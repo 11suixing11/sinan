@@ -100,6 +100,30 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(build.read(path, artifact.MAX_ARCHIVE, self.guard), value)
         self.assertGreaterEqual(self.guard.chunks, 9)
 
+    def test_corresponding_source_includes_exact_minimal_profile_implementation(self):
+        # Only upstream bundle conversion is replaced at its separate boundary;
+        # the packaging list and local Sinan source bytes are the real inputs.
+        bundle, review = self.root / 'bundle.json', self.root / 'license-review.json'
+        bundle.write_bytes(b'TEST_ONLY upstream bundle boundary')
+        review.write_bytes(b'{"scope":"TEST_ONLY no license approval"}')
+        helper = SimpleNamespace(decode_bundle=lambda content: content,
+            bundle_files=lambda bundle: {'LICENSE.ip': b'TEST_ONLY upstream license'},
+            transform_files=lambda original: {'scope': b'TEST_ONLY no native build'},
+            policy_bytes=lambda: {})
+        actual_module = artifact.module
+        def source_module(name, path):
+            # Keep runtime()._ordinary backed by the real rootfs verifier;
+            # only the declared upstream conversion boundary is substituted.
+            return helper if name == 'sinan_node_ip_source' else actual_module(name, path)
+        with patch.object(artifact, 'module', side_effect=source_module):
+            sources, _ = build.source_files(bundle, review, self.guard)
+        for name in ('tools/ipquality-profile.py', 'tools/ipquality-inputs.py',
+                     'tools/ipquality-inputs-capacity.py', 'tools/ipquality-rootfs.py',
+                     'tools/nodequality-rootfs-build.py', 'tools/nodequality-rootfs-collect.py'):
+            self.assertEqual(sources[name], (artifact.ROOT / name).read_bytes())
+        self.assertFalse(any('ipquality-profile-private.json' in name or 'input-ledger.json' in name
+                             for name in sources))
+
     def paired_fixture(self, body=b'TEST_ONLY corresponding source bytes'):
         cache = self.root / 'input-cache'
         (cache / 'source').mkdir(parents=True, mode=0o700)

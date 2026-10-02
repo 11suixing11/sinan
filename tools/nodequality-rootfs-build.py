@@ -73,6 +73,9 @@ PENDING = [
 ]
 META_DIR = 'usr/share/sinan-rootfs'
 PROVENANCE_KIND = 'sinan-nodequality-debian12-preparation'
+# Independent profiles may require a fresh admission and public inventory proof.
+# The default preserves the original NodeQuality API and every receipt schema.
+INPUT_PROFILE = None
 CAPACITY_KIND = 'sinan-nodequality-factory-capacity'
 DEFAULT_MAX_OUTPUT = 4 * 1024 * 1024 * 1024
 DEFAULT_RESERVE_FREE = 512 * 1024 * 1024
@@ -906,6 +909,8 @@ def cleanup_output(output, guard_mounts=False, capacity=None, expected_identity=
                 require(FactoryCapacity.identity(output) == expected_identity[0]
                         and FactoryCapacity.identity(output.parent) == expected_identity[1],
                         'cleanup blocked by replaced owned directory')
+            if INPUT_PROFILE is not None:
+                INPUT_PROFILE.ensure_cleanup_safe(output)
             if capacity is not None:
                 require(capacity.identity(output) == capacity.output_identity
                         and capacity.identity(output.parent) == capacity.parent_identity,
@@ -1020,6 +1025,9 @@ def prepare(lock_path, cache, output, approved_image, max_output_bytes=DEFAULT_M
     lock_bytes = read_regular(lock_path, MAX_LOCK, deadline)
     lock = decode(lock_bytes)
     validate_lock(lock)
+    if INPUT_PROFILE is not None:
+        INPUT_PROFILE.require_prepare_context(output, deadline)
+        require(lock_bytes == canonical(lock) + b'\n', 'profile input lock must retain its canonical binding bytes')
     verify_tools(lock, approved_image, {'gpgv'}, deadline)
     plan = admit_factory('prepare', lock, output, max_output_bytes, reserve_free_bytes, reserve_free_inodes)
     requested_output, output = output, None
@@ -1034,6 +1042,9 @@ def prepare(lock_path, cache, output, approved_image, max_output_bytes=DEFAULT_M
         deadline.capacity = capacity
         capacity.write(output / 'capacity-plan.json', canonical(plan) + b'\n')
         inventory, signatures = verify_inputs(lock, cache, approved_image, deadline)
+        profile = INPUT_PROFILE.prepare(lock, cache, output, deadline) if INPUT_PROFILE is not None else None
+        if INPUT_PROFILE is not None:
+            capacity = deadline.capacity
         capacity.write(output / 'inputs-lock.json', lock_bytes)
         for value, limit in all_descriptors(lock):
             target = output / 'input-cache' / value['blob']
@@ -1057,20 +1068,22 @@ def prepare(lock_path, cache, output, approved_image, max_output_bytes=DEFAULT_M
                    'source_inventory_sha256': file_identity(output / 'source-inventory.json', MAX_LOCK, deadline)['sha256'],
                    'approved_builder_image_sha256': approved_image, 'signatures': signatures,
                    'full_ready': False, 'reproducibility_verified': False}
+        if profile is not None:
+            receipt['profile_proof_sha256'] = profile['sha256']
         capacity.write(output / 'prepared.json', canonical(receipt) + b'\n')
         capacity.finish()
         complete = True
         return receipt
     except BaseException as error:
         if output is not None:
-            evidence = preserve_factory_failure(output, 'prepare', error, capacity)
+            evidence = preserve_factory_failure(output, 'prepare', error, deadline.capacity if INPUT_PROFILE is not None else capacity)
         raise
     finally:
         if not complete and output is not None:
             removed = cleanup_output(output, guard_mounts=sys.platform == 'linux', capacity=capacity,
                                      expected_identity=owned_identity)
             if evidence is None and removed and sys.exc_info()[1] is not None:
-                evidence = preserve_factory_failure(output, 'prepare', sys.exc_info()[1], capacity)
+                evidence = preserve_factory_failure(output, 'prepare', sys.exc_info()[1], deadline.capacity if INPUT_PROFILE is not None else capacity)
             record_factory_cleanup(evidence, removed, sys.exc_info()[1])
 
 
@@ -1111,6 +1124,9 @@ def verify_prepared(prepared_dir, approved_builder_image_sha256, _deadline=None)
     prepared_dir = private_directory(prepared_dir)
     lock_bytes = read_regular(prepared_dir / 'inputs-lock.json', MAX_LOCK, deadline)
     lock = decode(lock_bytes)
+    if INPUT_PROFILE is not None and deadline.capacity is None:
+        with INPUT_PROFILE.admission(prepared_dir.parent, deadline, 'verify-prepared'):
+            return verify_prepared(prepared_dir, approved_builder_image_sha256, _deadline=deadline)
     inventory, signatures = verify_inputs(lock, prepared_dir / 'input-cache', approved_builder_image_sha256, deadline)
     verify_mirrors(prepared_dir, lock, deadline)
     receipt = decode(read_regular(prepared_dir / 'prepared.json', MAX_LOCK, deadline))
@@ -1118,11 +1134,18 @@ def verify_prepared(prepared_dir, approved_builder_image_sha256, _deadline=None)
                 'source_inventory_sha256': digest(canonical(inventory) + b'\n'),
                 'approved_builder_image_sha256': approved_builder_image_sha256, 'signatures': signatures,
                 'full_ready': False, 'reproducibility_verified': False}
+    profile = INPUT_PROFILE.verify(prepared_dir, lock, deadline) if INPUT_PROFILE is not None else None
+    if profile is not None:
+        expected['profile_proof_sha256'] = profile['sha256']
     require(receipt == expected and read_regular(prepared_dir / 'source-inventory.json', MAX_LOCK, deadline) == canonical(inventory) + b'\n', 'prepared receipt/inventory differs from authenticated inputs')
-    return {'schema': 1, 'arch': lock['arch'], 'lock': lock, 'directory': str(prepared_dir),
+    result = {'schema': 1, 'arch': lock['arch'], 'lock': lock, 'directory': str(prepared_dir),
             'inputs_lock_sha256': digest(lock_bytes), 'source_inventory_sha256': expected['source_inventory_sha256'],
             'source_inventory': inventory, 'build_tool_sha256': file_identity(__file__, MAX_LOCK, deadline)['sha256'],
             'approved_builder_image_sha256': approved_builder_image_sha256}
+    if profile is not None:
+        result.update(profile_proof=profile['proof'], profile_proof_bytes=profile['bytes'],
+                      profile_proof_sha256=profile['sha256'])
+    return result
 
 
 def build_plan(prepared, tree):
@@ -1291,6 +1314,8 @@ def build(prepared_dir, output, approved_image, max_output_bytes=DEFAULT_MAX_OUT
         deadline.capacity = capacity
         capacity.write(output / 'capacity-plan.json', canonical(capacity_plan_value) + b'\n')
         prepared = verify_prepared(prepared_dir, approved_image, _deadline=deadline)
+        if INPUT_PROFILE is not None:
+            capacity = deadline.capacity
         tree = output / 'tree'
         plan = build_plan(prepared, tree)
         capacity.write(output / 'build-plan.json', canonical({'schema': 1, 'argv': plan, 'source_epoch': lock['source_epoch']}) + b'\n')
@@ -1304,19 +1329,21 @@ def build(prepared_dir, output, approved_image, max_output_bytes=DEFAULT_MAX_OUT
                    'source_inventory_sha256': prepared['source_inventory_sha256'], 'build_tool_sha256': prepared['build_tool_sha256'],
                    'builder': lock['builder'], 'tree_entries_sha256': digest(canonical(entries)), 'installed_packages': installed,
                    'build_log_sha256': digest(log), 'full_ready': False, 'reproducibility_verified': False}
+        if INPUT_PROFILE is not None:
+            receipt['profile_proof_sha256'] = prepared['profile_proof_sha256']
         capacity.write(output / 'build-receipt.json', canonical(receipt) + b'\n')
         capacity.finish()
         complete = True
         return receipt
     except BaseException as error:
         if output is not None:
-            evidence = preserve_factory_failure(output, 'build', error, capacity)
+            evidence = preserve_factory_failure(output, 'build', error, deadline.capacity if INPUT_PROFILE is not None else capacity)
         raise
     finally:
         if not complete and output is not None:
             removed = cleanup_output(output, guard_mounts=True, capacity=capacity, expected_identity=owned_identity)
             if evidence is None and removed and sys.exc_info()[1] is not None:
-                evidence = preserve_factory_failure(output, 'build', sys.exc_info()[1], capacity)
+                evidence = preserve_factory_failure(output, 'build', sys.exc_info()[1], deadline.capacity if INPUT_PROFILE is not None else capacity)
             record_factory_cleanup(evidence, removed, sys.exc_info()[1])
 
 
@@ -1411,31 +1438,38 @@ def export(tree, prepared_dir, output, approved_image, outer_reserve_bytes,
         deadline.capacity = capacity
         capacity.write(output / 'capacity-plan.json', canonical(plan) + b'\n')
         result = export_into(tree, prepared_dir, output, approved_image, outer_reserve_bytes, deadline, capacity)
+        if INPUT_PROFILE is not None:
+            capacity = deadline.capacity
         capacity.finish()
         complete = True
         return result
     except BaseException as error:
         if output is not None:
-            evidence = preserve_factory_failure(output, 'export', error, capacity)
+            evidence = preserve_factory_failure(output, 'export', error, deadline.capacity if INPUT_PROFILE is not None else capacity)
         raise
     finally:
         if not complete and output is not None:
             removed = cleanup_output(output, guard_mounts=sys.platform == 'linux', capacity=capacity,
                                      expected_identity=owned_identity)
             if evidence is None and removed and sys.exc_info()[1] is not None:
-                evidence = preserve_factory_failure(output, 'export', sys.exc_info()[1], capacity)
+                evidence = preserve_factory_failure(output, 'export', sys.exc_info()[1], deadline.capacity if INPUT_PROFILE is not None else capacity)
             record_factory_cleanup(evidence, removed, sys.exc_info()[1])
 
 
 def export_into(tree, prepared_dir, output, approved_image, outer_reserve_bytes, deadline, capacity):
     prepared = verify_prepared(prepared_dir, approved_image, _deadline=deadline)
+    if INPUT_PROFILE is not None:
+        capacity = deadline.capacity
     tree = private_directory(tree)
     entries = tree_entries(tree, deadline)
     installed = installed_packages(tree, prepared)
     build_receipt = decode(read_regular(tree.parent / 'build-receipt.json', MAX_LOCK, deadline))
-    require(isinstance(build_receipt, dict) and set(build_receipt) == {'schema', 'arch', 'inputs_lock_sha256',
+    build_fields = {'schema', 'arch', 'inputs_lock_sha256',
             'source_inventory_sha256', 'build_tool_sha256', 'builder', 'tree_entries_sha256',
             'installed_packages', 'build_log_sha256', 'full_ready', 'reproducibility_verified'}
+    if INPUT_PROFILE is not None:
+        build_fields.add('profile_proof_sha256')
+    require(isinstance(build_receipt, dict) and set(build_receipt) == build_fields
             and build_receipt.get('schema') == 1 and build_receipt.get('arch') == prepared['arch']
             and build_receipt.get('inputs_lock_sha256') == prepared['inputs_lock_sha256']
             and build_receipt.get('source_inventory_sha256') == prepared['source_inventory_sha256']
@@ -1446,6 +1480,9 @@ def export_into(tree, prepared_dir, output, approved_image, outer_reserve_bytes,
             and build_receipt.get('build_log_sha256') == file_identity(tree.parent / 'build.log', MAX_LOCK, deadline)['sha256']
             and build_receipt.get('full_ready') is False and build_receipt.get('reproducibility_verified') is False,
             'tree lacks the matching preparation build receipt')
+    if INPUT_PROFILE is not None:
+        require(build_receipt['profile_proof_sha256'] == prepared['profile_proof_sha256'],
+                'tree belongs to another minimal input profile')
     require(type(outer_reserve_bytes) is int and 0 < outer_reserve_bytes < MAX_ARCHIVE, 'explicit outer runner/license/tar reserve required')
     licenses = license_inventory(tree, entries, installed)
     lock_bytes = read_regular(Path(prepared['directory']) / 'inputs-lock.json', MAX_LOCK, deadline)
@@ -1457,9 +1494,13 @@ def export_into(tree, prepared_dir, output, approved_image, outer_reserve_bytes,
                   'inputs_lock_sha256': digest(lock_bytes), 'source_inventory_sha256': digest(source_bytes),
                   'license_inventory_sha256': digest(license_bytes), 'build_tool_sha256': prepared['build_tool_sha256'],
                   'pending_capabilities': PENDING}
+    if INPUT_PROFILE is not None:
+        provenance['profile_proof_sha256'] = prepared['profile_proof_sha256']
     virtual = {META_DIR + '/provenance.json': canonical(provenance) + b'\n',
                META_DIR + '/inputs-lock.json': lock_bytes, META_DIR + '/source-inventory.json': source_bytes,
                META_DIR + '/license-inventory.json': license_bytes}
+    if INPUT_PROFILE is not None:
+        virtual[META_DIR + '/ipquality-profile.json'] = prepared['profile_proof_bytes']
     require(all(len(content) <= MAX_METADATA for content in virtual.values()), 'embedded provenance/inventory exceeds 1 MiB')
     paths = {entry['path']: entry for entry in entries}
     for parent in ('usr', 'usr/share', META_DIR):
@@ -1524,25 +1565,43 @@ def export_into(tree, prepared_dir, output, approved_image, outer_reserve_bytes,
                    'license_inventory_sha256': digest(license_bytes), 'provenance_sha256': digest(canonical(provenance) + b'\n'),
                    'build_tool_sha256': prepared['build_tool_sha256'], 'outer_reserve_bytes': outer_reserve_bytes,
                    'full_ready': False, 'reproducibility_verified': False}
+        if INPUT_PROFILE is not None:
+            receipt['profile_proof_sha256'] = prepared['profile_proof_sha256']
         capacity.write(output / 'export-receipt.json', canonical(receipt) + b'\n')
         return receipt
 
 
-def verify_export(rootfs_directory, prepared, arch):
-    deadline = Deadline(EXPORT_SECONDS)
+def verify_export(rootfs_directory, prepared, arch, _deadline=None):
+    deadline = _deadline or Deadline(EXPORT_SECONDS)
     directory = private_directory(rootfs_directory)
+    if INPUT_PROFILE is not None and deadline.capacity is None:
+        with INPUT_PROFILE.admission(directory.parent, deadline, 'verify-export'):
+            return verify_export(rootfs_directory, prepared, arch, _deadline=deadline)
+    if INPUT_PROFILE is not None:
+        authenticated = verify_prepared(prepared['directory'], prepared['approved_builder_image_sha256'], _deadline=deadline)
+        require(authenticated == prepared, 'export preparation differs from fresh minimal profile admission')
     require(arch in ARCHES and arch == prepared['arch'], 'export architecture mismatch')
     receipt = decode(read_regular(directory / 'export-receipt.json', MAX_LOCK, deadline))
     fields = {'schema', 'arch', 'archive', 'manifest', 'inputs_lock_sha256', 'source_inventory_sha256',
               'license_inventory_sha256', 'provenance_sha256', 'build_tool_sha256', 'outer_reserve_bytes',
               'full_ready', 'reproducibility_verified'}
+    if INPUT_PROFILE is not None:
+        fields.add('profile_proof_sha256')
     require(isinstance(receipt, dict) and set(receipt) == fields and receipt['schema'] == 1 and receipt['arch'] == arch,
             'invalid export receipt')
     require(receipt['full_ready'] is False and receipt['reproducibility_verified'] is False, 'preparation cannot claim full/reproducible certification')
     for name, key, limit in (('rootfs.tar.gz', 'archive', MAX_ARCHIVE), ('rootfs-manifest.json', 'manifest', MAX_LOCK)):
         require(receipt[key] == file_identity(directory / name, limit, deadline), 'exported artifact differs from its receipt')
-    for name, key in (('inputs-lock.json', 'inputs_lock_sha256'), ('source-inventory.json', 'source_inventory_sha256'),
-                      ('license-inventory.json', 'license_inventory_sha256'), ('provenance.json', 'provenance_sha256')):
+    inventory_files = [('inputs-lock.json', 'inputs_lock_sha256'), ('source-inventory.json', 'source_inventory_sha256'),
+                       ('license-inventory.json', 'license_inventory_sha256'), ('provenance.json', 'provenance_sha256')]
+    if INPUT_PROFILE is not None:
+        inventory_files.append(('ipquality-profile.json', 'profile_proof_sha256'))
+        require(receipt['profile_proof_sha256'] == prepared['profile_proof_sha256'],
+                'export belongs to another minimal input profile')
+        proof = decode(read_regular(directory / 'ipquality-profile.json', MAX_METADATA, deadline))
+        INPUT_PROFILE.validate_public(proof, prepared['lock'], deadline)
+        require(proof == prepared['profile_proof'], 'export changed the exact minimal profile')
+    for name, key in inventory_files:
         require(file_identity(directory / name, MAX_LOCK, deadline)['sha256'] == receipt[key], 'exported inventory/provenance checksum mismatch')
     require(receipt['inputs_lock_sha256'] == prepared['inputs_lock_sha256']
             and receipt['source_inventory_sha256'] == prepared['source_inventory_sha256']
@@ -1555,20 +1614,22 @@ def verify_export(rootfs_directory, prepared, arch):
             and manifest['entries_sha256'] == digest(canonical(manifest['entries'])),
             'export manifest archive/entries binding mismatch')
     metadata = {entry['path']: entry for entry in manifest.get('entries', []) if isinstance(entry, dict)}
-    for name, key in (('inputs-lock.json', 'inputs_lock_sha256'), ('source-inventory.json', 'source_inventory_sha256'),
-                      ('license-inventory.json', 'license_inventory_sha256'), ('provenance.json', 'provenance_sha256')):
+    for name, key in inventory_files:
         entry = metadata.get(META_DIR + '/' + name)
         require(entry is not None and entry.get('type') == 'file' and entry.get('sha256') == receipt[key],
                 'inventory/provenance is not bound into runtime manifest')
         require(entry.get('size') == len(read_regular(directory / name, MAX_METADATA, deadline)),
                 'embedded inventory/provenance size differs from its sidecar')
     provenance = decode(read_regular(directory / 'provenance.json', MAX_LOCK, deadline))
-    require(provenance == {'schema': 1, 'kind': PROVENANCE_KIND, 'arch': arch, 'full_ready': False,
+    expected_provenance = {'schema': 1, 'kind': PROVENANCE_KIND, 'arch': arch, 'full_ready': False,
             'source_authenticated': True, 'reproducibility_verified': False,
             'source_epoch': prepared['lock']['source_epoch'], 'builder': prepared['lock']['builder'],
             'inputs_lock_sha256': prepared['inputs_lock_sha256'], 'source_inventory_sha256': prepared['source_inventory_sha256'],
             'license_inventory_sha256': receipt['license_inventory_sha256'], 'build_tool_sha256': prepared['build_tool_sha256'],
-            'pending_capabilities': PENDING}, 'unrecognized preparation provenance')
+            'pending_capabilities': PENDING}
+    if INPUT_PROFILE is not None:
+        expected_provenance['profile_proof_sha256'] = prepared['profile_proof_sha256']
+    require(provenance == expected_provenance, 'unrecognized preparation provenance')
     reserve = receipt['outer_reserve_bytes']
     require(type(reserve) is int and 0 < reserve < MAX_ARCHIVE
             and receipt['archive']['size'] + receipt['manifest']['size'] + reserve <= MAX_ARCHIVE,

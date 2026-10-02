@@ -1,5 +1,13 @@
 # 执行进度
 
+## 2026-10-02：IPQuality 最小闭包贯穿工厂（整步实现与集中验收）
+
+- 静态检查确认原工厂只要求十一种直接包存在，完整 NodeQuality 库存也可满足；已创建 [Issue #146](https://github.com/theLucius7/sinan/issues/146) 并加入现有 milestone。现已补齐真实派生重验证、隔离求解、精确包／源公开证明及 prepare/build/export/制品的同一摘要链；私有父身份保存在准备上下文，共用扩展默认关闭。设计及结果见 [ADR 0053](docs/adr/0053-ipquality-minimal-profile-chain.md) 和 [本步验收](docs/acceptance/ipquality-minimal-profile.md)。
+- 集中实现后冻结 678 份功能输入，SHA256 `34303534adf539eac2d91a45b4d8793c7f56dd35a3d56e7ce9701b100b520053`。八组工具合同有效去重 230 通过、0 跳过／失败／错误；首轮新增夹具模块替换范围错误修复后，只补验受影响的 15 项，产品及其它受验输入保持。两个未改容量算法的 600 MiB loop 场景提前具名排除，不计通过，初始日志保留。
+- 专用 Debian 12 ARM64 增加独立 1536 MiB 输出盘，正常停机／启动两次，关闭自动格式化后 UUID 保持，原根盘和父缓存不变。首次空 slice 识别拒绝发生在存储动作前，原记录保留；仅修明确无进程、无活跃子服务的稳定观察，未知仍拒绝。
+- 仅一次真实离线派生成功，约 14.33 秒，从旧只读缓存选出 130 包、91 对应源版本、289 源文件，无新增下载或正文复制。新输出峰值约 58.53 MiB，结束可用约 1.34 GiB；256 MiB 单元内有回收压力、OOM 为 0，管理预留保持，所属进程／挂载／cgroup 清理确认，存储变更后 SSH／启动基线保持。实际 prepare/build/export 尚未执行，不能将派生成功当作工厂或 Agent／持续代理联合运行通过。
+- 518 份既有 Rust／前端输入相对 `e538744` 逐字不变，未重复测试／构建；core 分层与 diff 检查通过。最终集中验收后整步一次提交，不新增逐项 PR。最小 builder、许可、完整 rootfs、签名／部署、完整 NodeQuality 与 sing-box 联合负载、混合链路及整体整改门禁保持，CI 继续暂停。
+
 ## 2026-10-02：最小 IPQuality Debian 输入派生（整步实现与集中验收）
 
 - 核对当前独立 ARM64 Debian 12 guest 仍运行，现有完整包/对应源材料保留；aws-jp0 单次只读 SSH 在 banner 阶段超时，未执行远程负载。现有镜像和 builder 缺独立启动身份、mmdebstrap/hook 与审批证据，不能以 CLI 摘要相等宣布通过。

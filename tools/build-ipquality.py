@@ -278,7 +278,8 @@ def source_files(bundle_path, review_path, guard):
     sources['plugins/ipquality/SOURCE.md'] = read(artifact.PLUGIN / 'SOURCE.md', artifact.MAX_RUNNER, guard)
     for name in ('tools/build-ipquality.py', 'tools/ipquality_artifact.py', 'tools/ipquality-rootfs.py',
                  'tools/nodequality-rootfs-build.py', 'tools/nodequality-rootfs-collect.py',
-                 'tools/ipquality-inputs.py', 'tools/ipquality-inputs-capacity.py', 'LICENSE'):
+                 'tools/ipquality-inputs.py', 'tools/ipquality-inputs-capacity.py',
+                 'tools/ipquality-profile.py', 'LICENSE'):
         sources[name] = read(artifact.ROOT / name, artifact.MAX_SOURCE, guard)
     sources['license-review.json'] = read(review_path, artifact.MAX_SOURCE, guard)
     return sources, transformed
@@ -346,7 +347,8 @@ def augment(archive_path, manifest_bytes, transformed, arch, directory, guard):
     changed_bytes = artifact.canonical(changed)
     helper.verify_archive(output, helper.load_manifest(changed_bytes, arch))
     metadata = helper.read_metadata(output, changed, ['usr/share/sinan-rootfs/' + name for name in
-                                    ('provenance.json', 'inputs-lock.json', 'source-inventory.json', 'license-inventory.json')])
+                                    ('provenance.json', 'inputs-lock.json', 'source-inventory.json', 'license-inventory.json',
+                                     'ipquality-profile.json')])
     return output, changed_bytes, metadata
 
 
@@ -515,6 +517,7 @@ def build(args):
             return value
         factory.Deadline = bounded_deadline
         prepared = factory.verify_prepared(args.prepared_directory, args.approved_builder_image_sha256, _deadline=deadline)
+        guard = deadline.capacity
         artifact.ensure(prepared['lock'] == lock and prepared['arch'] == args.arch,
                         'authenticated preparation differs from admitted identity')
         factory.verify_export(args.rootfs_directory, prepared, args.arch)
@@ -528,7 +531,7 @@ def build(args):
                         and all(isinstance(review_value.get(key), str) and review_value[key].strip()
                                 for key in ('reviewer', 'evidence')), 'license review declaration is empty')
         artifact.check_license_review(review_value, metadata, artifact.decode(changed))
-        for name in ('inputs-lock.json', 'source-inventory.json', 'license-inventory.json'):
+        for name in ('inputs-lock.json', 'source-inventory.json', 'license-inventory.json', 'ipquality-profile.json'):
             sources['debian/' + name] = metadata['usr/share/sinan-rootfs/' + name]
         mini_path = directory / 'source.tar.gz'
         pack_files(mini_path, sources, artifact.MAX_SOURCE, guard)

@@ -5,6 +5,7 @@ The existing source authentication, native builder approval, exact package/sourc
 closure, capacity guards and failure evidence are retained. Profile selection does
 not approve a builder, grant a license or run a diagnostic.
 """
+import argparse
 import importlib.util
 from pathlib import Path
 import sys
@@ -34,6 +35,8 @@ def factory():
     build.TOOL_PACKAGES = dict(TOOLS)
     build.PROVENANCE_KIND = KIND
     build.PENDING = ['IPQuality: independent source policy, license review and node acceptance are separate']
+    profile = module('sinan_ipquality_minimal_factory_profile', ROOT / 'tools/ipquality-profile.py')
+    build.INPUT_PROFILE = profile.Profile(build, TOOLS)
     return build
 
 
@@ -52,6 +55,24 @@ def main():
     if chosen == 'derive' or (chosen == 'bind' and any(
             value == '--derived-inputs' or value.startswith('--derived-inputs=') for value in sys.argv[2:])):
         return module('sinan_ipquality_input_derivation', ROOT / 'tools/ipquality-inputs.py').main()
+    if chosen == 'prepare':
+        build = factory()
+        parser = argparse.ArgumentParser(description=__doc__)
+        parser.add_argument('operation', choices=('prepare',))
+        for name in ('lock', 'cache', 'derived-inputs', 'derived-binding', 'output'):
+            parser.add_argument('--' + name, type=Path, required=True)
+        parser.add_argument('--approved-builder-image-sha256', required=True)
+        parser.add_argument('--max-output-bytes', type=int, default=build.DEFAULT_MAX_OUTPUT)
+        parser.add_argument('--reserve-free-bytes', type=int, default=build.DEFAULT_RESERVE_FREE)
+        parser.add_argument('--reserve-free-inodes', type=int, default=build.DEFAULT_RESERVE_INODES)
+        args = parser.parse_args()
+        build.INPUT_PROFILE.prepare_context = {'derived_inputs': args.derived_inputs,
+                                               'derived_binding': args.derived_binding}
+        with build.cli_signals():
+            result = build.prepare(args.lock, args.cache, args.output, args.approved_builder_image_sha256,
+                                   args.max_output_bytes, args.reserve_free_bytes, args.reserve_free_inodes)
+        print(build.canonical(result).decode('ascii'))
+        return 0
     return (collector() if chosen in ('collect', 'bind') else factory()).main()
 
 

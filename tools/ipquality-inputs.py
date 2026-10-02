@@ -27,6 +27,7 @@ MAX_LEDGER_FILES = 16384
 SNAPSHOT_FIELDS = ('dev', 'ino', 'size', 'sha256', 'mode', 'uid', 'gid',
                    'mtime_ns', 'ctime_ns', 'nlink')
 CODE_FILES = ('tools/ipquality-inputs.py', 'tools/ipquality-rootfs.py',
+              'tools/ipquality-profile.py',
               'tools/ipquality-inputs-capacity.py', 'tools/nodequality-rootfs-collect.py',
               'tools/nodequality-rootfs-build.py')
 

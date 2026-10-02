@@ -161,6 +161,84 @@ class RootfsBuildTests(unittest.TestCase):
             repo['indices'][0]['path'] = 'main/binary-arm64/Packages.gz'
         BUILD.validate_lock(arm)
 
+    def test_default_profile_none_preserves_prepared_and_export_receipt_fields(self):
+        self.assertIsNone(BUILD.INPUT_PROFILE)
+        directory, prepared, receipt = self.export_fixture()
+        self.assertNotIn('profile_proof', prepared)
+        self.assertNotIn('profile_proof_sha256', receipt)
+        self.assertNotIn('profile_proof_sha256', BUILD.decode(
+            (self.root / 'prepared/prepared.json').read_bytes()))
+        names = {entry['path'] for entry in BUILD.decode(
+            (directory / 'rootfs-manifest.json').read_bytes())['entries']}
+        self.assertNotIn(BUILD.META_DIR + '/ipquality-profile.json', names)
+        self.assertFalse((directory / 'ipquality-profile.json').exists())
+        self.assertEqual(BUILD.verify_export(directory, prepared, 'amd64'), receipt)
+
+    def profiled_export_fixture(self):
+        # This isolates generic callback propagation. The separate profile
+        # suite exercises real parent authentication and fresh offline replay.
+        prepared = self.prepare_fixture()
+        tree, prepared = self.inert_tree(prepared)
+        proof = {'schema': 1, 'scope': 'TEST_ONLY callback propagation, not profile approval'}
+        content = BUILD.canonical(proof) + b'\n'
+        prepared.update(profile_proof=proof, profile_proof_bytes=content,
+                        profile_proof_sha256=BUILD.digest(content))
+        receipt = BUILD.decode((tree.parent / 'build-receipt.json').read_bytes())
+        receipt['profile_proof_sha256'] = prepared['profile_proof_sha256']
+        (tree.parent / 'build-receipt.json').write_bytes(BUILD.canonical(receipt))
+        profile = types.SimpleNamespace(ensure_cleanup_safe=lambda output: None,
+                                        validate_public=lambda value, lock, deadline=None: value)
+        return tree, prepared, profile
+
+    def test_profile_callback_proof_is_carried_into_export_provenance_and_runtime(self):
+        tree, prepared, profile = self.profiled_export_fixture()
+        destination = self.root / 'profile-export'
+        with mock.patch.object(BUILD, 'INPUT_PROFILE', profile), \
+                mock.patch.object(BUILD, 'verify_prepared', return_value=prepared), \
+                mock.patch.object(BUILD, 'verify_tools'), \
+                mock.patch.object(BUILD, 'TOOL_PACKAGES', {'bash': 'fixture'}):
+            receipt = BUILD.export(tree, self.root / 'prepared', destination, APPROVED, 10240)
+            deadline = BUILD.Deadline(60)
+            deadline.capacity = types.SimpleNamespace(check=lambda *args, **kwargs: None)
+            self.assertEqual(BUILD.verify_export(destination, prepared, 'amd64', _deadline=deadline), receipt)
+        self.assertEqual(receipt['profile_proof_sha256'], prepared['profile_proof_sha256'])
+        self.assertEqual((destination / 'ipquality-profile.json').read_bytes(), prepared['profile_proof_bytes'])
+        provenance = BUILD.decode((destination / 'provenance.json').read_bytes())
+        self.assertEqual(provenance['profile_proof_sha256'], prepared['profile_proof_sha256'])
+        with tarfile.open(destination / 'rootfs.tar.gz', 'r:gz') as archive:
+            self.assertEqual(archive.extractfile(BUILD.META_DIR + '/ipquality-profile.json').read(),
+                             prepared['profile_proof_bytes'])
+
+    def test_profile_from_another_preparation_rejects_export_and_cleans_owned_output(self):
+        tree, prepared, profile = self.profiled_export_fixture()
+        receipt = BUILD.decode((tree.parent / 'build-receipt.json').read_bytes())
+        receipt['profile_proof_sha256'] = 'f' * 64
+        (tree.parent / 'build-receipt.json').write_bytes(BUILD.canonical(receipt))
+        destination = self.root / 'rejected-profile-export'
+        with mock.patch.object(BUILD, 'INPUT_PROFILE', profile), \
+                mock.patch.object(BUILD, 'verify_prepared', return_value=prepared), \
+                mock.patch.object(BUILD, 'verify_tools'), \
+                mock.patch.object(BUILD, 'TOOL_PACKAGES', {'bash': 'fixture'}), \
+                self.assertRaisesRegex(ValueError, 'another minimal input profile'):
+            BUILD.export(tree, self.root / 'prepared', destination, APPROVED, 10240)
+        self.assertFalse(destination.exists())
+        self.assertTrue(tree.is_dir())
+
+    def test_profile_cleanup_callback_blocks_recursive_removal_of_foreign_scratch(self):
+        output = self.root / 'owned-output'
+        output.mkdir(mode=0o700)
+        replacement = output / 'replacement-scratch'
+        replacement.mkdir(mode=0o700)
+        foreign = replacement / 'preserve.txt'
+        foreign.write_bytes(b'foreign replacement must survive')
+        profile = types.SimpleNamespace(ensure_cleanup_safe=mock.Mock(
+            side_effect=ValueError('cleanup blocked by replaced minimal profile scratch')))
+        with mock.patch.object(BUILD, 'INPUT_PROFILE', profile), \
+                self.assertRaisesRegex(ValueError, 'replaced minimal profile scratch'):
+            BUILD.cleanup_output(output)
+        self.assertEqual(foreign.read_bytes(), b'foreign replacement must survive')
+        profile.ensure_cleanup_safe.assert_called_once_with(output)
+
     def test_missing_tool_source_security_or_fixed_input_rejected(self):
         variants = []
         value = copy.deepcopy(self.lock)

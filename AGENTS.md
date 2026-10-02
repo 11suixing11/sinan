@@ -29,6 +29,7 @@
 - 周期拨测按 [ADR 0050](docs/adr/0050-authorized-probe-leases.md) 明确记录来源、地区和自有/第三方同意依据；新设备只凭绑定身份、配置版本和单调期限的短租约执行，不恢复旧一天缓存。旧八字段 `ProbeSpec` 及已有历史保持，旧 Agent 的离线窗口不能冒称已修复；授权证据不得进入匿名看板。
 - 节点出口 IPQuality 按 [ADR 0051](docs/adr/0051-independent-node-ipquality.md) 使用独立固定源和最小离线 rootfs，不依赖商业硬件工具；章节认证、版本和真实归档身份核对后同事务投影逐来源缓存，单调任务序号阻止旧回报倒灌。NAT 出口与网卡地址分别展示，部分结果、失败和取消不抹掉最近成功。外层签名的 notice 必须绑定完整配套对应源资产，不能用库存或 URLs 代替真实源包；源码准备不等于实机签收、许可审批或正式发布。
 - 最小 IPQuality 输入按 [ADR 0052](docs/adr/0052-ipquality-derived-debian-inputs.md) 从重新认证的完整 Debian 缓存显式派生：只读借用原缓存、隔离离线求解精确子闭包，记录父收据、profile、正文身份及新增空间；不改旧 collection kind、不把候选或哈希相等当 builder 审批。签名索引的有界展开预算不能由旧采样替代，资源拒绝不降低管理预留。
+- IPQuality 最小 profile 按 [ADR 0053](docs/adr/0053-ipquality-minimal-profile-chain.md) 贯穿 prepare、build、export 和制品核对：重新认证派生与绑定，精确包／源库存保持一致；只含必需包或工具集合匹配不能证明最小。公开证明与私有父身份上下文分开，共用工厂扩展默认关闭，不降低 NodeQuality 或 builder 审批门禁。
 - 离线诊断工厂按 [ADR 0048](docs/adr/0048-nodequality-factory-capacity.md) 对 prepare/build/export 分阶段核算副本、树、临时文件和收据，准入与动态守卫均保留管理空间和 inode。容量计划不是来源认证或镜像审批，动态轮询不是内核硬配额；失败原日志与清理结果分别留存，不为取证重跑构建，也不删除旧材料来腾空间。
 - 系统管理员与代理用户分别命名；服务器网卡总流量留在 core。计量 `epoch` 只标记计数器重置，不得用作套餐周期。业务搬迁保留用户 ID、令牌、旧订阅路径、节点凭据、授权和历史流量，数据库表先不改名。
 - 诊断任务生命周期、资源预算、持久化、取消及历史由共用服务管理；插件只转换参数、执行和解析报告，见 [ADR 0028](docs/adr/0028-shared-diagnostic-job-service.md)。后续插件登记代码可以经独立审查和相称验证后合入准备；NodeQuality 迁移及前置阶段的实机验收通过后，才能签收、正式发布或部署后续新增诊断能力。
