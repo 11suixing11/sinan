@@ -156,19 +156,36 @@ def watcher_live(row):
 
 
 def signal_owned_group(row, number):
-    # Each process here was created with start_new_session=True by this test.
-    # A live, unreaped direct child reserves its PID/group. After it is reaped,
-    # observe a watcher's self-exit without signaling the historical PGID.
+    # Each row binds the private PID/group at start_new_session=True spawn.
+    # Its direct leader stays unreaped through the last group signal.
     process = row["process"]
-    if process.reaped:
-        # Reaped owners release the numeric group ID. Observe an orphan's
-        # self-exit below; never signal a historical group after releasing it.
-        return
+    expected = (process.pid, process.pid)
+    if process.reaped is not False or row.get("spawn_group_identity") != expected:
+        raise RuntimeError("owned group signal requires its unreaped spawn identity")
     # poll observes without reaping. Even an exited leader reserves this group
     # until cleanup has signaled and observed every remaining live member.
-    process.poll()
-    if (os.getpgid(process.pid), os.getsid(process.pid)) != (process.pid, process.pid):
-        raise RuntimeError("owned direct child's process group changed")
+    status = process.poll()
+    if status is None:
+        try:
+            current = (os.getpgid(process.pid), os.getsid(process.pid))
+        except ProcessLookupError:
+            # Exit can happen after the first live observation. Only a second
+            # nonreaping exit observation permits the retained spawn identity.
+            status = process.poll()
+            if type(status) is not int or process.reaped is not False:
+                raise
+            current = None
+        if current is not None and current != expected:
+            raise RuntimeError("owned direct child's process group changed")
+    elif type(status) is not int:
+        raise RuntimeError("owned leader has no known nonreaping exit observation")
+    else:
+        # Darwin no longer exposes getpgid/getsid for an exited leader. The
+        # waitid/WNOWAIT observation retains its PID and the private spawn group.
+        current = None
+    row.setdefault("signal_observations", []).append({"signal": number,
+        "nonreaping_exit_status": status, "spawn_group_identity": expected,
+        "live_leader_group_identity": current, "identity_reservation_retained": True})
     if not group_has_live_members(process.pid):
         return
     try:
@@ -237,7 +254,8 @@ class WatcherLifecycle(unittest.TestCase):
         self.sentinel = ObservedProcess([INTERPRETER, "-B", "-c", "import time;time.sleep(60)"],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True)
-        self.groups.append({"process": self.sentinel, "watcher_pid": None, "watcher_identity": None})
+        self.groups.append({"process": self.sentinel, "watcher_pid": None, "watcher_identity": None,
+                            "spawn_group_identity": (self.sentinel.pid, self.sentinel.pid)})
         private_json(self.evidence / "test-identity.json", {"test": self.id(), "sentinel_pid": self.sentinel.pid})
 
     def diagnostics(self):
@@ -271,7 +289,8 @@ class WatcherLifecycle(unittest.TestCase):
             process, watcher_pid = row["process"], row["watcher_pid"]
             observed = {"owner_pid": process.pid, "watcher_pid": watcher_pid,
                         "readiness_bound": row.get("watcher_identity") is not None,
-                        "watcher_start_identity": row.get("watcher_start_identity")}
+                        "watcher_start_identity": row.get("watcher_start_identity"),
+                        "spawn_group_identity": row.get("spawn_group_identity")}
             observations.append(observed)
             try:
                 if process.stdin is not None and not process.stdin.closed:
@@ -304,6 +323,7 @@ class WatcherLifecycle(unittest.TestCase):
                         failures.append(type(error).__name__)
                         observed["reap_failure"] = type(error).__name__
                 observed["identity_reservation_retained"] = not process.reaped
+                observed["signal_observations"] = row.get("signal_observations", [])
         for handle in self.handles:
             handle.close()
         private_json(self.evidence / "cleanup.json", {"failures": failures, "materials_retained": True,
@@ -348,7 +368,8 @@ class WatcherLifecycle(unittest.TestCase):
             str(workspace), str(directory), "ignore" if ignored_signals else "normal"],
             stdin=subprocess.PIPE, stdout=self.handles[-2], stderr=self.handles[-1], start_new_session=True)
         row = {"process": process, "watcher_pid": None, "watcher_identity": None, "directory": directory,
-               "readiness_samples": [], "readiness_started": time.monotonic()}
+               "readiness_samples": [], "readiness_started": time.monotonic(),
+               "spawn_group_identity": (process.pid, process.pid)}
         self.groups.append(row)
         ready = directory / "owner-ready.json"
         self.wait_for(lambda: ready.exists(), "actual direct owner did not start")
@@ -402,7 +423,8 @@ class WatcherLifecycle(unittest.TestCase):
                 self.logs.extend((stdout, stderr))
                 process = ObservedProcess([INTERPRETER, "-B", str(REPORT), "watch-sections", str(workspace), value],
                     stdin=subprocess.DEVNULL, stdout=handles[0], stderr=handles[1], start_new_session=True)
-                self.groups.append({"process": process, "watcher_pid": None, "watcher_identity": None})
+                self.groups.append({"process": process, "watcher_pid": None, "watcher_identity": None,
+                                    "spawn_group_identity": (process.pid, process.pid)})
                 self.wait_for(lambda: process.poll() is not None, "invalid owner was accepted")
                 self.assertNotEqual(process.wait(timeout=2), 0, self.diagnostics())
                 self.assertFalse((workspace / "section-header_info.json").exists())
@@ -583,7 +605,8 @@ class ReadinessContracts(unittest.TestCase):
                 process = mock.Mock(pid=1234, stdin=None, reaped=False)
                 process.reap.side_effect = lambda **kwargs: setattr(process, 'reaped', True)
                 case.groups = [{'process': process, 'watcher_pid': 1235, 'watcher_identity': None,
-                                'watcher_start_identity': ('TEST_ONLY start', 1234, 1234)}]
+                                'watcher_start_identity': ('TEST_ONLY start', 1234, 1234),
+                                'spawn_group_identity': (1234, 1234)}]
                 observation = {'parent_pid': 1, 'state': 'S',
                     'identity': ('TEST_ONLY start', 'TEST_ONLY report command', 1234, 1234)} if live else None
                 with mock.patch(__name__ + '.signal_owned_group') as signal_group, \
@@ -601,8 +624,53 @@ class ReadinessContracts(unittest.TestCase):
                 self.assertEqual(bool(receipt['failures']), live)
                 actual = receipt['actual_cleanup_observations'][0]
                 self.assertFalse(actual['readiness_bound'])
-                self.assertEqual(actual['watcher_after_signals'], observation)
+                expected = dict(observation, identity=list(observation['identity'])) if live else None
+                self.assertEqual(actual['watcher_after_signals'], expected)
                 self.assertEqual(actual['identity_reservation_retained'], live)
+
+    def test_group_signals_require_known_unreaped_spawn_identity_and_exact_live_leader(self):
+        for case in ('exited', 'live', 'exit_race', 'missing_live', 'reaped', 'live_drift',
+                     'unknown_spawn', 'unknown_status', 'live_permission_error'):
+            with self.subTest(case=case):
+                process = mock.Mock(pid=1234, reaped=False)
+                process.poll.return_value = 0 if case == 'exited' else None
+                row = {'process': process, 'spawn_group_identity': (1234, 1234)}
+                if case == 'reaped':
+                    process.reaped = True
+                elif case == 'unknown_spawn':
+                    del row['spawn_group_identity']
+                elif case == 'unknown_status':
+                    process.poll.return_value = 'TEST_ONLY unknown status'
+                elif case in ('exit_race', 'missing_live'):
+                    process.poll.side_effect = (None, 0 if case == 'exit_race' else None)
+                with mock.patch.object(os, 'getpgid', return_value=5678 if case == 'live_drift' else 1234) as pgid, \
+                        mock.patch.object(os, 'getsid', return_value=1234) as sid, \
+                        mock.patch(__name__ + '.group_has_live_members', return_value=True), \
+                        mock.patch.object(os, 'killpg') as kill:
+                    if case in ('exit_race', 'missing_live'):
+                        pgid.side_effect = ProcessLookupError('TEST_ONLY leader metadata disappeared')
+                    if case == 'live_permission_error':
+                        kill.side_effect = PermissionError('TEST_ONLY live group permission error')
+                        with self.assertRaises(PermissionError):
+                            signal_owned_group(row, signal.SIGTERM)
+                    elif case in ('exited', 'live', 'exit_race'):
+                        signal_owned_group(row, signal.SIGTERM)
+                        kill.assert_called_once_with(1234, signal.SIGTERM)
+                    elif case == 'missing_live':
+                        with self.assertRaises(ProcessLookupError):
+                            signal_owned_group(row, signal.SIGTERM)
+                        kill.assert_not_called()
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            signal_owned_group(row, signal.SIGTERM)
+                        kill.assert_not_called()
+                    if case in ('exited', 'reaped', 'unknown_spawn', 'unknown_status'):
+                        pgid.assert_not_called()
+                        sid.assert_not_called()
+                    elif case in ('exit_race', 'missing_live'):
+                        pgid.assert_called_once_with(1234)
+                        sid.assert_not_called()
+                self.assertEqual(process.reaped, case == 'reaped')
 
     def test_exited_child_foreign_parent_and_changed_private_runtime_never_become_ready(self):
         for case in ('owner_exit', 'watcher_exit', 'exit_receipt', 'foreign_parent', 'foreign_group', 'changed_runtime'):
