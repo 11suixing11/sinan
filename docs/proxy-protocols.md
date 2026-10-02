@@ -16,7 +16,7 @@
 
 ## 节点连接与高级设置
 
-参考 3X-UI 的入站设置分组和 S-UI 的监听/客户端地址分离，具体原生字段按固定 sing-box 1.14.2 实现，见 [ADR 0042](adr/0042-node-settings-and-panel-operations.md) 和 [ADR 0061](adr/0061-node-options-and-background-refresh.md)。
+参考 3X-UI 的入站设置分组和 S-UI 的监听/客户端地址分离，具体原生字段按固定 sing-box 1.14.2 实现，见 [ADR 0042](adr/0042-node-settings-and-panel-operations.md) 和 [ADR 0075](adr/0075-node-options-and-background-refresh.md)。
 
 | 字段 | 行为 |
 |---|---|
