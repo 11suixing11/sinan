@@ -31,7 +31,7 @@ try {
     activePage = page
     page.on('pageerror', error => errors.push(error.message))
     await page.clock.install()
-    let now = Date.now(), signedIn = true, publicDashboard = true, refreshFailure = true, historyDenied = false
+    let now = Date.now(), signedIn = true, publicDashboard = true, refreshFailure = true, providerFailure = false, ratesReadFailure = false, historyDenied = false
     let holdWindow = '', heldHistory, holdLive = false, heldLive, holdDetail = false, heldDetail
     let probeAuthorized = true, probeError = false, probesDenied = false, probeHistoryDenied = false
     const visible = new Set([1, 2, 3]), GiB = 1024 ** 3
@@ -71,9 +71,15 @@ try {
       if (path === '/api/me') return respond(signedIn ? {} : { error: '请先登录' }, signedIn ? 200 : 401)
       if (path.startsWith('/api/dashboard/') && !signedIn && !publicDashboard) return respond({ error: '公开看板已关闭' }, 401)
       if (path === '/api/dashboard/exchange-rates') return respond(rates)
+      if (path === '/api/exchange-rates') return ratesReadFailure ? respond({ error: '测试：缓存读取失败' }, 503) : respond(rates)
+      if (path === '/api/settings') return respond({ public_dashboard: true, notification_enabled: false, offline_alerts: false, offline_minutes: 5, telegram_enabled: false, telegram_chat_id: '', telegram_token_configured: false })
+      if (path === '/api/telemetry/policy') return respond({ history_retention_days: 30 })
+      if (path === '/api/notifications/webhook') return respond({ enabled: false, preset: 'custom', url_configured: false, headers_configured: false, body_configured: false })
+      if (['/api/notifications/channels', '/api/alert-rules', '/api/servers'].includes(path)) return respond([])
       if (path === '/api/exchange-rates/refresh' && request.method() === 'POST') {
         if (refreshFailure) return respond({ error: '刷新过于频繁，请稍后重试。' }, 429)
-        rates.stale = false; rates.status = 'fresh'; rates.error_code = null
+        if (providerFailure) return respond(rates)
+        rates.stale = false; rates.status = 'fresh'; rates.error_code = null; rates.rate_date = '2026-10-01'
         return respond(rates)
       }
       if (path === '/api/dashboard/servers') return respond([...visible].map(entry))
@@ -109,25 +115,51 @@ try {
     const count = path => calls.filter(call => call === path).length
     await page.goto(`${origin}/#/dashboard`)
     await page.locator('.d-card').first().waitFor()
-    await page.getByText('实时状态 · 每 3 秒读取', { exact: true }).waitFor()
-    await page.getByText('使用上次汇率 · 2026-09-29', { exact: true }).waitFor()
-    const costs = page.getByRole('region', { name: '服务器成本总览' })
+    const costs = page.locator('.d-overview-item').filter({ has: page.getByText('资产', { exact: true }) })
     assert.match(await costs.innerText(), /CNY\s*280\.00/)
-    assert.match(await costs.innerText(), /1 台缺少所需汇率/)
-    assert.match(await page.locator('.d-card').first().innerText(), /本期流量额度/)
-    assert.match(await page.locator('.d-card').first().innerText(), /本周期剩余约 CNY\s*40\.00/)
-    await page.getByLabel('显示币种', { exact: true }).selectOption('USD')
+    assert.match(await costs.innerText(), /汇率缺失/)
+    assert.match(await page.locator('.d-card').first().innerText(), /流量/)
+    assert.match(await page.locator('.d-card').first().getByLabel('剩余价值与到期').innerText(), /CNY\s*40\.00/)
+    assert.equal(await page.getByLabel('显示币种', { exact: true }).count(), 0)
+    assert.equal(await page.getByRole('button', { name: '更新汇率', exact: true }).count(), 0)
+    const changeCurrency = async code => {
+      await page.goto(`${origin}/#/system/settings`)
+      const settings = page.locator('.exchange-rate-settings')
+      await settings.getByLabel('显示币种', { exact: false }).selectOption(code)
+      await settings.getByRole('button', { name: '保存显示币种', exact: true }).click()
+      assert.equal(await page.evaluate(() => localStorage.getItem('sinan-display-currency')), code)
+      await page.goto(`${origin}/#/dashboard`)
+      await page.locator('.d-card').first().waitFor()
+    }
+    await changeCurrency('USD')
     assert.match(await costs.innerText(), /USD\s*35\.00/)
-    await page.getByLabel('显示币种', { exact: true }).selectOption('GBP')
+    await changeCurrency('GBP')
     assert.match(await costs.innerText(), /GBP\s*5\.00/)
-    assert.match(await costs.innerText(), /2 台缺少所需汇率/)
-    await page.getByLabel('显示币种', { exact: true }).selectOption('CNY')
-    await page.getByRole('button', { name: '更新汇率', exact: true }).click()
-    await page.getByText('刷新过于频繁，请稍后重试。', { exact: false }).waitFor()
-    assert.match(await costs.innerText(), /CNY\s*280\.00/)
-    refreshFailure = false
-    await page.getByRole('button', { name: '更新汇率', exact: true }).click()
-    await page.getByText('每日参考汇率 · 2026-09-29', { exact: true }).waitFor()
+    assert.match(await costs.innerText(), /汇率缺失/)
+    await changeCurrency('CNY')
+    assert.equal(writes.length, 0, 'Changing the display preference does not write server settings or fetch provider rates')
+    await page.goto(`${origin}/#/system/settings`)
+    const exchange = page.locator('.exchange-rate-settings')
+    await exchange.getByRole('button', { name: '更新汇率', exact: true }).click()
+    await exchange.getByText('刷新过于频繁，请稍后重试。', { exact: false }).waitFor()
+    refreshFailure = false; providerFailure = true
+    await exchange.getByRole('button', { name: '更新汇率', exact: true }).click()
+    await exchange.getByText('本次未取得新汇率，已有缓存仍保留。', { exact: true }).waitFor()
+    providerFailure = false
+    ratesReadFailure = true
+    await exchange.getByRole('button', { name: '重新读取', exact: true }).click()
+    await exchange.getByText('测试：缓存读取失败', { exact: false }).waitFor()
+    assert.match(await exchange.innerText(), /2026-09-29/, 'A failed cache refresh retains the last quote and its date')
+    await exchange.getByRole('button', { name: '更新汇率', exact: true }).click()
+    await exchange.getByText('汇率已更新。', { exact: true }).waitFor()
+    await exchange.getByText('测试：缓存读取失败', { exact: false }).waitFor()
+    assert.match(await exchange.locator('.exchange-rate-meta').innerText(), /2026-10-01/, 'The successful POST quote is visible even if both surrounding GETs fail')
+    ratesReadFailure = false
+    await exchange.getByRole('button', { name: '重新读取', exact: true }).click()
+    await exchange.getByText('测试：缓存读取失败', { exact: false }).waitFor({ state: 'hidden' })
+    if (screenshots && width !== 320) await exchange.screenshot({ path: resolve(screenshots, `exchange-settings-${width}.png`) })
+    await page.goto(`${origin}/#/dashboard`)
+    await page.locator('.d-card').first().waitFor()
     const fullReads = count('/api/dashboard/servers'), liveReads = count('/api/dashboard/live')
     await advance(10_000)
     assert.equal(count('/api/dashboard/servers'), fullReads, 'Live ticks do not re-fetch asset metadata')
@@ -249,7 +281,7 @@ try {
     assert.equal(await page.getByRole('button', { name: '更新汇率', exact: true }).count(), 0)
     assert(!/EUR|CNY|本周期剩余/.test(await page.locator('.d-detail').innerText()), 'Public fallback clears private asset metadata')
     assert(!/private-probe\.example\.invalid|TEST_ONLY_PRIVATE_AUTH_SOURCE|TEST_ONLY_PRIVATE_AUTH_SCOPE/.test(await page.locator('.d-detail').innerText()), 'Public fallback cannot retain target or authorization provenance')
-    assert.equal(writes.length, 2, 'Only the two explicitly requested admin FX refreshes write')
+    assert.deepEqual(writes, Array(3).fill('/api/exchange-rates/refresh'), 'Only explicitly requested backend FX refreshes write')
     publicDashboard = false
     await advance(3000)
     await page.getByRole('heading', { name: '欢迎回来', exact: true }).waitFor()

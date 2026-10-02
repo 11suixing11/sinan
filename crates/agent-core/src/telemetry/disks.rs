@@ -17,6 +17,7 @@ enum Identity {
 #[cfg(unix)]
 struct Mount {
     identity: Identity,
+    source: OsString,
     path: PathBuf,
     file_system: OsString,
     is_file: bool,
@@ -38,6 +39,7 @@ impl Mount {
         };
         Self {
             identity,
+            source: disk.name().to_owned(),
             path,
             file_system: disk.file_system().to_owned(),
             is_file: metadata.is_some_and(|metadata| metadata.is_file()),
@@ -107,13 +109,18 @@ fn select<T>(mut mounts: Vec<(Mount, T)>) -> Vec<T> {
         .into_iter()
         .filter(|(mount, _)| {
             if cfg!(target_os = "linux") {
-                // Container overlay views reuse backing storage. Keep an overlay
+                // Container union views reuse backing storage. Keep their
                 // root when running inside a container, but omit nested views.
                 let overlay = matches!(
                     mount.file_system.to_str(),
-                    Some("overlay" | "overlayfs" | "fuse.overlayfs")
+                    Some(
+                        "overlay" | "overlayfs" | "fuse.overlayfs" | "fuse.fuse-overlayfs" | "aufs"
+                    )
                 );
-                if (overlay && mount.path != Path::new("/")) || mount.is_file {
+                if mount.is_file
+                    || (mount.path != Path::new("/")
+                        && (overlay || container_device(&mount.source)))
+                {
                     return false;
                 }
             }
@@ -121,6 +128,33 @@ fn select<T>(mut mounts: Vec<(Mount, T)>) -> Vec<T> {
         })
         .filter_map(|(mount, disk)| seen.insert(mount.identity).then_some(disk))
         .collect()
+}
+
+#[cfg(unix)]
+fn container_device(source: &std::ffi::OsStr) -> bool {
+    let Some(name) = source
+        .to_str()
+        .and_then(|source| source.strip_prefix("/dev/mapper/docker-"))
+    else {
+        return false;
+    };
+    let Some((device, remaining)) = name.split_once('-') else {
+        return false;
+    };
+    let Some((major, minor)) = device.split_once(':') else {
+        return false;
+    };
+    let Some((inode, container)) = remaining.split_once('-') else {
+        return false;
+    };
+    // Thin devices use docker-MAJOR:MINOR-INODE-LAYER, including the base layer.
+    // Ordinary LVM volumes such as docker-data and docker-pool remain visible.
+    let layer = container.strip_suffix("-init").unwrap_or(container);
+    [major, minor, inode]
+        .iter()
+        .all(|value| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()))
+        && (container == "base"
+            || (layer.len() == 64 && layer.bytes().all(|byte| byte.is_ascii_hexdigit())))
 }
 
 pub(super) fn totals(disks: &[Disk]) -> Option<(u64, u64)> {

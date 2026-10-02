@@ -1701,3 +1701,12 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 完整 Rust/隔离 PostgreSQL：770 通过、0 失败、20 条件忽略，97 个结果组，日志 `/tmp/sinan-multicloud-power-all.log`。整轮之后只补相邻日程边界及带宽/启停互斥的缓存保存，最终阿里云专项 27/27（`/tmp/sinan-multicloud-power-final-guards.log`）；不把专项重复计入整轮数。全 targets warnings-deny Clippy、fmt、core 边界与 diff 检查通过；20 忽略所需真实运行时/特权/专用环境仍未验证。
 - Bun 61/61、1331 断言、TypeScript/Vite 135 模块及最终内嵌前端测试 1/1 通过。23 个 dist 摘要在 `/tmp/sinan-alicloud-power-dist.json`，保留既有主块超过 500 kB 的体积提示。浏览器 1440/390/340 px 各 13 次模拟写全部通过，覆盖策略配置、明确确认、冲突保留、任务互斥、结束跟踪、恢复和失败禁写；截图 `/tmp/sinan-multicloud-screenshots/alicloud*.png` 已目视复核。首轮定位错误、复用删除文案和刷新就绪竞态已分别修正后重跑，不记首轮通过。
 - 未使用真实云凭据、启停真实实例、发送真实通知或做发布部署；StopCharging 实际降级/收费、RAM 限制、公网 IP 变化、库存、抢占释放、中国/国际站实际账单与余额仍待专用云资源授权验收。CI 保持暂停，未触发/重跑；不据本地通过宣称 main 远端全绿。源码提交后下一步为审查及独立真实云验收。
+
+## 2026-10-03：重新对齐 NodeFlare 服务器看板
+
+- 基于主线 `943d57f`，重新对照本地 NodeFlare `88c8a43` 的总览、工具条、卡片及线路质量布局。移除大标题、刷新说明、独立成本区、长脚注/页脚、全屏及暂停入口；搜索分组常驻，状态/地区/排序/表格按需展开。保留自动读取、隐藏取消、空值/权限错误、全部设备隐藏和真正空列表的区别，NodeFlare 许可继续随产物保留。
+- 按用户补充把币种与汇率管理移至后台“看板与通知”：显示币种沿用当前浏览器偏好；报价日期、来源、缓存表和显式更新移出看板。失败保留最近报价，200 但抓取失败不记成功，POST 新报价不因后续 GET 失败而丢失，不改原币价格、通知或自动抓取调度。
+- 跟进预付多周期/一次性剩余价值，修复连续 live 响应回退新样本；保留样本按最小 15 秒容差老化，权限与可见集合即时更新。磁盘新增真实 fuse-overlay/aufs、Docker thin 派生设备排除，保留根盘、独立分区、LVM 和既有身份去重；不会仅按路径名称误排除普通磁盘。
+- 本地 Bun 75 通过、1476 断言；TS/Vite、core 边界、fmt、Agent core 全 targets Clippy 通过。core 全 targets 270 通过、8 条件忽略；含 13 项磁盘测试。首次受沙箱影响的运行失败及之后授权重跑分开记录，没有复用此前全工作区通过数字。
+- 实际 dist 的 dashboard、server-display、server-assets、display-data、telemetry-settings、monitoring、server-operations 七套隔离浏览器回归通过，覆盖桌面/手机、真实零值/不可用、历史/目标授权、隐藏/公开切换、取消与超时及后台汇率错误。末轮缓存修复后只重跑相关 Bun/build/display-data，不声称七套最终同时重跑。截图已目视核对；细节见[本轮验证](docs/acceptance/dashboard-nodeflare-refresh.md)。
+- 未运行远端 CI、整个 Rust 工作区/PostgreSQL、实机部署或真实通知/汇率提供方请求；8 项条件测试未执行。自动续期修复已具备；NodeFlare 的流量重置时区仍未移植，本轮不更改现有 UTC 账本边界。下一步为提交审查，正式部署与跨平台实机能力单独验证。

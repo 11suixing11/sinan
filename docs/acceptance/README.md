@@ -6,6 +6,8 @@
 
 ## 入口、整合与待验条件
 
+- [NodeFlare 看板重新对齐与后台汇率](dashboard-nodeflare-refresh.md)
+
 - [管理员/代理用户 Passkey 与 DDNS 双栈本地验证](passkeys-and-ddns.md)
 
 - [第二批五项问题源码整改（2026-10-01）](issues-batch-2.md)

@@ -28,6 +28,8 @@ try {
   for (const width of [1440, 768, 390, 320]) {
     const context = await browser.newContext({ viewport: { width, height: 1000 }, colorScheme: 'light' })
     const page = await context.newPage(), errors = [], writes = []
+    const statValue = async label => (await page.locator('.d-overview-item').filter({ has: page.locator('.d-overview-label').getByText(label, { exact: true }) }).locator('.d-overview-value').innerText()).replace(/\s+/g, ' ')
+    const visibility = value => page.evaluate(value => { Object.defineProperty(document, 'visibilityState', { configurable: true, value }); document.dispatchEvent(new Event('visibilitychange')) }, value)
     activePage = page
     page.on('pageerror', error => { errors.push(error.message); console.error('Page error:', error.message) })
     await page.clock.install()
@@ -66,23 +68,28 @@ try {
     })
     await page.goto(`${origin}/#/servers`)
     await page.getByRole('link', { name: '服务器看板', exact: true }).click()
-    await page.getByRole('heading', { name: '服务器看板', exact: true }).waitFor()
+    await page.getByRole('region', { name: '服务器总览', exact: true }).waitFor()
     await page.locator('.d-card').first().waitFor()
     assert(page.url().endsWith('/#/dashboard'))
     assert.equal(await page.locator('.sidebar').count(), 0)
     assert.equal(await page.locator('.d-card').count(), 5)
-    assert.equal(await page.locator('.d-overview-item').nth(2).locator('.d-overview-value').innerText(), '1.0 MiB/秒')
+    assert.equal(await statValue('实时上行'), '1.0 MiB/秒')
+    for (const phrase of ['基础设施监控', '集中查看设备状态与网络质量', '最近成功读取', '实时状态 · 每 3 秒读取', '汇总覆盖所有未隐藏', '每次显示的都是实际采样', '服务器成本', '每日参考汇率', '统一币种对比', '界面来源与许可']) assert(!(await page.locator('body').innerText()).includes(phrase), `Dashboard must omit explanatory copy: ${phrase}`)
+    for (const name of ['全屏看板', '退出全屏看板', '暂停自动刷新', '恢复自动刷新', '更新汇率']) assert.equal(await page.getByRole('button', { name, exact: true }).count(), 0)
+    assert.equal(await page.getByRole('button', { name: '筛选与视图', exact: true }).getAttribute('aria-expanded'), 'false')
+    assert.equal(await page.getByRole('group', { name: '服务器状态筛选', exact: true }).count(), 0)
+    assert.equal(await page.getByRole('link', { name: /^隐藏设备/ }).count(), 0)
+    if (screenshots && [1440, 390].includes(width)) await page.screenshot({ path: resolve(screenshots, `dashboard-cards-${width}.png`), fullPage: true, animations: 'disabled' })
+    await page.getByRole('button', { name: '筛选与视图', exact: true }).click()
     assert.equal(await page.getByRole('button', { name: '指标待更新', exact: true }).locator('.d-filter-count').innerText(), '1')
     assert.equal(await page.getByRole('button', { name: '离线', exact: true }).locator('.d-filter-count').innerText(), '1')
     assert.equal(await page.getByRole('button', { name: '待接入', exact: true }).locator('.d-filter-count').innerText(), '1')
-    assert.equal(await page.getByRole('link', { name: /^隐藏设备/ }).count(), 0)
-    if (screenshots && [1440, 390].includes(width)) await page.screenshot({ path: resolve(screenshots, `dashboard-cards-${width}.png`), fullPage: true, animations: 'disabled' })
     await page.getByRole('button', { name: '表格', exact: true }).click()
     await page.locator('.d-fleet tbody tr').first().waitFor()
     assert.equal(await page.locator('.d-fleet tbody tr').count(), 5)
     await page.getByLabel('排序', { exact: true }).selectOption('cpu')
     assert.equal(await page.locator('.d-fleet tbody tr').first().getAttribute('data-server-id'), '2')
-    await page.getByLabel('分组', { exact: true }).selectOption('亚洲')
+    await page.getByRole('group', { name: '服务器分组', exact: true }).getByRole('button', { name: '亚洲', exact: true }).click()
     await page.getByLabel('地区', { exact: true }).selectOption('JP')
     assert.equal(await page.locator('.d-fleet tbody tr').count(), 1)
     assert.match(await page.locator('.d-fleet tbody tr').innerText(), /0\.0%/)
@@ -90,12 +97,13 @@ try {
     await page.getByRole('button', { name: '指标待更新', exact: true }).click()
     assert.equal(await page.locator('.d-fleet tbody tr').count(), 1)
     assert.match(await page.locator('.d-fleet tbody tr').innerText(), /指标已过期/)
-    await page.getByRole('button', { name: '全部', exact: true }).click()
+    await page.getByRole('group', { name: '服务器状态筛选', exact: true }).getByRole('button', { name: '全部', exact: true }).click()
     await page.getByRole('button', { name: '切换深色主题', exact: true }).click()
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
     if (screenshots && [1440, 390].includes(width)) await page.screenshot({ path: resolve(screenshots, `dashboard-table-dark-${width}.png`), fullPage: true, animations: 'disabled' })
     await page.reload()
     await page.locator('.d-fleet tbody tr').first().waitFor()
+    await page.getByRole('button', { name: '筛选与视图', exact: true }).click()
     assert.equal(await page.getByLabel('排序', { exact: true }).inputValue(), 'cpu')
     assert.equal(await page.locator('.server-display').getAttribute('data-theme'), 'dark')
     await page.getByRole('link', { name: '查看 东京 · 入口 详情', exact: true }).click()
@@ -106,26 +114,24 @@ try {
     await page.getByRole('link', { name: '返回服务器看板', exact: true }).click()
     assert(page.url().endsWith('/#/dashboard'))
     await page.locator('.d-fleet tbody tr').first().waitFor()
-    // Pause must stop both network streams, retain the snapshot and avoid live claims.
-    await page.getByRole('button', { name: '暂停自动刷新', exact: true }).click()
+    // Polling stays automatic; it does not need an exposed pause control.
     await settle()
     const before = [serversRead, probesRead]
-    await page.clock.fastForward(20000); await settle()
-    assert.deepEqual([serversRead, probesRead], before)
+    await page.clock.fastForward(15000); await settle()
+    assert(serversRead > before[0])
+    assert(probesRead > before[1])
     assert.equal(await page.locator('.d-fleet tbody tr').count(), 5)
-    assert.equal(await page.locator('.d-overview-item').nth(2).locator('.d-overview-value').innerText(), '—')
+    const beforeManual = [serversRead, probesRead]
     await page.getByRole('button', { name: '刷新服务器', exact: true }).click(); await settle()
-    assert.deepEqual([serversRead, probesRead], before.map(v => v + 1))
-    assert.equal(await page.getByRole('button', { name: '恢复自动刷新', exact: true }).count(), 1)
-    await page.getByRole('button', { name: '恢复自动刷新', exact: true }).click(); await settle()
-    assert.equal(await page.locator('.d-overview-item').nth(2).locator('.d-overview-value').innerText(), '1.0 MiB/秒')
+    assert.deepEqual([serversRead, probesRead], beforeManual.map(v => v + 1))
+    assert.equal(await statValue('实时上行'), '1.0 MiB/秒')
     if (width === 1440) {
       // Visibility is simulated; no production browser or external requests are involved.
-      await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }); document.dispatchEvent(new Event('visibilitychange')) })
+      await visibility('hidden')
       const hiddenReads = [serversRead, probesRead]
       await page.clock.fastForward(20000); await settle()
       assert.deepEqual([serversRead, probesRead], hiddenReads)
-      await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' }); document.dispatchEvent(new Event('visibilitychange')) })
+      await visibility('visible')
       await settle()
       assert.deepEqual([serversRead, probesRead], hiddenReads.map(v => v + 1))
       // A stalled read is aborted, cannot overlap polls and cannot keep old rates live.
@@ -138,35 +144,32 @@ try {
       await page.getByText('读取超过 12 秒，保留上次快照，请重试。', { exact: false }).waitFor()
       hold = false; release?.(); await settle()
       await page.getByRole('button', { name: '刷新服务器', exact: true }).click(); await settle()
-      assert.equal(await page.locator('.d-overview-item').nth(2).locator('.d-overview-value').innerText(), '1.0 MiB/秒')
-      // Fullscreen requires an explicit user click and leaves the management shell untouched.
-      if (await page.getByRole('button', { name: '全屏看板', exact: true }).count()) {
-        await page.getByRole('button', { name: '全屏看板', exact: true }).click()
-        await page.getByRole('button', { name: '退出全屏看板', exact: true }).waitFor()
-        await page.getByRole('button', { name: '退出全屏看板', exact: true }).click()
-      }
+      assert.equal(await statValue('实时上行'), '1.0 MiB/秒')
     }
     fail = true
     await page.getByRole('button', { name: '刷新服务器', exact: true }).click()
     await page.getByText('测试读取失败', { exact: false }).waitFor()
     assert.equal(await page.locator('.d-fleet tbody tr').count(), 5)
-    assert.equal(await page.locator('.d-overview-item').nth(2).locator('.d-overview-value').innerText(), '—')
+    assert.equal(await statValue('实时上行'), '—')
     fail = false; hiddenOnly = true
     await page.getByRole('button', { name: '重试', exact: true }).click()
-    await page.getByText('服务器已在看板隐藏', { exact: true }).waitFor()
+    await page.getByText('节点已隐藏', { exact: true }).waitFor()
     hiddenOnly = false; empty = true
     await page.getByRole('button', { name: '刷新服务器', exact: true }).click()
-    await page.getByText('还没有服务器', { exact: true }).waitFor()
+    await page.getByText('尚未添加节点', { exact: true }).waitFor()
     if (width === 1440) {
       empty = false; hold = true
       await page.reload()
-      await page.getByRole('heading', { name: '服务器看板', exact: true }).waitFor()
+      await page.getByRole('region', { name: '服务器总览', exact: true }).waitFor()
       await settle()
-      await page.getByRole('button', { name: '暂停自动刷新', exact: true }).click()
-      await page.getByText('尚未读取服务器', { exact: true }).waitFor()
-      assert.equal(await page.getByText('还没有服务器', { exact: true }).count(), 0)
+      await visibility('hidden'); await settle()
+      assert.equal(await page.getByText('尚未添加节点', { exact: true }).count(), 0)
+      const cancelled = serversRead
       hold = false; release?.(); await settle()
-      await page.getByRole('button', { name: '恢复自动刷新', exact: true }).click()
+      // A late response to the cancelled first read cannot restore a snapshot.
+      assert.equal(await page.locator('.d-fleet tbody tr').count(), 0)
+      assert.equal(serversRead, cancelled)
+      await visibility('visible')
       await page.locator('.d-fleet tbody tr').first().waitFor()
     }
     empty = false; signedIn = false

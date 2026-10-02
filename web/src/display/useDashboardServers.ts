@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Server } from '../types'
-import { mergeLiveServers } from './live'
+import { mergeLiveServers, mergeLiveSnapshot } from './live'
 import type { LiveSnapshot } from './live'
 import { useDashboardPoll } from './useDashboardPoll'
 
@@ -10,7 +10,7 @@ export function useDashboardServers(paused: boolean, id?: number) {
   const rows = useMemo(() => metadata.data ? Array.isArray(metadata.data) ? metadata.data : [metadata.data] : undefined, [metadata.data])
   const modern = liveCapable || Boolean(rows?.some(server => server.telemetry_settings))
   useEffect(() => { if (modern) setLiveCapable(true) }, [modern])
-  const live = useDashboardPoll<LiveSnapshot>(modern ? '/api/dashboard/live' : null, 3000, paused)
+  const live = useDashboardPoll<LiveSnapshot>(modern ? '/api/dashboard/live' : null, 3000, paused, '', mergeLiveSnapshot)
   const scopeChanged = Boolean(rows?.length && live.data && rows.some(server => Boolean(server.public_view) !== live.data!.public_view))
   const reconciled = useRef<LiveSnapshot | undefined>(undefined)
   useEffect(() => {

@@ -24,10 +24,27 @@ test('cost totals exclude public and hidden resources, identify partial coverage
   const now = Date.UTC(2026, 9, 1)
   const item = (price: string | null, currency = 'CNY', billing_cycle = 30) => ({ id: 1, public_view: false, asset_settings: { ...defaultAssets, price, currency, billing_cycle, expires_at: (now + 15 * 86_400_000) / 1000 } }) as Server
   const rows = [item('10', 'USD'), item('20', 'CNY', 0), item(null), item('30', 'GBP'), { ...item('1000'), public_view: true }, { ...item('1000'), asset_settings: { ...item('1000').asset_settings!, hidden: true } }]
-  expect(costSummary(rows, 'CNY', quote, now)).toEqual({ total: 100, recurring: 80, remaining: 40, priced: 3, converted: 2, recurringCount: 1, remainingCount: 1, missingRates: 1, missingPrices: 1 })
+  expect(costSummary(rows, 'CNY', quote, now)).toEqual({ total: 100, recurring: 80, remaining: 60, priced: 3, converted: 2, recurringCount: 1, remainingCount: 2, missingRates: 1, missingPrices: 1 })
   expect(costSummary([item('3', 'GBP')], 'CNY', quote, now).total).toBeNull()
   expect(remainingCost(item('10').asset_settings, now)).toBe(5)
-  expect(remainingCost(item('10', 'CNY', 0).asset_settings, now)).toBeNull()
+  expect(remainingCost(item('10', 'CNY', 0).asset_settings, now)).toBe(10)
   expect(remainingCost({ ...item('10').asset_settings!, expires_at: null }, now)).toBeNull()
   expect(remainingCost(item('10').asset_settings, now + 60 * 86_400_000)).toBe(0)
+})
+
+test('remaining value includes prepaid years and prorated partial billing periods', () => {
+  const now = Date.UTC(2026, 9, 2)
+  const asset = (price: string, billing_cycle: number, days: number) => ({ ...defaultAssets, price, billing_cycle, expires_at: now / 1000 + days * 86_400 })
+  expect(remainingCost(asset('36', 30, 3254), now)).toBeCloseTo(3904.8, 8)
+  expect(remainingCost(asset('36', 30, 3650), now)).toBeCloseTo(4380, 8)
+  expect(remainingCost(asset('36', 30, 15), now)).toBe(18)
+  expect(remainingCost(asset('36', 30, 45), now)).toBe(54)
+  expect(remainingCost(asset('120', 365, 730), now)).toBe(240)
+  expect(remainingCost(asset('0', 30, 3650), now)).toBe(0)
+  expect(remainingCost(asset('36', 0, 3650), now)).toBe(36)
+  for (const cycle of [0, 30]) for (const days of [0, -1]) expect(remainingCost(asset('36', cycle, days), now)).toBe(0)
+  expect(remainingCost({ ...asset('36', 30, 30), expires_at: null }, now)).toBeNull()
+  for (const cycle of [NaN, Infinity, -1]) expect(remainingCost(asset('36', cycle, 30), now)).toBeNull()
+  const servers = [{ id: 1, asset_settings: asset('36', 30, 3254) }, { id: 2, asset_settings: asset('12', 0, 3650) }] as Server[]
+  expect(costSummary(servers, 'CNY', undefined, now)).toMatchObject({ remaining: 3916.8, recurring: 36, remainingCount: 2, recurringCount: 1 })
 })

@@ -49,6 +49,7 @@ try {
       if (path.endsWith('/telemetry-settings')) return respond({persist_interval_secs:60})
       if (path === '/api/dashboard/servers') return respond([view()])
       if (path === '/api/dashboard/servers/1') return respond(view())
+      if (path === '/api/exchange-rates') return respond({base:'CNY',rates:{CNY:1},rate_dates:{},rate_date:null,source:null,source_url:null,fetched_at:null,attempted_at:null,next_refresh_at:0,stale:true,status:'unavailable',error_code:null})
       if (path === '/api/settings') {
         if (method === 'PATCH') { Object.assign(settings, request.postDataJSON()); publicDashboard = settings.public_dashboard; delete settings.telegram_token }
         return respond(settings)

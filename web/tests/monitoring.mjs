@@ -53,6 +53,7 @@ try {
         tasks[0] = { ...request.postDataJSON(), id: 'task-1', revision: tasks[0].revision + 1 }
         return respond(tasks[0])
       }
+      if (path === '/api/exchange-rates') return respond({base:'CNY',rates:{CNY:1},rate_dates:{},rate_date:null,source:null,source_url:null,fetched_at:null,attempted_at:null,next_refresh_at:0,stale:true,status:'unavailable',error_code:null})
       if (path === '/api/settings') {
         if (method === 'PATCH') {
           const body = request.postDataJSON()
