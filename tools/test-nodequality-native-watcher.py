@@ -11,6 +11,7 @@ import signal
 import stat
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import time
 import unittest
@@ -18,9 +19,35 @@ from unittest import mock
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+from nodequality_native_fixture_process import ObservedProcess, group_has_live_members
+
 REPORT = ROOT / "plugins/nodequality/native-report.py"
 MAX_LOG = 128 * 1024
 WAIT_SECONDS = 6
+
+
+def interpreter_image():
+    """Choose an image from our interpreter metadata, never a child's argv."""
+    executable = Path(sys.executable).resolve(strict=True)
+    image = executable
+    framework = sysconfig.get_config_var("PYTHONFRAMEWORK")
+    if sys.platform == "darwin" and framework:
+        prefix = sysconfig.get_config_var("PYTHONFRAMEWORKINSTALLNAMEPREFIX")
+        if (not isinstance(framework, str) or not framework.isascii() or not framework.isidentifier()
+                or not isinstance(prefix, str) or not Path(prefix).is_absolute()):
+            raise RuntimeError("trusted framework interpreter metadata differs")
+        version = Path(prefix).resolve(strict=True)
+        image = version / "Resources" / (framework + ".app") / "Contents" / "MacOS" / framework
+        if executable != image and executable.parent != version / "bin":
+            raise RuntimeError("current interpreter is outside its trusted framework")
+    info = image.lstat()
+    if not stat.S_ISREG(info.st_mode) or not os.access(image, os.X_OK):
+        raise RuntimeError("trusted interpreter image is not an ordinary executable")
+    return str(image)
+
+
+INTERPRETER = interpreter_image()
 
 
 def private_json(path, value):
@@ -88,6 +115,11 @@ def readiness_probe(row, expected_command, workspace, directory_ids):
         if (observed["parent_pid"] != row["process"].pid
                 or observed["identity"][2:] != (row["process"].pid, row["process"].pid)):
             raise RuntimeError("owned watcher parent, group or session differs")
+        start_identity = (observed["identity"][0], *observed["identity"][2:])
+        if row.get("watcher_start_identity") is None:
+            row["watcher_start_identity"] = start_identity
+        elif row["watcher_start_identity"] != start_identity:
+            raise RuntimeError("owned watcher startup identity changed")
         if tuple(directory_identity(path) for path in (workspace, workspace / ".runner")) != directory_ids:
             raise RuntimeError("private watcher readiness directory identity changed")
         if observed["identity"][1] != expected_command:
@@ -128,25 +160,24 @@ def signal_owned_group(row, number):
     # A live, unreaped direct child reserves its PID/group. After it is reaped,
     # observe a watcher's self-exit without signaling the historical PGID.
     process = row["process"]
-    if process.returncode is not None:
+    if process.reaped:
         # Reaped owners release the numeric group ID. Observe an orphan's
         # self-exit below; never signal a historical group after releasing it.
         return
-    parent_live = process.poll() is None
-    if not parent_live:
-        return
-    orphan_live = watcher_live(row)
-    if parent_live and (os.getpgid(process.pid), os.getsid(process.pid)) != (process.pid, process.pid):
+    # poll observes without reaping. Even an exited leader reserves this group
+    # until cleanup has signaled and observed every remaining live member.
+    process.poll()
+    if (os.getpgid(process.pid), os.getsid(process.pid)) != (process.pid, process.pid):
         raise RuntimeError("owned direct child's process group changed")
-    if orphan_live and row["watcher_identity"][2:] != (process.pid, process.pid):
-        raise RuntimeError("owned watcher's process group changed")
+    if not group_has_live_members(process.pid):
+        return
     try:
         os.killpg(process.pid, number)
     except ProcessLookupError:
         pass
     except PermissionError:
         # Darwin may retain an inaccessible group containing only zombies.
-        if process.poll() is None or watcher_live(row):
+        if group_has_live_members(process.pid):
             raise
 
 
@@ -161,7 +192,7 @@ def owner_main(workspace, evidence, ignored_signals):
         os.chmod(evidence / "watcher.stdout", 0o600)
         os.chmod(evidence / "watcher.stderr", 0o600)
         try:
-            watcher = subprocess.Popen([sys.executable, "-B", str(REPORT), "watch-sections",
+            watcher = subprocess.Popen([INTERPRETER, "-B", str(REPORT), "watch-sections",
                 str(workspace), str(os.getpid())], stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr)
             private_json(evidence / "owner-ready.json", {"owner_pid": os.getpid(), "watcher_pid": watcher.pid})
             deadline = time.monotonic() + 60
@@ -186,7 +217,8 @@ def owner_main(workspace, evidence, ignored_signals):
                 watcher.wait(timeout=2)
 
 
-@unittest.skipUnless(os.name == "posix", "watcher ownership requires POSIX signals and flock")
+@unittest.skipUnless(sys.platform in ("linux", "darwin") and hasattr(os, "waitid") and hasattr(os, "WNOWAIT"),
+                     "watcher ownership requires Linux/Darwin nonreaping observation, signals and flock")
 class WatcherLifecycle(unittest.TestCase):
     def setUp(self):
         parent = os.environ.get("SINAN_WATCHER_TEST_EVIDENCE")
@@ -202,7 +234,7 @@ class WatcherLifecycle(unittest.TestCase):
         self.logs = []
         self.addCleanup(self.cleanup)
         # This process is deliberately outside all owner/watcher groups.
-        self.sentinel = subprocess.Popen([sys.executable, "-B", "-c", "import time;time.sleep(60)"],
+        self.sentinel = ObservedProcess([INTERPRETER, "-B", "-c", "import time;time.sleep(60)"],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True)
         self.groups.append({"process": self.sentinel, "watcher_pid": None, "watcher_identity": None})
@@ -234,8 +266,13 @@ class WatcherLifecycle(unittest.TestCase):
 
     def cleanup(self):
         failures = []
+        observations = []
         for row in reversed(self.groups):
             process, watcher_pid = row["process"], row["watcher_pid"]
+            observed = {"owner_pid": process.pid, "watcher_pid": watcher_pid,
+                        "readiness_bound": row.get("watcher_identity") is not None,
+                        "watcher_start_identity": row.get("watcher_start_identity")}
+            observations.append(observed)
             try:
                 if process.stdin is not None and not process.stdin.closed:
                     process.stdin.close()
@@ -247,16 +284,31 @@ class WatcherLifecycle(unittest.TestCase):
                 signal_owned_group(row, signal.SIGKILL)
                 process.wait(timeout=2)
                 deadline = time.monotonic() + 3
-                while watcher_live(row) and time.monotonic() < deadline:
+                while group_has_live_members(process.pid) and time.monotonic() < deadline:
                     time.sleep(0.03)
-                if watcher_live(row):
-                    raise RuntimeError("owned watcher remained alive after cleanup")
+                observed["zero_live_owned_group"] = not group_has_live_members(process.pid)
+                observed["watcher_after_signals"] = None if watcher_pid is None else pid_observation(watcher_pid)
+                if not observed["zero_live_owned_group"] or observed["watcher_after_signals"] is not None:
+                    raise RuntimeError("actual owned watcher/group cleanup was not confirmed")
             except BaseException as error:
                 failures.append(type(error).__name__)
+                observed["failure"] = type(error).__name__
+            finally:
+                if (observed.get("zero_live_owned_group") and "watcher_after_signals" in observed
+                        and observed["watcher_after_signals"] is None):
+                    try:
+                        # Release the leader only after actual group/PID exit
+                        # confirmation; a cleanup failure retains its identity.
+                        process.reap(timeout=2)
+                    except BaseException as error:
+                        failures.append(type(error).__name__)
+                        observed["reap_failure"] = type(error).__name__
+                observed["identity_reservation_retained"] = not process.reaped
         for handle in self.handles:
             handle.close()
         private_json(self.evidence / "cleanup.json", {"failures": failures, "materials_retained": True,
-            "direct_children_reaped": all(row["process"].returncode is not None for row in self.groups)})
+            "direct_children_reaped": all(row["process"].reaped for row in self.groups),
+            "actual_cleanup_observations": observations})
         if failures:
             raise AssertionError("Owned process cleanup failed: " + ",".join(failures) + "\n" + self.diagnostics())
 
@@ -292,7 +344,7 @@ class WatcherLifecycle(unittest.TestCase):
             os.chmod(path, 0o600)
             self.handles.append(handle)
         self.logs.extend((stdout, stderr))
-        process = subprocess.Popen([sys.executable, "-B", str(Path(__file__).resolve()), "--owner",
+        process = ObservedProcess([INTERPRETER, "-B", str(Path(__file__).resolve()), "--owner",
             str(workspace), str(directory), "ignore" if ignored_signals else "normal"],
             stdin=subprocess.PIPE, stdout=self.handles[-2], stderr=self.handles[-1], start_new_session=True)
         row = {"process": process, "watcher_pid": None, "watcher_identity": None, "directory": directory,
@@ -304,7 +356,7 @@ class WatcherLifecycle(unittest.TestCase):
         self.assertEqual(identity["owner_pid"], process.pid)
         row["watcher_pid"] = identity["watcher_pid"]
         self.logs.extend((directory / "watcher.stdout", directory / "watcher.stderr"))
-        expected = " ".join((sys.executable, "-B", str(REPORT), "watch-sections", str(workspace), str(process.pid)))
+        expected = " ".join((INTERPRETER, "-B", str(REPORT), "watch-sections", str(workspace), str(process.pid)))
         try:
             self.wait_for(lambda: readiness_probe(row, expected, workspace, directory_ids),
                           "watcher did not complete exact exec and fresh snapshot readiness")
@@ -312,7 +364,8 @@ class WatcherLifecycle(unittest.TestCase):
             private_json(directory / "readiness-observations.json", {"expected_command": expected,
                 "owner_pid": process.pid, "watcher_pid": row["watcher_pid"],
                 "directory_identities": directory_ids, "samples": row["readiness_samples"],
-                "bound_identity": row["watcher_identity"]})
+                "bound_identity": row["watcher_identity"], "startup_identity": row.get("watcher_start_identity"),
+                "trusted_interpreter_image": INTERPRETER})
         self.assertIsNone(process.poll(), self.diagnostics())
         self.assertTrue(watcher_live(row), self.diagnostics())
         self.assert_sentinel()
@@ -347,7 +400,7 @@ class WatcherLifecycle(unittest.TestCase):
                     os.chmod(path, 0o600)
                 self.handles.extend(handles)
                 self.logs.extend((stdout, stderr))
-                process = subprocess.Popen([sys.executable, "-B", str(REPORT), "watch-sections", str(workspace), value],
+                process = ObservedProcess([INTERPRETER, "-B", str(REPORT), "watch-sections", str(workspace), value],
                     stdin=subprocess.DEVNULL, stdout=handles[0], stderr=handles[1], start_new_session=True)
                 self.groups.append({"process": process, "watcher_pid": None, "watcher_identity": None})
                 self.wait_for(lambda: process.poll() is not None, "invalid owner was accepted")
@@ -444,6 +497,30 @@ class WatcherLifecycle(unittest.TestCase):
 
 
 class ReadinessContracts(unittest.TestCase):
+    def test_framework_interpreter_image_comes_only_from_trusted_local_metadata(self):
+        with tempfile.TemporaryDirectory(prefix='sinan-watcher-interpreter-contract-') as name:
+            version = Path(name) / 'Python.framework' / 'Versions' / '3.14'
+            launcher = version / 'bin' / 'python3.14'
+            image = version / 'Resources' / 'Python.app' / 'Contents' / 'MacOS' / 'Python'
+            for path in (launcher, image):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('TEST_ONLY inert executable identity')
+                path.chmod(0o700)
+            metadata = {'PYTHONFRAMEWORK': 'Python', 'PYTHONFRAMEWORKINSTALLNAMEPREFIX': str(version)}
+            with mock.patch.object(sys, 'platform', 'darwin'), \
+                    mock.patch.object(sysconfig, 'get_config_var', side_effect=metadata.get):
+                for executable in (launcher, image):
+                    with self.subTest(executable=executable.name), mock.patch.object(sys, 'executable', str(executable)):
+                        self.assertEqual(interpreter_image(), str(image))
+                foreign = Path(name) / 'foreign-python'
+                foreign.write_text('TEST_ONLY unrelated interpreter')
+                foreign.chmod(0o700)
+                with mock.patch.object(sys, 'executable', str(foreign)), self.assertRaisesRegex(RuntimeError, 'outside'):
+                    interpreter_image()
+                image.chmod(0o600)
+                with mock.patch.object(sys, 'executable', str(launcher)), self.assertRaisesRegex(RuntimeError, 'executable'):
+                    interpreter_image()
+
     def fixture(self, root):
         workspace, evidence = root / 'workspace', root / 'evidence'
         workspace.mkdir()
@@ -454,7 +531,7 @@ class ReadinessContracts(unittest.TestCase):
         row = {'process': process, 'watcher_pid': 1235, 'watcher_identity': None,
                'directory': evidence, 'readiness_samples': [], 'readiness_started': time.monotonic()}
         identities = tuple(directory_identity(path) for path in (workspace, workspace / '.runner'))
-        command = ' '.join((sys.executable, '-B', str(REPORT), 'watch-sections', str(workspace), '1234'))
+        command = ' '.join((INTERPRETER, '-B', str(REPORT), 'watch-sections', str(workspace), '1234'))
         observed = {'parent_pid': 1234, 'state': 'S', 'identity': ('TEST_ONLY start', command, 1234, 1234)}
         return workspace, row, identities, command, observed
 
@@ -476,6 +553,56 @@ class ReadinessContracts(unittest.TestCase):
             self.assertEqual(row['watcher_identity'], observed['identity'])
             self.assertEqual([sample['reason'] for sample in row['readiness_samples']],
                 ['awaiting_exact_report_exec', 'awaiting_this_run_snapshot', 'exact_report_exec_parent_and_fresh_snapshot'])
+
+    def test_foreign_interpreter_and_start_identity_drift_cannot_bind_readiness(self):
+        for case in ('foreign_interpreter', 'changed_start'):
+            with self.subTest(case=case), tempfile.TemporaryDirectory(prefix='sinan-watcher-image-refusal-') as name:
+                workspace, row, ids, command, observed = self.fixture(Path(name))
+                if case == 'foreign_interpreter':
+                    foreign = 'TEST_ONLY_FOREIGN_INTERPRETER ' + command.split(' ', 1)[1]
+                    observed = dict(observed, identity=('TEST_ONLY start', foreign, 1234, 1234))
+                    self.snapshot(workspace)
+                    with mock.patch(__name__ + '.pid_observation', return_value=observed):
+                        self.assertFalse(readiness_probe(row, command, workspace, ids))
+                    self.assertEqual(row['readiness_samples'][-1]['reason'], 'awaiting_exact_report_exec')
+                else:
+                    with mock.patch(__name__ + '.pid_observation', return_value=observed):
+                        self.assertFalse(readiness_probe(row, command, workspace, ids))
+                    self.snapshot(workspace)
+                    changed = dict(observed, identity=('TEST_ONLY different start', command, 1234, 1234))
+                    with mock.patch(__name__ + '.pid_observation', return_value=changed), \
+                            self.assertRaisesRegex(RuntimeError, 'startup identity changed'):
+                        readiness_probe(row, command, workspace, ids)
+                self.assertIsNone(row['watcher_identity'])
+
+    def test_unbound_watcher_cleanup_requires_actual_zero_live_observation(self):
+        for live in (False, True):
+            with self.subTest(live=live), tempfile.TemporaryDirectory(prefix='sinan-watcher-cleanup-contract-') as name:
+                case = WatcherLifecycle('test_busy_chapter_lock_cannot_keep_an_orphan_alive')
+                case.evidence, case.handles, case.logs = Path(name), [], []
+                process = mock.Mock(pid=1234, stdin=None, reaped=False)
+                process.reap.side_effect = lambda **kwargs: setattr(process, 'reaped', True)
+                case.groups = [{'process': process, 'watcher_pid': 1235, 'watcher_identity': None,
+                                'watcher_start_identity': ('TEST_ONLY start', 1234, 1234)}]
+                observation = {'parent_pid': 1, 'state': 'S',
+                    'identity': ('TEST_ONLY start', 'TEST_ONLY report command', 1234, 1234)} if live else None
+                with mock.patch(__name__ + '.signal_owned_group') as signal_group, \
+                        mock.patch(__name__ + '.group_has_live_members', return_value=False), \
+                        mock.patch(__name__ + '.pid_observation', return_value=observation) as observe:
+                    if live:
+                        with self.assertRaisesRegex(AssertionError, 'cleanup failed'):
+                            case.cleanup()
+                    else:
+                        case.cleanup()
+                observe.assert_called_once_with(1235)
+                self.assertEqual([call.args[1] for call in signal_group.call_args_list], [signal.SIGTERM, signal.SIGKILL])
+                receipt = json.loads((case.evidence / 'cleanup.json').read_bytes())
+                self.assertEqual(receipt['direct_children_reaped'], not live)
+                self.assertEqual(bool(receipt['failures']), live)
+                actual = receipt['actual_cleanup_observations'][0]
+                self.assertFalse(actual['readiness_bound'])
+                self.assertEqual(actual['watcher_after_signals'], observation)
+                self.assertEqual(actual['identity_reservation_retained'], live)
 
     def test_exited_child_foreign_parent_and_changed_private_runtime_never_become_ready(self):
         for case in ('owner_exit', 'watcher_exit', 'exit_receipt', 'foreign_parent', 'foreign_group', 'changed_runtime'):
