@@ -23,6 +23,7 @@ MAX_ARCHIVE = 256 * 1024 * 1024
 MAX_SOURCE = 8 * 1024 * 1024
 MAX_RUNNER = 128 * 1024
 MAX_SOURCE_OFFER = 2 * 1024 * 1024 * 1024
+READ_CHUNK = 1024 * 1024
 LIB = 'usr/local/lib/sinan-ipquality/'
 
 
@@ -79,21 +80,34 @@ def runner():
 
 
 def unpack(data, names=None, maximum=MAX_ARCHIVE):
+    ensure(type(maximum) is int and maximum > 0, 'invalid archive expansion limit')
     ensure(isinstance(data, bytes) and 0 < len(data) <= maximum, 'archive size exceeds limit')
-    with gzip.GzipFile(fileobj=io.BytesIO(data)) as source:
-        stream = source.read(maximum + 1)
-    ensure(len(stream) <= maximum, 'archive expansion exceeds limit')
     files = {}
-    with tarfile.open(fileobj=io.BytesIO(stream), mode='r:') as archive:
-        for item in archive:
-            ensure(item.isfile() and not item.pax_headers and item.name not in files
-                   and (names is None or item.name in names) and 0 < item.size <= maximum
-                   and item.name.isascii() and not item.name.startswith('/')
-                   and all(part not in ('', '.', '..') for part in item.name.split('/')),
-                   'unsafe or unexpected IPQuality archive member')
-            content = archive.extractfile(item).read(item.size + 1)
-            ensure(len(content) == item.size, 'truncated IPQuality archive member')
-            files[item.name] = content
+    with io.BytesIO() as stream:
+        expanded = 0
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as source:
+            while content := source.read(min(READ_CHUNK, maximum - expanded + 1)):
+                ensure(len(content) <= maximum - expanded, 'archive expansion exceeds limit')
+                stream.write(content)
+                expanded += len(content)
+        # Reading through EOF also verifies gzip CRC and the complete trailer.
+        stream.seek(0)
+        with tarfile.open(fileobj=stream, mode='r:') as archive:
+            for item in archive:
+                ensure(item.isfile() and not item.pax_headers and item.name not in files
+                       and (names is None or item.name in names) and 0 < item.size <= maximum
+                       and item.name.isascii() and not item.name.startswith('/')
+                       and all(part not in ('', '.', '..') for part in item.name.split('/')),
+                       'unsafe or unexpected IPQuality archive member')
+                length = 0
+                with archive.extractfile(item) as source, io.BytesIO() as member:
+                    while content := source.read(min(READ_CHUNK, item.size - length + 1)):
+                        ensure(len(content) <= item.size - length,
+                               'IPQuality archive member exceeds declared size')
+                        member.write(content)
+                        length += len(content)
+                    ensure(length == item.size, 'truncated IPQuality archive member')
+                    files[item.name] = member.getvalue()
     ensure(names is None or set(files) == names, 'IPQuality archive inventory differs')
     return files
 
@@ -313,7 +327,8 @@ def validate_files(files, version, arch, intake_parent=None, progress=None):
            'corresponding runner and rootfs-verifier source differs')
     for name in ('plugins/ipquality/source-helper.py', 'plugins/ipquality/SOURCE.md',
                  'tools/build-ipquality.py', 'tools/ipquality_artifact.py', 'tools/ipquality-rootfs.py',
-                 'tools/nodequality-rootfs-build.py', 'tools/nodequality-rootfs-collect.py', 'LICENSE'):
+                 'tools/nodequality-rootfs-build.py', 'tools/nodequality-rootfs-collect.py',
+                 'tools/ipquality-inputs.py', 'tools/ipquality-inputs-capacity.py', 'LICENSE'):
         ensure(sources.get(name) == runtime().ordinary(ROOT / name, MAX_SOURCE),
                'complete corresponding Sinan source differs or is absent: ' + name)
     for name in ('inputs-lock.json', 'source-inventory.json', 'license-inventory.json'):

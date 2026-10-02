@@ -45,10 +45,13 @@ def collector():
 
 
 def main():
-    if len(sys.argv) < 2 or sys.argv[1] not in ('collect', 'bind', 'prepare', 'build', 'export'):
-        raise SystemExit('Usage: ipquality-rootfs.py collect|bind|prepare|build|export <explicit factory arguments>')
+    if len(sys.argv) < 2 or sys.argv[1] not in ('collect', 'derive', 'bind', 'prepare', 'build', 'export'):
+        raise SystemExit('Usage: ipquality-rootfs.py collect|derive|bind|prepare|build|export <explicit factory arguments>')
     chosen = sys.argv[1]
     sys.argv = [sys.argv[0], *sys.argv[1:]]
+    if chosen == 'derive' or (chosen == 'bind' and any(
+            value == '--derived-inputs' or value.startswith('--derived-inputs=') for value in sys.argv[2:])):
+        return module('sinan_ipquality_input_derivation', ROOT / 'tools/ipquality-inputs.py').main()
     return (collector() if chosen in ('collect', 'bind') else factory()).main()
 
 

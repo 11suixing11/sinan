@@ -31,6 +31,56 @@ class ArtifactTests(unittest.TestCase):
         data = artifact.pack({'source.py': b'print("fixture")\n'})
         self.assertEqual(artifact.unpack(data, maximum=artifact.MAX_SOURCE), {'source.py': b'print("fixture")\n'})
 
+    def test_small_compressed_archive_with_two_gib_limit_uses_bounded_reads(self):
+        expected = {'source.py': b'x' * (2 * artifact.READ_CHUNK + 31)}
+        data = artifact.pack(expected)
+        self.assertLess(len(data), artifact.READ_CHUNK)
+        requests = {'gzip': [], 'member': []}
+        gzip_read = gzip.GzipFile.read
+        member_read = tarfile.ExFileObject.read
+
+        def bounded_read(kind, original):
+            def read(source, size=-1):
+                self.assertIs(type(size), int)
+                self.assertGreater(size, 0)
+                self.assertLessEqual(size, artifact.READ_CHUNK)
+                requests[kind].append(size)
+                return original(source, size)
+            return read
+
+        with patch.object(gzip.GzipFile, 'read', bounded_read('gzip', gzip_read)), \
+                patch.object(tarfile.ExFileObject, 'read', bounded_read('member', member_read)):
+            self.assertEqual(artifact.unpack(data, maximum=artifact.MAX_SOURCE_OFFER), expected)
+        self.assertGreater(len(requests['gzip']), 2)
+        self.assertGreater(len(requests['member']), 2)
+
+    def test_expansion_limit_allows_exact_size_and_rejects_one_byte_more(self):
+        expected = {'source.py': b'print("fixture")\n'}
+        data = artifact.pack(expected)
+        expanded = len(gzip.decompress(data))
+        self.assertLess(len(data), expanded - 1)
+        self.assertEqual(artifact.unpack(data, maximum=expanded), expected)
+        with self.assertRaisesRegex(ValueError, 'archive expansion exceeds limit'):
+            artifact.unpack(data, maximum=expanded - 1)
+
+    def test_unpack_rejects_invalid_limits_before_opening_gzip(self):
+        data = artifact.pack({'source.py': b'print("fixture")\n'})
+        with patch.object(gzip, 'GzipFile') as reader:
+            for maximum in (True, False, 0, -1, 1.5, '2147483648', None):
+                with self.subTest(maximum=maximum), \
+                        self.assertRaisesRegex(ValueError, 'invalid archive expansion limit'):
+                    artifact.unpack(data, maximum=maximum)
+            reader.assert_not_called()
+
+    def test_unpack_reads_through_gzip_crc_size_and_complete_trailer(self):
+        data = artifact.pack({'source.py': b'print("fixture")\n'})
+        corrupt_crc = data[:-8] + bytes([data[-8] ^ 1]) + data[-7:]
+        corrupt_size = data[:-4] + bytes([data[-4] ^ 1]) + data[-3:]
+        for malformed in (corrupt_crc, corrupt_size, data[:-1], data + b'not a gzip trailer'):
+            with self.subTest(trailer=malformed[-8:]), \
+                    self.assertRaises((gzip.BadGzipFile, EOFError)):
+                artifact.unpack(malformed, maximum=artifact.MAX_SOURCE_OFFER)
+
     def test_independent_profile_cannot_satisfy_full_hardware_factory(self):
         profile = artifact.module('sinan_ipquality_profile_fixture', artifact.ROOT / 'tools/ipquality-rootfs.py')
         node = profile.factory()

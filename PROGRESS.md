@@ -1,5 +1,13 @@
 # 执行进度
 
+## 2026-10-02：最小 IPQuality Debian 输入派生（整步实现与集中验收）
+
+- 核对当前独立 ARM64 Debian 12 guest 仍运行，现有完整包/对应源材料保留；aws-jp0 单次只读 SSH 在 banner 阶段超时，未执行远程负载。现有镜像和 builder 缺独立启动身份、mmdebstrap/hook 与审批证据，不能以 CLI 摘要相等宣布通过。
+- 集中补齐旧认证缓存的显式派生入口、严格父/子库存与只读身份、隔离 APT 最小选择、签名索引展开及资源预算、新派生收据与绑定。旧完整 collection 不改 kind，不重复生成 HTTP 收集历史；prepare/build/export 与完整验机门禁保持。
+- 修改期间未运行测试、构建、收集、源码转换或安装；整步冻结后统一验收，失败仅修具体原因并补验受影响范围。最终 676 份功能输入 SHA256 `58a5fce9d1cf6db5acdb11627d4db19bb53ab72a71eae5f3d895f676d93b732f`，五组工具合同去重 117 通过、0 跳过/失败/错误；夹具 Essential/等长变更问题与真实 Linux 小归档 2 GiB 预分配 MemoryError 均修复，初始证据保留。gzip/tar 单次读取有界，完整尾部与累计限制保持。
+- 独立 Debian 12 ARM64 虚拟机仅尝试一次真实派生，父缓存内核只读；进入 APT 前因磁盘管理预留不足拒绝，9.84 秒、退出 1，无派生成功收据。保持 512 MiB 磁盘/1024 inode 预留、256 MiB 内存/零 swap，回收压力实际记录，OOM 为 0；失败证据保留，所属输出/进程/挂载/cgroup 已清理，旧父记录与 SSH 基线保持。没有降低准入、隐式扩容或删除旧材料重试；正向选择与派生仍待容量充足环境。
+- 501 份既有 Rust/前端输入与 19 份 dist 相对 `c6ffbdb` 逐字不变，沿用其证据而未重复测试/构建。分层与 diff 通过；执行约束见 [ADR 0052](docs/adr/0052-ipquality-derived-debian-inputs.md) 与 [验收记录](docs/acceptance/ipquality-derived-inputs.md)。实际最小 builder/image、许可证/对应源签名制品、联合负载、aws-jp0、完整验机及混合订阅链路等整体剩余事项保持待验；CI 继续暂停，未签署、发布或部署。
+
 ## 2026-10-02：独立节点出口 IPQuality（整步实现与本地验收）
 
 - 从实际固定上游源码和已有诊断服务继续实现独立 IPQuality 适配器、Agent 注册、四份固定来源、受控源码派生、最小 Debian 工具 profile、签名制品及完整配套对应源资产。移除默认统计/广告、宿主安装、SMTP/DNSBL、上传及身份伪装，逐请求分类失败并保留未知；完整 NodeQuality 的商业工具许可及实机门禁保持原状态。

@@ -277,7 +277,8 @@ def source_files(bundle_path, review_path, guard):
         sources['plugins/ipquality/policies/' + name + '-policy.py'] = content
     sources['plugins/ipquality/SOURCE.md'] = read(artifact.PLUGIN / 'SOURCE.md', artifact.MAX_RUNNER, guard)
     for name in ('tools/build-ipquality.py', 'tools/ipquality_artifact.py', 'tools/ipquality-rootfs.py',
-                 'tools/nodequality-rootfs-build.py', 'tools/nodequality-rootfs-collect.py', 'LICENSE'):
+                 'tools/nodequality-rootfs-build.py', 'tools/nodequality-rootfs-collect.py',
+                 'tools/ipquality-inputs.py', 'tools/ipquality-inputs-capacity.py', 'LICENSE'):
         sources[name] = read(artifact.ROOT / name, artifact.MAX_SOURCE, guard)
     sources['license-review.json'] = read(review_path, artifact.MAX_SOURCE, guard)
     return sources, transformed

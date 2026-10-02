@@ -475,18 +475,18 @@ def record_collection_tools(deadline):
         resolved = Path(requested).resolve(strict=True)
         identity = BUILD.file_identity(resolved, BUILD.MAX_ARCHIVE, deadline)
         ownership = BUILD.run_bounded(['/usr/bin/dpkg-query', '--search', str(resolved)],
-                                      BUILD.Deadline(min(15, deadline.remaining())), 65536)
+                                      BUILD.Deadline(min(15, deadline.remaining()), capacity=deadline.capacity), 65536)
         require(ownership.strip() and b'\0' not in ownership, 'collection tool lacks dpkg ownership evidence')
         result.append(dict(identity, requested_path=requested, resolved_path=str(resolved),
                            dpkg_ownership=ownership.decode('utf-8').strip()))
     versions = BUILD.run_bounded(['/usr/bin/dpkg-query', '--show',
             '--showformat=${binary:Package}\t${Version}\t${Architecture}\t${source:Package}\t${source:Version}\n',
             'apt', 'gpgv', 'util-linux', 'python3-minimal'],
-            BUILD.Deadline(min(15, deadline.remaining())), 65536).decode('utf-8')
+            BUILD.Deadline(min(15, deadline.remaining()), capacity=deadline.capacity), 65536).decode('utf-8')
     actual_versions = {}
     for path in (APTPATH, '/usr/bin/gpgv', '/usr/bin/unshare', str(Path(sys.executable).resolve())):
         actual_versions[path] = BUILD.run_bounded([path, '--version'],
-                BUILD.Deadline(min(15, deadline.remaining())), 65536).decode('utf-8').strip()
+                BUILD.Deadline(min(15, deadline.remaining()), capacity=deadline.capacity), 65536).decode('utf-8').strip()
     return {'executables': result, 'dpkg_report': versions, 'actual_version_output': actual_versions,
             'evidence_scope': 'actual bytes and local dpkg claims; not independent builder approval'}
 
@@ -779,13 +779,25 @@ def write_capacity_plan(collector, materials, solver):
     return {'path': 'capacity-plan.json', 'sha256': hashlib.sha256(raw).hexdigest(), 'size': len(raw)}
 
 
-def solve(collector, repositories, indices, keyring):
+def solve(collector, repositories, indices, keyring, authenticated_expansion=None):
+    expansion_plan = None
+    if authenticated_expansion is not None:
+        # This is an internal, already authenticated repo/path bound map. It
+        # is deliberately not accepted as a collection CLI argument or as a
+        # replacement for the complete parent package/source authentication.
+        capacity_spec = importlib.util.spec_from_file_location('ipquality_solver_expansion',
+                HERE.with_name('ipquality-inputs-capacity.py'))
+        capacity_helper = importlib.util.module_from_spec(capacity_spec)
+        capacity_spec.loader.exec_module(capacity_helper)
+        expansion_plan = capacity_helper.expansion_budget(repositories, authenticated_expansion)
     seeds, essentials = essential_seeds(repositories, indices, collector.deadline)
     work = collector.output / 'solver'
     work.mkdir(mode=0o700)
-    # APT may write derived list copies. Admission reserves their maximum index
-    # size, and the caller's filesystem quota remains the hard aggregate guard.
-    reserved_expansion = sum(BUILD.MAX_INDEX for repo in repositories for row in repo['indices'] if row['kind'] == 'Packages')
+    # Preserve legacy admission exactly unless the offline derivation supplied
+    # signed, fully verified uncompressed bounds. The latter reserve covers
+    # multiple APT copies and metadata; neither plan is a hard output quota.
+    reserved_expansion = (expansion_plan['reserved_expansion_bytes'] if expansion_plan is not None else
+            sum(BUILD.MAX_INDEX for repo in repositories for row in repo['indices'] if row['kind'] == 'Packages'))
     collector.budget(reserved_expansion)
     mirrors = []
     for repo in repositories:
@@ -796,7 +808,7 @@ def solve(collector, repositories, indices, keyring):
         files += [(collector.cache / row['blob'], mirror / 'dists' / repo['suite'] / row['path'])
                   for row in repo['indices'] if row['kind'] == 'Packages']
         for original, target in files:
-            collector.budget(original.stat().st_size)
+            collector.budget(original.stat().st_size + (reserved_expansion if expansion_plan is not None else 0))
             target.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
             shutil.copyfile(original, target)
             os.chmod(target, 0o644)
@@ -812,7 +824,10 @@ def solve(collector, repositories, indices, keyring):
                 '--baseline', str(baseline), '--operation', operation]
         if operation == 'plan':
             argv += ['--seeds', *seeds]
-        outputs[operation] = BUILD.run_bounded(argv, BUILD.Deadline(min(180, collector.deadline.remaining())), MAX_RECEIPT)
+        if expansion_plan is not None:
+            collector.budget(reserved_expansion)
+        outputs[operation] = BUILD.run_bounded(argv,
+                BUILD.Deadline(min(180, collector.deadline.remaining()), capacity=collector.deadline.capacity), MAX_RECEIPT)
         BUILD.write_new(work / (operation + '.stdout'), outputs[operation])
         commands.append(argv)
         space_observations.append({'operation': operation,
@@ -831,6 +846,9 @@ def solve(collector, repositories, indices, keyring):
               'capacity': {'reserved_expansion_bytes': reserved_expansion, 'phase_observations': space_observations,
                            'derived_directories_removed': True},
               'factory_budget_scope': 'owned material checked between phases; external filesystem quota remains separate'}
+    if expansion_plan is not None:
+        report['authenticated_expansion_admission'] = expansion_plan
+        report['factory_budget_scope'] = 'prospective copy admission and polled capacity; no hard output quota or continuous peak assertion'
     # Keep the evidence/configuration, but not derived lists or duplicate mirrors.
     for name in ('lists', 'archives', 'mirrors'):
         shutil.rmtree(work / name)
