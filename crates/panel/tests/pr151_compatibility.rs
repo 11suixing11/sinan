@@ -12,8 +12,37 @@ use std::borrow::Cow;
 use uuid::Uuid;
 
 async fn numeric_history(pool: &PgPool) -> Result<Value> {
-    Ok(sqlx::query_scalar("SELECT jsonb_build_object('sources',COALESCE((SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM singbox_subscription_sources s),'[]'::jsonb),'versions',COALESCE((SELECT jsonb_agg(to_jsonb(v) ORDER BY chain_id,generation) FROM singbox_chain_versions v),'[]'::jsonb),'hops',COALESCE((SELECT jsonb_agg(to_jsonb(h) ORDER BY chain_id,generation,position) FROM singbox_chain_hops h),'[]'::jsonb))")
-        .fetch_one(pool).await?)
+    // Compare every original source column, without treating additive schema
+    // defaults as mutations of the old persisted numeric identity or secrets.
+    // Versions and hops retain their complete immutable row projections.
+    Ok(sqlx::query_scalar(
+        "SELECT jsonb_build_object(
+            'sources',COALESCE((SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM (
+                SELECT id,name,kind,secret_url,secret_authorization,secret_content,
+                    source_host,settings_revision,identity_epoch,refresh_interval_seconds,
+                    archived,deleted_at,current_revision_id,last_attempt_at,last_success_at,
+                    next_refresh_at,last_error,etag,last_modified,cache_settings_revision,
+                    cache_identity_epoch,created_at
+                FROM singbox_subscription_sources
+            ) s),'[]'::jsonb),
+            'versions',COALESCE((SELECT jsonb_agg(to_jsonb(v) ORDER BY chain_id,generation)
+                FROM singbox_chain_versions v),'[]'::jsonb),
+            'hops',COALESCE((SELECT jsonb_agg(to_jsonb(h) ORDER BY chain_id,generation,position)
+                FROM singbox_chain_hops h),'[]'::jsonb))",
+    )
+    .fetch_one(pool)
+    .await?)
+}
+
+async fn source_workbench_defaults(pool: &PgPool) -> Result<Value> {
+    Ok(sqlx::query_scalar(
+        "SELECT COALESCE(jsonb_agg(jsonb_build_object(
+            'id',id,'auto_refresh',auto_refresh,'user_agent',user_agent,
+            'traffic',traffic,'changes',changes) ORDER BY id),'[]'::jsonb)
+         FROM singbox_subscription_sources",
+    )
+    .fetch_one(pool)
+    .await?)
 }
 
 #[sqlx::test(migrations = false)]
@@ -40,10 +69,26 @@ async fn existing_main_38_upgrades_without_redefining_numeric_or_immutable_histo
         .bind(chain)
         .execute(&pool)
         .await?;
-    sqlx::query("INSERT INTO singbox_subscription_sources(name,kind,secret_content,created_at) VALUES('TEST_ONLY existing numeric source','inline','preserved private fixture',1)").execute(&pool).await?;
+    let source: i64 = sqlx::query_scalar("INSERT INTO singbox_subscription_sources(name,kind,secret_content,created_at) VALUES('TEST_ONLY existing numeric source','inline','preserved private fixture',1) RETURNING id").fetch_one(&pool).await?;
     let before = numeric_history(&pool).await?;
+    let original_sources: Value = sqlx::query_scalar(
+        "SELECT COALESCE(jsonb_agg(to_jsonb(s) ORDER BY id),'[]'::jsonb)
+         FROM singbox_subscription_sources s",
+    )
+    .fetch_one(&pool)
+    .await?;
+    // This proves the explicit projection omits no column from main38.
+    assert_eq!(before["sources"], original_sources);
+    let expected_defaults = serde_json::json!([{
+        "id": source,
+        "auto_refresh": true,
+        "user_agent": "Sinan-subscription-import/1",
+        "traffic": {},
+        "changes": {"added": 0, "missing": 0, "unsupported": 0, "updated": 0}
+    }]);
     all.run(&pool).await?;
     assert_eq!(numeric_history(&pool).await?, before);
+    assert_eq!(source_workbench_defaults(&pool).await?, expected_defaults);
     let types: Vec<(String,String)> = sqlx::query_as("SELECT table_name,data_type FROM information_schema.columns WHERE table_schema='public' AND column_name='id' AND table_name IN ('singbox_external_nodes','singbox_ordered_external_nodes') ORDER BY table_name").fetch_all(&pool).await?;
     assert_eq!(
         types,
@@ -64,6 +109,7 @@ async fn existing_main_38_upgrades_without_redefining_numeric_or_immutable_histo
     );
     all.run(&pool).await?;
     assert_eq!(numeric_history(&pool).await?, before);
+    assert_eq!(source_workbench_defaults(&pool).await?, expected_defaults);
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM _sqlx_migrations")
             .fetch_one(&pool)
