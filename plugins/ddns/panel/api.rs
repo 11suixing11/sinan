@@ -20,6 +20,10 @@ use uuid::Uuid;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/plugins/ddns/rules", get(list).post(create))
+        .route(
+            "/api/plugins/ddns/rules/dual-stack",
+            post(create_dual_stack),
+        )
         .route("/api/plugins/ddns/rules/{id}", patch(update).delete(remove))
         .route("/api/plugins/ddns/rules/{id}/sync", post(sync))
         .merge(super::settings::routes())
@@ -63,11 +67,31 @@ async fn valid_server(state: &AppState, config: &Config) -> ApiResult<()> {
 async fn create(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(mut input): Json<Write>,
+    Json(input): Json<Write>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
     auth::require_admin(&state, &headers).await?;
+    let record_types = [input.config.record_type.clone()];
+    let mut rules = create_rules(&state, input, &record_types).await?;
+    Ok((StatusCode::CREATED, Json(rules.remove(0))))
+}
+
+async fn create_dual_stack(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(input): Json<Write>,
+) -> ApiResult<(StatusCode, Json<Value>)> {
+    auth::require_admin(&state, &headers).await?;
+    let rules = create_rules(&state, input, &["A".into(), "AAAA".into()]).await?;
+    Ok((StatusCode::CREATED, Json(json!({"rules": rules}))))
+}
+
+async fn create_rules(
+    state: &AppState,
+    mut input: Write,
+    record_types: &[String],
+) -> ApiResult<Vec<Value>> {
     input.config.normalize()?;
-    valid_server(&state, &input.config).await?;
+    valid_server(state, &input.config).await?;
     let (token, key, secret) = credentials(&input, None)?;
     let mut tx = state.pool.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock(739104823)")
@@ -76,35 +100,42 @@ async fn create(
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM ddns_rules")
         .fetch_one(&mut *tx)
         .await?;
-    if count >= MAX_RULES {
+    if count + record_types.len() as i64 > MAX_RULES {
         return Err(ApiError::Conflict("最多配置 32 条 DDNS 规则".into()));
     }
-    let id = Uuid::new_v4();
-    let result =
+    let mut ids = Vec::new();
+    for record_type in record_types {
+        let id = Uuid::new_v4();
+        let mut config = input.config.clone();
+        config.record_type.clone_from(record_type);
+        let result =
         sqlx::query("INSERT INTO ddns_rules(id,server_id,config,api_token,access_key_id,access_key_secret) VALUES($1,$2,$3,$4,$5,$6)")
             .bind(id)
-            .bind(input.config.server_id)
-            .bind(json!(input.config))
-            .bind(token)
-            .bind(key)
-            .bind(secret)
+            .bind(config.server_id)
+            .bind(json!(config))
+            .bind(&token)
+            .bind(&key)
+            .bind(&secret)
             .execute(&mut *tx)
             .await;
-    if result.as_ref().is_err_and(|error| {
-        error
-            .as_database_error()
-            .is_some_and(|error| error.is_unique_violation())
-    }) {
-        return Err(ApiError::Conflict(
-            "此提供方、Zone、域名、类型及线路已存在规则".into(),
-        ));
+        if result.as_ref().is_err_and(|error| {
+            error
+                .as_database_error()
+                .is_some_and(|error| error.is_unique_violation())
+        }) {
+            return Err(ApiError::Conflict(
+                "此提供方、Zone、域名、类型及线路已存在规则，未创建任何新规则".into(),
+            ));
+        }
+        result?;
+        ids.push(id);
     }
-    result?;
     tx.commit().await?;
-    Ok((
-        StatusCode::CREATED,
-        Json(model::view(&state.pool, load(&state.pool, id).await?).await?),
-    ))
+    let mut rules = Vec::new();
+    for id in ids {
+        rules.push(model::view(&state.pool, load(&state.pool, id).await?).await?);
+    }
+    Ok(rules)
 }
 
 async fn update(

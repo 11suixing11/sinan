@@ -21,7 +21,9 @@ use sinan_protocol::now_timestamp;
 use sqlx::{PgPool, Row};
 use std::net::SocketAddr;
 
-mod rate_limit;
+pub(crate) mod passkeys;
+pub(crate) mod proof;
+pub(crate) mod rate_limit;
 mod security;
 mod totp;
 

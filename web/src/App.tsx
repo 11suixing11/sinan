@@ -9,6 +9,7 @@ import { currentNavigation } from './app/navigation'
 import { resolveRoute } from './app/routes'
 
 const ServerDisplay = lazy(() => import('./display/ServerDisplay'))
+const UserPortal = lazy(() => import('./plugins/singbox/UserPortal'))
 
 export default function App() {
   const [session, setSession] = useState<boolean | null>(null)
@@ -59,6 +60,7 @@ export default function App() {
   const title = current?.label ?? '控制面板'
   useEffect(() => { document.title = `${title} · 司南` }, [title])
 
+  if (route.page === 'proxy-portal') return <Suspense fallback={<div className="boot"><Brand /><Loading /></div>}><UserPortal key={route.account} account={route.account} activation={route.activation} /></Suspense>
   if (session === null) return <div className="boot"><Brand /><Loading /></div>
   if (!session && !(route.page === 'dashboard' && publicDashboard)) {
     return <Login notice={notice} onLogin={() => {

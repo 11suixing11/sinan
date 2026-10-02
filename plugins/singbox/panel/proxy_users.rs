@@ -148,6 +148,8 @@ pub async fn remove(
         .bind(now_timestamp())
         .execute(&mut *transaction)
         .await?;
+    sqlx::query("DELETE FROM passkey_accounts WHERE id IN (SELECT account_id FROM singbox_portal_accounts WHERE user_id=$1)")
+        .bind(id).execute(&mut *transaction).await?;
     sqlx::query("DELETE FROM accesses WHERE user_id=$1")
         .bind(id)
         .execute(&mut *transaction)

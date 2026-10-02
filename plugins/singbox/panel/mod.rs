@@ -12,6 +12,7 @@ pub mod nodes;
 pub mod ordered_paths;
 pub mod packages;
 pub mod policies;
+mod portal;
 pub mod proxy_resources;
 pub mod proxy_users;
 pub mod publisher;
@@ -111,6 +112,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/usage", get(usage::summary))
         .merge(sources::router())
+        .merge(portal::router())
         .merge(mixed_paths::router());
     Router::new()
         .nest(

@@ -37,12 +37,12 @@
 
 ## 面板入口与插件
 
-`crates/panel/src/lib.rs` 声明模块并保留原有公共导出；`state.rs` 创建共享状态，`main.rs` 启动服务与后台任务。HTTP 路由在 `routes/` 按职责组合：
+`crates/panel/src/lib.rs` 声明模块并保留原有公共导出；`state.rs` 创建共享状态，`main.rs` 启动服务与后台任务。`passkeys/` 提供共用 WebAuthn 验证、挑战和凭据存储，管理员包装在 `auth/`，代理用户入口、邀请和独立会话在 `plugins/singbox/panel/portal/`。HTTP 路由在 `routes/` 按职责组合：
 
 | 文件 | 注册的接口 |
 | --- | --- |
 | `routes/mod.rs` | 健康检查、各组路由、插件、前端兜底及全局请求体限制 |
-| `routes/system.rs` | 登录/TOTP、统计、汇率、设置与通知 |
+| `routes/system.rs` | 登录/TOTP/管理员 Passkey、统计、汇率、设置与通知 |
 | `routes/servers.rs` | 服务器、接入令牌、遥测配置、命令、周期拨测和流量矫正 |
 | `routes/diagnostics.rs` | IP 查询、共用诊断服务、旧诊断路径与 TCP 目标 |
 | `routes/agent.rs` | Agent 认证接口、上报、待办、结果、配置包和运行时下载 |

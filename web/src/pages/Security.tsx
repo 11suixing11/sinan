@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { api } from '../api'
 import { Badge, CopyField, ErrorNotice, Field, Icon, Loading, PageHeader, Refresh } from '../components'
 import { useAction, useResource } from '../hooks'
+import AdminPasskeys from './AdminPasskeys'
 
 type TotpStatus = { enabled: boolean; pending_expires_at: number | null }
 type Setup = { secret: string; otpauth_uri: string; expires_at: number }
@@ -47,7 +48,8 @@ export default function Security() {
     }), () => { form.reset(); setSetup(undefined); setNotice('二步验证已关闭，其他设备的管理员会话已退出。'); resource.reload() })
   }
   return <>
-    <PageHeader eyebrow="管理员设置" title="系统管理员" description="用验证器中的动态验证码保护管理员登录。"><Refresh onClick={resource.reload} /></PageHeader>
+    <PageHeader eyebrow="管理员设置" title="系统管理员" description="管理 Passkey 和二步验证，保护管理员登录。"><Refresh onClick={resource.reload} /></PageHeader>
+    <AdminPasskeys />
     <ErrorNotice message={resource.error} retry={resource.reload} />
     <ErrorNotice message={action.error} />
     {notice && <div className="notice quiet-notice" role="status"><Icon name="lock" size={19} /><p>{notice}</p></div>}

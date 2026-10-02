@@ -19,6 +19,8 @@
 
 ## 部署、身份、服务与运维
 
+- [ADR 0059：管理员与代理用户 Passkey](0059-passkeys-and-proxy-user-access.md)
+
 - [ADR 0003：运行时使用独立 systemd 服务](0003-independent-runtime-service.md)
 - [ADR 0006：特权操作经由统一 trait](0006-privileged-trait.md)
 - [ADR 0010：Agent 只从面板下载](0010-panel-only-downloads.md)
@@ -74,6 +76,8 @@
 - [ADR 0047：实时监控、历史粒度、每日汇率与多渠道通知](0047-monitoring-refresh-history-and-channels.md)
 
 ## DDNS 与云资源插件
+
+- [ADR 0060：DDNS 双栈配置入口](0060-ddns-dual-stack-creation.md)
 
 - [ADR 0048：使用 Agent 已上报地址的 Cloudflare DDNS](0048-cloudflare-ddns.md)
 - [ADR 0056：多云 DDNS 插件](0056-multicloud-ddns.md)

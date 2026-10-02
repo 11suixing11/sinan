@@ -8,6 +8,8 @@
 
 需要 Rust stable、PostgreSQL 16。仓库提交了 `web/dist`，不修改前端时可直接编译面板；修改前端时使用固定版本 **Bun 1.4.2** 管理依赖和运行构建，并同步构建产物。CI 与 Docker 前端构建使用相同版本。
 
+Passkey 验证使用 `webauthn-rs`，源码构建面板还需 OpenSSL 开发库和 `pkg-config`（Debian/Ubuntu：`libssl-dev pkg-config`）。Dockerfile 已安装构建及运行库；Agent 无此新增依赖。默认 Rust 测试覆盖来源、权限、挑战、邀请和速率约束；完整虚拟认证器回归需设置 `SINAN_PLAYWRIGHT_MODULE`、`SINAN_CHROME_PATH` 后执行 `cargo test -p sinan-panel --test passkeys virtual_authenticator_browser_roundtrip -- --ignored --nocapture`。它使用 sqlx 创建的隔离数据库和回环 HTTP 服务，不启用后台插件，不访问真实云 API。该用例默认忽略，不能将默认 cargo test 结果作为浏览器/硬件认证验收。
+
 尚未安装 Bun 时，按[官方安装说明](https://bun.com/docs/installation)安装指定版本，并确认当前终端可调用：
 
 ```bash

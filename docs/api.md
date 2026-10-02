@@ -34,7 +34,31 @@
 
 启用和关闭都在事务内更新状态并撤销其他管理员会话，保留当前完成操作的会话。状态接口不返回秘密。丢失验证器时需由部署所有者经受保护的数据库管理通道恢复，见[部署文档](deploy.md#管理员登录与二步验证)；普通密码不能单独关闭 TOTP。
 
-除订阅、健康检查及另行说明的设备接入端点外，下述接口全部要求管理员登录。列表都是按编号排序的 JSON 数组，无分页。创建返回 201，普通读取和修改返回 200，删除返回 204。
+### Passkey
+
+所有 Passkey 写请求必须带与 `SINAN_PUBLIC_URL` 规范化后完全相同的 `Origin`，请求体最大 64 KiB，沿用认证限速。挑战成功响应为 `{challenge_id,options}`；只把 `options.publicKey` 传给浏览器原生 WebAuthn API，完成时提交 `{challenge_id,credential}`，`credential` 使用 WebAuthn JSON 格式。绑定 Cookie 为 HttpOnly，调用方须同源发送。挑战五分钟有效，一次性消费；不向客户端返回验证状态。
+
+| 方法与路径 | 请求 / 作用 |
+| --- | --- |
+| `GET /api/security/passkeys` | 管理员；返回 `{configuration:{enabled,reason,origin},keys:[{id,name,created_at,last_used_at}]}` |
+| `POST /api/security/passkeys/register/start` | 管理员；`{name,password,totp_code?}`，验证密码及已启用的 TOTP，开始绑定 |
+| `POST /api/security/passkeys/register/finish` | 同一管理员会话；完成注册 |
+| `POST /api/security/passkeys/{id}/remove` | 管理员；`{password,totp_code?}`，删除密钥，撤销其他会话和待完成挑战 |
+| `POST /api/login/passkey/start` | 无需登录；开始管理员认证，无请求体 |
+| `POST /api/login/passkey/finish` | 完成管理员认证，签发原 `sinan_session`，返回 `{id:1}` |
+| `GET /api/plugins/sing-box/users/{id}/portal` | 管理员；开通状态、密钥数量、账户登录 URL、开通链接过期时间，不返回开通秘密 |
+| `POST /api/plugins/sing-box/users/{id}/portal/invitation` | 管理员；`{password,totp_code?,reset:false}`；返回 `{url,expires_at}`，十五分钟、一次性。已有密钥时必须明确 `reset:true` |
+| `GET /api/plugins/sing-box/portal/{account}` | 插件 UUID 入口；未认证返回 `{authenticated:false,configuration}`，已认证额外返回自身 `name,subscription_url,usage:{uplink,downlink},keys` |
+| `POST /api/plugins/sing-box/portal/{account}/login/start` | 开始该代理账户的认证，无请求体 |
+| `POST /api/plugins/sing-box/portal/{account}/login/finish` | 完成认证，签发独立 `sinan_proxy_session`，返回 `{ok:true}` |
+| `POST /api/plugins/sing-box/portal/{account}/register/start` | 初次开通 `{name,activation_token}`；已认证添加 `{name}`，需五分钟内的 Passkey 验证 |
+| `POST /api/plugins/sing-box/portal/{account}/register/finish` | 完成注册；初次开通同时消费邀请并签发用户会话 |
+| `POST /api/plugins/sing-box/portal/{account}/keys/{id}/remove` | 五分钟内已验证的用户会话；无请求体，保留至少一把密钥，撤销其他用户会话与挑战 |
+| `POST /api/plugins/sing-box/portal/{account}/logout` | 仅清除该代理账户的当前会话 |
+
+`account` 是独立 UUID，`id` 是管理接口中的凭据 UUID；不能混用代理用户数字 ID、订阅令牌或管理员 Cookie。列表不返回 credential ID/公钥材料；标准认证选项中的 allow/exclude credential ID 仅用于对应账户的认证。用户删除、管理员重置或密钥撤销之后，已发起但未提交的认证也不能创建会话。用法及原生认证器未验证范围见 [Passkey](passkeys.md)。
+
+除上述公开认证/用户入口、订阅、健康检查及另行说明的设备接入端点外，下述接口全部要求管理员登录。列表都是按编号排序的 JSON 数组，无分页。创建返回 201，普通读取和修改返回 200，删除返回 204。
 
 ## 服务器与接入
 
@@ -427,6 +451,7 @@ report 为 `{text,report_url?}`，文本以纯文本呈现，协议接受上限 
 | `POST /api/plugins/ddns/servers/{id}/disable` | 停用插件，保留规则与 DNS；运行中返回 409 |
 | `GET /api/plugins/ddns/rules` | 规则、候选地址、插件状态与最近结果，无 Token |
 | `POST /api/plugins/ddns/rules` | 创建规则，目标服务器须已启用插件 |
+| `POST /api/plugins/ddns/rules/dual-stack` | 相同创建请求，一次事务创建 A、AAAA；返回 `201 {rules:[IPv4规则,IPv6规则]}`，任何冲突/容量不足时整组不创建 |
 | `PATCH /api/plugins/ddns/rules/{id}` | 全量替换 config，必须带当前 revision；空 Token 保留 |
 | `DELETE /api/plugins/ddns/rules/{id}` | 删除本地规则及凭据，保留远端 DNS |
 | `POST /api/plugins/ddns/rules/{id}/sync` | 手动同步；插件与规则均需启用，限流返回 429 |
