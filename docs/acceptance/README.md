@@ -97,6 +97,7 @@
 
 - [作者原生制品交接及提交收尾](native-artifact-handoff.md)
 - [托管验收工具与主线 API 合同](managed-tool-api-compatibility.md)
+- [当前 Linux 节点与构建环境](current-linux-readiness.md)
 
 ## 原生 TCP 与制品发布
 
