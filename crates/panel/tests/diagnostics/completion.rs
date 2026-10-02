@@ -173,6 +173,13 @@ async fn late_cleaning_restores_panel_timeout_without_requiring_new_capability_f
     let expired = stored(&panel, id).await?;
     assert_eq!(expired["status"], "failed");
     assert_eq!(expired["agent_completed"], false);
+    // Create with the current mandatory capability, then explicitly model a
+    // historical device that no longer advertises it when reporting this job.
+    sqlx::query("UPDATE servers SET capabilities=capabilities-$2 WHERE id=$1")
+        .bind(server)
+        .bind(sinan_protocol::DIAGNOSTIC_COMPLETION_CAPABILITY)
+        .execute(&panel.state.pool)
+        .await?;
     let capabilities: Value = sqlx::query_scalar("SELECT capabilities FROM servers WHERE id=$1")
         .bind(server)
         .fetch_one(&panel.state.pool)

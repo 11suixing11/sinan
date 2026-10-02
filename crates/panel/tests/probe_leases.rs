@@ -253,6 +253,104 @@ async fn exact_receipts_control_results_and_duplicates_survive_revocation(
 }
 
 #[sqlx::test]
+async fn old_unproved_spool_drains_without_blocking_fresh_proved_results(pool: PgPool) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, device) = panel
+        .authenticated_device(&cookie, "old unproved spool")
+        .await?;
+    configured(&panel, &cookie, server).await?;
+    capable(&panel, server).await?;
+    let issued = lease(&panel, &device.session_token).await?;
+    assert!(issued.valid());
+    let fresh = sample(&issued);
+    let mut old = fresh.clone();
+    old.id = Uuid::new_v4();
+    old.sampled_at -= 8 * 86_400_000;
+    old.execution = None;
+    let mut future = fresh.clone();
+    future.id = Uuid::new_v4();
+    future.sampled_at += 3_600_000;
+    future.execution = None;
+    let results = vec![old.clone(), future.clone(), fresh.clone()];
+    assert_eq!(
+        ingest(&panel, &device.session_token, results.clone()).await?.ids,
+        vec![old.id, future.id, fresh.id]
+    );
+    let saved: (Value, String) =
+        sqlx::query_as("SELECT result,digest FROM probe_results WHERE id=$1")
+            .bind(fresh.id)
+            .fetch_one(&panel.state.pool)
+            .await?;
+    assert_eq!(saved.0, json!(fresh));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM probe_results WHERE server_id=$1")
+            .bind(server)
+            .fetch_one(&panel.state.pool)
+            .await?,
+        1
+    );
+    assert_eq!(
+        ingest(&panel, &device.session_token, results).await?.ids,
+        vec![old.id, future.id, fresh.id]
+    );
+    assert_eq!(
+        sqlx::query_as::<_, (Value, String)>("SELECT result,digest FROM probe_results WHERE id=$1")
+            .bind(fresh.id)
+            .fetch_one(&panel.state.pool)
+            .await?,
+        saved
+    );
+
+    // New proved records retain their time window, even with a coherent context.
+    for sampled_at in [old.sampled_at, future.sampled_at] {
+        let mut outside = fresh.clone();
+        outside.id = Uuid::new_v4();
+        outside.sampled_at = sampled_at;
+        let execution = outside.execution.as_mut().unwrap();
+        execution.issued_at = sampled_at.div_euclid(1_000);
+        execution.expires_at = execution.issued_at + 90;
+        assert!(execution.valid());
+        assert_eq!(
+            panel
+                .client
+                .post(format!("{}/api/agent/v1/probe-results", panel.base))
+                .bearer_auth(&device.session_token)
+                .json(&ProbeBatch {
+                    results: vec![outside],
+                })
+                .send()
+                .await?
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let mut malformed = old.clone();
+    malformed.loss_percent = 101.0;
+    let mut collision = old;
+    collision.id = fresh.id;
+    for (result, expected) in [
+        (malformed, StatusCode::BAD_REQUEST),
+        (collision, StatusCode::CONFLICT),
+    ] {
+        assert_eq!(
+            panel
+                .client
+                .post(format!("{}/api/agent/v1/probe-results", panel.base))
+                .bearer_auth(&device.session_token)
+                .json(&ProbeBatch {
+                    results: vec![result],
+                })
+                .send()
+                .await?
+                .status(),
+            expected
+        );
+    }
+    Ok(())
+}
+
+#[sqlx::test]
 async fn natural_expiry_changes_revision_and_receipt_retention_is_bounded(
     pool: PgPool,
 ) -> Result<()> {

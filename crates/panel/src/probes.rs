@@ -549,8 +549,6 @@ pub async fn ingest(
         || batch.results.len() > 64
         || batch.results.iter().any(|r| {
             !ids.insert(r.id)
-                || r.sampled_at > now + 60_000
-                || r.sampled_at < now - 7 * 86_400_000
                 || !r.loss_percent.is_finite()
                 || !(0.0..=100.0).contains(&r.loss_percent)
                 || r.latency_ms
@@ -589,6 +587,9 @@ pub async fn ingest(
                 // it without inventing permission or blocking proved samples.
                 acknowledged.push(result.id);
                 continue;
+            }
+            if result.sampled_at > now + 60_000 || result.sampled_at < now - 7 * 86_400_000 {
+                return Err(ApiError::BadRequest("拨测结果格式无效".into()));
             }
             let current: Option<serde_json::Value> =
                 sqlx::query_scalar("SELECT spec FROM network_probes WHERE id=$1 AND server_id=$2")
