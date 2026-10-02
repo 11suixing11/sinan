@@ -244,7 +244,8 @@ try {
     }
     assert.equal(await page.locator('.quality-result').count(), 0)
     assert(await page.getByText('尚未查询质量。点击“刷新 IP 质量”查询已启用入口。', { exact: true }).isVisible())
-    assert(await page.getByText('流媒体解锁：未知。需要在节点自身出口执行已验收的自查工具，目前尚未启用。', { exact: true }).isVisible())
+    assert(await page.getByText('流媒体解锁：未知。当前出口尚未确认，不能据此判断流媒体是否解锁。', { exact: true }).isVisible())
+    assert(await page.getByRole('button', { name: '运行节点出口自查', exact: true }).isDisabled())
     assert.equal(requests.filter(request => request.method !== 'GET').length, writes)
     cases.push('disabled-and-unlicensed-without-history-send-nothing')
 

@@ -39,6 +39,42 @@ fn registry_has_real_origins_and_credentials_never_enter_descriptions() {
 }
 
 #[test]
+fn node_sources_are_described_by_actual_entrypoint_without_becoming_panel_queries() {
+    let registry = ProviderRegistry::configured(Some(FIXTURE_KEY));
+    assert_eq!(registry.enabled().count(), 2);
+    assert!(
+        registry
+            .enabled()
+            .all(|provider| provider.execution == "panel")
+    );
+    let prepared = node_descriptions(true, None);
+    let aggregator = prepared
+        .iter()
+        .find(|provider| provider.provider == "ipquality-node/check-place-aggregator")
+        .unwrap();
+    assert_eq!(aggregator.databases.len(), 7);
+    assert!(aggregator.enabled);
+    assert!(
+        prepared
+            .iter()
+            .all(|provider| provider.execution == "node" && provider.kind == "node_self")
+    );
+    for provider in prepared.iter().filter(|provider| {
+        provider.provider.ends_with("-not-configured") || provider.provider.ends_with("-disabled")
+    }) {
+        assert!(!provider.enabled);
+        assert!(provider.reason.is_some());
+    }
+    let unavailable = node_descriptions(false, Some("TEST_ONLY missing signed artifact"));
+    assert!(unavailable.iter().all(|provider| !provider.enabled));
+    assert!(
+        !serde_json::to_string(&prepared)
+            .unwrap()
+            .contains(FIXTURE_KEY)
+    );
+}
+
+#[test]
 fn official_response_requires_identity_and_preserves_only_documented_fields() {
     let ip = "2001:db8::1";
     let mut body = official_body(ip);

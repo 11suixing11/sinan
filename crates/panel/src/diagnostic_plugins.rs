@@ -1,11 +1,14 @@
 use crate::diagnostics::service::DiagnosticPlugin;
+#[path = "../../../plugins/ipquality/panel/mod.rs"]
+pub mod ipquality;
 #[path = "../../../plugins/nodequality/panel/mod.rs"]
 pub mod nodequality;
 #[path = "../../../plugins/tcpquality/panel/mod.rs"]
 pub mod tcpquality;
 static NODEQUALITY: nodequality::NodeQualityPlugin = nodequality::NodeQualityPlugin;
 static TCPQUALITY: tcpquality::TcpQualityPlugin = tcpquality::TcpQualityPlugin;
-static REGISTERED: [&dyn DiagnosticPlugin; 2] = [&NODEQUALITY, &TCPQUALITY];
+static IPQUALITY: ipquality::IpQualityPlugin = ipquality::IpQualityPlugin;
+static REGISTERED: [&dyn DiagnosticPlugin; 3] = [&NODEQUALITY, &TCPQUALITY, &IPQUALITY];
 pub fn all() -> &'static [&'static dyn DiagnosticPlugin] {
     &REGISTERED
 }

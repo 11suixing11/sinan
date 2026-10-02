@@ -1,0 +1,548 @@
+{
+  "schema": 1,
+  "status": "local_source_acceptance_passed_with_explicit_platform_pending",
+  "scope": "Independent node-egress IPQuality source step; no real-node, licence approval, signing, publishing or deployment acceptance",
+  "parent_commit": "7c455bcd08e4f1254430e17bde69a767b32758be",
+  "functional_inputs": {
+    "files": 672,
+    "sha256": "8dae808a159fe3b4636c230316ac63c17cfc5680da7f19546110d2949822672e",
+    "excludes": [
+      "generated web/dist (indexed separately)",
+      "documentation and acceptance evidence"
+    ],
+    "final_repair_delta_from_rust_r3": [
+      "plugins/ipquality/source-policy.py",
+      "plugins/ipquality/test-policy.py"
+    ]
+  },
+  "tool": {
+    "plugin": "ipquality",
+    "version": "87397e2c3196ec796f5477c83343c2354df601ea-node-r1",
+    "upstream_commit": "87397e2c3196ec796f5477c83343c2354df601ea",
+    "ip_sh_sha256": "b30df5a3c2204276c54e99dcc5080b46f8a627667730aee7de63b109b8ecaecf"
+  },
+  "execution_policy": {
+    "tests_started_after_whole_step_freeze": true,
+    "failure_repairs_recheck_affected_scope_only": true,
+    "no_live_provider_queries": true,
+    "no_production_load_tests": true,
+    "ci_stays_disabled": true
+  },
+  "rust": {
+    "coverage": {
+      "passed": 646,
+      "failed": 0,
+      "ignored": 18
+    },
+    "distinct_test_cases": 664,
+    "distinct_targets": 72,
+    "baseline": "rust-r2/rust-receipt.json (all 11 crates, all 72 targets)",
+    "affected_repair": "rust-r3/rust-receipt.json (18 IPQuality panel cases replace previous 16)",
+    "workspace_fmt": true,
+    "workspace_warnings_deny_clippy_baseline": true,
+    "panel_warnings_deny_clippy_after_repair": true,
+    "core_boundary": true,
+    "own_postgres_cleanup_confirmed": true,
+    "final_python_repair_leaves_rust_sources_unchanged": true,
+    "platform_pending": "18 existing conditional ignores: Linux/systemd/permissions, real sing-box/openssl import/auth/usage and Pebble ACME; not passed"
+  },
+  "python": {
+    "distinct_counts": {
+      "run": 256,
+      "passed": 237,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 19
+    },
+    "suites": [
+      {
+        "suite": "runner",
+        "evidence_record": "python-r1/receipt.json",
+        "status": "passed",
+        "counts": {
+          "run": 6,
+          "passed": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0,
+          "expected_failures": 0,
+          "unexpected_successes": 0
+        },
+        "log_sha256": "1876ddc1aadc3aaf333d8777ede2783b7ee9721d1b13c1401a88631dae9c6e07",
+        "structured_result_sha256": "74503442dcd5566a246e8853ea5c7054328a32c15e15f37c8a64ad1701657b68",
+        "owned_process_group_cleanup_confirmed": true,
+        "pending": []
+      },
+      {
+        "suite": "artifact",
+        "evidence_record": "python-r1/receipt.json",
+        "status": "passed",
+        "counts": {
+          "run": 7,
+          "passed": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0,
+          "expected_failures": 0,
+          "unexpected_successes": 0
+        },
+        "log_sha256": "ac10bac9c3aadebafbee745fa0f7ebd4baa4180c7314af01663ecdb40ae56dd7",
+        "structured_result_sha256": "63b68aa4d5b7c8434f8248ab1f44d54301ac2d2b6eebbcb357dfb9c243c777dd",
+        "owned_process_group_cleanup_confirmed": true,
+        "pending": []
+      },
+      {
+        "suite": "build",
+        "evidence_record": "python-r1/receipt.json",
+        "status": "passed",
+        "counts": {
+          "run": 14,
+          "passed": 14,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0,
+          "expected_failures": 0,
+          "unexpected_successes": 0
+        },
+        "log_sha256": "9f5b669afe6993e1579adc9b0b5c11635450ed83df53368cf3effc61737b27e1",
+        "structured_result_sha256": "2e981e5d5fe85234caabcc085235c7236a8cc0ec35ee9cf29f3268efd61ada5f",
+        "owned_process_group_cleanup_confirmed": true,
+        "pending": []
+      },
+      {
+        "suite": "release",
+        "evidence_record": "python-r1/receipt.json",
+        "status": "platform_pending",
+        "counts": {
+          "run": 44,
+          "passed": 37,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 7,
+          "expected_failures": 0,
+          "unexpected_successes": 0
+        },
+        "log_sha256": "15bf52ee7bb5e0a99eed2a16929a6d089351d74713af58b8a2b922e5e9ca2f52",
+        "structured_result_sha256": "3b9b5790acba6a47d3d079f92eadf4b34738ce7379f1728d97bd8acf6e53b614",
+        "owned_process_group_cleanup_confirmed": true,
+        "pending": [
+          {
+            "test": "__main__.ReleaseTests.test_installer_accepts_exact_signed_gnu_identity",
+            "reason": "GNU Agent prefix requires root on a GNU/glibc host"
+          },
+          {
+            "test": "__main__.ReleaseTests.test_installer_accepts_exact_signed_musl_identity",
+            "reason": "real installer prefix requires isolated Linux container root"
+          },
+          {
+            "test": "__main__.ReleaseTests.test_installer_accepts_signed_raw_and_passes_role_binding",
+            "reason": "real installer prefix requires isolated Linux container root"
+          },
+          {
+            "test": "__main__.ReleaseTests.test_installer_refuses_unbounded_body_at_signed_size",
+            "reason": "real installer prefix requires isolated Linux container root"
+          },
+          {
+            "test": "__main__.ReleaseTests.test_installer_refuses_writable_execution_parent_before_agent_execution",
+            "reason": "protected executable staging test requires root"
+          },
+          {
+            "test": "__main__.ReleaseTests.test_missing_preloaded_agent_never_falls_back_to_panel",
+            "reason": "real installer prefix requires isolated Linux container root"
+          },
+          {
+            "test": "__main__.ReleaseTests.test_optimized_installer_refuses_tampered_raw_without_execution",
+            "reason": "real installer prefix requires isolated Linux container root"
+          }
+        ]
+      },
+      {
+        "suite": "publish",
+        "evidence_record": "python-r1/receipt.json",
+        "status": "passed",
+        "counts": {
+          "run": 30,
+          "passed": 30,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0,
+          "expected_failures": 0,
+          "unexpected_successes": 0
+        },
+        "log_sha256": "2d46aeac438d6675e851880cf55eee4652d85824c43b9a6a3aa37e14b898c817",
+        "structured_result_sha256": "338468212124606cbce43b788b3e1093bbd99339a8690c5647da235e7d5b773e",
+        "owned_process_group_cleanup_confirmed": true,
+        "pending": []
+      },
+      {
+        "suite": "rootfs-build",
+        "evidence_record": "python-r1/receipt.json",
+        "status": "platform_pending",
+        "counts": {
+          "run": 34,
+          "passed": 32,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 2,
+          "expected_failures": 0,
+          "unexpected_successes": 0
+        },
+        "log_sha256": "a3e9ba55e9ab825d0833d1d71c286c719570340d262d5d125a22ba94967f6d1e",
+        "structured_result_sha256": "c880db6325e31d656bb41c775e23d036ec73f178a03ccd84c3983f3fae0885b4",
+        "owned_process_group_cleanup_confirmed": true,
+        "pending": [
+          {
+            "test": "__main__.RootfsBuildTests.test_cli_term_and_hup_reap_real_owned_child_groups",
+            "reason": "Linux owned child-group signal acceptance required"
+          },
+          {
+            "test": "__main__.RootfsBuildTests.test_mount_inventory_rejects_escaped_and_nested_mount_paths",
+            "reason": "Linux mount inventory required"
+          }
+        ]
+      },
+      {
+        "suite": "rootfs-collect",
+        "evidence_record": "python-r1/receipt.json",
+        "status": "platform_pending",
+        "counts": {
+          "run": 33,
+          "passed": 26,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 7,
+          "expected_failures": 0,
+          "unexpected_successes": 0
+        },
+        "log_sha256": "c2454898fdafbae7cef0a40c2e629e6a4bb89f3a7a381fa5560c75e7f2a9f39f",
+        "structured_result_sha256": "21d9bd6ec17cc4bcdd37653249b754b46ea705396e7f948317de7186f0ec0ff4",
+        "owned_process_group_cleanup_confirmed": true,
+        "pending": [
+          {
+            "test": "__main__.OwnedWorkers.test_parent_term_and_hup_reap_only_the_owned_download_worker",
+            "reason": "owned worker lifecycle requires Linux waitid"
+          },
+          {
+            "test": "__main__.OwnedWorkers.test_real_chunked_body_is_bounded_and_producer_reaped",
+            "reason": "owned worker lifecycle requires Linux waitid"
+          },
+          {
+            "test": "__main__.OwnedWorkers.test_real_http_403_and_429_are_single_attempt_failures",
+            "reason": "owned worker lifecycle requires Linux waitid"
+          },
+          {
+            "test": "__main__.OwnedWorkers.test_real_invalid_short_content_length_and_empty_body_keep_context",
+            "reason": "owned worker lifecycle requires Linux waitid"
+          },
+          {
+            "test": "__main__.OwnedWorkers.test_real_non200_response_keeps_status_before_validation",
+            "reason": "owned worker lifecycle requires Linux waitid"
+          },
+          {
+            "test": "__main__.OwnedWorkers.test_real_paused_body_hits_deadline_and_reaps_producer",
+            "reason": "owned worker lifecycle requires Linux waitid"
+          },
+          {
+            "test": "__main__.OwnedWorkers.test_real_signed_identity_mismatch_retains_diagnostics_without_caching_body",
+            "reason": "owned worker lifecycle requires Linux waitid"
+          }
+        ]
+      },
+      {
+        "suite": "rootfs-capacity",
+        "evidence_record": "python-r1/receipt.json",
+        "status": "platform_pending",
+        "counts": {
+          "run": 43,
+          "passed": 40,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 3,
+          "expected_failures": 0,
+          "unexpected_successes": 0
+        },
+        "log_sha256": "fdd16f5dc253f907b77eefca963927a3062a721ae0e6d0fd8007c8f95f0b87ca",
+        "structured_result_sha256": "a2c6b598885cee0116620ab65c065c6882c0849a70f8c4e18b45bd40326f15be",
+        "owned_process_group_cleanup_confirmed": true,
+        "pending": [
+          {
+            "test": "__main__.FactoryCapacityTests.test_capacity_guard_reaps_owned_producer_and_descendant_group",
+            "reason": "Linux owned child-group capacity acceptance required"
+          },
+          {
+            "test": "__main__.OwnedLoopFilesystemTests.test_real_filesystem_free_disk_guard_stops_owned_producer",
+            "reason": "real owned filesystem fixture requires SINAN_FACTORY_LOOP_FIXTURE=1"
+          },
+          {
+            "test": "__main__.OwnedLoopFilesystemTests.test_real_filesystem_free_inode_guard_stops_owned_producer",
+            "reason": "real owned filesystem fixture requires SINAN_FACTORY_LOOP_FIXTURE=1"
+          }
+        ]
+      },
+      {
+        "suite": "rootfs-artifact",
+        "evidence_record": "python-r1/receipt.json",
+        "status": "passed",
+        "counts": {
+          "run": 12,
+          "passed": 12,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0,
+          "expected_failures": 0,
+          "unexpected_successes": 0
+        },
+        "log_sha256": "a36d5fbca8d0adbc7aa8c20b10d3b081e0891571052ef066a7ac61c29d4b5309",
+        "structured_result_sha256": "7b81ff170c933c0f65ce28619501b5675e16562dc490846024e636a8a7460fc8",
+        "owned_process_group_cleanup_confirmed": true,
+        "pending": []
+      },
+      {
+        "suite": "core-boundary",
+        "evidence_record": "python-r1/receipt.json",
+        "status": "passed",
+        "counts": {
+          "run": 6,
+          "passed": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0,
+          "expected_failures": 0,
+          "unexpected_successes": 0
+        },
+        "log_sha256": "92c5123d15e554f33ed68be82ef38fb89f4dd2e28a954baf52bb6363c98148e0",
+        "structured_result_sha256": "da99796abcdf41cdaa9c5761aba1ba9386fd242de1b5cf0afaf1f47a8491707e",
+        "owned_process_group_cleanup_confirmed": true,
+        "pending": []
+      },
+      {
+        "suite": "policy",
+        "evidence_record": "python-r3/receipt.json",
+        "status": "passed",
+        "counts": {
+          "run": 27,
+          "passed": 27,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0,
+          "expected_failures": 0,
+          "unexpected_successes": 0
+        },
+        "log_sha256": "85765e80e3dfa111439e74c29e2d1c2d4e730eefcd28dde40cac9e1cf54a000e",
+        "structured_result_sha256": "cb9c36ac37e75f484235e201a5cd217763f2fe93c1fc48daecc4848eac7a7b4b",
+        "owned_process_group_cleanup_confirmed": true,
+        "pending": []
+      }
+    ],
+    "canonical_upstream_cache_used": true,
+    "new_suites_skipped": 0
+  },
+  "web": {
+    "build_runs": 1,
+    "bun_counts": {
+      "pass": 58,
+      "fail": 0,
+      "skip": 0,
+      "expect_calls": 1154,
+      "tests": 58,
+      "files": 12
+    },
+    "distinct_browser_suites": 8,
+    "viewport_widths": [
+      1440,
+      390
+    ],
+    "uses_actual_dist_with_local_api_fixtures": true,
+    "source_and_dist_unchanged_during_runs": true,
+    "repaired_browser_fixtures_reuse_original_bun_and_dist": true,
+    "dist_files": 19,
+    "dist": {
+      "web/dist/assets/ServerDisplay-BD2S9FSM.css": {
+        "sha256": "f8014355a798babeaa06413150f4081f9d424ad35adb6d9e9beb5dcd5f7f5f3a",
+        "size": 25255
+      },
+      "web/dist/assets/ServerDisplay-PC-Na9B2.js": {
+        "sha256": "e281d85eb353049eeae6cebf4a1a27bf8bbb6d6bf88b3b7c5a47fbd9c0e9a7ec",
+        "size": 45215
+      },
+      "web/dist/assets/index-05r7iIHe.css": {
+        "sha256": "fe468cfae6b82164b063ca676856007229afc5d13d395d2252621d4c2796857a",
+        "size": 56120
+      },
+      "web/dist/assets/index-DfeDJCge.js": {
+        "sha256": "b13a5cd20ee35e90558cf043e0e8f24f65c20d65b8dc09dd24cc8368d28d4f5e",
+        "size": 485803
+      },
+      "web/dist/display-icons/os-alma.svg": {
+        "sha256": "c8b1686f341a1ed3e3c9638f396539e50334f0c7e11fd4a5a7d1b286686d636d",
+        "size": 5190
+      },
+      "web/dist/display-icons/os-alpine.webp": {
+        "sha256": "25c7dd641ef59d4cc6355672a4d8f6f3368d6c98e848e6cf1c99c7d521b386bf",
+        "size": 2200
+      },
+      "web/dist/display-icons/os-arch.svg": {
+        "sha256": "9605f694e3fd91c1329c246cbe5ed1105e13ca39928569e23f2c6993fc2ed463",
+        "size": 915
+      },
+      "web/dist/display-icons/os-centos.svg": {
+        "sha256": "22364a4fe637a35a829cbc92c2bd6f3ce912b47aedb7e64c59714c63d9ceeba9",
+        "size": 1634
+      },
+      "web/dist/display-icons/os-debian.svg": {
+        "sha256": "ea5542edfa154f61e1eded2f7ad1b161e64735fb421d6831e478772f85dd7cde",
+        "size": 5828
+      },
+      "web/dist/display-icons/os-fedora.svg": {
+        "sha256": "08dacee944d8472123c96d5fa7041512c53f2b9969c81bac798c46b9ffc40227",
+        "size": 1682
+      },
+      "web/dist/display-icons/os-gentoo.svg": {
+        "sha256": "6fd85109e4873b62d8b49615a0981337e0b58ac250c185c85dfedac2bafabf23",
+        "size": 3430
+      },
+      "web/dist/display-icons/os-macos.svg": {
+        "sha256": "3de3719e3bc9f696ac964b15c703d972cecd712d1c13fc85a800c92e4dd5fedb",
+        "size": 725
+      },
+      "web/dist/display-icons/os-nix.svg": {
+        "sha256": "2a5d3e942d5db27c4f33ec21601c458f869d18d53e831422027a8a4828da3784",
+        "size": 915
+      },
+      "web/dist/display-icons/os-rocky.svg": {
+        "sha256": "bfc0bdb756bc06ee977480cfcc28adc32980aded075de0d46f11b0dbc83447f1",
+        "size": 411
+      },
+      "web/dist/display-icons/os-ubuntu.svg": {
+        "sha256": "edd92d1b8239902f3001fabfdb3c479ed2f8036186a03c5b21b61227345e0d4f",
+        "size": 2652
+      },
+      "web/dist/display-icons/os-unknown.svg": {
+        "sha256": "986825609c5a3bfc8aa20b6468119246ff8e3b787a6c329186d83ac98051dc14",
+        "size": 300
+      },
+      "web/dist/display-icons/os-windows.svg": {
+        "sha256": "0f6b74d8d8ede1ec0e454b3c6fcdfba65fbe989af9a49ad4ff0c498f4dc3afbb",
+        "size": 179
+      },
+      "web/dist/index.html": {
+        "sha256": "dfb35304cf985c90ce2ffb30d8ded29c377e748956cafc4c77d1b5a63171a282",
+        "size": 552
+      },
+      "web/dist/notices/NodeFlare.txt": {
+        "sha256": "1a3a2e3d60f2a46379bae01ee1e95b8150635126f0f62c5723dc73fe545106d6",
+        "size": 1379
+      }
+    },
+    "suites": [
+      {
+        "suite": "build",
+        "status": "passed",
+        "evidence_record": "runs/r1/receipt.json"
+      },
+      {
+        "suite": "bun-all",
+        "status": "passed",
+        "evidence_record": "runs/r1/receipt.json"
+      },
+      {
+        "suite": "node-ipquality",
+        "status": "passed",
+        "evidence_record": "runs/r2/receipt.json"
+      },
+      {
+        "suite": "ip-quality-response-confirmation",
+        "status": "passed",
+        "evidence_record": "runs/r2/receipt.json"
+      },
+      {
+        "suite": "ip-addresses",
+        "status": "passed",
+        "evidence_record": "runs/r1/receipt.json"
+      },
+      {
+        "suite": "confirmed-cancellation",
+        "status": "passed",
+        "evidence_record": "runs/r1/receipt.json"
+      },
+      {
+        "suite": "nodequality-chain-gate",
+        "status": "passed",
+        "evidence_record": "runs/r1/receipt.json"
+      },
+      {
+        "suite": "tcpquality",
+        "status": "passed",
+        "evidence_record": "runs/r1/receipt.json"
+      },
+      {
+        "suite": "plugin-catalog",
+        "status": "passed",
+        "evidence_record": "runs/r1/receipt.json"
+      },
+      {
+        "suite": "server-operations",
+        "status": "passed",
+        "evidence_record": "runs/r1/receipt.json"
+      }
+    ]
+  },
+  "private_evidence_digests": [
+    {
+      "record": "freeze-r1.json",
+      "sha256": "f9908f672a7fde172d3c8de3c77e1f0d857bb96e26a66dd5f2d6e924912ef31b"
+    },
+    {
+      "record": "freeze-r2.json",
+      "sha256": "6626bda919630accbcae23e203426b22f955a7d24361721d938dd53cdcf34b0f"
+    },
+    {
+      "record": "freeze-r3.json",
+      "sha256": "57c46c1f3cb2553f25a0408e866cc4aac837fa980465a7e871b5b2c1b7b1b28f"
+    },
+    {
+      "record": "freeze-r4.json",
+      "sha256": "e6ce6a2a2ff439872f486b1868dd813b96adac9047e606065e47f16fb34a0d3d"
+    },
+    {
+      "record": "rust-r1/rust-receipt.json",
+      "sha256": "74b9a0f4b3731f968b668fee96a0c945278b003ea2a5497926742635cef00463"
+    },
+    {
+      "record": "rust-r2/rust-receipt.json",
+      "sha256": "faa76359244b13dff67d1a4ebe0035c5d81cc3bd48054d251909ea799306c5a8"
+    },
+    {
+      "record": "rust-r3/rust-receipt.json",
+      "sha256": "33824407fb667e33e577f13f2f9d79db3246f1f9880d3aadf7d40d63721bef8a"
+    },
+    {
+      "record": "python-r1/receipt.json",
+      "sha256": "47b23edd2faa3c1509d08f2bf5ffc7813012da401c8242abf0e94a85fcaf60dd"
+    },
+    {
+      "record": "python-r2/receipt.json",
+      "sha256": "bf769b083531fe1c666eae483858d4d1daec31f677d28005c58afde6388d293d"
+    },
+    {
+      "record": "python-r3/receipt.json",
+      "sha256": "d3c1b8b990e3faa4b40632240bca625acad7f14bbecc4b384e0bafc41b9027c5"
+    },
+    {
+      "record": "runs/r1/receipt.json",
+      "sha256": "553a4c49cd985469da1a5cfec020a2daa3fb281155b1be80f4166098519577a9"
+    },
+    {
+      "record": "runs/r2/receipt.json",
+      "sha256": "d6047fff1832825d98f540e50f9e493e5d51763c2a4677b0675b1079e8ab78ed"
+    }
+  ],
+  "pending": [
+    "Reviewed native Debian 12 builders and authenticated AMD64/ARM64 minimal binary/source closure",
+    "Independent licence review and complete corresponding-source archives",
+    "Formal signing/publishing/deployment",
+    "Dedicated Linux systemd/mount/cleanup and sustained sing-box traffic acceptance matrix",
+    "Full NodeQuality licence and load/heartbeat acceptance",
+    "Actual mixed subscription-chain implementation and acceptance"
+  ]
+}

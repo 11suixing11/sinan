@@ -82,15 +82,27 @@ pub(super) async fn persist(pool: &PgPool, id: i64, quality: &[IpQuality]) -> Ap
     if exists.is_none() {
         return Err(ApiError::NotFound);
     }
+    persist_on_connection(&mut tx, id, quality, false).await?;
+    // Old addresses remain durable; reads select only the requested/current IPs.
+    tx.commit().await?;
+    Ok(())
+}
+
+pub(super) async fn persist_on_connection(
+    connection: &mut sqlx::PgConnection,
+    id: i64,
+    quality: &[IpQuality],
+    replace_generation: bool,
+) -> ApiResult<()> {
     for entry in quality {
         let attempted_at = entry
             .databases
             .iter()
             .filter_map(|dataset| dataset.attempted_at)
             .max();
-        let updated = sqlx::query("INSERT INTO server_ip_quality(server_id,ip,provider,payload,checked_at,last_attempt_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(server_id,ip,provider) DO UPDATE SET payload=EXCLUDED.payload,checked_at=EXCLUDED.checked_at,last_attempt_at=COALESCE(EXCLUDED.last_attempt_at,server_ip_quality.last_attempt_at) WHERE server_ip_quality.checked_at<=EXCLUDED.checked_at")
+        let updated = sqlx::query("INSERT INTO server_ip_quality(server_id,ip,provider,payload,checked_at,last_attempt_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(server_id,ip,provider) DO UPDATE SET payload=EXCLUDED.payload,checked_at=EXCLUDED.checked_at,last_attempt_at=COALESCE(EXCLUDED.last_attempt_at,server_ip_quality.last_attempt_at) WHERE server_ip_quality.checked_at<=EXCLUDED.checked_at OR $7")
             .bind(id).bind(&entry.ip).bind(&entry.provider).bind(encode(entry)?)
-            .bind(entry.checked_at).bind(attempted_at).execute(&mut *tx).await?;
+            .bind(entry.checked_at).bind(attempted_at).bind(replace_generation).execute(&mut *connection).await?;
         if updated.rows_affected() == 0 {
             continue;
         }
@@ -105,31 +117,38 @@ pub(super) async fn persist(pool: &PgPool, id: i64, quality: &[IpQuality]) -> Ap
             let fresh_until = success_at.map(|at| at.saturating_add(CACHE_SECS));
             let last_error = failure(dataset).map(|error| encode(&error)).transpose()?;
             let success = succeeded.then(|| encode(dataset)).transpose()?;
-            sqlx::query("INSERT INTO server_ip_quality_datasets(server_id,ip,provider,database,checked_at,last_attempt,last_attempt_at,last_success_at,fresh_until,last_error,success_payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(server_id,ip,provider,database) DO UPDATE SET checked_at=EXCLUDED.checked_at,last_attempt=EXCLUDED.last_attempt,last_attempt_at=COALESCE(EXCLUDED.last_attempt_at,server_ip_quality_datasets.last_attempt_at),last_success_at=COALESCE(EXCLUDED.last_success_at,server_ip_quality_datasets.last_success_at),fresh_until=COALESCE(EXCLUDED.fresh_until,server_ip_quality_datasets.fresh_until),last_error=EXCLUDED.last_error,success_payload=COALESCE(EXCLUDED.success_payload,server_ip_quality_datasets.success_payload) WHERE server_ip_quality_datasets.checked_at<=EXCLUDED.checked_at")
+            sqlx::query("INSERT INTO server_ip_quality_datasets(server_id,ip,provider,database,checked_at,last_attempt,last_attempt_at,last_success_at,fresh_until,last_error,success_payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(server_id,ip,provider,database) DO UPDATE SET checked_at=EXCLUDED.checked_at,last_attempt=EXCLUDED.last_attempt,last_attempt_at=COALESCE(EXCLUDED.last_attempt_at,server_ip_quality_datasets.last_attempt_at),last_success_at=COALESCE(EXCLUDED.last_success_at,server_ip_quality_datasets.last_success_at),fresh_until=COALESCE(EXCLUDED.fresh_until,server_ip_quality_datasets.fresh_until),last_error=EXCLUDED.last_error,success_payload=COALESCE(EXCLUDED.success_payload,server_ip_quality_datasets.success_payload) WHERE server_ip_quality_datasets.checked_at<=EXCLUDED.checked_at OR $12")
                 .bind(id).bind(&entry.ip).bind(&entry.provider).bind(&dataset.database)
                 .bind(entry.checked_at).bind(encode(dataset)?).bind(dataset.attempted_at)
-                .bind(success_at).bind(fresh_until).bind(last_error).bind(success)
-                .execute(&mut *tx).await?;
+                .bind(success_at).bind(fresh_until).bind(last_error).bind(success).bind(replace_generation)
+                .execute(&mut *connection).await?;
         }
         sqlx::query("UPDATE server_ip_quality AS cache SET last_success_at=summary.last_success_at,fresh_until=summary.fresh_until,last_error=summary.last_error FROM (SELECT MAX(last_success_at) AS last_success_at,CASE WHEN COUNT(success_payload)=COUNT(*) THEN MIN(fresh_until) END AS fresh_until,COALESCE(jsonb_object_agg(database,last_error) FILTER(WHERE last_error IS NOT NULL),'{}'::jsonb) AS last_error FROM server_ip_quality_datasets WHERE server_id=$1 AND ip=$2 AND provider=$3) AS summary WHERE cache.server_id=$1 AND cache.ip=$2 AND cache.provider=$3")
-            .bind(id).bind(&entry.ip).bind(&entry.provider).execute(&mut *tx).await?;
+            .bind(id).bind(&entry.ip).bind(&entry.provider).execute(&mut *connection).await?;
     }
-    // Old addresses remain durable; reads select only the requested/current IPs.
-    tx.commit().await?;
     Ok(())
 }
 
 pub(super) async fn read(pool: &PgPool, id: i64, ips: &[String]) -> ApiResult<Vec<IpQuality>> {
     let mut tx = pool.begin().await?;
-    // Two related reads must see one committed cache generation during refresh.
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         .execute(&mut *tx)
         .await?;
-    let rows = sqlx::query("SELECT ip,provider,payload,last_attempt_at,last_success_at,fresh_until,last_error FROM server_ip_quality WHERE server_id=$1 AND ip=ANY($2) ORDER BY ip,provider")
-        .bind(id).bind(ips).fetch_all(&mut *tx).await?;
-    let datasets = sqlx::query("SELECT ip,provider,database,last_attempt,last_attempt_at,last_success_at,fresh_until,last_error,success_payload FROM server_ip_quality_datasets WHERE server_id=$1 AND ip=ANY($2)")
-        .bind(id).bind(ips).fetch_all(&mut *tx).await?;
+    let quality = read_on_connection(&mut tx, id, ips).await?;
     tx.commit().await?;
+    Ok(quality)
+}
+
+// The caller selects its related view data using the same committed generation.
+pub(super) async fn read_on_connection(
+    connection: &mut sqlx::PgConnection,
+    id: i64,
+    ips: &[String],
+) -> ApiResult<Vec<IpQuality>> {
+    let rows = sqlx::query("SELECT ip,provider,payload,last_attempt_at,last_success_at,fresh_until,last_error FROM server_ip_quality WHERE server_id=$1 AND ip=ANY($2) ORDER BY ip,provider")
+        .bind(id).bind(ips).fetch_all(&mut *connection).await?;
+    let datasets = sqlx::query("SELECT ip,provider,database,last_attempt,last_attempt_at,last_success_at,fresh_until,last_error,success_payload FROM server_ip_quality_datasets WHERE server_id=$1 AND ip=ANY($2)")
+        .bind(id).bind(ips).fetch_all(&mut *connection).await?;
     let datasets: BTreeMap<_, _> = datasets
         .into_iter()
         .map(|row| {
@@ -172,10 +191,15 @@ pub(super) async fn read(pool: &PgPool, id: i64, ips: &[String]) -> ApiResult<Ve
                         .get::<Option<Value>, _>("success_payload")
                         .map(decode::<QualityDatabase>)
                         .transpose()?;
-                    dataset.fields = super::fields::confirmed_cached_fields(
-                        &dataset.database,
-                        success.map(|saved| saved.fields).unwrap_or_default(),
-                    );
+                    let fields = success.map(|saved| saved.fields).unwrap_or_default();
+                    dataset.fields = if entry.provider.starts_with("ipquality-node/") {
+                        crate::diagnostic_plugins::ipquality::validate_cached_fields(
+                            &dataset.database,
+                            fields,
+                        )
+                    } else {
+                        super::fields::confirmed_cached_fields(&dataset.database, fields)
+                    };
                     dataset.historical = !dataset.fields.is_empty()
                         && (dataset.status != "succeeded"
                             || dataset.fresh_until.is_none_or(|until| until <= now));

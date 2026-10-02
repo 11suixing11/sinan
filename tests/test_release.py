@@ -165,6 +165,178 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "runner-only NodeQuality identity"):
             release.verify_manifest(self.bundle, self.roots, "minisign", "agent-v0.3.0")
 
+    def append_ipquality_fixture(self, arch="amd64", mutate_notice=None):
+        """Signing alone does not authenticate the fixture's intentionally fake profile."""
+        import ipquality_artifact
+        files = {name: b"TEST ONLY unapproved IPQuality profile " + name.encode()
+                 for name in ipquality_artifact.FILES}
+        paired = b"TEST ONLY unapproved corresponding Debian and Sinan sources " + arch.encode()
+        asset = f"ipquality-{ipquality_artifact.VERSION}-linux-{arch}-sources.tar.gz"
+        notice = {"source_offer": {"asset": asset, "size": len(paired), "sha256": release.digest(paired)},
+                  "notice": "TEST ONLY unapproved source closure", "license": "AGPL-3.0-only"}
+        if mutate_notice is not None:
+            mutate_notice(notice)
+        files["THIRD_PARTY_NOTICES.txt"] = (b"Sinan IPQuality node self-query\n"
+            + (json.dumps(notice, sort_keys=True, ensure_ascii=False, separators=(",", ":")) + "\n").encode())
+        (self.bundle / asset).write_bytes(paired)
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode="w") as archive:
+            for name in sorted(files):
+                member = tarfile.TarInfo(name)
+                member.size = len(files[name])
+                member.mode = 0o755 if name == "ipquality" else 0o644
+                archive.addfile(member, io.BytesIO(files[name]))
+        data = gzip.compress(output.getvalue(), mtime=0)
+        entry = {"name": "ipquality", "version": ipquality_artifact.VERSION,
+                 "arch": arch, "format": "tar.gz", "binary_name": "ipquality",
+                 "archive_size": len(data), "binary_size": len(files["ipquality"]),
+                 "binary_sha256": release.digest(files["ipquality"]),
+                 "auxiliary_files": {name: {"size": len(content), "sha256": release.digest(content)}
+                                     for name, content in files.items() if name != "ipquality"}}
+        entry["asset_name"] = release.asset_name(entry)
+        (self.bundle / entry["asset_name"]).write_bytes(data)
+        metadata_path = self.bundle / "release.json"
+        metadata = json.loads(metadata_path.read_text())
+        metadata["artifacts"].append(entry)
+        metadata_path.write_text(json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n")
+        sums = dict((path, value) for value, path in
+                    (line.split("  ", 1) for line in (self.bundle / "SHA256SUMS").read_text().splitlines()))
+        sums[release.canonical_path(entry)] = release.digest(data)
+        sums["release.json"] = release.digest(metadata_path.read_bytes())
+        (self.bundle / "SHA256SUMS").write_text("".join(f"{sums[path]}  {path}\n" for path in sorted(sums)))
+        self.sign()
+        return files
+
+    def test_signed_ipquality_manifest_requires_exact_offline_inventory_and_fixed_identity(self):
+        self.append_ipquality_fixture()
+        release.verify_manifest(self.bundle, self.roots, "minisign", "agent-v0.3.0")
+        for mutation in (
+            lambda entry: entry.update(version="main"),
+            lambda entry: entry.update(binary_name="nodequality"),
+            lambda entry: entry.update(arch="windows-amd64"),
+            lambda entry: entry.update(auxiliary_files={}),
+            lambda entry: entry["auxiliary_files"].pop("source.tar.gz"),
+            lambda entry: entry["auxiliary_files"].update({"unexpected.json": {"size": 1, "sha256": "1" * 64}}),
+        ):
+            original = json.loads((self.bundle / "release.json").read_text())
+            self.rewrite_metadata(lambda metadata: mutation(next(item for item in metadata["artifacts"] if item["name"] == "ipquality")))
+            with self.assertRaises(ValueError):
+                release.verify_manifest(self.bundle, self.roots, "minisign", "agent-v0.3.0")
+            self.rewrite_metadata(lambda metadata: metadata.update(original))
+
+    def test_signed_ipquality_bundle_still_requires_source_license_and_rootfs_profile_validation(self):
+        import ipquality_artifact
+        files = self.append_ipquality_fixture()
+        with patch.object(ipquality_artifact, "validate_files", side_effect=ValueError("unapproved IPQuality closure")) as validate:
+            with self.assertRaisesRegex(ValueError, "unapproved IPQuality closure"):
+                self.verify()
+        validate.assert_called_once_with(files, ipquality_artifact.VERSION, "amd64")
+
+    def test_signed_ipquality_source_offer_requires_the_exact_asset_hash_and_full_inventory_check(self):
+        import ipquality_artifact
+        files = self.append_ipquality_fixture()
+        offer = ipquality_artifact.source_offer(files, ipquality_artifact.VERSION, "amd64")
+        paired = self.bundle / offer["asset"]
+        original = paired.read_bytes()
+        with patch.object(ipquality_artifact, "validate_files"), \
+                patch.object(ipquality_artifact, "validate_source_offer") as validate:
+            self.verify()
+            validate.assert_called_once_with(paired, files, ipquality_artifact.VERSION, "amd64")
+            validate.reset_mock()
+            paired.write_bytes(original + b"changed source")
+            with self.assertRaisesRegex(ValueError, "signed declaration"):
+                self.verify()
+            validate.assert_not_called()
+            paired.unlink()
+            with self.assertRaisesRegex(ValueError, "ordinary file"):
+                self.verify()
+            validate.assert_not_called()
+            paired.write_bytes(original)
+            (self.bundle / "unlisted-sources.tar.gz").write_bytes(b"unsigned source offer")
+            with self.assertRaisesRegex(ValueError, "extra release assets"):
+                self.verify()
+            (self.bundle / "unlisted-sources.tar.gz").unlink()
+        with patch.object(ipquality_artifact, "validate_files"), \
+                patch.object(ipquality_artifact, "validate_source_offer", side_effect=ValueError("incomplete Debian source inventory")):
+            with self.assertRaisesRegex(ValueError, "incomplete Debian source inventory"):
+                self.verify()
+
+    def test_signed_ipquality_source_offer_cannot_change_architecture_version_or_path(self):
+        import ipquality_artifact
+        for name in ("../untrusted.tar.gz", "ipquality-main-linux-amd64-sources.tar.gz",
+                     f"ipquality-{ipquality_artifact.VERSION}-linux-arm64-sources.tar.gz"):
+            with self.subTest(name=name):
+                files = self.append_ipquality_fixture(mutate_notice=lambda notice: notice["source_offer"].update(asset=name))
+                with self.assertRaises(ValueError):
+                    ipquality_artifact.source_offer(files, ipquality_artifact.VERSION, "amd64")
+                # Keep the next iteration's fixture identities unique.
+                self.rewrite_metadata(lambda metadata: metadata.update(artifacts=[
+                    entry for entry in metadata["artifacts"] if entry["name"] != "ipquality"]))
+                sums = self.bundle / "SHA256SUMS"
+                sums.write_text("".join(line for line in sums.read_text().splitlines(keepends=True)
+                                        if "  ipquality/" not in line))
+                self.sign()
+
+    def test_ipquality_assembly_copies_only_the_signed_paired_source_archive(self):
+        import ipquality_artifact
+        files = self.append_ipquality_fixture()
+        offer = ipquality_artifact.source_offer(files, ipquality_artifact.VERSION, "amd64")
+        original = (self.bundle / offer["asset"]).read_bytes()
+        entry = next(item for item in json.loads((self.bundle / "release.json").read_text())["artifacts"]
+                     if item["name"] == "ipquality")
+        directory = self.source / "ipquality" / ipquality_artifact.VERSION
+        directory.mkdir(parents=True)
+        (directory / "amd64").write_bytes((self.bundle / entry["asset_name"]).read_bytes())
+        paired = directory / "amd64.sources.tar.gz"
+        paired.write_bytes(original)
+        self.arguments.ipquality_version = ipquality_artifact.VERSION
+        self.arguments.arch = ["amd64"]
+        self.arguments.output = str(self.directory / "paired-ipquality-release")
+        with patch.object(ipquality_artifact, "validate_files"), \
+                patch.object(ipquality_artifact, "validate_source_offer") as validate:
+            release.assemble(self.arguments)
+            validate.assert_called_once_with(paired, files, ipquality_artifact.VERSION, "amd64")
+            self.assertEqual((Path(self.arguments.output) / offer["asset"]).read_bytes(), original)
+            self.assertNotIn(offer["asset"], (Path(self.arguments.output) / "SHA256SUMS").read_text())
+            paired.write_bytes(b"different source offer")
+            self.arguments.output = str(self.directory / "changed-ipquality-release")
+            with self.assertRaisesRegex(ValueError, "signed declaration"):
+                release.assemble(self.arguments)
+            self.assertFalse((Path(self.arguments.output) / "release.json").exists())
+
+    def test_paired_source_assets_are_streamed_and_reject_unsafe_or_oversized_files(self):
+        paired = self.directory / "paired.tar.gz"
+        content = b"TEST ONLY streamed source" * 1024
+        paired.write_bytes(content)
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("source asset must be streamed")):
+            self.assertEqual(release.regular_file_proof(paired),
+                             {"size": len(content), "sha256": release.digest(content)})
+        with self.assertRaises(ValueError):
+            release.regular_file_proof(paired, len(content) - 1)
+        linked = self.directory / "source-link.tar.gz"
+        linked.symlink_to(paired)
+        with self.assertRaises(ValueError):
+            release.regular_file_proof(linked)
+        linked.unlink()
+        os.link(paired, linked)
+        with self.assertRaises(ValueError):
+            release.regular_file_proof(paired)
+
+    def test_ipquality_assembly_is_opt_in_and_refuses_an_unapproved_profile_before_signing(self):
+        import ipquality_artifact
+        self.assertFalse(any(entry["name"] == "ipquality" for entry in json.loads((self.bundle / "release.json").read_text())["artifacts"]))
+        self.arguments.ipquality_version = ipquality_artifact.VERSION
+        self.arguments.output = str(self.directory / "unapproved-ipquality-release")
+        directory = self.source / "ipquality" / ipquality_artifact.VERSION
+        directory.mkdir(parents=True)
+        (directory / "amd64").write_bytes(b"TEST ONLY unapproved input")
+        with patch.object(ipquality_artifact, "archive_files", return_value={"fixture": b"unapproved"}), \
+                patch.object(ipquality_artifact, "validate_files", side_effect=ValueError("unapproved IPQuality closure")) as validate:
+            with self.assertRaisesRegex(ValueError, "unapproved IPQuality closure"):
+                release.assemble(self.arguments)
+        validate.assert_called_once_with({"fixture": b"unapproved"}, ipquality_artifact.VERSION, "amd64")
+        self.assertFalse((Path(self.arguments.output) / "release.json").exists())
+
     def test_raw_artifact_cannot_claim_auxiliary_files(self):
         self.rewrite_metadata(lambda metadata: metadata["artifacts"][0].update(
             auxiliary_files={"extra.dll": {"sha256": "0" * 64, "size": 1}}))

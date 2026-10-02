@@ -2422,6 +2422,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
+name = "sinan-adapter-ipquality"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "sinan-adapter-sdk",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "sinan-adapter-nodequality"
 version = "0.3.0"
 dependencies = [
@@ -2478,6 +2490,7 @@ dependencies = [
  "anyhow",
  "clap",
  "serde_json",
+ "sinan-adapter-ipquality",
  "sinan-adapter-nodequality",
  "sinan-adapter-sdk",
  "sinan-adapter-singbox",

@@ -86,7 +86,7 @@ impl ProviderRegistry {
         Self { providers: vec![
             Provider { id: "check-place", label: "check-place 聚合入口", kind: "aggregator", execution: "panel", adapter: Some(Adapter::CheckPlace { origin: super::PROVIDER_ORIGIN.into() }), reason: None, databases: &DATABASES },
             Provider { id: "abuseipdb-api", label: "AbuseIPDB 官方接口", kind: "credential_api", execution: "panel", adapter: credential.map(|key| Adapter::AbuseIpDb { endpoint: ABUSEIPDB_ENDPOINT.into(), key }), reason, databases: &OFFICIAL_DATABASES },
-            Provider { id: "ipquality-node", label: "IPQuality 节点自查", kind: "node_self", execution: "node", adapter: None, reason: Some("正式节点认证适配与完整工具链授权、验收尚未就绪，节点出口和流媒体信息未知；面板正式接口凭证仅用于面板查询".into()), databases: &[] },
+            Provider { id: "ipquality-node", label: "IPQuality 节点自查", kind: "node_self", execution: "node", adapter: None, reason: Some("须由对应节点能力与独立签名制品确认是否就绪；不会从面板发起节点出口查询或向节点下发面板接口凭据".into()), databases: &[] },
         ] }
     }
 
@@ -151,6 +151,40 @@ impl ProviderRegistry {
             }
         }
     }
+}
+
+pub(super) fn node_descriptions(ready: bool, reason: Option<&str>) -> Vec<ProviderDescription> {
+    crate::diagnostic_plugins::ipquality::SOURCES
+        .iter()
+        .filter(|(provider, _)| *provider != "egress-discovery")
+        .map(|(provider, datasets)| {
+            let restricted =
+                provider.ends_with("-not-configured") || provider.ends_with("-disabled");
+            ProviderDescription {
+                provider: format!("ipquality-node/{provider}"),
+                label: if *provider == "check-place-aggregator" {
+                    "节点出口 · check-place 聚合入口".into()
+                } else {
+                    format!("节点出口 · {provider}")
+                },
+                kind: "node_self".into(),
+                execution: "node".into(),
+                enabled: ready && !restricted,
+                reason: if restricted {
+                    Some("此来源未配置授权适配或主动探测已禁用，未发出请求，信息未知".into())
+                } else {
+                    reason.map(str::to_owned)
+                },
+                databases: datasets
+                    .iter()
+                    .map(|dataset| DatabaseDescription {
+                        database: format!("node-{dataset}"),
+                        label: format!("节点自查 · {dataset}"),
+                    })
+                    .collect(),
+            }
+        })
+        .collect()
 }
 
 impl Provider {
