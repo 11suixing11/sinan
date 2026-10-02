@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolve, extname, sep } from 'node:path'
 
 // TEST_ONLY: exercise shipped UI against private loopback APIs. No real provider or credentials.
+const catalogView = resources => resources.map(resource => ({ ...resource, original_name: resource.name, tags: [], note: '', sort_order: resource.id, revision: '1'.repeat(64), metadata_revision: 0 }))
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
 const root = fileURLToPath(new URL('../dist/', import.meta.url)), prefix = '/api/plugins/sing-box'
 const server = createServer(async (request, response) => {
@@ -49,7 +50,7 @@ try {
         }
         let value
         if (method !== 'GET') {
-          const allowed = method === 'POST' && [ `${prefix}/nodes`, `${prefix}/chains/batch`, `${prefix}/subscription-sources`, `${prefix}/servers/1/enable`, `${prefix}/servers/1/deployments/check`, `${prefix}/servers/1/runtime-operations`, `${prefix}/proxy-resources/chain/7/apply-node-versions` ].includes(path)
+          const allowed = method === 'POST' && [ `${prefix}/nodes`, `${prefix}/chains/batch`, `${prefix}/subscription-sources`, `${prefix}/subscription-source-previews`, `${prefix}/subscription-source-previews/00000000-0000-0000-0000-000000000044/commit`, `${prefix}/servers/1/enable`, `${prefix}/servers/1/deployments/check`, `${prefix}/servers/1/runtime-operations`, `${prefix}/proxy-resources/chain/7/apply-node-versions` ].includes(path)
             || method === 'PATCH' && [ `${prefix}/nodes/1`, `${prefix}/subscription-sources/10`, `${prefix}/proxy-resources/chain/7` ].includes(path)
             || method === 'PATCH' && path === '/api/latency-tasks/00000000-0000-0000-0000-000000000001'
             || method === 'DELETE' && [ `${prefix}/nodes/1`, `${prefix}/subscription-sources/10` ].includes(path)
@@ -57,6 +58,8 @@ try {
           const body = request.postData() ? request.postDataJSON() : undefined; writes.push({ method, path, body }); value = {}
           if (path === `${prefix}/chains/batch`) value = { request_id: body.request_id, chain_ids: [8], entry_node_ids: [20] }
           if (path.startsWith(`${prefix}/subscription-sources`) && method !== 'DELETE') value = { ...source, ...body }
+          if (path === `${prefix}/subscription-source-previews`) value = { id: '00000000-0000-0000-0000-000000000044', expires_at: Math.floor(Date.now() / 1000) + 300, format: 'uris', supported_count: 1, unsupported_count: 0, nodes: [{ key: 'TEST_ONLY_preview_key', index: 0, name: 'TEST_ONLY 待导入节点', protocol: 'trojan', server: '127.0.0.1', port: 443, transport: 'tcp', supported: true, reason: null }] }
+          if (path === `${prefix}/subscription-source-previews/00000000-0000-0000-0000-000000000044/commit`) value = { ...source, name: body.name }
           if (path.endsWith('/deployments/check')) value = { ready: true, checks: [] }
           if (path.endsWith('/enable')) hosts[0].enabled = true
           if (path.endsWith('/runtime-operations')) value = { id: 'TEST_ONLY', operation: body.operation, requested_at: 1, expires_at: 600 }
@@ -66,6 +69,7 @@ try {
         else if (path === '/api/probes/overview') value = []
         else if (path === `${prefix}/nodes`) value = nodes
         else if (path === `${prefix}/proxy-resources`) value = resources
+        else if (path === `${prefix}/node-catalog`) value = catalogView(resources)
         else if (path === `${prefix}/usage`) value = { total: '0', uplink: '0', downlink: '0', by_node: [], by_user: [] }
         else if (path === `${prefix}/subscription-sources`) value = sources
         else if (path === `${prefix}/subscription-sources/10/nodes`) value = [{ id: 101, source_id: 10, node_version_id: 201, source_revision_id: 100, identity_epoch: 1, name: 'TEST_ONLY 外部段', protocol: 'trojan', server: '127.0.0.1', port: 443, transport: 'tcp', tcp: true, udp: false, selectable: true, present: true, identity_unique: true, reason: null }]
@@ -106,7 +110,7 @@ try {
     })
     await fixture('/plugins/sing-box/nodes', async control => {
       const { page } = control
-      await page.getByRole('row').filter({ hasText: 'TEST_ONLY 节点 1' }).getByRole('button', { name: '删除', exact: true }).click()
+      await page.locator(width < 768 ? '.catalog-card' : '.catalog-table tbody tr').filter({ hasText: 'TEST_ONLY 节点 1' }).getByRole('button', { name: '删除', exact: true }).click()
       const button = page.getByRole('dialog').getByRole('button', { name: '确认删除', exact: true })
       await block(control, `${prefix}/proxy-resources`, () => nodesRefresh(page), () => forceClick(button), () => button.click())
     })
@@ -120,10 +124,19 @@ try {
     for (const creating of [false, true]) await fixture('/plugins/sing-box/nodes', async control => {
       const { page, writes } = control, sourcePanel = page.locator('.subscription-sources')
       await sourcePanel.getByRole('button', { name: creating ? '添加来源' : '设置与更新', exact: true }).first().click()
-      const dialog = page.getByRole('dialog'); await dialog.locator('[name=name]').fill('TEST_ONLY 来源草稿')
-      if (creating) { await dialog.getByLabel('来源类型').selectOption('inline'); await dialog.locator('[name=source_content]').fill('TEST_ONLY content') }
-      await block(control, `${prefix}/subscription-sources`, () => sourceRefresh(page), () => forceForm(dialog.locator('form')), () => dialog.getByRole('button', { name: creating ? '保存并解析' : '保存并解析更新', exact: true }).click(), async () => assert.equal(await dialog.locator('[name=name]').inputValue(), 'TEST_ONLY 来源草稿'))
+      const dialog = page.getByRole('dialog'); await dialog.getByLabel('来源名称', { exact: true }).fill('TEST_ONLY 来源草稿')
+      if (creating) { await dialog.getByLabel('来源类型').selectOption('inline'); await dialog.getByLabel('配置内容', { exact: false }).fill('TEST_ONLY content') }
+      const draft = async () => assert.equal(await dialog.getByLabel('来源名称', { exact: true }).inputValue(), 'TEST_ONLY 来源草稿')
+      await block(control, `${prefix}/subscription-sources`, () => sourceRefresh(page), () => forceForm(dialog.locator('form')), () => dialog.getByRole('button', { name: creating ? '解析并预览' : '保存并解析更新', exact: true }).click(), draft)
       assert.equal(writes[0].method, creating ? 'POST' : 'PATCH')
+      if (creating) {
+        assert.equal(writes[0].path, `${prefix}/subscription-source-previews`)
+        await dialog.getByRole('heading', { name: '选择导入节点', exact: true }).waitFor()
+        // A parsed preview must still respect the collection snapshot before committing.
+        await block(control, `${prefix}/subscription-sources`, () => sourceRefresh(page), () => forceForm(dialog.locator('form')), () => dialog.getByRole('button', { name: '加入节点库（1）', exact: true }).click(), draft)
+        assert.equal(writes[1].path, `${prefix}/subscription-source-previews/00000000-0000-0000-0000-000000000044/commit`)
+        assert.deepEqual(writes[1].body.selected, ['TEST_ONLY_preview_key'])
+      }
     })
     await fixture('/plugins/sing-box/nodes', async control => {
       const { page } = control
@@ -139,7 +152,7 @@ try {
     })
     await fixture('/plugins/sing-box/nodes', async control => {
       const { page, writes, status } = control
-      await page.getByRole('row').filter({ hasText: 'TEST_ONLY 节点 1' }).getByRole('button', { name: '部署', exact: true }).click()
+      await page.locator(width < 768 ? '.catalog-card' : '.catalog-table tbody tr').filter({ hasText: 'TEST_ONLY 节点 1' }).getByRole('button', { name: '部署', exact: true }).click()
       const dialog = page.getByRole('dialog'), runtime = dialog.locator('.runtime-operations')
       const refresh = () => dialog.locator('.node-deployment-heading button').filter({ hasText: /^刷新$/ }).evaluate(button => button.click())
       const inspect = runtime.getByRole('button', { name: '读取状态与日志', exact: true })

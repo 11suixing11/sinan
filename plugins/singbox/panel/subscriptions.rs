@@ -32,6 +32,7 @@ fn validate_format(format: &str) -> ApiResult<()> {
 
 struct Snapshot {
     nodes: Vec<Node>,
+    external: super::external_access::model::SubscriptionNodes,
     granted_nodes: i64,
     eligible_nodes: usize,
     entitlement: super::entitlements::Entitlement,
@@ -48,7 +49,7 @@ impl Snapshot {
             };
             return ("blocked", reason.into());
         }
-        if self.nodes.is_empty() {
+        if self.nodes.is_empty() && self.external.nodes.is_empty() {
             return (
                 "empty",
                 if self.granted_nodes == 0 {
@@ -61,15 +62,31 @@ impl Snapshot {
         }
         (
             "ready",
-            format!(
-                "{} 个节点可生成订阅；仅包含当前有效且已成功应用的授权",
-                self.nodes.len()
-            ),
+            if self.external.granted > 0 {
+                format!(
+                    "{} 个受管节点、{} 个外部节点可生成订阅；外部运行与流量由提供方控制",
+                    self.nodes.len(),
+                    self.external.nodes.len()
+                )
+            } else {
+                format!(
+                    "{} 个节点可生成订阅；仅包含当前有效且已成功应用的授权",
+                    self.nodes.len()
+                )
+            },
         )
     }
 
     fn content(&self, user_id: i64, format: &str) -> ApiResult<String> {
+        if self.external.granted > 0 && !self.entitlement.allowed {
+            return Err(ApiError::Conflict(self.message().1));
+        }
         if format == "links" {
+            if self.external.granted > 0 {
+                return Err(ApiError::Conflict(
+                    "此订阅包含外部节点，请使用 format=singbox 下载完整 sing-box JSON".into(),
+                ));
+            }
             sinan_compiler::subscription_links(&self.nodes, user_id).map_err(|error| match error {
                 sinan_compiler::CompileError::RequiresJson { .. } => ApiError::Conflict(
                     "此订阅包含需要完整配置的协议，请使用 format=singbox 下载 sing-box JSON".into(),
@@ -77,26 +94,29 @@ impl Snapshot {
                 other => ApiError::Internal(anyhow::Error::from(other)),
             })
         } else {
-            if self.nodes.is_empty() {
+            if self.nodes.is_empty() && self.external.nodes.is_empty() {
                 return Err(ApiError::Conflict(self.message().1));
             }
-            Ok(
-                sinan_compiler::compile_client(&self.nodes, user_id)
-                    .map_err(anyhow::Error::from)?,
+            Ok(sinan_compiler::client::compile_with_external(
+                &self.nodes,
+                user_id,
+                &self.external.nodes,
             )
+            .map_err(anyhow::Error::from)?)
         }
     }
 }
 
 async fn load(tx: &mut Transaction<'_, Postgres>, user_id: i64) -> ApiResult<Snapshot> {
     let at = sinan_protocol::now_timestamp();
-    let entitlement = sqlx::query_as("SELECT * FROM singbox_entitlements($1) WHERE user_id=$2")
-        .bind(at)
-        .bind(user_id)
-        .fetch_optional(&mut **tx)
-        .await?
-        .ok_or(ApiError::NotFound)?;
-    let granted_nodes =
+    let entitlement: super::entitlements::Entitlement =
+        sqlx::query_as("SELECT * FROM singbox_entitlements($1) WHERE user_id=$2")
+            .bind(at)
+            .bind(user_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+    let granted_nodes: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM singbox_desired_accesses WHERE user_id=$1")
             .bind(user_id)
             .fetch_one(&mut **tx)
@@ -127,8 +147,15 @@ async fn load(tx: &mut Transaction<'_, Postgres>, user_id: i64) -> ApiResult<Sna
     }
     nodes.retain(|node| node.enabled);
     nodes.sort_by_key(|node| node.id);
+    let mut external = super::external_access::subscription_nodes(tx, user_id).await?;
+    if !entitlement.allowed {
+        external.nodes.clear();
+    }
+    let eligible_nodes = eligible_nodes + external.nodes.len();
+    let granted_nodes = granted_nodes + external.granted as i64;
     Ok(Snapshot {
         nodes,
+        external,
         granted_nodes,
         eligible_nodes,
         entitlement,
@@ -224,15 +251,18 @@ pub async fn preview(
     let snapshot = load(&mut tx, id).await?;
     tx.commit().await?;
     let mut formats = vec!["singbox"];
-    if snapshot
-        .nodes
-        .iter()
-        .all(|node| node.protocol_config.is_reality())
+    if snapshot.external.granted == 0
+        && snapshot
+            .nodes
+            .iter()
+            .all(|node| node.protocol_config.is_reality())
     {
         formats.push("links");
     }
     let (mut status, mut message) = snapshot.message();
-    let content = if !snapshot.nodes.is_empty() && snapshot.entitlement.allowed {
+    let content = if (!snapshot.nodes.is_empty() || !snapshot.external.nodes.is_empty())
+        && snapshot.entitlement.allowed
+    {
         match snapshot.content(id, format) {
             Ok(content) => Some(content),
             Err(ApiError::Conflict(reason)) => {
@@ -245,16 +275,24 @@ pub async fn preview(
     } else {
         None
     };
-    let ready_nodes: Vec<Value> = snapshot
+    let mut ready_nodes: Vec<Value> = snapshot
         .nodes
         .iter()
-        .map(|node| json!({"id":node.id,"name":node.name,"protocol":node.protocol_config.kind()}))
+        .map(|node| json!({"kind":"managed","id":node.id,"name":node.name,"protocol":node.protocol_config.kind()}))
         .collect();
+    if snapshot.entitlement.allowed {
+        ready_nodes.extend(snapshot.external.entries.iter().filter(|node|node.available).map(|node|json!({
+            "kind":"external","id":node.reference.external_node_id,"name":node.name,"protocol":node.protocol,
+            "source_id":node.reference.source_id,"source_name":node.source_name,"source_last_error":node.source_last_error
+        })));
+    }
     Ok(([
         (header::CACHE_CONTROL, "no-store"), (header::REFERRER_POLICY, "no-referrer"),
     ], Json(json!({
         "format":format,"status":status,"message":message,"available_formats":formats,
         "granted_nodes":snapshot.granted_nodes,"eligible_nodes":snapshot.eligible_nodes,"ready_nodes":ready_nodes,
+        "managed_nodes":snapshot.nodes.len(),"external_nodes":snapshot.external.nodes.len(),
+        "external_granted_nodes":snapshot.external.granted,"external_metering":"provider",
         "content":content,"filename":filename(id,format),"content_type":content_type(format),
         "entitlement":snapshot.entitlement,"subscription_url":format!("{}/sub/{token}",state.config.public_url)
     }))).into_response())

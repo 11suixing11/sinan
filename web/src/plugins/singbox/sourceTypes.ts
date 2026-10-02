@@ -9,6 +9,11 @@ export type SubscriptionSource = {
   settings_revision: number
   identity_epoch: number
   refresh_interval_seconds: number
+  auto_refresh?: boolean
+  user_agent?: string
+  traffic?: { upload?: number; download?: number; total?: number; expire?: number; updated_at?: number }
+  changes?: { added: number; updated: number; missing: number; unsupported: number }
+  stale?: boolean
   archived: boolean
   current_revision_id: number | null
   last_attempt_at: number | null
@@ -36,6 +41,7 @@ export type ExternalNodePreview = {
   selectable: boolean
   present: boolean
   identity_unique: boolean
+  adopted?: boolean
   reason: string | null
 }
 
@@ -62,6 +68,10 @@ export type SubscriptionSourceJob = {
 }
 
 const reasons: Record<string, string> = {
+  source_deleted: '来源已删除',
+  unsupported_configuration: '当前节点配置不可用',
+  node_not_adopted: '尚未加入节点库',
+  node_disabled: '节点已停用',
   source_archived: '来源已归档，不能用于新链路',
   source_replaced: '来源已更换，需要重新选点；原链路保留旧版本',
   node_missing: '所选节点本次缺失，原链路保留旧版本',

@@ -72,6 +72,7 @@ try {
       else if (path === `${prefix}/users`) value = [user]
       else if (path === `${prefix}/usage`) value = usage
       else if (path === `${prefix}/users/1/accesses`) value = []
+      else if (path === `${prefix}/users/1/external-accesses`) value = { revision: 0, accesses: [], available_nodes: [] }
       else if (path === `${prefix}/users/1/entitlement`) value = { user_id: 1, package_group_id: null, package_name: null, monthly_bytes: null, starts_at: null, expires_at: null, cycle_start: null, next_reset: null, used_bytes: '0', status: 'unlimited', allowed: true }
       else if (path === `${prefix}/users/1/policy-groups`) value = { group_ids: [] }
       else if (path === `${prefix}/users/1/portal`) value = { configuration: { enabled: false, reason: 'TEST_ONLY 尚未启用', origin }, keys: 0, url: null, activation_expires_at: null }

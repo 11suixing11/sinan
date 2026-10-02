@@ -22,7 +22,7 @@ pub async fn list(
     Ok(Json(resources_on(&mut tx).await?))
 }
 
-async fn resources_on(tx: &mut Transaction<'_, Postgres>) -> ApiResult<Vec<Value>> {
+pub(crate) async fn resources_on(tx: &mut Transaction<'_, Postgres>) -> ApiResult<Vec<Value>> {
     let nodes=sqlx::query("SELECT n.id,n.name,n.server_id,s.name AS server_name,n.protocol,n.public_host,n.port,n.enabled,(SELECT COUNT(DISTINCT h.chain_id) FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.managed_node_id=n.id) AS reference_count, (n.enabled AND n.protocol='vless-reality' AND NOT EXISTS(SELECT 1 FROM accesses a WHERE a.node_id=n.id) AND NOT EXISTS(SELECT 1 FROM singbox_policy_nodes p WHERE p.node_id=n.id) AND NOT EXISTS(SELECT 1 FROM singbox_live_chains c WHERE c.entry_node_id=n.id OR c.exit_node_id=n.id) AND NOT EXISTS(SELECT 1 FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.managed_node_id=n.id)) AS entry_eligible FROM nodes n JOIN servers s ON s.id=n.server_id WHERE n.deleted_at IS NULL AND s.deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM singbox_live_chains c WHERE c.entry_node_id=n.id) ORDER BY n.id").fetch_all(&mut **tx).await?;
     let mut result = Vec::new();
     for n in nodes {
@@ -151,10 +151,16 @@ pub async fn remove(
     }
     let mut tx = state.pool.begin().await?;
     super::super::entitlements::lock(&mut tx).await?;
+    remove_on(&mut tx, id).await?;
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub(crate) async fn remove_on(tx: &mut Transaction<'_, Postgres>, id: i64) -> ApiResult<()> {
     let used: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_policy_chains WHERE chain_id=$1)")
             .bind(id)
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await?;
     if used {
         return Err(ApiError::Conflict("请先从策略组移除此链路".into()));
@@ -162,25 +168,24 @@ pub async fn remove(
     let entry: i64 =
         sqlx::query_scalar("SELECT entry_node_id FROM singbox_live_chains WHERE id=$1 FOR UPDATE")
             .bind(id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?
             .ok_or(ApiError::NotFound)?;
-    let hosts:Vec<i64>=sqlx::query_scalar("SELECT server_id FROM nodes WHERE id=$2 UNION SELECT managed_server_id FROM singbox_chain_hops WHERE chain_id=$1 AND managed_server_id IS NOT NULL UNION SELECT e.server_id FROM singbox_chains c JOIN nodes e ON e.id=c.exit_node_id WHERE c.id=$1 ORDER BY 1").bind(id).bind(entry).fetch_all(&mut *tx).await?;
+    let hosts:Vec<i64>=sqlx::query_scalar("SELECT server_id FROM nodes WHERE id=$2 UNION SELECT managed_server_id FROM singbox_chain_hops WHERE chain_id=$1 AND managed_server_id IS NOT NULL UNION SELECT e.server_id FROM singbox_chains c JOIN nodes e ON e.id=c.exit_node_id WHERE c.id=$1 ORDER BY 1").bind(id).bind(entry).fetch_all(&mut **tx).await?;
     sqlx::query("UPDATE nodes SET enabled=FALSE,deleted_at=$2 WHERE id=$1")
         .bind(entry)
         .bind(sinan_protocol::now_timestamp())
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     sqlx::query("DELETE FROM accesses WHERE node_id=$1")
         .bind(entry)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     sqlx::query("UPDATE singbox_chains SET deleted_at=$2 WHERE id=$1")
         .bind(id)
         .bind(sinan_protocol::now_timestamp())
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
-    super::super::business::mark_dirty(&mut tx, &hosts).await?;
-    tx.commit().await?;
-    Ok(StatusCode::NO_CONTENT)
+    super::super::business::mark_dirty(tx, &hosts).await?;
+    Ok(())
 }

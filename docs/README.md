@@ -33,6 +33,7 @@
 - [架构决策索引](adr/README.md)、[执行中的问题与选择](open-questions.md)：设计依据及范围变更。
 - [原始 MVP 任务](requirements.md)、[G1–G9 计划](PLAN.md)：历史基线；后续授权和现行约束以 [AGENTS.md](../AGENTS.md) 及相应 ADR 为准。
 - [混合链路设计](node-chain-design.md)、[订阅来源设计](chain-subscription-sources.md)、[订阅实现与参考记录](subscription-source-implementation-notes.md)。
+- [节点库与外部订阅](node-catalog.md)：导入预览、标签与排序、来源更新和外部节点授权。
 - [服务器展示数据说明](server-display-data.md)：刷新与参考项目的实现差异。
 
 ## 发布与验收

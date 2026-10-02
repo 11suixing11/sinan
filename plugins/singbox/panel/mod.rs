@@ -2,9 +2,11 @@ pub mod accesses;
 mod activity;
 pub mod agent;
 pub mod business;
+pub mod catalog;
 pub mod chains;
 pub mod deployments;
 pub mod entitlements;
+pub mod external_access;
 pub mod mixed_paths;
 mod node_protocol;
 mod node_settings;
@@ -80,6 +82,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/users/{id}/subscription", get(subscriptions::preview))
         .route(
+            "/users/{id}/external-accesses",
+            get(external_access::get).put(external_access::put),
+        )
+        .route(
             "/users/{id}/accesses",
             get(accesses::list).post(accesses::grant),
         )
@@ -88,6 +94,7 @@ pub fn router() -> Router<AppState> {
             delete(accesses::revoke),
         )
         .route("/usage", get(usage::summary))
+        .merge(catalog::router())
         .merge(sources::router())
         .merge(portal::router())
         .merge(mixed_paths::router());

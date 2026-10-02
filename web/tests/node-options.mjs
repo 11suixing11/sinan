@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolve, extname, sep } from 'node:path'
 
 // Shipped dist with controlled API responses; PostgreSQL verifies migration/data.
+const catalogView = resources => resources.map(resource => ({ ...resource, original_name: resource.name, tags: [], note: '', sort_order: resource.id, revision: '1'.repeat(64), metadata_revision: 0 }))
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
 const root = fileURLToPath(new URL('../dist/', import.meta.url))
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' }
@@ -41,6 +42,7 @@ try {
       else if(path==='/api/plugins/sing-box/servers') value=[{id:1,name:'测试服务器',enabled:true,online:true,agent_supported:true}]
       else if(path==='/api/plugins/sing-box/usage') value={total:'0',by_node:[],by_user:[],uplink:'0',downlink:'0'}
       else if(path==='/api/plugins/sing-box/proxy-resources') value=nodes.map(node=>({...node,kind:'direct',server_name:'测试服务器',role:'direct',entry_node_id:null,tcp:true,udp:true,available:true,stage:'direct',reference_count:node.configuration_locked?1:0}))
+      else if(path==='/api/plugins/sing-box/node-catalog') value=catalogView(nodes.map(node=>({...node,kind:'direct',server_name:'测试服务器',role:'direct',entry_node_id:null,tcp:true,udp:true,available:true,stage:'direct',reference_count:node.configuration_locked?1:0})))
       else if(path==='/api/plugins/sing-box/subscription-sources') value=[]
       else if(path==='/api/plugins/sing-box/nodes') value=nodes
       else if(path.match(/\/nodes\/\d+$/) && method==='PATCH') {const node=nodes.find(node=>node.id===Number(path.split('/').at(-1))); const body=route.request().postDataJSON(); writes.push({id:node.id,body}); Object.assign(node,body); value=node}

@@ -1,7 +1,7 @@
 mod create;
 mod models;
 mod publication;
-mod resources;
+pub(crate) mod resources;
 mod updates;
 
 pub use create::batch;

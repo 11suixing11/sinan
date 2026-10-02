@@ -66,10 +66,10 @@ export default function UserPortal({ account, activation }: { account: string; a
     {notice && <p className="notice notice-success" role="status">{notice}</p>}
     {loading && !data ? <Loading /> : data?.authenticated ? <>
       <section className="panel"><div className="panel-heading"><h1>{data.name}</h1><button className="text-button" onClick={reload}>刷新</button></div><div className="panel-body">
-        <div className="user-usage"><div><span>累计上传</span><strong>{bytes(data.usage.uplink)}</strong></div><div><span>累计下载</span><strong>{bytes(data.usage.downlink)}</strong></div></div>
+        <div className="user-usage"><div><span>受管节点累计上传</span><strong>{bytes(data.usage.uplink)}</strong></div><div><span>受管节点累计下载</span><strong>{bytes(data.usage.downlink)}</strong></div></div>
         <Field label="我的 sing-box 订阅"><CopyField text={data.subscription_url} label="复制我的订阅" /></Field>
         <a className="button button-primary button-small" href={`${data.subscription_url}&download=true`}>下载订阅配置</a>
-        <p className="helper">订阅仅包含已生效的授权节点。流量约每三十秒刷新。</p>
+        <p className="helper">订阅检查当前授权与套餐状态。受管流量约每三十秒刷新；外部节点用量由提供方计量，已下载的外部凭据也由提供方控制。</p>
         <Field label="我的登录地址"><CopyField text={bookmark} label="复制我的登录地址" /></Field>
       </div></section>
       <section className="panel"><div className="panel-heading"><h2>我的 Passkey</h2><button className="button button-primary button-small" disabled={action.busy || Boolean(disabled) || data.keys.length >= 10} onClick={() => { action.clearError(); setEditing('new') }}>添加 Passkey</button></div><div className="panel-body">

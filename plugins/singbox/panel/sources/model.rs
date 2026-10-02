@@ -17,6 +17,11 @@ pub struct Source {
     pub settings_revision: i64,
     pub identity_epoch: i64,
     pub refresh_interval_seconds: i64,
+    pub auto_refresh: bool,
+    pub user_agent: String,
+    pub traffic: Value,
+    pub changes: Value,
+    pub stale: bool,
     pub archived: bool,
     pub current_revision_id: Option<i64>,
     pub last_attempt_at: Option<i64>,
@@ -28,7 +33,7 @@ pub struct Source {
     pub dependency_ids: Vec<i64>,
 }
 
-const SOURCE_SELECT: &str = "SELECT s.id,s.name,s.kind,s.source_host,s.secret_url IS NOT NULL AS url_configured,s.secret_authorization IS NOT NULL AS authorization_configured,s.secret_content IS NOT NULL AS content_configured,s.settings_revision,s.identity_epoch,s.refresh_interval_seconds,s.archived,s.current_revision_id,s.last_attempt_at,s.last_success_at,s.last_error,COALESCE(r.supported_count,0) AS supported_count,COALESCE(r.unsupported_count,0) AS unsupported_count,(SELECT j.id FROM singbox_source_jobs j WHERE j.source_id=s.id AND j.state IN ('queued','running')) AS active_job_id,ARRAY(SELECT DISTINCT h.chain_id FROM singbox_chain_hops h JOIN singbox_chains c ON c.id=h.chain_id WHERE h.source_id=s.id AND c.deleted_at IS NULL ORDER BY h.chain_id) AS dependency_ids FROM singbox_subscription_sources s LEFT JOIN singbox_source_revisions r ON r.id=s.current_revision_id";
+const SOURCE_SELECT: &str = "SELECT s.id,s.name,s.kind,s.source_host,s.secret_url IS NOT NULL AS url_configured,s.secret_authorization IS NOT NULL AS authorization_configured,s.secret_content IS NOT NULL AS content_configured,s.settings_revision,s.identity_epoch,s.refresh_interval_seconds,s.auto_refresh,s.user_agent,s.traffic,s.changes,(s.last_error IS NOT NULL OR COALESCE(r.identity_epoch<>s.identity_epoch,FALSE)) AS stale,s.archived,s.current_revision_id,s.last_attempt_at,s.last_success_at,s.last_error,COALESCE(r.supported_count,0) AS supported_count,COALESCE(r.unsupported_count,0) AS unsupported_count,(SELECT j.id FROM singbox_source_jobs j WHERE j.source_id=s.id AND j.state IN ('queued','running')) AS active_job_id,ARRAY(SELECT DISTINCT h.chain_id FROM singbox_chain_hops h JOIN singbox_chains c ON c.id=h.chain_id WHERE h.source_id=s.id AND c.deleted_at IS NULL ORDER BY h.chain_id) AS dependency_ids FROM singbox_subscription_sources s LEFT JOIN singbox_source_revisions r ON r.id=s.current_revision_id";
 
 pub(super) async fn list_on(pool: &PgPool) -> ApiResult<Vec<Source>> {
     Ok(sqlx::query_as(&format!(
@@ -74,6 +79,8 @@ pub struct CreateSource {
     pub authorization: Option<String>,
     pub content: Option<String>,
     pub refresh_interval_seconds: Option<i64>,
+    pub auto_refresh: Option<bool>,
+    pub user_agent: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -89,6 +96,8 @@ pub struct PatchSource {
     #[serde(default)]
     pub replace_source: bool,
     pub refresh_interval_seconds: Option<i64>,
+    pub auto_refresh: Option<bool>,
+    pub user_agent: Option<String>,
     pub archived: Option<bool>,
 }
 
@@ -109,6 +118,7 @@ pub struct NodePreview {
     pub selectable: bool,
     pub present: bool,
     pub identity_unique: bool,
+    pub adopted: bool,
     pub reason: Option<String>,
 }
 
@@ -196,9 +206,10 @@ pub(super) async fn nodes_on(pool: &PgPool, id: i64) -> ApiResult<Vec<NodePrevie
         name: String,
         present: bool,
         identity_unique: bool,
+        adopted: bool,
         config_json: Option<Value>,
     }
-    let rows: Vec<PreviewRow> = sqlx::query_as("SELECT n.id,n.current_version_id,n.last_seen_revision_id,n.identity_epoch,n.name,n.present,n.identity_unique,v.config_json FROM singbox_external_nodes n LEFT JOIN singbox_external_node_versions v ON v.id=n.current_version_id WHERE n.source_id=$1 ORDER BY n.identity_epoch DESC,n.id")
+    let rows: Vec<PreviewRow> = sqlx::query_as("SELECT n.id,n.current_version_id,n.last_seen_revision_id,n.identity_epoch,n.name,n.present,n.identity_unique,n.adopted,v.config_json FROM singbox_external_nodes n LEFT JOIN singbox_external_node_versions v ON v.id=n.current_version_id WHERE n.source_id=$1 ORDER BY n.identity_epoch DESC,n.id")
         .bind(id).fetch_all(pool).await?;
     let mut previews = Vec::new();
     for row in rows {
@@ -247,6 +258,7 @@ pub(super) async fn nodes_on(pool: &PgPool, id: i64) -> ApiResult<Vec<NodePrevie
             selectable: reason.is_none(),
             present: row.present,
             identity_unique: row.identity_unique,
+            adopted: row.adopted,
             reason: reason.map(str::to_owned),
         });
     }
@@ -273,6 +285,7 @@ pub(super) async fn nodes_on(pool: &PgPool, id: i64) -> ApiResult<Vec<NodePrevie
                 selectable: false,
                 present: true,
                 identity_unique: false,
+                adopted: false,
                 reason: Some(
                     node["reason"]
                         .as_str()

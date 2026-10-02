@@ -56,6 +56,7 @@ try {
       else if (pathname === `${prefix}/policy-groups` && method === 'GET') value = policies
       else if (pathname === `${prefix}/package-groups` && method === 'GET') value = packages
       else if (pathname === `${prefix}/usage` && method === 'GET') { usageReads.push(Date.now()); value = usage }
+      else if (pathname === `${prefix}/users/1/external-accesses` && method === 'GET') value = { revision: 0, accesses: [], available_nodes: [] }
       else if (pathname === `${prefix}/users/1/accesses` && method === 'GET') value = groupIds.map(id => ({ user_id: 1, node_id: id, uuid: 'TEST_ONLY', stat_name: `fixture_${id}`, direct_grant: false }))
       else if (pathname === `${prefix}/users/1/policy-groups` && method === 'GET') { policyReads.push([...groupIds]); value = { group_ids: [...groupIds] } }
       else if (pathname === `${prefix}/users/1/policy-groups` && method === 'PUT') {

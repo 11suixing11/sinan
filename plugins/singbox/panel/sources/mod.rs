@@ -1,7 +1,10 @@
+mod adoption;
 mod fetch;
 mod mihomo;
 mod model;
 pub mod parse;
+mod previews;
+mod revisions;
 mod service;
 mod structured;
 mod uri;
@@ -32,6 +35,19 @@ pub fn router() -> Router<AppState> {
         )
         .route("/subscription-sources/{id}/refresh", post(refresh))
         .route("/subscription-sources/{id}/nodes", get(nodes))
+        .route(
+            "/subscription-sources/{id}/nodes/{node_id}",
+            axum::routing::patch(adoption::update),
+        )
+        .route("/subscription-source-previews", post(previews::create))
+        .route(
+            "/subscription-source-previews/{id}",
+            axum::routing::delete(previews::remove),
+        )
+        .route(
+            "/subscription-source-previews/{id}/commit",
+            post(previews::commit),
+        )
         .route("/subscription-source-jobs/{id}", get(job))
         .route("/subscription-source-jobs/{id}/cancel", post(cancel))
         .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
@@ -60,6 +76,11 @@ async fn create(
     let Json(request) = request.map_err(|_| bad("来源请求字段或大小不符合要求"))?;
     let name = super::business::name(&request.name)?;
     let interval = refresh_interval(request.refresh_interval_seconds.unwrap_or(86400))?;
+    let user_agent = request
+        .user_agent
+        .as_deref()
+        .unwrap_or(fetch::DEFAULT_USER_AGENT);
+    fetch::validate_user_agent(user_agent).map_err(import_error)?;
     let host = match request.kind.as_str() {
         "url" if request.content.is_none() => {
             let url = request
@@ -85,8 +106,8 @@ async fn create(
     };
     let mut tx = state.pool.begin().await?;
     super::entitlements::lock(&mut tx).await?;
-    let id: i64 = sqlx::query_scalar("INSERT INTO singbox_subscription_sources(name,kind,secret_url,secret_authorization,secret_content,source_host,refresh_interval_seconds,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id")
-        .bind(name).bind(request.kind).bind(request.url).bind(request.authorization).bind(request.content).bind(host).bind(interval).bind(sinan_protocol::now_timestamp()).fetch_one(&mut *tx).await?;
+    let id: i64 = sqlx::query_scalar("INSERT INTO singbox_subscription_sources(name,kind,secret_url,secret_authorization,secret_content,source_host,refresh_interval_seconds,created_at,user_agent,auto_refresh) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id")
+        .bind(name).bind(request.kind).bind(request.url).bind(request.authorization).bind(request.content).bind(host).bind(interval).bind(sinan_protocol::now_timestamp()).bind(user_agent).bind(request.auto_refresh.unwrap_or(true)).fetch_one(&mut *tx).await?;
     service::queue_on(&mut tx, id).await?;
     tx.commit().await?;
     service::kick(&state);
@@ -116,10 +137,12 @@ async fn update(
         settings_revision: i64,
         identity_epoch: i64,
         refresh_interval_seconds: i64,
+        auto_refresh: bool,
+        user_agent: String,
         archived: bool,
         current_revision_id: Option<i64>,
     }
-    let mut settings: Settings = sqlx::query_as("SELECT name,kind,secret_url,secret_authorization,secret_content,settings_revision,identity_epoch,refresh_interval_seconds,archived,current_revision_id FROM singbox_subscription_sources WHERE id=$1 AND deleted_at IS NULL FOR UPDATE")
+    let mut settings: Settings = sqlx::query_as("SELECT name,kind,secret_url,secret_authorization,secret_content,settings_revision,identity_epoch,refresh_interval_seconds,auto_refresh,user_agent,archived,current_revision_id FROM singbox_subscription_sources WHERE id=$1 AND deleted_at IS NULL FOR UPDATE")
         .bind(id).fetch_optional(&mut *tx).await?.ok_or(ApiError::NotFound)?;
     if request.settings_revision != settings.settings_revision {
         return Err(ApiError::Conflict("来源设置已修改，请刷新后重试".into()));
@@ -129,6 +152,14 @@ async fn update(
     }
     let mut identity_changed = request.replace_source;
     let mut content_changed = false;
+    if let Some(value) = request.auto_refresh {
+        settings.auto_refresh = value;
+    }
+    if let Some(value) = request.user_agent {
+        fetch::validate_user_agent(&value).map_err(import_error)?;
+        content_changed |= value != settings.user_agent;
+        settings.user_agent = value;
+    }
     if let Some(value) = request.name {
         settings.name = super::business::name(&value)?;
     }
@@ -184,8 +215,8 @@ async fn update(
         .map_err(import_error)?
         .and_then(|url| url.host_str().map(str::to_owned));
     let now = sinan_protocol::now_timestamp();
-    sqlx::query("UPDATE singbox_subscription_sources SET name=$2,secret_url=$3,secret_authorization=$4,secret_content=$5,source_host=$6,settings_revision=$7,identity_epoch=$8,refresh_interval_seconds=$9,archived=$10,etag=NULL,last_modified=NULL,cache_settings_revision=NULL,cache_identity_epoch=NULL,next_refresh_at=CASE WHEN kind='url' AND NOT $10 THEN $11 ELSE NULL END WHERE id=$1")
-        .bind(id).bind(settings.name).bind(settings.secret_url).bind(settings.secret_authorization).bind(settings.secret_content).bind(source_host).bind(settings.settings_revision).bind(settings.identity_epoch).bind(settings.refresh_interval_seconds).bind(settings.archived).bind(now).execute(&mut *tx).await?;
+    sqlx::query("UPDATE singbox_subscription_sources SET name=$2,secret_url=$3,secret_authorization=$4,secret_content=$5,source_host=$6,settings_revision=$7,identity_epoch=$8,refresh_interval_seconds=$9,archived=$10,etag=NULL,last_modified=NULL,cache_settings_revision=NULL,cache_identity_epoch=NULL,next_refresh_at=CASE WHEN kind='url' AND NOT $10 AND $12 THEN $11 ELSE NULL END,auto_refresh=$12,user_agent=$13 WHERE id=$1")
+        .bind(id).bind(settings.name).bind(settings.secret_url).bind(settings.secret_authorization).bind(settings.secret_content).bind(source_host).bind(settings.settings_revision).bind(settings.identity_epoch).bind(settings.refresh_interval_seconds).bind(settings.archived).bind(now).bind(settings.auto_refresh).bind(settings.user_agent).execute(&mut *tx).await?;
     let superseded = sqlx::query("UPDATE singbox_source_jobs SET state='superseded',phase='finished',finished_at=$2 WHERE source_id=$1 AND state IN ('queued','running')")
         .bind(id).bind(now).execute(&mut *tx).await?.rows_affected() > 0;
     if !settings.archived
@@ -295,6 +326,13 @@ async fn remove(
                 .join("、")
         )));
     }
+    let assigned: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_external_accesses a JOIN users u ON u.id=a.user_id WHERE a.source_id=$1 AND u.deleted_at IS NULL)")
+        .bind(id).fetch_one(&mut *tx).await?;
+    if assigned {
+        return Err(ApiError::Conflict(
+            "来源节点仍分配给代理用户，请先撤销分配；可先归档来源".into(),
+        ));
+    }
     let now = sinan_protocol::now_timestamp();
     sqlx::query("UPDATE singbox_subscription_sources SET archived=TRUE,deleted_at=$2,settings_revision=settings_revision+1,etag=NULL,last_modified=NULL,next_refresh_at=NULL WHERE id=$1").bind(id).bind(now).execute(&mut *tx).await?;
     sqlx::query("UPDATE singbox_source_jobs SET state='cancelled',phase='finished',finished_at=$2 WHERE source_id=$1 AND state IN ('queued','running')").bind(id).bind(now).execute(&mut *tx).await?;
@@ -323,6 +361,7 @@ fn import_error(error: parse::ImportError) -> ApiError {
     bad(match error.0 {
         "non_public_source_address" => "订阅地址必须指向公网，不能使用本机、私网或保留地址",
         "invalid_source_authorization" => "获取认证不能为空或包含非法字符",
+        "invalid_source_user_agent" => "请求标识须为 1 至 256 字节的可打印 ASCII 文本",
         _ => "请填写无用户名、密码和片段的有效 HTTPS 订阅地址",
     })
 }
