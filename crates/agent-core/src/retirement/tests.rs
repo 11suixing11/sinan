@@ -396,7 +396,6 @@ async fn acknowledged_usage_is_preserved_while_keys_and_configuration_are_remove
             truncated: false,
         })?;
         state.save_probe_result(&sinan_protocol::ProbeResult {
-            execution: None,
             id: Uuid::new_v4(),
             probe_id: Uuid::new_v4(),
             sampled_at: sinan_protocol::telemetry::now_millis(),
