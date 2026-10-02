@@ -157,34 +157,115 @@ def verified_program(description):
     return path
 
 
+def private_directory(value, allow_missing=False):
+    path = Path(value)
+    require(path.is_absolute() and ".." not in path.parts, "private_directory_path_invalid")
+    descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for component in path.parts[1:]:
+            try:
+                following = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                    dir_fd=descriptor)
+            except FileNotFoundError:
+                require(allow_missing, "private_directory_missing")
+                return path
+            os.close(descriptor)
+            descriptor = following
+        require(os.fstat(descriptor).st_mode & 0o077 == 0, "private_directory_permissions")
+        return path
+    except OSError:
+        raise Rejected("private_directory_path_invalid") from None
+    finally:
+        os.close(descriptor)
+
+
+def canonical_panel_origin(value):
+    origin(value, https=True)
+    parsed = urllib.parse.urlsplit(value)
+    host = parsed.hostname
+    require(host.isascii() and not any(character.isspace() or ord(character) < 32 for character in value),
+            "panel_origin_invalid")
+    authority = "[" + host + "]" if ":" in host else host
+    if parsed.port is not None:
+        authority += ":" + str(parsed.port)
+    require(value == "https://" + authority, "panel_origin_not_canonical")
+    return value
+
+
+def fixture_bindings(fixture, prepared):
+    require(isinstance(fixture, dict) and fixture.get("schema") == 1 and
+            fixture.get("test_only") is True and fixture.get("run_id") == prepared["run_id"],
+            "fixture_run_binding")
+    addresses = fixture.get("addresses")
+    require(isinstance(addresses, dict) and set(addresses) == {"fixture", "client", "A", "M", "B"},
+            "fixture_addresses_invalid")
+    for role in ("A", "M", "B"):
+        require(addresses[role] == prepared["roles"][role]["address"], "fixture_role_address_mismatch")
+    managed = {addresses[role] for role in ("A", "M", "B")}
+    # Both helper processes run in the driver's host network namespace. A
+    # distinct client address is allowed only as an assigned host alias; this
+    # field never creates or attests another isolated client namespace.
+    for role in ("fixture", "client"):
+        try:
+            address = ipaddress.ip_address(addresses[role])
+        except (ValueError, TypeError):
+            raise Rejected("fixture_host_address_invalid") from None
+        require(address.version == 4 and address.is_private and
+                (role == "client" or not address.is_loopback) and not address.is_unspecified and
+                not address.is_multicast and str(address) not in managed,
+                "fixture_host_address_invalid")
+    ports = fixture.get("managed_ports")
+    require(isinstance(ports, dict) and set(ports) == {"A", "M", "B"}, "fixture_managed_ports_mismatch")
+    for role, expected in (("A", [20011, 20012]), ("M", [20001]), ("B", [20001])):
+        actual = ports[role] if isinstance(ports[role], list) else [ports[role]]
+        require(all(type(port) is int for port in actual) and sorted(actual) == expected,
+                "fixture_managed_ports_mismatch")
+
+
 def manifest_contract(value):
     require(isinstance(value, dict) and value.get("schema") == 1, "prepared_manifest_schema")
     try:
-        uuid.UUID(value["run_id"])
+        run_id = uuid.UUID(value["run_id"])
+        require(str(run_id) == value["run_id"] and run_id.int != 0, "prepared_run_id_invalid")
     except (ValueError, TypeError, KeyError):
         raise Rejected("prepared_run_id_invalid") from None
     require(value.get("release", {}).get("test_only") is True, "test_release_required")
-    require(value.get("source_identity"), "frozen_source_identity_required")
+    require(isinstance(value.get("source_identity"), dict) and value["source_identity"],
+            "frozen_source_identity_required")
     require(set(value.get("roles", {})) == {"A", "M", "B"}, "three_roles_required")
     addresses = []
     for role in ("A", "M", "B"):
         item = value["roles"][role]
         address = ipaddress.ip_address(item["address"])
-        require(address.is_private and not address.is_loopback and not address.is_unspecified,
+        require(address.version == 4 and address.is_private and not address.is_loopback and
+                not address.is_unspecified and not address.is_multicast and str(address) == item["address"],
                 "role_address_not_isolated")
         addresses.append(address)
         require(isinstance(item.get("sni"), str) and item["sni"], "role_sni_required")
         private_file(item["agent_config_file"])
     require(len(set(addresses)) == 3, "role_addresses_not_distinct")
     panel = value["panel"]
-    origin(panel["origin"], https=True)
+    canonical_panel_origin(panel["origin"])
     private_file(panel["ca_file"], 256 * 1024)
     private_file(panel["admin_descriptor_file"])
-    require(Path(value["evidence_dir"]).is_absolute(), "evidence_path_not_absolute")
     verified_program(value["controller"])
-    private_file(value["controller"]["manifest_file"])
+    controller = read_json(private_file(value["controller"]["manifest_file"]))
+    require(isinstance(controller, dict) and controller.get("schema") == 1 and
+            controller.get("test_only") is True and controller.get("dedicated") is True,
+            "controller_manifest_invalid")
+    require(controller.get("run_id") == value["run_id"], "controller_run_binding")
+    require(controller.get("source_identity") == value["source_identity"], "controller_source_binding")
+    require(isinstance(controller.get("panel"), dict) and
+            controller["panel"].get("origin") == panel["origin"], "controller_panel_origin_mismatch")
+    run_root = private_directory(controller["run_root"])
+    marker = secure_read(run_root / ".sinan-managed-test-run", 128, private=True)
+    require(marker.decode("utf-8").strip() == value["run_id"], "run_ownership_mismatch")
+    evidence = Path(value["evidence_dir"])
+    require(evidence.is_absolute() and ".." not in evidence.parts and
+            evidence != run_root and evidence.is_relative_to(run_root), "evidence_outside_owned_run")
+    private_directory(evidence, allow_missing=True)
     verified_program(value["fixture"])
-    private_file(value["fixture"]["manifest_file"])
+    fixture_bindings(read_json(private_file(value["fixture"]["manifest_file"])), value)
     return value
 
 
@@ -1385,6 +1466,7 @@ class Driver:
                    "source_identity": self.manifest["source_identity"], "manifest_sha256": digest(canonical(self.manifest)),
                    "status": "passed_registered_managed_paths" if complete else "passed_selected_scenarios" if failed is None and not self.cleanup_errors else "failed",
                    "full_matrix": complete, "registered_agents": registered,
+                   "client_execution_namespace": "driver_host",
                    "selected_scenarios": list(self.scenarios), "results": self.results,
                    "failure_code": failed, "cleanup_errors": self.cleanup_errors,
                    "native_ledger_reconciliation": "verified" if self.accounting_verified else "not_verified",

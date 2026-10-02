@@ -151,6 +151,55 @@ class NativePreparation(unittest.TestCase):
 
 
 class ControllerContracts(unittest.TestCase):
+    def test_enrollment_uses_bound_origin_and_private_single_argument_token(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            root.chmod(0o700)
+            run_id = "8eabca26-702f-4fde-890b-60594eaf528d"
+            marker = root / ".sinan-managed-test-run"
+            marker.write_text(run_id + "\n")
+            marker.chmod(0o600)
+            path = root / "enrollment.json"
+            row = {"agent_binary": "/opt/sinan/core/current/sinan-agent",
+                   "agent_config": "/etc/sinan/agent.toml"}
+            origin = "https://owned-panel.example.invalid:3443"
+            manifest = {"run_id": run_id, "run_root": str(root),
+                        "roles": {"A": row}, "panel": {"origin": origin}}
+            request = {"schema": 1, "run_id": run_id, "operation": "enroll", "role": "A",
+                       "arguments": {"descriptor_file": str(path)}}
+            token = "--TEST_ONLY_private_token"
+            descriptor = {"schema": 1, "run_id": run_id, "role": "A", "token": token,
+                          "origin": "https://untrusted.example.invalid", "panel": "https://other.example.invalid",
+                          "agent_binary": "/bin/false", "argv": ["--panel=https://untrusted.example.invalid"],
+                          "enrollment": {"token": "TEST_ONLY_untrusted_extra"}}
+            path.write_text(json.dumps(descriptor))
+            path.chmod(0o600)
+            with patch.object(CONTROL, "role_capture") as command, patch.object(CONTROL, "service") as service:
+                result = CONTROL.dispatch(manifest, [], request)
+                command.assert_called_once_with(row, [row["agent_binary"], "--config", row["agent_config"],
+                    "enroll", "--panel=" + origin, "--token=" + token], timeout=45)
+                service.assert_called_once_with(row, "start")
+                self.assertEqual(result, {"role": "A", "ordinary_enrollment_completed": True})
+            invalid_fields = (("run_id", "48a7f5bc-e160-43c2-9001-03e2f73f5493"), ("role", "B"),
+                              ("token", None), ("token", True), ("token", 1), ("token", [token]),
+                              ("token", {"value": token}), ("token", ""), ("token", "x" * 513))
+            for field, value in invalid_fields:
+                with self.subTest(field=field, value_type=type(value).__name__):
+                    path.write_text(json.dumps({**descriptor, field: value}))
+                    with patch.object(CONTROL, "role_capture") as command, patch.object(CONTROL, "service") as service:
+                        with self.assertRaisesRegex(ValueError, "enrollment_descriptor_identity_invalid"):
+                            CONTROL.dispatch(manifest, [], request)
+                        command.assert_not_called()
+                        service.assert_not_called()
+            path.write_text(json.dumps(descriptor))
+            extra_arguments = {**request, "arguments": {**request["arguments"],
+                                "panel": "https://untrusted.example.invalid"}}
+            with patch.object(CONTROL, "role_capture") as command, patch.object(CONTROL, "service") as service:
+                with self.assertRaisesRegex(ValueError, "enrollment_descriptor_required"):
+                    CONTROL.dispatch(manifest, [], extra_arguments)
+                command.assert_not_called()
+                service.assert_not_called()
+
     def test_panel_private_environment_cannot_point_at_another_database_or_store(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

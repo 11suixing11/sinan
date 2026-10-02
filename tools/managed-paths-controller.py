@@ -338,7 +338,8 @@ def dispatch(manifest, identities, request):
                     isinstance(descriptor.get("token"), str) and 0 < len(descriptor["token"]) <= 512,
                     "enrollment_descriptor_identity_invalid")
             role_capture(row, [row["agent_binary"], "--config", row["agent_config"],
-                               "enroll", "--token", descriptor["token"]], timeout=45)
+                               "enroll", "--panel=" + manifest["panel"]["origin"],
+                               "--token=" + descriptor["token"]], timeout=45)
             service(row, "start")
             return {"role": role, "ordinary_enrollment_completed": True}
         require(not arguments, "snapshot_takes_no_arguments")

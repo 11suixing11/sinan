@@ -49,7 +49,182 @@ def proof_fixture():
     return value
 
 
+def manifest_fixture(root):
+    """Actual private file shapes for pure binding checks, never live facts."""
+    root.chmod(0o700)
+    run_id = "ab12640c-270f-4a82-a506-41176e42e19f"
+    DRIVER.write_bytes(root / ".sinan-managed-test-run", (run_id + "\n").encode())
+    source = {"head": "a" * 40, "file_count": 782, "frozen_inputs_sha256": "b" * 64,
+              "functional_sha256": "c" * 64, "cargo_lock_sha256": "d" * 64}
+    programs = {}
+    for name in ("controller", "fixture"):
+        path = root / (name + ".py")
+        DRIVER.write_bytes(path, b"# TEST_ONLY pure manifest fixture; do not execute.\n")
+        programs[name] = {"path": str(path), "sha256": DRIVER.digest(path.read_bytes())}
+    roles = {}
+    for index, role in enumerate(("A", "M", "B"), 2):
+        config = root / ("agent-" + role + ".toml")
+        DRIVER.write_bytes(config, b'panel_url = "https://owned.test"\npanel_ca_file = "/etc/sinan/trust/panel-ca.pem"\n')
+        roles[role] = {"address": "10.231.0." + str(index), "sni": "reality.test",
+                       "agent_config_file": str(config)}
+    ca, admin = root / "panel-ca.pem", root / "administrator.json"
+    DRIVER.write_bytes(ca, b"TEST_ONLY CA file; not a cryptographic acceptance fixture\n")
+    DRIVER.write_json(admin, {"password": "TEST_ONLY_private_password"})
+    binaries = {}
+    for name in ("sinan-agent", "sinan-panel"):
+        path = root / name
+        DRIVER.write_bytes(path, b"TEST_ONLY immutable binary identity, not executable\n")
+        binaries[name] = {"path": str(path), "sha256": DRIVER.digest(path.read_bytes()),
+                          "size": path.stat().st_size}
+    receipt = root / "prepared-artifacts.json"
+    DRIVER.write_json(receipt, {"status": "prepared", "test_only": True, "run_id": run_id,
+        "source_identity": source, "release": {"official_publication_rejected": True},
+        "binaries": {name: {key: row[key] for key in ("sha256", "size")} for name, row in binaries.items()}})
+    controller = {"schema": 1, "test_only": True, "dedicated": True, "run_id": run_id,
+        "run_root": str(root), "source_identity": copy.deepcopy(source),
+        "artifacts": {"test_only": True, "prepared_receipt_file": str(receipt), "binaries": binaries},
+        "roles": {role: {"init_pid": index, "starttime": index, "netns_id": index,
+            "mountns_id": index, "pidns_id": index, "systemd_id": str(index).zfill(32),
+            "filesystem_id": "1:" + str(index), "agent_config": "/etc/sinan/agent.toml",
+            "agent_binary": "/opt/sinan/core/current/sinan-agent"}
+            for index, role in enumerate(("A", "M", "B"), 2)},
+        "panel": {"origin": "https://owned.test", "unit": "sinan-managed-panel-" + run_id + ".service",
+            "data_dir": str(root / "panel-data"), "ownership_file": str(root / ".sinan-managed-test-run"),
+            "unit_file": str(root / "panel.service"), "unit_sha256": "e" * 64,
+            "environment_file": str(root / "panel.env"), "environment_sha256": "f" * 64,
+            "postgres": {"socket_dir": str(root / "pg"), "port": 55437,
+                         "username": "postgres", "database": "sinan_managed_" + run_id.replace("-", "")}}}
+    network_root = root / "network"
+    network_root.mkdir(mode=0o700)
+    tls = network_root / "tls"
+    tls.mkdir(mode=0o700)
+    empty_roots = tls / "empty-ca-directory"
+    empty_roots.mkdir(mode=0o700)
+    tls_files = {"empty_ca_directory": str(empty_roots)}
+    for name in ("ca", "cert", "key"):
+        path = tls / (name + ".pem")
+        DRIVER.write_bytes(path, b"TEST_ONLY bounded TLS identity; not a live certificate\n")
+        tls_files[name] = str(path)
+    accounts, contents = {}, {}
+    for version in ("v1", "v2", "bad", "v3"):
+        account = {"username": "TEST_ONLY_X_" + version, "password": "TEST_ONLY_account_" + version}
+        accounts[version] = account
+        path = network_root / ("source-" + version + ".json")
+        DRIVER.write_json(path, {"outbounds": [{"type": "http", "tag": "TEST_ONLY_X",
+            "server": "10.231.0.1", "server_port": 21001, **account}]})
+        contents[version] = {"path": str(path), "sha256": DRIVER.digest(path.read_bytes())}
+    runtime = root / "sing-box"
+    DRIVER.write_bytes(runtime, b"TEST_ONLY native runtime identity, not executable\n")
+    fixture = {"schema": 1, "test_only": True, "run_id": run_id, "root": str(network_root),
+        "native_binary": str(runtime), "native_sha256": DRIVER.digest(runtime.read_bytes()),
+        "addresses": {"fixture": "10.231.0.1", "client": "10.231.0.1",
+                      **{role: row["address"] for role, row in roles.items()}},
+        "ports": {"x": 21001, "handshake": 21002, "tcp_echo": 21003, "udp_echo": 21004, "https": 21005},
+        "managed_ports": {"A": [20011, 20012], "M": 20001, "B": 20001},
+        "accounts": accounts, "source_contents": contents, "tls": tls_files}
+    programs["controller"]["manifest_file"] = str(root / "environment.json")
+    programs["fixture"]["manifest_file"] = str(network_root / "manifest.json")
+    prepared = {"schema": 1, "run_id": run_id, "source_identity": source,
+        "panel": {"origin": "https://owned.test", "ca_file": str(ca), "admin_descriptor_file": str(admin)},
+        "roles": roles, **programs,
+        "release": {"test_only": True, "agent_version": "0.3.1", "agent_target": "aarch64-unknown-linux-gnu"},
+        "evidence_dir": str(root / "evidence")}
+    return prepared, controller, fixture
+
+
+def save_manifests(prepared, controller, fixture):
+    DRIVER.write_json(Path(prepared["controller"]["manifest_file"]), controller)
+    DRIVER.write_json(Path(prepared["fixture"]["manifest_file"]), fixture)
+
+
 class DriverContracts(unittest.TestCase):
+    def assert_manifest_rejected_before_business(self, mutation):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            prepared, controller, fixture = manifest_fixture(root)
+            mutation(prepared, controller, fixture, root)
+            save_manifests(prepared, controller, fixture)
+            with mock.patch.object(DRIVER, "Controller") as control, \
+                    mock.patch.object(DRIVER, "Panel") as panel, \
+                    mock.patch.object(DRIVER, "Fixtures") as helper:
+                with self.assertRaises(DRIVER.Rejected):
+                    DRIVER.Driver(prepared, ("baseline",))
+                control.assert_not_called()
+                panel.assert_not_called()
+                helper.assert_not_called()
+            self.assertFalse((root / "evidence").exists())
+
+    def test_manifest_ids_origins_and_source_mismatch_before_business(self):
+        mutations = (
+            lambda p, c, f, r: p.update(run_id=p["run_id"].upper()),
+            lambda p, c, f, r: p.update(run_id="00000000-0000-0000-0000-000000000000"),
+            lambda p, c, f, r: p["panel"].update(origin="https://owned.test/"),
+            lambda p, c, f, r: p["panel"].update(origin="https://OWNED.test"),
+            lambda p, c, f, r: p["panel"].update(origin="https://operator:TEST_ONLY@owned.test"),
+            lambda p, c, f, r: c.update(run_id="ea681d39-1a63-4b48-b4f5-a9e48614ebd0"),
+            lambda p, c, f, r: c["source_identity"].update(functional_sha256="e" * 64),
+            lambda p, c, f, r: c["panel"].update(origin="https://other.test"),
+            lambda p, c, f, r: DRIVER.write_bytes(r / ".sinan-managed-test-run", b"different-owned-run\n"),
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                self.assert_manifest_rejected_before_business(mutation)
+
+    def test_evidence_path_is_owned_private_and_never_follows_symlinks(self):
+        def public_evidence(p, c, f, root):
+            (root / "public-evidence").mkdir(mode=0o755)
+            (root / "public-evidence").chmod(0o755)
+            p["evidence_dir"] = str(root / "public-evidence")
+        def linked_evidence(p, c, f, root):
+            (root / "real-evidence").mkdir(mode=0o700)
+            (root / "linked-evidence").symlink_to(root / "real-evidence", target_is_directory=True)
+            p["evidence_dir"] = str(root / "linked-evidence")
+        def linked_parent(p, c, f, root):
+            (root / "real-parent").mkdir(mode=0o700)
+            (root / "linked-parent").symlink_to(root / "real-parent", target_is_directory=True)
+            p["evidence_dir"] = str(root / "linked-parent" / "new-evidence")
+        mutations = (
+            lambda p, c, f, r: p.update(evidence_dir=str(r.parent / "unowned-evidence")),
+            lambda p, c, f, r: p.update(evidence_dir=str(r)),
+            lambda p, c, f, r: p.update(evidence_dir=str(r / "missing" / ".." / "escape")),
+            public_evidence, linked_evidence, linked_parent,
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                self.assert_manifest_rejected_before_business(mutation)
+
+    def test_helper_run_addresses_and_exact_ports_bind_before_business(self):
+        mutations = (
+            lambda p, c, f, r: f.update(run_id="ea681d39-1a63-4b48-b4f5-a9e48614ebd0"),
+            lambda p, c, f, r: f.update(test_only=False),
+            lambda p, c, f, r: f["addresses"].update(B="10.231.0.99"),
+            lambda p, c, f, r: f["addresses"].update(fixture=p["roles"]["A"]["address"]),
+            lambda p, c, f, r: f["addresses"].update(client=p["roles"]["M"]["address"]),
+            lambda p, c, f, r: f["managed_ports"].update(A=[20011]),
+            lambda p, c, f, r: f["managed_ports"].update(A=[20011, 20012, 20013]),
+            lambda p, c, f, r: f["managed_ports"].update(M=20002),
+            lambda p, c, f, r: f["managed_ports"].update(B=True),
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                self.assert_manifest_rejected_before_business(mutation)
+
+    def test_complete_private_manifest_accepts_new_and_resumed_host_layout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            prepared, controller, fixture = manifest_fixture(root)
+            save_manifests(prepared, controller, fixture)
+            self.assertIs(DRIVER.manifest_contract(prepared), prepared)
+            self.assertFalse((root / "evidence").exists())
+            (root / "evidence").mkdir(mode=0o700)
+            fixture["addresses"]["client"] = "10.231.0.10"
+            fixture["managed_ports"] = {"A": [20012, 20011], "M": [20001], "B": [20001]}
+            save_manifests(prepared, controller, fixture)
+            self.assertIs(DRIVER.manifest_contract(prepared), prepared)
+            fixture["addresses"]["client"] = "127.0.0.1"
+            save_manifests(prepared, controller, fixture)
+            self.assertIs(DRIVER.manifest_contract(prepared), prepared)
+
     def test_isolation_requires_three_actual_distinct_namespaces(self):
         facts = {"dedicated": True, "isolated": True, "test_only": True,
                  "roles": {role: {"filesystem_id": number, "netns_id": number, "systemd_id": str(number)}

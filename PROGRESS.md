@@ -1,5 +1,12 @@
 # 执行进度
 
+## 2026-10-02：托管启动前闭包集中验收与用户要求收尾
+
+- 按上一整步的实际磁盘拒绝继续准备单独 VM，旧 P0 root、附加盘、缓存和失败材料保持；新环境预算及初次离线 Agent／正常签名证明、真实 runtime 安装、独立 systemd／PG／TLS 的预置顺序见 [环境准备](docs/acceptance/managed-agent-environment.md)。镜像缓存 SHA512 重新核对，只读借用工具链／registry，不复用旧 target 或旧解包源。
+- 静态定位并创建 [Issue #149](https://github.com/theLucius7/sinan/issues/149)，归入原 milestone；修复 controller 注册遗漏必需 `--panel` 和令牌 argv。补齐 driver 在业务构造前的规范身份／origin、三方清单、私有目录／marker、地址和固定端口闭包；客户端实际运行在 `driver_host`，不虚构隔离设备。
+- 整步源码及合同修改完成、独立只读复核后冻结 782 份功能输入，SHA256 `95c66f7511ffd7fb393f7d21e490280db6019e409ae05bfd0df8ffe2b8a82c3e`。受影响准备／控制器 12 项和 API 驱动 19 项合同全部通过，共 31 个不同方法、0 失败／跳过；core、协议、前端、运行时和 helper 源逐字保持，未重复既有测试与构建。最终差异检查通过，见 [机器收据](docs/acceptance/managed-agent-environment-local.json)。
+- 用户随后要求“赶紧结束任务”，本轮即收尾并停止持续推进，不再创建新 VM 或执行 native 构建／三设备联测。只读缓存副本已取得并保留；补充 registry 的私有编排在索引名检查失败时停止，部分材料保留且未使用，不记为环境准备成功。旧 VM 未停止／扩容，旧材料未删除。本步一次提交／推送；原生安装、真实托管回执／账本、完整 NodeQuality 及发布／生产部署仍未完成，不能把源码收尾标成整体目标完成。CI 保持暂停。
+
 ## 2026-10-02：私有面板信任与真实 Agent 托管验收入口（整步实现与集中验收）
 
 - 在已交付的有序路径上增加由设备操作者选择的面板 CA，HTTPS 注册/下载、WSS 与退役确认使用同一正常证书验证；公共根、主机名、origin、设备身份与制品签名保持独立核对。原配置兼容，独立 GitHub/公网客户端不扩大信任。
