@@ -289,18 +289,19 @@ pub async fn update(
 async fn populate_references(pool: &sqlx::PgPool, nodes: &mut [NodeView]) -> ApiResult<()> {
     let ids = nodes.iter().map(|node| node.id).collect::<Vec<_>>();
     let mut connection = pool.acquire().await?;
-    let rows = super::ordered_paths::storage::node_configuration_references(
-        &mut connection,
-        &ids,
-    )
-    .await?;
+    let rows =
+        super::ordered_paths::storage::node_configuration_references(&mut connection, &ids).await?;
     for (node_id, id, name) in rows {
         if let Some(node) = nodes.iter_mut().find(|node| node.id == node_id) {
             node.configuration_locked = true;
             if node.referenced_chains.len() < 32 {
                 node.referenced_chains.push(NodeChainReference {
                     id,
-                    name: name.chars().filter(|value| !value.is_control()).take(128).collect(),
+                    name: name
+                        .chars()
+                        .filter(|value| !value.is_control())
+                        .take(128)
+                        .collect(),
                 });
             }
         }

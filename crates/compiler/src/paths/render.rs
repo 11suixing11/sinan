@@ -214,11 +214,8 @@ fn overlay(
 fn add_acceptance(config: &mut Value, accept: &ManagedAcceptance) -> Result<(), CompileError> {
     let node = &accept.endpoint.node;
     let tag = format!("node-{}", node.id);
-    let identity = crate::protocols::reality_identity(
-        node,
-        acceptance_name(accept),
-        accept.relay_uuid,
-    );
+    let identity =
+        crate::protocols::reality_identity(node, acceptance_name(accept), accept.relay_uuid);
     let inbounds = config["inbounds"]
         .as_array_mut()
         .expect("compiled inbounds");

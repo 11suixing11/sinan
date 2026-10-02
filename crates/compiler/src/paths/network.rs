@@ -119,7 +119,10 @@ pub fn required_build_tags(path: &OrderedPath) -> Vec<String> {
         match hop {
             PathHop::Managed { endpoint, .. } => {
                 tags.insert("with_utls");
-                if matches!(&endpoint.node.settings.transport, crate::NodeTransport::Grpc { .. }) {
+                if matches!(
+                    &endpoint.node.settings.transport,
+                    crate::NodeTransport::Grpc { .. }
+                ) {
                     tags.insert("with_grpc");
                 }
             }
