@@ -20,12 +20,13 @@ python3 scripts/panel.py install --public-url https://panel.example.com
 
 | 功能 | 说明 | 文档 |
 | --- | --- | --- |
+| Passkey 登录 | 管理员通行密钥；代理用户独立开通、登录和自身订阅/用量入口 | [Passkey](docs/passkeys.md) |
 | 服务器看板 | 独立卡片/表格视图、实时刷新、分层历史、延迟与丢包；可选公开访问，默认需要登录 | [看板](docs/server-display.md) |
 | 统计与资产 | 网卡与代理流量趋势、服务器排行、成本到期、续费记录、流量额度与每日汇率缓存；管理统计仅管理员可见 | [统计](docs/statistics.md)、[资产](docs/server-assets.md) |
 | Agent 运维 | 系统信息、远程命令执行状态与取消、自动更新；运行时状态、脱敏日志、重启和部署重试 | [运维](docs/agent-runtime-and-chains.md) |
 | 监控与通知 | 统一 TCP/ICMP 任务，离线、资源、到期和流量提醒，Telegram/Webhook 独立投递与重试 | [监控](docs/monitoring.md) |
 | sing-box 插件 | 代理节点、用户授权、策略与套餐、订阅预览/复制/下载；机场订阅与有序混合链路 | [协议](docs/proxy-protocols.md)、[套餐](docs/singbox-groups.md)、[链路](docs/agent-runtime-and-chains.md) |
-| DDNS 插件 | 复用 Agent 上报的 IP，同步 Cloudflare、腾讯云、阿里云、华为云 A/AAAA 记录 | [DDNS](docs/ddns.md) |
+| DDNS 插件 | 复用 Agent 上报的 IP，选择 IPv4、IPv6 或双栈；同步 Cloudflare、腾讯云、阿里云、华为云 A/AAAA 记录 | [DDNS](docs/ddns.md) |
 | 阿里云插件 | CDT 用量与账单、ECS/EIP 公网带宽、ECS 启停、阈值与每日计划、抢占式保活、账单和余额缓存 | [阿里云管理](docs/alicloud.md) |
 | 诊断插件 | 独立 IP 查询、NodeQuality 和 TCP 连接诊断；任务受设备能力、授权及安全门禁约束 | [插件目录](docs/plugin-catalog.md)、[验收边界](docs/acceptance/ordered-remediation.md) |
 
@@ -41,7 +42,7 @@ Agent 二进制从 GitHub Release 或配置的独立 HTTPS 镜像下载，面板
 
 运行时固定上游 sing-box 1.14.2，保留官方默认构建标签并启用统计 API。NodeQuality 完整验机仍暂停新任务，当前限制见[安全门禁](docs/acceptance/nodequality-full-start-gate.md)。
 
-管理员登录支持限速和 TOTP 二步验证。删除在线设备时先停服务、清凭据；离线设备仅删除面板记录。生产迁移、发布与实机验收须按各功能文档的边界执行。
+管理员登录支持限速、TOTP 二步验证和 Passkey。Passkey 需要实际使用的 HTTPS 域名，本地开发可用 localhost；代理用户与管理员使用独立会话。删除在线设备时先停服务、清凭据；离线设备仅删除面板记录。生产迁移、发布与实机验收须按各功能文档的边界执行。
 
 ## 开发与维护
 

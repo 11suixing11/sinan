@@ -19,7 +19,7 @@ import type { AppRoute } from './routes'
 const Ddns = lazy(() => import('../plugins/ddns/Ddns'))
 const Alicloud = lazy(() => import('../plugins/alicloud/Alicloud'))
 
-export default function AdminPage({ route }: { route: Exclude<AppRoute, { page: 'dashboard' }> }) {
+export default function AdminPage({ route }: { route: Exclude<AppRoute, { page: 'dashboard' | 'proxy-portal' }> }) {
   switch (route.page) {
     case 'server': {
       const { serverId, section } = route

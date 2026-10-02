@@ -44,7 +44,10 @@ fn reply(value: Value) -> Response {
     response
 }
 
-async fn locked_admin(tx: &mut Transaction<'_, Postgres>, session: &str) -> ApiResult<PgRow> {
+pub(super) async fn locked_admin(
+    tx: &mut Transaction<'_, Postgres>,
+    session: &str,
+) -> ApiResult<PgRow> {
     let row = sqlx::query("SELECT * FROM admins WHERE id = 1 FOR UPDATE")
         .fetch_one(&mut **tx)
         .await?;
@@ -56,13 +59,17 @@ async fn locked_admin(tx: &mut Transaction<'_, Postgres>, session: &str) -> ApiR
     Ok(row)
 }
 
-fn session_hash(headers: &HeaderMap) -> ApiResult<String> {
+pub(super) fn session_hash(headers: &HeaderMap) -> ApiResult<String> {
     cookie_token(headers)
         .map(hash_token)
         .ok_or(ApiError::Unauthorized)
 }
 
-async fn revoke_other_sessions(tx: &mut Transaction<'_, Postgres>, current: &str) -> ApiResult<()> {
+pub(super) async fn revoke_other_sessions(
+    tx: &mut Transaction<'_, Postgres>,
+    current: &str,
+) -> ApiResult<()> {
+    crate::passkeys::revoke(tx, crate::passkeys::ADMIN).await?;
     sqlx::query("DELETE FROM sessions WHERE admin_id = 1 AND token_hash <> $1")
         .bind(current)
         .execute(&mut **tx)

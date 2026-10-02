@@ -2,6 +2,7 @@ import type { FormEvent } from 'react'
 import { api, ApiError } from '../api'
 import { Brand, ErrorNotice, Icon } from '../components'
 import { useAction } from '../hooks'
+import { loginPasskey, passkeySupport } from '../passkeys'
 
 export default function Login({ onLogin, notice }: { onLogin: () => void; notice: string }) {
   const action = useAction()
@@ -59,6 +60,9 @@ export default function Login({ onLogin, notice }: { onLogin: () => void; notice
             {action.busy ? <><span className="spinner" />正在登录…</> : <>登录面板<Icon name="arrow" size={18} /></>}
           </button>
         </form>
+        <button className="button button-secondary login-submit" type="button" disabled={action.busy || Boolean(passkeySupport())}
+          onClick={() => void action.run(() => loginPasskey('/api/login/passkey'), onLogin)}>使用 Passkey 登录</button>
+        {passkeySupport() && <p className="helper">{passkeySupport()}</p>}
         <div className="login-hint"><Icon name="lock" size={13} />仅限管理员访问，使用部署时设置的密码。</div>
       </div>
       <div className="login-footer">你的服务器，你的控制权。</div>

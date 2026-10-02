@@ -16,6 +16,158 @@ fn input(server: i64) -> Value {
 }
 
 #[sqlx::test]
+async fn dual_stack_creation_is_atomic_and_redacts_all_provider_credentials(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool.clone()).await?;
+    let cookie = panel.admin_cookie().await?;
+    let server = panel.create_server(&cookie, "TEST_ONLY dual stack").await?;
+    panel
+        .admin(
+            Method::POST,
+            &format!("/api/plugins/ddns/servers/{server}/enable"),
+            &cookie,
+            None,
+        )
+        .await?
+        .error_for_status()?;
+    let path = "/api/plugins/ddns/rules/dual-stack";
+    assert_eq!(
+        panel
+            .admin(Method::POST, path, "", Some(input(server)))
+            .await?
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    for provider in ["cloudflare", "tencent", "aliyun", "huawei"] {
+        let mut body = input(server);
+        body["config"]["provider"] = provider.into();
+        if provider != "cloudflare" {
+            body.as_object_mut().unwrap().remove("api_token");
+            body["access_key_id"] = "TEST_ONLY_ACCESS_ID".into();
+            body["access_key_secret"] = "TEST_ONLY_ACCESS_SECRET".into();
+            if provider != "huawei" {
+                body["config"]["zone_id"] = "example.com".into();
+            }
+        }
+        let response = panel
+            .admin(Method::POST, path, &cookie, Some(body.clone()))
+            .await?;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let result: Value = response.json().await?;
+        let rules = result["rules"].as_array().unwrap();
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0]["config"]["record_type"], "A");
+        assert_eq!(rules[1]["config"]["record_type"], "AAAA");
+        for rule in rules {
+            assert_eq!(rule["config"]["provider"], provider);
+            assert_eq!(rule["config"]["server_id"], server);
+            assert_eq!(rule["token_configured"], true);
+            assert!(!rule.to_string().contains("TEST_ONLY_ACCESS"));
+            assert!(!rule.to_string().contains(TOKEN));
+        }
+        // Leave the second family in place: a conflicting AAAA must roll back the new A.
+        panel
+            .admin(
+                Method::DELETE,
+                &format!(
+                    "/api/plugins/ddns/rules/{}",
+                    rules[0]["id"].as_str().unwrap()
+                ),
+                &cookie,
+                None,
+            )
+            .await?
+            .error_for_status()?;
+        assert_eq!(
+            panel
+                .admin(Method::POST, path, &cookie, Some(body))
+                .await?
+                .status(),
+            StatusCode::CONFLICT
+        );
+        let remaining: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM ddns_rules WHERE config->>'provider'=$1")
+                .bind(provider)
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(remaining, 1);
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM ddns_rules WHERE config->>'record_type'='A'"
+        )
+        .fetch_one(&pool)
+        .await?,
+        0
+    );
+    Ok(())
+}
+
+#[sqlx::test]
+async fn dual_stack_reserves_two_slots_and_a_single_family_still_uses_one(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool.clone()).await?;
+    let cookie = panel.admin_cookie().await?;
+    let server = panel.create_server(&cookie, "TEST_ONLY capacity").await?;
+    panel
+        .admin(
+            Method::POST,
+            &format!("/api/plugins/ddns/servers/{server}/enable"),
+            &cookie,
+            None,
+        )
+        .await?
+        .error_for_status()?;
+    for i in 0..31 {
+        let mut body = input(server);
+        body["config"]["record_name"] = format!("node{i}.example.com").into();
+        panel
+            .admin(Method::POST, "/api/plugins/ddns/rules", &cookie, Some(body))
+            .await?
+            .error_for_status()?;
+    }
+    assert_eq!(
+        panel
+            .admin(
+                Method::POST,
+                "/api/plugins/ddns/rules/dual-stack",
+                &cookie,
+                Some(input(server))
+            )
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM ddns_rules")
+            .fetch_one(&pool)
+            .await?,
+        31
+    );
+    sqlx::query("DELETE FROM ddns_rules WHERE config->>'record_name'='node30.example.com'")
+        .execute(&pool)
+        .await?;
+    panel
+        .admin(
+            Method::POST,
+            "/api/plugins/ddns/rules/dual-stack",
+            &cookie,
+            Some(input(server)),
+        )
+        .await?
+        .error_for_status()?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM ddns_rules")
+            .fetch_one(&pool)
+            .await?,
+        32
+    );
+    Ok(())
+}
+
+#[sqlx::test]
 async fn administrator_crud_redacts_credentials_guards_revisions_and_never_deletes_remote_dns(
     pool: PgPool,
 ) -> Result<()> {
