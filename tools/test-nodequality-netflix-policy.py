@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / 'plugins/nodequality'
 READONLY_SOURCES = None
 TITLES = ('81280792', '70143836')
+BASH = os.environ.get('SINAN_NODEQUALITY_TEST_BASH', '/bin/bash')
 
 
 def module(name, path):
@@ -89,6 +90,33 @@ raise SystemExit(row.get('code', 0))
 '''
 
 
+class BashAdmissionTests(unittest.TestCase):
+    def test_unsupported_bash_skips_before_materialization_or_policy_execution(self):
+        for major in ('0', '2', '3'):
+            with self.subTest(major=major):
+                case = NetflixTests('test_long_valid_page_survives_pipefail_and_region_is_not_interpreted')
+                with mock.patch.object(subprocess, 'check_output', return_value=major) as version, \
+                        mock.patch.object(case, 'production') as materialize, \
+                        mock.patch.object(subprocess, 'run') as execute, \
+                        self.assertRaisesRegex(unittest.SkipTest, 'require Bash 4'):
+                    case.run_check(NetflixTests.valid_rows())
+                version.assert_called_once_with([BASH, '-c', 'printf "%s" "${BASH_VERSINFO[0]}"'], text=True, timeout=3)
+                materialize.assert_not_called()
+                execute.assert_not_called()
+
+    def test_invalid_version_is_an_error_and_does_not_skip_the_contract(self):
+        for value in ('', 'unknown', '4 extra'):
+            with self.subTest(version=value):
+                case = NetflixTests('test_long_valid_page_survives_pipefail_and_region_is_not_interpreted')
+                with mock.patch.object(subprocess, 'check_output', return_value=value), \
+                        mock.patch.object(case, 'production') as materialize, \
+                        mock.patch.object(subprocess, 'run') as execute, \
+                        self.assertRaisesRegex(RuntimeError, 'no valid major version'):
+                    case.run_check(NetflixTests.valid_rows())
+                materialize.assert_not_called()
+                execute.assert_not_called()
+
+
 class NetflixTests(unittest.TestCase):
     def production(self):
         if READONLY_SOURCES is None:
@@ -100,6 +128,12 @@ class NetflixTests(unittest.TestCase):
             return helper.serve(target, ['-Ls', 'https://IP.Check.Place']).decode()
 
     def run_check(self, rows, *, original=False, repeat=False, extra='', loopback=None):
+        major = subprocess.check_output([BASH, '-c', 'printf "%s" "${BASH_VERSINFO[0]}"'],
+                                        text=True, timeout=3).strip()
+        if not major.isascii() or not major.isdigit():
+            raise RuntimeError('selected Bash returned no valid major version')
+        if int(major) < 4:
+            self.skipTest('extracted upstream associative arrays require Bash 4+; selected ' + BASH + ' major ' + major)
         text = self.production()
         if original:
             text = sources.fixture.undo_netflix('ip.sh', text.encode()).decode()
@@ -118,7 +152,7 @@ class NetflixTests(unittest.TestCase):
             script += extra
             env = dict(os.environ, NQ_CASE=str(root), NQ_STUB=str(root/'stub.py'),
                        NQ_LOOPBACK=loopback or '', NQ_CURL=shutil.which('curl') or '')
-            run = subprocess.run(['/bin/bash'], input=script, text=True, capture_output=True, env=env, timeout=28)
+            run = subprocess.run([BASH], input=script, text=True, capture_output=True, env=env, timeout=28)
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertEqual(run.stderr, '')
             values = run.stdout.split('\0', 4)
@@ -317,7 +351,7 @@ class NetflixTests(unittest.TestCase):
         self.assertEqual(policy.transform('ip.sh', old), new)
         for name in ('db_ipqs', 'db_ipregistry', 'MediaUnlockTest_YouTube_Premium', 'show_score'):
             self.assertEqual(body(new.decode(), name), body(old.decode(), name))
-        run = subprocess.run(['/bin/bash', '-n'], input=new, capture_output=True, timeout=5)
+        run = subprocess.run([BASH, '-n'], input=new, capture_output=True, timeout=5)
         self.assertEqual(run.returncode, 0, run.stderr)
         canonical = (READONLY_SOURCES/'ip.sh').read_bytes()
         self.assertEqual(hashlib.sha256(canonical).hexdigest(), 'b30df5a3c2204276c54e99dcc5080b46f8a627667730aee7de63b109b8ecaecf')
