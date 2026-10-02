@@ -65,14 +65,16 @@ async fn tcp_diagnostics_select_only_currently_authorized_targets(pool: PgPool) 
         .await?;
     ready(&panel, server).await?;
     let allowed = probe(&panel, &cookie, server, "allowed fixture").await?;
-    for authorization in [
-        Value::Null,
-        json!({"region":"fixture","source":"TEST_ONLY expired target","scope":"owned","evidence":"TEST_ONLY synthetic permission","expires_at":sinan_protocol::now_timestamp()-1}),
-    ] {
+    for expires_at in [None, Some(sinan_protocol::now_timestamp() - 1)] {
         let id = Uuid::new_v4();
-        sqlx::query("INSERT INTO network_probes(id,server_id,spec,target_authorization) VALUES($1,$2,$3,$4)")
-            .bind(id).bind(server).bind(json!({"id":id,"name":"unknown permission fixture","kind":"tcp","target":"unpermitted.example.test","port":443,"interval_secs":60,"carrier":"fixture","enabled":true}))
-            .bind(authorization).execute(&panel.state.pool).await?;
+        let mut spec = probe_support::authorized(json!({"id":id,"name":"unknown permission fixture","kind":"tcp","target":"unpermitted.example.test","port":443,"interval_secs":60,"carrier":"fixture","enabled":true}));
+        if let Some(expires_at) = expires_at {
+            spec["monitor"]["authorization"]["expires_at"] = json!(expires_at);
+        } else {
+            spec["monitor"]["authorization"] = Value::Null;
+        }
+        sqlx::query("INSERT INTO network_probes(id,server_id,spec) VALUES($1,$2,$3)")
+            .bind(id).bind(server).bind(spec).execute(&panel.state.pool).await?;
     }
     let targets: Vec<Value> = panel
         .admin(

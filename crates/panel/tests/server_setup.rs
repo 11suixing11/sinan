@@ -101,7 +101,6 @@ async fn creation_preserves_defaults_and_persists_initial_monitoring(pool: PgPoo
         .error_for_status()?
         .json::<Vec<ConfiguredProbe>>()
         .await?;
-    let probes: Vec<_> = probes.into_iter().map(|probe| probe.spec).collect();
     assert_eq!(probes.len(), 2);
     assert_ne!(probes[0].id, probes[1].id);
     assert!(probes.iter().all(|p| p.id != Uuid::nil() && p.valid()));
