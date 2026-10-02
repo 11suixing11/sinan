@@ -180,6 +180,10 @@ async fn upload(
     Ok(())
 }
 
+fn panel_now_millis(clock_offset_ms: i64) -> i64 {
+    now_millis().saturating_add(clock_offset_ms)
+}
+
 async fn sample(spec: &ProbeSpec, ops: &dyn Privileged, clock_offset_ms: i64) -> ProbeResult {
     let mut result = ProbeResult {
         id: Uuid::new_v4(),

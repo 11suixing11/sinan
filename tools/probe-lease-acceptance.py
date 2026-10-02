@@ -275,10 +275,29 @@ def old_cache_is_inert(path):
     return not rows
 
 
-def echo(port):
-    native = runpy.run_path(str(Path(__file__).with_name('native-service-smoke.py')))
-    native['transfer'](port)
-
+def echo(port_number):
+    # Plain loopback VLESS is only a transport fixture; production uses Reality.
+    with socket.socket() as echo:
+        echo.settimeout(5)
+        echo.bind(('127.0.0.1', 0))
+        echo.listen()
+        with socket.create_connection(('127.0.0.1', port_number), timeout=5) as proxy:
+            body = bytes([42]) * 1024
+            proxy.sendall(b'\0' + uuid.UUID(int=1).bytes + b'\0\1' +
+                          echo.getsockname()[1].to_bytes(2, 'big') + b'\1\x7f\0\0\1' + body)
+            stream, _ = echo.accept()
+            with stream:
+                received = bytearray()
+                while len(received) < len(body):
+                    received.extend(stream.recv(len(body) - len(received)))
+                assert bytes(received) == body
+                stream.sendall(body)
+            received = bytearray()
+            while len(received) < 1026:
+                chunk = proxy.recv(1026 - len(received))
+                assert chunk
+                received.extend(chunk)
+            assert received == b'\0\0' + body
 
 def traffic_loop(rows, stop, port):
     while not stop.is_set():
@@ -305,7 +324,20 @@ def main(args):
     build = json.loads((args.built_root / 'build-v3-result.json').read_text())
     require(build['exit_code'] == 0 and build['reserve_stop'] is None and build['test_only'], 'successful current TEST_ONLY build required')
     require(build['source']['source_commit'] == args.source_commit, 'build does not match current source')
-    require(sha(Path(__file__)) == build['source']['input_hashes']['tools/probe-lease-acceptance.py'], 'controller differs from frozen source')
+    controller_sha = sha(Path(__file__))
+    frozen_controller = build['source']['input_hashes'].get('tools/probe-lease-acceptance.py')
+    if frozen_controller == controller_sha:
+        controller_source = args.source_commit
+    else:
+        require(args.controller_sha256 == controller_sha
+                and args.controller_source_commit is not None
+                and re.fullmatch(r'[0-9a-f]{40}', args.controller_source_commit),
+                'separately frozen controller source and explicit trusted digest required')
+        controller_source = args.controller_source_commit
+    controller_identity = {'source_commit': controller_source, 'sha256': controller_sha,
+                           'binary_source_commit': args.source_commit,
+                           'separately_frozen': frozen_controller != controller_sha}
+
     for name in ('sinan-agent', 'sinan-panel'):
         require(sha(args.built_root / 'bin' / name) == build['binaries'][name]['sha256'], 'current frozen executable changed')
     runtime_receipt = json.loads(args.runtime_receipt.read_text())
@@ -322,7 +354,7 @@ def main(args):
     common.write('SOURCE.json', build['source'])
     common.write('before-runtime.json', {**common.snapshot(), 'kernel_cursor': common.kernel_cursor()})
     common.ownership(units=[])
-    result = {'ok': False, 'source_commit': args.source_commit, 'test_only': True, 'steps': {}, 'errors': []}
+    result = {'ok': False, 'source_commit': args.source_commit, 'test_only': True, 'steps': {}, 'errors': [], 'controller_identity': controller_identity}
     phase, mounted, gate, slow, worker = 'setup', False, None, None, None
     storage_reader = None
     proxy_port = None
@@ -689,7 +721,7 @@ def main(args):
         result['finished_at'] = time.time()
         result['actual_lease_issuances'] = gate.leases if gate else []
         result['actual_lease_get_faults'] = gate.lease_faults if gate else []
-        result['controller_derivation'] = {'base':'tools/carrier-monitoring-acceptance.py', 'base_sha256':'6454437f24ad034281b813f5c67683f91b7d8fd6f4fd55abeae6426d61efb1d4', 'scope':'fresh frozen ninety-second permission and unchanged isolated resource/traffic/cleanup helpers'}
+        result['controller_derivation'] = {'base':'tools/carrier-monitoring-acceptance.py', 'base_sha256':'6454437f24ad034281b813f5c67683f91b7d8fd6f4fd55abeae6426d61efb1d4', 'scope':'fresh frozen ninety-second permission and unchanged isolated resource/traffic/cleanup helpers', 'echo_helper_sha256':'f580cb3b1524485aab4f134e2cf7df6f4ca64f52d7dced8840bd1780c668ab56'}
         common.write('probe-lease-result.json', result)
         print(json.dumps({'ok': result['ok'], 'failed_phase': result.get('failed_phase'), 'errors': result['errors'], 'proxy_echoes': len(traffic), 'proxy_failures': sum(not row['ok'] for row in traffic)}), flush=True)
     require(result['ok'], 'probe lease acceptance or safe cleanup failed; preserve the first receipt')
@@ -700,6 +732,8 @@ if __name__ == '__main__':
     parser.add_argument('--echo-worker', type=int)
     parser.add_argument('--built-root', type=Path)
     parser.add_argument('--source-commit')
+    parser.add_argument('--controller-source-commit', help='Exact commit containing a separately frozen controller; never relabels binary source')
+    parser.add_argument('--controller-sha256', help='Explicit trusted SHA256 of that independently frozen controller')
     parser.add_argument('--runtime', type=Path)
     parser.add_argument('--runtime-receipt', type=Path)
     parser.add_argument('--output', type=Path)

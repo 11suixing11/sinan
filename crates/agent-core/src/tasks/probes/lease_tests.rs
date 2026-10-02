@@ -94,17 +94,45 @@ async fn stop<T>(worker: JoinHandle<T>) {
 async fn cold_start_does_not_execute_cached_configuration_without_a_fresh_lease() -> Result<()> {
     let fixture = Fixture::new()?;
     let probe = spec(1, true);
+    let mut legacy = probe.clone();
+    legacy.monitor = None;
+    legacy.execution_authorized = Some(true);
+    let mut invalid = probe.clone();
+    invalid
+        .monitor
+        .as_mut()
+        .unwrap()
+        .authorization
+        .as_mut()
+        .unwrap()
+        .scope
+        .clear();
     fixture.state.lock().unwrap().set_json(
         "probes:configuration",
-        &(now_timestamp() + 86_400, vec![probe.clone()]),
+        &(now_timestamp(), vec![probe.clone()]),
     )?;
     let client = local_client()?;
     let (_clients, clients) = watch::channel(Some(client.clone()));
     let (leases, lease_receiver) = watch::channel(None);
     let worker = fixture.sample(clients, lease_receiver);
-    tokio::time::sleep(Duration::from_millis(1100)).await;
-    assert_eq!(fixture.ops.starts.load(Ordering::SeqCst), 0);
-    assert!(fixture.state.lock().unwrap().probe_results()?.is_empty());
+    for cached in [
+        serde_json::json!([now_timestamp(), [probe.clone()]]),
+        serde_json::json!([now_timestamp() - 86_400, [probe.clone()]]),
+        serde_json::json!([now_timestamp() + 86_400, [probe.clone()]]),
+        serde_json::json!([now_timestamp(), [legacy]]),
+        serde_json::json!([now_timestamp(), [invalid]]),
+        serde_json::json!("TEST_ONLY malformed legacy permission cache"),
+    ] {
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .set_json("probes:configuration", &cached)?;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(fixture.ops.starts.load(Ordering::SeqCst), 0);
+        assert!(fixture.state.lock().unwrap().probe_results()?.is_empty());
+        assert!(!worker.is_finished());
+    }
 
     let fresh = accepted(
         &client,
@@ -396,6 +424,13 @@ async fn acceptance_persists_revision_and_definition_barriers_across_reopen() ->
         assert!(leases::accept_lease(rollback, 7, &state, client.clone(), Instant::now()).is_err());
         let mut rewritten = original.clone();
         rewritten.probes[0].authorization.scope = "different permission".into();
+        rewritten.probes[0]
+            .spec
+            .monitor
+            .as_mut()
+            .unwrap()
+            .authorization = Some(rewritten.probes[0].authorization.clone());
+        assert!(rewritten.valid());
         assert!(
             leases::accept_lease(rewritten, 7, &state, client.clone(), Instant::now()).is_err()
         );
@@ -421,6 +456,70 @@ async fn acceptance_persists_revision_and_definition_barriers_across_reopen() ->
         leases::accept_lease(changed, 7, &state, client, Instant::now())?;
     }
     std::fs::remove_dir_all(directory)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn expired_future_and_invalid_authorization_leases_never_persist_permission() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let client = local_client()?;
+    let original = accepted(&client, &[spec(1, false)], 1, Duration::from_secs(90)).snapshot;
+    for reason in [
+        "expired",
+        "future",
+        "missing-authorization",
+        "invalid-scope",
+    ] {
+        let mut rejected = original.clone();
+        match reason {
+            "expired" => {
+                rejected.issued_at -= 91;
+                rejected.expires_at -= 91;
+                assert!(rejected.valid());
+            }
+            "future" => {
+                rejected.issued_at += 3600;
+                rejected.expires_at += 3600;
+                assert!(rejected.valid());
+            }
+            "missing-authorization" => {
+                rejected.probes[0]
+                    .spec
+                    .monitor
+                    .as_mut()
+                    .unwrap()
+                    .authorization = None;
+                assert!(!rejected.valid());
+            }
+            "invalid-scope" => {
+                rejected.probes[0].authorization.scope.clear();
+                rejected.probes[0]
+                    .spec
+                    .monitor
+                    .as_mut()
+                    .unwrap()
+                    .authorization = Some(rejected.probes[0].authorization.clone());
+                assert!(!rejected.valid());
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            leases::accept_lease(rejected, 7, &fixture.state, client.clone(), Instant::now())
+                .is_err(),
+            "{reason}"
+        );
+        assert!(
+            fixture
+                .state
+                .lock()
+                .unwrap()
+                .get_json::<serde_json::Value>("probes:lease-high-water:7")?
+                .is_none(),
+            "{reason} persisted execution permission"
+        );
+    }
+    assert!(fixture.state.lock().unwrap().probe_results()?.is_empty());
+    assert_eq!(fixture.ops.starts.load(Ordering::SeqCst), 0);
     Ok(())
 }
 
