@@ -14,7 +14,7 @@ export default function ExternalUserAccess({ userId, userError, refreshRevision,
   if (history.current.userId !== userId) history.current = { userId }
   const view = validatedSnapshot(query, validExternalAccessView, history.current.data)
   if (view.fresh) history.current.data = view.data
-  const resource = { ...query, ...view }
+  const resource = { ...query, ...view, data: view.data, getCurrent: () => view.getCurrent?.(), isCurrent: () => view.isCurrent?.() === true }
   useEffect(() => { query.reload() }, [refreshRevision, query.reload])
   const action = useAction()
   const [draft, setDraft] = useState<Draft | null>(null)

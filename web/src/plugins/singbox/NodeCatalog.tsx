@@ -22,7 +22,7 @@ export default function NodeCatalog(props: Props) {
   const history = useRef<CatalogNode[] | undefined>(undefined)
   const view = validatedSnapshot(query, validCatalog, history.current)
   if (view.fresh) history.current = view.data
-  const catalog = { ...query, ...view }
+  const catalog = { ...query, ...view, data: view.data, getCurrent: () => view.getCurrent?.(), isCurrent: () => view.isCurrent?.() === true }
   const [filter, setFilter] = useState({ search: '', kind: props.kind, protocol: '', tag: '', status: '', source: '', role: '' })
   const filterRef = useRef(filter)
   filterRef.current = filter

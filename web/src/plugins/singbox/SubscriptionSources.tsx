@@ -17,7 +17,7 @@ export default function SubscriptionSources({ onSelect, onChange }: { onSelect?:
   const sourceHistory = useRef<SubscriptionSource[] | undefined>(undefined)
   const sourceView = validatedSnapshot(sourcesQuery, validSubscriptionSources, sourceHistory.current)
   if (sourceView.fresh) sourceHistory.current = sourceView.data
-  const sources = { ...sourcesQuery, ...sourceView }
+  const sources = { ...sourcesQuery, ...sourceView, data: sourceView.data, getCurrent: () => sourceView.getCurrent?.(), isCurrent: () => sourceView.isCurrent?.() === true }
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const selectedIdRef = useRef(selectedId); selectedIdRef.current = selectedId
   const chooseSource = (id: number) => { selectedIdRef.current = id; setSelectedId(id) }
@@ -31,7 +31,7 @@ export default function SubscriptionSources({ onSelect, onChange }: { onSelect?:
   if (nodeHistory.current.id !== selectedId) nodeHistory.current = { id: selectedId }
   const nodeView = validatedSnapshot(nodesQuery, validExternalNodePreviews, nodeHistory.current.data)
   if (nodeView.fresh) nodeHistory.current.data = nodeView.data
-  const nodes = { ...nodesQuery, ...nodeView }
+  const nodes = { ...nodesQuery, ...nodeView, data: nodeView.data, getCurrent: () => nodeView.getCurrent?.(), isCurrent: () => nodeView.isCurrent?.() === true }
   const job = useResource<SubscriptionSourceJob>(selected?.active_job_id ? `${root}/subscription-source-jobs/${selected.active_job_id}` : null, 1500)
   const previous = useRef('')
   const change = useRef(onChange); change.current = onChange
