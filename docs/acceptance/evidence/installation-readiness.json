@@ -1,0 +1,162 @@
+{
+  "schema": 1,
+  "baseline_commit": "ce66141ba04a70ce41421eb912e3c9d37ef53e0d",
+  "goal_complete": false,
+  "frozen_inputs": 12,
+  "source_freeze_sha256": "1140daa3f364a05523ab298928486c318a0edf7636c7eabcaecaf4afad90c9d5",
+  "postflight_inputs_unchanged": true,
+  "syntax_programs_compiled": 4,
+  "syntax_programs_executed": 0,
+  "product_tests_repeated": false,
+  "ci_resumed": false,
+  "server_installation_performed": false,
+  "hardware_diagnostics_started": false,
+  "current_project_native_build": "not_run",
+  "nexus": {
+    "run_id": "240e4979-e438-4912-b4cd-f85b1a4cb4a1",
+    "read_only": true,
+    "network_attempts": 1,
+    "ssh_exit": 0,
+    "elapsed_ms": 2607,
+    "protocol_observation_received": true,
+    "connection_2_authenticated": false,
+    "context_status": "not_authenticated",
+    "candidate_list_exit": 0,
+    "candidate_list_validation": "not_accepted",
+    "candidate_count": "unknown",
+    "validation_reason": "unknown_original_list_stdout_not_retained",
+    "application_exec_performed": false,
+    "database_select_performed": false,
+    "identity_secrets_read": false,
+    "backup_credentials_modified": false,
+    "endpoint_comparison": "unknown",
+    "bindings_unchanged": {
+      "probe_source": true,
+      "old_exporter_source": true,
+      "old_inventory": true,
+      "ssh_config": true,
+      "known_hosts": true,
+      "identity_file": true
+    },
+    "agent_socket_unchanged": true,
+    "local_cleanup_state": "confirmed",
+    "receipt": {
+      "sha256": "091e60cc59b6a6eca18a478cbe2d10d62935b91f8ba160d8a54c8002ff7c4e11",
+      "bytes": 1592
+    },
+    "observation": {
+      "sha256": "a373258e04ca5a6d449dc0c7cf4e7ef2504aa176dac494c976ab412990db05f9",
+      "bytes": 394
+    },
+    "stdout": {
+      "sha256": "30b8dd65810a5618b5e5bbdddeac6229a1cfaa96d4a0e801a80f8be42d335370",
+      "bytes": 334
+    },
+    "stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "inside_builder": {
+    "run_id": "02c299bb-0379-4f76-9946-e2be04d84768",
+    "network_attempts": 1,
+    "image_id": "sha256:12b4c08af23a58c95b0bf2cc29c9e8c9e1bc6b93a0b136d71ab7b04f62581d30",
+    "resource_admission_eligible": true,
+    "container_created": true,
+    "container_limits_confirmed": true,
+    "actual_limits": {
+      "memory": 268435456,
+      "memory_swap": 268435456,
+      "nano_cpus": 250000000,
+      "pids": 32,
+      "read_only": true,
+      "network": "none",
+      "cap_drop": [
+        "ALL"
+      ],
+      "cap_add": null,
+      "security_opt": [
+        "no-new-privileges"
+      ],
+      "binds": null,
+      "ports": {},
+      "publish_all": false,
+      "privileged": false,
+      "tmpfs": {
+        "/tmp": "rw,nosuid,nodev,noexec,size=16777216,mode=1777"
+      }
+    },
+    "container_state": {
+      "status": "exited",
+      "running": false,
+      "exit": 0,
+      "oom": false,
+      "dead": false
+    },
+    "host_admission": {
+      "available_memory_bytes": 3931426816,
+      "root_available_bytes": 14199541760,
+      "root_available_inodes": 30425845,
+      "minimum_memory_bytes": 2415919104,
+      "minimum_root_bytes": 4294967296,
+      "minimum_inodes": 16384,
+      "eligible": true
+    },
+    "eligibility": {
+      "debian12_eligible": true,
+      "declared_rust_msrv_eligible": true,
+      "native_target_eligible": true,
+      "cargo_version_eligible": true,
+      "gcc_available": true,
+      "debian12_glibc_eligible": true,
+      "openssl3_development_eligible": true
+    },
+    "preflight_status": "preflight_complete",
+    "container_removed_confirmed": true,
+    "container_cleanup_state": "confirmed",
+    "cleanup_only_transport_run": false,
+    "ssh_transport": {
+      "ssh_exit": 0,
+      "error": null,
+      "classification": "success",
+      "cleanup": {
+        "parent_reaped": true,
+        "process_group_absent": true
+      },
+      "elapsed_ms": 3401,
+      "stdout_sha256": "4235b6c97065550a8ac443610a00dea66f4c113dcda78c6e00539d4f24061a77",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 5869,
+      "stderr_bytes": 0
+    },
+    "bindings_unchanged": {
+      "probe_source": true,
+      "snapshot_receipt": true,
+      "snapshot_metadata": true,
+      "snapshot_source": true,
+      "ssh_config": true,
+      "identity_file": true
+    },
+    "agent_socket_unchanged": true,
+    "receipt": {
+      "sha256": "057c6d1398f54261e4c4cd61bab31bc1aba405b98955817c9c081d5ad9411ba8",
+      "bytes": 9070
+    },
+    "project_build": "not_run",
+    "full_offline_build": "not_run",
+    "managed_acceptance": "not_run",
+    "dedicated_acceptance": "not_run",
+    "production_changes": false,
+    "inside_network": "none",
+    "host_package_installation": false,
+    "image_pulled": false
+  },
+  "remaining": [
+    "current_test_node_endpoint_and_service_state",
+    "current_source_offline_native_build",
+    "current_agent_installation_and_enrollment",
+    "real_registered_agent_fault_matrix",
+    "full_nodequality_licenses_and_factory",
+    "official_signing_release_and_deployment"
+  ]
+}
