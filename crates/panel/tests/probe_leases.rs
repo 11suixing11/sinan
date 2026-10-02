@@ -253,7 +253,9 @@ async fn exact_receipts_control_results_and_duplicates_survive_revocation(
 }
 
 #[sqlx::test]
-async fn old_unproved_spool_drains_without_blocking_fresh_proved_results(pool: PgPool) -> Result<()> {
+async fn old_unproved_spool_drains_without_blocking_fresh_proved_results(
+    pool: PgPool,
+) -> Result<()> {
     let panel = TestPanel::start(pool).await?;
     let cookie = panel.admin_cookie().await?;
     let (server, _socket, device) = panel
@@ -274,7 +276,9 @@ async fn old_unproved_spool_drains_without_blocking_fresh_proved_results(pool: P
     future.execution = None;
     let results = vec![old.clone(), future.clone(), fresh.clone()];
     assert_eq!(
-        ingest(&panel, &device.session_token, results.clone()).await?.ids,
+        ingest(&panel, &device.session_token, results.clone())
+            .await?
+            .ids,
         vec![old.id, future.id, fresh.id]
     );
     let saved: (Value, String) =
