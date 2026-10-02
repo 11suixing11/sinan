@@ -149,6 +149,9 @@ pub(crate) fn parse(
                 historical: false,
                 available: None,
                 unavailable_reason: None,
+                execution: "node".into(),
+                observed_ip: Some(ip.clone()),
+                source: None,
             });
     }
     let quality = providers

@@ -51,7 +51,7 @@ class PrivateInputs(unittest.TestCase):
                 within(root, root / "directory/ordinary")
             self.assertEqual(identity(source), {"sha256": hashlib.sha256(b"TEST_ONLY").hexdigest(), "size": 9})
 
-    @unittest.skipUnless(hasattr(os, "waitid") and hasattr(os, "WNOWAIT"),
+    @unittest.skipUnless(sys.platform == "linux" and hasattr(os, "waitid") and hasattr(os, "WNOWAIT"),
                          "requires nonreaping waitid child ownership (Linux)")
     def test_deadline_kills_child_that_outlives_parent_without_touching_sentinel(self):
         sentinel = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(30)"], start_new_session=True)
@@ -74,7 +74,7 @@ class PrivateInputs(unittest.TestCase):
             os.killpg(sentinel.pid, signal.SIGKILL)
             sentinel.wait(timeout=3)
 
-    @unittest.skipUnless(hasattr(os, "waitid") and hasattr(os, "WNOWAIT"),
+    @unittest.skipUnless(sys.platform == "linux" and hasattr(os, "waitid") and hasattr(os, "WNOWAIT"),
                          "requires nonreaping waitid child ownership (Linux)")
     def test_output_overflow_is_bounded_and_original_failure_is_preserved(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -87,7 +87,7 @@ class PrivateInputs(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 capture([sys.executable, "-c", "print('second')"], log=log)
 
-    @unittest.skipUnless(hasattr(os, "waitid") and hasattr(os, "WNOWAIT"),
+    @unittest.skipUnless(sys.platform == "linux" and hasattr(os, "waitid") and hasattr(os, "WNOWAIT"),
                          "requires nonreaping waitid child ownership (Linux)")
     def test_cleanup_observation_failure_preserves_original_command_log(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -108,6 +108,28 @@ class PrivateInputs(unittest.TestCase):
                 patch("managed_paths_support.subprocess.Popen") as spawn:
             with self.assertRaisesRegex(ValueError, "nonreaping_child_observation_required"):
                 capture([sys.executable, "-c", "raise SystemExit(0)"])
+        spawn.assert_not_called()
+
+
+    def test_nonlinux_waitid_interface_refuses_capture_and_owned_process_before_spawn(self):
+        with patch("managed_paths_support.hasattr", return_value=True, create=True), \
+                patch("managed_paths_support.sys.platform", "darwin"), \
+                patch.object(subprocess.Popen, "__init__", return_value=None) as spawn:
+            for name, action in (("capture", lambda: capture([sys.executable, "-c", "raise SystemExit(99)"])),
+                                 ("owned_process", lambda: OwnedProcess([sys.executable, "-c", "raise SystemExit(99)"], start_new_session=True))):
+                with self.subTest(action=name), self.assertRaisesRegex(ValueError, "linux_process_observation_required"):
+                    action()
+        spawn.assert_not_called()
+
+    def test_linux_without_proc_refuses_capture_and_owned_process_before_spawn(self):
+        with patch("managed_paths_support.hasattr", return_value=True, create=True), \
+                patch("managed_paths_support.sys.platform", "linux"), \
+                patch("managed_paths_support.Path.is_file", return_value=False), \
+                patch.object(subprocess.Popen, "__init__", return_value=None) as spawn:
+            for name, action in (("capture", lambda: capture([sys.executable, "-c", "raise SystemExit(99)"])),
+                                 ("owned_process", lambda: OwnedProcess([sys.executable, "-c", "raise SystemExit(99)"], start_new_session=True))):
+                with self.subTest(action=name), self.assertRaisesRegex(ValueError, "linux_process_observation_required"):
+                    action()
         spawn.assert_not_called()
 
 

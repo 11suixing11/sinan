@@ -84,17 +84,14 @@ pub struct Target {
 }
 
 async fn targets(connection: &mut sqlx::PgConnection, server: i64) -> ApiResult<Vec<Target>> {
-    let rows: Vec<(Uuid, Value, Option<String>, Option<Value>)> = sqlx::query_as(
-        "SELECT p.id,p.spec,r.region,p.target_authorization FROM network_probes p LEFT JOIN tcpquality_target_regions r ON r.probe_id=p.id WHERE p.server_id=$1 AND p.spec->>'kind'='tcp' AND p.spec->>'enabled'='true' ORDER BY p.id LIMIT 33",
+    let rows: Vec<(Uuid, Value, Option<String>)> = sqlx::query_as(
+        "SELECT p.id,p.spec,r.region FROM network_probes p LEFT JOIN tcpquality_target_regions r ON r.probe_id=p.id WHERE p.server_id=$1 AND p.spec->>'kind'='tcp' AND p.spec->>'enabled'='true' ORDER BY p.id LIMIT 33",
     ).bind(server).fetch_all(connection).await?;
     if rows.len() > 32 {
         return Err(ApiError::Conflict("启用的 TCP 拨测目标超过配置上限".into()));
     }
     rows.into_iter()
-        .filter(|(_, _, _, authorization)| {
-            crate::probes::authorized(authorization.clone(), now_timestamp()).is_some()
-        })
-        .map(|(id, value, region, _)| {
+        .map(|(id, value, region)| {
             let spec: ProbeSpec = serde_json::from_value(value).map_err(|_| {
                 ApiError::Conflict("已配置的 TCP 拨测目标格式无效，请先修正配置".into())
             })?;

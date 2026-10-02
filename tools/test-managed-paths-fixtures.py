@@ -371,7 +371,7 @@ class HelperContractTests(unittest.TestCase):
         with mock.patch.object(HELPER.socket, "create_connection", return_value=FakeSocket(oversized)):
             self.assertRejected("grpc_frame_budget_exceeded", HELPER.grpc_stats)
 
-    @unittest.skipUnless(hasattr(os, "waitid") and hasattr(os, "WNOWAIT"),
+    @unittest.skipUnless(sys.platform == "linux" and hasattr(os, "waitid") and hasattr(os, "WNOWAIT"),
                          "requires nonreaping waitid child ownership (Linux)")
     def test_child_output_overflow_is_bounded_and_does_not_stop_foreign_process(self):
         sentinel = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(20)"], start_new_session=True)

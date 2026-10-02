@@ -11,7 +11,7 @@
 5. **发布依赖真实设备确认。** 面板生成完整签名配置，Agent 执行安装与对账并返回持久回执；链路发布核对精确运行实例、完整向量和恢复屏障。失败、未知及未确认不能通过生成一份配置直接变为在线。
 6. **订阅和计量读取插件业务状态。** 用户订阅按授权和发布资格选择资源，不暴露中间段秘密；链路在入口计量一次。core 的服务器网卡总流量独立保留，计量 `epoch` 标记计数器重置，不替代套餐周期。
 
-面板业务实现在 `plugins/singbox/panel/`，API 为 `/api/plugins/sing-box/...`；前端实现在 `web/src/plugins/singbox/`。Agent 入口注册适配器，`agent-core` 只负责通用身份、传输、任务、制品、对账与服务器管理。具体边界见 [ADR 0023](../adr/0023-proxy-business-boundary.md)、[ADR 0044](../adr/0044-singbox-plugin-lifecycle.md) 和 [ADR 0056](../adr/0056-ordered-path-publication-and-native-probe.md)。
+面板业务实现在 `plugins/singbox/panel/`，API 为 `/api/plugins/sing-box/...`；前端实现在 `web/src/plugins/singbox/`。Agent 入口注册适配器，`agent-core` 只负责通用身份、传输、任务、制品、对账与服务器管理。具体边界见 [ADR 0023](../adr/0023-proxy-business-boundary.md)、[ADR 0044](../adr/0059-singbox-plugin-lifecycle.md) 和 [ADR 0056](../adr/0071-ordered-path-publication-and-native-probe.md)。
 
 ## 实现及独立证据
 

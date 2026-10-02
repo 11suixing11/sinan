@@ -92,6 +92,9 @@ fn zero_and_false_require_complete_request_identity_and_remain_raw_values() {
     assert_eq!(entry.databases.len(), 1);
     let dataset = &entry.databases[0];
     assert_eq!(dataset.status, "succeeded");
+    assert_eq!(dataset.execution, "node");
+    assert_eq!(dataset.observed_ip.as_deref(), Some(IP));
+    assert!(dataset.source.is_none());
     assert!(
         dataset
             .fields

@@ -8,6 +8,7 @@ import selectors
 import signal
 import stat
 import subprocess
+import sys
 import time
 import uuid
 
@@ -157,12 +158,18 @@ def cleanup_signals():
         signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
 
+def require_linux_child_observation():
+    require(hasattr(os, "waitid") and hasattr(os, "WNOWAIT"),
+            "nonreaping_child_observation_required")
+    require(sys.platform == "linux" and Path("/proc/self/stat").is_file(),
+            "linux_process_observation_required")
+
+
 class OwnedProcess(subprocess.Popen):
     """Observe without reaping; release a group leader only after cleanup."""
 
     def __init__(self, *args, **kwargs):
-        require(hasattr(os, "waitid") and hasattr(os, "WNOWAIT"),
-                "nonreaping_child_observation_required")
+        require_linux_child_observation()
         require(kwargs.get("start_new_session") is True, "owned_process_session_required")
         self._owned_reaped = False
         super().__init__(*args, **kwargs)
@@ -227,8 +234,7 @@ def capture(command, timeout=30, input_bytes=None, cwd=None, env=None, log=None,
     """Kill our complete group even when a parent exits with a pipe-holding child."""
     require(timeout > 0 and (input_bytes is None or len(input_bytes) <= MAX_OUTPUT),
             "command_budget_invalid")
-    require(hasattr(os, "waitid") and hasattr(os, "WNOWAIT"),
-            "nonreaping_child_observation_required")
+    require_linux_child_observation()
     process = subprocess.Popen(command, stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
                                cwd=cwd, env=env, pass_fds=pass_fds)

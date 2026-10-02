@@ -610,13 +610,14 @@ class FactoryCapacityTests(unittest.TestCase):
         self.assertIs(caught.exception, error)
         self.assertEqual(sentinel.read_bytes(), b'keep this owned output')
 
-    @unittest.skipUnless(hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'),
-                         'Linux waitid/WNOWAIT child collector required')
     def test_capacity_failure_before_spawn_never_runs_command(self):
         original = ValueError('owned capacity admission failure')
         guard = mock.Mock()
         guard.check.side_effect = original
-        with mock.patch.object(BUILD.subprocess, 'Popen') as spawn:
+        # Admission fails before any primitive is invoked or process starts;
+        # keep this mocked boundary portable even without Linux waitid.
+        with mock.patch.object(BUILD, 'hasattr', return_value=True, create=True), \
+                mock.patch.object(BUILD.subprocess, 'Popen') as spawn:
             with self.assertRaises(ValueError) as caught:
                 BUILD.run_bounded([sys.executable, '-c', 'raise SystemExit(99)'],
                                   BUILD.Deadline(5), 64, capacity=guard)
@@ -625,7 +626,7 @@ class FactoryCapacityTests(unittest.TestCase):
         self.assertEqual(caught.exception.factory_command['output'], b'')
         self.assertIsNone(caught.exception.factory_command['returncode'])
 
-    @unittest.skipUnless(hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'),
+    @unittest.skipUnless(sys.platform == 'linux' and hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'),
                          'Linux waitid/WNOWAIT child collector required')
     def test_live_disk_guard_stops_tiny_child_and_preserves_bounded_output_status(self):
         output, guard = self.guard()
@@ -660,7 +661,7 @@ class FactoryCapacityTests(unittest.TestCase):
         self.assertIsNone(command['returncode'])
         self.assertEqual(command['cleanup_returncode'], -signal.SIGKILL)
 
-    @unittest.skipUnless(hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'),
+    @unittest.skipUnless(sys.platform == 'linux' and hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'),
                          'waitid/WNOWAIT child collector required')
     def test_closed_log_pipes_do_not_stop_runtime_capacity_observation(self):
         output, guard = self.guard()
@@ -680,7 +681,7 @@ class FactoryCapacityTests(unittest.TestCase):
         with self.assertRaises(ProcessLookupError):
             os.kill(int(ready.read_text()), 0)
 
-    @unittest.skipUnless(hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'),
+    @unittest.skipUnless(sys.platform == 'linux' and hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'),
                          'Linux waitid/WNOWAIT child collector required')
     def test_nonzero_child_exit_retains_actual_code_without_replacing_error(self):
         with self.assertRaisesRegex(ValueError, 'command failed') as caught:
