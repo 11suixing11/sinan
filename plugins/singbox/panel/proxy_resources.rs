@@ -423,8 +423,10 @@ pub(super) async fn remove_direct_node(state: &AppState, id: i64) -> ApiResult<(
             .await?
             .ok_or(ApiError::NotFound)?;
     lock_cleanup_servers(&mut tx, &[server]).await?;
-    super::nodes::ensure_unreferenced_on(&mut tx, id).await?;
+    // Return actionable public references before the conservative corruption
+    // guard. Missing frozen versions must still retain their cleanup owner.
     ensure_node_unreferenced(&mut tx, id).await?;
+    super::nodes::ensure_unreferenced_on(&mut tx, id).await?;
     soft_delete_node(&mut tx, id).await?;
     business::mark_dirty(&mut tx, &[server]).await?;
     tx.commit().await?;
@@ -538,7 +540,21 @@ async fn ensure_node_unreferenced(tx: &mut Transaction<'_, Postgres>, id: i64) -
     Ok(())
 }
 
-fn reference_error(policies: Vec<PolicyReference>, chains: Vec<NodeChainReference>) -> ApiError {
+fn reference_error(
+    mut policies: Vec<PolicyReference>,
+    mut chains: Vec<NodeChainReference>,
+) -> ApiError {
+    // This administrator projection contains only bounded public identities.
+    // The guard already saw every reference, including those omitted here.
+    policies.truncate(32);
+    chains.truncate(32);
+    for name in policies
+        .iter_mut()
+        .map(|reference| &mut reference.name)
+        .chain(chains.iter_mut().map(|reference| &mut reference.name))
+    {
+        *name = name.chars().filter(|value| !value.is_control()).take(128).collect();
+    }
     let mut names: Vec<String> = policies
         .iter()
         .map(|reference| format!("策略组 #{}「{}」", reference.id, reference.name))
