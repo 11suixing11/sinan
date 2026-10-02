@@ -14,4 +14,4 @@ Agent 冷启动不恢复旧缓存权限。许可仅在内存持有，绑定当�
 
 协议、Agent 回环与自有过程树、PostgreSQL 迁移和实际签发、Bun 与新构建浏览器夹具已在本轮冻结后统一验收，实际结果与原失败见[组合验收](../acceptance/open-issues-20261002.md)。包括旧缓存混合新有证明样本的真实签发回归，以及三个管理入口的修订冲突保护。专用 Debian 的新源码重启、冷启动 GET 拒绝、401/403/挂起、断连、撤销、标准 ICMP、低内存、实际 SQLite FULL、持续回环代理和心跳须另有真实收据。预备分支或旧 120 秒缓存联测的通过记录不能替代本轮实机验收；CI 暂停、生产与正式签署边界保持。
 
-独立原生验收控制器 `tools/probe-lease-acceptance.py` 已准备，SHA256 `501ca2cea316f25883e374090958c13ef5f271f5648268d8bd00480f4af5dec2`。控制器要求当前源码的新 Agent/Panel、独立 TEST_ONLY namespace、原固定代理运行时及显式验收信号，保留实际 FULL、低内存、标准 ICMP、持续代理与最终清理证明；本轮尚未执行，旧控制器通过记录不充作当前收据。
+独立原生验收控制器 `tools/probe-lease-acceptance.py` 已准备，当前源码摘要随最终冻结记录。控制器要求原生 amd64/arm64 Debian 12、当前源码的新 Agent/Panel、独立 TEST_ONLY namespace、原固定代理运行时及显式验收信号。运行参数还必须提供 `--helper-manifest-sha256`，值来自对私有 helper manifest 的独立审查，不能把待执行文件自算的摘要直接当作信任依据。helper 原字节仍按该 manifest 核对后加载；控制器有 1800 秒整体期限、120 秒清理期限、请求与 FD 上限和有期限的私有 SQLite 备份。源码身份、控制器静态/合成回归与原生联测分别记录；本轮尚未执行原生控制器，旧控制器通过记录不充作当前收据。

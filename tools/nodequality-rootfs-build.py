@@ -39,6 +39,7 @@ MAX_MEMBERS = 100000
 PREPARE_SECONDS = 600
 BUILD_SECONDS = 3600
 EXPORT_SECONDS = 600
+CHILD_CLEANUP_SECONDS = 5
 SHA256 = re.compile(r'[0-9a-f]{64}')
 NAME = re.compile(r'[a-z0-9][a-z0-9+.-]*')
 VERSION = re.compile(r'[A-Za-z0-9][A-Za-z0-9.+:~_-]*')
@@ -507,7 +508,8 @@ def run_bounded(arguments, deadline, output_limit, stderr=subprocess.STDOUT, ext
         if selector is not None:
             actions.append(selector.close)
         if process is not None:
-            actions.extend((process.stdout.close, lambda: os.killpg(process.pid, signal.SIGKILL), process.wait))
+            actions.extend((process.stdout.close, lambda: os.killpg(process.pid, signal.SIGKILL),
+                            lambda: process.wait(timeout=CHILD_CLEANUP_SECONDS)))
         previous_mask = None
         try:
             previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM, signal.SIGHUP})

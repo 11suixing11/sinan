@@ -33,7 +33,7 @@ try {
       const page = await browser.newPage({ viewport: { width, height: 1000 } })
       const users = [1, 2].map(id => ({ id, name: `TEST_ONLY 用户 ${id}`, subscription_token: `TEST_ONLY_${id}`, subscription_url: `http://127.0.0.1/s/TEST_ONLY_${id}` }))
       const nodes = [1, 2].map(id => ({ id, name: `TEST_ONLY 节点 ${id}`, server_id: id, protocol: 'vless-reality', public_host: '127.0.0.1', port: 20000 + id, sni: 'localhost', public_key: 'TEST_ONLY', short_id: '0123abcd' }))
-      const resources = nodes.map(node => ({ ...node, kind: 'direct', server_name: `TEST_ONLY 服务器 ${node.server_id}`, role: 'direct', entry_node_id: null, tcp: true, udp: true, available: true, enabled: true, stage: 'direct', reference_count: 0 }))
+      const resources = nodes.map(node => ({ ...node, kind: 'direct', server_name: `TEST_ONLY 服务器 ${node.server_id}`, role: 'direct', entry_node_id: null, tcp: true, udp: true, available: true, enabled: true, stage: 'direct', reference_count: 0, entry_eligible: true }))
       resources.push({ ...resources[0], id: 10, kind: 'chain', name: 'TEST_ONLY 原链路', role: 'entry', entry_node_id: 1, stage: 'ready' })
       const policies = [{ id: 1, name: 'TEST_ONLY 原策略', node_ids: [1], chain_ids: [10], member_count: 1 }, { id: 2, name: 'TEST_ONLY 新策略', node_ids: [2], chain_ids: [], member_count: 0 }]
       const packages = [1, 2].map(id => ({ id, name: `TEST_ONLY 套餐 ${id}`, monthly_bytes: String(id * 1073741824), reset_day: 1, reset_hour: 0, reset_minute: 0, timezone: 'UTC', duration_days: 30 }))

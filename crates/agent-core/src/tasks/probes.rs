@@ -61,13 +61,35 @@ pub(super) async fn run(
 async fn synchronize(
     server_id: i64,
     state: SharedState,
-    mut clients: watch::Receiver<Option<Arc<PanelClient>>>,
+    clients: watch::Receiver<Option<Arc<PanelClient>>>,
     leases: watch::Sender<Option<AcceptedLease>>,
     retirement: Arc<crate::retirement::Retirement>,
 ) -> Result<()> {
+    synchronize_with_cadence(
+        server_id,
+        state,
+        clients,
+        leases,
+        retirement,
+        (Duration::from_secs(3), Duration::from_secs(30)),
+    )
+    .await
+}
+
+async fn synchronize_with_cadence(
+    server_id: i64,
+    state: SharedState,
+    mut clients: watch::Receiver<Option<Arc<PanelClient>>>,
+    leases: watch::Sender<Option<AcceptedLease>>,
+    retirement: Arc<crate::retirement::Retirement>,
+    cadence: (Duration, Duration),
+) -> Result<()> {
     let mut refreshed: Option<Instant> = None;
+    // A failed refresh revokes execution, but retains the receipt's original
+    // deadline until the authenticated transport session changes.
+    let mut last_accepted: Option<AcceptedLease> = None;
     let mut acknowledgment_storage = crate::state::StorageRetry::default();
-    let mut tick = tokio::time::interval(Duration::from_secs(3));
+    let mut tick = tokio::time::interval(cadence.0);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
@@ -75,6 +97,7 @@ async fn synchronize(
             changed = clients.changed() => {
                 leases.send_replace(None);
                 refreshed = None;
+                last_accepted = None;
                 if changed.is_err() { return Ok(()); }
                 continue;
             }
@@ -89,7 +112,7 @@ async fn synchronize(
             leases.send_replace(None);
             continue;
         };
-        if refreshed.is_none_or(|refreshed| refreshed.elapsed() >= Duration::from_secs(30)) {
+        if refreshed.is_none_or(|refreshed| refreshed.elapsed() >= cadence.1) {
             let request_started = Instant::now();
             refreshed = Some(request_started);
             let response = tokio::select! {
@@ -97,6 +120,7 @@ async fn synchronize(
                 changed = clients.changed() => {
                     leases.send_replace(None);
                     refreshed = None;
+                    last_accepted = None;
                     if changed.is_err() { return Ok(()); }
                     continue;
                 }
@@ -114,9 +138,17 @@ async fn synchronize(
                 continue;
             }
             match response.and_then(|snapshot| {
-                leases::accept_lease(snapshot, server_id, &state, client.clone(), request_started)
+                leases::accept_lease(
+                    snapshot,
+                    server_id,
+                    &state,
+                    client.clone(),
+                    request_started,
+                    last_accepted.as_ref(),
+                )
             }) {
                 Ok(lease) => {
+                    last_accepted = Some(lease.clone());
                     leases.send_replace(Some(lease));
                 }
                 Err(error) => {
@@ -135,6 +167,7 @@ async fn synchronize(
             changed = clients.changed() => {
                 leases.send_replace(None);
                 refreshed = None;
+                last_accepted = None;
                 if changed.is_err() { return Ok(()); }
             }
             result = timeout(Duration::from_secs(5), uploading) => {

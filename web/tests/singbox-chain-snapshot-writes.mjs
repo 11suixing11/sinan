@@ -38,7 +38,7 @@ try {
       page.on('pageerror', error => totals.errors.push(error.message))
       const hosts = [1, 2, 3].map(id => ({ id, name: `TEST_ONLY 服务器 ${id}`, enabled: true, online: true, agent_supported: true }))
       const nodes = [1, 2, 3].map(id => ({ id, name: `TEST_ONLY 节点 ${id}`, server_id: id, protocol: 'vless-reality', port: 20000 + id, public_host: '127.0.0.1', sni: 'localhost', enabled: true }))
-      const direct = node => ({ ...node, kind: 'direct', server_name: `TEST_ONLY 服务器 ${node.server_id}`, available: true, role: 'direct', entry_node_id: null, tcp: true, udp: true, legacy: false, active_generation: null, pending_generation: null, minimum_generation: 0, stage: 'direct', last_error: null, reference_count: 0 })
+      const direct = node => ({ ...node, kind: 'direct', server_name: `TEST_ONLY 服务器 ${node.server_id}`, available: true, role: 'direct', entry_node_id: null, tcp: true, udp: true, legacy: false, active_generation: null, pending_generation: null, minimum_generation: 0, stage: 'direct', last_error: null, reference_count: 0, entry_eligible: true })
       const resources = nodes.map(direct)
       resources.push({ ...direct(nodes[0]), id: 7, kind: 'chain', name: 'TEST_ONLY 原链路', entry_node_id: 1, role: 'chain_entry', active_generation: 1, stage: 'active' })
       const failures = new Set(), gates = new Map(), pending = [], writes = []
@@ -131,15 +131,20 @@ try {
         })
       }
     }
-    for (const mutation of ['entry-missing', 'entry-disabled', 'entry-referenced', 'entry-server-disabled', 'hop-missing', 'hop-resource-missing', 'hop-server-disabled', 'hop-rebound-to-entry']) await fixture('/plugins/sing-box/nodes', async control => {
+    for (const mutation of ['entry-missing', 'entry-disabled', 'entry-referenced', 'entry-authorization-added', 'entry-eligibility-unknown', 'entry-server-disabled', 'hop-missing', 'hop-resource-missing', 'hop-resource-disabled', 'hop-resource-unavailable', 'hop-resource-protocol-changed', 'hop-server-disabled', 'hop-rebound-to-entry']) await fixture('/plugins/sing-box/nodes', async control => {
       const editor = await openDraft(control.page, 'existing')
       const savedNodes = structuredClone(control.nodes), savedResources = structuredClone(control.resources), savedHosts = structuredClone(control.hosts)
       if (mutation === 'entry-missing') control.nodes.splice(0, 1)
       if (mutation === 'entry-disabled') control.nodes[0].enabled = false
       if (mutation === 'entry-referenced') control.resources[0].reference_count = 1
+      if (mutation === 'entry-authorization-added') control.resources[0].entry_eligible = false
+      if (mutation === 'entry-eligibility-unknown') delete control.resources[0].entry_eligible
       if (mutation === 'entry-server-disabled') control.hosts[0].enabled = false
       if (mutation === 'hop-missing') control.nodes.splice(1, 1)
       if (mutation === 'hop-resource-missing') control.resources.splice(1, 1)
+      if (mutation === 'hop-resource-disabled') control.resources[1].enabled = false
+      if (mutation === 'hop-resource-unavailable') control.resources[1].available = false
+      if (mutation === 'hop-resource-protocol-changed') control.resources[1].protocol = 'naive'
       if (mutation === 'hop-server-disabled') control.hosts[1].enabled = false
       if (mutation === 'hop-rebound-to-entry') { control.nodes[1].server_id = 1; control.resources[1].server_id = 1 }
       await refreshReads(control.page)
@@ -161,6 +166,22 @@ try {
       assert.equal(control.writes.length, 0); ++totals.blocked
       assert.match(await editor.getByLabel(mode === 'existing' ? '已有入口' : '入口服务器', { exact: true }).locator('option:checked').innerText(), /原选择保留/)
       await control.page.getByLabel('按服务器筛选').selectOption(''); await editor.getByRole('button', { name: '保存 1 条链路', exact: true }).click(); await wait(() => control.writes.length === 1, 'Explicit filter restoration'); ++totals.recovered
+    })
+    for (const label of ['创建节点', '创建链路']) await fixture('/plugins/sing-box/nodes', async control => {
+      const button = control.page.getByRole('button', { name: label, exact: true }).first()
+      await button.evaluate(button => {
+        const filter = document.querySelector('select[aria-label="按服务器筛选"]')
+        filter.add(new Option('TEST_ONLY 不存在的服务器', '999')); filter.value = '999'
+        filter.dispatchEvent(new Event('change', { bubbles: true }))
+        button.disabled = false; button.click()
+      })
+      assert.equal(await control.page.getByRole('dialog').count(), 0)
+      assert.equal(await control.page.getByRole('region', { name: '创建链路', exact: true }).count(), 0)
+      assert.equal(control.writes.length, 0); ++totals.blocked
+      await control.page.getByLabel('按服务器筛选').selectOption('2'); await button.click()
+      const selected = label === '创建节点' ? control.page.getByRole('dialog').locator('[name=server_id]') : control.page.getByRole('region', { name: '创建链路', exact: true }).getByLabel('入口服务器', { exact: true })
+      assert.equal(await selected.inputValue(), '2', 'Creation uses the explicitly restored current filter')
+      assert.equal(control.writes.length, 0)
     })
     await fixture('/plugins/sing-box/nodes?server=1', async control => {
       const editor = await openDraft(control.page, 'existing')

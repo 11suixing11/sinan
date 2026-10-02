@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 """TEST_ONLY Debian 90-second probe leases with real Agent/Panel/PG and continuous loopback proxy traffic."""
 import argparse
-from contextlib import closing
+from contextlib import closing, contextmanager
 import hashlib
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import platform
+import pwd
 import re
+import resource
 import runpy
 import secrets
 import select
 import shutil
+import signal
 import socket
 import sqlite3
+import stat
 import subprocess
 import sys
 import threading
@@ -25,25 +30,131 @@ import uuid
 RUNTIME_SHA = 'fee83ca8457c94449dd04aa17a51830cbc9b449a4dda290e995d3366188e0302'
 PG_PORT, PANEL_PORT, GATE_PORT = 55683, 55783, 55883
 MAX_BODY = 1024 * 1024
+MAX_INPUT = 512 * 1024**2
+CONTROLLER_SECONDS = 1800
+CLEANUP_SECONDS = 120
+MAX_GATE_REQUESTS = 16
+MAX_GATE_EVENTS = 32768
+MAX_CONTROLLER_FDS = 256
+MAX_ACTOR_FDS = 256
+
+
+class ControlledFailure(RuntimeError):
+    pass
+
+
+class ControllerDeadline(ControlledFailure):
+    pass
+
+
+@contextmanager
+def finite_controller():
+    """Signals enter normal owned cleanup; cleanup retains a finite timer."""
+    require(signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0), 'controller cannot replace another active timer')
+    previous = {number: signal.getsignal(number) for number in (signal.SIGALRM, signal.SIGTERM, signal.SIGHUP)}
+
+    def expired(_number, _frame):
+        # A cleanup operation may catch the first timeout. Keep interrupting
+        # subsequent blocking cleanup operations until the controller exits.
+        signal.setitimer(signal.ITIMER_REAL, 1)
+        raise ControllerDeadline('finite private controller deadline exceeded')
+
+    def cancelled(number, _frame):
+        raise SystemExit(128 + number)
+
+    try:
+        signal.signal(signal.SIGALRM, expired)
+        signal.signal(signal.SIGTERM, cancelled)
+        signal.signal(signal.SIGHUP, cancelled)
+        signal.setitimer(signal.ITIMER_REAL, CONTROLLER_SECONDS)
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        for number, handler in previous.items():
+            signal.signal(number, handler)
 
 
 def require(value, reason):
     if not value:
-        raise RuntimeError(reason)
+        raise ControlledFailure(reason)
+
+
+@contextmanager
+def deferred_controller_signals():
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK,
+        {signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGALRM})
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
 
 def sha(path):
-    with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, 'rb') as stream:
+        metadata = os.fstat(stream.fileno())
+        require(stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
+                and 0 < metadata.st_size <= MAX_INPUT, 'bounded ordinary frozen input required')
+        value, length = hashlib.sha256(), 0
+        while True:
+            chunk = stream.read(min(65536, MAX_INPUT - length + 1))
+            if not chunk:
+                break
+            length += len(chunk)
+            require(length <= MAX_INPUT, 'frozen input exceeds its byte limit')
+            value.update(chunk)
+        require(length == metadata.st_size, 'frozen input changed while reading')
+        return value.hexdigest()
 
 
-def private_helpers(built_root, output):
-    manifest = json.loads((built_root / 'harness-identity.json').read_text())
+def read_private(path, limit=MAX_BODY):
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, 'rb') as stream:
+        metadata = os.fstat(stream.fileno())
+        require(stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1 and metadata.st_size <= limit,
+                'bounded ordinary private input required')
+        data = stream.read(limit + 1)
+        require(len(data) == metadata.st_size and len(data) <= limit, 'private input changed or exceeded limit')
+        return data
+
+
+def native_debian():
+    require(platform.machine() in ('x86_64', 'aarch64'), 'native amd64/arm64 controller required')
+    release = Path('/etc/os-release')
+    if release.is_symlink():
+        require(release.resolve(strict=True) == Path('/usr/lib/os-release'), 'unapproved release link')
+        release = Path('/usr/lib/os-release')
+    fields = dict(line.split('=', 1) for line in read_private(release, 65536).decode().splitlines() if '=' in line)
+    require(fields.get('ID', '').strip('\"\'') == 'debian'
+            and fields.get('VERSION_ID', '').strip('\"\'') == '12', 'native Debian 12 controller required')
+
+
+def bounded_backup(source_path, destination_path):
+    deadline = time.monotonic() + 10
+
+    def progress(_status, _remaining, _total):
+        require(time.monotonic() < deadline, 'private state backup deadline exceeded')
+
+    with closing(sqlite3.connect(source_path, timeout=.5)) as source, \
+            closing(sqlite3.connect(destination_path, timeout=.5)) as destination:
+        source.backup(destination, pages=128, progress=progress, sleep=.05)
+
+
+def private_helpers(built_root, output, manifest_sha256):
+    manifest_bytes = read_private(built_root / 'harness-identity.json')
+    require(re.fullmatch(r'[0-9a-f]{64}', manifest_sha256 or '')
+            and hashlib.sha256(manifest_bytes).hexdigest() == manifest_sha256,
+            'explicit trusted helper manifest digest differs')
+    manifest = json.loads(manifest_bytes)
     require(re.fullmatch(r'sinan-plugin-install-20\d{6}-r[1-9]\d{0,2}', built_root.name), 'reviewed build namespace required')
-    modules = {}
+    scripts = {}
     for name in ('common', 'finish'):
-        data = (built_root / (name + '.py')).read_bytes()
+        data = read_private(built_root / (name + '.py'))
         require(hashlib.sha256(data).hexdigest() == manifest['script_sha256'][name + '.py'], 'reviewed helper digest differs')
+        scripts[name] = data
+    modules = {}
+    # Validate the complete pair before executing either reviewed helper.
+    for name, data in scripts.items():
         # Only relocate the exact reviewed private namespace; no installer, build,
         # template, account or production path is executed by this controller.
         relocated = data.decode().replace(built_root.name, output.name)
@@ -69,8 +180,10 @@ def private_helpers(built_root, output):
 class Gate(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
+    request_queue_size = MAX_GATE_REQUESTS
 
     def __init__(self):
+        self.request_slots = threading.BoundedSemaphore(MAX_GATE_REQUESTS)
         super().__init__(('127.0.0.1', GATE_PORT), GateHandler)
         self.upload = True
         self.available = True
@@ -86,6 +199,22 @@ class Gate(ThreadingHTTPServer):
         self.probe_pid = None
         self.probe_ports = []
         threading.Thread(target=self.serve_forever, daemon=True).start()
+
+    def process_request(self, request, client_address):
+        if not self.request_slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self.request_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.request_slots.release()
 
     def disconnect(self):
         self.available = False
@@ -103,6 +232,10 @@ class Gate(ThreadingHTTPServer):
 
 class GateHandler(BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
+
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(3)
 
     def log_message(self, *_):
         pass
@@ -129,9 +262,11 @@ class GateHandler(BaseHTTPRequestHandler):
             self.connection.sendall(received)
             with self.server.lock:
                 self.server.connections.add(self.connection)
-            backend.settimeout(None)
+            # select bounds waiting; both forwarding writes retain timeouts.
+            backend.settimeout(3)
+            deadline = time.monotonic() + CONTROLLER_SECONDS
             try:
-                while self.server.available:
+                while self.server.available and time.monotonic() < deadline:
                     ready, _, _ = select.select([backend, self.connection], [], [], .25)
                     for source in ready:
                         data = source.recv(65536)
@@ -159,6 +294,7 @@ class GateHandler(BaseHTTPRequestHandler):
                     break
                 time.sleep(.02)
             with self.server.lock:
+                require(len(self.server.lease_faults) < MAX_GATE_EVENTS, 'bounded lease fault evidence required')
                 self.server.lease_faults.append({'at': time.time(), 'mode': mode, 'active_connects': active})
             if mode == 'hang':
                 time.sleep(7)
@@ -168,6 +304,7 @@ class GateHandler(BaseHTTPRequestHandler):
         size = int(self.headers.get('Content-Length', '0'))
         require(0 <= size <= MAX_BODY, 'bounded loopback request required')
         body = self.rfile.read(size)
+        require(len(body) == size, 'complete bounded loopback request required')
         if self.path.startswith('/api/agent/') and self.headers.get('Authorization'):
             self.server.authorization = self.headers['Authorization']
         probe_results = None
@@ -175,6 +312,8 @@ class GateHandler(BaseHTTPRequestHandler):
             probe_results = json.loads(body)['results']
             require(0 < len(probe_results) <= 64, 'bounded real probe batch required')
             with self.server.lock:
+                require(len(self.server.attempts) + len(probe_results) <= MAX_GATE_EVENTS,
+                        'bounded probe attempt evidence required')
                 self.server.attempts.extend({'at': time.time(), 'result': item, 'forwarded': self.server.upload} for item in probe_results)
             if not self.server.upload:
                 return self.respond(503, b'{"error":"TEST_ONLY retain real probe outbox"}')
@@ -194,6 +333,7 @@ class GateHandler(BaseHTTPRequestHandler):
                 # Store only the issued permission's safe identity and monotonic observation.
                 # Session bearer credentials are never copied into receipts.
                 with self.server.lock:
+                    require(len(self.server.leases) < MAX_GATE_EVENTS, 'bounded lease issuance evidence required')
                     self.server.leases.append({**{key: snapshot[key] for key in
                         ('id', 'server_id', 'revision', 'issued_at', 'expires_at')},
                         'at': time.time(), 'received_monotonic': time.monotonic(),
@@ -215,23 +355,27 @@ class SlowTargets:
     def __init__(self):
         self.sockets = []
         self.ports = []
-        for _ in range(4):
-            listener = socket.socket()
-            listener.bind(('127.0.0.1', 0))
-            listener.listen(1)
-            self.sockets.append(listener)
-            self.ports.append(listener.getsockname()[1])
-            for _ in range(16):
-                connection = socket.socket()
-                connection.settimeout(.15)
-                try:
-                    connection.connect(listener.getsockname())
+        try:
+            for _ in range(4):
+                listener = socket.socket()
+                self.sockets.append(listener)
+                listener.bind(('127.0.0.1', 0))
+                listener.listen(1)
+                self.ports.append(listener.getsockname()[1])
+                for _ in range(16):
+                    connection = socket.socket()
                     self.sockets.append(connection)
-                except TimeoutError:
-                    connection.close()
-                    break
-            else:
-                raise RuntimeError('owned slow listener backlog did not saturate')
+                    connection.settimeout(.15)
+                    try:
+                        connection.connect(listener.getsockname())
+                    except TimeoutError:
+                        connection.close()
+                        break
+                else:
+                    raise ControlledFailure('owned slow listener backlog did not saturate')
+        except BaseException:
+            self.close()
+            raise
 
     def close(self):
         for connection in self.sockets:
@@ -318,10 +462,17 @@ def main(args):
     require(__debug__ and sys.platform == 'linux' and os.geteuid() == 0, 'unoptimized root Linux controller required')
     require(os.environ.get('SINAN_REMAINING_TEST_SIGNAL') == '1', 'explicit final-test signal required')
     require(socket.gethostname() == 'lima-sinan-p0-debian12', 'dedicated Debian guest required')
+    native_debian()
     require(re.fullmatch(r'[0-9a-f]{40}', args.source_commit), 'explicit frozen source commit required')
     require(re.fullmatch(r'sinan-probe-lease-20\d{6}-r[1-9]\d{0,2}', args.output.name), 'fresh owned probe lease namespace required')
     require(args.output.parent == Path('/home/l7.guest') and not args.output.exists(), 'fresh private guest output required')
-    build = json.loads((args.built_root / 'build-v3-result.json').read_text())
+    require(args.built_root.parent == Path('/home/l7.guest') and not args.built_root.is_symlink(),
+            'private reviewed guest build namespace required')
+    build_directory = args.built_root.lstat()
+    require(stat.S_ISDIR(build_directory.st_mode) and not build_directory.st_mode & 0o022
+            and build_directory.st_uid in (0, pwd.getpwnam('l7.guest').pw_uid),
+            'ordinary owned private build directory required')
+    build = json.loads(read_private(args.built_root / 'build-v3-result.json', 8 * MAX_BODY))
     require(build['exit_code'] == 0 and build['reserve_stop'] is None and build['test_only'], 'successful current TEST_ONLY build required')
     require(build['source']['source_commit'] == args.source_commit, 'build does not match current source')
     controller_sha = sha(Path(__file__))
@@ -340,12 +491,16 @@ def main(args):
 
     for name in ('sinan-agent', 'sinan-panel'):
         require(sha(args.built_root / 'bin' / name) == build['binaries'][name]['sha256'], 'current frozen executable changed')
-    runtime_receipt = json.loads(args.runtime_receipt.read_text())
+    runtime_receipt = json.loads(read_private(args.runtime_receipt))
     require(all(runtime_receipt[key] is True for key in ('trusted_signature_verified', 'archive_identity_verified', 'binary_identity_verified')), 'original runtime signature proofs required')
     require(runtime_receipt['binary_sha256'] == RUNTIME_SHA and sha(args.runtime) == RUNTIME_SHA, 'original runtime changed')
     os.umask(0o077)
+    fd_soft, fd_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    require(fd_hard == resource.RLIM_INFINITY or fd_hard >= MAX_CONTROLLER_FDS, 'controller FD hard limit is insufficient')
+    controller_fd_limit = MAX_CONTROLLER_FDS if fd_soft == resource.RLIM_INFINITY else min(fd_soft, MAX_CONTROLLER_FDS)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (controller_fd_limit, fd_hard))
     args.output.mkdir(mode=0o700)
-    common, finish = private_helpers(args.built_root, args.output)
+    common, finish = private_helpers(args.built_root, args.output, args.helper_manifest_sha256)
     common.reject_non_guest()
     require(not common.PG.exists() and not common.PUBLIC_ROOT.exists(), 'owned PG/runtime root already exists')
     for port in (PG_PORT, PANEL_PORT, GATE_PORT):
@@ -368,16 +523,17 @@ def main(args):
         with (args.output / 'initdb.log').open('x') as output:
             completed = subprocess.run(['runuser', '-u', 'postgres', '--', '/usr/lib/postgresql/15/bin/initdb', '-D', str(common.PG), '--auth-local=trust', '--auth-host=trust', '--encoding=UTF8', '--no-locale'], stdout=output, stderr=subprocess.STDOUT, timeout=60)
         require(completed.returncode == 0, 'fresh PG init failed')
-        common.start('pg', ['/usr/lib/postgresql/15/bin/postgres', '-D', str(common.PG), '-p', str(PG_PORT), '-h', '127.0.0.1', '-k', str(common.PG), '-c', 'shared_buffers=32MB', '-c', 'max_connections=20', '-c', 'max_wal_size=128MB'], '192M', extra=['--property=User=postgres', '--property=Group=postgres'])
+        common.start('pg', ['/usr/lib/postgresql/15/bin/postgres', '-D', str(common.PG), '-p', str(PG_PORT), '-h', '127.0.0.1', '-k', str(common.PG), '-c', 'shared_buffers=32MB', '-c', 'max_connections=20', '-c', 'max_wal_size=128MB'], '192M', extra=['--property=User=postgres', '--property=Group=postgres', '--property=LimitNOFILE=256'])
         common.wait_for(lambda: subprocess.run(['/usr/lib/postgresql/15/bin/pg_isready', '-h', '127.0.0.1', '-p', str(PG_PORT), '-U', 'postgres'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2).returncode == 0, timeout=20)
         common.command(['runuser', '-u', 'postgres', '--', '/usr/lib/postgresql/15/bin/createdb', '-h', str(common.PG), '-p', str(PG_PORT), common.DATABASE])
         password = secrets.token_urlsafe(32)
         (args.output / 'admin-password').write_text(password)
         env = {'SINAN_DATABASE_URL': f'postgres://postgres@127.0.0.1:{PG_PORT}/{common.DATABASE}', 'SINAN_PUBLIC_URL': common.ORIGIN, 'SINAN_LISTEN': f'127.0.0.1:{PANEL_PORT}', 'SINAN_DATA_DIR': str(args.output / 'panel-data'), 'SINAN_ADMIN_PASSWORD': password, 'RUST_LOG': 'info', 'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'}
         (args.output / 'panel.env').write_text(''.join(key + '=' + value + '\n' for key, value in env.items()))
-        common.start('panel', [str(args.built_root / 'bin/sinan-panel')], '256M', extra=['--property=EnvironmentFile=' + str(args.output / 'panel.env')])
+        common.start('panel', [str(args.built_root / 'bin/sinan-panel')], '256M', extra=['--property=EnvironmentFile=' + str(args.output / 'panel.env'), '--property=LimitNOFILE=256'])
         common.wait_for(lambda: common.port_open(PANEL_PORT), timeout=60)
-        gate = Gate()
+        with deferred_controller_signals():
+            gate = Gate()
         api = common.API()
         api.login()
         server = api.expect('POST', '/api/servers', {'name': 'TEST_ONLY probe lease loopback Debian', 'agent_settings': {'sample_interval_secs': 1, 'upload_interval_secs': 3, 'auto_update': False, 'discover_public_ips': False}}, status=201)
@@ -389,8 +545,9 @@ def main(args):
             spec = {'id': str(uuid.UUID(int=0)), 'name': 'TEST_ONLY slow loopback ' + str(index), 'kind': 'tcp', 'target': '127.0.0.1', 'port': port, 'interval_secs': 10, 'carrier': '', 'enabled': True, 'monitor': {'network': ['telecom', 'unicom', 'mobile', 'other'][index], 'region': 'TEST_ONLY owned loopback', 'address_family': 'ipv4', 'authorization': {'kind': 'owned', 'enabled': True, 'source': 'TEST_ONLY controller owns these listener sockets', 'scope': f'TEST_ONLY server {sid}, TCP to 127.0.0.1:{port}, four attempts every ten seconds', 'expires_at': None, 'identity': {'kind': 'tcp', 'target': '127.0.0.1', 'port': port, 'address_family': 'ipv4'}}}}
             specs.append(api.expect('POST', f'/api/servers/{sid}/probes', spec))
         state_dir.mkdir(mode=0o700)
-        common.command(['mount', '-t', 'tmpfs', '-o', 'size=16m,mode=0700,nodev,nosuid,noexec', 'sinan-probe-lease-test-only', str(state_dir)])
-        mounted = True
+        with deferred_controller_signals():
+            common.command(['mount', '-t', 'tmpfs', '-o', 'size=16m,mode=0700,nodev,nosuid,noexec', 'sinan-probe-lease-test-only', str(state_dir)])
+            mounted = True
         db = state_dir / 'state.db'
         settings = {'sample_interval_secs': 1, 'upload_interval_secs': 3, 'auto_update': False, 'discover_public_ips': False}
         config = {'panel_url': common.ORIGIN, 'identity_dir': str(args.output / 'identity'), 'state_db': str(db), 'runtime_root': str(args.output / 'runtime'), 'install_root': str(args.output / 'install'), 'agent_root': str(args.output / 'core'), 'status_socket': str(args.output / 'status.sock'), 'operation_timeout_secs': 3, 'public_ips': [], 'allow_remote_commands': False}
@@ -413,8 +570,8 @@ def main(args):
         runtime_config = common.PUBLIC_ROOT / 'config.json'
         runtime_config.write_text(json.dumps({'log': {'level': 'error'}, 'inbounds': [{'type': 'vless', 'tag': 'TEST_ONLY', 'listen': '127.0.0.1', 'listen_port': proxy_port, 'users': [{'uuid': str(uuid.UUID(int=1))}]}], 'outbounds': [{'type': 'direct', 'tag': 'direct'}], 'route': {'rules': [{'ip_cidr': ['127.0.0.0/8', '::1/128'], 'outbound': 'direct'}, {'action': 'reject'}], 'final': 'direct'}}))
         runtime_config.chmod(0o444)
-        common.start('runtime', [str(runtime), 'run', '-c', str(runtime_config)], '96M', weight=200, oom=-500, extra=['--property=User=nobody'])
-        common.start('agent', [str(args.built_root / 'bin/sinan-agent'), '--config', str(args.output / 'agent.toml'), 'run', '--monitor-only'], '128M', weight=200, oom=-500)
+        common.start('runtime', [str(runtime), 'run', '-c', str(runtime_config)], '96M', weight=200, oom=-500, extra=['--property=User=nobody', '--property=LimitNOFILE=256'])
+        common.start('agent', [str(args.built_root / 'bin/sinan-agent'), '--config', str(args.output / 'agent.toml'), 'run', '--monitor-only'], '128M', weight=200, oom=-500, extra=['--property=LimitNOFILE=256'])
         common.wait_for(lambda: api.server().get('last_heartbeat_at'), timeout=60)
         original_runtime = common.fingerprint(common.unit('runtime'))
         agent_pid = common.fingerprint(common.unit('agent'))['pid']
@@ -432,6 +589,14 @@ def main(args):
                 require(int(properties['MemoryMax']) == cap and properties['MemorySwapMax'] == '0', 'workload memory limit changed')
                 events = dict(line.split() for line in properties['cgroup']['memory.events'].splitlines())
                 require(events['oom'] == '0' and events['oom_kill'] == '0', 'workload cgroup reported an OOM event')
+                pid = common.fingerprint(common.unit(role))['pid']
+                uid = 0 if role == 'agent' else pwd.getpwnam('nobody').pw_uid
+                status = Path(f'/proc/{pid}/status').read_text()
+                actual_uids = re.search(r'^Uid:\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$', status, re.MULTILINE)
+                require(actual_uids and all(int(value) == uid for value in actual_uids.groups()),
+                        'private actor UID changed')
+                require(len(list(Path(f'/proc/{pid}/fd').iterdir())) <= MAX_ACTOR_FDS,
+                        'private actor FD budget exceeded')
             require(worker.is_alive() and traffic and time.time() - traffic[-1]['at'] <= 5,
                     'continuous loopback traffic stopped')
             require(all(row['ok'] for row in traffic), 'an actual bounded loopback transfer failed')
@@ -670,9 +835,10 @@ def main(args):
     except BaseException as error:
         result['failed_phase'] = phase
         result['error_kind'] = type(error).__name__
-        if type(error) is RuntimeError:
+        if isinstance(error, ControlledFailure):
             result['controlled_reason'] = str(error)
     finally:
+        signal.setitimer(signal.ITIMER_REAL, CLEANUP_SECONDS)
         stop.set()
         if worker:
             worker.join(timeout=6)
@@ -691,8 +857,7 @@ def main(args):
                 result['errors'].append({'step': name, 'error_kind': type(error).__name__})
         if mounted:
             try:
-                with closing(sqlite3.connect(state_dir / 'state.db')) as source, closing(sqlite3.connect(args.output / 'retained-private-state.db')) as destination:
-                    source.backup(destination)
+                bounded_backup(state_dir / 'state.db', args.output / 'retained-private-state.db')
             except BaseException as error:
                 result['errors'].append({'step': 'retain_private_state', 'error_kind': type(error).__name__})
             try:
@@ -721,7 +886,10 @@ def main(args):
         result['finished_at'] = time.time()
         result['actual_lease_issuances'] = gate.leases if gate else []
         result['actual_lease_get_faults'] = gate.lease_faults if gate else []
-        result['controller_derivation'] = {'base':'tools/carrier-monitoring-acceptance.py', 'base_sha256':'6454437f24ad034281b813f5c67683f91b7d8fd6f4fd55abeae6426d61efb1d4', 'scope':'fresh frozen ninety-second permission and unchanged isolated resource/traffic/cleanup helpers', 'echo_helper_sha256':'f580cb3b1524485aab4f134e2cf7df6f4ca64f52d7dced8840bd1780c668ab56'}
+        result['controller_derivation'] = {'base':'tools/carrier-monitoring-acceptance.py', 'base_sha256':'6454437f24ad034281b813f5c67683f91b7d8fd6f4fd55abeae6426d61efb1d4', 'scope':'fresh frozen ninety-second permission with bounded private controller IO; original helper bytes remain digest-checked', 'echo_helper_sha256':'f580cb3b1524485aab4f134e2cf7df6f4ca64f52d7dced8840bd1780c668ab56'}
+        result['controller_budgets'] = {'overall_seconds': CONTROLLER_SECONDS, 'cleanup_seconds': CLEANUP_SECONDS,
+                                        'controller_fds': MAX_CONTROLLER_FDS, 'actor_fds': MAX_ACTOR_FDS,
+                                        'concurrent_gate_requests': MAX_GATE_REQUESTS, 'gate_events': MAX_GATE_EVENTS}
         common.write('probe-lease-result.json', result)
         print(json.dumps({'ok': result['ok'], 'failed_phase': result.get('failed_phase'), 'errors': result['errors'], 'proxy_echoes': len(traffic), 'proxy_failures': sum(not row['ok'] for row in traffic)}), flush=True)
     require(result['ok'], 'probe lease acceptance or safe cleanup failed; preserve the first receipt')
@@ -731,6 +899,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--echo-worker', type=int)
     parser.add_argument('--built-root', type=Path)
+    parser.add_argument('--helper-manifest-sha256', help='Explicit trusted SHA256 of the separately reviewed private helper manifest')
     parser.add_argument('--source-commit')
     parser.add_argument('--controller-source-commit', help='Exact commit containing a separately frozen controller; never relabels binary source')
     parser.add_argument('--controller-sha256', help='Explicit trusted SHA256 of that independently frozen controller')
@@ -742,5 +911,6 @@ if __name__ == '__main__':
         require(__debug__ and 0 < arguments.echo_worker <= 65535, 'bounded loopback echo worker required')
         echo(arguments.echo_worker)
     else:
-        require(all(getattr(arguments, name) is not None for name in ('built_root', 'source_commit', 'runtime', 'runtime_receipt', 'output')), 'all frozen inputs must be explicit')
-        main(arguments)
+        require(all(getattr(arguments, name) is not None for name in ('built_root', 'helper_manifest_sha256', 'source_commit', 'runtime', 'runtime_receipt', 'output')), 'all frozen inputs must be explicit')
+        with finite_controller():
+            main(arguments)

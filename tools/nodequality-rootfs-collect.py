@@ -5,6 +5,7 @@ import argparse
 import contextlib
 import datetime
 import email.parser
+import email.message
 import hashlib
 import http.client
 import importlib.util
@@ -238,6 +239,22 @@ def diagnostic_headers(headers):
     return result
 
 
+def retained_headers(content):
+    """Sanitize either an old raw header record or the current JSON record."""
+    if not content.lstrip().startswith(b'{'):
+        return diagnostic_headers(email.parser.BytesParser().parsebytes(content, headersonly=True))
+    value = BUILD.decode(content)
+    require(isinstance(value, dict) and value.get('representation') == 'selected-parsed-headers'
+            and isinstance(value.get('headers'), dict), 'invalid selected response headers')
+    selected = email.message.Message()
+    for name, values in value['headers'].items():
+        require(isinstance(name, str) and isinstance(values, list) and len(values) <= 4
+                and all(isinstance(item, str) for item in values), 'invalid selected response header values')
+        for item in values:
+            selected[name] = item
+    return diagnostic_headers(selected)
+
+
 def diagnostic_error_message(error):
     reason = error.reason if isinstance(error, urllib.error.URLError) else error
     message = 'HTTP Error ' + str(error.code) if isinstance(error, urllib.error.HTTPError) else str(reason)
@@ -312,24 +329,33 @@ def fetch_worker(url, output, limit, header_output, reserve=MIN_FREE, context=No
         allowed_url(response.geturl())
         advertised = response.headers.get('Content-Length')
         context['failure_stage'] = 'content_length_validation'
+        declared_lengths = response.headers.get_all('Content-Length') if hasattr(response.headers, 'get_all') else (
+            [advertised] if advertised is not None else [])
+        if len(declared_lengths or []) > 1 or (advertised is not None and response.headers.get('Transfer-Encoding') is not None):
+            context['content_length_validation_issue'] = 'ambiguous_framing'
+            raise ValueError('ambiguous response Content-Length framing')
         if advertised is not None:
-            if not advertised.isdigit():
+            if not re.fullmatch(r'[0-9]{1,20}', advertised):
                 context['content_length_validation_issue'] = 'not_decimal'
             elif int(advertised) > limit:
                 context['content_length_validation_issue'] = 'exceeds_worker_byte_limit'
-            require(advertised.isdigit() and int(advertised) <= limit, 'advertised download exceeds budget')
+            require(context['content_length_validation_issue'] is None, 'advertised download exceeds budget')
         context['failure_stage'] = 'response_header_validation'
-        headers = response.headers.as_bytes()
-        require(len(headers) <= 65536, 'oversized official response headers')
+        require(len(response.headers.as_bytes()) <= 65536, 'oversized official response headers')
+        # Keep only the same bounded allowlist used for failure diagnostics.
+        # Parsed cookies, authentication challenges and arbitrary server fields
+        # never become retained evidence, even on successful requests.
+        headers = BUILD.canonical({'schema': 1, 'representation': 'selected-parsed-headers',
+                                   'headers': context['response_headers']}) + b'\n'
         context['failure_stage'] = 'response_header_publication'
-        BUILD.write_new(header_output, headers)
+        BUILD.write_new(header_output, headers, 0o600)
         size = stream_response(response, output, limit, reserve, context)
         context['failure_stage'] = 'content_length_verification'
         if advertised is not None and size != int(advertised):
             context['content_length_validation_issue'] = 'declared_length_mismatch'
         require(advertised is None or size == int(advertised), 'download differs from Content-Length')
-        return {'schema': 1, 'url': url, 'final_url': response.geturl(), 'http_status': 200,
-                'received_at': timestamp(), 'size': size, 'header_representation': 'parsed-http-headers',
+        return {'schema': 1, 'url': diagnostic_url(url), 'final_url': diagnostic_url(response.geturl()), 'http_status': 200,
+                'received_at': timestamp(), 'size': size, 'header_representation': 'selected-parsed-headers',
                 'response_received': True, 'response_headers': context['response_headers'],
                 'response_content_length': diagnostic_text(advertised, 128),
                 'response_content_length_truncated': isinstance(advertised, str) and len(advertised) > 128,
@@ -405,15 +431,32 @@ def owned_size(root, deadline):
 class Collector:
     def __init__(self, output, max_total, deadline, reserve=MIN_FREE):
         require(type(max_total) is int and 0 < max_total <= MAX_TOTAL, 'invalid explicit factory byte budget')
-        self.output, self.max_total, self.deadline = Path(output), max_total, deadline
+        self.output, self.max_total, self.deadline = BUILD.private_directory(output), max_total, deadline
+        self.output_identity = BUILD.FactoryCapacity.identity(self.output)
+        self.parent_identity = BUILD.FactoryCapacity.identity(self.output.parent)
         self.reserve = reserve
         self.cache = self.output / 'input-cache'
         self.cache.mkdir(mode=0o700)
         self.downloads, self.signatures = [], []
 
     def budget(self, additional=0):
+        self.ensure_identity()
         require(owned_size(self.output, self.deadline) + additional <= self.max_total, 'factory byte budget exceeded')
         free_disk(self.output, self.reserve, additional)
+
+    def ensure_identity(self):
+        require(BUILD.FactoryCapacity.identity(self.output) == self.output_identity
+                and BUILD.FactoryCapacity.identity(self.output.parent) == self.parent_identity,
+                'collection output directory identity changed')
+
+    def failure_budget(self, content, deadline):
+        self.ensure_identity()
+        deadline.check()
+        require(len(content) <= MAX_RECEIPT, 'failure receipt exceeds its reader limit')
+        require(owned_size(self.output, deadline) + len(content) <= self.max_total,
+                'factory byte budget exceeded while retaining failure metadata')
+        free_disk(self.output, self.reserve, len(content))
+        deadline.check()
 
     def failed_download(self, work, url, error, phase, expected=None, actual=None, worker=None):
         parent = parent_failure(error)
@@ -450,6 +493,7 @@ class Collector:
         evidence = {'complete': False, 'body_retained': False, 'worker_receipt': None, 'response_headers': None}
         report['failure_evidence'] = evidence
         try:
+            self.ensure_identity()
             # Unauthenticated payloads never enter the cache or failure evidence.
             # Removing only this worker's body also prevents its discarded bytes
             # from consuming the metadata retention budget.
@@ -458,7 +502,7 @@ class Collector:
             headers = None
             if (work / 'headers').exists():
                 original = BUILD.read_regular(work / 'headers', 65536)
-                selected = diagnostic_headers(email.parser.BytesParser().parsebytes(original, headersonly=True))
+                selected = retained_headers(original)
                 headers = BUILD.canonical({'schema': 1, 'representation': 'selected-parsed-headers', 'headers': selected}) + b'\n'
             elif report.get('response_headers'):
                 headers = BUILD.canonical({'schema': 1, 'representation': 'selected-parsed-headers',
@@ -944,11 +988,15 @@ def collect(request_path, keyring_path, provenance_path, candidate_path, output_
             output = BUILD.reserve_output(output_path)
         collector = Collector(output, max_total, deadline, reserve)
         collector.arch = request['arch']
+        collector.budget(len(request_bytes))
         BUILD.write_new(output / 'request.json', request_bytes)
         if candidate_bytes is not None:
+            collector.budget(len(candidate_bytes))
             BUILD.write_new(output / 'candidate-builder.json', candidate_bytes)
+        collector.budget(len(provenance_bytes))
         BUILD.write_new(output / 'keyring-provenance.json', provenance_bytes)
         keyring = dict(keyring_identity, blob=keyring_identity['sha256'] + '.gpg')
+        collector.budget(keyring_identity['size'])
         BUILD.copy_locked(Path(keyring_path).parent, dict(keyring_identity, blob=Path(keyring_path).name),
                           collector.cache / keyring['blob'], BUILD.MAX_LOCK, deadline)
         observed = []
@@ -962,7 +1010,9 @@ def collect(request_path, keyring_path, provenance_path, candidate_path, output_
             repo, parsed = authenticate_metadata(collector, requested, collector.cache / keyring['blob'])
             repositories.append(repo)
             indices[repo['id']] = parsed
+        stage = 'dependency_selection'
         packages, solver = solve(collector, repositories, indices, collector.cache / keyring['blob'])
+        stage = 'source_closure_selection'
         sources = source_closure(packages, repositories, indices, deadline)
         stage = 'capacity_plan_publication'
         planned_materials = dict(request, keyring=keyring, repositories=repositories,
@@ -989,19 +1039,23 @@ def collect(request_path, keyring_path, provenance_path, candidate_path, output_
         inventory, final_signatures = BUILD.verify_authenticated_sources(materials, collector.cache, deadline)
         materials_bytes = BUILD.canonical(materials) + b'\n'
         stage = 'success_materials_publication'
+        collector.budget(len(materials_bytes))
         publish_success(output / 'materials.json', materials_bytes, BUILD.MAX_LOCK, owned_publications)
         lock_identity = None
         if candidate is not None:
             lock = dict(materials, builder=candidate)
             BUILD.validate_lock(lock)
             lock_bytes = BUILD.canonical(lock) + b'\n'
+            collector.budget(len(lock_bytes))
             publish_success(output / 'inputs-lock.json', lock_bytes, BUILD.MAX_LOCK, owned_publications)
             lock_identity = hashlib.sha256(lock_bytes).hexdigest()
         else:
-            publish_success(output / 'unbound-inputs.json', BUILD.canonical({
+            unbound_bytes = BUILD.canonical({
                 'schema': 1, 'kind': COLLECTION_KIND, 'materials_sha256': hashlib.sha256(materials_bytes).hexdigest(),
                 'builder': None, 'lock_ready': False, 'builder_approved': False,
-                'full_ready': False, 'reproducibility_verified': False}) + b'\n', MAX_RECEIPT, owned_publications)
+                'full_ready': False, 'reproducibility_verified': False}) + b'\n'
+            collector.budget(len(unbound_bytes))
+            publish_success(output / 'unbound-inputs.json', unbound_bytes, MAX_RECEIPT, owned_publications)
         stage = 'collection_receipt_preparation'
         receipt = {'schema': 1, 'kind': COLLECTION_KIND, 'complete': True, 'arch': request['arch'], 'collected_at': timestamp(),
             'inputs_lock_sha256': lock_identity, 'materials_sha256': hashlib.sha256(materials_bytes).hexdigest(),
@@ -1035,16 +1089,20 @@ def collect(request_path, keyring_path, provenance_path, candidate_path, output_
             # Retain a bounded failure receipt and already obtained evidence; never mark it complete.
             with contextlib.suppress(BaseException):
                 failure = {'schema': 1, 'kind': COLLECTION_KIND, 'complete': False,
-                           'error_type': type(error).__name__, 'error': str(error)[:1024],
+                           'error_type': type(error).__name__, 'error': diagnostic_error_message(error),
                            'failure_stage': stage, 'capacity_plan': capacity_identity,
                            'success_publication_cleanup': publication_cleanup,
-                           'notes': [str(note)[:1024] for note in getattr(error, '__notes__', [])[:4]],
+                           'notes': [diagnostic_error_message(ValueError(str(note))) for note in getattr(error, '__notes__', [])[:4]],
                            'builder_approved': False,
                            'full_ready': False, 'reproducibility_verified': False,
                            'received_objects': getattr(locals().get('collector'), 'downloads', [])[-512:]}
                 failure['failed_download'] = next((row for row in reversed(failure['received_objects'])
                                                    if row.get('complete') is False), None)
-                publish(output / 'failure.json', BUILD.canonical(failure) + b'\n', MAX_RECEIPT)
+                raw_failure = BUILD.canonical(failure) + b'\n'
+                local_collector = locals().get('collector')
+                require(local_collector is not None, 'failure publication lacks owned collection identity')
+                local_collector.failure_budget(raw_failure, BUILD.Deadline(FAILURE_EVIDENCE_SECONDS))
+                publish(output / 'failure.json', raw_failure, MAX_RECEIPT)
                 if hasattr(error, 'add_note'):
                     error.add_note('Incomplete collection evidence retained at ' + str(output))
         raise
@@ -1089,10 +1147,11 @@ def bind(materials_directory, candidate_path, output_path, seconds):
     candidate = verify_candidate(BUILD.decode(candidate_bytes), materials['arch'], deadline)
     lock = dict(materials, builder=candidate)
     BUILD.validate_lock(lock)
-    output, complete = None, False
+    output, complete, owned_identity = None, False, None
     try:
         with BUILD.deferred_signals():
             output = BUILD.reserve_output(output_path)
+            owned_identity = (BUILD.FactoryCapacity.identity(output), BUILD.FactoryCapacity.identity(output.parent))
         raw_lock = BUILD.canonical(lock) + b'\n'
         publish(output / 'inputs-lock.json', raw_lock, BUILD.MAX_LOCK)
         BUILD.write_new(output / 'candidate-builder.json', candidate_bytes)
@@ -1102,12 +1161,16 @@ def bind(materials_directory, candidate_path, output_path, seconds):
                    'cache_directory': str(directory / 'input-cache'), 'lock_ready': True,
                    'builder_approved': False, 'runtime_image_identity_verified': False,
                    'full_ready': False, 'reproducibility_verified': False}
-        publish(output / 'binding.json', BUILD.canonical(receipt) + b'\n', MAX_RECEIPT)
-        complete = True
+        with BUILD.deferred_signals():
+            publish(output / 'binding.json', BUILD.canonical(receipt) + b'\n', MAX_RECEIPT)
+            complete = True
         return receipt
+    except BaseException:
+        complete = False
+        raise
     finally:
         if output is not None and not complete:
-            BUILD.cleanup_output(output)
+            BUILD.cleanup_output(output, guard_mounts=sys.platform == 'linux', expected_identity=owned_identity)
 
 
 def main():

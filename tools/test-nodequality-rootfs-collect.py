@@ -2,6 +2,7 @@
 """Owned collection fixtures; mocks do not certify a Debian signature or image."""
 
 import contextlib
+import email.message
 import hashlib
 import http.server
 import importlib.util
@@ -159,6 +160,78 @@ class CollectionContracts(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'reader limit'):
                 COLLECT.publish(output, b'x' * 11, 10)
             self.assertFalse(output.exists())
+
+    def test_success_retains_selected_headers_and_redacted_urls(self):
+        with tempfile.TemporaryDirectory() as name, mock.patch.object(COLLECT, 'free_disk'):
+            root = Path(name)
+            headers = email.message.Message()
+            headers['Content-Length'] = '5'
+            headers['Set-Cookie'] = 'owned-secret'
+            headers['Authorization'] = 'Bearer owned-secret'
+            headers['Location'] = 'https://user:owned-secret@snapshot.debian.org/file/fixture?token=owned-secret'
+            response = mock.MagicMock()
+            response.__enter__.return_value = response
+            response.status, response.headers = 200, headers
+            response.geturl.return_value = 'https://snapshot.debian.org/file/fixture?token=owned-secret'
+            response.read.side_effect = [b'owned', b'']
+            opener = mock.Mock()
+            opener.open.return_value = response
+            with mock.patch.object(COLLECT.urllib.request, 'build_opener', return_value=opener):
+                report = COLLECT.fetch_worker('https://snapshot.debian.org/file/fixture?token=owned-secret',
+                    root / 'body', 16, root / 'headers')
+            retained = (root / 'headers').read_bytes()
+            self.assertNotIn(b'owned-secret', retained)
+            self.assertNotIn('owned-secret', json.dumps(report))
+            self.assertEqual(report['header_representation'], 'selected-parsed-headers')
+            self.assertEqual(json.loads(retained)['headers']['Content-Length'], ['5'])
+            self.assertEqual((root / 'body').read_bytes(), b'owned')
+
+    def test_ambiguous_content_length_rejects_before_body_write(self):
+        for transfer in (False, True):
+            with self.subTest(transfer=transfer), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                headers = email.message.Message()
+                headers['Content-Length'] = '5'
+                headers['Transfer-Encoding' if transfer else 'Content-Length'] = 'chunked' if transfer else '7'
+                response = mock.MagicMock()
+                response.__enter__.return_value = response
+                response.status, response.headers = 200, headers
+                response.geturl.return_value = 'https://snapshot.debian.org/file/fixture'
+                opener = mock.Mock()
+                opener.open.return_value = response
+                context = {}
+                with mock.patch.object(COLLECT.urllib.request, 'build_opener', return_value=opener):
+                    with self.assertRaisesRegex(ValueError, 'ambiguous'):
+                        COLLECT.fetch_worker(response.geturl(), root / 'body', 16, root / 'headers', context=context)
+                response.read.assert_not_called()
+                self.assertFalse((root / 'body').exists())
+                self.assertEqual(context['http_status'], 200)
+                self.assertEqual(context['content_length_validation_issue'], 'ambiguous_framing')
+
+    def test_selected_header_record_is_filtered_again_when_retained(self):
+        headers = COLLECT.retained_headers(encoded({'representation': 'selected-parsed-headers',
+            'headers': {'Content-Length': ['5'], 'Set-Cookie': ['owned-secret'],
+                        'Location': ['https://user:owned-secret@snapshot.debian.org/file/fixture?token=owned-secret']}}))
+        self.assertNotIn('Set-Cookie', headers)
+        self.assertNotIn('owned-secret', json.dumps(headers))
+
+    def test_failure_receipt_respects_budget_after_original_deadline_expires(self):
+        with tempfile.TemporaryDirectory() as name, mock.patch.object(COLLECT, 'free_disk'):
+            root = Path(name)
+            output = root / 'output'
+            output.mkdir(mode=0o700)
+            collector = COLLECT.Collector(output, 128, BUILD.Deadline(1))
+            collector.deadline.end = time.monotonic() - 1
+            (output / 'owned').write_bytes(b'x' * 120)
+            with self.assertRaisesRegex(ValueError, 'byte budget'):
+                collector.failure_budget(b'oversized failure', BUILD.Deadline(1))
+            collector.failure_budget(b'failure', BUILD.Deadline(1))
+            replacement = root / 'replacement'
+            output.rename(root / 'retained-original')
+            replacement.mkdir(mode=0o700)
+            replacement.rename(output)
+            with self.assertRaisesRegex(ValueError, 'identity changed'):
+                collector.failure_budget(b'failure', BUILD.Deadline(1))
 
     def test_success_publication_registers_partial_fsync_failure_for_rollback(self):
         with tempfile.TemporaryDirectory() as name:
@@ -816,6 +889,41 @@ class CollectionContracts(unittest.TestCase):
             self.assertFalse(binding['full_ready'])
             approve.assert_not_called()
             prepare.assert_not_called()
+            replaced = root / 'replaced-binding'
+            preserved = root / 'retained-owned-binding'
+
+            def replace_binding_output(path, content, limit):
+                original_publish(path, content, limit)
+                if path.name == 'binding.json':
+                    replaced.rename(preserved)
+                    replaced.mkdir(mode=0o700)
+                    (replaced / 'foreign').write_bytes(b'foreign replacement must remain')
+                    raise ValueError('owned binding publication failure')
+
+            with mock.patch.object(COLLECT, 'native_arch', return_value='amd64'), \
+                 mock.patch.object(COLLECT, 'verify_candidate', return_value=candidate), \
+                 mock.patch.object(BUILD, 'verify_authenticated_sources', return_value=({}, [])), \
+                 mock.patch.object(COLLECT, 'publish', side_effect=replace_binding_output):
+                with self.assertRaisesRegex(ValueError, 'owned binding publication failure') as caught:
+                    COLLECT.bind(output, candidate_path, replaced, 30)
+            self.assertEqual((replaced / 'foreign').read_bytes(), b'foreign replacement must remain')
+            self.assertTrue((preserved / 'binding.json').exists())
+            self.assertTrue(any('cleanup failed' in note for note in caught.exception.__notes__))
+
+            def cancel_binding_output(path, content, limit):
+                original_publish(path, content, limit)
+                if path.name == 'binding.json':
+                    raise SystemExit(143)
+
+            cancelled = root / 'cancelled-binding'
+            with mock.patch.object(COLLECT, 'native_arch', return_value='amd64'), \
+                 mock.patch.object(COLLECT, 'verify_candidate', return_value=candidate), \
+                 mock.patch.object(BUILD, 'verify_authenticated_sources', return_value=({}, [])), \
+                 mock.patch.object(COLLECT, 'publish', side_effect=cancel_binding_output):
+                with self.assertRaises(SystemExit) as caught:
+                    COLLECT.bind(output, candidate_path, cancelled, 30)
+            self.assertEqual(caught.exception.code, 143)
+            self.assertFalse(cancelled.exists())
 
 
 @unittest.skipUnless(sys.platform == 'linux' and hasattr(os, 'waitid'), 'owned worker lifecycle requires Linux waitid')

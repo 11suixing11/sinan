@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { api } from '../api'
 import { Badge, Confirm, Empty, ErrorNotice, Field, Icon, Loading, Modal, PageHeader, Refresh } from '../components'
 import { resourceWriteError, useAction, useResource } from '../hooks'
-import { changeProbe, authorizationState, monitoringOf, withMonitoring, bindProbeAuthorization, familyLabel, latency, loss, lossLabel, networkLabel, networks, probeState, probeValue } from '../probes'
+import { probeRevisionMatches, changeProbe, authorizationState, monitoringOf, withMonitoring, bindProbeAuthorization, familyLabel, latency, loss, lossLabel, networkLabel, networks, probeState, probeValue } from '../probes'
 import type { Probe, ProbeOverview } from '../probes'
 import { time } from '../format'
 import ProbeMonitoringFields from './ProbeMonitoringFields'
@@ -37,8 +37,8 @@ export default function LatencyTasks() {
   const writeError = (task?: Task, serverIds?: number[]) => {
     const stale = resourceWriteError(tasks, servers)
     if (stale) return stale
-    const current = task?.id && tasks.getCurrent()?.find(value => value.id === task.id)
-    if (task?.id && (!current || current.revision !== task.revision)) return '此任务已不存在或已改变，请重新确认；当前草稿已保留。'
+    const current = tasks.getCurrent()?.find(value => value.id === task?.id)
+    if (task?.id && !probeRevisionMatches(task, current)) return '此任务已不存在或已改变，请重新确认；当前草稿已保留。'
     return serverIds?.some(id => !servers.getCurrent()?.some(server => server.id === id)) ? '已选服务器已不存在，原选择仍保留，请明确调整后再保存。' : ''
   }
   const toggle = (task: Task) => { if (writeError(task)) return; void action.run(() => api(`/api/latency-tasks/${task.id}`, 'PATCH', { spec: { ...task.spec, enabled: !task.spec.enabled }, default_enabled: task.default_enabled, server_ids: task.server_ids, revision: task.revision }), tasks.reload) }

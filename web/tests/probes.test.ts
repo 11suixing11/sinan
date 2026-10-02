@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { probeWriteError, familyLabel, authorizationMatches, bindProbeAuthorization, changeProbe, lossLabel, probeSlots, probeState, probeTone, probeValue } from '../src/probes'
+import { probeRevisionMatches, probeWriteError, familyLabel, authorizationMatches, bindProbeAuthorization, changeProbe, lossLabel, probeSlots, probeState, probeTone, probeValue } from '../src/probes'
 import type { Probe, ProbeResult } from '../src/probes'
 
 const probe: Probe = { id: 'probe', name: '回环', kind: 'icmp', target: '127.0.0.1', port: null, interval_secs: 10, carrier: '', enabled: true, monitor: { region: '', address_family: 'any', authorization: { kind: 'owned', source: 'TEST_ONLY owner', scope: 'TEST_ONLY owned loopback measurement', enabled: true, expires_at: null, identity: { kind: 'icmp', target: '127.0.0.1', port: null, address_family: 'any' } } } }
@@ -85,6 +85,8 @@ test('probe edits and deletion require the same positive safe persisted revision
   expect(probeWriteError(current, { ...current })).toBe('')
   for (const revision of [undefined, null, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])
     expect(probeWriteError({ ...current, revision }, current)).toContain('草稿已保留')
+  for (const revision of [undefined, null, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])
+    expect(probeRevisionMatches({ revision }, { revision })).toBe(false)
   expect(probeWriteError(current, undefined)).toContain('草稿已保留')
   expect(probeWriteError(current, { ...current, revision: 5 })).toContain('草稿已保留')
 })

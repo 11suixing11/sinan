@@ -51,6 +51,7 @@ pub(super) fn accept_lease(
     state: &SharedState,
     session: Arc<PanelClient>,
     request_started: Instant,
+    previous: Option<&AcceptedLease>,
 ) -> Result<AcceptedLease> {
     ensure!(snapshot.valid(), "invalid probe execution lease");
     ensure!(
@@ -71,7 +72,18 @@ pub(super) fn accept_lease(
         .expires_at
         .saturating_sub(panel_now)
         .min(snapshot.expires_at.saturating_sub(snapshot.issued_at));
-    let deadline = request_started + Duration::from_secs(remaining as u64);
+    let mut deadline = request_started + Duration::from_secs(remaining as u64);
+    if let Some(previous) = previous
+        && previous.snapshot.id == snapshot.id
+    {
+        ensure!(
+            previous.snapshot == snapshot,
+            "probe lease identity was rewritten"
+        );
+        // Renewing a receipt may coincide with host clock or offset changes.
+        // Its original monotonic execution deadline can only become shorter.
+        deadline = deadline.min(previous.deadline);
+    }
     ensure!(deadline > received, "probe lease expired during delivery");
     let mut definitions = snapshot.probes.clone();
     definitions.sort_by_key(|probe| probe.spec.id);

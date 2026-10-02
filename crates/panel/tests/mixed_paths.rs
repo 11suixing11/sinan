@@ -120,6 +120,101 @@ async fn assign(panel: &TestPanel, cookie: &str, chain: i64) -> Result<i64> {
 fn imported(password: &str) -> String {
     json!({"outbounds":[{"type":"http","tag":"外部中间段","server":"airport.example.com","server_port":443,"username":"fixture","password":password}]}).to_string()
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn entry_eligibility_tracks_grants_and_live_path_references(pool: PgPool) -> Result<()> {
+    let panel =
+        TestPanel::start_with_public_url(pool.clone(), Some("https://panel.example.com")).await?;
+    let cookie = panel.admin_cookie().await?;
+    let entry_host = host(&panel, &cookie, "入口资格").await?;
+    let hop_host = host(&panel, &cookie, "内部段").await?;
+    let entry = managed(&panel, &cookie, entry_host).await?;
+    let hop = managed(&panel, &cookie, hop_host).await?;
+    async fn resource(panel: &TestPanel, cookie: &str, node: i64) -> Result<Value> {
+        call(panel, cookie, Method::GET, "/proxy-resources", None)
+            .await?
+            .as_array()
+            .context("resources")?
+            .iter()
+            .find(|value| value["kind"] == "direct" && value["id"] == node)
+            .cloned()
+            .context("direct resource")
+    }
+    ensure!(resource(&panel, &cookie, entry).await?["entry_eligible"] == true);
+    let user = id(&panel.create_user(&cookie, "授权资格用户").await?)?;
+    panel.grant(&cookie, user, entry).await?;
+    let granted = resource(&panel, &cookie, entry).await?;
+    ensure!(granted["entry_eligible"] == false);
+    ensure!(granted["reference_count"] == 0);
+    ensure!(granted.get("user_id").is_none() && granted.get("uuid").is_none());
+    let existing = json!({"name":"资格拒绝", "entry":{"mode":"existing","node_id":entry}, "hops":[{"kind":"managed","node_id":hop}]});
+    ensure!(
+        panel
+            .admin(
+                Method::POST,
+                &format!("{ROOT}/chains/batch"),
+                &cookie,
+                Some(json!({"request_id":Uuid::new_v4(),"items":[existing.clone()]}))
+            )
+            .await?
+            .status()
+            == StatusCode::CONFLICT
+    );
+    call(
+        &panel,
+        &cookie,
+        Method::DELETE,
+        &format!("/users/{user}/accesses/{entry}"),
+        None,
+    )
+    .await?;
+    ensure!(resource(&panel, &cookie, entry).await?["entry_eligible"] == true);
+    let policy = call(
+        &panel,
+        &cookie,
+        Method::POST,
+        "/policy-groups",
+        Some(json!({"name":"未分配策略也占用入口", "node_ids":[entry], "chain_ids":[]})),
+    )
+    .await?;
+    ensure!(resource(&panel, &cookie, entry).await?["entry_eligible"] == false);
+    call(
+        &panel,
+        &cookie,
+        Method::DELETE,
+        &format!("/policy-groups/{}", id(&policy)?),
+        None,
+    )
+    .await?;
+    ensure!(resource(&panel, &cookie, entry).await?["entry_eligible"] == true);
+    sqlx::query("UPDATE nodes SET enabled=FALSE WHERE id=$1")
+        .bind(entry)
+        .execute(&pool)
+        .await?;
+    ensure!(resource(&panel, &cookie, entry).await?["entry_eligible"] == false);
+    sqlx::query("UPDATE nodes SET enabled=TRUE WHERE id=$1")
+        .bind(entry)
+        .execute(&pool)
+        .await?;
+    let (chain_id, _) = create(&panel, &cookie, existing).await?;
+    let internal = resource(&panel, &cookie, hop).await?;
+    ensure!(
+        internal["entry_eligible"] == false
+            && internal["reference_count"]
+                .as_i64()
+                .is_some_and(|count| count > 0)
+    );
+    call(
+        &panel,
+        &cookie,
+        Method::DELETE,
+        &format!("/proxy-resources/chain/{chain_id}"),
+        None,
+    )
+    .await?;
+    ensure!(resource(&panel, &cookie, hop).await?["entry_eligible"] == true);
+    Ok(())
+}
 async fn source_settled(panel: &TestPanel, cookie: &str, source: i64) -> Result<Value> {
     for _ in 0..200 {
         let value = call(

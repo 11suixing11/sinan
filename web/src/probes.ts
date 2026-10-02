@@ -95,8 +95,10 @@ export function probeSlots(results: ProbeResult[], probe: Probe, now: number, co
 
 // A persisted revision is required for edits and deletion; unavailable/stale reads
 // cannot supply execution authority or overwrite a newer administrator's draft.
+export const probeRevisionMatches = (draft: { revision?: number | null }, current: { revision?: number | null } | undefined) => Boolean(current && Number.isSafeInteger(draft.revision) && (draft.revision ?? 0) > 0 && current.revision === draft.revision)
+
 export function probeWriteError(probe: Probe, current: Probe | undefined): string {
-  if (!current || !Number.isSafeInteger(probe.revision) || (probe.revision ?? 0) <= 0 || current.revision !== probe.revision)
+  if (!probeRevisionMatches(probe, current))
     return '此拨测已不存在或已改变，请刷新后重新确认；当前草稿已保留。'
   return ''
 }

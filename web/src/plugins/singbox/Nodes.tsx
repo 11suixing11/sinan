@@ -37,6 +37,7 @@ export default function Nodes({ serverId, chainsOnly = false, selected }: { serv
   const visible = all.filter(resource => (!filter || resource.server_id === Number(filter)) && (!kind || resource.kind === kind) && (!role || resource.role === role) && (!search || `${resource.name} ${resource.public_host}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())))
   const canCreateChain = canCreate && Boolean(nodes.data && resources.data && !nodes.error && !resources.error)
   const refresh = () => { nodes.reload(); resources.reload(); servers.reload(); usage.reload() }
+  const creationError = () => resourceWriteError(nodes, resources, servers) || (!servers.getCurrent()?.some(server => server.enabled && (!currentFilter.current || server.id === Number(currentFilter.current))) ? '当前筛选中没有可用的入口服务器，请明确选择后再创建。' : '')
   const writeError = (value?: { kind: 'direct' | 'chain'; id: number }) => {
     const stale = resourceWriteError(nodes, resources, servers)
     if (stale) return stale
@@ -44,7 +45,7 @@ export default function Nodes({ serverId, chainsOnly = false, selected }: { serv
   }
   const editorError = editor ? writeError(editor === 'new' ? undefined : { kind: 'direct', id: editor.id }) || (editor === 'new' && !servers.getCurrent()?.some(server => String(server.id) === draftServer && server.enabled) ? '已选服务器已不存在或未启用，请明确重新选择；当前草稿已保留。' : '') : ''
   const deletingError = deleting ? writeError(deleting) : ''
-  const edit = (node: Node | 'new') => { if (writeError(node === 'new' ? undefined : { kind: 'direct', id: node.id })) return; action.clearError(); setDraftServer(filter || String(enabledServers[0]?.id ?? '')); setEditor(node) }
+  const edit = (node: Node | 'new') => { if (writeError(node === 'new' ? undefined : { kind: 'direct', id: node.id }) || (node === 'new' && creationError())) return; action.clearError(); setDraftServer(currentFilter.current || String(servers.getCurrent()?.find(server => server.enabled)?.id ?? '')); setEditor(node) }
   const submit = (form: FormData) => {
     if (!editor || writeError(editor === 'new' ? undefined : { kind: 'direct', id: editor.id }) || (editor === 'new' && !servers.getCurrent()?.some(server => String(server.id) === draftServer && server.enabled))) return
     const fields = { name: String(form.get('name')).trim(), public_host: String(form.get('public_host')).trim(), sni: String(form.get('sni') ?? '').trim(), protocol_config: protocolRequest(form), enabled: form.get('enabled') === 'on', settings: nodeSettingsRequest(form) }
@@ -55,7 +56,7 @@ export default function Nodes({ serverId, chainsOnly = false, selected }: { serv
     void action.run(() => api(editor === 'new' ? '/api/plugins/sing-box/nodes' : `/api/plugins/sing-box/nodes/${editor?.id}`, editor === 'new' ? 'POST' : 'PATCH', request), () => { setEditor(null); setSaved(serverId); refresh() })
   }
   return <div className="nodes-page">
-    <PageHeader eyebrow="sing-box 插件" title="代理节点" description="统一管理直连节点与有序链路；从受管节点或订阅来源选择中间段和最终出口。"><Refresh onClick={refresh} /><button className="button button-primary" disabled={!canCreate} onClick={() => edit('new')}><Icon name="plus" size={18} />创建节点</button><button className="button button-secondary" disabled={!canCreateChain || creatingChain} onClick={() => { if (writeError() || !canCreateChain) return; action.clearError(); setCreatingChain(true); setCreatedChains([]) }}>创建链路</button></PageHeader>
+    <PageHeader eyebrow="sing-box 插件" title="代理节点" description="统一管理直连节点与有序链路；从受管节点或订阅来源选择中间段和最终出口。"><Refresh onClick={refresh} /><button className="button button-primary" disabled={!canCreate} onClick={() => edit('new')}><Icon name="plus" size={18} />创建节点</button><button className="button button-secondary" disabled={!canCreateChain || creatingChain} onClick={() => { if (creationError()) return; action.clearError(); setCreatingChain(true); setCreatedChains([]) }}>创建链路</button></PageHeader>
     <div className="stats-grid"><Stat icon="nodes" label="代理资源" value={resources.data ? all.length : '—'} note="直连节点与独立链路入口" /><Stat icon="server" label="所在服务器" value={resources.data ? new Set(all.map(node => node.server_id)).size : '—'} note="每台服务器运行一份完整配置" /><Stat icon="activity" label="累计代理流量" value={usage.data ? bytes(usage.data.total) : '—'} note="含已删除节点的历史用量" /></div>
     <ErrorNotice message={resources.error || nodes.error || servers.error || usage.error} retry={refresh} />
     {saved !== null && <div className="notice" role="status"><span>资源已保存，正在等待自动发布与设备应用。</span><button className="text-button" onClick={() => setDeployment(saved)}>查看部署进度</button></div>}

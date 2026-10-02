@@ -6,7 +6,7 @@ export type ProxyResource = ResourceKey & {
   name: string; server_id: number; server_name: string; public_host: string; port: number; protocol: string
   enabled: boolean; available: boolean; role: 'direct' | 'managed_hop' | 'chain_entry'; entry_node_id: number | null
   tcp: boolean; udp: boolean; legacy: boolean; active_generation: number | null; pending_generation: number | null
-  minimum_generation: number; stage: string; last_error: string | null; reference_count: number
+  minimum_generation: number; stage: string; last_error: string | null; reference_count: number; entry_eligible?: boolean
 }
 export type HopView = {
   position: number; kind: 'managed' | 'subscription'; node_id: number; server_id: number | null

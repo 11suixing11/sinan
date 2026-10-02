@@ -574,6 +574,27 @@ else:
         with self.assertRaises(ProcessLookupError):
             os.kill(children[0].pid, 0)
 
+    def test_unresponsive_child_cleanup_has_a_finite_wait_and_preserves_original(self):
+        process, selector = mock.Mock(), mock.Mock()
+        process.pid, process.returncode = 123456, None
+        original = OSError('owned registration failure')
+        selector.register.side_effect = original
+        process.wait.side_effect = subprocess.TimeoutExpired(['owned fixture'], BUILD.CHILD_CLEANUP_SECONDS)
+        with mock.patch.object(BUILD.os, 'waitid', return_value=None, create=True), \
+                mock.patch.object(BUILD.os, 'WNOWAIT', 0, create=True), \
+                mock.patch.object(BUILD.os, 'P_PID', 0, create=True), \
+                mock.patch.object(BUILD.os, 'WEXITED', 0, create=True), \
+                mock.patch.object(BUILD.os, 'WNOHANG', 0, create=True), \
+                mock.patch.object(BUILD.subprocess, 'Popen', return_value=process), \
+                mock.patch.object(BUILD.selectors, 'DefaultSelector', return_value=selector), \
+                mock.patch.object(BUILD.os, 'killpg') as kill:
+            with self.assertRaises(OSError) as result:
+                BUILD.run_bounded(['owned fixture'], BUILD.Deadline(5), 64)
+        self.assertIs(result.exception, original)
+        process.wait.assert_called_once_with(timeout=BUILD.CHILD_CLEANUP_SECONDS)
+        kill.assert_called_once_with(process.pid, signal.SIGKILL)
+        self.assertTrue(any('Child cleanup also failed: TimeoutExpired' in note for note in result.exception.__notes__))
+
     @unittest.skipUnless(sys.platform == 'linux' and hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'),
                          'Linux owned child-group signal acceptance required')
     def test_cli_term_and_hup_reap_real_owned_child_groups(self):

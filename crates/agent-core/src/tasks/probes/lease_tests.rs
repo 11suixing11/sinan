@@ -415,13 +415,23 @@ async fn acceptance_persists_revision_and_definition_barriers_across_reopen() ->
     let original = accepted(&client, &[spec(1, false)], 4, Duration::from_secs(90)).snapshot;
     {
         let state = Arc::new(Mutex::new(crate::State::open(&path)?));
-        leases::accept_lease(original.clone(), 7, &state, client.clone(), Instant::now())?;
+        leases::accept_lease(
+            original.clone(),
+            7,
+            &state,
+            client.clone(),
+            Instant::now(),
+            None,
+        )?;
     }
     {
         let state = Arc::new(Mutex::new(crate::State::open(&path)?));
         let mut rollback = original.clone();
         rollback.revision = 3;
-        assert!(leases::accept_lease(rollback, 7, &state, client.clone(), Instant::now()).is_err());
+        assert!(
+            leases::accept_lease(rollback, 7, &state, client.clone(), Instant::now(), None)
+                .is_err()
+        );
         let mut rewritten = original.clone();
         rewritten.probes[0].authorization.scope = "different permission".into();
         rewritten.probes[0]
@@ -432,18 +442,20 @@ async fn acceptance_persists_revision_and_definition_barriers_across_reopen() ->
             .authorization = Some(rewritten.probes[0].authorization.clone());
         assert!(rewritten.valid());
         assert!(
-            leases::accept_lease(rewritten, 7, &state, client.clone(), Instant::now()).is_err()
+            leases::accept_lease(rewritten, 7, &state, client.clone(), Instant::now(), None)
+                .is_err()
         );
         let mut older_time = original.clone();
         older_time.revision = 5;
         older_time.issued_at -= 1;
         older_time.expires_at -= 1;
         assert!(
-            leases::accept_lease(older_time, 7, &state, client.clone(), Instant::now()).is_err()
+            leases::accept_lease(older_time, 7, &state, client.clone(), Instant::now(), None)
+                .is_err()
         );
         let mut renewed = original.clone();
         renewed.id = Uuid::new_v4();
-        leases::accept_lease(renewed, 7, &state, client.clone(), Instant::now())?;
+        leases::accept_lease(renewed, 7, &state, client.clone(), Instant::now(), None)?;
         let mut changed = original;
         changed.revision = 5;
         changed.probes[0].authorization.scope = "replacement permission".into();
@@ -453,7 +465,7 @@ async fn acceptance_persists_revision_and_definition_barriers_across_reopen() ->
             .as_mut()
             .unwrap()
             .authorization = Some(changed.probes[0].authorization.clone());
-        leases::accept_lease(changed, 7, &state, client, Instant::now())?;
+        leases::accept_lease(changed, 7, &state, client, Instant::now(), None)?;
     }
     std::fs::remove_dir_all(directory)?;
     Ok(())
@@ -504,8 +516,15 @@ async fn expired_future_and_invalid_authorization_leases_never_persist_permissio
             _ => unreachable!(),
         }
         assert!(
-            leases::accept_lease(rejected, 7, &fixture.state, client.clone(), Instant::now())
-                .is_err(),
+            leases::accept_lease(
+                rejected,
+                7,
+                &fixture.state,
+                client.clone(),
+                Instant::now(),
+                None
+            )
+            .is_err(),
             "{reason}"
         );
         assert!(
@@ -544,6 +563,7 @@ async fn acceptance_deducts_request_latency_and_never_restarts_the_lease_clock()
         &fixture.state,
         client.clone(),
         request_started,
+        None,
     )?;
     assert!(accepted.deadline <= request_started + Duration::from_secs(3));
     assert!(accepted.deadline > before);
@@ -561,7 +581,69 @@ async fn acceptance_deducts_request_latency_and_never_restarts_the_lease_clock()
 
     let elapsed = Instant::now() - Duration::from_secs(4);
     snapshot.id = Uuid::new_v4();
-    assert!(leases::accept_lease(snapshot, 7, &fixture.state, client, elapsed).is_err());
+    assert!(leases::accept_lease(snapshot, 7, &fixture.state, client, elapsed, None).is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn reusing_a_lease_never_extends_its_monotonic_deadline_after_clock_recalibration()
+-> Result<()> {
+    let fixture = Fixture::new()?;
+    let client = local_client()?;
+    let mut snapshot = accepted(&client, &[spec(1, false)], 1, Duration::from_secs(90)).snapshot;
+    snapshot.issued_at -= 60;
+    snapshot.expires_at -= 60;
+    let first = leases::accept_lease(
+        snapshot.clone(),
+        7,
+        &fixture.state,
+        client.clone(),
+        Instant::now(),
+        None,
+    )?;
+    fixture
+        .state
+        .lock()
+        .unwrap()
+        .set_json("clock_offset_ms", &-60_000_i64)?;
+    let renewed = leases::accept_lease(
+        snapshot.clone(),
+        7,
+        &fixture.state,
+        client.clone(),
+        Instant::now(),
+        Some(&first),
+    )?;
+    assert_eq!(renewed.deadline, first.deadline);
+    assert!(renewed.panel_millis() >= first.panel_millis().saturating_sub(10));
+
+    let mut rewritten = snapshot.clone();
+    rewritten.expires_at -= 1;
+    assert!(rewritten.valid());
+    assert!(
+        leases::accept_lease(
+            rewritten,
+            7,
+            &fixture.state,
+            client.clone(),
+            Instant::now(),
+            Some(&first),
+        )
+        .is_err()
+    );
+    let mut expired = first;
+    expired.deadline = Instant::now() - Duration::from_secs(1);
+    assert!(
+        leases::accept_lease(
+            snapshot,
+            7,
+            &fixture.state,
+            client,
+            Instant::now(),
+            Some(&expired),
+        )
+        .is_err()
+    );
     Ok(())
 }
 
@@ -666,6 +748,63 @@ impl Drop for HttpFixture {
     fn drop(&mut self) {
         self.worker.abort();
     }
+}
+
+#[tokio::test]
+async fn failed_refresh_revokes_execution_without_forgetting_the_receipt_deadline() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let prototype = local_client()?;
+    let mut snapshot = accepted(&prototype, &[spec(1, false)], 1, Duration::from_secs(90)).snapshot;
+    snapshot.issued_at -= 60;
+    snapshot.expires_at -= 60;
+    let (failed_entered, failed_request) = oneshot::channel();
+    let release = Arc::new(Notify::new());
+    let http = HttpFixture::new(vec![
+        Reply::lease(&snapshot)?,
+        Reply {
+            status: 503,
+            body: "{}".into(),
+            entered: Some(failed_entered),
+            release: Some(release.clone()),
+        },
+        Reply::lease(&snapshot)?,
+    ])
+    .await?;
+    let client = http.client("fixture-session")?;
+    let (_clients, clients) = watch::channel(Some(client));
+    let (leases, mut authority) = watch::channel(None);
+    let synchronizer = tokio::spawn(synchronize_with_cadence(
+        7,
+        fixture.state.clone(),
+        clients,
+        leases,
+        fixture.retirement.clone(),
+        (Duration::from_millis(25), Duration::from_millis(150)),
+    ));
+    timeout(Duration::from_secs(2), authority.changed()).await??;
+    let initial = authority
+        .borrow_and_update()
+        .clone()
+        .context("first lease was not accepted")?;
+    timeout(Duration::from_secs(2), failed_request).await??;
+    fixture
+        .state
+        .lock()
+        .unwrap()
+        .set_json("clock_offset_ms", &-60_000_i64)?;
+    release.notify_one();
+    timeout(Duration::from_secs(2), authority.changed()).await??;
+    assert!(authority.borrow_and_update().is_none());
+    timeout(Duration::from_secs(2), authority.changed()).await??;
+    let reused = authority
+        .borrow_and_update()
+        .clone()
+        .context("same receipt was not recovered")?;
+    assert_eq!(reused.snapshot, snapshot);
+    assert_eq!(reused.deadline, initial.deadline);
+    http.assert_lease_request();
+    stop(synchronizer).await;
+    Ok(())
 }
 
 #[tokio::test]
