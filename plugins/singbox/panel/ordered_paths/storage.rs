@@ -287,7 +287,7 @@ pub(crate) async fn ensure_node_edit_safe(
     node: &super::super::business::NodeRow,
     previous: &super::super::business::NodeRow,
 ) -> ApiResult<()> {
-    let referenced = !node_configuration_references(&mut **tx, &[node.id])
+    let referenced = !node_configuration_references(tx, &[node.id])
         .await?
         .is_empty();
     if referenced
