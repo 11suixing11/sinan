@@ -1,0 +1,143 @@
+{
+  "schema": 1,
+  "baseline_commit": "0edc6c6b68748aeb843a0b7e7b159a8a1cc30125",
+  "goal_complete": false,
+  "ci_resumed": false,
+  "frozen_inputs": 17,
+  "source_freeze_sha256": "4e956a6d509f4ebbdd56ca6d6e569eceb50a5caaa154093a32366b8bf7e5544e",
+  "postflight_inputs_unchanged": true,
+  "syntax_programs_compiled": 2,
+  "product_tests_repeated": false,
+  "pre_freeze_failure": {
+    "reason": "total_count_was_mistaken_for_registry_count",
+    "locked_total_packages": 429,
+    "locked_registry_packages": 418,
+    "network_started": false,
+    "programs_compiled": 0,
+    "preserved_receipt": {
+      "sha256": "e484f8b29f887eefad1b19a1e1829c3cddc4ba610be4068deb8ab1ea76352b79",
+      "bytes": 438
+    }
+  },
+  "nexus": {
+    "run_id": "fc4e006a-86f3-4e64-8234-ff9827a40f44",
+    "read_only": true,
+    "network_attempts": 1,
+    "ssh_exit": 0,
+    "elapsed_ms": 2833,
+    "context_status": "bootstrap_not_verified",
+    "candidate_parse": {
+      "parse_status": "accepted",
+      "raw_row_count": 1
+    },
+    "filtered_candidate_count": 1,
+    "explicit_running_candidate_count": 1,
+    "raw_query_evidence_retained": true,
+    "query_evidence": [
+      {
+        "stage": "candidate_list",
+        "status": "observed",
+        "exit": 0,
+        "stdout": {
+          "sha256": "b6771275f6ddc4dd9e0c6b07fdf6589b9af8c8fe299f8bc6efb4c092295c4977",
+          "bytes": 170
+        },
+        "stdout_complete": true,
+        "stderr": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        }
+      },
+      {
+        "stage": "autoload_file",
+        "status": "query_failed",
+        "exit": 1,
+        "stdout": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        },
+        "stdout_complete": true,
+        "stderr": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        }
+      }
+    ],
+    "queries_shared_raw_limit_bytes": 40960,
+    "ssh_per_stream_limit_bytes": 65536,
+    "second_bootstrap_file_check_performed": false,
+    "php_performed": false,
+    "database_select_performed": false,
+    "identity_secrets_read": false,
+    "current_connection_2_authenticated": false,
+    "endpoint_comparison": "unknown",
+    "original_r1_list_failure_reason": "unknown_original_raw_stdout_not_retained",
+    "original_r1_materials_preserved": true,
+    "bindings_unchanged": {
+      "probe_source": true,
+      "previous_source": true,
+      "previous_receipt": true,
+      "previous_observation": true,
+      "old_exporter_source": true,
+      "old_inventory": true,
+      "ssh_config": true,
+      "known_hosts": true,
+      "identity_file": true
+    },
+    "agent_socket_unchanged": true,
+    "local_cleanup_state": "confirmed",
+    "receipt": {
+      "sha256": "d631f821945d233523f81c714a3b0183923542edb7e8dc9963fb1105ac0998e9",
+      "bytes": 2282
+    },
+    "observation": {
+      "sha256": "dffe9d53a625d6872a8389a4a88570c9b7dd770ee2bddd2998ba422977ff9248",
+      "bytes": 1550
+    },
+    "ssh_stdout": {
+      "sha256": "b73c7ee3dd5d23aec5f50e6440d5527475625b446867cfd5d3811041c2c30639",
+      "bytes": 1126
+    },
+    "ssh_stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "native_preparation": {
+    "kind": "read_only_preparation_eligibility",
+    "observed_at": "2026-10-02T21:20:54.459042+00:00",
+    "local_available_bytes": 3039264768,
+    "local_required_reserve_bytes": 4294967296,
+    "supplement_initial_required_bytes": 4328521728,
+    "local_reserve_eligible": false,
+    "supplement_initial_eligible": false,
+    "guard_deficit_bytes": 1255702528,
+    "locked_total_packages": 429,
+    "locked_registry_packages": 418,
+    "cargo_lock_sha256": "52ab4ae8bafb7a56d9f79f578f1cabad2968b63148f94f0be359be2593709aaa",
+    "tracked_source_files": 1344,
+    "tracked_dist_files": 25,
+    "whole_current_source_frozen": false,
+    "native_build_started": false,
+    "material_archive_created": false,
+    "native_ssh_transport_started": false,
+    "old_materials_preserved": true,
+    "existing_reserves_lowered": false,
+    "current_native_artifacts": "not_authenticated",
+    "current_mirror_cache_sufficient": "unknown",
+    "observation": {
+      "sha256": "002d4ae12941738fc8274af1a86b6f75d9a2f8752516383e495c08ee904ee443",
+      "bytes": 2125
+    }
+  },
+  "server_installation_performed": false,
+  "hardware_diagnostics_started": false,
+  "next_required_evidence": [
+    "authenticated_current_nexus_application_context",
+    "current_connection_2_metadata",
+    "restored_local_native_preparation_reserve",
+    "current_locked_offline_native_build",
+    "real_agent_installation_and_fault_matrix",
+    "full_nodequality_licenses_and_factory"
+  ]
+}
