@@ -1,5 +1,11 @@
 # 执行进度
 
+## 2026-10-02：报告采集器运行所有权与 fixture 异常收尾
+
+- 原源码交付后恢复目标推进；基线 `6eaa172` 的只读进程盘点发现 20 个旧 NodeQuality inert fixture watcher，全部 PPID=1、工作目录已删除。现场先固定到私有证据，新增 [Issue #152](https://github.com/theLucius7/sinan/issues/152) 并归入原 milestone，既有失败和旧材料保留。
+- 先集中补齐报告采集器父进程／目录身份、自主信号退出、非阻塞观察锁及 wrapper 启动取消窗口、停止顺序；同步集中改 fixture 自有进程组收尾和真实小进程回归代码。修改期间不测试、构建或启动新的 VM；整步完成冻结后再集中验收，结果见 [独立记录](docs/acceptance/nodequality-watcher-lifecycle.md)。完整 NodeQuality、当前 Linux 构建／注册 Agent 矩阵和正式发布仍未签收，CI 暂停，继续同一集成 PR。
+- 独立只读复核完成后冻结 784 份功能输入，SHA256 `504880b192ff8ee705774fbe80e8d3c5e52a651c896c124771a214ffb582a623`；报告／wrapper 37（含新增 helper 3）、固定源 16、策略 14、watcher 7 共 74 个不同方法全部通过，0 失败／跳过；不重复原 31 个托管工具合同、Rust 或前端验收。7 份 watcher 清理收据通过，完整章节／历史保持，外部 sentinel 不受影响。最后全进程核对又找到同批历史组内的 6 个普通 tmp fixture，启动时间均早于本轮；两批现场分别固定，逐个核对并 TERM/KILL 共 26 个原 PID，无组信号或文件删除，终态 report watcher=0；日志与 [机器收据](docs/acceptance/nodequality-watcher-lifecycle-local.json) 保留，源身份及差异检查后整步一次提交。
+
 ## 2026-10-02：集成 PR 交付索引与提交收尾
 
 - 核对集成分支 `10f5f3c` 已推送、工作区干净，统一草稿 [PR #151](https://github.com/theLucius7/sinan/pull/151) 已关联当前任务。补齐 [交付索引](docs/acceptance/integrated-delivery.md)，将服务器、插件安装、代理节点／链路、用户授权、设备发布确认、订阅与计量关系，以及各自独立证据集中说明。

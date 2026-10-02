@@ -21,6 +21,7 @@ from unittest import mock
 
 
 sys.dont_write_bytecode = True
+from nodequality_fixture_process import OwnedProcesses, cancellation_signals
 PLUGIN = pathlib.Path(__file__).resolve().parent.parent / "plugins/nodequality"
 module_spec = importlib.util.spec_from_file_location("nodequality_report", PLUGIN / "report.py")
 report = importlib.util.module_from_spec(module_spec)
@@ -367,10 +368,19 @@ sys.stdout.write("https://nodequality.com/r/fixture\\nSINAN_RESPONSE_STATUS:200"
 
 
 class BuildTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="sinan-nodequality-build-fixture-")
+        self.root = pathlib.Path(self.temporary.name)
+        self.processes = OwnedProcesses(self.root)
+
+    def tearDown(self):
+        self.processes.cleanup_temporary(self.temporary, self)
+
     def test_failed_upstream_preserves_complete_outputs_without_reporting_success(self):
         for exit_code in (0, 1, 7):
-            with self.subTest(exit_code=exit_code), tempfile.TemporaryDirectory() as directory:
-                root = pathlib.Path(directory)
+            with self.subTest(exit_code=exit_code):
+                root = self.root / ("wrapper-" + str(exit_code))
+                root.mkdir(mode=0o700)
                 workspace = root / "workspace"
                 workspace.mkdir(mode=0o700)
                 binaries = root / "bin"
@@ -408,9 +418,9 @@ class BuildTests(unittest.TestCase):
                     runner = runner.replace(marker, source)
                 executable = root / "nodequality"
                 executable.write_text(runner)
-                result = subprocess.run(["bash", str(executable), "--workspace", str(workspace), "--ip-version", "ipv4"],
-                                        env=dict(os.environ, PATH=str(binaries) + ":" + os.environ["PATH"]),
-                                        capture_output=True, text=True, timeout=15)
+                result = self.processes.run(["bash", str(executable), "--workspace", str(workspace), "--ip-version", "ipv4"],
+                                            env=dict(os.environ, PATH=str(binaries) + ":" + os.environ["PATH"]),
+                                            capture_output=True, text=True, timeout=15)
                 self.assertEqual((workspace / "upstream-exit.txt").read_text().strip(), str(exit_code),
                                  (result.stdout, result.stderr, (workspace / "log.txt").read_text()))
                 self.assertEqual((workspace / "report.zip").read_bytes(), archive)
@@ -513,6 +523,7 @@ class RunnerFixtureTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="sinan-nodequality-runner-fixture-")
         self.root = pathlib.Path(self.temporary.name)
+        self.processes = OwnedProcesses(self.root)
         self.workspace = self.root / "workspace"
         self.workspace.mkdir()
         self.binary = self.root / "bin"
@@ -539,7 +550,7 @@ raise SystemExit(int(os.environ.get("NQ_FIXTURE_CURL_EXIT", "0")))
         })
 
     def tearDown(self):
-        self.temporary.cleanup()
+        self.processes.cleanup_temporary(self.temporary, self)
 
     def stub(self, name, source):
         target = self.binary / name
@@ -627,7 +638,7 @@ work_dir=$workspace/.nodequalityfixture
                 "--ip-version", "ipv6", "--network-mode", "low"]
 
     def assert_complete_runner_report(self, mode, upstream_status, status):
-        result = subprocess.run(self.runner(mode) + ["--mode", "full"], env=self.environment, capture_output=True, timeout=10)
+        result = self.processes.run(self.runner(mode) + ["--mode", "full"], env=self.environment, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, status, result.stderr.decode())
         self.assertEqual((self.workspace / "upstream-exit.txt").read_text().strip(), str(upstream_status))
         self.assertEqual((self.workspace / "fixture-options.txt").read_text().strip(), "y/y/l/y/-6")
@@ -653,7 +664,7 @@ work_dir=$workspace/.nodequalityfixture
                     path.unlink()
 
     def test_explicit_upload_true_produces_the_online_report(self):
-        result = subprocess.run(self.runner() + ["--upload-report", "true"], env=self.environment,
+        result = self.processes.run(self.runner() + ["--upload-report", "true"], env=self.environment,
                                 capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertEqual((self.workspace / "report-url.txt").read_text().strip(),
@@ -663,7 +674,7 @@ work_dir=$workspace/.nodequalityfixture
     def test_upload_403_preserves_a_complete_local_report(self):
         self.environment.update(NQ_FIXTURE_STATUS="403", NQ_FIXTURE_RESPONSE="Access denied",
                                 NQ_FIXTURE_CURL_EXIT="22")
-        result = subprocess.run(self.runner() + ["--upload-report", "true"], env=self.environment,
+        result = self.processes.run(self.runner() + ["--upload-report", "true"], env=self.environment,
                                 capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertIn("HTTP 状态：403", (self.workspace / "result.txt").read_text())
@@ -673,7 +684,7 @@ work_dir=$workspace/.nodequalityfixture
     def test_upload_transport_failure_is_separate_from_upstream_execution_failure(self):
         self.environment.update(NQ_FIXTURE_STATUS="000", NQ_FIXTURE_RESPONSE="Fixture connection failed",
                                 NQ_FIXTURE_CURL_EXIT="7")
-        result = subprocess.run(self.runner() + ["--upload-report", "true"], env=self.environment,
+        result = self.processes.run(self.runner() + ["--upload-report", "true"], env=self.environment,
                                 capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertEqual((self.workspace / "upstream-exit.txt").read_text().strip(), "1")
@@ -686,7 +697,7 @@ work_dir=$workspace/.nodequalityfixture
         for mode, status in (("early-one", 1), ("failed", 7)):
             with self.subTest(mode=mode):
                 try:
-                    result = subprocess.run(self.runner(mode), env=self.environment, capture_output=True, timeout=10)
+                    result = self.processes.run(self.runner(mode), env=self.environment, capture_output=True, timeout=10)
                     self.assertEqual(result.returncode, status, result.stderr.decode())
                     self.assertEqual((self.workspace / "upstream-exit.txt").read_text().strip(), str(status))
                     self.assertTrue((self.workspace / "result.txt").is_file())
@@ -697,14 +708,14 @@ work_dir=$workspace/.nodequalityfixture
                         path.unlink()
 
     def test_signal_cleanup_cannot_prove_normal_completion(self):
-        result = subprocess.run(self.runner("signal-cleanup"), env=self.environment,
+        result = self.processes.run(self.runner("signal-cleanup"), env=self.environment,
                                 capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 1, result.stderr.decode())
         self.assertTrue((self.workspace / "result.txt").is_file())
         self.assertEqual((self.workspace / "report.zip").read_bytes(), self.fixture_archive)
 
     def test_cleanup_refusal_cannot_prove_normal_completion(self):
-        result = subprocess.run(self.runner("cleanup-refused"), env=self.environment,
+        result = self.processes.run(self.runner("cleanup-refused"), env=self.environment,
                                 capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 1, result.stderr.decode())
         self.assertTrue((self.workspace / "result.txt").is_file())
@@ -713,7 +724,7 @@ work_dir=$workspace/.nodequalityfixture
     def test_zero_exit_or_normal_cleanup_without_a_zip_is_failed(self):
         for mode in ("empty", "missing-reports"):
             with self.subTest(mode=mode):
-                result = subprocess.run(self.runner(mode), env=self.environment, capture_output=True, timeout=10)
+                result = self.processes.run(self.runner(mode), env=self.environment, capture_output=True, timeout=10)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse((self.workspace / "result.txt").exists())
                 self.assertIn(b"a complete local NodeQuality report was not produced", result.stderr)
@@ -723,7 +734,7 @@ work_dir=$workspace/.nodequalityfixture
     def test_daily_branch_never_runs_upstream_or_creates_mounts(self):
         targets = self.workspace / "daily-targets.json"
         targets.write_text("[]")
-        result = subprocess.run(self.runner("sleep") + ["--mode", "daily", "--targets-file", str(targets)],
+        result = self.processes.run(self.runner("sleep") + ["--mode", "daily", "--targets-file", str(targets)],
                                 env=self.environment, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((self.workspace / "section-net_quality.json").exists())
@@ -735,25 +746,97 @@ work_dir=$workspace/.nodequalityfixture
         self.assertFalse((self.root / "cleanup.txt").exists())
 
     def test_signal_cleans_only_the_private_workspace(self):
-        process = subprocess.Popen(self.runner("sleep"), env=self.environment,
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-        try:
-            deadline = time.monotonic() + 5
-            while not (self.workspace / "fixture-ready").exists() and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertTrue((self.workspace / "fixture-ready").exists())
-            os.killpg(process.pid, signal.SIGTERM)
-            process.communicate(timeout=5)
-        finally:
-            if process.poll() is None:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.communicate(timeout=5)
-        self.assertNotEqual(process.returncode, 0)
+        signalled = []
+        def stop_when_ready(child):
+            if (self.workspace / "fixture-ready").exists() and not signalled:
+                signalled.append(child.pid)
+                os.killpg(child.pid, signal.SIGTERM)
+        result = self.processes.run(self.runner("sleep"), env=self.environment,
+                                    timeout=7, guard=stop_when_ready)
+        self.assertTrue(signalled)
+        self.assertNotEqual(result.returncode, 0)
         self.assertFalse((self.workspace / ".nodequalityfixture").exists())
         self.assertFalse((self.workspace / ".runner.lock").exists())
         cleanup = (self.root / "cleanup.txt").read_text().splitlines()
         self.assertEqual(len(cleanup), 3)
         self.assertTrue(all(str(self.workspace) in call for call in cleanup))
+
+
+class OwnedFixtureProcessTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="sinan-owned-fixture-process-")
+        self.root = pathlib.Path(self.temporary.name)
+        self.processes = OwnedProcesses(self.root)
+
+    def tearDown(self):
+        self.processes.cleanup_temporary(self.temporary, self)
+
+    def test_success_and_failure_never_signal_another_session(self):
+        with cancellation_signals():
+            sentinel = None
+            primary = None
+            try:
+                with cancellation_signals(defer=True):
+                    sentinel = self.processes.spawn([sys.executable, "-c", "import time; time.sleep(30)"])
+                result = self.processes.run([sys.executable, "-c", "print('owned success')"], timeout=3)
+                self.assertEqual(result.stdout, b"owned success\n")
+                with self.assertRaises(subprocess.CalledProcessError):
+                    self.processes.run([sys.executable, "-c", "import sys; print('owned failure'); sys.exit(7)"],
+                                       timeout=3, check=True)
+                self.assertIsNone(sentinel.process.poll())
+                self.assertTrue(all(child.cleanup_confirmed for child in self.processes.children[1:]))
+                failure = json.loads(self.processes.children[-1].log.read_text())
+                self.assertEqual(failure["primary_failure"]["type"], "CalledProcessError")
+                self.assertEqual(failure["returncode"], 7)
+                self.assertEqual(failure["cleanup_failures"], [])
+            except BaseException as error:
+                primary = error
+                raise
+            finally:
+                if sentinel is not None:
+                    self.processes.stop(sentinel, primary)
+
+    def test_timeout_stops_pipe_holder_after_the_leader_has_exited(self):
+        marker = self.root / "descendant-pid"
+        source = ("import pathlib, subprocess, sys\n"
+                  "child = subprocess.Popen([sys.executable, '-c', "
+                  "'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)'])\n"
+                  "pathlib.Path(sys.argv[1]).write_text(str(child.pid))\n"
+                  "print('leader finished', flush=True)\n")
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self.processes.run([sys.executable, "-c", source, str(marker)], timeout=1)
+        self.assertTrue(marker.exists())
+        child = self.processes.children[-1]
+        self.assertTrue(child.cleanup_confirmed)
+        self.assertEqual(child.process.returncode, 0)
+        evidence = json.loads(child.log.read_text())
+        self.assertIn("leader finished", evidence["stdout"])
+        self.assertEqual(evidence["primary_failure"]["type"], "TimeoutExpired")
+        self.assertEqual(evidence["cleanup_failures"], [])
+
+    def test_int_term_and_hup_keep_the_primary_error_and_cleanup_logs(self):
+        previous = {number: signal.getsignal(number) for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+        for number in previous:
+            with self.subTest(signal=number):
+                marker = self.root / ("ready-" + str(number))
+                source = ("import pathlib,sys,time\n"
+                          "pathlib.Path(sys.argv[1]).write_text('ready')\n"
+                          "print('before cancellation', flush=True)\n"
+                          "time.sleep(30)\n")
+                def interrupt_when_ready(child):
+                    if marker.exists() and child.stdout:
+                        os.kill(os.getpid(), number)
+                with self.assertRaises(KeyboardInterrupt):
+                    self.processes.run([sys.executable, "-c", source, str(marker)],
+                                       timeout=5, guard=interrupt_when_ready)
+                child = self.processes.children[-1]
+                self.assertTrue(child.cleanup_confirmed)
+                self.assertIsNotNone(child.process.returncode)
+                evidence = json.loads(child.log.read_text())
+                self.assertEqual(evidence["primary_failure"]["type"], "KeyboardInterrupt")
+                self.assertIn("before cancellation", evidence["stdout"])
+                self.assertEqual(evidence["cleanup_failures"], [])
+                self.assertEqual(signal.getsignal(number), previous[number])
 
 
 if __name__ == "__main__":

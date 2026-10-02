@@ -18,6 +18,7 @@
 | 范围 | 已整理的实现 | 证据入口 |
 | --- | --- | --- |
 | 服务器保护 | 诊断预算、常驻优先级、预检、运行保护、遥测解耦、有界补传、确认取消、独立章节与日常／完整入口 | [整改状态与故障矩阵](ordered-remediation.md) |
+| 报告采集器收尾 | 运行所有权、目录身份、忙锁下停止、inert fixture 异常清理；实机矩阵单独记账 | [watcher 生命周期](nodequality-watcher-lifecycle.md) |
 | IP 查询 | 逐源分类错误、目标与时间、失败保留成功、未知值和独立服务器 IP 页面；节点自查与制品准备独立记录 | [查询整合验收](unified-query-integration.md)、[IPQuality 最小工厂证明](ipquality-minimal-profile.md) |
 | 业务边界与兼容 | 插件目录、API、管理员／代理用户分离；旧身份、授权、订阅和账本保持 | [业务迁移](singbox-plugin-business.md)、[旧订阅实际连接](imported-subscription-runtime.md) |
 | 代理节点、用户与链路 | 原子批量资源、引用保护、来源解析与不可变版本、有序路径发布、授权及入口计量 | [资源](proxy-resources.md)、[来源](subscription-sources.md)、[有序路径](ordered-paths.md) |
@@ -25,7 +26,7 @@
 | 信任与真实托管工具 | 正常私有面板 CA、冻结 native 准备、设备控制、实际 API 驱动、注册参数与登录前清单绑定 | [面板信任](managed-agent-paths.md)、[启动前闭包](managed-agent-environment.md) |
 | 服务器与代理周期 | 服务器成本／到期／账单日网卡配额、轻量拨测，以及插件内代理套餐／周期按各自归属实现 | [进度与对应阶段记录](../../PROGRESS.md) |
 
-每份验收及机器收据绑定其自己的源码和输入，数量不能累加成一次全功能通过。最新受影响工具合同为 12＋19＝31 项通过；其前一步 Agent-core 为 265 通过、8 条件忽略，工具合同为 47 通过，全工作区 all-targets Clippy 通过。后续只有工具和文档变化，未重复不受影响的 Rust／前端测试或构建。
+每份验收及机器收据绑定其自己的源码和输入，数量不能累加成一次全功能通过。启动前闭包步骤的受影响工具合同为 12＋19＝31 项通过；其前一步 Agent-core 为 265 通过、8 条件忽略，工具合同为 47 通过，全工作区 all-targets Clippy 通过。报告采集器后续修改的输入及结果独立记录；不重复不受影响的 Rust／前端测试或构建。
 
 ## 未签收范围
 
