@@ -6,12 +6,16 @@ import json
 import os
 from pathlib import Path
 import re
+import selectors
+import shutil
 import subprocess
 import tempfile
+import time
 import urllib.parse
 
-from release import (MAX_BINARY, REPOSITORY, VERSION, digest, ensure, load_roots,
-                     read_regular, verify_bundle)
+from release import (REPOSITORY, VERSION, ensure, load_roots,
+                     regular_file_proof, source_offer_asset_limit,
+                     source_offer_url, verify_bundle)
 
 REQUIRED_JOBS = frozenset(("check", "compose-smoke", "Agent Linux musl (amd64)",
                           "Agent Linux musl (arm64)", "Reality installation and accounting"))
@@ -47,12 +51,44 @@ class Github:
 
     def download(self, asset, destination):
         # Select immutable asset ID, not a mutable tag/name download lookup.
-        with destination.open("xb") as output:
-            result = subprocess.run(self.command(
+        limit = source_offer_asset_limit(asset["name"])
+        ensure(type(asset["size"]) is int and 0 < asset["size"] <= limit,
+               "download asset size outside permitted range")
+        with destination.open("xb") as output, selectors.DefaultSelector() as selector:
+            process = subprocess.Popen(self.command(
                 f"repos/{REPOSITORY}/releases/assets/{asset['id']}", binary=True),
-                stdout=output, stderr=subprocess.PIPE, timeout=300,
-                env=self.environment(), check=False)
-        ensure(result.returncode == 0, "GitHub asset download failed")
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                env=self.environment())
+            deadline, downloaded, errors = time.monotonic() + 300, 0, 0
+            selector.register(process.stdout, selectors.EVENT_READ, True)
+            selector.register(process.stderr, selectors.EVENT_READ, False)
+            try:
+                while selector.get_map():
+                    remaining = deadline - time.monotonic()
+                    ensure(remaining > 0, "GitHub asset download timed out")
+                    for key, _ in selector.select(min(remaining, 1)):
+                        content = os.read(key.fileobj.fileno(), 65536)
+                        if not content:
+                            selector.unregister(key.fileobj)
+                            key.fileobj.close()
+                        elif key.data:
+                            downloaded += len(content)
+                            ensure(downloaded <= asset["size"] and downloaded <= limit,
+                                   "GitHub asset download exceeds the selected size")
+                            output.write(content)
+                        else:
+                            errors += len(content)
+                            ensure(errors <= 65536, "GitHub asset error output exceeds its bound")
+                remaining = deadline - time.monotonic()
+                ensure(remaining > 0, "GitHub asset download timed out")
+                ensure(process.wait(timeout=remaining) == 0, "GitHub asset download failed")
+                ensure(downloaded == asset["size"], "GitHub asset download is incomplete")
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=5)
+                process.stdout.close()
+                process.stderr.close()
 
 
 def tag_identity(github, tag):
@@ -137,7 +173,8 @@ def release_snapshot(github, tag):
         ensure(isinstance(asset["name"], str) and
                re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z.+_-]*", asset["name"])
                and asset["name"] not in names, "invalid or duplicate asset name")
-        ensure(type(asset["size"]) is int and 0 < asset["size"] <= MAX_BINARY
+        ensure(type(asset["size"]) is int
+               and 0 < asset["size"] <= source_offer_asset_limit(asset["name"])
                and asset["state"] == "uploaded", "incomplete or oversized asset")
         ensure(isinstance(asset["digest"], str)
                and re.fullmatch(r"sha256:[0-9a-f]{64}", asset["digest"]), "asset lacks a SHA256 digest")
@@ -153,8 +190,9 @@ def require_components(metadata):
     identities = {(entry["name"], entry["arch"]) for entry in metadata["artifacts"]}
     required = {(name, arch) for name in ("agent", "sing-box", "nodequality")
                 for arch in ("amd64", "arm64")}
-    if any(name == "tcpquality" for name, _ in identities):
-        required |= {("tcpquality", arch) for arch in ("amd64", "arm64")}
+    for optional in ("tcpquality", "ipquality"):
+        if any(name == optional for name, _ in identities):
+            required |= {(optional, arch) for arch in ("amd64", "arm64")}
     ensure(len(metadata["artifacts"]) == len(required) and identities == required,
            "release must contain every selected module on both architectures")
 
@@ -167,11 +205,13 @@ def checked_publication(github, tag, roots, minisign, publish=False):
     ensure(before["build_commit"] == identity["commit"], "tag differs from the draft build commit")
     with tempfile.TemporaryDirectory(prefix="sinan-publication-") as temporary:
         bundle = Path(temporary)
+        ensure(shutil.disk_usage(bundle).free >= sum(asset["size"] for asset in before["assets"])
+               + 32 * 1024 * 1024, "insufficient space for publication assets")
         for asset in before["assets"]:
             path = bundle / asset["name"]
             github.download(asset, path)
-            data = read_regular(path)
-            ensure(len(data) == asset["size"] and "sha256:" + digest(data) == asset["digest"],
+            proof = regular_file_proof(path, source_offer_asset_limit(asset["name"]))
+            ensure(proof["size"] == asset["size"] and "sha256:" + proof["sha256"] == asset["digest"],
                    "download differs from selected GitHub asset ID and digest")
         metadata = verify_bundle(bundle, roots, minisign, tag)
         require_components(metadata)
@@ -182,6 +222,15 @@ def checked_publication(github, tag, roots, minisign, publish=False):
     ensure(release_snapshot(github, tag) == before, "release assets changed during verification")
     evidence = {"tag": tag, "tag_identity": identity, "checks": checks, "release": before,
                 "published": False}
+    paired = {asset["name"]: asset for asset in before["assets"]}
+    evidence["source_offers"] = []
+    for entry in metadata["artifacts"]:
+        if entry["name"] == "ipquality":
+            name = f"ipquality-{entry['version']}-linux-{entry['arch']}-sources.tar.gz"
+            asset = paired[name]
+            evidence["source_offers"].append({"asset": name, "size": asset["size"],
+                                               "sha256": asset["digest"][7:],
+                                               "url": source_offer_url(tag, name)})
     if publish:
         result = github.api(f"repos/{REPOSITORY}/releases/{before['id']}", "PATCH",
                             ("draft=false", f"tag_name={before['tag']}",

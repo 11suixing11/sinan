@@ -8,7 +8,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 
 pub(crate) const NODE_COLUMNS: &str = "n.id, n.name, n.server_id, n.protocol, n.port, n.public_host, n.sni, n.private_key, n.public_key, n.short_id, n.protocol_config, n.enabled, n.settings";
 
-#[derive(FromRow)]
+#[derive(Clone, FromRow)]
 pub(crate) struct NodeRow {
     pub enabled: bool,
     pub settings: serde_json::Value,
@@ -152,7 +152,7 @@ pub(crate) async fn mark_dirty(
     transaction: &mut Transaction<'_, Postgres>,
     server_ids: &[i64],
 ) -> ApiResult<()> {
-    let affected: Vec<i64> = sqlx::query_scalar("WITH members AS (SELECT c.id AS chain_id,n.server_id FROM singbox_live_chains c JOIN nodes n ON n.id=c.entry_node_id UNION SELECT c.id,e.server_id FROM singbox_live_chains c JOIN nodes e ON e.id=c.exit_node_id UNION SELECT h.chain_id,h.managed_server_id FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.managed_server_id IS NOT NULL), touched AS (SELECT DISTINCT chain_id FROM members WHERE server_id=ANY($1)) SELECT id FROM servers WHERE id=ANY($1) OR id IN (SELECT server_id FROM members JOIN touched USING(chain_id)) ORDER BY id FOR UPDATE")
+    let affected: Vec<i64> = sqlx::query_scalar("WITH members AS (SELECT c.id AS chain_id,n.server_id FROM singbox_live_chains c JOIN nodes n ON n.id=c.entry_node_id UNION SELECT c.id,e.server_id FROM singbox_live_chains c JOIN nodes e ON e.id=c.exit_node_id UNION SELECT h.chain_id,h.managed_server_id FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.managed_server_id IS NOT NULL UNION SELECT c.id,n.server_id FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id WHERE c.path_kind='ordered' AND (c.deleted_at IS NULL OR c.phase<>'retired') UNION SELECT h.chain_id,h.managed_server_id FROM singbox_ordered_chain_hops h JOIN singbox_chains c ON c.id=h.chain_id WHERE c.path_kind='ordered' AND (c.deleted_at IS NULL OR c.phase<>'retired') AND h.managed_server_id IS NOT NULL AND h.generation=ANY(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation])), touched AS (SELECT DISTINCT chain_id FROM members WHERE server_id=ANY($1)) SELECT id FROM servers WHERE id=ANY($1) OR id IN (SELECT server_id FROM members JOIN touched USING(chain_id)) ORDER BY id FOR UPDATE")
         .bind(server_ids).fetch_all(&mut **transaction).await?;
     sqlx::query("UPDATE servers SET dirty_at=FLOOR(EXTRACT(EPOCH FROM clock_timestamp())*1000)::bigint WHERE id=ANY($1) AND deleted_at IS NULL").bind(&affected).execute(&mut **transaction).await?;
     Ok(())

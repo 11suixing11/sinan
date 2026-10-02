@@ -1,0 +1,382 @@
+{
+  "schema": 1,
+  "step": "confirmed-diagnostic-completion",
+  "baseline": "adde747e0960912e4f46bafdaa088d8fa76beb79",
+  "issue": "https://github.com/theLucius7/sinan/issues/143",
+  "phase": "final-local-acceptance-passed-not-live-deployment",
+  "source": {
+    "final_freeze_sha256": "84bc681aeeca301eb7e39a46709849140659452e218b8f3089faaf4d1f6d3581",
+    "functional_input_count": 646,
+    "matches_final_frozen_inputs": true,
+    "web_dist_file_count": 19,
+    "web_dist_matches_single_accepted_build": true
+  },
+  "rust": {
+    "packages": 10,
+    "unique_test_targets": 69,
+    "distinct_methods_passed": 593,
+    "distinct_methods_failed": 0,
+    "conditional_ignored": 18,
+    "coverage": "r3 unchanged seven packages and unaffected core library methods retained; r4 affected 73 core methods plus all previously unexecuted core integration, Agent and Panel targets",
+    "repair_changed_files": [
+      "crates/agent-core/src/transport/diagnostics/finalization.rs",
+      "crates/agent-core/src/transport/diagnostics/tests/cancellation.rs"
+    ],
+    "per_package": {
+      "sinan-adapter-sdk": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      "sinan-protocol": {
+        "passed": 27,
+        "failed": 0,
+        "ignored": 0
+      },
+      "sinan-compiler": {
+        "passed": 20,
+        "failed": 0,
+        "ignored": 4
+      },
+      "sinan-adapter-singbox": {
+        "passed": 18,
+        "failed": 0,
+        "ignored": 2
+      },
+      "sinan-adapter-nodequality": {
+        "passed": 16,
+        "failed": 0,
+        "ignored": 0
+      },
+      "sinan-tcp-probe": {
+        "passed": 29,
+        "failed": 0,
+        "ignored": 0
+      },
+      "sinan-adapter-tcpquality": {
+        "passed": 15,
+        "failed": 0,
+        "ignored": 0
+      },
+      "sinan-agent-core": {
+        "passed": 242,
+        "failed": 0,
+        "ignored": 8
+      },
+      "sinan-agent": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      },
+      "sinan-panel": {
+        "passed": 223,
+        "failed": 0,
+        "ignored": 4
+      }
+    },
+    "executions": [
+      {
+        "attempt": "rust-r3",
+        "name": "rust-package-sinan-adapter-sdk",
+        "exit_code": 0,
+        "seconds": 1.634,
+        "tests": {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "67b16a5aad4af53a928d9b96c4d62ac46e76da8f0047f81c429b3d95d7411505"
+      },
+      {
+        "attempt": "rust-r3",
+        "name": "rust-package-sinan-protocol",
+        "exit_code": 0,
+        "seconds": 3.29,
+        "tests": {
+          "passed": 27,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "b879447903eca2b4dda9dbdef2f4fd9483c56924e62cb8e2bef1ad3e239a85ca"
+      },
+      {
+        "attempt": "rust-r3",
+        "name": "rust-package-sinan-compiler",
+        "exit_code": 0,
+        "seconds": 2.542,
+        "tests": {
+          "passed": 20,
+          "failed": 0,
+          "ignored": 4
+        },
+        "log_sha256": "8e36188e6379bf0a1424a34f26a784a91b5628f49fc5138e734fe0a268bbf451"
+      },
+      {
+        "attempt": "rust-r3",
+        "name": "rust-package-sinan-adapter-singbox",
+        "exit_code": 0,
+        "seconds": 3.811,
+        "tests": {
+          "passed": 18,
+          "failed": 0,
+          "ignored": 2
+        },
+        "log_sha256": "f084749cda0884b316f3b9c02e35bf685e22641006ee28de41510c6e8451b7e0"
+      },
+      {
+        "attempt": "rust-r3",
+        "name": "rust-package-sinan-adapter-nodequality",
+        "exit_code": 0,
+        "seconds": 1.642,
+        "tests": {
+          "passed": 16,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "e783a15d49efa48da0403cc1f2766ec3e007f6ae18d96afb1e82961dd4c85958"
+      },
+      {
+        "attempt": "rust-r3",
+        "name": "rust-package-sinan-tcp-probe",
+        "exit_code": 0,
+        "seconds": 24.46,
+        "tests": {
+          "passed": 29,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "edd59c41ff39aff760e30dbcef35ea46700c3e0013385ebb566468f49c424b53"
+      },
+      {
+        "attempt": "rust-r3",
+        "name": "rust-package-sinan-adapter-tcpquality",
+        "exit_code": 0,
+        "seconds": 3.276,
+        "tests": {
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "999a78918f59afe691162bb7d07c212a7b0f083cc6f44466e9faaa8d85262008"
+      },
+      {
+        "attempt": "rust-r3",
+        "name": "rust-package-sinan-agent-core",
+        "exit_code": 101,
+        "seconds": 175.001,
+        "tests": {
+          "passed": 186,
+          "failed": 3,
+          "ignored": 8
+        },
+        "log_sha256": "38e43898744ed626fdc3a47997accd1bfb795dc82b6f4b9e1ae982917f92b91d"
+      },
+      {
+        "attempt": "rust-r4",
+        "name": "rust-core-diagnostics",
+        "exit_code": 0,
+        "seconds": 28.878,
+        "tests": {
+          "passed": 56,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "92b866d6b3e2dd29820462c50cf18572f058bebd95068ec2e8fd117b959fa8a9"
+      },
+      {
+        "attempt": "rust-r4",
+        "name": "rust-core-retirement",
+        "exit_code": 0,
+        "seconds": 4.713,
+        "tests": {
+          "passed": 17,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "a867cdc02b23b8db1c1e12291fa9c0087a717a6b44d60d97efcf888c91d03644"
+      },
+      {
+        "attempt": "rust-r4",
+        "name": "rust-core-integration-artifacts",
+        "exit_code": 0,
+        "seconds": 6.44,
+        "tests": {
+          "passed": 14,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "88ac2fbb709b9199365aef07e7f854b181909937f6753d7fb4134d33c117e97c"
+      },
+      {
+        "attempt": "rust-r4",
+        "name": "rust-core-integration-identity",
+        "exit_code": 0,
+        "seconds": 1.383,
+        "tests": {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "18bc9054fa5fda4657446aa4760f89b48439c173297569ac19e0f39d9f30dfdf"
+      },
+      {
+        "attempt": "rust-r4",
+        "name": "rust-core-integration-reconcile",
+        "exit_code": 0,
+        "seconds": 5.964,
+        "tests": {
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "2b556cf507fb8dba010c95f31aa3a28c952bdbde63bdc6a6d94fd8322f8bd2e0"
+      },
+      {
+        "attempt": "rust-r4",
+        "name": "rust-core-integration-services",
+        "exit_code": 0,
+        "seconds": 0.87,
+        "tests": {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "5402b6bf3f9347f899f394ea8dd63cf936ad249678d9a0d9d8a26e53113520ea"
+      },
+      {
+        "attempt": "rust-r4",
+        "name": "rust-core-integration-usage",
+        "exit_code": 0,
+        "seconds": 0.874,
+        "tests": {
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "a08138f35fb8c8439ee9009f71d4f71544ec47a4ee0180b199f9cf76eabf5919"
+      },
+      {
+        "attempt": "rust-r4",
+        "name": "rust-core-integration-usage_bounds",
+        "exit_code": 0,
+        "seconds": 1.895,
+        "tests": {
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "8be0ee92a8df2d555f1ed7436ff81168744968aa9bd4c331515e74d7309d6bb7"
+      },
+      {
+        "attempt": "rust-r4",
+        "name": "rust-package-sinan-agent",
+        "exit_code": 0,
+        "seconds": 8.142,
+        "tests": {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        "log_sha256": "158a4f61421cc2901102f6ba352cd3341bae9688c303a24ae7f6f8388f19d5b7"
+      },
+      {
+        "attempt": "rust-r4",
+        "name": "rust-package-sinan-panel",
+        "exit_code": 0,
+        "seconds": 250.108,
+        "tests": {
+          "passed": 223,
+          "failed": 0,
+          "ignored": 4
+        },
+        "log_sha256": "d8028d66666a6146774d27af5e10ce7a2982792c532cd5a818233f07f4fb2072"
+      }
+    ],
+    "fmt_passed": true,
+    "workspace_all_targets_clippy_warnings_deny_passed": true,
+    "core_boundary_passed": true,
+    "diff_check_passed": true,
+    "temporary_postgres": {
+      "started_by_this_receipt": true,
+      "stopped": true,
+      "pid_absent_after_stop": true,
+      "port_closed_after_stop": true,
+      "socket_entries_after_stop": []
+    },
+    "cleanup_passed": true
+  },
+  "web": {
+    "build_runs": 1,
+    "bun_passed": 48,
+    "bun_failed": 0,
+    "bun_skipped": 0,
+    "bun_assertions": 1024,
+    "affected_browser_suites_passed": [
+      "tcpquality",
+      "nodequality-chain-gate",
+      "confirmed-cancellation"
+    ],
+    "confirmed_cancellation_repair_seconds": 12.452542250000988,
+    "production_source_or_dist_changed_for_browser_fixture_repair": false,
+    "unaffected_browser_suites_repeated": false,
+    "api_environment": "private substitutes; real Chromium loading accepted dist"
+  },
+  "original_failures_retained": [
+    {
+      "attempt": "rust preflight",
+      "failure": "baseline references deleted generated dist asset; no Rust compile/test executed"
+    },
+    {
+      "attempt": "rust-r2",
+      "failure": "Clippy large_enum_variant; no Rust tests executed; terminal payload boxed"
+    },
+    {
+      "attempt": "rust-r3",
+      "failure": "186 passed / 3 failed / 8 ignored core library; unsupported existing proof check was missing after stop and corrupt target test still expected success",
+      "log_sha256": "38e43898744ed626fdc3a47997accd1bfb795dc82b6f4b9e1ae982917f92b91d"
+    },
+    {
+      "attempt": "web-r1",
+      "failure": "confirmed-cancellation fixture toggled an already open report; only fixture changed and failed suite repeated"
+    }
+  ],
+  "receipts": [
+    {
+      "name": "rust-receipt.json",
+      "sha256": "517cb576d0f4bddb58145e2da153d25dc911dc19bb3731527b946fe7f774010f"
+    },
+    {
+      "name": "rust-r2/rust-receipt.json",
+      "sha256": "6d91dcb46422bc6b1ca27f0337ffb409a3f0eafecee633cb459e354735db1335"
+    },
+    {
+      "name": "rust-r3/rust-receipt.json",
+      "sha256": "ef742d423c74e39ef1b0c92157bb69c80d7fad33afdbd8623fd3620507f9271b"
+    },
+    {
+      "name": "rust-r4/rust-receipt.json",
+      "sha256": "765340d1543a8e93dd580664673cacb4ddbffca953666660ed9635d0e0dd5481"
+    },
+    {
+      "name": "runs/r1/receipt.json",
+      "sha256": "d7b97d6bc7f1f9114fe51ed3e097fa513ffa3de0f059e75f474d41ed799b6c63"
+    },
+    {
+      "name": "browser-r2/receipt.json",
+      "sha256": "574a018942bc188002d0254bc715bf167c7f8143c0885f4c5a09c02db77e951f"
+    },
+    {
+      "name": "final-input-and-method-ledger.json",
+      "sha256": "fc999e4ad80fafb6992ac6b741020000933e63c6376464d38f664fb0e7cd810a"
+    }
+  ],
+  "ci": "four source workflows disabled_manually; not executed and not re-enabled",
+  "not_accepted": [
+    "current-source Linux/systemd on a dedicated node",
+    "full NodeQuality plus sustained proxy load and heartbeat/cleanup matrix",
+    "approved complete builder and dual-architecture reproducibility",
+    "Geekbench Pro and Ookla redistribution conditions",
+    "formal signed release or production deployment",
+    "whole P0 or overall goal completion"
+  ]
+}

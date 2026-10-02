@@ -9,6 +9,13 @@ export type ExchangeRates = {
 export const displayCurrencies = ['CNY', 'USD', 'EUR', 'HKD', 'JPY', 'GBP', 'SGD', 'CAD', 'AUD', 'CHF', 'KRW', 'RUB', 'VND']
 export const currencyCode = (value: unknown) => typeof value === 'string' && /^[A-Z]{3}$/.test(value) ? value : 'CNY'
 
+export function quoteState(quote: ExchangeRates | undefined, error = ''): 'fresh' | 'stale' | 'read-error' | 'unavailable' | 'unknown' {
+  if (error) return 'read-error'
+  if (!quote || quote.status === 'unavailable') return 'unavailable'
+  if (quote.stale || quote.status === 'stale' || quote.error_code) return 'stale'
+  return quote.status === 'fresh' && quote.stale === false ? 'fresh' : 'unknown'
+}
+
 export function price(value: unknown): number | null {
   if (typeof value !== 'string' || !/^\d+(?:\.\d+)?$/.test(value)) return null
   const amount = Number(value)

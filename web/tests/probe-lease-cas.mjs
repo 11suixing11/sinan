@@ -79,7 +79,7 @@ try {
       await form.getByRole('button', { name: '保存拨测', exact: true }).click()
       await panel.getByText('TEST_ONLY 拨测已被修改，请刷新后重试', { exact: true }).waitFor()
       assert.equal(writes.length, 1); assert.equal(writes[0].body.revision, 4); assert.equal(await form.getByLabel('名称', { exact: true }).inputValue(), 'TEST_ONLY 409 保留草稿')
-      await panel.getByText('此拨测已不存在或已改变，请刷新后重新确认；当前草稿已保留。', { exact: true }).waitFor()
+      await panel.getByText('此拨测已不存在或目标、版本已变化，请刷新后重新确认；当前草稿已保留。', { exact: true }).waitFor()
       await forceForm(form); assert.equal(writes.length, 1); ++totals.blocked
       await form.getByRole('button', { name: '取消编辑', exact: true }).click(); await row().getByRole('button', { name: '编辑', exact: true }).click()
       await form.getByLabel('名称', { exact: true }).fill('TEST_ONLY 409 保留草稿'); await form.getByRole('button', { name: '保存拨测', exact: true }).click()

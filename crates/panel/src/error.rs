@@ -17,6 +17,11 @@ pub enum ApiError {
     NotFound,
     #[error("{0}")]
     Conflict(String),
+    #[error("{message}")]
+    ConflictReferences {
+        message: String,
+        references: serde_json::Value,
+    },
     #[error("database error")]
     Database(#[from] sqlx::Error),
     #[error("internal error")]
@@ -25,6 +30,17 @@ pub enum ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        if let Self::ConflictReferences {
+            message,
+            references,
+        } = &self
+        {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({"error":message,"references":references})),
+            )
+                .into_response();
+        }
         let (status, message) = match &self {
             Self::Busy => (
                 StatusCode::TOO_MANY_REQUESTS,

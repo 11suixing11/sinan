@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 mod business_support;
+#[path = "probe_support.rs"]
 mod probe_support;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;

@@ -1,0 +1,156 @@
+{
+  "checks": {
+    "cargo_fmt_check": "passed",
+    "core_boundary": "passed",
+    "frontend_source_and_dist": "unchanged_no_retest",
+    "git_diff_check": "passed",
+    "workspace_all_targets_clippy": "passed"
+  },
+  "execution": {
+    "ci": "paused",
+    "failed_or_affected_scope_only_after_repair": true,
+    "formal_release": false,
+    "implementation_edits_completed_before_testing": true,
+    "original_failed_logs_retained": true,
+    "production_deployment": false
+  },
+  "linux_preflight": {
+    "available_memory_bytes": 1296416768,
+    "binary_directory_created": false,
+    "build_unit_load_state": "not-found",
+    "build_unit_main_pid": 0,
+    "code": "managed_build_disk_reserve_rejected",
+    "environment": "dedicated Debian 12 ARM64 virtual machine",
+    "managed_acceptance": "not_run",
+    "materials_retained": true,
+    "minimum_initial_disk_bytes": 4294967296,
+    "minimum_initial_memory_bytes": 1342177280,
+    "output_free_bytes": 1431252992,
+    "runtime_sha256_unchanged": true,
+    "source_identity_matches": true,
+    "status": "resource_rejection_confirmed",
+    "success_receipt_created": false,
+    "target_created": false,
+    "target_free_bytes": 1431252992
+  },
+  "pending": [
+    "fresh native Agent/panel build and TEST_ONLY bundle verification",
+    "three isolated registered device environment",
+    "unchanged product subscriptions with real Agent acknowledgments and actual panel ledger",
+    "all 11 registered managed-path scenarios",
+    "natural lease expiry replay",
+    "actual signal cancellation and confirmed cleanup",
+    "complete licensed NodeQuality workload",
+    "formal release and production deployment"
+  ],
+  "private_log_identities": {
+    "clippy-all-targets-r2.log": {
+      "sha256": "cd2c625c693e5227936f7206f565a8588badc1370d55f1628458f8e867d3aefe",
+      "size": 543
+    },
+    "core-boundary-r2.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    "diff-r2.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    "fmt-r2.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    "linux-orchestration-refusal-r1.json": {
+      "sha256": "2355c24d57723170b0096a3ecea7fe3244dc6d665ea276b18abcd21fed7566de",
+      "size": 195
+    },
+    "linux-preflight-command-r2.json": {
+      "sha256": "2842ff78dfb4c22f66de6f7774c5320eb846afc6acd3c3e1583d035da3b94845",
+      "size": 127
+    },
+    "linux-preflight-observation-r2.json": {
+      "sha256": "4d50ed475a8c77fe4efab64bf4dc81b3387ae5da5fd4140b896c072646229994",
+      "size": 1491
+    },
+    "python-fixtures-r1.log": {
+      "sha256": "0d6c875271b35ef869bb78a8efaf27689b36ab1a2de596e0ddbf558e856f521b",
+      "size": 120
+    },
+    "python-linux-contracts-r1.log": {
+      "sha256": "edecde55c6deed9a44f005853dbf1b80bb79f5daf63b49aa23fa401cf6e41cc0",
+      "size": 114
+    },
+    "python-preparation-r1.log": {
+      "sha256": "36d168f40672b1b35a7e6d63b11914384a19fa3755bab6bcce3e5e30d76753cf",
+      "size": 1624
+    },
+    "python-preparation-r2.log": {
+      "sha256": "e71e128e8d30f159f215237779384c8b2dd53a5ebe40c5a57c0cc20ac1b7c931",
+      "size": 110
+    },
+    "rust-core-r1.log": {
+      "sha256": "0f08936e60d37c577e8f569b9015ab31625c1512c86e7b265443655a1cbf607c",
+      "size": 271
+    },
+    "rust-core-r2.log": {
+      "sha256": "41be2f5d2974785382bf12eb052ff5d8930f42be290673ad639571924e8812e2",
+      "size": 30751
+    }
+  },
+  "python_contracts": {
+    "carried_unchanged_sources": [
+      "tools/managed-paths-fixtures.py",
+      "tools/test-managed-paths-fixtures.py",
+      "tools/test-managed-paths-linux.py",
+      "tools/test-managed-paths-linux-contracts.py"
+    ],
+    "failed": 0,
+    "network_helper": {
+      "passed": 21,
+      "round": 1,
+      "sources_unchanged_since_pass": true
+    },
+    "preparation_controller_support": {
+      "passed": 11,
+      "round": 2
+    },
+    "real_api_driver": {
+      "passed": 15,
+      "round": 1,
+      "sources_unchanged_since_pass": true
+    },
+    "skipped": 0,
+    "total_unique_passed": 47
+  },
+  "recorded_at": "2026-10-02T13:45:43.417416+00:00",
+  "repairs": [
+    {
+      "failure": "locked dependency version mismatch before compilation",
+      "final_change": "use already locked tokio-rustls 0.26.6 without resolving new packages",
+      "first_gate": "rust-core"
+    },
+    {
+      "failure": "Darwin SIGKILL EPERM after TERM of owned pipe-inheriting orphan",
+      "final_change": "observe owned non-zombie process group, bounded cleanup wait, preserve original and cleanup failures separately",
+      "first_gate": "preparation_contracts"
+    }
+  ],
+  "rust": {
+    "failed": 0,
+    "ignored": 8,
+    "passed": 265,
+    "platform": "macOS ARM64",
+    "scope": "sinan-agent-core --all-targets",
+    "test_targets": 7,
+    "workspace_cargo_test_run": false
+  },
+  "schema": 1,
+  "source": {
+    "base_commit": "06c2404a2b0ebdc6faccfd18af05b64dd8042f6f",
+    "branch": "remediation/all-diagnostics-20261001",
+    "file_count": 782,
+    "functional_sha256": "05d5131356cb2aed5489639ba29dee7aebaf7b00cb717f85d947634b415c9768",
+    "manifest_sha256": "505354b41bd254c0366e6374fd2f7893d2aa47c11e58860b9f9ac92156d1b567"
+  },
+  "status": "local_acceptance_passed_managed_matrix_not_run"
+}

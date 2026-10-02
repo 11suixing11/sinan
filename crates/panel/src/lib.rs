@@ -29,6 +29,7 @@ pub use plugins::singbox::{accesses, business, deployments, nodes, subscriptions
 pub mod publisher;
 pub mod releases;
 pub mod retirement;
+pub mod runtime_control;
 pub mod runtime_operations;
 pub mod runtime_validations;
 pub mod server_assets;

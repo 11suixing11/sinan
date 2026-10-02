@@ -41,6 +41,8 @@ async fn saved_full_jobs_are_not_prepared_but_keep_each_report_version() {
         R17,
         R18,
         VERSION,
+        sinan_adapter_nodequality::NATIVE_VERSION,
+        sinan_adapter_nodequality::NATIVE_OFFLINE_ROOTFS_VERSION,
         sinan_adapter_nodequality::OFFLINE_ROOTFS_VERSION,
         sinan_adapter_nodequality::NODE_QUERY_VERSION,
     ] {
@@ -85,6 +87,8 @@ async fn r4_through_r21_daily_jobs_keep_mode_targets_budget_and_saved_chapters()
         R17,
         R18,
         VERSION,
+        sinan_adapter_nodequality::NATIVE_VERSION,
+        sinan_adapter_nodequality::NATIVE_OFFLINE_ROOTFS_VERSION,
         sinan_adapter_nodequality::OFFLINE_ROOTFS_VERSION,
         sinan_adapter_nodequality::NODE_QUERY_VERSION,
     ] {
@@ -112,6 +116,14 @@ async fn r4_through_r21_daily_jobs_keep_mode_targets_budget_and_saved_chapters()
         assert_eq!(std::fs::read_to_string(target_file).unwrap(), targets);
         assert_eq!(job.memory_max.get(), 64 * 1024 * 1024);
         assert_eq!(job.tasks_max.get(), 32);
+        assert_eq!(
+            privileged.calls.lock().unwrap().as_slice(),
+            [vec![String::from("--version")]]
+        );
+        assert!(!job.args.iter().any(|value| value.contains("rootfs")
+            || value.contains("extract")
+            || value.contains("mount")));
+
         let chapter = serde_json::json!({
             "name":"net_quality", "text":"saved daily checks", "complete":true,
             "revision":1, "collected_at":1700000000
@@ -232,4 +244,38 @@ async fn official_node_queries_require_exact_version_and_private_bounded_inputs(
         adapter.auxiliary_files_for_version(OFFLINE_ROOTFS_VERSION),
         ["rootfs.tar.gz", "rootfs-manifest.json"]
     );
+}
+
+#[test]
+fn namespaced_preparation_keeps_r19_default_and_exact_auxiliary_roles() {
+    use sinan_adapter_nodequality::{NATIVE_OFFLINE_ROOTFS_VERSION, NATIVE_VERSION};
+    let adapter = NodeQualityAdapter::new();
+    assert_eq!(VERSION, "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19");
+    assert!(
+        adapter
+            .auxiliary_files_for_version(NATIVE_VERSION)
+            .is_empty()
+    );
+    for version in [
+        sinan_adapter_nodequality::OFFLINE_ROOTFS_VERSION,
+        NATIVE_OFFLINE_ROOTFS_VERSION,
+    ] {
+        assert_eq!(
+            adapter.auxiliary_files_for_version(version),
+            vec![
+                "rootfs.tar.gz".to_owned(),
+                "rootfs-manifest.json".to_owned()
+            ]
+        );
+    }
+    assert!(
+        adapter
+            .auxiliary_files_for_version(sinan_adapter_nodequality::NODE_QUERY_VERSION)
+            .is_empty()
+    );
+    for version in [
+        R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, VERSION,
+    ] {
+        assert!(adapter.auxiliary_files_for_version(version).is_empty());
+    }
 }

@@ -1,0 +1,136 @@
+{
+  "schema": 1,
+  "scope": "IPQuality Debian cache derivation source and affected Python contracts only; actual native derivation refused for insufficient disk reserve",
+  "frozen_head": "c6ffbdb618357d67b1e4668c5d2a93be0d202559",
+  "frozen_functional_input_count": 676,
+  "frozen_functional_input_sha256": "58a5fce9d1cf6db5acdb11627d4db19bb53ab72a71eae5f3d895f676d93b732f",
+  "effective_suites": [
+    {
+      "name": "rootfs-collect",
+      "attempt": "r1",
+      "passed": 33,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "summary_sha256": "2bf0bfbaeb49972cbfd92181032bea84f351ca1981c3fd2aa69bfc24687ac330",
+      "memory_peak_bytes": 69570560
+    },
+    {
+      "name": "ipquality-inputs-capacity",
+      "attempt": "r1",
+      "passed": 16,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "summary_sha256": "23a803adcbc481101aba687942849c996fb2d297b93b21d94621bbebd73be0ee",
+      "memory_peak_bytes": 69570560
+    },
+    {
+      "name": "ipquality-inputs",
+      "attempt": "r3",
+      "passed": 43,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "summary_sha256": "68acd18ccbc5325ea9da6481223cd643653822a3a95d1c7517b4b97fa80dce59",
+      "memory_peak_bytes": 74866688
+    },
+    {
+      "name": "ipquality-artifact",
+      "attempt": "r4",
+      "passed": 11,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "summary_sha256": "67c944d1c5e893b15d61e5c0c68ed3714d471dae3f56384ac94031a74c51f0f8",
+      "memory_peak_bytes": 74723328
+    },
+    {
+      "name": "ipquality-build",
+      "attempt": "r4",
+      "passed": 14,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "summary_sha256": "090802665ebffa2acbfc5d03986bb739d820ad03094a975bc4f848e4e53f5bb3",
+      "memory_peak_bytes": 74723328
+    }
+  ],
+  "effective_totals": {
+    "passed": 117,
+    "skipped": 0,
+    "failures": 0,
+    "errors": 0
+  },
+  "repair_scope": [
+    {
+      "from": "r1",
+      "to": "r2",
+      "changed": [
+        "tools/test-ipquality-inputs.py"
+      ]
+    },
+    {
+      "from": "r2",
+      "to": "r3",
+      "changed": [
+        "tools/test-ipquality-inputs.py"
+      ]
+    },
+    {
+      "from": "r3",
+      "to": "r4",
+      "changed": [
+        "tools/ipquality_artifact.py",
+        "tools/test-ipquality-artifact.py"
+      ]
+    }
+  ],
+  "initial_failures_preserved": true,
+  "native_refusal": {
+    "success": false,
+    "exit_code": 1,
+    "reason": "factory free-disk reserve crossed",
+    "elapsed_seconds": 9.836034337997262,
+    "management_disk_reserve_bytes": 536870912,
+    "management_inode_reserve": 1024,
+    "free_bytes_at_refusal": 670830592,
+    "peak_output_allocated_bytes": 163840,
+    "memory_peak_bytes": 268435456,
+    "memory_events": {
+      "low": 0,
+      "high": 0,
+      "max": 7631,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0
+    },
+    "parent_kernel_read_only": true,
+    "network_interfaces": [
+      "lo"
+    ],
+    "parent_records_unchanged": true,
+    "source_unchanged": true,
+    "cleanup_verified": true,
+    "derivation_receipt_created": false,
+    "final_disk_available_bytes": 670846976,
+    "terminal_sha256": "01cc3d59b6eeb8e59abc1eeb5bacf4d073a5ee5dbce7a974cf39f21ae6a1710a",
+    "failure_sha256": "c35789c65aa9a0f01b1263400682dc048f568021e95b85beea2e7cd8479aa831",
+    "cleanup_sha256": "b61c1a93ab6ebe6887d09845e3aded1d230110fa0ae839643cba28fe23be0d30"
+  },
+  "unaffected_previous_inputs": {
+    "source_head": "c6ffbdb618357d67b1e4668c5d2a93be0d202559",
+    "rust_and_web_input_count": 501,
+    "rust_and_web_inputs_unchanged": true,
+    "dist_files": 19,
+    "dist_unchanged": true
+  },
+  "source_package_includes_derivation_helpers": true,
+  "builder_approved": false,
+  "runtime_image_identity_verified": false,
+  "reproducibility_verified": false,
+  "minimal_rootfs_created": false,
+  "diagnostics_run": false,
+  "full_ready": false,
+  "signed_released_or_deployed": false
+}

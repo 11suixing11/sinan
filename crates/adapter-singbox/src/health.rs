@@ -4,8 +4,10 @@ use sinan_adapter_sdk::Prepared;
 use std::{io::ErrorKind, net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{
     net::{TcpStream, UdpSocket},
-    time::timeout,
+    time::{Instant, timeout_at},
 };
+
+mod socket;
 use tokio_rustls::{
     TlsConnector,
     rustls::{
@@ -35,21 +37,20 @@ pub(crate) fn budget(target: &Prepared) -> Duration {
 }
 
 pub(crate) async fn probe(listener: &Listener) -> bool {
-    matches!(
-        timeout(Duration::from_secs(2), probe_inner(listener)).await,
-        Ok(Ok(()))
-    )
+    probe_inner(listener, Instant::now() + Duration::from_secs(2))
+        .await
+        .is_ok()
 }
 
-async fn probe_inner(listener: &Listener) -> Result<()> {
+async fn probe_inner(listener: &Listener, deadline: Instant) -> Result<()> {
     let Some(tls) = &listener.tls else {
         match listener.transport {
             Transport::Tcp => {
-                TcpStream::connect(listener.address).await?;
+                timeout_at(deadline, TcpStream::connect(listener.address)).await??;
             }
             Transport::Udp => {
                 // UDP has no connect handshake. Service state and statistics are checked separately.
-                match UdpSocket::bind(listener.address).await {
+                match timeout_at(deadline, UdpSocket::bind(listener.address)).await? {
                     Err(error) if error.kind() == ErrorKind::AddrInUse => {}
                     _ => anyhow::bail!("UDP listener is not bound"),
                 }
@@ -101,131 +102,83 @@ async fn probe_inner(listener: &Listener) -> Result<()> {
         });
     match listener.transport {
         Transport::Tcp => {
-            let socket = TcpStream::connect(listener.address).await?;
-            TlsConnector::from(Arc::new(config))
-                .connect(ServerName::try_from(name.to_owned())?, socket)
-                .await?;
+            timeout_at(deadline, async {
+                let socket = TcpStream::connect(listener.address).await?;
+                TlsConnector::from(Arc::new(config))
+                    .connect(ServerName::try_from(name.to_owned())?, socket)
+                    .await?;
+                Ok::<_, anyhow::Error>(())
+            })
+            .await??;
         }
         Transport::Udp => {
+            let crypto = quinn::crypto::rustls::QuicClientConfig::try_from(config)?;
+            // Reserve part of the same two-second budget for confirmed driver
+            // shutdown, including an unsuccessful or timed-out handshake.
+            let handshake_deadline = deadline - Duration::from_millis(100);
             let bridge = match &listener.obfuscation {
-                Some(password) => {
-                    Some(crate::obfuscation::Bridge::new(listener.address, password.clone()).await?)
-                }
+                Some(password) => Some(
+                    timeout_at(
+                        handshake_deadline,
+                        crate::obfuscation::Bridge::new(listener.address, password.clone()),
+                    )
+                    .await??,
+                ),
                 None => None,
             };
             let destination = bridge
                 .as_ref()
                 .map_or(listener.address, |bridge| bridge.address);
-            let crypto = quinn::crypto::rustls::QuicClientConfig::try_from(config)?;
             let bind: SocketAddr = if destination.is_ipv6() {
                 "[::]:0"
             } else {
                 "0.0.0.0:0"
             }
             .parse()?;
-            let mut endpoint = quinn::Endpoint::client(bind)?;
+            let socket = socket::Socket::bind(bind)?;
+            let runtime = Arc::new(socket::Runtime::default());
+            let mut endpoint = quinn::Endpoint::new_with_abstract_socket(
+                Default::default(),
+                None,
+                socket.clone(),
+                runtime.clone(),
+            )?;
             endpoint.set_default_client_config(quinn::ClientConfig::new(Arc::new(crypto)));
-            let connection = endpoint.connect(destination, name)?.await?;
-            connection.close(0u32.into(), b"health check complete");
-            endpoint.close(0u32.into(), b"health check complete");
+            let resources = socket::Resources {
+                endpoint,
+                socket,
+                runtime,
+            };
+            let result = timeout_at(handshake_deadline, async {
+                let connecting = resources.endpoint.connect(destination, name)?;
+                let connection = if let Some(bridge) = &bridge {
+                    tokio::select! {
+                        result = connecting => result?,
+                        result = bridge.forward() => {
+                            result?;
+                            anyhow::bail!("health bridge stopped before the handshake");
+                        }
+                    }
+                } else {
+                    connecting.await?
+                };
+                connection.close(0u32.into(), b"health check complete");
+                Ok::<_, anyhow::Error>(())
+            })
+            .await
+            .context("QUIC health handshake timed out")
+            .and_then(|result| result);
+            if let Some(bridge) = bridge {
+                bridge.close();
+            }
+            timeout_at(deadline, resources.finish())
+                .await
+                .context("QUIC health cleanup timed out")??;
+            result?;
         }
     }
     Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[tokio::test]
-    #[ignore = "requires OpenSSL and official sing-box 1.14.2 in SINAN_TEST_UPSTREAM; runs only on ephemeral loopback ports"]
-    async fn obfuscated_quic_health_checks_certificate_and_custom_alpn() -> Result<()> {
-        let binary = std::env::var("SINAN_TEST_UPSTREAM")?;
-        let directory = std::env::temp_dir().join(format!("sinan-health-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&directory)?;
-        let certificate = directory.join("certificate.pem");
-        let key = directory.join("key.pem");
-        let output = std::process::Command::new("openssl")
-            .args([
-                "req",
-                "-x509",
-                "-newkey",
-                "rsa:2048",
-                "-nodes",
-                "-days",
-                "1",
-                "-subj",
-                "/CN=proxy.example.com",
-                "-addext",
-                "subjectAltName=DNS:proxy.example.com",
-                "-addext",
-                "basicConstraints=critical,CA:FALSE",
-                "-keyout",
-            ])
-            .arg(&key)
-            .arg("-out")
-            .arg(&certificate)
-            .output()?;
-        anyhow::ensure!(
-            output.status.success(),
-            "test certificate generation failed"
-        );
-        let certificate = std::fs::read_to_string(certificate)?;
-        let key = std::fs::read_to_string(key)?;
-        let reserved = UdpSocket::bind("127.0.0.1:0").await?;
-        let address = reserved.local_addr()?;
-        drop(reserved);
-        let password = "synthetic-test-obfuscation";
-        let tls = json!({"enabled":true,"server_name":"proxy.example.com","certificate":certificate,"key":key,"alpn":["sinan-test"]});
-        let path = directory.join("config.json");
-        std::fs::write(&path, json!({"log":{"disabled":true},"inbounds":[{
-            "type":"hysteria2","listen":"127.0.0.1","listen_port":address.port(),"users":[{"name":"test","password":"synthetic-test-credential"}],
-            "obfs":{"type":"salamander","password":password},"tls":tls
-        }],"outbounds":[{"type":"direct"}]}).to_string())?;
-        let mut child = tokio::process::Command::new(binary)
-            .arg("run")
-            .arg("-c")
-            .arg(path)
-            .kill_on_drop(true)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()?;
-        let mut listener = Listener {
-            address,
-            transport: Transport::Udp,
-            tls: Some(tls),
-            obfuscation: Some(password.into()),
-        };
-        let result = async {
-            timeout(Duration::from_secs(10), async {
-                loop {
-                    if probe(&listener).await {
-                        break;
-                    }
-                    anyhow::ensure!(child.try_wait()?.is_none(), "test runtime exited");
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-                Ok::<_, anyhow::Error>(())
-            })
-            .await??;
-            listener.obfuscation = Some("wrong-synthetic-password".into());
-            anyhow::ensure!(
-                !probe(&listener).await,
-                "incorrect obfuscation was accepted"
-            );
-            listener.obfuscation = Some(password.into());
-            listener.tls.as_mut().unwrap()["server_name"] = json!("wrong.example.com");
-            anyhow::ensure!(
-                !probe(&listener).await,
-                "incorrect certificate name was accepted"
-            );
-            Ok::<_, anyhow::Error>(())
-        }
-        .await;
-        child.kill().await?;
-        child.wait().await?;
-        std::fs::remove_dir_all(directory)?;
-        result
-    }
-}
+mod tests;

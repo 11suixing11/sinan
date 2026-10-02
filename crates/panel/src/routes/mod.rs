@@ -12,6 +12,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .merge(system::routes())
+        .merge(crate::runtime_control::routes())
         .merge(servers::routes())
         .merge(diagnostics::routes())
         .merge(agent::routes())

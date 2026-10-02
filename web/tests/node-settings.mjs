@@ -3,6 +3,7 @@ import { createServer } from 'node:http'
 import { readFile, mkdir } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolve, extname, sep } from 'node:path'
+import { proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
 
 // Shipped dist with controlled API responses; PostgreSQL verifies migration/data.
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
@@ -23,16 +24,20 @@ try {
     page.on('pageerror', error => errors.push(error.message))
     let rejected = false
     const progress = { pending:true, enabled_nodes:1, authorized_nodes:0, status:null, history:[] }
+    const pluginServers = [{ id:1, name:'测试服务器', enabled:true, online:false, agent_supported:true, read_only:false }]
     await page.route('**/api/**', async route => {
       const path = new URL(route.request().url()).pathname, method = route.request().method()
       let value
       if (path === '/api/me') value = { authenticated:true }
       else if (path === '/api/dashboard/access') value = { authenticated:true, public_dashboard:false }
-      else if (path === '/api/plugins/sing-box/servers') value = [{ id:1, name:'测试服务器', enabled:true, online:false, agent_supported:true }]
+      else if (path === '/api/plugins/sing-box/servers') value = pluginServers
       else if (path === '/api/plugins/sing-box/usage') value = { total:'0', by_node:[], by_user:[], uplink:'0',downlink:'0' }
       else if (path === '/api/plugins/sing-box/proxy-resources') value = nodes.map(node => ({ ...node, kind:'direct', server_name:'测试服务器', role:'direct', entry_node_id:null, tcp:true, udp:true, available:true, stage:'direct', reference_count:0 }))
       else if (path === '/api/plugins/sing-box/subscription-sources') value = []
       else if (path === '/api/plugins/sing-box/nodes' && method === 'GET') value = nodes
+      else if (path === '/api/plugins/sing-box/ordered-proxy-resources' && method === 'GET') value = proxyResourceFixtures(nodes, pluginServers)
+      else if (path === '/api/plugins/sing-box/ordered-subscription-sources' && method === 'GET') value = []
+      else if (path === '/api/plugins/sing-box/subscription-sources' && method === 'GET') value = []
       else if (path === '/api/plugins/sing-box/nodes' && method === 'POST') {
         const body = route.request().postDataJSON(); writes.push(body)
         value = { ...body,id:1,protocol:body.protocol_config.type,port:body.port ?? 20000 }

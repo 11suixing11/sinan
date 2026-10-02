@@ -1,0 +1,974 @@
+{
+  "schema": 1,
+  "date": "2026-10-01",
+  "candidate_commit": "c8cea161a20f47bbd3c1c1c3edea3337a5c821e7",
+  "merge_commit": "6d9513c0b76cb06480a51b21c42fd84674a0abb2",
+  "merge_parent": "86e2ef40ab6d1a3fff487b49726e4a1a8e343a67",
+  "scope": "Unified source integration, public credential guards and bounded Netflix/YouTube fixture responses. No full benchmark or production deployment.",
+  "policy_sha256": {
+    "plugins/nodequality/access-policy.py": "83db5e84f2c2c793eb4eff0d43ba0e439b196ab7a940a2a293d9b513860985b9",
+    "plugins/nodequality/netflix-policy.py": "b928c6d4ac92b26f72207914d269b5154f09441bad3ca9eb5f036654f20f5eb7",
+    "plugins/nodequality/source-helper.py": "d422fe4eb8cd5905afc9fc339ae7f4c488a861ea21b31cc1b421aabd801bc8b7",
+    "plugins/nodequality/runner.sh.tmpl": "3ef58b27bc1bafc95857ec6e023dac8e3a9377442d4e6112d2a90f9f87043166",
+    "tools/test-nodequality-access-policy.py": "cdc6e01a0419da5eb9539b786536782a9cf3d2b922a3931f2000ab7ec09580ab",
+    "tools/test-nodequality-netflix-policy.py": "b4cfa60e3c3183078f153be0f1e4570aecfd4ee09225b5b90ac7491aa4c05ac9"
+  },
+  "served_ip_sha256": "d3828e31ea16d8a4422519c050a8a976bb353467952a5a196c331963fc20ec3d",
+  "rust": {
+    "receipt": "integrated-main-86e2ef4-r17-20261001/receipt.json",
+    "sha256": "6329d413a971d564dd4d78458399a922506a77bcb207b37a586f1635752231d9",
+    "source_base": "87e11b6013593b487006f748b57e0c42e478b301",
+    "frozen_inputs": 337,
+    "equivalent_to_candidate": true,
+    "checks": [
+      {
+        "name": "postgres-start",
+        "exit_code": 0,
+        "seconds": 0.151,
+        "log_sha256": "66afd0411ccc09366e99fdd99b85f21899c8d2d064f5835126859618802153ad"
+      },
+      {
+        "name": "workspace-tests",
+        "exit_code": 0,
+        "seconds": 398.72,
+        "log_sha256": "29dd4625ba2dc236a5104ac1b8fec67a856a100eb9c254a3c34963c60dd5f7f8",
+        "tests": {
+          "passed": 477,
+          "failed": 0,
+          "ignored": 16
+        }
+      },
+      {
+        "name": "workspace-clippy",
+        "exit_code": 0,
+        "seconds": 15.059,
+        "log_sha256": "66c1684993a43599a9f83e087cb4f2afd758b12c90cb7d5ec1b5c97c4fc5d85b"
+      },
+      {
+        "name": "workspace-fmt",
+        "exit_code": 0,
+        "seconds": 0.473,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "core-boundary",
+        "exit_code": 0,
+        "seconds": 0.135,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "diff-check",
+        "exit_code": 0,
+        "seconds": 0.045,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "postgres-stop",
+        "exit_code": 0,
+        "seconds": 0.108,
+        "log_sha256": "ca19178a35ab4153b75b494963b66ce8243e1b94c173107c87b44d09db23652d"
+      }
+    ],
+    "postgres": {
+      "port": 55439,
+      "started_by_this_receipt": true,
+      "stopped": true,
+      "pid": 12059,
+      "start_epoch": "1790855431",
+      "pid_absent_after_stop": true,
+      "port_closed_after_stop": true
+    }
+  },
+  "frontend": {
+    "receipt": "frontend-merge-86e2ef4-20261001/receipt.json",
+    "sha256": "b07852f08f33cd542f1e9afc2410732ab97c1c0a715cbbb47a22c980649d1547",
+    "source_inputs": 73,
+    "dist_files": 19,
+    "equivalent_to_candidate": true,
+    "build": {
+      "result": "passed",
+      "bun": "1.4.2",
+      "log": "build-final.log",
+      "log_sha256": "e407d24f2ff4260709e6f4154c883e1364eedf825c039cf46c626feec9e75e23"
+    },
+    "tests": {
+      "catalog_unit": {
+        "log": "catalog-unit.log",
+        "passed": 6,
+        "failed": 0,
+        "expect_calls": 51,
+        "log_sha256": "9b15f76fb1ed28c7c22b8753ecdb29019eddc64da8fa4345e2d1b19ed6f670a5"
+      },
+      "singbox_business": {
+        "log": "singbox-business-final.log",
+        "widths": [
+          1280,
+          390
+        ],
+        "result": "passed",
+        "log_sha256": "bcfbdcd69a88f9ec946ddb0146477d11f58db1219ad2b96defbbe6f6b58fe9ff"
+      },
+      "plugin_catalog": {
+        "log": "plugin-catalog.log",
+        "widths": [
+          1440,
+          390
+        ],
+        "result": "passed",
+        "log_sha256": "0f4ba3754904d366a08799bfadd860c77d8025145e667c79b86be65384f1d7b7"
+      },
+      "monitoring": {
+        "log": "monitoring-final.log",
+        "widths": [
+          1440,
+          390,
+          320
+        ],
+        "result": "passed",
+        "log_sha256": "419bdc8c700681ee815f44a1ddfbbb147618a38b5adf374030ad553d6e846bd6"
+      },
+      "server_setup": {
+        "log": "server-setup.log",
+        "widths": [
+          1440,
+          390
+        ],
+        "result": "passed",
+        "log_sha256": "83d75234467fa0ab44358290b78d0957c93ebcfaa651f9c590768125c7152d91"
+      },
+      "entitlement_draft": {
+        "log": "singbox-entitlement-draft.log",
+        "widths": [
+          1280,
+          390
+        ],
+        "result": "passed",
+        "log_sha256": "732e4ee77d307c29b7bc794a0502b12daadc7c200101011bb36bacdc627c1bd9"
+      }
+    },
+    "resolved_initial_failures": [
+      "Merged navigation field used current.route instead of current.path; corrected before successful build.",
+      "Business fixture matched two Server Plugins links; scoped to main navigation without removing assertions."
+    ],
+    "limits": [
+      "Actual shipped dist against owned loopback API fixtures, no real Agent or production server.",
+      "No Rust, PostgreSQL, VM, CI, deployment, commit, or push performed by this frontend task."
+    ]
+  },
+  "host": {
+    "receipt": "nodequality-r17-final-20261001-r2/host-receipt.json",
+    "sha256": "69a3451e23ef64595c910b114314544828ae030cb2149afddf705143477b96b4",
+    "source": "70f47d38e8ec9f36c22b1caa93f6aedf13db438e",
+    "unique_methods": 164,
+    "passed": 128,
+    "skipped": 36,
+    "failed": 0,
+    "checks": [
+      {
+        "name": "access",
+        "exit_code": 0,
+        "tests": 11,
+        "skipped": 8,
+        "seconds": 0.243,
+        "log_sha256": "7aaf78d7341c3043b35f93e763d32ed7b81c464179d495aca1003cf0e05074be"
+      },
+      {
+        "name": "netflix",
+        "exit_code": 0,
+        "tests": 17,
+        "skipped": 12,
+        "seconds": 3.488,
+        "log_sha256": "c6ba75bece2d17ae394c96339e2e46568815e052bc3a542c1a1674a05c74d2c4"
+      },
+      {
+        "name": "query",
+        "exit_code": 0,
+        "tests": 6,
+        "skipped": 3,
+        "seconds": 0.142,
+        "log_sha256": "9c5f6368a8f04301bd9cb220de744423a45431eed8c96379c6a23b1538bacae7"
+      },
+      {
+        "name": "browser",
+        "exit_code": 0,
+        "tests": 8,
+        "skipped": 4,
+        "seconds": 1.906,
+        "log_sha256": "c61c3701b663b1572c64952732486ba2c71c05c6b5183843be6a758afd073b39"
+      },
+      {
+        "name": "ip-score",
+        "exit_code": 0,
+        "tests": 10,
+        "skipped": 4,
+        "seconds": 2.146,
+        "log_sha256": "61d706eaea058fe45915bfb1dafd5d94d293e4dbf86436d343b2bc10f9a195ec"
+      },
+      {
+        "name": "data",
+        "exit_code": 0,
+        "tests": 6,
+        "skipped": 0,
+        "seconds": 5.51,
+        "log_sha256": "61a841c1731ec8724c6ed4d8d581761a3717742b091d09479be0d800e0f467c0"
+      },
+      {
+        "name": "dependencies",
+        "exit_code": 0,
+        "tests": 11,
+        "skipped": 1,
+        "seconds": 2.119,
+        "log_sha256": "96cd97e8c76b62b1f35e27e6ebe0093e1152059668bda2e1543b620bae79d816"
+      },
+      {
+        "name": "sources",
+        "exit_code": 0,
+        "tests": 16,
+        "skipped": 0,
+        "seconds": 12.862,
+        "log_sha256": "1431def5de4a9edc0f901e09d71925fe3b670a6666f7eeb3ef727b662e5d1b7b"
+      },
+      {
+        "name": "report",
+        "exit_code": 0,
+        "tests": 6,
+        "skipped": 0,
+        "seconds": 31.354,
+        "log_sha256": "65b9837dc567fae4ca0e959b1cb5a93eae15e45e9ec66dc60e80223081d17aa0"
+      },
+      {
+        "name": "wrapper",
+        "exit_code": 0,
+        "tests": 34,
+        "skipped": 0,
+        "seconds": 10.75,
+        "log_sha256": "488ff2e86905563bf1dd64a163059ad3af5756c370deac80b7977d147f1d695e"
+      },
+      {
+        "name": "daily",
+        "exit_code": 0,
+        "tests": 7,
+        "skipped": 0,
+        "seconds": 6.529,
+        "log_sha256": "338f9cfb2777ce9bdc6d287497a6bf371f73c617f392d048a4e1e5cb3bcd74f8"
+      },
+      {
+        "name": "release",
+        "exit_code": 0,
+        "tests": 32,
+        "skipped": 4,
+        "seconds": 0.484,
+        "log_sha256": "3f2847d0383f84eaf66588f89184c8aa4945abc1d1507d086ce61ccb0eab423a"
+      }
+    ],
+    "final_test_only_change": [
+      "tools/test-nodequality-netflix-policy.py"
+    ],
+    "updated_netflix_host_receipt": {
+      "receipt": "nodequality-netflix-r17-file-host-eyyn3xum/receipt.json",
+      "sha256": "cecd0c41790e10d9ab2783e519b7212d90bfa99776a5bee27aaead98e2f6e676"
+    },
+    "updated_netflix_host": {
+      "methods": 17,
+      "passed": 5,
+      "skipped": 12,
+      "failed": 0
+    }
+  },
+  "guest": {
+    "unique_methods": 160,
+    "passed": 160,
+    "skipped": 0,
+    "failed": 0,
+    "composition": "143 unchanged methods from r2 plus all 17 corrected Netflix methods from r3. Repeated executions are not additional unique tests.",
+    "code_equivalence_except_updated_test": true,
+    "actual_minisign_regression_passed_in_r2": true,
+    "retained_runs": [
+      {
+        "name": "access",
+        "command": [
+          "tools/test-nodequality-access-policy.py",
+          "--readonly-upstream-dir",
+          "/home/l7.guest/sinan-nodequality-r17-integrated-20261001-r2/readonly-sources",
+          "-v"
+        ],
+        "exit_code": 0,
+        "timed_out": false,
+        "elapsed_seconds": 22.150116010998318,
+        "summary": [
+          "test_recognized_anonymous_page_preserves_heuristic_without_credentials (__main__.AccessTests.test_recognized_anonymous_page_preserves_heuristic_without_credentials) ... ok",
+          "test_unconfigured_sources_are_unknown_without_requests_or_false_scores (__main__.AccessTests.test_unconfigured_sources_are_unknown_without_requests_or_false_scores) ... ok",
+          "",
+          "----------------------------------------------------------------------",
+          "Ran 11 tests in 22.035s",
+          "",
+          "OK"
+        ],
+        "ran": 11,
+        "expected_count": 11,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0,
+        "required_signing_test_passed": null,
+        "stdout_sha256": "023d690f226a3ef6592d985c4e6d8bfcf46de6a9068909ef876b3bf48bb6ace0",
+        "stderr_sha256": "8c997899e8cd754a5bd4f6c9a0feb1ea3715be66ff43df7ed2388f48e05b41f8",
+        "success": true
+      },
+      {
+        "name": "query",
+        "command": [
+          "tools/test-nodequality-query-policy.py",
+          "--readonly-upstream-dir",
+          "/home/l7.guest/sinan-nodequality-r17-integrated-20261001-r2/readonly-sources",
+          "-v"
+        ],
+        "exit_code": 0,
+        "timed_out": false,
+        "elapsed_seconds": 10.264001005001774,
+        "summary": [
+          "test_original_403_is_success_but_dns_connect_tls_timeout_and_http_are_unknown (__main__.QueryTests.test_original_403_is_success_but_dns_connect_tls_timeout_and_http_are_unknown) ... ok",
+          "test_valid_transport_preserves_existing_heuristic_and_later_failure_is_unknown (__main__.QueryTests.test_valid_transport_preserves_existing_heuristic_and_later_failure_is_unknown) ... ok",
+          "",
+          "----------------------------------------------------------------------",
+          "Ran 6 tests in 10.169s",
+          "",
+          "OK"
+        ],
+        "ran": 6,
+        "expected_count": 6,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0,
+        "required_signing_test_passed": null,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "ad3d3bfebb85ed1e65413d7eebe7da133e56a2f1d568d078c6243a74face0cd8",
+        "success": true
+      },
+      {
+        "name": "browser",
+        "command": [
+          "tools/test-nodequality-browser-policy.py",
+          "--readonly-upstream-dir",
+          "/home/l7.guest/sinan-nodequality-r17-integrated-20261001-r2/readonly-sources",
+          "-v"
+        ],
+        "exit_code": 0,
+        "timed_out": false,
+        "elapsed_seconds": 9.24209412900018,
+        "summary": [
+          "test_options_headers_curlrc_and_child_shell_keep_method_body_and_other_headers (__main__.BrowserTests.test_options_headers_curlrc_and_child_shell_keep_method_body_and_other_headers) ... ok",
+          "test_production_identity_and_generator_disable_leave_other_bytes_unchanged (__main__.BrowserTests.test_production_identity_and_generator_disable_leave_other_bytes_unchanged) ... ok",
+          "",
+          "----------------------------------------------------------------------",
+          "Ran 8 tests in 9.136s",
+          "",
+          "OK"
+        ],
+        "ran": 8,
+        "expected_count": 8,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0,
+        "required_signing_test_passed": null,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "58d4c28f796d5e263f86622ec82ef30573cef79f0915286755f743234b09979e",
+        "success": true
+      },
+      {
+        "name": "ip-score",
+        "command": [
+          "tools/test-nodequality-ip-score-policy.py",
+          "--readonly-upstream-dir",
+          "/home/l7.guest/sinan-nodequality-r17-integrated-20261001-r2/readonly-sources",
+          "-v"
+        ],
+        "exit_code": 0,
+        "timed_out": false,
+        "elapsed_seconds": 34.6828605160008,
+        "summary": [
+          "test_production_identity_preserves_requests_and_other_functions (__main__.ScoreTests.test_production_identity_preserves_requests_and_other_functions) ... ok",
+          "test_text_unknown_rows_and_json_null_preserve_other_scores (__main__.ScoreTests.test_text_unknown_rows_and_json_null_preserve_other_scores) ... ok",
+          "",
+          "----------------------------------------------------------------------",
+          "Ran 10 tests in 34.599s",
+          "",
+          "OK"
+        ],
+        "ran": 10,
+        "expected_count": 10,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0,
+        "required_signing_test_passed": null,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "b2d4cbe36114a69a9b16e8f3d8aafb39e097c85b0ec0604fefe788cfc0592dae",
+        "success": true
+      },
+      {
+        "name": "ranking",
+        "command": [
+          "tools/test-nodequality-ranking-policy.py",
+          "--readonly-upstream-dir",
+          "/home/l7.guest/sinan-nodequality-r17-integrated-20261001-r2/readonly-sources",
+          "-v"
+        ],
+        "exit_code": 0,
+        "timed_out": false,
+        "elapsed_seconds": 17.690805342001113,
+        "summary": [
+          "test_invalid_policy_stops_before_scores_or_requests (__main__.RankingTests.test_invalid_policy_stops_before_scores_or_requests) ... ok",
+          "test_production_transformation_preserves_all_other_bytes (__main__.RankingTests.test_production_transformation_preserves_all_other_bytes) ... ok",
+          "",
+          "----------------------------------------------------------------------",
+          "Ran 8 tests in 17.627s",
+          "",
+          "OK"
+        ],
+        "ran": 8,
+        "expected_count": 8,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0,
+        "required_signing_test_passed": null,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "34c1d79b836280a436addb29f90ceb3e162685f211c4a6409b48538f80f59069",
+        "success": true
+      },
+      {
+        "name": "loader",
+        "command": [
+          "tools/test-nodequality-loader-policy.py",
+          "--readonly-upstream-dir",
+          "/home/l7.guest/sinan-nodequality-r17-integrated-20261001-r2/readonly-sources",
+          "-v"
+        ],
+        "exit_code": 0,
+        "timed_out": false,
+        "elapsed_seconds": 5.595501711002726,
+        "summary": [
+          "test_real_source_helper_refusal_reaches_all_five_original_functions (__main__.LoaderTests.test_real_source_helper_refusal_reaches_all_five_original_functions) ... ok",
+          "test_success_waits_for_complete_source_and_preserves_all_bytes_and_arguments_once (__main__.LoaderTests.test_success_waits_for_complete_source_and_preserves_all_bytes_and_arguments_once) ... ok",
+          "",
+          "----------------------------------------------------------------------",
+          "Ran 10 tests in 5.538s",
+          "",
+          "OK"
+        ],
+        "ran": 10,
+        "expected_count": 10,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0,
+        "required_signing_test_passed": null,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "2d0cdf843100351529057d6e97facfc707f9b895c880841d324740d320b237f0",
+        "success": true
+      },
+      {
+        "name": "source",
+        "command": [
+          "tools/test-nodequality-sources.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "timed_out": false,
+        "elapsed_seconds": 4.5258470850021695,
+        "summary": [
+          "test_signed_runner_covers_embedded_scripts_and_licenses_and_rejects_tampering (__main__.SourceTests.test_signed_runner_covers_embedded_scripts_and_licenses_and_rejects_tampering) ... ok",
+          "test_unknown_urls_and_option_shapes_never_fall_back_online (__main__.SourceTests.test_unknown_urls_and_option_shapes_never_fall_back_online) ... ok",
+          "",
+          "----------------------------------------------------------------------",
+          "Ran 16 tests in 4.455s",
+          "",
+          "OK"
+        ],
+        "ran": 16,
+        "expected_count": 16,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0,
+        "required_signing_test_passed": true,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "e72cb721af5d0440b8e2296f848c70891c1d0f104b6b87edf49ebacd5323a2a5",
+        "success": true
+      },
+      {
+        "name": "data",
+        "command": [
+          "tools/test-nodequality-data-policy.py",
+          "--readonly-upstream-dir",
+          "/home/l7.guest/sinan-nodequality-r17-integrated-20261001-r2/readonly-sources",
+          "-v"
+        ],
+        "exit_code": 0,
+        "timed_out": false,
+        "elapsed_seconds": 2.2734066259981773,
+        "summary": [
+          "test_production_serve_preserves_every_other_byte_and_emits_each_original_reference (__main__.DataTests.test_production_serve_preserves_every_other_byte_and_emits_each_original_reference) ... ok",
+          "test_served_references_keep_shell_metacharacters_as_data_without_curl_or_external_tools (__main__.DataTests.test_served_references_keep_shell_metacharacters_as_data_without_curl_or_external_tools) ... ok",
+          "",
+          "----------------------------------------------------------------------",
+          "Ran 6 tests in 2.204s",
+          "",
+          "OK"
+        ],
+        "ran": 6,
+        "expected_count": 6,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0,
+        "required_signing_test_passed": null,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "d4251fe8fa0b64ef450a248c92f0cd19afa7d09bfb04e6681f201e65340a139d",
+        "success": true
+      },
+      {
+        "name": "dependencies",
+        "command": [
+          "tools/test-nodequality-dependency-policy.py",
+          "--readonly-upstream-dir",
+          "/home/l7.guest/sinan-nodequality-r17-integrated-20261001-r2/readonly-sources",
+          "-v"
+        ],
+        "exit_code": 0,
+        "timed_out": false,
+        "elapsed_seconds": 0.9268750010014628,
+        "summary": [
+          "test_required_tools_are_checked_without_execution_and_each_missing_tool_is_named (__main__.DependencyTests.test_required_tools_are_checked_without_execution_and_each_missing_tool_is_named) ... ok",
+          "test_root_loader_checks_trace_tool_instead_of_downloading_or_chmod (__main__.DependencyTests.test_root_loader_checks_trace_tool_instead_of_downloading_or_chmod) ... ok",
+          "",
+          "----------------------------------------------------------------------",
+          "Ran 11 tests in 0.838s",
+          "",
+          "OK"
+        ],
+        "ran": 11,
+        "expected_count": 11,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0,
+        "required_signing_test_passed": null,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "e5a67b5bbb13e7ca0974d6cf846cfbf8a56e047fec0f032affd7601ae8be2cbb",
+        "success": true
+      },
+      {
+        "name": "swap",
+        "command": [
+          "tools/test-nodequality-swap-policy.py",
+          "--readonly-upstream-dir",
+          "/home/l7.guest/sinan-nodequality-r17-integrated-20261001-r2/readonly-sources",
+          "-v"
+        ],
+        "exit_code": 0,
+        "timed_out": false,
+        "elapsed_seconds": 0.7279907919983089,
+        "summary": [
+          "test_pinned_cleanup_with_real_observer_cannot_complete_after_hardware_refusal (__main__.SwapTests.test_pinned_cleanup_with_real_observer_cannot_complete_after_hardware_refusal) ... ok",
+          "test_transform_requires_exact_identity_anchors_and_final_hash (__main__.SwapTests.test_transform_requires_exact_identity_anchors_and_final_hash) ... ok",
+          "",
+          "----------------------------------------------------------------------",
+          "Ran 10 tests in 0.635s",
+          "",
+          "OK"
+        ],
+        "ran": 10,
+        "expected_count": 10,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0,
+        "required_signing_test_passed": null,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "6687c651a10626b572d49b8f6f666e5896b400b46b596eba160f216b790b6d3c",
+        "success": true
+      },
+      {
+        "name": "report",
+        "command": [
+          "tools/test-nodequality-report-policy.py",
+          "--readonly-upstream-dir",
+          "/home/l7.guest/sinan-nodequality-r17-integrated-20261001-r2/readonly-sources",
+          "-v"
+        ],
+        "exit_code": 0,
+        "timed_out": false,
+        "elapsed_seconds": 12.561022172001685,
+        "summary": [
+          "test_builder_runner_serve_and_four_original_callers_keep_outputs_and_argv (__main__.WiringTests.test_builder_runner_serve_and_four_original_callers_keep_outputs_and_argv) ... ok",
+          "test_ipv6_fast_mode_and_existing_privacy_lite_route_conditions (__main__.WiringTests.test_ipv6_fast_mode_and_existing_privacy_lite_route_conditions) ... ok",
+          "",
+          "----------------------------------------------------------------------",
+          "Ran 6 tests in 12.449s",
+          "",
+          "OK"
+        ],
+        "ran": 6,
+        "expected_count": 6,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0,
+        "required_signing_test_passed": null,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "98625e15fa6df1f6c7a1137d21838e42390d6e8bcc787bfa92babbed22607afc",
+        "success": true
+      },
+      {
+        "name": "wrapper",
+        "command": [
+          "tools/test-nodequality.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "timed_out": false,
+        "elapsed_seconds": 2.287941000999126,
+        "summary": [
+          "test_zero_exit_or_normal_cleanup_without_a_zip_is_failed (__main__.RunnerFixtureTests.test_zero_exit_or_normal_cleanup_without_a_zip_is_failed) ... ok",
+          "test_upload_never_calls_the_service_without_explicit_true (__main__.UploadPolicyTests.test_upload_never_calls_the_service_without_explicit_true) ... ok",
+          "",
+          "----------------------------------------------------------------------",
+          "Ran 34 tests in 2.186s",
+          "",
+          "OK"
+        ],
+        "ran": 34,
+        "expected_count": 34,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0,
+        "required_signing_test_passed": null,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "2f000ff07bf70770ced2c5c24a4ea0369954151f24b970259344261d1b97faf8",
+        "success": true
+      },
+      {
+        "name": "daily",
+        "command": [
+          "tools/test-diagnostic-modes.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "timed_out": false,
+        "elapsed_seconds": 2.3322647509994567,
+        "summary": [
+          "test_stalled_dns_is_killed_after_two_seconds (__main__.DailyChecks.test_stalled_dns_is_killed_after_two_seconds) ... ok",
+          "test_whitelist_rejects_large_unknown_and_shell_targets (__main__.DailyChecks.test_whitelist_rejects_large_unknown_and_shell_targets) ... ok",
+          "",
+          "----------------------------------------------------------------------",
+          "Ran 7 tests in 2.279s",
+          "",
+          "OK"
+        ],
+        "ran": 7,
+        "expected_count": 7,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0,
+        "required_signing_test_passed": null,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "940115c9bcd1a2977157e98e90a2d2825b3a0236c85185e8d3e1b8ca55726559",
+        "success": true
+      }
+    ],
+    "supplemental_runs": [
+      {
+        "name": "netflix",
+        "command": [
+          "tools/test-nodequality-netflix-policy.py",
+          "--readonly-upstream-dir",
+          "/home/l7.guest/sinan-nodequality-r17-integrated-20261001-r3/readonly-sources",
+          "-v"
+        ],
+        "exit_code": 0,
+        "timed_out": false,
+        "elapsed_seconds": 20.30725830099982,
+        "summary": [
+          "test_unique_boundaries_source_and_output_identities (__main__.NetflixTests.test_unique_boundaries_source_and_output_identities) ... ok",
+          "test_valid_titles_originals_and_mixed_results_keep_r15_classifier (__main__.NetflixTests.test_valid_titles_originals_and_mixed_results_keep_r15_classifier) ... ok",
+          "",
+          "----------------------------------------------------------------------",
+          "Ran 17 tests in 20.233s",
+          "",
+          "OK"
+        ],
+        "ran": 17,
+        "expected_count": 17,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0,
+        "required_signing_test_passed": null,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "fec9f04836795d04d8cc45932ba564bc9083666ca4a4e890182825bc86c2b114",
+        "success": true
+      }
+    ],
+    "units": [
+      {
+        "source": "70f47d38e8ec9f36c22b1caa93f6aedf13db438e",
+        "receipt": "nodequality-r17-integrated-20261001-r2/receipt.json",
+        "sha256": "48954cbadf2248af277bf3983232aab4c55242d74e4ff54106b8558c271b7c93",
+        "duration_seconds": 141.997,
+        "live_properties": {
+          "RuntimeMaxUSec": "4min",
+          "MainPID": "98796",
+          "ControlGroup": "/system.slice/sinan-nodequality-r17-integrated-20261001-r2-v1.service",
+          "CPUWeight": "10",
+          "IOWeight": "10",
+          "MemoryMax": "268435456",
+          "MemorySwapMax": "0",
+          "TasksMax": "64",
+          "OOMScoreAdjust": "500",
+          "PrivateNetwork": "yes",
+          "PrivateMounts": "yes",
+          "NoNewPrivileges": "yes",
+          "KillMode": "control-group"
+        },
+        "cgroup_metrics": {
+          "memory.peak": "69255168",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+          "pids.peak": "11"
+        },
+        "post_checks": {
+          "single_start": true,
+          "unit_collected": true,
+          "no_oom": true,
+          "no_processes": true,
+          "no_mounts": true,
+          "no_cgroup": true,
+          "ssh_unchanged": true,
+          "boot_unchanged": true,
+          "swap_zero": true,
+          "disk_reserve": true,
+          "manifest_matches_frozen_host": true,
+          "source_unchanged": true,
+          "driver_success": false
+        },
+        "disk_remaining_bytes": 1775820800
+      },
+      {
+        "source": "c8cea161a20f47bbd3c1c1c3edea3337a5c821e7",
+        "receipt": "nodequality-r17-integrated-20261001-r3/receipt.json",
+        "sha256": "aeffee9762a578d4db888d2bc13bc01e37265037ce1cfe7bdc0e939189063c17",
+        "duration_seconds": 20.326,
+        "live_properties": {
+          "RuntimeMaxUSec": "4min",
+          "MainPID": "116089",
+          "ControlGroup": "/system.slice/sinan-nodequality-r17-integrated-20261001-r3-v1.service",
+          "CPUWeight": "10",
+          "IOWeight": "10",
+          "MemoryMax": "268435456",
+          "MemorySwapMax": "0",
+          "TasksMax": "64",
+          "OOMScoreAdjust": "500",
+          "PrivateNetwork": "yes",
+          "PrivateMounts": "yes",
+          "NoNewPrivileges": "yes",
+          "KillMode": "control-group"
+        },
+        "cgroup_metrics": {
+          "memory.peak": "61014016",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+          "pids.peak": "11"
+        },
+        "post_checks": {
+          "single_start": true,
+          "unit_collected": true,
+          "no_oom": true,
+          "no_processes": true,
+          "no_mounts": true,
+          "no_cgroup": true,
+          "ssh_unchanged": true,
+          "boot_unchanged": true,
+          "swap_zero": true,
+          "disk_reserve": true,
+          "manifest_matches_frozen_host": true,
+          "source_unchanged": true,
+          "driver_success": true
+        },
+        "disk_remaining_bytes": 1774309376
+      }
+    ]
+  },
+  "owned_chunked_receipts": {
+    "access": {
+      "receipt": "nodequality-r16-fd-20261001-r3/receipt.json",
+      "sha256": "4495c32d12051e4575d36713959ef23425eef8f055b20ece581f99ac737656e6",
+      "log_sha256": "e9f6aa363e286f409d3724c7222634f668dd8b1d6ea7d9b2b15de3e66dc9eaf3"
+    },
+    "netflix": {
+      "receipt": "nodequality-r17-integrated-20261001-r2/receipt.json",
+      "sha256": "48954cbadf2248af277bf3983232aab4c55242d74e4ff54106b8558c271b7c93",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "preserved_failures": [
+    {
+      "description": "143 methods ran; 37 access subcase errors from parsing a multiline JSON footer as a report.",
+      "receipt": "nodequality-r16-fd-20261001/receipt.json",
+      "sha256": "e87493e9b3229aadc14e3b0ed1419f224baeb1ace444b514932523500e2650ea",
+      "source": "c803a945bf5dc7d5fcfd7272823c9b73d55e68f8",
+      "totals": {
+        "ran": 143,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 37
+      },
+      "checks": {
+        "single_start": true,
+        "unit_collected": true,
+        "no_oom": true,
+        "no_processes": true,
+        "no_mounts": true,
+        "no_cgroup": true,
+        "ssh_unchanged": true,
+        "boot_unchanged": true,
+        "swap_zero": true,
+        "disk_reserve": true,
+        "manifest_matches_frozen_host": true,
+        "source_unchanged": true,
+        "driver_success": false
+      }
+    },
+    {
+      "description": "Namespace guard refused before any test; preserved driver mismatch and not-run outcome.",
+      "receipt": "nodequality-r16-fd-20261001-r2/receipt.json",
+      "sha256": "420d546f6525d0f678433020d2f7783c767203d5ae12a1ee627e4c79f78deb70",
+      "source": "87e11b6013593b487006f748b57e0c42e478b301",
+      "totals": {
+        "ran": 0,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "checks": {
+        "single_start": true,
+        "unit_collected": true,
+        "no_oom": true,
+        "no_processes": true,
+        "no_mounts": true,
+        "no_cgroup": true,
+        "ssh_unchanged": true,
+        "boot_unchanged": true,
+        "swap_zero": true,
+        "disk_reserve": true,
+        "manifest_matches_frozen_host": true,
+        "source_unchanged": true,
+        "driver_success": false
+      }
+    },
+    {
+      "description": "143 methods ran; two access subcase failures expected an empty Type instead of the original literal null string.",
+      "receipt": "nodequality-r16-fd-20261001-r3/receipt.json",
+      "sha256": "4495c32d12051e4575d36713959ef23425eef8f055b20ece581f99ac737656e6",
+      "source": "87e11b6013593b487006f748b57e0c42e478b301",
+      "totals": {
+        "ran": 143,
+        "skipped": 0,
+        "failures": 2,
+        "errors": 0
+      },
+      "checks": {
+        "single_start": true,
+        "unit_collected": true,
+        "no_oom": true,
+        "no_processes": true,
+        "no_mounts": true,
+        "no_cgroup": true,
+        "ssh_unchanged": true,
+        "boot_unchanged": true,
+        "swap_zero": true,
+        "disk_reserve": true,
+        "manifest_matches_frozen_host": true,
+        "source_unchanged": true,
+        "driver_success": false
+      }
+    },
+    {
+      "description": "160 methods ran; two Netflix methods hit execve E2BIG before Bash from fixture JSON in environment. Other 143 methods passed.",
+      "receipt": "nodequality-r17-integrated-20261001-r2/receipt.json",
+      "sha256": "48954cbadf2248af277bf3983232aab4c55242d74e4ff54106b8558c271b7c93",
+      "source": "70f47d38e8ec9f36c22b1caa93f6aedf13db438e",
+      "totals": {
+        "ran": 160,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 2
+      },
+      "checks": {
+        "single_start": true,
+        "unit_collected": true,
+        "no_oom": true,
+        "no_processes": true,
+        "no_mounts": true,
+        "no_cgroup": true,
+        "ssh_unchanged": true,
+        "boot_unchanged": true,
+        "swap_zero": true,
+        "disk_reserve": true,
+        "manifest_matches_frozen_host": true,
+        "source_unchanged": true,
+        "driver_success": false
+      }
+    },
+    {
+      "description": "Missing second isolation hook for the earlier access layer; raw log reports 11 methods, one error and eight skips. Original host parser only read skip count for OK summaries.",
+      "receipt": "nodequality-r17-final-20261001/host-receipt.json",
+      "sha256": "67af979727510397e75511f0352ef9f1427d19c8085e17e289bd1b8a5c766775",
+      "raw_log_sha256": "6813d3fa0da91092a7b7a0714ecb91108d9c2dd3d8bb4c5030cfe8989c9f0bf5"
+    },
+    {
+      "description": "Initial host combination stopped at two report-fixture anchor errors; failed receipt and logs retained.",
+      "receipt": "nodequality-access-20261001/host-receipt.json",
+      "sha256": "df00fb722c3c0ee73944d0cba2379b6482f066173cf33deb265d7e5a0e1a8e03"
+    }
+  ],
+  "prepared_not_run": {
+    "reason": "r17 first preparation retained before host isolation correction; never launched.",
+    "receipt": "nodequality-r17-integrated-20261001/input.json",
+    "sha256": "b787c265dd4ff1bfdb25eedc92a1c57835f8dc1e845a1105397744f494eca008"
+  },
+  "review_findings_fixed": [
+    "Pre-variable read bound was absent in initial r16; now head caps raw bytes before capture.",
+    "Strict Netflix marker grep could exit on valid pages; now explicitly conditional.",
+    "Netflix title ID suffix could match appended letters; now requires URL delimiter/end.",
+    "Large test scenarios exceeded execve environment limits; now use bounded private ordinary files."
+  ],
+  "ci": {
+    "checked_workflows": [
+      {
+        "id": 370452251,
+        "name": "CI",
+        "state": "disabled_manually"
+      },
+      {
+        "id": 371465504,
+        "name": "Platform validation",
+        "state": "disabled_manually"
+      },
+      {
+        "id": 371336963,
+        "name": "Signed release draft",
+        "state": "disabled_manually"
+      },
+      {
+        "id": 371634567,
+        "name": "Native TCP signed artifact contract",
+        "state": "disabled_manually"
+      },
+      {
+        "id": 371836768,
+        "name": "Copilot cloud agent",
+        "state": "active"
+      }
+    ],
+    "all_four_source_workflows_disabled": true,
+    "triggered": false
+  },
+  "limits": [
+    "Geekbench Pro license is unavailable; full-start gates remain closed.",
+    "Open-source rootfs and licensed tools, registered node-self IP execution and the original full load/fault matrix remain pending.",
+    "Page fixtures do not certify streaming playback or live provider schemas.",
+    "Native TCP registered signed-runtime acceptance remains pending.",
+    "Earlier installation/runtime receipts do not certify new GitHub Agent bootstrap or this integrated deployment.",
+    "No per-item PR, formal signed release, CI run or production migration/deployment in this integration."
+  ]
+}

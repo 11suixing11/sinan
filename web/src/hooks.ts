@@ -51,13 +51,19 @@ export function useResource<T>(path: string | null, poll = 5000) {
     const timer = poll ? window.setInterval(() => { if (document.visibilityState === 'visible') void load() }, poll) : undefined
     return () => { active = false; snapshot.current.valid = false; ++generation.current; controller.abort(); window.clearInterval(timer) }
   }, [path, poll, revision])
-  return { data: previousPath.current === path ? data : undefined, error, loading, ready: previousPath.current === path && ready, reload, isCurrent, getCurrent }
+  const currentData = previousPath.current === path ? data : undefined
+  return { data: currentData, error, loading, ready: previousPath.current === path && ready,
+    refreshing: loading || !isCurrent(), fresh: currentData !== undefined && currentData !== null && !error && isCurrent(),
+    reload, isCurrent, getCurrent }
 }
 
 export type ResourceState<T> = ReturnType<typeof useResource<T>>
 
-export function resourceWriteError(...resources: { isCurrent: () => boolean }[]): string {
-  return resources.every(resource => resource.isCurrent()) ? '' : '相关信息正在刷新或刷新失败，请成功刷新后再提交；当前草稿已保留。'
+export function resourceWriteError(...resources: { isCurrent?: () => boolean; fresh?: boolean; error?: string }[]): string {
+  const failure = resources.find(resource => resource.error)
+  if (failure) return `最新信息读取失败，暂不能修改；草稿已保留。${failure.error}`
+  return resources.every(resource => resource.isCurrent ? resource.isCurrent() : resource.fresh === true)
+    ? '' : '相关信息正在刷新或刷新失败，请成功刷新后再提交；当前草稿已保留。'
 }
 
 export function useAction() {

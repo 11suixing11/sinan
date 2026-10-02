@@ -44,7 +44,7 @@ async fn deliver(client: &PanelClient, result: &RuntimeValidationResult) -> Resu
 
 /// Shares the reconciliation worker and retirement gate; each turn executes at most one probe.
 pub(crate) async fn poll(
-    reconcilers: &[(String, Reconciler)],
+    reconcilers: &[(String, std::sync::Arc<Reconciler>)],
     state: &SharedState,
     client: &PanelClient,
 ) -> Result<()> {

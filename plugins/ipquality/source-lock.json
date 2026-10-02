@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "files": [
+    {"name":"ip.sh","repository":"xykt/IPQuality","commit":"87397e2c3196ec796f5477c83343c2354df601ea","path":"ip.sh","sha256":"b30df5a3c2204276c54e99dcc5080b46f8a627667730aee7de63b109b8ecaecf","size":108641,"license_file":"LICENSE.ip"},
+    {"name":"LICENSE.ip","repository":"xykt/IPQuality","commit":"87397e2c3196ec796f5477c83343c2354df601ea","path":"LICENSE","sha256":"8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef","size":34523},
+    {"name":"ip-iso3166.json","repository":"xykt/IPQuality","commit":"87397e2c3196ec796f5477c83343c2354df601ea","path":"ref/iso3166.json","sha256":"e1434e42786484b1841082a0a16cf27208691443dc6440d125ad81d49007ea42","size":65317,"license_file":"LICENSE.ip"},
+    {"name":"ip-dnsbl.list","repository":"xykt/IPQuality","commit":"87397e2c3196ec796f5477c83343c2354df601ea","path":"ref/dnsbl.list","sha256":"a92ca482843310167309c82f05cb7e208d7decc7f8bb7eada0f96af42f1143ad","size":8812,"license_file":"LICENSE.ip"}
+  ]
+}

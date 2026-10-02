@@ -6,7 +6,8 @@ export default function ProbeMonitoringFields({ value, onChange, editing = false
   const current = value ?? emptyMonitoring(), authorization = current.authorization
   const change = (part: Partial<ProbeMonitoring>) => onChange({ ...current, ...part, ...(part.ip_version && part.ip_version !== current.ip_version ? { authorization: { ...authorization, confirmed: false } } : {}) })
   const authorize = (part: Partial<ProbeMonitoring['authorization']>) => change({ authorization: { ...authorization, confirmed: false, ...part } })
-  const date = authorization.expires_at == null ? '' : new Date(authorization.expires_at * 1000 - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+  const expiry = authorization.expires_at == null ? null : new Date(authorization.expires_at * 1000 - new Date().getTimezoneOffset() * 60_000)
+  const date = expiry && Number.isFinite(expiry.getTime()) ? expiry.toISOString().slice(0, 16) : ''
   return <>
     <div className="form-grid">
       <Field label="运营商线路"><select disabled={editing} value={current.network} onChange={event => change({ network: event.target.value as ProbeNetwork })}>{networks.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field>

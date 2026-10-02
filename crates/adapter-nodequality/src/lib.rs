@@ -14,6 +14,10 @@ pub const OFFLINE_ROOTFS_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f645
 /// Configured official queries executed at the managed node egress.
 pub const NODE_QUERY_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21";
 pub const NODE_QUERY_CAPABILITY: &str = "diagnostic:nodequality-node-query";
+/// Explicit namespaced preparation, never an alias for a historical signed version.
+pub const NATIVE_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-sinan-native-r1";
+pub const NATIVE_OFFLINE_ROOTFS_VERSION: &str =
+    "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1";
 const PUBLIC_ACCESS_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18";
 const BROWSER_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17";
 const REPORT_IO_VERSION: &str = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r16";
@@ -76,6 +80,8 @@ fn supports_modes(version: &str) -> bool {
     matches!(
         version,
         VERSION
+            | NATIVE_VERSION
+            | NATIVE_OFFLINE_ROOTFS_VERSION
             | OFFLINE_ROOTFS_VERSION
             | NODE_QUERY_VERSION
             | PUBLIC_ACCESS_VERSION
@@ -100,6 +106,8 @@ fn validate(spec: &DiagnosticSpec) -> Result<(String, String, String, String)> {
     if !matches!(
         spec.version.as_str(),
         VERSION
+            | NATIVE_VERSION
+            | NATIVE_OFFLINE_ROOTFS_VERSION
             | OFFLINE_ROOTFS_VERSION
             | NODE_QUERY_VERSION
             | PUBLIC_ACCESS_VERSION
@@ -227,7 +235,10 @@ fn valid_report_url(value: &str) -> bool {
 
 impl DiagnosticAdapter for NodeQualityAdapter {
     fn auxiliary_files_for_version(&self, version: &str) -> Vec<String> {
-        if version == OFFLINE_ROOTFS_VERSION {
+        if matches!(
+            version,
+            OFFLINE_ROOTFS_VERSION | NATIVE_OFFLINE_ROOTFS_VERSION
+        ) {
             vec!["rootfs.tar.gz".into(), "rootfs-manifest.json".into()]
         } else {
             Vec::new()

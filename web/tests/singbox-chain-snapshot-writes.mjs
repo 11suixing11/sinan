@@ -29,7 +29,7 @@ const forceForm = (form, reload = false) => form.evaluate((element, reload) => {
 }, reload)
 const forceClick = (button, reload = false) => button.evaluate((element, reload) => {
   if (reload) Array.from(document.querySelectorAll('.page-header button')).find(button => button.textContent.trim() === '刷新').click()
-  element.disabled = false; element.click()
+  const disabled = element.disabled; try { element.disabled = false; element.click() } finally { element.disabled = disabled }
 }, reload)
 try {
   for (const width of [1440, 390]) {
@@ -66,6 +66,7 @@ try {
           else if (['/api/me', '/api/dashboard/access'].includes(path)) value = { authenticated: true, public_dashboard: false }
           else if (path === `${prefix}/servers`) value = hosts
           else if (path === `${prefix}/nodes`) value = nodes
+          else if ([`${prefix}/ordered-proxy-resources`, `${prefix}/ordered-subscription-sources`].includes(path)) value = []
           else if (path === `${prefix}/proxy-resources`) value = resources
           else if (path === `${prefix}/usage`) value = { total: '0', uplink: '0', downlink: '0', by_node: [], by_user: [] }
           else if (path === `${prefix}/subscription-sources`) value = []

@@ -20,7 +20,7 @@ use tokio::{
     time::{Instant, timeout},
 };
 use tokio_tungstenite::{
-    MaybeTlsStream, WebSocketStream, connect_async_with_config,
+    MaybeTlsStream, WebSocketStream, connect_async_tls_with_config,
     tungstenite::{Message as Frame, protocol::WebSocketConfig},
 };
 
@@ -52,8 +52,8 @@ pub(super) async fn run(
     if let Some(info) = &last_static {
         send(&mut socket, Envelope::new("telemetry.static", info)?).await?;
     }
-    client_tx.send_replace(Some(Arc::new(PanelClient::new(
-        &config.panel_url,
+    client_tx.send_replace(Some(Arc::new(PanelClient::from_config(
+        config,
         &ack.session_token,
     )?)));
     runtime.connected.store(true, Ordering::Relaxed);
@@ -104,6 +104,36 @@ pub(super) async fn run(
                         let envelope: Envelope = serde_json::from_str(&text)?;
                         anyhow::ensure!(envelope.v == PROTOCOL_VERSION, "incompatible panel protocol version");
                         match envelope.decode()? {
+                            Message::RuntimeCheckpointRequest(request) => {
+                                if let Some(control) = &runtime.runtime_control {
+                                    control.enqueue(super::runtime_control::Input::Request(crate::state::runtime_control::ControlRequest::Checkpoint(request)));
+                                }
+                            }
+                            Message::RuntimeRecoveryBarrierRequest(request) => {
+                                if let Some(control) = &runtime.runtime_control {
+                                    control.enqueue(super::runtime_control::Input::Request(crate::state::runtime_control::ControlRequest::Barrier(request)));
+                                }
+                            }
+                            Message::RuntimePathProbeRequest(request) => {
+                                if let Some(control) = &runtime.runtime_control {
+                                    control.enqueue(super::runtime_control::Input::Request(crate::state::runtime_control::ControlRequest::Probe(request)));
+                                }
+                            }
+                            Message::RuntimePathProbeAck(ack) => {
+                                if let Some(control) = &runtime.runtime_control {
+                                    control.enqueue(super::runtime_control::Input::Ack("probe", ack));
+                                }
+                            }
+                            Message::RuntimeCheckpointAck(ack) => {
+                                if let Some(control) = &runtime.runtime_control {
+                                    control.enqueue(super::runtime_control::Input::Ack("checkpoint", ack));
+                                }
+                            }
+                            Message::RuntimeRecoveryBarrierAck(ack) => {
+                                if let Some(control) = &runtime.runtime_control {
+                                    control.enqueue(super::runtime_control::Input::Ack("barrier", ack));
+                                }
+                            }
                             Message::DiagnosticCancelRequest(request) => {
                                 let _guard = match &runtime.retirement {
                                     Some(retirement) => Some(retirement.gate.read().await),
@@ -250,7 +280,12 @@ async fn authenticate(config: &Config, identity: &Identity) -> Result<(Socket, H
         .max_frame_size(Some(1024 * 1024));
     let (mut socket, _) = timeout(
         Duration::from_secs(config.operation_timeout_secs),
-        connect_async_with_config(url.as_str(), Some(options), false),
+        connect_async_tls_with_config(
+            url.as_str(),
+            Some(options),
+            false,
+            crate::panel_tls::websocket_connector(config.panel_ca_file.as_deref())?,
+        ),
     )
     .await??;
     let challenge = receive(&mut socket).await?;

@@ -707,3 +707,9 @@ mod tests {
         );
     }
 }
+
+mod normalized;
+pub use normalized::{
+    Common, Ech, ExternalProtocol, HysteriaObfs, Multiplex, NormalizedOutbound, Reality, Tls,
+    Transport, UdpOverTcp, Utls,
+};

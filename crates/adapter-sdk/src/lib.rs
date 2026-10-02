@@ -41,6 +41,29 @@ pub struct Prepared {
     pub listen_ports: Vec<u16>,
 }
 
+/// Private companion to the native configuration, covered by the bundle signature.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeProbePlan {
+    pub schema: u32,
+    pub runtime_version: String,
+    pub required_build_tags: Vec<String>,
+    pub bindings: Vec<RuntimeProbeBinding>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeProbeBinding {
+    pub id: String,
+    pub selector: String,
+    pub target: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RuntimeProbeMeasurement {
+    pub elapsed_ms: u64,
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Plan {
@@ -93,6 +116,16 @@ pub struct Execution {
     pub truncated: bool,
 }
 
+/// A service-manager observation of the currently controlled process.
+/// Paths are internal observations and must never be accepted from a device request.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeInstance {
+    pub instance_id: String,
+    pub binary_path: PathBuf,
+    /// The stable absolute command argument; configuration resolution is checked separately.
+    pub config_path: PathBuf,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandProcessIdentity {
     pub pid: u32,
@@ -124,6 +157,14 @@ pub trait ManagedProcess: Send {
 }
 
 pub trait Privileged: Send + Sync {
+    fn runtime_process<'a>(
+        &'a self,
+        _pid: u32,
+        _control_group: &'a str,
+    ) -> BoxFuture<'a, RuntimeInstance> {
+        Box::pin(async { anyhow::bail!("runtime process inspection is not supported") })
+    }
+
     fn execute_controlled<'a>(
         &'a self,
         _program: &'a Path,
@@ -290,6 +331,13 @@ pub struct ServiceLogs {
 }
 
 pub trait ServiceManager: Send + Sync {
+    fn supports_runtime_checkpoint(&self) -> bool {
+        false
+    }
+    fn runtime_instance<'a>(&'a self, _unit: &'a str) -> BoxFuture<'a, RuntimeInstance> {
+        Box::pin(async { anyhow::bail!("runtime instance inspection is not supported") })
+    }
+
     /// Read a fixed, bounded recent log window for a registered service.
     fn recent_logs<'a>(&'a self, _unit: &'a str) -> BoxFuture<'a, ServiceLogs> {
         Box::pin(async { anyhow::bail!("service log reading is not supported") })
@@ -431,6 +479,16 @@ pub trait Adapter: Send + Sync {
         Box::pin(async { anyhow::bail!("runtime dependency validation is not supported") })
     }
     fn describe(&self) -> Descriptor;
+    fn supports_runtime_probe(&self) -> bool {
+        false
+    }
+    fn runtime_probe<'a>(
+        &'a self,
+        _runtime: &'a Prepared,
+        _probe_id: &'a str,
+    ) -> BoxFuture<'a, RuntimeProbeMeasurement> {
+        Box::pin(async { anyhow::bail!("runtime path verification is unsupported") })
+    }
     /// Optional startup budget; callers must impose their own upper bound.
     fn health_timeout(&self, _target: &Prepared) -> std::time::Duration {
         std::time::Duration::ZERO

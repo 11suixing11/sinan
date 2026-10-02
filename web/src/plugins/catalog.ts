@@ -26,7 +26,7 @@ export const pluginDefinitions: readonly CatalogDefinition[] = [
   {
     id: 'sing-box', title: 'sing-box', icon: 'nodes', serverSection: '/plugins',
     description: '在服务器上提供代理节点，管理代理用户、订阅、策略组、套餐和用量周期。',
-    usage: '先为目标服务器启用插件，再创建节点。配置发布后，由该服务器的 Agent 获取并运行代理内核。',
+    usage: '先为目标服务器启用并安装插件，等待 Agent 确认安装与运行状态，再创建节点和分配代理用户。',
   },
   {
     id: 'nodequality', title: 'NodeQuality', icon: 'activity', serverSection: '/node-quality',

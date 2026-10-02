@@ -32,3 +32,5 @@
 - 消息请求契约依据 [Telegram sendMessage](https://core.telegram.org/bots/api#sendmessage)。本地仅使用回环替身验证，不发送真实机器人消息。
 
 操作与接口示例见 [延迟检测与通知](../monitoring.md)。CI 保持暂停，生产迁移、公网拨测、Telegram 实际送达及多平台节点效果须单独验证。
+
+2026-10-02 的 [ADR0050](0067-authorized-probe-leases.md) 在本历史实现上增加目标来源/同意记录、独立短期许可协议与设备停止保护，覆盖新设备恢复一天离线配置的旧行为。旧八字段协议和历史保持，旧 Agent 尚未升级时的限制仍存在；本 ADR 的历史验证不替代新组合冻结验收。

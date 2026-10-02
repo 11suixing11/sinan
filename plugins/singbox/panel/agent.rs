@@ -46,8 +46,31 @@ pub async fn manifest_module(
         return Ok(None);
     };
     let revision = deployment.get("rev");
-    match prepare_manifest(state, info, revision, deployment.get("bundle_sha256")).await {
+    match prepare_manifest(
+        state,
+        server_id,
+        info,
+        revision,
+        deployment.get("bundle_sha256"),
+    )
+    .await
+    {
         Ok(module) => {
+            let mut tx = state.pool.begin().await?;
+            let path_deployment: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_path_deployment_dependencies WHERE server_id=$1 AND module='singbox' AND revision=$2)")
+                .bind(server_id).bind(revision).fetch_one(&mut *tx).await?;
+            // Only immutable path deployments bind an artifact to this revision.
+            // Ordinary nodes retain ABI selection as legacy device facts improve.
+            if path_deployment {
+                sqlx::query("INSERT INTO singbox_runtime_manifest_facts(server_id,module,revision,runtime_version,artifact_sha256,artifact) VALUES($1,'singbox',$2,'1.14.2',$3,$4) ON CONFLICT DO NOTHING").bind(server_id).bind(revision).bind(&module.artifact.sha256).bind(serde_json::to_value(&module.artifact).map_err(anyhow::Error::from)?).execute(&mut *tx).await?;
+                let same:bool=sqlx::query_scalar("SELECT artifact_sha256=$3 FROM singbox_runtime_manifest_facts WHERE server_id=$1 AND module='singbox' AND revision=$2").bind(server_id).bind(revision).bind(&module.artifact.sha256).fetch_one(&mut *tx).await?;
+                if !same {
+                    return Err(ApiError::Conflict(
+                        "此配置版本的固定运行时制品已改变，需发布新的受控版本".into(),
+                    ));
+                }
+            }
+            tx.commit().await?;
             // A stale fetch must not clear another target's preparation error or
             // any error reported by the device itself.
             preparation_result(state, server_id, revision, None).await?;
@@ -79,11 +102,27 @@ pub async fn manifest_module(
 
 async fn prepare_manifest(
     state: &AppState,
+    server_id: i64,
     info: &Value,
     config_rev: i64,
     bundle_sha256: String,
 ) -> ApiResult<ModuleManifest> {
-    let artifact = runtime_artifact(state, info).await?;
+    let below_floor:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_path_deployment_dependencies d JOIN singbox_chains c ON c.id=d.chain_id WHERE d.server_id=$1 AND d.module='singbox' AND d.revision=$2 AND d.route_active AND d.generation<c.minimum_generation)").bind(server_id).bind(config_rev).fetch_one(&state.pool).await?;
+    if below_floor {
+        return Err(ApiError::BadRequest(
+            "此配置含低于设备已确认恢复边界的路径代数，等待发布安全的较高代数".into(),
+        ));
+    }
+    let pinned:Vec<Value>=sqlx::query_scalar("SELECT DISTINCT r.artifact FROM singbox_path_deployment_dependencies d JOIN singbox_chain_runtime_requirements r ON r.chain_id=d.chain_id AND r.generation=d.generation AND r.server_id=d.server_id WHERE d.server_id=$1 AND d.module='singbox' AND d.revision=$2").bind(server_id).bind(config_rev).fetch_all(&state.pool).await?;
+    if pinned.len() > 1 {
+        return Err(ApiError::Conflict(
+            "此配置包含不一致的固定运行时制品，保留现有运行状态".into(),
+        ));
+    }
+    let artifact = match pinned.into_iter().next() {
+        Some(artifact) => serde_json::from_value(artifact).map_err(anyhow::Error::from)?,
+        None => runtime_artifact(state, info).await?,
+    };
     Ok(ModuleManifest {
         kernel_version: "1.14.2".into(),
         artifact,

@@ -176,6 +176,8 @@ try {
     await page.getByText('PLUGIN_STATE_UNKNOWN', { exact: true }).waitFor({ state: 'hidden' })
     await page.getByRole('button', { name: '启用并安装 sing-box', exact: true }).click()
     await page.getByText('管理员明确启用', { exact: true }).waitFor()
+    await page.getByText('安装已安排', { exact: true }).waitFor()
+    assert.equal(await page.getByText('已安装并运行', { exact: true }).count(), 0)
     assert.deepEqual(mutations, [{ path: '/api/plugins/sing-box/servers/2/enable', method: 'POST', body: {} }])
     await page.getByText('安装已安排', { exact: true }).waitFor()
     assert.equal(await page.getByText('已安装并运行', { exact: true }).count(), 0)

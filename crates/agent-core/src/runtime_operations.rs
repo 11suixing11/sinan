@@ -82,7 +82,7 @@ async fn deliver(
 
 /// The caller serializes this worker with reconciliation and holds the retirement gate.
 pub(crate) async fn poll(
-    reconcilers: &[(String, Reconciler)],
+    reconcilers: &[(String, std::sync::Arc<Reconciler>)],
     state: &SharedState,
     client: &PanelClient,
     outgoing: &tokio::sync::mpsc::Sender<sinan_protocol::Envelope>,
@@ -149,7 +149,7 @@ mod tests;
 
 async fn execute(
     request: &RuntimeOperationRequest,
-    reconcilers: &[(String, Reconciler)],
+    reconcilers: &[(String, std::sync::Arc<Reconciler>)],
     client: &PanelClient,
     outgoing: &tokio::sync::mpsc::Sender<sinan_protocol::Envelope>,
     offset: i64,

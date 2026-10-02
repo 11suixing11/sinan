@@ -161,6 +161,65 @@ impl TestPanel {
         Ok(response.json().await?)
     }
 
+    /// Explicit TEST_ONLY import preserving both numeric and rich legacy projections.
+    pub async fn import_legacy_chain(
+        &self,
+        cookie: &str,
+        name: &str,
+        entry: i64,
+        exit: i64,
+    ) -> Result<Value> {
+        let mut tx = self.state.pool.begin().await?;
+        let relay = Uuid::new_v4();
+        let chain:i64=sqlx::query_scalar("INSERT INTO singbox_chains(name,entry_node_id,exit_node_id,relay_uuid,applied_generation) VALUES($1,$2,$3,$4,1) RETURNING id")
+            .bind(name).bind(entry).bind(exit).bind(relay).fetch_one(&mut *tx).await?;
+        let mut endpoints = Vec::new();
+        for node in [entry, exit] {
+            let (server,snapshot):(i64,Value)=sqlx::query_as("SELECT server_id,jsonb_build_object('id',id,'name',name,'port',port,'public_host',public_host,'sni',sni,'private_key',private_key,'public_key',public_key,'short_id',short_id,'users','[]'::jsonb,'enabled',enabled,'settings',settings,'protocol_config',protocol_config) FROM nodes WHERE id=$1")
+                .bind(node).fetch_one(&mut *tx).await?;
+            let proposed = Uuid::new_v4();
+            sqlx::query("INSERT INTO singbox_managed_endpoint_versions(id,node_id,server_id,snapshot,semantic_sha256,created_at) VALUES($1,$2,$3,$4,encode(sha256(convert_to($4::jsonb::text,'UTF8')),'hex'),$5) ON CONFLICT(node_id,semantic_sha256) DO NOTHING")
+                .bind(proposed).bind(node).bind(server).bind(&snapshot).bind(sinan_protocol::now_timestamp()).execute(&mut *tx).await?;
+            let version:Uuid=sqlx::query_scalar("SELECT id FROM singbox_managed_endpoint_versions WHERE node_id=$1 AND semantic_sha256=encode(sha256(convert_to($2::jsonb::text,'UTF8')),'hex')")
+                .bind(node).bind(&snapshot).fetch_one(&mut *tx).await?;
+            endpoints.push(json!({"version_id":version,"server_id":server,"node":snapshot}));
+        }
+        let frozen = json!({"entry":endpoints[0],"hops":[{"kind":"managed","endpoint":endpoints[1],"relay_uuid":relay}],"legacy_relay_uuid":relay});
+        let entry_version: Uuid = serde_json::from_value(endpoints[0]["version_id"].clone())?;
+        let exit_version: Uuid = serde_json::from_value(endpoints[1]["version_id"].clone())?;
+        let exit_server = endpoints[1]["server_id"]
+            .as_i64()
+            .context("legacy fixture exit server")?;
+        sqlx::query("INSERT INTO singbox_ordered_chain_versions(chain_id,generation,legacy,entry_endpoint_version,semantic_sha256,capabilities,snapshot,created_at) VALUES($1,1,TRUE,$2,encode(sha256(convert_to($3::jsonb::text,'UTF8')),'hex'),'{\"tcp\":true,\"udp\":true}'::jsonb,$3,$4)")
+            .bind(chain).bind(entry_version).bind(frozen).bind(sinan_protocol::now_timestamp()).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO singbox_ordered_chain_hops(chain_id,generation,position,kind,endpoint_version_id,managed_node_id,managed_server_id,relay_uuid) VALUES($1,1,1,'managed',$2,$3,$4,$5)")
+            .bind(chain).bind(exit_version).bind(exit).bind(exit_server).bind(relay).execute(&mut *tx).await?;
+        let main_path = json!({"chain_id":chain,"generation":1,"entry_server_id":endpoints[0]["server_id"],"entry_node_id":entry,"active":true,"hops":[{"kind":"managed","server_id":exit_server,"identity":relay,"endpoint":endpoints[1]["node"]}]});
+        sqlx::query("INSERT INTO singbox_chain_versions(chain_id,generation,legacy,path_json,semantic_hash,networks,stage,created_at,updated_at) VALUES($1,1,TRUE,$2,'legacy-preserved','{\"tcp\":true,\"udp\":true}','active',0,0)")
+            .bind(chain).bind(&main_path).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO singbox_chain_hops(chain_id,generation,position,kind,managed_node_id,managed_server_id,endpoint_json,relay_uuid) VALUES($1,1,0,'managed',$2,$3,$4,$5)")
+            .bind(chain).bind(exit).bind(exit_server).bind(&endpoints[1]["node"]).bind(relay).execute(&mut *tx).await?;
+        sqlx::query("UPDATE singbox_chains SET active_generation=1 WHERE id=$1")
+            .bind(chain)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE servers SET dirty_at=$2 WHERE id IN (SELECT server_id FROM nodes WHERE id=ANY($1))")
+            .bind(vec![entry,exit]).bind(sinan_protocol::now_timestamp()).execute(&mut *tx).await?;
+        tx.commit().await?;
+        let list: Value = self
+            .admin(Method::GET, "/api/plugins/sing-box/chains", cookie, None)
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        list.as_array()
+            .context("legacy fixture chain list")?
+            .iter()
+            .find(|value| value["id"] == chain)
+            .cloned()
+            .context("legacy fixture chain presentation")
+    }
+
     pub async fn enable_plugin(&self, cookie: &str, server_id: i64) -> Result<()> {
         self.admin(
             Method::POST,

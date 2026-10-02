@@ -67,10 +67,19 @@ impl Reconciler {
             Err(_) => RuntimeServiceState::Unknown,
         };
         let healthy = if let Some(previous) = &previous {
-            Some(
-                self.verify_applied_runtime(previous).await.is_ok()
-                    && self.runtime_health(previous).await.unwrap_or(false),
-            )
+            let observed: Result<()> = async {
+                self.require_revision_floor(previous.spec.revision)?;
+                self.verify_applied_runtime(previous).await?;
+                if self.services.supports_runtime_checkpoint()
+                    && let Some(activation) = self.saved_activation()?
+                {
+                    self.validate_activation(previous, &activation).await?;
+                }
+                ensure!(self.runtime_health(previous).await?, "runtime is unhealthy");
+                Ok(())
+            }
+            .await;
+            Some(observed.is_ok())
         } else {
             None
         };

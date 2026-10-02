@@ -1,18 +1,12 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { api } from '../api'
 import { Badge, ErrorNotice, Icon, Loading } from '../components'
 import { time } from '../format'
 import { resourceWriteError, useAction, useResource } from '../hooks'
 import { qualityValue } from '../quality'
-import type { DiagnosticRecord, IpQuality, ServerIpInfo as ServerIpInfoData, QualityDatabase, QualityErrorKind } from '../types'
-
-const queryErrorLabels: Record<QualityErrorKind, string> = {
-  dns: 'DNS 解析失败', connect: '连接失败', tls: 'TLS 验证或握手失败', timeout: '查询超时',
-  http_403: '访问被拒绝（403）', http_429: '请求被限流（429）', http_other: '其他 HTTP 错误',
-  non_json: '响应不是 JSON', schema_mismatch: '字段不匹配', body_error: '响应读取失败',
-  response_limit: '响应超过上限', request_error: '请求失败，原因未分类', not_public: '未向第三方查询',
-  not_attempted: '尚未开始查询', invalid_origin: '查询入口地址无效',
-}
+import { queryErrorLabels } from '../ip-quality'
+import type { DiagnosticRecord, IpQuality, ServerIpInfo as ServerIpInfoData, QualityDatabase } from '../types'
+import NodeIpQuality from './NodeIpQuality'
 
 function QualityResult({ result }: { result: IpQuality }) {
   const now = Date.now() / 1000
@@ -48,9 +42,11 @@ export default function ServerIpInfo({ serverId }: { serverId: number }) {
   const nodeQuery = useAction()
   const [nodeTask, setNodeTask] = useState('')
   const data = resource.data
+  const current = useRef({ serverId, resource })
+  current.current = { serverId, resource }
   const publicIps = data?.public_ip_addresses ?? []
   const privateIps = data?.private_ip_addresses ?? []
-  const writeError = () => resourceWriteError(resource)
+  const writeError = () => current.current.serverId !== serverId ? '服务器已变化，请重新确认。' : resourceWriteError(current.current.resource)
   const refreshQuality = () => { if (writeError() || !resource.getCurrent()?.public_ip_addresses.length) return; void refresh.run(() => api<IpQuality[]>(`/api/servers/${serverId}/ip-quality/refresh`, 'POST'), () => resource.reload()) }
   const queryNode = () => { if (writeError() || !resource.getCurrent()?.node_query_ready || !resource.getCurrent()?.public_ip_addresses.length) return; void nodeQuery.run(() => api<DiagnosticRecord>(`/api/servers/${serverId}/ip-quality/node-query`, 'POST', { ip_version: 'both' }), record => { setNodeTask(record.id); resource.reload() }) }
   return <section className="panel">
@@ -67,10 +63,15 @@ export default function ServerIpInfo({ serverId }: { serverId: number }) {
           <p className="helper">{provider.kind === 'aggregator' ? `一个聚合入口，包含 ${provider.databases.length} 种响应视图` : provider.kind === 'credential_api' ? '一个凭据接口，仅展示官方文档字段' : '节点自身出口执行'} · {provider.execution === 'panel' ? '面板查询' : '节点自查'}</p>
           {provider.reason && <p className="quality-database-error">{provider.reason}</p>}
         </div>)}</div>}
-        <p className="helper">流媒体解锁：未知。需要在节点自身出口执行已验收的自查工具，目前尚未启用。</p>
+        <NodeIpQuality serverId={serverId} data={data.node_quality} fresh={resource.fresh} error={resource.error} reload={resource.reload} isCurrent={() => current.current.serverId === serverId && current.current.resource.isCurrent()} getCurrent={() => current.current.serverId === serverId ? current.current.resource.getCurrent()?.node_quality : undefined} />
+        {!!data.node_quality?.observed_egress_ips.length && <div className="quality-addresses" aria-label="节点观察出口">{data.node_quality.observed_egress_ips.map(ip => {
+          const current = data.node_quality?.current_egress_ips.includes(ip)
+          const results = data.quality.filter(item => item.ip === ip && item.provider?.startsWith('ipquality-node/'))
+          return <article key={`egress/${ip}`} className="quality-address"><h3><span className="mono">{ip}</span> <Badge tone={current ? 'neutral' : 'warm'}>{current ? '最近查询出口' : '历史查询出口'}</Badge></h3><p className="helper">出口由节点查询观察，不代替服务器网卡地址。{!current && '此地址已有结果仅作历史参考。'}</p>{results.map(result => <QualityResult key={`${ip}/${result.provider}`} result={result} />)}</article>
+        })}</div>}
         {!data.ip_addresses.length ? <div className="inline-empty">设备尚未上报 IP 地址，请升级 Agent 或等待设备上报。</div> : <>
         {!publicIps.length ? <div className="inline-empty">尚未识别到公网 IP 地址，暂不能查询公网 IP 质量。</div> : <div className="quality-addresses" aria-label="公网地址">{publicIps.map(ip => {
-          const results = data.quality.filter(item => item.ip === ip)
+          const results = data.quality.filter(item => item.ip === ip && !item.provider?.startsWith('ipquality-node/'))
           return <article key={ip} className="quality-address"><h3><span className="mono">{ip}</span> <Badge tone="neutral">公网 {ip.includes(':') ? 'IPv6' : 'IPv4'}</Badge></h3>{results.length ? results.map(result => <QualityResult key={`${ip}/${result.provider ?? 'check-place'}`} result={result} />) : <p className="helper">尚未查询质量。点击“刷新 IP 质量”查询已启用入口。</p>}</article>
         })}</div>}
         {privateIps.length > 0 && <details className="quality-private-addresses">

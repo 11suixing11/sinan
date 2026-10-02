@@ -31,17 +31,18 @@ try {
     activePage = page
     page.on('pageerror', error => errors.push(error.message))
     await page.clock.install()
-    let now = Date.now(), signedIn = true, publicDashboard = true, refreshFailure = true, providerFailure = false, ratesReadFailure = false, historyDenied = false
+    let now = Date.now(), signedIn = true, publicDashboard = true, refreshFailure = true, providerFailure = false, ratesReadFailure = false, dashboardRatesReadFailure = false, dashboardRatesUnavailable = false, historyDenied = false
+    let priceMode = 'priced', rateMode = 'measured'
     let holdWindow = '', heldHistory, holdLive = false, heldLive, holdDetail = false, heldDetail
     let probeAuthorized = true, probeError = false, probesDenied = false, probeHistoryDenied = false
     const visible = new Set([1, 2, 3]), GiB = 1024 ** 3
     const rates = { base: 'CNY', rates: { CNY: 1, USD: .125, EUR: .1 }, rate_dates: { USD: '2026-09-30', EUR: '2026-09-29' }, rate_date: '2026-09-29', source: 'frankfurter', source_url: 'https://frankfurter.dev/', fetched_at: Math.floor(now / 1000) - 86400, attempted_at: Math.floor(now / 1000), next_refresh_at: Math.floor(now / 1000) + 3600, stale: true, status: 'stale', error_code: 'fetch_failed' }
-    const metrics = id => ({ cpu_percent: id === 1 ? 0 : 72, memory_used: GiB, disk_used: 8 * GiB, swap_used: 0, swap_total: 0, load_1: .5, load_5: .3, load_15: .2, uptime_secs: 86400, network_interfaces: { eth0: { transmitted_bytes: 123456, received_bytes: 654321, transmit_bytes_per_sec: id === 1 ? 0 : 1024, receive_bytes_per_sec: 2048 } }, disks: [{ name: 'vda', mount_point: '/', read_bytes_per_sec: 4096, write_bytes_per_sec: 2048 }] })
+    const metrics = id => ({ cpu_percent: id === 1 ? 0 : 72, memory_used: GiB, disk_used: 8 * GiB, swap_used: 0, swap_total: 0, load_1: .5, load_5: .3, load_15: .2, uptime_secs: 86400, network_interfaces: { eth0: { transmitted_bytes: 123456, received_bytes: 654321, transmit_bytes_per_sec: rateMode === 'unknown' ? undefined : rateMode === 'zero' || id === 1 ? 0 : 1024, receive_bytes_per_sec: rateMode === 'unknown' ? undefined : rateMode === 'zero' ? 0 : 2048 } }, disks: [{ name: 'vda', mount_point: '/', read_bytes_per_sec: 4096, write_bytes_per_sec: 2048 }] })
     const entry = id => ({ id, name: ['东京 · 测试入口', '法兰克福 · 测试存储', '伦敦 · 未报价币种'][id - 1], public_view: !signedIn, registered: true, device_public_key: signedIn ? 'TEST_ONLY_DEVICE' : undefined,
       served_at: now, online: true, metrics_stale: false, metrics_sampled_at: now - 1000, metrics_received_at: now - 500, metrics_persisted_at: now - 60_000, last_seen: Math.floor(now / 1000), last_heartbeat_at: Math.floor(now / 1000), manifest_rev: 0,
       static_info: { system: 'Debian 12', arch: 'aarch64', hostname: signedIn ? 'TEST_ONLY_PRIVATE_HOST' : undefined, cpu_cores: 4, memory_total: 4 * GiB, disk_total: 64 * GiB }, latest_metrics: metrics(id),
       agent_settings: { sample_interval_secs: 1, upload_interval_secs: 3 }, telemetry_settings: { persist_interval_secs: 60 },
-      asset_settings: { region: ['JP', 'DE', 'GB'][id - 1], group_name: '测试分组', tags: ['回环夹具'], hidden: false, price: signedIn ? ['10', '20', '5'][id - 1] : undefined, currency: signedIn ? ['USD', 'EUR', 'GBP'][id - 1] : undefined, billing_cycle: signedIn ? 30 : undefined, expires_at: signedIn ? Math.floor(now / 1000) + 15 * 86400 : undefined, auto_renewal: false, traffic_limit: String(100 * GiB), traffic_limit_type: 'sum', reset_day: 1, network_interface: signedIn ? 'eth0' : undefined },
+      asset_settings: { region: ['JP', 'DE', 'GB'][id - 1], group_name: '测试分组', tags: ['回环夹具'], hidden: false, price: signedIn ? id === 1 && priceMode !== 'priced' ? priceMode === 'zero' ? '0' : null : ['10', '20', '5'][id - 1] : undefined, currency: signedIn ? ['USD', 'EUR', 'GBP'][id - 1] : undefined, billing_cycle: signedIn ? 30 : undefined, expires_at: signedIn ? Math.floor(now / 1000) + 15 * 86400 : undefined, auto_renewal: false, traffic_limit: String(100 * GiB), traffic_limit_type: 'sum', reset_day: 1, network_interface: signedIn ? 'eth0' : undefined },
       traffic: { cycle_start: Math.floor(now / 1000) - 86400, cycle_end: Math.floor(now / 1000) + 29 * 86400, uploaded: String(10 * GiB), downloaded: String(20 * GiB), used: String(30 * GiB), limit: String(100 * GiB), remaining: String(70 * GiB), percent: 30, exceeded: false, observed_from: now - 86400000, last_sample_at: now, incomplete: true, corrected: false },
     })
     const live = () => ({ served_at: now, public_view: !signedIn, servers: [...visible].map(id => {
@@ -70,7 +71,7 @@ try {
       if (path === '/api/dashboard/access') return respond({ authenticated: signedIn, public_dashboard: publicDashboard })
       if (path === '/api/me') return respond(signedIn ? {} : { error: '请先登录' }, signedIn ? 200 : 401)
       if (path.startsWith('/api/dashboard/') && !signedIn && !publicDashboard) return respond({ error: '公开看板已关闭' }, 401)
-      if (path === '/api/dashboard/exchange-rates') return respond(rates)
+      if (path === '/api/dashboard/exchange-rates') return dashboardRatesReadFailure ? respond({ error: '测试：看板汇率读取失败' }, 503) : respond(dashboardRatesUnavailable ? { base: 'CNY', rates: { CNY: 1 }, rate_dates: {}, rate_date: null, source: null, source_url: null, fetched_at: null, attempted_at: Math.floor(now / 1000), next_refresh_at: Math.floor(now / 1000) + 3600, stale: true, status: 'unavailable', error_code: 'fetch_failed' } : rates)
       if (path === '/api/exchange-rates') return ratesReadFailure ? respond({ error: '测试：缓存读取失败' }, 503) : respond(rates)
       if (path === '/api/settings') return respond({ public_dashboard: true, notification_enabled: false, offline_alerts: false, offline_minutes: 5, telegram_enabled: false, telegram_chat_id: '', telegram_token_configured: false })
       if (path === '/api/telemetry/policy') return respond({ history_retention_days: 30 })
@@ -113,6 +114,11 @@ try {
       for (let left = milliseconds; left > 0;) { const step = Math.min(left, 3000); now += step; await page.clock.runFor(step); await settle(); left -= step }
     }
     const count = path => calls.filter(call => call === path).length
+    const readDashboardRates = async () => {
+      const response = page.waitForResponse(response => new URL(response.url()).pathname === '/api/dashboard/exchange-rates')
+      await page.evaluate(() => window.dispatchEvent(new Event('online')))
+      await response
+    }
     await page.goto(`${origin}/#/dashboard`)
     await page.locator('.d-card').first().waitFor()
     const costs = page.locator('.d-overview-item').filter({ has: page.getByText('资产', { exact: true }) })
@@ -160,6 +166,31 @@ try {
     if (screenshots && width !== 320) await exchange.screenshot({ path: resolve(screenshots, `exchange-settings-${width}.png`) })
     await page.goto(`${origin}/#/dashboard`)
     await page.locator('.d-card').first().waitFor()
+    const cardReference = page.locator('.d-card').first().getByRole('status', { name: '参考汇率状态', exact: true })
+    await cardReference.filter({ hasText: /^参考汇率$/ }).waitFor()
+    dashboardRatesReadFailure = true
+    await readDashboardRates()
+    await cardReference.filter({ hasText: /^汇率读取失败 · 使用上次数据$/ }).waitFor()
+    assert.match(await page.locator('.d-card').first().getByLabel('剩余价值与到期').innerText(), /CNY\s*40\.00/, 'A failed FX read keeps the last real card conversion and labels the failure')
+    dashboardRatesReadFailure = false
+    await readDashboardRates()
+    await cardReference.filter({ hasText: /^参考汇率$/ }).waitFor()
+    assert.equal(writes.length, 3, 'Read-only dashboard FX failure and recovery issue no POST')
+    const upload = page.locator('.d-overview-item').filter({ has: page.getByText('实时上行', { exact: true }) })
+    const download = page.locator('.d-overview-item').filter({ has: page.getByText('实时下行', { exact: true }) })
+    rateMode = 'zero'
+    await advance(3000)
+    await upload.getByText('暂无实时流量', { exact: true }).waitFor()
+    assert.equal(await upload.locator('.d-overview-value strong').innerText(), '0')
+    assert.equal(await download.locator('.d-overview-value strong').innerText(), '0')
+    rateMode = 'unknown'
+    await advance(3000)
+    await upload.getByText('暂无有效速率数据', { exact: true }).waitFor()
+    assert.equal(await upload.locator('.d-overview-value strong').innerText(), '—')
+    assert.equal(await download.locator('.d-overview-value strong').innerText(), '—')
+    assert.equal(await download.getByText('暂无实时流量', { exact: true }).count(), 0, 'Missing rates cannot claim a measured zero')
+    rateMode = 'measured'
+    await advance(4000)
     const fullReads = count('/api/dashboard/servers'), liveReads = count('/api/dashboard/live')
     await advance(10_000)
     assert.equal(count('/api/dashboard/servers'), fullReads, 'Live ticks do not re-fetch asset metadata')
@@ -169,6 +200,34 @@ try {
     await page.locator('.d-card').first().click()
     await page.getByRole('heading', { name: /^东京 · 测试入口/ }).waitFor()
     await page.getByText('每 2 秒 聚合', { exact: false }).waitFor()
+    const assetDetail = page.locator('.d-asset-detail'), detailReference = assetDetail.getByRole('status', { name: '参考汇率状态', exact: true })
+    assert.match(await detailReference.innerText(), /2026-09-30.*参考汇率.*Frankfurter/)
+    dashboardRatesReadFailure = true
+    await readDashboardRates()
+    await detailReference.filter({ hasText: /汇率读取失败 · 使用上次数据/ }).waitFor()
+    assert.match(await assetDetail.innerText(), /折算 CNY\s*80\.00/, 'The detail retains the quote on GET503 without calling it fresh')
+    assert.match(await detailReference.innerText(), /2026-09-30.*Frankfurter/)
+    dashboardRatesReadFailure = false
+    await readDashboardRates()
+    await detailReference.filter({ hasText: /2026-09-30 · 参考汇率 · Frankfurter/ }).waitFor()
+    assert.equal(await detailReference.filter({ hasText: /汇率读取失败/ }).count(), 0)
+    dashboardRatesUnavailable = true
+    await readDashboardRates()
+    await detailReference.filter({ hasText: /^暂无所需汇率$/ }).waitFor()
+    assert.match(await assetDetail.innerText(), /缺少 USD → CNY 汇率/)
+    assert.doesNotMatch(await assetDetail.innerText(), /剩余价值 CNY/)
+    priceMode = 'zero'
+    await readDashboardRates()
+    await assetDetail.getByText(/折算 CNY\s*0\.00/).waitFor()
+    assert.match(await assetDetail.innerText(), /剩余价值 CNY\s*0\.00/, 'An explicitly known zero needs no exchange quote')
+    priceMode = 'unknown'
+    await readDashboardRates()
+    await assetDetail.getByText('未填写成本', { exact: true }).waitFor()
+    assert.equal(await assetDetail.locator('.d-asset-conversion').count(), 0, 'An unknown price cannot become a zero conversion')
+    priceMode = 'priced'; dashboardRatesUnavailable = false
+    await readDashboardRates()
+    await assetDetail.getByText(/折算 CNY\s*80\.00/).waitFor()
+    assert.equal(writes.length, 3, 'Every detail recovery is a GET and preserves the administrator-only refresh count')
     const probes = page.locator('.d-probes'), probeSummary = probes.locator('.d-probe-summary')
     await probeSummary.getByText(/最近采样/).waitFor()
     assert.match(await probeSummary.innerText(), /电信 · 测试地区 · IPv4 · telecom · TCP 连接 · private-probe\.example\.invalid:443/)
@@ -280,6 +339,7 @@ try {
     assert.equal(await page.getByLabel('显示币种', { exact: true }).count(), 0)
     assert.equal(await page.getByRole('button', { name: '更新汇率', exact: true }).count(), 0)
     assert(!/EUR|CNY|本周期剩余/.test(await page.locator('.d-detail').innerText()), 'Public fallback clears private asset metadata')
+    assert.equal(await page.getByRole('status', { name: '参考汇率状态', exact: true }).count(), 0, 'Anonymous detail cannot reveal private conversion provenance')
     assert(!/private-probe\.example\.invalid|TEST_ONLY_PRIVATE_AUTH_SOURCE|TEST_ONLY_PRIVATE_AUTH_SCOPE/.test(await page.locator('.d-detail').innerText()), 'Public fallback cannot retain target or authorization provenance')
     assert.deepEqual(writes, Array(3).fill('/api/exchange-rates/refresh'), 'Only explicitly requested backend FX refreshes write')
     publicDashboard = false
@@ -287,7 +347,7 @@ try {
     await page.getByRole('heading', { name: '欢迎回来', exact: true }).waitFor()
     assert.equal(await page.locator('.server-display').count(), 0)
     assert.deepEqual(errors, [])
-    results.push({ width, live_reads: count('/api/dashboard/live'), aggregate_reads: calls.filter(path => path.includes('/history?')).length, scope_cleanup: true, hidden_abort: true, probe_zero_unknown_revocation: true, overflow: false })
+    results.push({ width, live_reads: count('/api/dashboard/live'), aggregate_reads: calls.filter(path => path.includes('/history?')).length, scope_cleanup: true, hidden_abort: true, probe_zero_unknown_revocation: true, fx_read_failure_recovery: true, price_zero_unknown: true, rate_zero_unknown: true, overflow: false })
     await context.close()
   }
   console.log(JSON.stringify({ ok: true, results }, null, 2))

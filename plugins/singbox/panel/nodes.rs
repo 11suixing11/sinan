@@ -11,7 +11,6 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use serde::Deserialize;
-use sinan_protocol::now_timestamp;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -82,6 +81,22 @@ pub async fn create(
     Json(request): Json<CreateNode>,
 ) -> ApiResult<(StatusCode, Json<NodeView>)> {
     require_admin(&state, &headers).await?;
+    let mut transaction = state.pool.begin().await?;
+    super::entitlements::lock(&mut transaction).await?;
+    business::lock_server(&mut transaction, request.server_id).await?;
+    super::settings::require_enabled(&mut transaction, request.server_id).await?;
+    let node = create_locked(&mut transaction, request).await?;
+    business::mark_dirty(&mut transaction, &[node.server_id]).await?;
+    transaction.commit().await?;
+    Ok((StatusCode::CREATED, Json(node.view()?)))
+}
+
+/// The caller owns the topology and server locks. Batch creation uses the same
+/// protocol, certificate, settings, port and whole-server checks as one node.
+pub(super) async fn create_locked(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    request: CreateNode,
+) -> ApiResult<NodeRow> {
     let requested_port = request.port.map(validate_port).transpose()?;
     let protocol = request.protocol_config.build(None)?;
     let (private_key, public_key) = if protocol.is_reality() {
@@ -109,16 +124,12 @@ pub async fn create(
         },
     };
     business::validate_node(&node)?;
-    let mut transaction = state.pool.begin().await?;
-    super::entitlements::lock(&mut transaction).await?;
-    business::lock_server(&mut transaction, request.server_id).await?;
-    super::settings::require_enabled(&mut transaction, request.server_id).await?;
     if let Some(port) = requested_port {
-        ensure_port_available(&mut transaction, node.server_id, port, None).await?;
+        ensure_port_available(transaction, node.server_id, port, None).await?;
     } else {
-        node.port = sqlx::query_scalar::<_, i32>("SELECT candidate.port FROM generate_series(20000,29999) AS candidate(port) WHERE NOT EXISTS(SELECT 1 FROM nodes WHERE server_id=$1 AND deleted_at IS NULL AND nodes.port=candidate.port) ORDER BY candidate.port LIMIT 1").bind(node.server_id).fetch_optional(&mut *transaction).await?.ok_or_else(|| ApiError::Conflict("服务器没有可分配端口".into()))?;
+        node.port = sqlx::query_scalar::<_, i32>("SELECT candidate.port FROM generate_series(20000,29999) AS candidate(port) WHERE NOT EXISTS(SELECT 1 FROM nodes WHERE server_id=$1 AND deleted_at IS NULL AND nodes.port=candidate.port) ORDER BY candidate.port LIMIT 1").bind(node.server_id).fetch_optional(&mut **transaction).await?.ok_or_else(|| ApiError::Conflict("服务器没有可分配端口".into()))?;
     }
-    validate_server_config(&mut transaction, &node).await?;
+    validate_server_config(transaction, &node).await?;
     let query = format!(
         "INSERT INTO nodes AS n (name,server_id,protocol,port,public_host,sni,private_key,public_key,short_id,protocol_config,enabled,settings) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING {NODE_COLUMNS}"
     );
@@ -135,12 +146,10 @@ pub async fn create(
         .bind(node.protocol_config)
         .bind(node.enabled)
         .bind(node.settings)
-        .fetch_one(&mut *transaction)
+        .fetch_one(&mut **transaction)
         .await
         .map_err(port_database_error)?;
-    business::mark_dirty(&mut transaction, &[node.server_id]).await?;
-    transaction.commit().await?;
-    Ok((StatusCode::CREATED, Json(node.view()?)))
+    Ok(node)
 }
 
 pub async fn update(
@@ -176,6 +185,7 @@ pub async fn update(
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or(ApiError::NotFound)?;
+    let previous_node = node.clone();
     let previous = (
         node.enabled,
         node.settings.clone(),
@@ -221,7 +231,8 @@ pub async fn update(
     }
     business::validate_node(&node)?;
     validate_server_config(&mut transaction, &node).await?;
-    let path_references:Vec<i64>=sqlx::query_scalar("SELECT DISTINCT c.id FROM singbox_live_chains c LEFT JOIN singbox_chain_hops h ON h.chain_id=c.id WHERE c.path_kind='mixed' AND (c.entry_node_id=$1 OR h.managed_node_id=$1) ORDER BY c.id").bind(id).fetch_all(&mut *transaction).await?;
+    super::ordered_paths::ensure_node_edit_safe(&mut transaction, &node, &previous_node).await?;
+    let path_references:Vec<i64>=sqlx::query_scalar("SELECT DISTINCT c.id FROM singbox_live_chains c LEFT JOIN singbox_chain_hops h ON h.chain_id=c.id WHERE c.path_kind='mixed' AND (c.entry_node_id=$1 OR h.managed_node_id=$1) ORDER BY c.id LIMIT 32").bind(id).fetch_all(&mut *transaction).await?;
     if !path_references.is_empty()
         && (previous.1 != node.settings
             || previous.3 != node.public_host
@@ -229,17 +240,12 @@ pub async fn update(
             || previous.5 != node.port
             || previous.6 != node.protocol_config)
     {
-        return Err(ApiError::Conflict(format!(
-            "节点正在被混合链路引用（编号：{}），只能修改名称或启用状态；更换端点请创建新节点与链路",
-            path_references
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("、")
+        return Err(ApiError::Conflict(String::from(
+            "节点正在被混合链路引用，只能修改名称或启用状态；更换端点请创建新节点与链路",
         )));
     }
     sqlx::query(
-        "UPDATE nodes SET name=$2,public_host=$3,sni=$4,port=$5,protocol_config=$6,enabled=$7,settings=$8 WHERE id=$1",
+        "UPDATE nodes SET name=$2,public_host=$3,sni=$4,port=$5,protocol_config=$6,enabled=$7,settings=$8,resource_revision=resource_revision+1 WHERE id=$1",
     )
     .bind(id)
     .bind(&node.name)
@@ -275,44 +281,11 @@ pub async fn remove(
     Path(id): Path<i64>,
 ) -> ApiResult<StatusCode> {
     require_admin(&state, &headers).await?;
-    let mut transaction = state.pool.begin().await?;
-    super::entitlements::lock(&mut transaction).await?;
-    let server_id: i64 =
-        sqlx::query_scalar("SELECT server_id FROM nodes WHERE id=$1 AND deleted_at IS NULL")
-            .bind(id)
-            .fetch_optional(&mut *transaction)
-            .await?
-            .ok_or(ApiError::NotFound)?;
-    business::lock_server(&mut transaction, server_id).await?;
-    let references:Vec<i64>=sqlx::query_scalar("SELECT DISTINCT c.id FROM singbox_live_chains c LEFT JOIN singbox_chain_hops h ON h.chain_id=c.id WHERE c.path_kind='mixed' AND (c.entry_node_id=$1 OR h.managed_node_id=$1) ORDER BY c.id").bind(id).fetch_all(&mut *transaction).await?;
-    if !references.is_empty() {
-        return Err(ApiError::Conflict(format!(
-            "请先删除引用此节点的链路（编号：{}）；链路入口请从链路详情删除",
-            references
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("、")
-        )));
-    }
-    let result = sqlx::query("UPDATE nodes SET deleted_at=$2 WHERE id=$1 AND deleted_at IS NULL")
-        .bind(id)
-        .bind(now_timestamp())
-        .execute(&mut *transaction)
-        .await?;
-    if result.rows_affected() == 0 {
-        return Err(ApiError::NotFound);
-    }
-    sqlx::query("DELETE FROM accesses WHERE node_id=$1")
-        .bind(id)
-        .execute(&mut *transaction)
-        .await?;
-    business::mark_dirty(&mut transaction, &[server_id]).await?;
-    transaction.commit().await?;
+    super::proxy_resources::remove_direct_node(&state, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn validate_port(port: i64) -> ApiResult<i32> {
+pub(super) fn validate_port(port: i64) -> ApiResult<i32> {
     if !(1..=65535).contains(&port) {
         return Err(ApiError::BadRequest(
             "节点端口必须为 1 至 65535 的整数".into(),
@@ -358,6 +331,14 @@ pub(crate) async fn validate_server_config(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     node: &NodeRow,
 ) -> ApiResult<()> {
+    if node.port == 18086 {
+        let reserved:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id WHERE n.server_id=$1 AND c.path_kind='ordered' AND (c.deleted_at IS NULL OR c.phase<>'retired'))").bind(node.server_id).fetch_one(&mut **transaction).await?;
+        if reserved {
+            return Err(ApiError::Conflict(
+                "端口 18086 正在供本机有序链路的私有确认接口使用".into(),
+            ));
+        }
+    }
     let query = format!(
         "SELECT {NODE_COLUMNS} FROM nodes n WHERE n.server_id=$1 AND n.deleted_at IS NULL AND n.id<>$2 ORDER BY n.id"
     );
@@ -375,3 +356,6 @@ pub(crate) async fn validate_server_config(
         .map_err(|error| ApiError::BadRequest(format!("服务器节点配置冲突：{error}")))?;
     Ok(())
 }
+
+mod removal;
+pub(crate) use removal::ensure_unreferenced_on;

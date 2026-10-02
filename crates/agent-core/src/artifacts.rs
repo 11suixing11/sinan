@@ -184,6 +184,18 @@ impl PanelClient {
         Ok(bytes)
     }
     pub fn new(panel_url: &str, session_token: &str) -> Result<Self> {
+        Self::with_panel_ca(panel_url, session_token, None)
+    }
+
+    pub fn from_config(config: &crate::Config, session_token: &str) -> Result<Self> {
+        Self::with_panel_ca(
+            &config.panel_url,
+            session_token,
+            config.panel_ca_file.as_deref(),
+        )
+    }
+
+    fn with_panel_ca(panel_url: &str, session_token: &str, ca: Option<&Path>) -> Result<Self> {
         ensure!(
             !session_token.is_empty()
                 && session_token.len() <= 512
@@ -191,7 +203,7 @@ impl PanelClient {
             "invalid device session token"
         );
         Ok(Self {
-            client: Client::builder()
+            client: crate::panel_tls::client_builder(ca)?
                 .redirect(Policy::none())
                 .connect_timeout(Duration::from_secs(20))
                 .timeout(Duration::from_secs(120))

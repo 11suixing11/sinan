@@ -1,3 +1,5 @@
+import { resourceWriteError } from './hooks'
+
 export type ProbeNetwork = 'other' | 'telecom' | 'unicom' | 'mobile'
 export type ProbeMonitoring = { network: ProbeNetwork; region: string; ip_version: 'auto' | 'ipv4' | 'ipv6'; authorization: { basis: 'unconfirmed' | 'owned' | 'permission'; confirmed: boolean; source: string; scope: string; expires_at: number | null } }
 export type ProbeIdentity = { kind: 'tcp' | 'icmp'; target: string; port: number | null; address_family: 'any' | 'ipv4' | 'ipv6' }
@@ -30,7 +32,7 @@ export function withMonitoring(probe: Probe, value: ProbeMonitoring): Probe {
 
 export const probeIdentity = (probe: Probe): ProbeIdentity => ({ kind: probe.kind, target: probe.target.trim(), port: probe.port, address_family: probe.monitor?.address_family ?? 'any' })
 const sameIdentity = (left: ProbeIdentity, right: ProbeIdentity) => left.kind === right.kind && left.target === right.target && left.port === right.port && left.address_family === right.address_family
-export const authorizationMatches = (probe: Probe) => Boolean(probe.monitor?.authorization && sameIdentity(probe.monitor.authorization.identity, probeIdentity(probe)))
+export const authorizationMatches = (probe: Probe) => Boolean(probe.monitor?.authorization?.identity && sameIdentity(probe.monitor.authorization.identity, probeIdentity(probe)))
 
 export function changeProbe(probe: Probe, part: Partial<Probe>): Probe {
   const changed = { ...probe, ...part }
@@ -98,7 +100,78 @@ export function probeSlots(results: ProbeResult[], probe: Probe, now: number, co
 export const probeRevisionMatches = (draft: { revision?: number | null }, current: { revision?: number | null } | undefined) => Boolean(current && Number.isSafeInteger(draft.revision) && (draft.revision ?? 0) > 0 && current.revision === draft.revision)
 
 export function probeWriteError(probe: Probe, current: Probe | undefined): string {
-  if (!probeRevisionMatches(probe, current))
-    return '此拨测已不存在或已改变，请刷新后重新确认；当前草稿已保留。'
+  if (!current || !probeRevisionMatches(probe, current) || probe.id !== current?.id || !sameIdentity(probeIdentity(probe), probeIdentity(current)))
+    return '此拨测已不存在或目标、版本已变化，请刷新后重新确认；当前草稿已保留。'
   return ''
+}
+
+export type ProbeResource<T> = { data?: T[]; fresh: boolean; error: string; isCurrent?: () => boolean; getCurrent?: () => T[] | undefined }
+export type ProbeWriteSnapshot = { serverId: number; probes: ProbeResource<Probe> }
+export type LatencyTask = { id: string; spec: Probe; default_enabled: boolean; server_ids: number[]; revision: number }
+export type TaskWriteSnapshot = { tasks: ProbeResource<LatencyTask>; servers: ProbeResource<{ id: number }> }
+export const probeLeaseNotice = '新 Agent 仅在有效短期许可内检测；断连或刷新失败后停止续期，许可最长 90 秒。保存、暂停或删除配置不代表设备已经立即停止。'
+const currentValues = <T,>(resource: ProbeResource<T>) => resource.getCurrent ? resource.getCurrent() : resource.data
+export function probeReadError(...resources: ProbeResource<unknown>[]) {
+  return resourceWriteError(...resources) || (resources.some(resource => !Array.isArray(currentValues(resource))) ? '拨测列表格式未知，请刷新后再提交；草稿已保留。' : '')
+}
+export function probePayloadError(probe: Probe, now = Date.now()): string {
+  const bytes = (value: string) => new TextEncoder().encode(value).length
+  const controls = /[\u0000-\u001f\u007f-\u009f]/
+  if (!probe.name.trim() || controls.test(probe.name) || bytes(probe.name) > 128) return '拨测名称无效。'
+  if (!['tcp', 'icmp'].includes(probe.kind) || !probe.target.trim() || !/^[A-Za-z0-9._:-]+$/.test(probe.target.trim()) || bytes(probe.target) > 253) return '拨测目标必须为主机名或 IP 地址。'
+  if (!Number.isSafeInteger(probe.interval_secs) || probe.interval_secs < 10 || probe.interval_secs > 3600) return '拨测间隔应为 10–3600 秒的整数。'
+  if (probe.kind === 'tcp' && (!Number.isSafeInteger(probe.port) || probe.port! < 1 || probe.port! > 65535)) return '拨测端口应为 1–65535 的整数。'
+  if (controls.test(probe.carrier) || bytes(probe.carrier) > 64 || typeof probe.enabled !== 'boolean') return '拨测配置无效。'
+  const monitor = probe.monitor, authorization = monitor?.authorization
+  if (monitor && (!['any', 'ipv4', 'ipv6'].includes(monitor.address_family) || controls.test(monitor.region) || bytes(monitor.region) > 64)) return '目标地区或地址家族无效。'
+  if (authorization && (!['owned', 'consent'].includes(authorization.kind) || controls.test(authorization.source) || bytes(authorization.source) > 256 || controls.test(authorization.scope) || bytes(authorization.scope) > 512
+    || authorization.expires_at !== null && (!Number.isSafeInteger(authorization.expires_at) || authorization.expires_at <= 0))) return '目标授权记录无效。'
+  if (probe.enabled && (!authorization?.enabled || !authorization.source.trim() || !authorization.scope.trim() || !authorizationMatches(probe) || authorization.expires_at !== null && authorization.expires_at * 1000 <= now)) return '请明确登记当前目标的有效授权；草稿已保留。'
+  return ''
+}
+export function initialProbePayloads(probes: Probe[]) {
+  if (probes.length > 32) throw new Error('初始拨测目标最多 32 个。')
+  return probes.map(probe => { const error = probePayloadError(probe); if (error) throw new Error(error); const { revision: _revision, task_id: _task, ...payload } = bindProbeAuthorization(probe); return payload })
+}
+export function currentServerProbe(snapshot: ProbeWriteSnapshot, expectedServer: number, original: Probe): Probe {
+  const error = probeReadError(snapshot.probes)
+  if (error) throw new Error(error)
+  if (snapshot.serverId !== expectedServer) throw new Error('目标服务器已变化，请重新打开配置。')
+  const current = currentValues(snapshot.probes)?.find(value => value.id === original.id)
+  if (!current || current.task_id || original.task_id) throw new Error('拨测目标或版本已变化；草稿已保留。')
+  const changed = probeWriteError(original, current); if (changed) throw new Error(changed)
+  return current
+}
+export async function saveServerProbe<T>(snapshot: ProbeWriteSnapshot, expectedServer: number, original: Probe | null, value: Probe, writer: (body: Probe) => Promise<T>) {
+  const error = probeReadError(snapshot.probes) || probePayloadError(value)
+  if (error) throw new Error(error)
+  if (snapshot.serverId !== expectedServer) throw new Error('目标服务器已变化；草稿已保留。')
+  const current = original ? currentServerProbe(snapshot, expectedServer, original) : null
+  if (!current && (currentValues(snapshot.probes)?.length ?? 32) >= 32) throw new Error('当前服务器的拨测目标已达上限。')
+  if (current && (value.id !== current.id || !sameIdentity(probeIdentity(value), probeIdentity(current)))) throw new Error('目标、端口、方法或地址家族不能更换，请新建拨测。')
+  return writer({ ...bindProbeAuthorization(value), ...(current ? { revision: current.revision } : {}) })
+}
+export async function deleteServerProbe<T>(snapshot: ProbeWriteSnapshot, expectedServer: number, original: Probe, writer: (id: string, body: { revision: number }) => Promise<T>) {
+  const current = currentServerProbe(snapshot, expectedServer, original)
+  return writer(current.id, { revision: current.revision! })
+}
+export function latencyDraftError(snapshot: TaskWriteSnapshot, original: LatencyTask | null, serverIds: number[]) {
+  const error = probeReadError(snapshot.tasks, snapshot.servers)
+  if (error) return error
+  const current = original && currentValues(snapshot.tasks)?.find(value => value.id === original.id)
+  if (original && (!current || !probeRevisionMatches(original, current) || !sameIdentity(probeIdentity(original.spec), probeIdentity(current.spec)))) return '延迟任务目标或版本已变化；草稿已保留。'
+  if (serverIds.some(id => !Number.isSafeInteger(id) || id <= 0 || !currentValues(snapshot.servers)?.some(server => server.id === id)) || new Set(serverIds).size !== serverIds.length) return '已选服务器已不存在或标识无效，原选择保留。'
+  return ''
+}
+export async function saveLatencyTask<T>(snapshot: TaskWriteSnapshot, original: LatencyTask | null, value: LatencyTask, writer: (body: { spec: Probe; default_enabled: boolean; server_ids: number[]; revision?: number }) => Promise<T>) {
+  const error = latencyDraftError(snapshot, original, value.server_ids) || probePayloadError(value.spec)
+  if (error) throw new Error(error)
+  if (!original && (currentValues(snapshot.tasks)?.length ?? 32) >= 32) throw new Error('统一延迟任务已达上限。')
+  if (original && (value.id !== original.id || value.spec.id !== original.spec.id || !sameIdentity(probeIdentity(value.spec), probeIdentity(original.spec)))) throw new Error('目标、端口、方法或地址家族不能更换，请新建任务。')
+  return writer({ spec: bindProbeAuthorization(value.spec), default_enabled: value.default_enabled, server_ids: value.server_ids, ...(original ? { revision: original.revision } : {}) })
+}
+export async function deleteLatencyTask<T>(snapshot: TaskWriteSnapshot, original: LatencyTask, writer: (id: string, body: { revision: number }) => Promise<T>) {
+  const error = latencyDraftError(snapshot, original, [])
+  if (error) throw new Error(error)
+  return writer(original.id, { revision: original.revision })
 }

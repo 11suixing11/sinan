@@ -27,7 +27,7 @@ try {
   const reason = '完整验机已暂停：离线受控工具链尚未就绪，旧工具链仍会下载在线代码、上传内层报告或修改宿主 swap。'
   const id = '00000000-0000-0000-0000-000000000028'
   const old = { id, status: 'failed', agent_completed: false, cancel_requested_at: null, cancel_error: null,
-    job: { plugin: 'nodequality', options: { ip_version: 'both', network_mode: 'low', upload_report: 'false' } },
+    job: { id, plugin: 'nodequality', options: { ip_version: 'both', network_mode: 'low', upload_report: 'false' } }, cleanup_pending: true,
     report: null, error: reason, created_at: now, updated_at: now, expires_at: now + 1800,
     expected_sections: ['hardware_quality'], report_completeness: 'partial',
     sections: [{ name: 'hardware_quality', text: '旧完整任务已保存的硬件章节', complete: true, revision: 1, collected_at: now }] }
@@ -81,7 +81,7 @@ try {
   await page.getByText('等待设备确认取消', { exact: true }).waitFor()
   assert.equal(cancelPosts, 1)
   assert.equal(await page.getByRole('button', { name: '日常检查', exact: true }).isDisabled(), true)
-  old.status = 'cancelled'; old.agent_completed = true
+  old.status = 'cancelled'; old.agent_completed = true; old.cleanup_pending = false
   await page.reload()
   await page.getByText('设备已确认取消', { exact: true }).waitFor()
   assert.equal(await daily.isEnabled(), true)

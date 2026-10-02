@@ -4,6 +4,15 @@ use sinan_protocol::{DIAGNOSTIC_SERVICE_CAPABILITY, DiagnosticResourceBudget};
 use std::{collections::BTreeMap, future::Future, pin::Pin};
 
 pub type PlanFuture<'a> = Pin<Box<dyn Future<Output = ApiResult<JobPlan>> + Send + 'a>>;
+pub type SectionFuture<'a> = Pin<Box<dyn Future<Output = ApiResult<()>> + Send + 'a>>;
+
+pub struct SectionContext<'a> {
+    pub server_id: i64,
+    pub job: &'a Value,
+    pub created_at: i64,
+    pub expires_at: i64,
+    pub job_generation: i64,
+}
 
 pub struct JobPlan {
     pub timeout_secs: u64,
@@ -36,6 +45,15 @@ pub trait DiagnosticPlugin: Send + Sync {
     ) -> PlanFuture<'a>;
     fn report_url_allowed(&self, _value: &str) -> bool {
         false
+    }
+    /// Parse and project an accepted chapter inside the service's transaction.
+    fn record_section<'a>(
+        &'a self,
+        _context: SectionContext<'a>,
+        _update: &'a DiagnosticSectionUpdate,
+        _connection: &'a mut sqlx::PgConnection,
+    ) -> SectionFuture<'a> {
+        Box::pin(async { Ok(()) })
     }
 }
 
@@ -104,7 +122,7 @@ pub fn ready(
     }
 }
 
-async fn readiness(
+pub(crate) async fn readiness(
     state: &AppState,
     row: &sqlx::postgres::PgRow,
     plugin: &dyn DiagnosticPlugin,

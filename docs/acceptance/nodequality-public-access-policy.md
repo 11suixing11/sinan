@@ -1,3 +1,5 @@
+本记录保留主线 `74b403c` 数值r18的原始范围与证据，不证明当前统一分支。当前策略沿用更严格的有界匿名YouTube/Netflix并新增OpenAI停用层，旧未接线public-access helper及测试由access、Netflix与OpenAI当前链覆盖；历史代码保留在原Git提交。当前身份及验收见[ADR0045](../adr/0062-nodequality-artifact-lineages.md)。
+
 # NodeQuality 公共认证材料访问边界
 
 2026-10-01，对应 #121、#122。本项新增 r18，基于 r17 的固定源码和原生 curl 身份保护；与 #131 的授权草稿变更一起组成最后一批提交。本文件只记录源码边界，按用户要求直到全部批次完成才统一测试，本项当前没有构建或实机执行。

@@ -106,6 +106,7 @@ mod tests {
             agent_version: "fixture-agent",
             retirement: None,
             cancellation: None,
+            runtime_control: None,
             telemetry: tokio::sync::watch::channel(Arc::new(
                 crate::telemetry::cache::Snapshot::default(),
             ))

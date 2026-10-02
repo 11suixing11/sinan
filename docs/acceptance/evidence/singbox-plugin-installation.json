@@ -1,0 +1,1727 @@
+{
+  "scope": "Sinan panel-side sing-box business plugin and ordinary Agent signed empty-runtime installation. No external panel, production deployment, real proxy traffic or full diagnostic signoff.",
+  "product_source": {
+    "host_rust": "e5d03c38ab0e46e2759beff26effb18418db8483",
+    "guest_binary_source": "fa030155b3daf5a1829dfcd75e1a4f77239c6daa",
+    "latest_browser_source": "fbfbeb31efc90d6573cb52d72233d8cf425b4615",
+    "backend_runtime_inputs_equal_between_guest_and_latest_browser": 300,
+    "source_archive_sha256": "251302cfd9949839a786b529f19e4cc2eea6bc4d67e50be53584d57a97af599c"
+  },
+  "host": {
+    "rust_total": {
+      "passed": 80,
+      "failed": 0,
+      "ignored": 1
+    },
+    "rust_summaries": [
+      {
+        "passed": 44,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 4,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 4,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 8,
+        "failed": 0,
+        "ignored": 1
+      },
+      {
+        "passed": 17,
+        "failed": 0,
+        "ignored": 0
+      }
+    ],
+    "rust_test_binaries": [
+      {
+        "path": "/Users/l7/.local/share/sinan-remediation/ip-response-confirmation-20261001/target/debug/deps/sinan_panel-06e5279766be0e20",
+        "sha256": "1b06ccc7c6c7ebd05bc8a66602e4d091c25163d49400e3104bc762e57ca46e42"
+      },
+      {
+        "path": "/Users/l7/.local/share/sinan-remediation/ip-response-confirmation-20261001/target/debug/deps/accounting-1dbcd34c24014ac1",
+        "sha256": "175115487f5233f1c0fc50c7fe317ca3a141c6026f87cc96d8d51743b15c6927"
+      },
+      {
+        "path": "/Users/l7/.local/share/sinan-remediation/ip-response-confirmation-20261001/target/debug/deps/business-332e6655eda70911",
+        "sha256": "3377bbdbf117264cfbb9f76bd7ed7f44ff1e9e23672937be4be6bd2a8cc6d65f"
+      },
+      {
+        "path": "/Users/l7/.local/share/sinan-remediation/ip-response-confirmation-20261001/target/debug/deps/end_to_end-477bb1431cc0faae",
+        "sha256": "0f546ffa775b8010c13fa72b4245f598284e5ec9a248b6afa385ac66fe10a5f6"
+      },
+      {
+        "path": "/Users/l7/.local/share/sinan-remediation/ip-response-confirmation-20261001/target/debug/deps/platform_artifacts-3d29dc1ecae64fd0",
+        "sha256": "d1467f6f25c586438cd495a8d261f6a2e3cade06854d4b5f6638edecb5499eae"
+      },
+      {
+        "path": "/Users/l7/.local/share/sinan-remediation/ip-response-confirmation-20261001/target/debug/deps/plugin_business-5690b433924cd900",
+        "sha256": "d2303ab92d470c7312dc51c94709cb8856dd0af597ae2c31db1da043a318679a"
+      },
+      {
+        "path": "/Users/l7/.local/share/sinan-remediation/ip-response-confirmation-20261001/target/debug/deps/singbox_groups-12e8244c1365b144",
+        "sha256": "8b9749c681ae23d1d53bdb48ea7e86bc834886231574929b250b9f844d3e1280"
+      }
+    ],
+    "rust_log_sha256": "267a4bfbe3e97e2d4b7097d8d01d0a51c14a48074b91e1fe15293092cdcfd44f",
+    "clippy": {
+      "exit_code": 0,
+      "seconds": 11.237,
+      "log_sha256": "967186c2a0a6e2426ec779bfd4829057addb7e8a9caed9da40b394c46f72f950"
+    },
+    "postgres_cleanup": {
+      "data": "/Users/l7/.local/share/sinan-remediation/ip-response-confirmation-20261001/postgres",
+      "port": 55439,
+      "started_by_this_receipt": true,
+      "stopped": true,
+      "pid": 46689,
+      "start_epoch": "1790847518",
+      "pid_absent_after_stop": true,
+      "port_closed_after_stop": true
+    },
+    "frozen_inputs": 412,
+    "inputs_unchanged": true,
+    "format_boundary_supplement": {
+      "source": "fa030155b3daf5a1829dfcd75e1a4f77239c6daa",
+      "commands": [
+        [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        [
+          "python3",
+          "tools/check-core-boundary.py"
+        ],
+        [
+          "git",
+          "diff",
+          "--check"
+        ]
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0
+      ],
+      "source_delta": "Only rustfmt whitespace in platform artifact test, link locator in groups fixture, and documentation wording; no production semantics or dist changes."
+    },
+    "browser_original": {
+      "source": "e5d03c38ab0e46e2759beff26effb18418db8483",
+      "started_at": 1790847518.14708,
+      "results": [
+        {
+          "name": "singbox-business",
+          "exit_code": 0,
+          "seconds": 6.514,
+          "log_sha256": "975f10ba2665d20c743147d63d9b9baae297e5fad9164f6eb9f8078e9be92462"
+        },
+        {
+          "name": "singbox-entitlement-draft",
+          "exit_code": 0,
+          "seconds": 13.591,
+          "log_sha256": "732e4ee77d307c29b7bc794a0502b12daadc7c200101011bb36bacdc627c1bd9"
+        },
+        {
+          "name": "server-setup",
+          "exit_code": 0,
+          "seconds": 16.327,
+          "log_sha256": "83d75234467fa0ab44358290b78d0957c93ebcfaa651f9c590768125c7152d91"
+        },
+        {
+          "name": "singbox-groups",
+          "exit_code": 1,
+          "seconds": 32.356,
+          "log_sha256": "d11b065c3d3ac28641fc4537f59df35e51c0a986f06f49a52d72d12c8a16e291"
+        }
+      ],
+      "dist_sha256": {
+        "web/dist/index.html": "302532ea1922036691bf9afb53a1bf034bb6fbaf4ad9185f74fed5d5fe0859d6",
+        "web/dist/display-icons/os-macos.svg": "3de3719e3bc9f696ac964b15c703d972cecd712d1c13fc85a800c92e4dd5fedb",
+        "web/dist/display-icons/os-rocky.svg": "bfc0bdb756bc06ee977480cfcc28adc32980aded075de0d46f11b0dbc83447f1",
+        "web/dist/display-icons/os-unknown.svg": "986825609c5a3bfc8aa20b6468119246ff8e3b787a6c329186d83ac98051dc14",
+        "web/dist/display-icons/os-alma.svg": "c8b1686f341a1ed3e3c9638f396539e50334f0c7e11fd4a5a7d1b286686d636d",
+        "web/dist/display-icons/os-nix.svg": "2a5d3e942d5db27c4f33ec21601c458f869d18d53e831422027a8a4828da3784",
+        "web/dist/display-icons/os-debian.svg": "ea5542edfa154f61e1eded2f7ad1b161e64735fb421d6831e478772f85dd7cde",
+        "web/dist/display-icons/os-alpine.webp": "25c7dd641ef59d4cc6355672a4d8f6f3368d6c98e848e6cf1c99c7d521b386bf",
+        "web/dist/display-icons/os-fedora.svg": "08dacee944d8472123c96d5fa7041512c53f2b9969c81bac798c46b9ffc40227",
+        "web/dist/display-icons/os-arch.svg": "9605f694e3fd91c1329c246cbe5ed1105e13ca39928569e23f2c6993fc2ed463",
+        "web/dist/display-icons/os-gentoo.svg": "6fd85109e4873b62d8b49615a0981337e0b58ac250c185c85dfedac2bafabf23",
+        "web/dist/display-icons/os-centos.svg": "22364a4fe637a35a829cbc92c2bd6f3ce912b47aedb7e64c59714c63d9ceeba9",
+        "web/dist/display-icons/os-windows.svg": "0f6b74d8d8ede1ec0e454b3c6fcdfba65fbe989af9a49ad4ff0c498f4dc3afbb",
+        "web/dist/display-icons/os-ubuntu.svg": "edd92d1b8239902f3001fabfdb3c479ed2f8036186a03c5b21b61227345e0d4f",
+        "web/dist/notices/NodeFlare.txt": "1a3a2e3d60f2a46379bae01ee1e95b8150635126f0f62c5723dc73fe545106d6",
+        "web/dist/assets/ServerDisplay-DAsjj8Ve.js": "5e55449abe412689b805e819c9370b9db8cce03eb22f0b76690ce41105d01fc0",
+        "web/dist/assets/index-DdPhv2jK.css": "1e77cb9869aab96504775f497aec9d3fa6cf55dc1fd17659045bb4a646c2c162",
+        "web/dist/assets/ServerDisplay-BD2S9FSM.css": "f8014355a798babeaa06413150f4081f9d424ad35adb6d9e9beb5dcd5f7f5f3a",
+        "web/dist/assets/index-CiCrDOOp.js": "1f608695c0cff3912dd86fe8d76db78be5eec5c26f1398db75bc112c4d605f8a"
+      },
+      "finished_at": 1790847587.199049
+    },
+    "browser_supplement_1": {
+      "source": "e5d03c38ab0e46e2759beff26effb18418db8483",
+      "started_at": 1790847972.007914,
+      "results": [
+        {
+          "name": "singbox-groups",
+          "exit_code": 0,
+          "seconds": 2.928,
+          "log_sha256": "ab502b3824eb5a9b7311982abb1bee999557affa420e05f017dde14cb97d63f4"
+        }
+      ],
+      "dist_sha256": {
+        "web/dist/index.html": "302532ea1922036691bf9afb53a1bf034bb6fbaf4ad9185f74fed5d5fe0859d6",
+        "web/dist/display-icons/os-macos.svg": "3de3719e3bc9f696ac964b15c703d972cecd712d1c13fc85a800c92e4dd5fedb",
+        "web/dist/display-icons/os-rocky.svg": "bfc0bdb756bc06ee977480cfcc28adc32980aded075de0d46f11b0dbc83447f1",
+        "web/dist/display-icons/os-unknown.svg": "986825609c5a3bfc8aa20b6468119246ff8e3b787a6c329186d83ac98051dc14",
+        "web/dist/display-icons/os-alma.svg": "c8b1686f341a1ed3e3c9638f396539e50334f0c7e11fd4a5a7d1b286686d636d",
+        "web/dist/display-icons/os-nix.svg": "2a5d3e942d5db27c4f33ec21601c458f869d18d53e831422027a8a4828da3784",
+        "web/dist/display-icons/os-debian.svg": "ea5542edfa154f61e1eded2f7ad1b161e64735fb421d6831e478772f85dd7cde",
+        "web/dist/display-icons/os-alpine.webp": "25c7dd641ef59d4cc6355672a4d8f6f3368d6c98e848e6cf1c99c7d521b386bf",
+        "web/dist/display-icons/os-fedora.svg": "08dacee944d8472123c96d5fa7041512c53f2b9969c81bac798c46b9ffc40227",
+        "web/dist/display-icons/os-arch.svg": "9605f694e3fd91c1329c246cbe5ed1105e13ca39928569e23f2c6993fc2ed463",
+        "web/dist/display-icons/os-gentoo.svg": "6fd85109e4873b62d8b49615a0981337e0b58ac250c185c85dfedac2bafabf23",
+        "web/dist/display-icons/os-centos.svg": "22364a4fe637a35a829cbc92c2bd6f3ce912b47aedb7e64c59714c63d9ceeba9",
+        "web/dist/display-icons/os-windows.svg": "0f6b74d8d8ede1ec0e454b3c6fcdfba65fbe989af9a49ad4ff0c498f4dc3afbb",
+        "web/dist/display-icons/os-ubuntu.svg": "edd92d1b8239902f3001fabfdb3c479ed2f8036186a03c5b21b61227345e0d4f",
+        "web/dist/notices/NodeFlare.txt": "1a3a2e3d60f2a46379bae01ee1e95b8150635126f0f62c5723dc73fe545106d6",
+        "web/dist/assets/ServerDisplay-DAsjj8Ve.js": "5e55449abe412689b805e819c9370b9db8cce03eb22f0b76690ce41105d01fc0",
+        "web/dist/assets/index-DdPhv2jK.css": "1e77cb9869aab96504775f497aec9d3fa6cf55dc1fd17659045bb4a646c2c162",
+        "web/dist/assets/ServerDisplay-BD2S9FSM.css": "f8014355a798babeaa06413150f4081f9d424ad35adb6d9e9beb5dcd5f7f5f3a",
+        "web/dist/assets/index-CiCrDOOp.js": "1f608695c0cff3912dd86fe8d76db78be5eec5c26f1398db75bc112c4d605f8a"
+      },
+      "finished_at": 1790847975.260106
+    },
+    "browser_chain_first_attempt": {
+      "source": "081d3835dee95380f78ef6e6cc9999f7e4204bce",
+      "started_at": 1790849320.303545,
+      "results": [
+        {
+          "name": "singbox-business",
+          "exit_code": 1,
+          "seconds": 2.766,
+          "log_sha256": "7c90a813736fb50233ab53b392645a115ab2f984ce33d5411be6cc145eb6f217"
+        }
+      ],
+      "dist_sha256": {
+        "web/dist/index.html": "95d2b38c459d5caac31f392ea96ec714945cc4867c9530f57012033e512a1b8b",
+        "web/dist/display-icons/os-macos.svg": "3de3719e3bc9f696ac964b15c703d972cecd712d1c13fc85a800c92e4dd5fedb",
+        "web/dist/display-icons/os-rocky.svg": "bfc0bdb756bc06ee977480cfcc28adc32980aded075de0d46f11b0dbc83447f1",
+        "web/dist/display-icons/os-unknown.svg": "986825609c5a3bfc8aa20b6468119246ff8e3b787a6c329186d83ac98051dc14",
+        "web/dist/display-icons/os-alma.svg": "c8b1686f341a1ed3e3c9638f396539e50334f0c7e11fd4a5a7d1b286686d636d",
+        "web/dist/display-icons/os-nix.svg": "2a5d3e942d5db27c4f33ec21601c458f869d18d53e831422027a8a4828da3784",
+        "web/dist/display-icons/os-debian.svg": "ea5542edfa154f61e1eded2f7ad1b161e64735fb421d6831e478772f85dd7cde",
+        "web/dist/display-icons/os-alpine.webp": "25c7dd641ef59d4cc6355672a4d8f6f3368d6c98e848e6cf1c99c7d521b386bf",
+        "web/dist/display-icons/os-fedora.svg": "08dacee944d8472123c96d5fa7041512c53f2b9969c81bac798c46b9ffc40227",
+        "web/dist/display-icons/os-arch.svg": "9605f694e3fd91c1329c246cbe5ed1105e13ca39928569e23f2c6993fc2ed463",
+        "web/dist/display-icons/os-gentoo.svg": "6fd85109e4873b62d8b49615a0981337e0b58ac250c185c85dfedac2bafabf23",
+        "web/dist/display-icons/os-centos.svg": "22364a4fe637a35a829cbc92c2bd6f3ce912b47aedb7e64c59714c63d9ceeba9",
+        "web/dist/display-icons/os-windows.svg": "0f6b74d8d8ede1ec0e454b3c6fcdfba65fbe989af9a49ad4ff0c498f4dc3afbb",
+        "web/dist/display-icons/os-ubuntu.svg": "edd92d1b8239902f3001fabfdb3c479ed2f8036186a03c5b21b61227345e0d4f",
+        "web/dist/notices/NodeFlare.txt": "1a3a2e3d60f2a46379bae01ee1e95b8150635126f0f62c5723dc73fe545106d6",
+        "web/dist/assets/index-DdPhv2jK.css": "1e77cb9869aab96504775f497aec9d3fa6cf55dc1fd17659045bb4a646c2c162",
+        "web/dist/assets/ServerDisplay-BD2S9FSM.css": "f8014355a798babeaa06413150f4081f9d424ad35adb6d9e9beb5dcd5f7f5f3a",
+        "web/dist/assets/index-B_m0ZX20.js": "9d01f905638d09ff2811684547dd1727a5672b82d1377ac57af81569d32d9f12",
+        "web/dist/assets/ServerDisplay-DdVzT8XJ.js": "6fa765678e3a5936ad44f195ac44b4d9a6d533ad0be51fc707c4dc55f90aad56"
+      },
+      "finished_at": 1790849323.0749881
+    },
+    "browser_final": {
+      "source": "fbfbeb31efc90d6573cb52d72233d8cf425b4615",
+      "started_at": 1790849492.147475,
+      "results": [
+        {
+          "name": "singbox-business",
+          "exit_code": 0,
+          "seconds": 7.357,
+          "log_sha256": "bcfbdcd69a88f9ec946ddb0146477d11f58db1219ad2b96defbbe6f6b58fe9ff"
+        },
+        {
+          "name": "singbox-groups",
+          "exit_code": 0,
+          "seconds": 2.717,
+          "log_sha256": "ab502b3824eb5a9b7311982abb1bee999557affa420e05f017dde14cb97d63f4"
+        }
+      ],
+      "dist_sha256": {
+        "web/dist/index.html": "95d2b38c459d5caac31f392ea96ec714945cc4867c9530f57012033e512a1b8b",
+        "web/dist/display-icons/os-macos.svg": "3de3719e3bc9f696ac964b15c703d972cecd712d1c13fc85a800c92e4dd5fedb",
+        "web/dist/display-icons/os-rocky.svg": "bfc0bdb756bc06ee977480cfcc28adc32980aded075de0d46f11b0dbc83447f1",
+        "web/dist/display-icons/os-unknown.svg": "986825609c5a3bfc8aa20b6468119246ff8e3b787a6c329186d83ac98051dc14",
+        "web/dist/display-icons/os-alma.svg": "c8b1686f341a1ed3e3c9638f396539e50334f0c7e11fd4a5a7d1b286686d636d",
+        "web/dist/display-icons/os-nix.svg": "2a5d3e942d5db27c4f33ec21601c458f869d18d53e831422027a8a4828da3784",
+        "web/dist/display-icons/os-debian.svg": "ea5542edfa154f61e1eded2f7ad1b161e64735fb421d6831e478772f85dd7cde",
+        "web/dist/display-icons/os-alpine.webp": "25c7dd641ef59d4cc6355672a4d8f6f3368d6c98e848e6cf1c99c7d521b386bf",
+        "web/dist/display-icons/os-fedora.svg": "08dacee944d8472123c96d5fa7041512c53f2b9969c81bac798c46b9ffc40227",
+        "web/dist/display-icons/os-arch.svg": "9605f694e3fd91c1329c246cbe5ed1105e13ca39928569e23f2c6993fc2ed463",
+        "web/dist/display-icons/os-gentoo.svg": "6fd85109e4873b62d8b49615a0981337e0b58ac250c185c85dfedac2bafabf23",
+        "web/dist/display-icons/os-centos.svg": "22364a4fe637a35a829cbc92c2bd6f3ce912b47aedb7e64c59714c63d9ceeba9",
+        "web/dist/display-icons/os-windows.svg": "0f6b74d8d8ede1ec0e454b3c6fcdfba65fbe989af9a49ad4ff0c498f4dc3afbb",
+        "web/dist/display-icons/os-ubuntu.svg": "edd92d1b8239902f3001fabfdb3c479ed2f8036186a03c5b21b61227345e0d4f",
+        "web/dist/notices/NodeFlare.txt": "1a3a2e3d60f2a46379bae01ee1e95b8150635126f0f62c5723dc73fe545106d6",
+        "web/dist/assets/index-DdPhv2jK.css": "1e77cb9869aab96504775f497aec9d3fa6cf55dc1fd17659045bb4a646c2c162",
+        "web/dist/assets/ServerDisplay-BD2S9FSM.css": "f8014355a798babeaa06413150f4081f9d424ad35adb6d9e9beb5dcd5f7f5f3a",
+        "web/dist/assets/index-B_m0ZX20.js": "9d01f905638d09ff2811684547dd1727a5672b82d1377ac57af81569d32d9f12",
+        "web/dist/assets/ServerDisplay-DdVzT8XJ.js": "6fa765678e3a5936ad44f195ac44b4d9a6d533ad0be51fc707c4dc55f90aad56"
+      },
+      "finished_at": 1790849502.5776598
+    },
+    "original_fmt_failure": [
+      {
+        "name": "workspace-fmt",
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 1,
+        "seconds": 0.461,
+        "log_sha256": "f0ac1ec3eccf1fa84645442d4641c9a1cf1014e8c50a507c6c6b8884558d1bdf",
+        "executed_test_binaries": []
+      }
+    ]
+  },
+  "debian": {
+    "system": "Dedicated Debian 12 ARM64, 2 CPU, 1536 MiB, 8 GiB, no swap",
+    "test_only": true,
+    "build": {
+      "elapsed_seconds": 20.238908384999377,
+      "exit_code": 0,
+      "reserve_stop": null,
+      "binaries": {
+        "sinan-agent": {
+          "sha256": "9f1435561524423af6ecd9fec75f036d412f621abe21c0b0492550d20a040a39",
+          "bytes": 59583320
+        },
+        "sinan-panel": {
+          "sha256": "6972192e46307b199ff0406b09b7801c0ef5771bd48bea422496f52d27c8bb3a",
+          "bytes": 55064840
+        }
+      },
+      "unit": {
+        "MainPID": "70246",
+        "Result": "success",
+        "NRestarts": "0",
+        "ExecMainStartTimestampMonotonic": "23331341531",
+        "ExecMainCode": "0",
+        "ExecMainStatus": "0",
+        "ControlGroup": "/system.slice/sinan-plugin-install-20261001-build-v3.service",
+        "CPUWeight": "10",
+        "IOWeight": "10",
+        "MemoryMax": "1073741824",
+        "MemorySwapMax": "0",
+        "TasksMax": "128",
+        "OOMScoreAdjust": "500",
+        "User": "",
+        "Group": "",
+        "NoNewPrivileges": "no",
+        "KillMode": "control-group",
+        "ActiveState": "active",
+        "SubState": "running",
+        "FragmentPath": "/run/systemd/transient/sinan-plugin-install-20261001-build-v3.service",
+        "cgroup": {
+          "memory.current": "516030464",
+          "memory.peak": "1073741824",
+          "memory.events": "low 0\nhigh 0\nmax 1751\noom 0\noom_kill 0\noom_group_kill 0",
+          "pids.current": "1",
+          "pids.peak": "13",
+          "cgroup.procs": "70246"
+        }
+      },
+      "minimum_memory_available": 566398976,
+      "minimum_disk_available": 2238713856,
+      "note": "Compilation recorded 1751 memory.max events; oom and oom_kill were zero."
+    },
+    "final": {
+      "ok": true,
+      "exercise_ok": true,
+      "cleanup_ok": true,
+      "scope": "normal Agent empty signed runtime installation only; no proxy business/full diagnostics/GitHub import",
+      "source_commit": "fa030155b3daf5a1829dfcd75e1a4f77239c6daa",
+      "failed_step": null
+    },
+    "observed_systemd_driver_runtime_seconds": 204.039,
+    "phases": {
+      "capability_without_enable": {
+        "plugin": {
+          "id": 1,
+          "enabled": false,
+          "source": null,
+          "agent_supported": true,
+          "online": true,
+          "read_only": false,
+          "installation": {
+            "state": "not_enabled",
+            "target_rev": 0,
+            "applied_rev": 0
+          },
+          "reason_sha256": "cc307cce8614c26c6c81cc034dd2eb487a73056d9621d12bf02c9f8237b716de",
+          "reason_mentions_signed_artifact": false,
+          "reason_mentions_missing": false
+        },
+        "counts": {
+          "deployments": 0,
+          "business_resources": 0,
+          "enabled_rows": 0,
+          "manifest_rev": 0
+        },
+        "installed_runtime": false,
+        "heartbeats": {
+          "count": 3,
+          "first": 1790849635,
+          "last": 1790849675,
+          "maximum_interval_seconds": 20,
+          "points": [
+            {
+              "at": 1790849636.6127048,
+              "heartbeat": 1790849635,
+              "metrics_sampled_at": null
+            },
+            {
+              "at": 1790849656.1097212,
+              "heartbeat": 1790849655,
+              "metrics_sampled_at": 1790849652316
+            },
+            {
+              "at": 1790849676.1587586,
+              "heartbeat": 1790849675,
+              "metrics_sampled_at": 1790849673680
+            }
+          ]
+        }
+      },
+      "explicit_enable_without_artifact": {
+        "queued": {
+          "id": 1,
+          "enabled": true,
+          "source": "administrator",
+          "agent_supported": true,
+          "online": true,
+          "read_only": false,
+          "installation": {
+            "state": "queued",
+            "target_rev": 0,
+            "applied_rev": 0
+          },
+          "reason_sha256": "f9d083e7f032735149c06e684b1ea9b340191d0ff9ee799d6011ee52ebf9b3a0",
+          "reason_mentions_signed_artifact": false,
+          "reason_mentions_missing": false
+        },
+        "failed": {
+          "id": 1,
+          "enabled": true,
+          "source": "administrator",
+          "agent_supported": true,
+          "online": true,
+          "read_only": false,
+          "installation": {
+            "state": "failed",
+            "target_rev": 1,
+            "applied_rev": 0
+          },
+          "reason_sha256": "52ac26b223dcb12edbe16df003f6b1484b23b6744196452778c42487832f7c59",
+          "reason_mentions_signed_artifact": true,
+          "reason_mentions_missing": true
+        },
+        "counts": {
+          "deployments": 1,
+          "business_resources": 0,
+          "enabled_rows": 1,
+          "manifest_rev": 1
+        },
+        "published_empty_config": {
+          "config_sha256": "3d349ca767137e48a81ba3231939aa277acc4a2d20ce832d90d4ec60ce06c379",
+          "proxy_inbound_count": 0,
+          "stats_listen": "127.0.0.1:18085",
+          "outbound_count": 1
+        },
+        "installed_runtime": false
+      },
+      "real_signed_runtime_install": {
+        "artifact": {
+          "test_only": true,
+          "official_publication_rejected": true,
+          "source_commit": "fa030155b3daf5a1829dfcd75e1a4f77239c6daa",
+          "public_runtime_binary_sha256": "fee83ca8457c94449dd04aa17a51830cbc9b449a4dda290e995d3366188e0302",
+          "archive_sha256": "c176b652c84aa9237f6fe7e9e591d4a3cdf31a636fefb1df9f025aedfdf1f283",
+          "archive_bytes": 29485347,
+          "release_metadata_sha256": "01189156c665f5983fdcb0f65912be75a8be6472802a7b497ed05031aed102e9",
+          "checksums_sha256": "81d5550173a5946a6974babfa7862ab1055b7b8f2b693e869a2ec8f5dcff51b4",
+          "signature_sha256": "e4f5f4c7dbe38b2726d64494008843384f06f75e6b98a45ff8cabef7d828c611",
+          "tag": "agent-v0.3.1",
+          "artifact_identity": {
+            "name": "sing-box",
+            "version": "1.14.2",
+            "arch": "linux-gnu-arm64",
+            "binary_sha256": "fee83ca8457c94449dd04aa17a51830cbc9b449a4dda290e995d3366188e0302",
+            "binary_size": 86063568
+          },
+          "staging_method": "independently verified ci-signed-release.panel_tree; GitHub import API not exercised"
+        },
+        "plugin": {
+          "id": 1,
+          "enabled": true,
+          "source": "administrator",
+          "agent_supported": true,
+          "online": true,
+          "read_only": false,
+          "installation": {
+            "state": "ready",
+            "target_rev": 1,
+            "applied_rev": 1
+          },
+          "reason_sha256": "9dce336cf98aa905da3411a5082455dd27e28daeaa47d964545bef71b279f587",
+          "reason_mentions_signed_artifact": false,
+          "reason_mentions_missing": false
+        },
+        "runtime": {
+          "pid": 71197,
+          "start_monotonic": "24805693544",
+          "restarts": "0",
+          "uid": [
+            "999",
+            "999",
+            "999",
+            "999"
+          ],
+          "cgroup": "/system.slice/system-sinan\\x2dsingbox.slice/sinan-singbox@main.service"
+        },
+        "properties": {
+          "MainPID": "71197",
+          "Result": "success",
+          "NRestarts": "0",
+          "ExecMainStartTimestampMonotonic": "24805693544",
+          "ExecMainCode": "0",
+          "ExecMainStatus": "0",
+          "ControlGroup": "/system.slice/system-sinan\\x2dsingbox.slice/sinan-singbox@main.service",
+          "CPUWeight": "1000",
+          "IOWeight": "[not set]",
+          "MemoryMax": "134217728",
+          "MemorySwapMax": "0",
+          "TasksMax": "64",
+          "IPAddressAllow": "::1/128 127.0.0.0/8",
+          "IPAddressDeny": "0.0.0.0/0 ::/0",
+          "OOMScoreAdjust": "-500",
+          "User": "sinan-singbox",
+          "Group": "sinan-singbox",
+          "NoNewPrivileges": "yes",
+          "KillMode": "control-group",
+          "ActiveState": "active",
+          "SubState": "running",
+          "FragmentPath": "/etc/systemd/system/sinan-singbox@.service",
+          "cgroup": {
+            "memory.current": "8650752",
+            "memory.peak": "9465856",
+            "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+            "pids.current": "8",
+            "pids.peak": "8",
+            "cgroup.procs": "71197"
+          }
+        },
+        "listeners": [
+          {
+            "protocol": "tcp",
+            "local_hex": "0100007F:46A5",
+            "state": "0A"
+          }
+        ],
+        "installed_binary_sha256": "fee83ca8457c94449dd04aa17a51830cbc9b449a4dda290e995d3366188e0302",
+        "config": {
+          "config_sha256": "3d349ca767137e48a81ba3231939aa277acc4a2d20ce832d90d4ec60ce06c379",
+          "proxy_inbound_count": 0,
+          "stats_listen": "127.0.0.1:18085",
+          "outbound_count": 1
+        },
+        "separate_unprivileged_account": true,
+        "private_identity_unreadable": true
+      },
+      "repeated_enable": {
+        "counts_before": {
+          "deployments": 1,
+          "business_resources": 0,
+          "enabled_rows": 1,
+          "manifest_rev": 1
+        },
+        "counts_after": {
+          "deployments": 1,
+          "business_resources": 0,
+          "enabled_rows": 1,
+          "manifest_rev": 1
+        },
+        "runtime": {
+          "pid": 71197,
+          "start_monotonic": "24805693544",
+          "restarts": "0",
+          "uid": [
+            "999",
+            "999",
+            "999",
+            "999"
+          ],
+          "cgroup": "/system.slice/system-sinan\\x2dsingbox.slice/sinan-singbox@main.service"
+        }
+      },
+      "agent_restart": {
+        "agent_before": {
+          "pid": 71022,
+          "start_monotonic": "24719405423",
+          "restarts": "0",
+          "uid": [
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "cgroup": "/system.slice/sinan-plugin-install-20261001-r3-agent.service"
+        },
+        "agent_after": {
+          "pid": 71294,
+          "start_monotonic": "24816113876",
+          "restarts": "0",
+          "uid": [
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "cgroup": "/system.slice/sinan-plugin-install-20261001-r3-agent.service"
+        },
+        "runtime": {
+          "pid": 71197,
+          "start_monotonic": "24805693544",
+          "restarts": "0",
+          "uid": [
+            "999",
+            "999",
+            "999",
+            "999"
+          ],
+          "cgroup": "/system.slice/system-sinan\\x2dsingbox.slice/sinan-singbox@main.service"
+        },
+        "same_identity": true,
+        "heartbeats": {
+          "count": 3,
+          "first": 1790849732,
+          "last": 1790849772,
+          "maximum_interval_seconds": 20,
+          "points": [
+            {
+              "at": 1790849733.0048761,
+              "heartbeat": 1790849732,
+              "metrics_sampled_at": 1790849731706
+            },
+            {
+              "at": 1790849752.7163508,
+              "heartbeat": 1790849752,
+              "metrics_sampled_at": 1790849749187
+            },
+            {
+              "at": 1790849773.0051441,
+              "heartbeat": 1790849772,
+              "metrics_sampled_at": 1790849770528
+            }
+          ]
+        }
+      },
+      "panel_stop_ten_seconds": {
+        "actual_stopped_seconds": 10.123226046998752,
+        "panel_before": {
+          "pid": 70980,
+          "start_monotonic": "24718509498",
+          "restarts": "0",
+          "uid": [
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "cgroup": "/system.slice/sinan-plugin-install-20261001-r3-panel.service"
+        },
+        "panel_after": {
+          "pid": 71505,
+          "start_monotonic": "24871609818",
+          "restarts": "0",
+          "uid": [
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "cgroup": "/system.slice/sinan-plugin-install-20261001-r3-panel.service"
+        },
+        "plugin": {
+          "id": 1,
+          "enabled": true,
+          "source": "administrator",
+          "agent_supported": true,
+          "online": true,
+          "read_only": false,
+          "installation": {
+            "state": "ready",
+            "target_rev": 1,
+            "applied_rev": 1
+          },
+          "reason_sha256": "9dce336cf98aa905da3411a5082455dd27e28daeaa47d964545bef71b279f587",
+          "reason_mentions_signed_artifact": false,
+          "reason_mentions_missing": false
+        },
+        "runtime": {
+          "pid": 71197,
+          "start_monotonic": "24805693544",
+          "restarts": "0",
+          "uid": [
+            "999",
+            "999",
+            "999",
+            "999"
+          ],
+          "cgroup": "/system.slice/system-sinan\\x2dsingbox.slice/sinan-singbox@main.service"
+        },
+        "heartbeats": {
+          "count": 3,
+          "first": 1790849794,
+          "last": 1790849834,
+          "maximum_interval_seconds": 20,
+          "points": [
+            {
+              "at": 1790849794.9070094,
+              "heartbeat": 1790849794,
+              "metrics_sampled_at": 1790849793877
+            },
+            {
+              "at": 1790849814.5972483,
+              "heartbeat": 1790849814,
+              "metrics_sampled_at": 1790849811120
+            },
+            {
+              "at": 1790849834.9076376,
+              "heartbeat": 1790849834,
+              "metrics_sampled_at": 1790849832430
+            }
+          ]
+        }
+      }
+    },
+    "cleanup": {
+      "ok": true,
+      "started_at": 1790849837.0509675,
+      "steps": {
+        "stop_agent": {
+          "before": {
+            "MainPID": "71294",
+            "Result": "success",
+            "NRestarts": "0",
+            "ExecMainStartTimestampMonotonic": "24816113876",
+            "ExecMainCode": "0",
+            "ExecMainStatus": "0",
+            "ControlGroup": "/system.slice/sinan-plugin-install-20261001-r3-agent.service",
+            "CPUWeight": "200",
+            "IOWeight": "200",
+            "MemoryMax": "402653184",
+            "MemorySwapMax": "0",
+            "TasksMax": "128",
+            "IPAddressAllow": "::1/128 127.0.0.0/8",
+            "IPAddressDeny": "0.0.0.0/0 ::/0",
+            "OOMScoreAdjust": "-500",
+            "User": "",
+            "Group": "",
+            "NoNewPrivileges": "no",
+            "KillMode": "control-group",
+            "ActiveState": "active",
+            "SubState": "running",
+            "FragmentPath": "/run/systemd/system/sinan-plugin-install-20261001-r3-agent.service",
+            "cgroup": {
+              "memory.current": "9998336",
+              "memory.peak": "13082624",
+              "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+              "pids.current": "6",
+              "pids.peak": "11",
+              "cgroup.procs": "71294"
+            }
+          },
+          "after": {
+            "MainPID": "0",
+            "Result": "success",
+            "NRestarts": "0",
+            "ExecMainStartTimestampMonotonic": "0",
+            "ExecMainCode": "0",
+            "ExecMainStatus": "0",
+            "ControlGroup": "",
+            "CPUWeight": "200",
+            "IOWeight": "200",
+            "MemoryMax": "402653184",
+            "MemorySwapMax": "0",
+            "TasksMax": "128",
+            "IPAddressAllow": "::1/128 127.0.0.0/8",
+            "IPAddressDeny": "0.0.0.0/0 ::/0",
+            "OOMScoreAdjust": "-500",
+            "User": "",
+            "Group": "",
+            "NoNewPrivileges": "no",
+            "KillMode": "control-group",
+            "ActiveState": "inactive",
+            "SubState": "dead",
+            "FragmentPath": "/run/systemd/system/sinan-plugin-install-20261001-r3-agent.service"
+          },
+          "oom_counts": {
+            "low": "0",
+            "high": "0",
+            "max": "0",
+            "oom": "0",
+            "oom_kill": "0",
+            "oom_group_kill": "0"
+          }
+        },
+        "stop_runtime": {
+          "before": {
+            "MainPID": "71197",
+            "Result": "success",
+            "NRestarts": "0",
+            "ExecMainStartTimestampMonotonic": "24805693544",
+            "ExecMainCode": "0",
+            "ExecMainStatus": "0",
+            "ControlGroup": "/system.slice/system-sinan\\x2dsingbox.slice/sinan-singbox@main.service",
+            "CPUWeight": "1000",
+            "IOWeight": "[not set]",
+            "MemoryMax": "134217728",
+            "MemorySwapMax": "0",
+            "TasksMax": "64",
+            "IPAddressAllow": "::1/128 127.0.0.0/8",
+            "IPAddressDeny": "0.0.0.0/0 ::/0",
+            "OOMScoreAdjust": "-500",
+            "User": "sinan-singbox",
+            "Group": "sinan-singbox",
+            "NoNewPrivileges": "yes",
+            "KillMode": "control-group",
+            "ActiveState": "active",
+            "SubState": "running",
+            "FragmentPath": "/etc/systemd/system/sinan-singbox@.service",
+            "cgroup": {
+              "memory.current": "17145856",
+              "memory.peak": "17408000",
+              "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+              "pids.current": "8",
+              "pids.peak": "8",
+              "cgroup.procs": "71197"
+            }
+          },
+          "after": {
+            "MainPID": "0",
+            "Result": "success",
+            "NRestarts": "0",
+            "ExecMainStartTimestampMonotonic": "0",
+            "ExecMainCode": "0",
+            "ExecMainStatus": "0",
+            "ControlGroup": "",
+            "CPUWeight": "1000",
+            "IOWeight": "[not set]",
+            "MemoryMax": "134217728",
+            "MemorySwapMax": "0",
+            "TasksMax": "64",
+            "IPAddressAllow": "::1/128 127.0.0.0/8",
+            "IPAddressDeny": "0.0.0.0/0 ::/0",
+            "OOMScoreAdjust": "-500",
+            "User": "sinan-singbox",
+            "Group": "sinan-singbox",
+            "NoNewPrivileges": "yes",
+            "KillMode": "control-group",
+            "ActiveState": "inactive",
+            "SubState": "dead",
+            "FragmentPath": "/etc/systemd/system/sinan-singbox@.service"
+          },
+          "oom_counts": {
+            "low": "0",
+            "high": "0",
+            "max": "0",
+            "oom": "0",
+            "oom_kill": "0",
+            "oom_group_kill": "0"
+          }
+        },
+        "stop_panel": {
+          "before": {
+            "MainPID": "71505",
+            "Result": "success",
+            "NRestarts": "0",
+            "ExecMainStartTimestampMonotonic": "24871609818",
+            "ExecMainCode": "0",
+            "ExecMainStatus": "0",
+            "ControlGroup": "/system.slice/sinan-plugin-install-20261001-r3-panel.service",
+            "CPUWeight": "10",
+            "IOWeight": "10",
+            "MemoryMax": "268435456",
+            "MemorySwapMax": "0",
+            "TasksMax": "128",
+            "IPAddressAllow": "::1/128 127.0.0.0/8",
+            "IPAddressDeny": "0.0.0.0/0 ::/0",
+            "OOMScoreAdjust": "500",
+            "User": "",
+            "Group": "",
+            "NoNewPrivileges": "no",
+            "KillMode": "control-group",
+            "ActiveState": "active",
+            "SubState": "running",
+            "FragmentPath": "/run/systemd/system/sinan-plugin-install-20261001-r3-panel.service",
+            "cgroup": {
+              "memory.current": "21540864",
+              "memory.peak": "139714560",
+              "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+              "pids.current": "3",
+              "pids.peak": "4",
+              "cgroup.procs": "71505"
+            }
+          },
+          "after": {
+            "MainPID": "0",
+            "Result": "success",
+            "NRestarts": "0",
+            "ExecMainStartTimestampMonotonic": "0",
+            "ExecMainCode": "0",
+            "ExecMainStatus": "0",
+            "ControlGroup": "",
+            "CPUWeight": "10",
+            "IOWeight": "10",
+            "MemoryMax": "268435456",
+            "MemorySwapMax": "0",
+            "TasksMax": "128",
+            "IPAddressAllow": "::1/128 127.0.0.0/8",
+            "IPAddressDeny": "0.0.0.0/0 ::/0",
+            "OOMScoreAdjust": "500",
+            "User": "",
+            "Group": "",
+            "NoNewPrivileges": "no",
+            "KillMode": "control-group",
+            "ActiveState": "inactive",
+            "SubState": "dead",
+            "FragmentPath": "/run/systemd/system/sinan-plugin-install-20261001-r3-panel.service"
+          },
+          "oom_counts": {
+            "low": "0",
+            "high": "0",
+            "max": "0",
+            "oom": "0",
+            "oom_kill": "0",
+            "oom_group_kill": "0"
+          }
+        },
+        "stop_pg": {
+          "before": {
+            "MainPID": "70934",
+            "Result": "success",
+            "NRestarts": "0",
+            "ExecMainStartTimestampMonotonic": "24717793545",
+            "ExecMainCode": "0",
+            "ExecMainStatus": "0",
+            "ControlGroup": "/system.slice/sinan-plugin-install-20261001-r3-pg.service",
+            "CPUWeight": "10",
+            "IOWeight": "10",
+            "MemoryMax": "201326592",
+            "MemorySwapMax": "0",
+            "TasksMax": "128",
+            "IPAddressAllow": "::1/128 127.0.0.0/8",
+            "IPAddressDeny": "0.0.0.0/0 ::/0",
+            "OOMScoreAdjust": "500",
+            "User": "postgres",
+            "Group": "postgres",
+            "NoNewPrivileges": "no",
+            "KillMode": "control-group",
+            "ActiveState": "active",
+            "SubState": "running",
+            "FragmentPath": "/run/systemd/system/sinan-plugin-install-20261001-r3-pg.service",
+            "cgroup": {
+              "memory.current": "34029568",
+              "memory.peak": "79671296",
+              "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+              "pids.current": "6",
+              "pids.peak": "15",
+              "cgroup.procs": "70934\n70938\n70939\n70943\n70944\n70945"
+            }
+          },
+          "after": {
+            "MainPID": "0",
+            "Result": "success",
+            "NRestarts": "0",
+            "ExecMainStartTimestampMonotonic": "0",
+            "ExecMainCode": "0",
+            "ExecMainStatus": "0",
+            "ControlGroup": "",
+            "CPUWeight": "10",
+            "IOWeight": "10",
+            "MemoryMax": "201326592",
+            "MemorySwapMax": "0",
+            "TasksMax": "128",
+            "IPAddressAllow": "::1/128 127.0.0.0/8",
+            "IPAddressDeny": "0.0.0.0/0 ::/0",
+            "OOMScoreAdjust": "500",
+            "User": "postgres",
+            "Group": "postgres",
+            "NoNewPrivileges": "no",
+            "KillMode": "control-group",
+            "ActiveState": "inactive",
+            "SubState": "dead",
+            "FragmentPath": "/run/systemd/system/sinan-plugin-install-20261001-r3-pg.service"
+          },
+          "oom_counts": {
+            "low": "0",
+            "high": "0",
+            "max": "0",
+            "oom": "0",
+            "oom_kill": "0",
+            "oom_group_kill": "0"
+          }
+        },
+        "no_leftovers": {
+          "remaining_processes": [],
+          "remaining_mounts": [],
+          "populated_cgroups": [],
+          "owned_units": {
+            "sinan-plugin-install-20261001-r3-pg.service": {
+              "MainPID": "0",
+              "Result": "success",
+              "NRestarts": "0",
+              "ExecMainStartTimestampMonotonic": "0",
+              "ExecMainCode": "0",
+              "ExecMainStatus": "0",
+              "ControlGroup": "",
+              "CPUWeight": "10",
+              "IOWeight": "10",
+              "MemoryMax": "201326592",
+              "MemorySwapMax": "0",
+              "TasksMax": "128",
+              "IPAddressAllow": "::1/128 127.0.0.0/8",
+              "IPAddressDeny": "0.0.0.0/0 ::/0",
+              "OOMScoreAdjust": "500",
+              "User": "postgres",
+              "Group": "postgres",
+              "NoNewPrivileges": "no",
+              "KillMode": "control-group",
+              "ActiveState": "inactive",
+              "SubState": "dead",
+              "FragmentPath": "/run/systemd/system/sinan-plugin-install-20261001-r3-pg.service"
+            },
+            "sinan-plugin-install-20261001-r3-panel.service": {
+              "MainPID": "0",
+              "Result": "success",
+              "NRestarts": "0",
+              "ExecMainStartTimestampMonotonic": "0",
+              "ExecMainCode": "0",
+              "ExecMainStatus": "0",
+              "ControlGroup": "",
+              "CPUWeight": "10",
+              "IOWeight": "10",
+              "MemoryMax": "268435456",
+              "MemorySwapMax": "0",
+              "TasksMax": "128",
+              "IPAddressAllow": "::1/128 127.0.0.0/8",
+              "IPAddressDeny": "0.0.0.0/0 ::/0",
+              "OOMScoreAdjust": "500",
+              "User": "",
+              "Group": "",
+              "NoNewPrivileges": "no",
+              "KillMode": "control-group",
+              "ActiveState": "inactive",
+              "SubState": "dead",
+              "FragmentPath": "/run/systemd/system/sinan-plugin-install-20261001-r3-panel.service"
+            },
+            "sinan-plugin-install-20261001-r3-agent.service": {
+              "MainPID": "0",
+              "Result": "success",
+              "NRestarts": "0",
+              "ExecMainStartTimestampMonotonic": "0",
+              "ExecMainCode": "0",
+              "ExecMainStatus": "0",
+              "ControlGroup": "",
+              "CPUWeight": "200",
+              "IOWeight": "200",
+              "MemoryMax": "402653184",
+              "MemorySwapMax": "0",
+              "TasksMax": "128",
+              "IPAddressAllow": "::1/128 127.0.0.0/8",
+              "IPAddressDeny": "0.0.0.0/0 ::/0",
+              "OOMScoreAdjust": "-500",
+              "User": "",
+              "Group": "",
+              "NoNewPrivileges": "no",
+              "KillMode": "control-group",
+              "ActiveState": "inactive",
+              "SubState": "dead",
+              "FragmentPath": "/run/systemd/system/sinan-plugin-install-20261001-r3-agent.service"
+            }
+          },
+          "pg_stopped_pid_socket_absent": true,
+          "private_pg_data_retained": true
+        },
+        "remove_owned_template": {
+          "removed": true
+        },
+        "remove_sinan-plugin-install-20261001-r3-pg.service": {
+          "removed": "sinan-plugin-install-20261001-r3-pg.service"
+        },
+        "remove_sinan-plugin-install-20261001-r3-panel.service": {
+          "removed": "sinan-plugin-install-20261001-r3-panel.service"
+        },
+        "remove_sinan-plugin-install-20261001-r3-agent.service": {
+          "removed": "sinan-plugin-install-20261001-r3-agent.service"
+        },
+        "reload_owned_unit_files": {
+          "daemon_reloaded": true
+        },
+        "remove_owned_public_tree": {
+          "removed": true
+        },
+        "remove_owned_account": {
+          "removed_owned_uid": 999,
+          "pre_existing_accounts_retained": true
+        },
+        "remove_owned_group": {
+          "removed_owned_gid": 994,
+          "removed_absent": true
+        },
+        "unchanged_environment": {
+          "after": {
+            "at": 1790849837.4824018,
+            "mem_available": 1269846016,
+            "disk_free": 1783517184,
+            "boot_id_sha256": "5a2730c8d35f994be6e7931791fa3e7637cf12043d87875e4bfcc571a3850217",
+            "swaps_sha256": "615b077d430a7469a972688b6e10db6e37f8ecea47e6f2754cb179bb6c483e0a",
+            "ssh": {
+              "MainPID": "406",
+              "Result": "success",
+              "NRestarts": "0",
+              "ExecMainStartTimestampMonotonic": "3486055",
+              "ExecMainCode": "0",
+              "ExecMainStatus": "0",
+              "ControlGroup": "/system.slice/ssh.service",
+              "CPUWeight": "[not set]",
+              "IOWeight": "[not set]",
+              "MemoryMax": "infinity",
+              "MemorySwapMax": "infinity",
+              "TasksMax": "1680",
+              "IPAddressAllow": "",
+              "IPAddressDeny": "",
+              "OOMScoreAdjust": "0",
+              "User": "",
+              "Group": "",
+              "NoNewPrivileges": "no",
+              "KillMode": "process",
+              "ActiveState": "active",
+              "SubState": "running",
+              "FragmentPath": "/lib/systemd/system/ssh.service",
+              "cgroup": {
+                "memory.current": "4304896",
+                "memory.peak": "7659520",
+                "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+                "pids.current": "1",
+                "pids.peak": "3",
+                "cgroup.procs": "406"
+              }
+            },
+            "units": {
+              "agent": {
+                "MainPID": "0",
+                "Result": "success",
+                "NRestarts": "0",
+                "ExecMainStartTimestampMonotonic": "0",
+                "ExecMainCode": "0",
+                "ExecMainStatus": "0",
+                "ControlGroup": "",
+                "CPUWeight": "[not set]",
+                "IOWeight": "[not set]",
+                "MemoryMax": "infinity",
+                "MemorySwapMax": "infinity",
+                "TasksMax": "1680",
+                "IPAddressAllow": "",
+                "IPAddressDeny": "",
+                "OOMScoreAdjust": "0",
+                "User": "",
+                "Group": "",
+                "NoNewPrivileges": "no",
+                "KillMode": "control-group",
+                "ActiveState": "inactive",
+                "SubState": "dead",
+                "FragmentPath": ""
+              },
+              "panel": {
+                "MainPID": "0",
+                "Result": "success",
+                "NRestarts": "0",
+                "ExecMainStartTimestampMonotonic": "0",
+                "ExecMainCode": "0",
+                "ExecMainStatus": "0",
+                "ControlGroup": "",
+                "CPUWeight": "[not set]",
+                "IOWeight": "[not set]",
+                "MemoryMax": "infinity",
+                "MemorySwapMax": "infinity",
+                "TasksMax": "1680",
+                "IPAddressAllow": "",
+                "IPAddressDeny": "",
+                "OOMScoreAdjust": "0",
+                "User": "",
+                "Group": "",
+                "NoNewPrivileges": "no",
+                "KillMode": "control-group",
+                "ActiveState": "inactive",
+                "SubState": "dead",
+                "FragmentPath": ""
+              },
+              "pg": {
+                "MainPID": "0",
+                "Result": "success",
+                "NRestarts": "0",
+                "ExecMainStartTimestampMonotonic": "0",
+                "ExecMainCode": "0",
+                "ExecMainStatus": "0",
+                "ControlGroup": "",
+                "CPUWeight": "[not set]",
+                "IOWeight": "[not set]",
+                "MemoryMax": "infinity",
+                "MemorySwapMax": "infinity",
+                "TasksMax": "1680",
+                "IPAddressAllow": "",
+                "IPAddressDeny": "",
+                "OOMScoreAdjust": "0",
+                "User": "",
+                "Group": "",
+                "NoNewPrivileges": "no",
+                "KillMode": "control-group",
+                "ActiveState": "inactive",
+                "SubState": "dead",
+                "FragmentPath": ""
+              }
+            },
+            "runtime": {
+              "MainPID": "0",
+              "Result": "success",
+              "NRestarts": "0",
+              "ExecMainStartTimestampMonotonic": "0",
+              "ExecMainCode": "0",
+              "ExecMainStatus": "0",
+              "ControlGroup": "",
+              "CPUWeight": "[not set]",
+              "IOWeight": "[not set]",
+              "MemoryMax": "infinity",
+              "MemorySwapMax": "infinity",
+              "TasksMax": "1680",
+              "IPAddressAllow": "",
+              "IPAddressDeny": "",
+              "OOMScoreAdjust": "0",
+              "User": "",
+              "Group": "",
+              "NoNewPrivileges": "no",
+              "KillMode": "control-group",
+              "ActiveState": "inactive",
+              "SubState": "dead",
+              "FragmentPath": ""
+            }
+          },
+          "kernel": {
+            "examined_events": 0,
+            "oom_events": []
+          },
+          "boot_unchanged": true,
+          "swap_unchanged": true,
+          "ssh_unchanged": true
+        }
+      },
+      "errors": [],
+      "finished_at": 1790849837.5019534
+    },
+    "postcheck": {
+      "collected_at": 1790850328.6929789,
+      "harness_files": 7,
+      "harness_identity_sha256": "4ea2b988ce1e3186238cbd9183d4fe532e144a6bee09598430f7700c4ca9ab7e",
+      "harness_mismatches": [],
+      "minisign": {
+        "binary_bytes": 67384,
+        "binary_sha256": "f7549ed0d062508659b7af3effdb7d967363d806ea33e28f74dbaa52051f5caf",
+        "package_version": "0.11-1",
+        "version": "minisign 0.11"
+      },
+      "network_guard_journal": {
+        "MESSAGE_types": {
+          "list": 1,
+          "str": 116
+        },
+        "examined_events": 117,
+        "invalid_utf8_messages": 0,
+        "other_network_guard_warnings": [],
+        "raw_journal_copied": false,
+        "unknown_messages": [],
+        "unsupported_or_failed_matches": []
+      },
+      "source_archive_expected_sha256": "251302cfd9949839a786b529f19e4cc2eea6bc4d67e50be53584d57a97af599c",
+      "source_archive_sha256": "251302cfd9949839a786b529f19e4cc2eea6bc4d67e50be53584d57a97af599c",
+      "source_commit": "fa030155b3daf5a1829dfcd75e1a4f77239c6daa",
+      "source_files": 664,
+      "source_mismatches": [],
+      "units": {
+        "sinan-plugin-install-20261001-r3-agent.service": {
+          "ActiveState": "inactive",
+          "CPUWeight": "[not set]",
+          "ControlGroup": "",
+          "ControlPID": "0",
+          "FragmentPath": "",
+          "IOWeight": "[not set]",
+          "IPAddressAllow": "",
+          "IPAddressDeny": "",
+          "Id": "sinan-plugin-install-20261001-r3-agent.service",
+          "LoadState": "not-found",
+          "MainPID": "0",
+          "MemoryMax": "infinity",
+          "MemorySwapMax": "infinity",
+          "NRestarts": "0",
+          "OOMScoreAdjust": "0",
+          "SubState": "dead",
+          "TasksMax": "1680",
+          "cgroup_exists": false
+        },
+        "sinan-plugin-install-20261001-r3-driver.service": {
+          "ActiveState": "inactive",
+          "CPUWeight": "[not set]",
+          "ControlGroup": "",
+          "ControlPID": "0",
+          "FragmentPath": "",
+          "IOWeight": "[not set]",
+          "IPAddressAllow": "",
+          "IPAddressDeny": "",
+          "Id": "sinan-plugin-install-20261001-r3-driver.service",
+          "LoadState": "not-found",
+          "MainPID": "0",
+          "MemoryMax": "infinity",
+          "MemorySwapMax": "infinity",
+          "NRestarts": "0",
+          "OOMScoreAdjust": "0",
+          "SubState": "dead",
+          "TasksMax": "1680",
+          "cgroup_exists": false
+        },
+        "sinan-plugin-install-20261001-r3-panel.service": {
+          "ActiveState": "inactive",
+          "CPUWeight": "[not set]",
+          "ControlGroup": "",
+          "ControlPID": "0",
+          "FragmentPath": "",
+          "IOWeight": "[not set]",
+          "IPAddressAllow": "",
+          "IPAddressDeny": "",
+          "Id": "sinan-plugin-install-20261001-r3-panel.service",
+          "LoadState": "not-found",
+          "MainPID": "0",
+          "MemoryMax": "infinity",
+          "MemorySwapMax": "infinity",
+          "NRestarts": "0",
+          "OOMScoreAdjust": "0",
+          "SubState": "dead",
+          "TasksMax": "1680",
+          "cgroup_exists": false
+        },
+        "sinan-plugin-install-20261001-r3-pg.service": {
+          "ActiveState": "inactive",
+          "CPUWeight": "[not set]",
+          "ControlGroup": "",
+          "ControlPID": "0",
+          "FragmentPath": "",
+          "IOWeight": "[not set]",
+          "IPAddressAllow": "",
+          "IPAddressDeny": "",
+          "Id": "sinan-plugin-install-20261001-r3-pg.service",
+          "LoadState": "not-found",
+          "MainPID": "0",
+          "MemoryMax": "infinity",
+          "MemorySwapMax": "infinity",
+          "NRestarts": "0",
+          "OOMScoreAdjust": "0",
+          "SubState": "dead",
+          "TasksMax": "1680",
+          "cgroup_exists": false
+        },
+        "sinan-singbox@main.service": {
+          "ActiveState": "inactive",
+          "CPUWeight": "[not set]",
+          "ControlGroup": "",
+          "ControlPID": "0",
+          "FragmentPath": "",
+          "IOWeight": "[not set]",
+          "IPAddressAllow": "",
+          "IPAddressDeny": "",
+          "Id": "sinan-singbox@main.service",
+          "LoadState": "not-found",
+          "MainPID": "0",
+          "MemoryMax": "infinity",
+          "MemorySwapMax": "infinity",
+          "NRestarts": "0",
+          "OOMScoreAdjust": "0",
+          "SubState": "dead",
+          "TasksMax": "1680",
+          "cgroup_exists": false
+        }
+      }
+    },
+    "parent_permissions": {
+      "modes": {
+        "/var/lib/sinan-plugin-install-20261001-r3-runtime": "0o755",
+        "/var/lib/sinan-plugin-install-20261001-r3-runtime/install": "0o755",
+        "/var/lib/sinan-plugin-install-20261001-r3-runtime/runtime": "0o755",
+        "/var/lib/sinan-plugin-install-20261001-r3-runtime/runtime/sing-box@main": "0o750",
+        "/var/lib/sinan-plugin-install-20261001-r3-runtime/runtime/sing-box@main/data": "0o750"
+      },
+      "runtime_account_can_search": true,
+      "private_root_mode": "0o700"
+    },
+    "collection_index": {
+      "all_requested_checks_passed": true,
+      "checks": {
+        "all_journal_MESSAGE_types_classified": true,
+        "archive_matches": true,
+        "final_result_ok": true,
+        "harness_7_match": true,
+        "no_network_guard_failure_found": true,
+        "source_664_match": true,
+        "units_clean": true
+      },
+      "files": {
+        "SOURCE.json": {
+          "bytes_identical": true,
+          "guest_bytes": 74510,
+          "guest_path": "/home/l7.guest/sinan-plugin-install-20261001-r3/SOURCE.json",
+          "guest_sha256": "bc520500a2f6aae8db5ad362355da16e2d545066510146e053fb948a76b273e3",
+          "local_bytes": 74510,
+          "local_sha256": "bc520500a2f6aae8db5ad362355da16e2d545066510146e053fb948a76b273e3"
+        },
+        "artifact-receipt.json": {
+          "bytes_identical": true,
+          "guest_bytes": 984,
+          "guest_path": "/home/l7.guest/sinan-plugin-install-20261001-r3/artifact-receipt.json",
+          "guest_sha256": "ef86db4c3f1c38979cffb5c5f1f186b4b6a4ca38360ca663b10c6511cb973584",
+          "local_bytes": 984,
+          "local_sha256": "ef86db4c3f1c38979cffb5c5f1f186b4b6a4ca38360ca663b10c6511cb973584"
+        },
+        "build-v3-monitor.jsonl": {
+          "bytes_identical": true,
+          "guest_bytes": 3225,
+          "guest_path": "/home/l7.guest/sinan-plugin-install-20261001/build-v3-monitor.jsonl",
+          "guest_sha256": "5dc57d012cc86ee70e3f997972ee4e8bd385ca7d77662a9f8b0aa6f714bd6301",
+          "local_bytes": 3225,
+          "local_sha256": "5dc57d012cc86ee70e3f997972ee4e8bd385ca7d77662a9f8b0aa6f714bd6301"
+        },
+        "build-v3-result.json": {
+          "bytes_identical": true,
+          "guest_bytes": 77293,
+          "guest_path": "/home/l7.guest/sinan-plugin-install-20261001-r3/build-v3-result.json",
+          "guest_sha256": "9f2e0ee4308066ab39250a8b693f3fe72290d76b0a72247113f6584324263242",
+          "local_bytes": 77293,
+          "local_sha256": "9f2e0ee4308066ab39250a8b693f3fe72290d76b0a72247113f6584324263242"
+        },
+        "cleanup-result.json": {
+          "bytes_identical": true,
+          "guest_bytes": 17102,
+          "guest_path": "/home/l7.guest/sinan-plugin-install-20261001-r3/cleanup-result.json",
+          "guest_sha256": "2f67d80139049877455b46aaacfe62a0048ec4e4b5970a69e1f189df46510fa8",
+          "local_bytes": 17102,
+          "local_sha256": "2f67d80139049877455b46aaacfe62a0048ec4e4b5970a69e1f189df46510fa8"
+        },
+        "exercise-result.json": {
+          "bytes_identical": true,
+          "guest_bytes": 17475,
+          "guest_path": "/home/l7.guest/sinan-plugin-install-20261001-r3/exercise-result.json",
+          "guest_sha256": "213e447e1e85ddfc1ba59dc30c4bce56ad48999ca5fbf6f9294ffbb9fcbf3881",
+          "local_bytes": 17475,
+          "local_sha256": "213e447e1e85ddfc1ba59dc30c4bce56ad48999ca5fbf6f9294ffbb9fcbf3881"
+        },
+        "final-result.json": {
+          "bytes_identical": true,
+          "guest_bytes": 264,
+          "guest_path": "/home/l7.guest/sinan-plugin-install-20261001-r3/final-result.json",
+          "guest_sha256": "2952bd643031f4ad87b6e399e7b2babe35abc321ed8ad434ca56aeb578b84e40",
+          "local_bytes": 264,
+          "local_sha256": "2952bd643031f4ad87b6e399e7b2babe35abc321ed8ad434ca56aeb578b84e40"
+        },
+        "harness-identity.json": {
+          "bytes_identical": true,
+          "guest_bytes": 1106,
+          "guest_path": "/home/l7.guest/sinan-plugin-install-20261001-r3/harness-identity.json",
+          "guest_sha256": "4ea2b988ce1e3186238cbd9183d4fe532e144a6bee09598430f7700c4ca9ab7e",
+          "local_bytes": 1106,
+          "local_sha256": "4ea2b988ce1e3186238cbd9183d4fe532e144a6bee09598430f7700c4ca9ab7e"
+        },
+        "installed-result.json": {
+          "bytes_identical": true,
+          "guest_bytes": 6424,
+          "guest_path": "/home/l7.guest/sinan-plugin-install-20261001-r3/installed-result.json",
+          "guest_sha256": "7b779acff9d138859b1e6203e50d9b8455492f2b5153a841d2f87371df202c79",
+          "local_bytes": 6424,
+          "local_sha256": "7b779acff9d138859b1e6203e50d9b8455492f2b5153a841d2f87371df202c79"
+        },
+        "pre-import-result.json": {
+          "bytes_identical": true,
+          "guest_bytes": 2744,
+          "guest_path": "/home/l7.guest/sinan-plugin-install-20261001-r3/pre-import-result.json",
+          "guest_sha256": "61a43d348faa33b3b0be99dfd2b4d232ca920413b567ad044eff67fe1abacc03",
+          "local_bytes": 2744,
+          "local_sha256": "61a43d348faa33b3b0be99dfd2b4d232ca920413b567ad044eff67fe1abacc03"
+        },
+        "readonly-postcheck.json": {
+          "contains_raw_journal": false,
+          "local_bytes": 4008,
+          "local_sha256": "e13b999cadc46f22f05c8b583b6dfcb957be09a7a99999f8ec195ee61e872890"
+        },
+        "runtime-parent-modes.json": {
+          "bytes_identical": true,
+          "guest_bytes": 485,
+          "guest_path": "/home/l7.guest/sinan-plugin-install-20261001-r3/runtime-parent-modes.json",
+          "guest_sha256": "c577fc628cd06156c337097f6840c3de990ef5fec60250715c49c22f67dcafc8",
+          "local_bytes": 485,
+          "local_sha256": "c577fc628cd06156c337097f6840c3de990ef5fec60250715c49c22f67dcafc8"
+        },
+        "setup-result.json": {
+          "bytes_identical": true,
+          "guest_bytes": 83006,
+          "guest_path": "/home/l7.guest/sinan-plugin-install-20261001-r3/setup-result.json",
+          "guest_sha256": "173a32b3a98298729c8ea1ac24a358fd334a9587a45e94f8e1197befbb224997",
+          "local_bytes": 83006,
+          "local_sha256": "173a32b3a98298729c8ea1ac24a358fd334a9587a45e94f8e1197befbb224997"
+        }
+      },
+      "finished_at": 1790850328.738911,
+      "guest_collector_exit_code": 0,
+      "guest_collector_stderr_bytes": 0,
+      "guest_collector_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "schema": 1,
+      "scope": "read-only post-run sanitized r3 receipt collection; no tests/services or private logs copied",
+      "started_at": 1790850328.352625
+    }
+  },
+  "preparation": {
+    "schema": 1,
+    "scope": "仅准备失败记录；两次 attempt 均未通过安装验收，不能替代 r3 独立验收",
+    "source_commit": "fa030155b3daf5a1829dfcd75e1a4f77239c6daa",
+    "collection_at": 1790850239.89969,
+    "collection_method": "只读读取既有 guest JSON；host 私有副本 SHA 和字节数与原文逐项相同；PG 日志只在 guest 静态计算 SHA/匹配布尔，不复制原文",
+    "original_json_index": "/Users/l7/.local/share/sinan-p0-vm/plugin-install-20261001/preparation-receipts/collection-index.json",
+    "tool_preparation": {
+      "package": "minisign",
+      "version": "0.11-1",
+      "new_packages": 1,
+      "upgraded_packages": 0,
+      "evidence_authority": "根任务提供的 Debian apt 安装工具证据；原始工具收据由根任务另行引用",
+      "purpose": "补齐测试签名工具，属于准备步骤，不是安装验收通过证据"
+    },
+    "attempts": [
+      {
+        "attempt": "r1",
+        "guest_root": "/home/l7.guest/sinan-plugin-install-20261001",
+        "original_final": {
+          "ok": false,
+          "exercise_ok": false,
+          "cleanup_ok": false,
+          "error_kind": "Refused",
+          "controlled_reason": "preinstalled minisign/PostgreSQL are required; no package installation is performed"
+        },
+        "failure": "Debian 缺少预安装的 minisign，setup 在资源创建之前保守拒绝",
+        "reached_panel": false,
+        "reached_agent": false,
+        "runtime_started": false,
+        "ownership_file_present": false,
+        "resource_creation": {
+          "private_pg": false,
+          "public_runtime_tree": false,
+          "runtime_template": false,
+          "evidence_authority": "根任务当次只读观察，且 setup 包检查在所有创建步骤之前"
+        },
+        "independent_cleanup_steps": {
+          "remaining_processes": [],
+          "remaining_mounts": [],
+          "populated_cgroups": [],
+          "owned_units": {},
+          "pg_stopped_pid_socket_absent": true,
+          "private_pg_data_retained": true
+        },
+        "original_cleanup_errors": [
+          {
+            "step": "unchanged_environment",
+            "error_kind": "Refused",
+            "controlled_reason": "initial boot/SSH/kernel evidence unavailable"
+          }
+        ],
+        "environment_comparison": "未生成 before-runtime 基线；原 cleanup 正确记为 initial boot/SSH/kernel evidence unavailable，不补写为通过",
+        "original_json": {
+          "final-result.json": {
+            "path": "/Users/l7/.local/share/sinan-p0-vm/plugin-install-20261001/preparation-receipts/r1-final-result.json",
+            "sha256": "af4cf4648c413f2de935f1a09a6919f51ca640001405be2b590d38a7af148f23",
+            "bytes": 381
+          },
+          "cleanup-result.json": {
+            "path": "/Users/l7/.local/share/sinan-p0-vm/plugin-install-20261001/preparation-receipts/r1-cleanup-result.json",
+            "sha256": "b63e9f3ee8f6d1337ff33a9a79013a94c28b9f0a3741cbfd6183e4ef8a28e69b",
+            "bytes": 583
+          }
+        }
+      },
+      {
+        "attempt": "r2",
+        "guest_root": "/home/l7.guest/sinan-plugin-install-20261001-r2",
+        "original_final": {
+          "ok": false,
+          "exercise_ok": false,
+          "cleanup_ok": false,
+          "error_kind": "Refused",
+          "controlled_reason": "controlled command failed"
+        },
+        "failure": "port_open 已成功但 PostgreSQL 仍处于 starting up；紧接着 createdb 失败，未到 Panel/Agent",
+        "reached_panel": false,
+        "reached_agent": false,
+        "runtime_started": false,
+        "started_owned_units": [
+          "sinan-plugin-install-20261001-r2-pg.service"
+        ],
+        "pg_log": {
+          "sha256": "48dc242b877b80ca1b9ba0ddca8c4b4e4eaf103e41684a0e39b128beb015b19a",
+          "bytes": 1418,
+          "fatal_database_starting_up": true,
+          "literal_starting_up": true
+        },
+        "pg_cleanup": {
+          "before_pid": 70730,
+          "after_pid": 0,
+          "after_state": "inactive",
+          "oom_counts": {
+            "low": "0",
+            "high": "0",
+            "max": "0",
+            "oom": "0",
+            "oom_kill": "0",
+            "oom_group_kill": "0"
+          },
+          "pid_socket_lock_absent": true,
+          "private_data_retained": true
+        },
+        "independent_no_leftovers": {
+          "remaining_processes": [],
+          "remaining_mounts": [],
+          "populated_cgroups": [],
+          "owned_units": {
+            "sinan-plugin-install-20261001-r2-pg.service": {
+              "MainPID": "0",
+              "Result": "success",
+              "NRestarts": "0",
+              "ExecMainStartTimestampMonotonic": "0",
+              "ExecMainCode": "0",
+              "ExecMainStatus": "0",
+              "ControlGroup": "",
+              "CPUWeight": "10",
+              "IOWeight": "10",
+              "MemoryMax": "201326592",
+              "MemorySwapMax": "0",
+              "TasksMax": "128",
+              "IPAddressAllow": "::1/128 127.0.0.0/8",
+              "IPAddressDeny": "0.0.0.0/0 ::/0",
+              "OOMScoreAdjust": "500",
+              "User": "postgres",
+              "Group": "postgres",
+              "NoNewPrivileges": "no",
+              "KillMode": "control-group",
+              "ActiveState": "inactive",
+              "SubState": "dead",
+              "FragmentPath": "/run/systemd/system/sinan-plugin-install-20261001-r2-pg.service"
+            }
+          },
+          "pg_stopped_pid_socket_absent": true,
+          "private_pg_data_retained": true
+        },
+        "owned_public_tree_removed": true,
+        "owned_runtime_template_removed": true,
+        "owned_runtime_account_removed_uid": 999,
+        "original_cleanup_errors": [
+          {
+            "step": "remove_owned_group",
+            "error_kind": "KeyError"
+          }
+        ],
+        "owned_group": {
+          "original_error_kind": "KeyError",
+          "gid": 994,
+          "actual_absent": true,
+          "evidence_authority": "Debian userdel 后 getgrnam 找不到同名组，且根任务当次已独立确认组不存在；旧 cleanup ok=false 保持原样"
+        },
+        "environment_comparison": {
+          "boot_id_sha256_before": "5a2730c8d35f994be6e7931791fa3e7637cf12043d87875e4bfcc571a3850217",
+          "boot_id_sha256_after": "5a2730c8d35f994be6e7931791fa3e7637cf12043d87875e4bfcc571a3850217",
+          "boot_unchanged": true,
+          "swap_sha256_before": "615b077d430a7469a972688b6e10db6e37f8ecea47e6f2754cb179bb6c483e0a",
+          "swap_sha256_after": "615b077d430a7469a972688b6e10db6e37f8ecea47e6f2754cb179bb6c483e0a",
+          "swap_unchanged": true,
+          "ssh_pid_before": 406,
+          "ssh_pid_after": 406,
+          "ssh_restarts_before": 0,
+          "ssh_restarts_after": 0,
+          "ssh_start_monotonic_before": "3486055",
+          "ssh_start_monotonic_after": "3486055",
+          "ssh_unchanged": true,
+          "kernel_examined_events": 0,
+          "new_kernel_oom_events": 0
+        },
+        "original_json": {
+          "final-result.json": {
+            "path": "/Users/l7/.local/share/sinan-p0-vm/plugin-install-20261001/preparation-receipts/r2-final-result.json",
+            "sha256": "43b99d7d4b1d84c4e6cc7915bad8931d02b29c1f65e782bbd6f863e20dfb2d2f",
+            "bytes": 323
+          },
+          "cleanup-result.json": {
+            "path": "/Users/l7/.local/share/sinan-p0-vm/plugin-install-20261001/preparation-receipts/r2-cleanup-result.json",
+            "sha256": "2da7320860026d7c04871e2c6b286273ac71d7ac1c51b663c66f805f17af82d7",
+            "bytes": 10334
+          },
+          "before-runtime.json": {
+            "path": "/Users/l7/.local/share/sinan-p0-vm/plugin-install-20261001/preparation-receipts/r2-before-runtime.json",
+            "sha256": "2e4a08e1d4fb38d56b4f161c1e851fc68fcb4e0995b5bda14e5666fab573210c",
+            "bytes": 3882
+          },
+          "ownership.json": {
+            "path": "/Users/l7/.local/share/sinan-p0-vm/plugin-install-20261001/preparation-receipts/r2-ownership.json",
+            "sha256": "111b366bd956b9ca861161e69f0ad02035484deffa12140b875c0284ddf27bb7",
+            "bytes": 668
+          }
+        }
+      }
+    ],
+    "harness_corrections_in_r3": [
+      "createdb 前对私有 Unix socket 用 pg_isready 等待真正 ready，不再把 TCP 端口已开放当作数据库已就绪",
+      "仅对本次 owned group，getgrnam 的 KeyError 记为 removed_absent；不重写旧 r2 cleanup 结果"
+    ],
+    "r3_results": "由 resource_budget 独立收集、根任务正式报告；本文件不合并其通过结果"
+  },
+  "receipt_sha256": {
+    "local_aggregate": "ce485944691f4abc501baf1b942ffc665cf43030b963204f1a3930fae2a04871",
+    "guest_collection_index": "be65f851ecb1c65552310c00c849ea9f8f09e21bcc3533afe47f845e87d72c39",
+    "guest_postcheck": "e13b999cadc46f22f05c8b583b6dfcb957be09a7a99999f8ec195ee61e872890"
+  },
+  "not_accepted": [
+    "GitHub public import API and production signed release",
+    "external panel integration",
+    "production installer byte-for-byte and production rollout",
+    "real dual-server public chains or sustained proxy traffic in this installation test",
+    "full NodeQuality licensed tool/rootfs and load/fault matrix",
+    "TcpQuality registered end-to-end lifecycle",
+    "paused CI"
+  ]
+}

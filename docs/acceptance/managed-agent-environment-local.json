@@ -1,0 +1,71 @@
+{
+  "checks": {
+    "frozen_inputs_unchanged": true,
+    "git_diff_check": "passed"
+  },
+  "contracts": {
+    "failed": 0,
+    "preparation_controller": 12,
+    "real_api_driver": 19,
+    "scope": "configuration and tool contracts; no real managed installation/registration",
+    "skipped": 0,
+    "total_unique_passed_this_step": 31
+  },
+  "execution": {
+    "ci": "paused",
+    "formal_release": false,
+    "implementation_complete_before_tests": true,
+    "managed_matrix_run": false,
+    "native_build_started": false,
+    "new_vm_created": false,
+    "new_vm_started": false,
+    "production_deployment": false,
+    "user_requested_immediate_end": true
+  },
+  "issue": 149,
+  "pending": [
+    "fresh native Linux build and signed TEST_ONLY preparation",
+    "three registered isolated device environments",
+    "actual Agent/plugin installation and managed transmission/accounting/cleanup matrix",
+    "complete NodeQuality and licensing/factory gates",
+    "formal release and production deployment"
+  ],
+  "preservation": {
+    "old_materials_deleted": false,
+    "old_target_reused": false,
+    "old_vm_resize_or_stop": false,
+    "partial_registry_supplement_retained": true,
+    "readonly_cache_copy_retained": true,
+    "registry_supplement_ready": false
+  },
+  "private_evidence_identities": {
+    "driver-contracts-r1.log": {
+      "sha256": "69bea8018ea059ec57a716e11d1df21d7236d4863c2e6a46eb7f650079f3e76f",
+      "size": 118
+    },
+    "environment-stop.json": {
+      "sha256": "d8175be4e76f82c2d274522e96a5de4ac3bb2e7dbed2147de1e59aa60cd487ba",
+      "size": 425
+    },
+    "preparation-contracts-r1.log": {
+      "sha256": "0f344693fe312047802d59d2061cba0bade0afab75278f769d627ac5ec509ce1",
+      "size": 111
+    },
+    "readonly-cache-transfer.json": {
+      "sha256": "3bb8cf489dfd91c91a2a183c2b7b4a5a65f8443b04d75bc89c34f7a45178b9c3",
+      "size": 448
+    }
+  },
+  "schema": 1,
+  "source": {
+    "base_commit": "cd9bec762c1b445ace4be5cf49f3ee0624e2a48f",
+    "file_count": 782,
+    "functional_sha256": "95c66f7511ffd7fb393f7d21e490280db6019e409ae05bfd0df8ffe2b8a82c3e"
+  },
+  "status": "source_step_accepted_goal_stopped_by_user_incomplete",
+  "unchanged": {
+    "previous_helper_21_not_repeated": true,
+    "rust_frontend_protocol_runtime_and_helper_sources": true,
+    "rust_tests_and_frontend_build_repeated": false
+  }
+}

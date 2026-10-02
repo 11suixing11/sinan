@@ -198,6 +198,40 @@ impl ProviderRegistry {
     }
 }
 
+pub(super) fn node_descriptions(ready: bool, reason: Option<&str>) -> Vec<ProviderDescription> {
+    crate::diagnostic_plugins::ipquality::SOURCES
+        .iter()
+        .filter(|(provider, _)| *provider != "egress-discovery")
+        .map(|(provider, datasets)| {
+            let restricted =
+                provider.ends_with("-not-configured") || provider.ends_with("-disabled");
+            ProviderDescription {
+                provider: format!("ipquality-node/{provider}"),
+                label: if *provider == "check-place-aggregator" {
+                    "节点出口 · check-place 聚合入口".into()
+                } else {
+                    format!("节点出口 · {provider}")
+                },
+                kind: "node_self".into(),
+                execution: "node".into(),
+                enabled: ready && !restricted,
+                reason: if restricted {
+                    Some("此来源未配置授权适配或主动探测已禁用，未发出请求，信息未知".into())
+                } else {
+                    reason.map(str::to_owned)
+                },
+                databases: datasets
+                    .iter()
+                    .map(|dataset| DatabaseDescription {
+                        database: format!("node-{dataset}"),
+                        label: format!("节点自查 · {dataset}"),
+                    })
+                    .collect(),
+            }
+        })
+        .collect()
+}
+
 impl Provider {
     pub(super) fn id(&self) -> &'static str {
         self.id

@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 #[serde(default)]
 pub struct Config {
     pub panel_url: String,
+    /// Additional certificate authorities for this panel origin only.
+    pub panel_ca_file: Option<PathBuf>,
     pub identity_dir: PathBuf,
     pub state_db: PathBuf,
     pub runtime_root: PathBuf,
@@ -23,6 +25,7 @@ impl Default for Config {
     fn default() -> Self {
         let mut config = Self {
             panel_url: String::new(),
+            panel_ca_file: None,
             identity_dir: "/etc/sinan/identity".into(),
             state_db: "/var/lib/sinan/core/state.db".into(),
             runtime_root: "/var/lib/sinan/plugins".into(),
@@ -107,6 +110,7 @@ impl Config {
 
     pub fn validate(&self) -> anyhow::Result<()> {
         validate_panel_url(&self.panel_url)?;
+        crate::panel_tls::certificates(self.panel_ca_file.as_deref())?;
         if !self.settings.valid() {
             bail!(
                 "telemetry intervals must be within 1..=60 seconds and upload cannot precede sampling"

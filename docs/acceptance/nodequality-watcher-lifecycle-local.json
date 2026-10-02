@@ -1,0 +1,147 @@
+{
+  "ci": "paused",
+  "environment": "macOS ARM64, inert local fixtures and real owned Python/Bash processes",
+  "historical_cleanup": {
+    "absent_workspaces": 26,
+    "additional_generic_fixture_orphans": 6,
+    "confirmed_no_live_original": 26,
+    "file_deletions": 0,
+    "independent_receipts": [
+      {
+        "baseline_sha256": "1e77b69798719c0c7935514f2b1837c7940eac1cee5dd6e3f3097695e313db40",
+        "count": 20,
+        "kill_signals": 20,
+        "sha256": "8ee29f321e057b4a2e9d5b37c3c7f5006bba656a4a94e06105ba6fd1ce29e9d4",
+        "term_signals": 20
+      },
+      {
+        "baseline_sha256": "11d979c726eb95fbf42e98ef461255656b10cd30ba4efff6cfca0bb76fff23d3",
+        "count": 6,
+        "kill_signals": 6,
+        "sha256": "6c1ae828045cd43addacd8ffd2667814be78f09b0d9cce7d292f54e3c69ee954",
+        "term_signals": 6
+      }
+    ],
+    "initial_named_fixture_orphans": 20,
+    "kill_signals": 26,
+    "observed_orphans": 26,
+    "process_group_signals": 0,
+    "remaining_report_watchers": 0,
+    "term_signals": 26
+  },
+  "not_certified": [
+    "current Linux native rebuild",
+    "registered Agent/systemd/mount fault matrix",
+    "full NodeQuality hardware joint load",
+    "formal artifact release",
+    "production migration or deployment"
+  ],
+  "recorded_at": "2026-10-02T15:43:03.482562+00:00",
+  "schema": 1,
+  "source": {
+    "added": [
+      "tools/nodequality_fixture_process.py",
+      "tools/test-nodequality-watcher.py"
+    ],
+    "base_commit": "6eaa1728d4249920be867ab9644726afadfccba0",
+    "changed_from_previous": [
+      "plugins/nodequality/report.py",
+      "plugins/nodequality/runner.sh.tmpl",
+      "tools/test-nodequality-report-policy.py",
+      "tools/test-nodequality-sources.py",
+      "tools/test-nodequality.py"
+    ],
+    "file_count": 784,
+    "sha256": "504880b192ff8ee705774fbe80e8d3c5e52a651c896c124771a214ffb582a623",
+    "unchanged_after_tests": true
+  },
+  "status": "source_and_local_owned_process_acceptance_passed",
+  "tests": {
+    "failed": 0,
+    "passed": 74,
+    "skipped": 0,
+    "suites": [
+      {
+        "failed": 0,
+        "log": {
+          "sha256": "6b26484e936a1d982001507500476ed1db349137619c661aa610e827c6c5bf0c",
+          "size": 373
+        },
+        "name": "test-nodequality",
+        "passed": 37,
+        "seconds": 28.937,
+        "skipped": 0
+      },
+      {
+        "failed": 0,
+        "log": {
+          "sha256": "1035971e454dfa399c57dc432a08010e6335efb4f5fbeaacaafb2f9f70e80486",
+          "size": 251
+        },
+        "name": "test-nodequality-sources",
+        "passed": 16,
+        "seconds": 16.509,
+        "skipped": 0
+      },
+      {
+        "failed": 0,
+        "log": {
+          "sha256": "74f1d3bf21bff61080fd9c21c445a28af6b8ad752e901f1e138ebc5b1c90d072",
+          "size": 114
+        },
+        "name": "test-nodequality-report-policy",
+        "passed": 14,
+        "seconds": 29.197,
+        "skipped": 0
+      },
+      {
+        "failed": 0,
+        "log": {
+          "sha256": "4c552cbd287ca2a9f00fc5223a91be0246ad9f5264ffd462e90c1fd9a9452d5d",
+          "size": 106
+        },
+        "name": "test-nodequality-watcher",
+        "passed": 7,
+        "seconds": 12.363,
+        "skipped": 0
+      }
+    ]
+  },
+  "watcher_cleanup_receipts": [
+    {
+      "direct_children_reaped": true,
+      "failures": [],
+      "sha256": "e2233794b8d1d9e03020e7ccde23c63840f10b781581cc59be84603ae7eccfc1"
+    },
+    {
+      "direct_children_reaped": true,
+      "failures": [],
+      "sha256": "e2233794b8d1d9e03020e7ccde23c63840f10b781581cc59be84603ae7eccfc1"
+    },
+    {
+      "direct_children_reaped": true,
+      "failures": [],
+      "sha256": "e2233794b8d1d9e03020e7ccde23c63840f10b781581cc59be84603ae7eccfc1"
+    },
+    {
+      "direct_children_reaped": true,
+      "failures": [],
+      "sha256": "e2233794b8d1d9e03020e7ccde23c63840f10b781581cc59be84603ae7eccfc1"
+    },
+    {
+      "direct_children_reaped": true,
+      "failures": [],
+      "sha256": "e2233794b8d1d9e03020e7ccde23c63840f10b781581cc59be84603ae7eccfc1"
+    },
+    {
+      "direct_children_reaped": true,
+      "failures": [],
+      "sha256": "e2233794b8d1d9e03020e7ccde23c63840f10b781581cc59be84603ae7eccfc1"
+    },
+    {
+      "direct_children_reaped": true,
+      "failures": [],
+      "sha256": "e2233794b8d1d9e03020e7ccde23c63840f10b781581cc59be84603ae7eccfc1"
+    }
+  ]
+}

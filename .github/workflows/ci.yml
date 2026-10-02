@@ -75,6 +75,33 @@ jobs:
           python3 tools/test-nodequality-rootfs-artifact.py
           python3 tools/test-nodequality-node-query.py
           python3 tools/test-nodequality-node-query-artifact.py
+      - name: Verify independent native artifact and managed controller contracts
+        run: |
+          python3 tools/test-bootstrap-artifact-contracts.py
+          python3 tools/test-nodequality-native.py
+          python3 tools/test-nodequality-native-sources.py
+          python3 tools/test-nodequality-native-rootfs-artifact.py
+          python3 tools/test-nodequality-rootfs-capacity.py
+          python3 tools/test-ipquality-artifact.py
+          python3 tools/test-ipquality-build.py
+          python3 tools/test-ipquality-inputs.py
+          python3 tools/test-ipquality-inputs-capacity.py
+          python3 tools/test-ipquality-profile.py
+          python3 tools/test-ipquality-runner.py
+          python3 tools/test-managed-paths-preparation.py
+          python3 tools/test-managed-paths-fixtures.py
+          python3 tools/test-managed-paths-linux-contracts.py
+          python3 tools/test-nodequality-native-browser-policy.py
+          python3 tools/test-nodequality-native-data-policy.py
+          python3 tools/test-nodequality-native-dependency-policy.py
+          python3 tools/test-nodequality-native-ip-score-policy.py
+          python3 tools/test-nodequality-native-netflix-policy.py
+          python3 tools/test-nodequality-native-report-policy.py
+          python3 tools/test-nodequality-native-fixture-process.py
+          python3 tools/test-nodequality-native-watcher.py
+          python3 tools/test-nodequality-access-policy.py
+          python3 tools/test-nodequality-query-policy.py
+          python3 tools/test-nodequality-openai-policy.py
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - name: Run Rust and PostgreSQL tests

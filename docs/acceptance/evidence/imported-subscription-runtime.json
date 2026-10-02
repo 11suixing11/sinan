@@ -1,0 +1,63 @@
+{
+  "source": "979b9989d67c25fa4f2c506b4a02f43df06be949",
+  "legacy_contract_source": "6a583af701e9d999078335809327b8d68828308d",
+  "legacy_compiler_sha256": "0e1596c2f61dd6d083044a538f6a1ad3c8d6eeeb9fad62fb3744ff916b856676",
+  "test_binary_sha256": "c8f0b60ee2ad8cfb9a254256c1c8e6899e74dfa5a0cf8d4906d33f9c25627068",
+  "runtime_sha256": "fee83ca8457c94449dd04aa17a51830cbc9b449a4dda290e995d3366188e0302",
+  "runtime_version": "1.14.2",
+  "scope": "Old-schema import, real migrations, cached pre-migration contract client and real Reality server on private loopback. No Agent managed deployment or production migration.",
+  "debian": {
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "flow": "Two 8192-byte echo roundtrips, one before migration and one after; actual statistics attributed to the imported authorization, deltas ingested and replayed without duplication.",
+    "processes": "Cached client, Reality server and local TLS fixture PIDs unchanged through migration."
+  },
+  "host": {
+    "initial_passed": 4,
+    "initial_ignored": 1,
+    "after_legacy_contract_passed": 1,
+    "clippy_fmt_core": "passed"
+  },
+  "resources": {
+    "properties": {
+      "MainPID": "69900",
+      "ControlGroup": "/system.slice/sinan-imported-client-v1.service",
+      "CPUWeight": "10",
+      "IOWeight": "10",
+      "MemoryMax": "1073741824",
+      "MemorySwapMax": "0",
+      "TasksMax": "128",
+      "OOMScoreAdjust": "500",
+      "PrivateTmp": "yes",
+      "PrivateNetwork": "yes",
+      "KillMode": "control-group"
+    },
+    "metrics": {
+      "memory.peak": "1073745920",
+      "memory.events": "low 0\nhigh 0\nmax 2246\noom 0\noom_kill 0\noom_group_kill 0",
+      "pids.peak": "30"
+    },
+    "minimum_memory_available": 550903808,
+    "minimum_disk_available": 2315202560,
+    "note": "Compilation reached cgroup memory.max (2246 max events); no OOM or kills. Do not describe as zero max events."
+  },
+  "source_files_unchanged": 642,
+  "cleanup": "Unit collected, no residual processes/mounts/cgroup; private PostgreSQL stopped and PID file absent; SSH PID406 NRestarts0, same boot and swap0.",
+  "receipts_sha256": {
+    "SOURCE": "d300dc5f8e5c68d6578fc74c09ed55a3fc39a08ef5d856b94c9d88ec8b41f3c1",
+    "result": "2710996b9fca7f5c510002f3a8ec99d5ae2d0a13885e48c38f43d24d36f86cac",
+    "postcheck": "5e53005689c3b1efddf21be824a51b206302c454f3e5a5b8d2658c09b9da8e76",
+    "receipt": "c9df8c0cd60a04b7225290690139b601ff815b39900c29c463b379da7429fad1",
+    "source-sha256": "00c1c650134180e2c9c92d60a1814ab7302283dd9cb732e925d7adf228be3201",
+    "host-initial": "ddceaff081392cf40c6c18e65da94e5a4f39dcad7af3a6100ae80c3e11b7c252",
+    "host-final": "061b7b03bd168685f4879901e63a9faf95e7d82b3dba4761f9546082bfad4beb"
+  },
+  "not_accepted": [
+    "full NodeQuality with sustained proxy traffic",
+    "real Agent republishing across migration",
+    "public network/production clients",
+    "TCP registered lifecycle",
+    "paused CI"
+  ]
+}

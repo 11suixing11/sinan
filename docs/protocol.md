@@ -42,6 +42,9 @@ Agent 与面板的产品版本独立；面板当前声明支持协议范围 `1..
 | 面板 → Agent | `usage.ack` | `{epoch,seq}` |
 | 面板 → Agent | `retirement.request` | `{request_id}`，持久退役请求 UUID |
 | Agent → 面板 | `retirement.result` | `{request_id,success,error?,receipt?}`，成功须携带匹配的签名回执 |
+| 面板 → Agent | `runtime.path_probe.request` | `{request_id,expected,probe_id,expires_at}`，指定已签、已应用计划中的验证 UUID |
+| Agent → 面板 | `runtime.path_probe.result` | `{request_id,request_digest,observed,probe_id,elapsed_ms,success,error}`，绑定实际 activation 与运行实例 |
+| 面板 → Agent | `runtime.path_probe.ack` | `{request_id,request_digest}`，精确不可变结果已持久化 |
 
 指标每 10 秒发送，采集失败字段省略，不用 0 代表未知。流量每 30 秒采集；上下载单位是字节，负数无效。epoch 为 UUID；seq 在本地持久递增。所有时间戳使用 UTC Unix 秒。
 
@@ -50,6 +53,10 @@ Linux 静态信息区分两种 ABI：`libc` 保留 Agent 自身的编译 ABI，`
 `runtime_libc` 为 Linux 可选新增字段，识别成功取 `gnu` 或 `musl`；新 Agent 无法可靠识别宿主时兼容沿用自身编译 ABI。面板接受 `glibc` 作为 `gnu` 别名，非 Linux 设备不发送此字段。旧设备缺少字段时保留原 `libc` 选择路径；显式 null 或非字符串在消息解析时拒绝，显式 `unknown`、空字符串或未支持值的运行时清单返回 400，不将这些值当作字段缺失。
 
 Linux 宿主 ABI 与 Agent 编译 ABI 不同时，运行时先保留旧的编译 ABI 完整标识、旧 `{arch}` 选择顺序，再尝试宿主 ABI。GNU 宿主上的 musl Agent 因此依次选择 `linux-musl-{arch}`、旧 `{arch}`、`linux-gnu-{arch}`；已通过兼容层运行在 musl 宿主的 GNU Agent 依次选择 `linux-gnu-{arch}`、旧 `{arch}`、`linux-musl-{arch}`，保证此前签名缓存仍按原摘要复验。两种 ABI 相同时，GNU 路径兼容旧目录，musl Agent 在 musl 宿主不使用 GNU 完整标识或 GNU 兼容目录。只有制品不存在时才尝试下一候选，校验失败不能降级。Agent 自身升级继续只用编译 ABI，不随 `runtime_libc` 改变。
+
+## 已签运行计划中的具体出站验证
+
+路径验证需设备声明 `runtime:path-probe-v1`，并具有精确 checkpoint 能力。请求不携带目标 URL、代理凭据或命令，只选择已签 `runtime-probes.json` 中的 UUID；`expected` 是完整健康 checkpoint。正常请求 60 秒，剩余期限不得超过 120 秒；Agent 与 apply/recovery 共用 gate，前后确认实例、配置和无未完成 intent，SDK 请求上限 5 秒。成功须包含同一 checkpoint 与 1 至 5000 毫秒结果；失败不含测量值，错误固定脱敏。结果先持久再发送，重复消息不换内容、不续期，ACK 后保留去重身份。该消息不推进恢复 floor，不允许把迟到或不同 activation 的结果用于新路径切换；具体原生方法及证明范围见 [ADR 0073](adr/0073-ordered-path-publication-and-native-probe.md)。
 
 ## HTTP 期望状态
 

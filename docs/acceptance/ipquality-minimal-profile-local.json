@@ -1,0 +1,164 @@
+{
+  "schema": 1,
+  "recorded_at": 1790918270.1385138,
+  "source_base": "e538744525a7b2feceaedfbbcca2d713c9cb7d00",
+  "scope": "IPQuality minimal-profile contract chain and actual offline native input derivation",
+  "freeze": {
+    "functional_files": 678,
+    "sha256": "34303534adf539eac2d91a45b4d8793c7f56dd35a3d56e7ce9701b100b520053"
+  },
+  "contracts": [
+    {
+      "name": "rootfs-build",
+      "passed": 38,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "attempt": "r1"
+    },
+    {
+      "name": "rootfs-capacity",
+      "passed": 41,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "attempt": "r1"
+    },
+    {
+      "name": "rootfs-collect",
+      "passed": 33,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "attempt": "r1"
+    },
+    {
+      "name": "ipquality-inputs-capacity",
+      "passed": 16,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "attempt": "r1"
+    },
+    {
+      "name": "ipquality-inputs",
+      "passed": 43,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "attempt": "r1"
+    },
+    {
+      "name": "ipquality-profile",
+      "passed": 30,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "attempt": "r1"
+    },
+    {
+      "name": "ipquality-artifact",
+      "passed": 14,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "attempt": "r1"
+    },
+    {
+      "name": "ipquality-build",
+      "passed": 15,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "attempt": "r2"
+    }
+  ],
+  "contract_passed": 230,
+  "contract_attempts": [
+    {
+      "attempt": "r1",
+      "ran": 230,
+      "failures": 0,
+      "errors": 1,
+      "skipped": 0,
+      "all_suites_passed": false
+    },
+    {
+      "attempt": "r2",
+      "ran": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "all_suites_passed": true
+    }
+  ],
+  "excluded_native_tests": [
+    {
+      "suite": "rootfs-capacity",
+      "method": "OwnedLoopFilesystemTests.test_real_filesystem_free_disk_guard_stops_owned_producer",
+      "reason": "Not executed in this step: the two 600 MiB owned loop filesystem cases belong to the unchanged core factory capacity implementation. Earlier native evidence is retained independently and is not counted as a replay in this IPQuality profile step."
+    },
+    {
+      "suite": "rootfs-capacity",
+      "method": "OwnedLoopFilesystemTests.test_real_filesystem_free_inode_guard_stops_owned_producer",
+      "reason": "Not executed in this step: the two 600 MiB owned loop filesystem cases belong to the unchanged core factory capacity implementation. Earlier native evidence is retained independently and is not counted as a replay in this IPQuality profile step."
+    }
+  ],
+  "native_derivation": {
+    "attempts_in_this_step": 1,
+    "positive": true,
+    "exit_code": 0,
+    "elapsed_seconds": 14.325712006999993,
+    "architecture": "arm64",
+    "packages": 130,
+    "source_versions": 91,
+    "source_files": 289,
+    "materials_sha256": "a7420605e9a3daeb378c52e949a210b110148acfab1dc669e0d6cd5330a94fa6",
+    "selection_sha256": "7dd0098c3eaca4c44906e0b29df35e43f3d41e12d962bedf7e97421cccf3ca1a",
+    "selected_logical_bytes": 429686196,
+    "borrowed_cache_new_allocated_bytes": 0,
+    "old_parent_unchanged": true,
+    "kernel_parent_read_only": true,
+    "network_interfaces": [
+      "lo"
+    ],
+    "memory_max_bytes": 268435456,
+    "memory_peak_bytes": 268435456,
+    "memory_events": {
+      "low": 0,
+      "high": 0,
+      "max": 26180,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0
+    },
+    "disk_reserve_bytes": 536870912,
+    "inode_reserve": 1024,
+    "output_free_bytes_at_end": 1444077568,
+    "ssh_and_boot_unchanged_after_storage": true,
+    "cleanup_confirmed": true
+  },
+  "storage": {
+    "additional_raw_disk_bytes": 1610612736,
+    "original_root_disk_bytes": 8589934592,
+    "parent_cache_preserved": true,
+    "normal_stop_restart_cycles": 2,
+    "output_distinct_from_root": true,
+    "format_disabled_after_first_mount": true,
+    "filesystem_uuid_preserved": true,
+    "host_admission_bytes": 3993260032,
+    "host_required_admission_bytes": 2415919104
+  },
+  "unrelated_rust_web_files_byte_unchanged": 518,
+  "actual_prepare_build_export": false,
+  "builder_approved": false,
+  "runtime_image_identity_verified": false,
+  "license_approved": false,
+  "reproducibility_verified": false,
+  "signed_or_published": false,
+  "production_deployed": false,
+  "node_runtime_acceptance": false,
+  "full_nodequality_ready": false,
+  "overall_goal_complete": false,
+  "remote_ci_executed": false
+}

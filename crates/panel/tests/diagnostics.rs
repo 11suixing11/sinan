@@ -7,6 +7,7 @@ mod chain_gate;
 mod completion;
 #[path = "diagnostics/modes.rs"]
 mod modes;
+#[path = "probe_support.rs"]
 mod probe_support;
 mod release_fixture;
 #[path = "../../protocol/tests/support/release.rs"]

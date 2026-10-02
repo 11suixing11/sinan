@@ -250,3 +250,114 @@ pub(super) async fn read(pool: &PgPool, id: i64, ips: &[String]) -> ApiResult<Ve
         })
         .collect()
 }
+
+pub(super) async fn persist_on_connection(
+    connection: &mut sqlx::PgConnection,
+    id: i64,
+    quality: &[IpQuality],
+    replace_generation: bool,
+) -> ApiResult<()> {
+    for entry in quality {
+        let attempted_at = entry
+            .databases
+            .iter()
+            .filter_map(|dataset| dataset.attempted_at)
+            .max();
+        let updated = sqlx::query("INSERT INTO server_ip_quality(server_id,ip,provider,payload,checked_at,last_attempt_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(server_id,ip,provider) DO UPDATE SET payload=EXCLUDED.payload,checked_at=EXCLUDED.checked_at,last_attempt_at=COALESCE(EXCLUDED.last_attempt_at,server_ip_quality.last_attempt_at) WHERE server_ip_quality.checked_at<=EXCLUDED.checked_at OR $7")
+            .bind(id).bind(&entry.ip).bind(&entry.provider).bind(encode(entry)?)
+            .bind(entry.checked_at).bind(attempted_at).bind(replace_generation).execute(&mut *connection).await?;
+        if updated.rows_affected() == 0 {
+            continue;
+        }
+        for dataset in &entry.databases {
+            let succeeded = dataset.status == "succeeded" && !dataset.fields.is_empty();
+            let success_at = succeeded.then(|| {
+                dataset
+                    .last_success_at
+                    .or(dataset.attempted_at)
+                    .unwrap_or(entry.checked_at)
+            });
+            let fresh_until = success_at.map(|at| at.saturating_add(CACHE_SECS));
+            let last_error = failure(dataset).map(|error| encode(&error)).transpose()?;
+            let success = succeeded.then(|| encode(dataset)).transpose()?;
+            sqlx::query("INSERT INTO server_ip_quality_datasets(server_id,ip,provider,database,checked_at,last_attempt,last_attempt_at,last_success_at,fresh_until,last_error,success_payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(server_id,ip,provider,database) DO UPDATE SET checked_at=EXCLUDED.checked_at,last_attempt=EXCLUDED.last_attempt,last_attempt_at=COALESCE(EXCLUDED.last_attempt_at,server_ip_quality_datasets.last_attempt_at),last_success_at=COALESCE(EXCLUDED.last_success_at,server_ip_quality_datasets.last_success_at),fresh_until=COALESCE(EXCLUDED.fresh_until,server_ip_quality_datasets.fresh_until),last_error=EXCLUDED.last_error,success_payload=COALESCE(EXCLUDED.success_payload,server_ip_quality_datasets.success_payload) WHERE server_ip_quality_datasets.checked_at<=EXCLUDED.checked_at OR $12")
+                .bind(id).bind(&entry.ip).bind(&entry.provider).bind(&dataset.database)
+                .bind(entry.checked_at).bind(encode(dataset)?).bind(dataset.attempted_at)
+                .bind(success_at).bind(fresh_until).bind(last_error).bind(success).bind(replace_generation)
+                .execute(&mut *connection).await?;
+        }
+        sqlx::query("UPDATE server_ip_quality AS cache SET last_success_at=summary.last_success_at,fresh_until=summary.fresh_until,last_error=summary.last_error FROM (SELECT MAX(last_success_at) AS last_success_at,CASE WHEN COUNT(success_payload)=COUNT(*) THEN MIN(fresh_until) END AS fresh_until,COALESCE(jsonb_object_agg(database,last_error) FILTER(WHERE last_error IS NOT NULL),'{}'::jsonb) AS last_error FROM server_ip_quality_datasets WHERE server_id=$1 AND ip=$2 AND provider=$3) AS summary WHERE cache.server_id=$1 AND cache.ip=$2 AND cache.provider=$3")
+            .bind(id).bind(&entry.ip).bind(&entry.provider).execute(&mut *connection).await?;
+    }
+    Ok(())
+}
+
+pub(super) async fn read_on_connection(
+    connection: &mut sqlx::PgConnection,
+    id: i64,
+    ips: &[String],
+) -> ApiResult<Vec<IpQuality>> {
+    let rows = sqlx::query("SELECT ip,provider,payload,last_attempt_at,last_success_at,fresh_until,last_error FROM server_ip_quality WHERE server_id=$1 AND ip=ANY($2) ORDER BY ip,provider")
+        .bind(id).bind(ips).fetch_all(&mut *connection).await?;
+    let datasets = sqlx::query("SELECT ip,provider,database,last_attempt,last_attempt_at,last_success_at,fresh_until,last_error,success_payload FROM server_ip_quality_datasets WHERE server_id=$1 AND ip=ANY($2)")
+        .bind(id).bind(ips).fetch_all(&mut *connection).await?;
+    let datasets: BTreeMap<_, _> = datasets
+        .into_iter()
+        .map(|row| {
+            let key = (
+                row.get::<String, _>("ip"),
+                row.get::<String, _>("provider"),
+                row.get::<String, _>("database"),
+            );
+            (key, row)
+        })
+        .collect();
+    let now = now_timestamp();
+    rows.into_iter()
+        .map(|row| {
+            let mut entry: IpQuality = decode(row.get("payload"))?;
+            entry.provider = row.get("provider");
+            entry.last_attempt_at = row.get("last_attempt_at");
+            entry.last_success_at = row.get("last_success_at");
+            entry.fresh_until = row.get("fresh_until");
+            entry.expires_at = entry.fresh_until.unwrap_or(0);
+            entry.last_error = decode(row.get("last_error"))?;
+            for dataset in &mut entry.databases {
+                let key = (
+                    entry.ip.clone(),
+                    entry.provider.clone(),
+                    dataset.database.clone(),
+                );
+                if let Some(cached) = datasets.get(&key) {
+                    *dataset = decode(cached.get("last_attempt"))?;
+                    dataset.provider = entry.provider.clone();
+                    dataset.target_ip = Some(entry.ip.clone());
+                    dataset.last_attempt_at = cached.get("last_attempt_at");
+                    dataset.last_success_at = cached.get("last_success_at");
+                    dataset.fresh_until = cached.get("fresh_until");
+                    dataset.last_error = cached
+                        .get::<Option<Value>, _>("last_error")
+                        .map(decode)
+                        .transpose()?;
+                    let success = cached
+                        .get::<Option<Value>, _>("success_payload")
+                        .map(decode::<QualityDatabase>)
+                        .transpose()?;
+                    let fields = success.map(|saved| saved.fields).unwrap_or_default();
+                    dataset.fields = if entry.provider.starts_with("ipquality-node/") {
+                        crate::diagnostic_plugins::ipquality::validate_cached_fields(
+                            &dataset.database,
+                            fields,
+                        )
+                    } else {
+                        super::fields::confirmed_cached_fields(&dataset.database, fields)
+                    };
+                    dataset.historical = !dataset.fields.is_empty()
+                        && (dataset.status != "succeeded"
+                            || dataset.fresh_until.is_none_or(|until| until <= now));
+                }
+            }
+            Ok(entry)
+        })
+        .collect()
+}

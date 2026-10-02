@@ -104,7 +104,7 @@ async fn result_delivery_failure_reopens_durable_result_without_reexecuting() {
         Arc::new(SystemOps),
         services.clone(),
     );
-    let reconcilers = vec![("demo".into(), reconciler)];
+    let reconcilers = vec![("demo".into(), Arc::new(reconciler))];
     let (outgoing, _receiver) = tokio::sync::mpsc::channel(8);
     let (client, fixture) = fixture(request(), true).await;
     assert!(
@@ -177,7 +177,7 @@ async fn clock_rounding_cannot_put_observation_or_completion_before_the_request(
     let (outgoing, _receiver) = tokio::sync::mpsc::channel(8);
     let completed = execute(
         &request,
-        &[("demo".into(), reconciler)],
+        &[("demo".into(), Arc::new(reconciler))],
         &client,
         &outgoing,
         0,
