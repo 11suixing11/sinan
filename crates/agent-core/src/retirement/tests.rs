@@ -332,6 +332,7 @@ async fn acknowledged_usage_is_preserved_while_keys_and_configuration_are_remove
             truncated: false,
         })?;
         state.save_probe_result(&sinan_protocol::ProbeResult {
+            execution: None,
             id: Uuid::new_v4(),
             probe_id: Uuid::new_v4(),
             sampled_at: sinan_protocol::telemetry::now_millis(),
@@ -1128,6 +1129,7 @@ async fn requested_retirement_quiesces_task_update_and_telemetry_workers() -> Re
     let (_clients, receiver) = watch::channel(Some(client));
     let mut workers = JoinSet::new();
     workers.spawn(crate::tasks::run(
+        fixture.identity.server_id,
         true,
         fixture.state.clone(),
         Arc::new(SystemOps),

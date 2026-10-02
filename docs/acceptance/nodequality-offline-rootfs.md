@@ -18,7 +18,7 @@
 
 设备侧下载、辅助文件复验和内层扫描使用流式长度与摘要校验。构建工厂中的打包与 Release 检查仍有有界整包缓冲，须在独立且有足够内存的工厂执行；它们不在 Agent 任务路径中，也不能描述为同样的低内存执行。来源缓存与派生镜像另占工厂磁盘，本记录原受验步骤没有跨文件的总磁盘预算，256 MiB 是最终制品边界。构建中断须回收子进程与本次输出；发现残留挂载时保留失败目录，禁止递归删除挂载内容。完整制品的工厂峰值、真实双架构合法环境与专用节点联合负载尚无证据，不能据此签收“小内存机器上的完整验机安装/运行安全”。最终验收只认证实际执行的边界与场景，CI继续暂停，未签署正式 Release、发布或生产部署。
 
-后续[工厂容量步骤](../adr/0048-nodequality-factory-capacity.md)集中补充 plan 和 prepare/build/export 的阶段准入、动态字节/inode 保留量，以及 mmdebstrap 失败原输出留存。其 `capacity-plan.json`/`factory-capacity.json` 与旧收据独立，默认当前阶段输出 4 GiB、剩余保留 512 MiB/1,024 inode，明确 `hard_quota=false`；独立 builder 审批与 full 门禁不降低。该后续步骤的[独立容量验收](nodequality-factory-capacity.md)已完成，原构建与完整工具条件仍待；不借下文旧通过数认证新逻辑。命令和失败记录边界见[操作说明](../nodequality-rootfs-factory.md)。
+后续[工厂容量步骤](../adr/0048-nodequality-factory-capacity.md)集中补充 plan 和 prepare/build/export 的阶段准入、动态字节/inode 保留量，以及 mmdebstrap 失败原输出留存。其 `capacity-plan.json`/`factory-capacity.json` 与旧收据独立，默认当前阶段输出 4 GiB、剩余保留 512 MiB/1,024 inode，明确 `hard_quota=false`；失败/log/cleanup 尽力写入也保留管理空间，清理成功后只保存异常内的原捕获字节，不重跑构建。仍不足或有残挂时保持未知。独立 builder 审批与 full 门禁不降低。该后续步骤的[独立容量验收](nodequality-factory-capacity.md)已完成，原构建与完整工具条件仍待；不借下文旧通过数认证新逻辑。命令和失败记录边界见[操作说明](../nodequality-rootfs-factory.md)。
 
 ## 本步骤统一验收结果
 

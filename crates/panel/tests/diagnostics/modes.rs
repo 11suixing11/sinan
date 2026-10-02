@@ -71,12 +71,22 @@ async fn modes_require_admin_confirmation_gate_capability_and_bound_daily_target
             carrier: String::new(),
             enabled: index != 0,
         };
-        sqlx::query("INSERT INTO network_probes(id,server_id,spec) VALUES($1,$2,$3)")
+        sqlx::query("INSERT INTO network_probes(id,server_id,spec,target_authorization) VALUES($1,$2,$3,$4)")
             .bind(spec.id)
             .bind(server)
             .bind(serde_json::to_value(spec)?)
+            .bind(json!({"region":"fixture","source":"TEST_ONLY owned fixture","scope":"owned","evidence":"TEST_ONLY synthetic diagnostic target","expires_at":null}))
             .execute(&panel.state.pool)
             .await?;
+    }
+    for authorization in [
+        Value::Null,
+        json!({"region":"fixture","source":"TEST_ONLY expired","scope":"owned","evidence":"TEST_ONLY synthetic target","expires_at":sinan_protocol::now_timestamp()-1}),
+    ] {
+        let id = Uuid::new_v4();
+        sqlx::query("INSERT INTO network_probes(id,server_id,spec,target_authorization) VALUES($1,$2,$3,$4)")
+            .bind(id).bind(server).bind(json!({"id":id,"name":"not permitted","kind":"tcp","target":"unpermitted.example.test","port":443,"interval_secs":60,"carrier":"fixture","enabled":true}))
+            .bind(authorization).execute(&panel.state.pool).await?;
     }
     let daily: Value = panel
         .admin(
@@ -107,6 +117,7 @@ async fn modes_require_admin_confirmation_gate_capability_and_bound_daily_target
     let targets: Value =
         serde_json::from_str(daily["job"]["options"]["daily_targets"].as_str().unwrap())?;
     assert_eq!(targets.as_array().unwrap().len(), 4);
+    assert!(!serde_json::to_string(&targets)?.contains("unpermitted.example.test"));
     assert_eq!(
         daily["expected_sections"],
         json!(["net_quality", "environment"])

@@ -14,7 +14,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::VerifyingKey;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sinan_protocol::{AgentSettings, EnrollRequest, EnrollResponse, ProbeSpec, now_timestamp};
+use sinan_protocol::{AgentSettings, EnrollRequest, EnrollResponse, now_timestamp};
 use sqlx::{FromRow, PgPool, Row};
 use uuid::Uuid;
 
@@ -79,7 +79,7 @@ pub struct CreateServerRequest {
     #[serde(default)]
     pub agent_settings: AgentSettings,
     #[serde(default)]
-    pub probes: Vec<ProbeSpec>,
+    pub probes: Vec<crate::probes::ConfiguredProbe>,
     #[serde(default)]
     pub asset_settings: AssetSettings,
 }
@@ -117,11 +117,13 @@ pub async fn create(
     if request.probes.len() > 32 {
         return Err(ApiError::BadRequest("每台服务器最多配置 32 个拨测".into()));
     }
-    for spec in &mut request.probes {
+    for input in &mut request.probes {
+        let spec = &mut input.spec;
         spec.id = Uuid::new_v4();
         if !spec.valid() {
             return Err(ApiError::BadRequest("拨测配置无效".into()));
         }
+        crate::probes::validate_authorization(spec.enabled, input.authorization.as_ref())?;
     }
     let mut transaction = state.pool.begin().await?;
     crate::latency_tasks::lock(&mut transaction).await?;
@@ -134,13 +136,19 @@ pub async fn create(
         .bind(json!(asset))
         .fetch_one(&mut *transaction)
         .await?;
-    for spec in request.probes {
-        sqlx::query("INSERT INTO network_probes (id, server_id, spec) VALUES ($1, $2, $3)")
-            .bind(spec.id)
+    let has_initial_probes = !request.probes.is_empty();
+    for input in request.probes {
+        crate::probes::validate_authorization(input.spec.enabled, input.authorization.as_ref())?;
+        sqlx::query("INSERT INTO network_probes (id, server_id, spec, target_authorization) VALUES ($1, $2, $3, $4)")
+            .bind(input.spec.id)
             .bind(server.id)
-            .bind(json!(spec))
+            .bind(json!(input.spec))
+            .bind(input.authorization.map(serde_json::to_value).transpose().map_err(anyhow::Error::from)?)
             .execute(&mut *transaction)
             .await?;
+    }
+    if has_initial_probes {
+        crate::probes::bump_revision(&mut transaction, server.id).await?;
     }
     crate::latency_tasks::assign_defaults(&mut transaction, server.id).await?;
     transaction.commit().await?;

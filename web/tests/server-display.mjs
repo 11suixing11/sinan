@@ -38,9 +38,9 @@ try {
     ].map(([name, system, arch, online, metrics_stale, metrics_sampled_at, device_public_key], index) => ({ id: index + 1, name, device_public_key, static_info: { hostname: `fixture-${index + 1}`, system, arch, kernel: 'TEST_ONLY', cpu_model: '测试处理器', cpu_cores: 4, memory_total: GiB * 4, disk_total: GiB * 64, virtualization: 'KVM', agent_version: '0.3.0' }, online, metrics_stale, metrics_sampled_at, last_seen: Math.floor((metrics_sampled_at ?? now) / 1000), last_heartbeat_at: Math.floor(now / 1000), manifest_rev: 0, latest_metrics: index === 5 ? {} : metrics(index === 0 ? 0 : index * 12.5, (index < 2 ? index + 1 : 100) * 1024 ** 2) }))
     const samples = Array.from({ length: 120 }, (_, index) => ({ id: `sample-${index}`, sampled_at: now - (120 - index) * 5000, metrics: metrics(index === 44 ? 96 : 15 + Math.sin(index / 6) * 10, (1 + Math.sin(index / 4) * .5) * 1024 ** 2) })).filter((_, index) => index < 55 || index > 68)
     const definitions = [
-      { id: 'probe-1', name: '测试目标', kind: 'tcp', target: '127.0.0.1', port: 443, interval_secs: 10, carrier: '测试线路', enabled: true },
-      { id: 'probe-2', name: '回显目标', kind: 'icmp', target: '::1', port: null, interval_secs: 10, carrier: '', enabled: true },
-      { id: 'probe-3', name: '不可用目标', kind: 'icmp', target: '127.0.0.1', port: null, interval_secs: 10, carrier: '', enabled: true },
+      { id: 'probe-1', name: '测试目标', kind: 'tcp', target: '127.0.0.1', port: 443, interval_secs: 10, carrier: '测试线路', enabled: true, authorization_state: 'allowed' },
+      { id: 'probe-2', name: '回显目标', kind: 'icmp', target: '::1', port: null, interval_secs: 10, carrier: '', enabled: true, authorization_state: 'allowed' },
+      { id: 'probe-3', name: '不可用目标', kind: 'icmp', target: '127.0.0.1', port: null, interval_secs: 10, carrier: '', enabled: true, authorization_state: 'allowed' },
     ]
     const probeResults = definition => Array.from({ length: 20 }, (_, index) => ({ id: `result-${definition.id}-${index}`, probe_id: definition.id, sampled_at: now - index * 10_000, latency_ms: definition.id === 'probe-2' && index === 0 ? null : index === 0 ? 0 : 20 + index, loss_percent: definition.id === 'probe-1' ? 0 : 100, error: definition.id === 'probe-3' ? 'permission denied' : null }))
     let failure = 0, signedIn = true, historyFailure = false, probeFailure = false, missing = false, reads = 0
@@ -60,7 +60,7 @@ try {
       }
       if (path.endsWith('/metrics')) { await route.fulfill({ status: historyFailure ? 403 : 200, json: historyFailure ? { error: '测试历史读取失败' } : samples.filter(sample => sample.sampled_at >= Number(url.searchParams.get('since'))) }); return }
       if (probeFailure && (path.endsWith('/probes') || path.endsWith('/probe-results') || path === '/api/probes/overview')) { await route.fulfill({ status: 403, json: { error: '测试拨测读取失败' } }); return }
-      if (path === '/api/probes/overview') { await route.fulfill({ json: entries.filter(entry => entry.id < 4).flatMap(entry => definitions.map(probe => ({ server_id: entry.id, probe, results: probeResults(probe).map(result => ({ ...result, sampled_at: entry.id === 3 ? result.sampled_at - 600_000 : result.sampled_at })) }))) }); return }
+      if (path === '/api/probes/overview') { await route.fulfill({ json: entries.filter(entry => entry.id < 4).flatMap(entry => definitions.map(({ authorization_state, ...probe }) => ({ server_id: entry.id, probe, authorization_state, results: probeResults(probe).map(result => ({ ...result, sampled_at: entry.id === 3 ? result.sampled_at - 600_000 : result.sampled_at })) }))) }); return }
       if (path.endsWith('/probes')) { await route.fulfill({ json: definitions }); return }
       if (path.endsWith('/probe-results')) { const selected = definitions.find(probe => probe.id === url.searchParams.get('probe_id')) ?? definitions[0]; await route.fulfill({ json: probeResults(selected) }); return }
       throw Error(`Unexpected API ${path}`)

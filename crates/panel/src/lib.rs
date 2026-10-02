@@ -205,6 +205,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/agent/v1/commands", get(commands::pending))
         .route("/api/agent/v1/commands/{id}", post(commands::complete))
         .route("/api/agent/v1/probes", get(probes::agent_list))
+        .route("/api/agent/v1/probe-lease", get(probes::agent_lease))
         .route("/api/agent/v1/probe-results", post(probes::ingest))
         .route("/api/agent/v1/diagnostics", get(diagnostics::pending))
         .route(

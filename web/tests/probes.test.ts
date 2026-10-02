@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { lossLabel, probeSlots, probeState, probeTone, probeValue } from '../src/probes'
 import type { Probe, ProbeResult } from '../src/probes'
 
-const probe: Probe = { id: 'probe', name: '回环', kind: 'icmp', target: '127.0.0.1', port: null, interval_secs: 10, carrier: '', enabled: true }
+const probe: Probe = { id: 'probe', name: '回环', kind: 'icmp', target: '127.0.0.1', port: null, interval_secs: 10, carrier: '', enabled: true, authorization_state: 'allowed' }
 const point: ProbeResult = { id: 'point', probe_id: probe.id, sampled_at: 100_000, latency_ms: 0, loss_percent: 0, error: null }
 
 test('probes distinguish zero, total loss and unavailable legacy measurements', () => {

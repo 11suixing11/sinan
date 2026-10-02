@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 mod business_support;
+mod probe_support;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
 use anyhow::Result;
@@ -21,7 +22,7 @@ async fn assignment_defaults_keep_wire_compatibility_and_preserve_measurement_id
     let cookie = panel.admin_cookie().await?;
     let (first, _socket, ack) = panel.authenticated_device(&cookie, "first").await?;
     let second = panel.create_server(&cookie, "second").await?;
-    let input = json!({"spec":spec(),"default_enabled":true,"server_ids":[second,first]});
+    let input = json!({"spec":spec(),"authorization":probe_support::authorization(),"default_enabled":true,"server_ids":[second,first]});
     assert_eq!(
         panel
             .client
@@ -73,7 +74,7 @@ async fn assignment_defaults_keep_wire_compatibility_and_preserve_measurement_id
         .await?;
     assert_eq!(admin_probes[0]["task_id"], task["id"]);
     let third = panel.create_server(&cookie, "new default").await?;
-    let stale = json!({"spec":task["spec"],"default_enabled":true,"server_ids":[first,second],"revision":1});
+    let stale = json!({"spec":task["spec"],"authorization":task["authorization"],"default_enabled":true,"server_ids":[first,second],"revision":1});
     assert_eq!(
         panel
             .admin(Method::PATCH, &path, &cookie, Some(stale))
@@ -87,25 +88,25 @@ async fn assignment_defaults_keep_wire_compatibility_and_preserve_measurement_id
         .json()
         .await?;
     assert_eq!(tasks[0]["server_ids"], json!([first, second, third]));
-    let mut update = json!({"spec":tasks[0]["spec"],"default_enabled":false,"server_ids":[first,third],"revision":2});
+    let mut update = json!({"spec":tasks[0]["spec"],"authorization":tasks[0]["authorization"],"default_enabled":false,"server_ids":[first,third],"revision":2});
     update["spec"]["enabled"] = json!(false);
     update["spec"]["interval_secs"] = json!(60);
     panel
         .admin(Method::PATCH, &path, &cookie, Some(update.clone()))
         .await?
         .error_for_status()?;
-    let changed: Vec<ProbeSpec> = panel
+    let changed: Vec<Value> = panel
         .client
-        .get(format!("{}/api/agent/v1/probes", panel.base))
-        .bearer_auth(&ack.session_token)
+        .get(format!("{}/api/servers/{first}/probes", panel.base))
+        .header(reqwest::header::COOKIE, &cookie)
         .send()
         .await?
         .error_for_status()?
         .json()
         .await?;
-    assert_eq!(changed[0].id, probe_id);
-    assert!(!changed[0].enabled);
-    assert_eq!(changed[0].interval_secs, 60);
+    assert_eq!(changed[0]["id"], json!(probe_id));
+    assert_eq!(changed[0]["enabled"], json!(false));
+    assert_eq!(changed[0]["interval_secs"], json!(60));
     update["revision"] = json!(3);
     update["spec"]["target"] = json!("different.example.com");
     assert_eq!(
@@ -123,7 +124,7 @@ async fn assignment_defaults_keep_wire_compatibility_and_preserve_measurement_id
         0
     );
     panel
-        .admin(Method::DELETE, &path, &cookie, None)
+        .admin(Method::DELETE, &path, &cookie, Some(json!({"revision":3})))
         .await?
         .error_for_status()?;
     assert_eq!(
@@ -161,13 +162,13 @@ async fn group_capacity_and_default_assignment_are_atomic(pool: PgPool) -> Resul
             Method::POST,
             "/api/servers",
             &cookie,
-            Some(json!({"name":"full","probes":vec![spec();32]})),
+            Some(json!({"name":"full","probes":vec![probe_support::configured(spec());32]})),
         )
         .await?
         .error_for_status()?
         .json()
         .await?;
-    let input = json!({"spec":spec(),"default_enabled":false,"server_ids":[first,full["id"].as_i64().unwrap()]});
+    let input = json!({"spec":spec(),"authorization":probe_support::authorization(),"default_enabled":false,"server_ids":[first,full["id"].as_i64().unwrap()]});
     assert_eq!(
         panel
             .admin(Method::POST, "/api/latency-tasks", &cookie, Some(input))
@@ -193,7 +194,7 @@ async fn group_capacity_and_default_assignment_are_atomic(pool: PgPool) -> Resul
             Method::POST,
             "/api/latency-tasks",
             &cookie,
-            Some(json!({"spec":spec(),"default_enabled":true,"server_ids":[]})),
+            Some(json!({"spec":spec(),"authorization":probe_support::authorization(),"default_enabled":true,"server_ids":[]})),
         )
         .await?
         .error_for_status()?;
@@ -203,7 +204,7 @@ async fn group_capacity_and_default_assignment_are_atomic(pool: PgPool) -> Resul
                 Method::POST,
                 "/api/servers",
                 &cookie,
-                Some(json!({"name":"must rollback","probes":vec![spec();32]}))
+                Some(json!({"name":"must rollback","probes":vec![probe_support::configured(spec());32]}))
             )
             .await?
             .status(),
@@ -221,13 +222,13 @@ async fn group_capacity_and_default_assignment_are_atomic(pool: PgPool) -> Resul
             Method::POST,
             "/api/servers",
             &cookie,
-            Some(json!({"name":"almost full","probes":vec![spec();30]})),
+            Some(json!({"name":"almost full","probes":vec![probe_support::configured(spec());30]})),
         )
         .await?
         .error_for_status()?
         .json()
         .await?;
-    let body = json!({"spec":spec(),"default_enabled":false,"server_ids":[local["id"]]});
+    let body = json!({"spec":spec(),"authorization":probe_support::authorization(),"default_enabled":false,"server_ids":[local["id"]]});
     let (a, b) = tokio::join!(
         panel.admin(
             Method::POST,
@@ -246,6 +247,107 @@ async fn group_capacity_and_default_assignment_are_atomic(pool: PgPool) -> Resul
             .fetch_one(&panel.state.pool)
             .await?,
         32
+    );
+    Ok(())
+}
+
+#[sqlx::test]
+async fn permission_reassignment_and_revocation_advance_all_affected_server_revisions(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (first, _socket, ack) = panel
+        .authenticated_device(&cookie, "first permission owner")
+        .await?;
+    let second = panel
+        .create_server(&cookie, "second permission owner")
+        .await?;
+    sqlx::query("UPDATE servers SET capabilities=capabilities || $2 WHERE id=$1")
+        .bind(first)
+        .bind(json!([sinan_protocol::PROBE_LEASE_CAPABILITY]))
+        .execute(&panel.state.pool)
+        .await?;
+    let task: Value = panel.admin(Method::POST,"/api/latency-tasks",&cookie,
+        Some(json!({"spec":spec(),"authorization":probe_support::authorization(),"server_ids":[first],"default_enabled":false})))
+        .await?.error_for_status()?.json().await?;
+    let path = format!("/api/latency-tasks/{}", task["id"].as_str().unwrap());
+    let lease: sinan_protocol::ProbeLease = panel
+        .client
+        .get(format!("{}/api/agent/v1/probe-lease", panel.base))
+        .bearer_auth(&ack.session_token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let first_before: i64 = sqlx::query_scalar("SELECT probe_revision FROM servers WHERE id=$1")
+        .bind(first)
+        .fetch_one(&panel.state.pool)
+        .await?;
+    let body = json!({"spec":task["spec"],"authorization":task["authorization"],"server_ids":[second],"default_enabled":false,"revision":1});
+    let (saved, stale) = tokio::join!(
+        panel.admin(Method::PATCH, &path, &cookie, Some(body.clone())),
+        panel.admin(Method::PATCH, &path, &cookie, Some(body))
+    );
+    let mut statuses = vec![saved?.status().as_u16(), stale?.status().as_u16()];
+    statuses.sort();
+    assert_eq!(statuses, vec![200, 409]);
+    let first_after: i64 = sqlx::query_scalar("SELECT probe_revision FROM servers WHERE id=$1")
+        .bind(first)
+        .fetch_one(&panel.state.pool)
+        .await?;
+    let second_after: i64 = sqlx::query_scalar("SELECT probe_revision FROM servers WHERE id=$1")
+        .bind(second)
+        .fetch_one(&panel.state.pool)
+        .await?;
+    assert!(first_after > first_before && second_after > 0);
+    let next: sinan_protocol::ProbeLease = panel
+        .client
+        .get(format!("{}/api/agent/v1/probe-lease", panel.base))
+        .bearer_auth(&ack.session_token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert!(next.probes.is_empty() && next.revision > lease.revision);
+    assert_eq!(
+        panel
+            .admin(Method::DELETE, &path, &cookie, Some(json!({"revision":1})))
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    panel
+        .admin(Method::DELETE, &path, &cookie, Some(json!({"revision":2})))
+        .await?
+        .error_for_status()?;
+    let removed: i64 = sqlx::query_scalar("SELECT probe_revision FROM servers WHERE id=$1")
+        .bind(second)
+        .fetch_one(&panel.state.pool)
+        .await?;
+    assert!(removed > second_after);
+    Ok(())
+}
+
+#[sqlx::test]
+async fn expired_default_permissions_are_not_assigned_to_new_servers(pool: PgPool) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let task: Value = panel.admin(Method::POST,"/api/latency-tasks",&cookie,
+        Some(json!({"spec":spec(),"authorization":probe_support::authorization(),"server_ids":[],"default_enabled":true})))
+        .await?.error_for_status()?.json().await?;
+    sqlx::query("UPDATE latency_tasks SET target_authorization=jsonb_set(target_authorization,'{expires_at}',to_jsonb($2::bigint)) WHERE id=$1")
+        .bind(uuid::Uuid::parse_str(task["id"].as_str().unwrap())?).bind(sinan_protocol::now_timestamp()-1)
+        .execute(&panel.state.pool).await?;
+    let server = panel.create_server(&cookie, "expired default").await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM network_probes WHERE server_id=$1")
+            .bind(server)
+            .fetch_one(&panel.state.pool)
+            .await?,
+        0
     );
     Ok(())
 }

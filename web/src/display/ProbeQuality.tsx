@@ -1,5 +1,5 @@
 import { time } from '../format'
-import { latency, loss, lossLabel, probeSlots, probeState, probeTone, probeValue } from '../probes'
+import { latency, loss, lossLabel, overviewProbe, probeSlots, probeState, probeTone, probeValue } from '../probes'
 import type { ProbeField, ProbeOverview, ProbeResult } from '../probes'
 
 function Quality({ label, field, latest, slots, live, compact }: { label: string; field: ProbeField; latest?: ProbeResult; slots: (ProbeResult | undefined)[]; live: boolean; compact?: boolean }) {
@@ -15,7 +15,8 @@ function Quality({ label, field, latest, slots, live, compact }: { label: string
 export default function ProbeQuality({ probes, now, unavailable, loading, online, compact = false }: { probes?: ProbeOverview[]; now: number; unavailable: boolean; loading: boolean; online: boolean; compact?: boolean }) {
   const enabled = probes?.filter(item => item.probe.enabled).sort((a, b) => a.probe.name.localeCompare(b.probe.name, 'zh-CN')) ?? []
   if (!enabled.length) return <div className="d-quality-placeholder"><span>延迟 / 丢包</span><span>{unavailable ? '拨测读取失败' : loading ? '正在读取…' : probes?.length ? '拨测已暂停' : '尚未配置拨测'}</span></div>
-  return <div className={`d-quality-list ${compact ? 'd-quality-compact' : ''}`}>{enabled.slice(0, compact ? 1 : 3).map(({ probe, results }) => {
+  return <div className={`d-quality-list ${compact ? 'd-quality-compact' : ''}`}>{enabled.slice(0, compact ? 1 : 3).map(entry => {
+    const probe = overviewProbe(entry), results = entry.results
     const latest = results.filter(point => point.sampled_at <= now).reduce<ProbeResult | undefined>((last, point) => !last || point.sampled_at > last.sampled_at ? point : last, undefined)
     const state = probeState(probe, latest, now, unavailable || !online)
     const slots = probeSlots(results, probe, now)

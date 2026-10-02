@@ -9,6 +9,7 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 pub async fn run(
+    server_id: i64,
     allow_remote_commands: bool,
     state: SharedState,
     ops: Arc<dyn Privileged>,
@@ -23,7 +24,7 @@ pub async fn run(
             clients.clone(),
             retirement.clone()
         ),
-        probes::run(state, ops, clients, retirement)
+        probes::run(server_id, state, ops, clients, retirement)
     )?;
     Ok(())
 }

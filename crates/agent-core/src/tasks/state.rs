@@ -141,6 +141,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("sn-probes-{}.db", Uuid::new_v4()));
         let offset = -6 * 3_600_000;
         let result = ProbeResult {
+            execution: None,
             id: Uuid::new_v4(),
             probe_id: Uuid::new_v4(),
             sampled_at: now_millis() + offset,

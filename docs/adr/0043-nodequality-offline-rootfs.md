@@ -66,7 +66,7 @@ CLI 的 TERM/HUP handler 将中断转换为 `SystemExit(128+signal)`，让资源
 
 失败构建目录在删除前也重新读取挂载清单：检测到残留挂载或清单不能读取时保留目录、报告清理失败，并给原始错误附加 note，不能在拒绝清理后继续递归删除挂载内容。prepare/export 不执行挂载命令，只清理自己登记的私有输出目录。工厂输入缓存和构建目录的容量需求属于独立 builder 的容量规划；设备制品的 256 MiB 总预算不代表工厂磁盘消耗也被限制到该值。
 
-2026-10-02 的后续工厂容量步骤按 [ADR 0048](0048-nodequality-factory-capacity.md)集中实现：新增 schema-only 的 plan，prepare/build/export 分别在已有缓存和先前阶段输出占用后重新准入，并动态检查输出字节、文件系统保留量与 inode；默认当前阶段输出 4 GiB、剩余保留 512 MiB 和 1,024 inode。`capacity-plan.json` 和末次/峰值 `factory-capacity.json` 独立于原收据，`hard_quota=false`。原独立 builder 条件、prepared/build/export 字段和设备 256 MiB 总界限保持。失败原命令输出与 cleanup 分开尽力保存到新的私有失败目录，写入不足时明确未知，不能保证磁盘完全耗尽仍保存证据。该后续步骤的[独立容量验收](../acceptance/nodequality-factory-capacity.md)已完成，不修改本文历史测试结果，也不表示真实构建已完成；具体 CLI 和边界见[工厂操作说明](../nodequality-rootfs-factory.md)。
+2026-10-02 的后续工厂容量步骤按 [ADR 0048](0048-nodequality-factory-capacity.md)集中实现：新增 schema-only 的 plan，prepare/build/export 分别在已有缓存和先前阶段输出占用后重新准入，并动态检查输出字节、文件系统保留量与 inode；默认当前阶段输出 4 GiB、剩余保留 512 MiB 和 1,024 inode。`capacity-plan.json` 和末次/峰值 `factory-capacity.json` 独立于原收据，`hard_quota=false`。原独立 builder 条件、prepared/build/export 字段和设备 256 MiB 总界限保持。失败原命令输出与 cleanup 分开尽力保存到新的私有失败目录，每次写入仍保留管理字节/inode；清理成功后只可重新尝试保存异常内的原日志，不重跑构建。仍不足或有残挂时明确未知，不能保证失败证据齐全。该后续步骤的[独立容量验收](../acceptance/nodequality-factory-capacity.md)已完成，不修改本文历史测试结果，也不表示真实构建已完成；具体 CLI 和边界见[工厂操作说明](../nodequality-rootfs-factory.md)。
 
 ## 开源工具库存与完整能力
 

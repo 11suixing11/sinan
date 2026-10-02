@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+mod probe_leases;
+pub use probe_leases::*;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RemoteCommand {
@@ -88,6 +91,8 @@ pub struct ProbeResult {
     pub latency_ms: Option<f64>,
     pub loss_percent: f64,
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution: Option<ProbeExecution>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

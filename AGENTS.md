@@ -26,6 +26,7 @@
 - 设备声明插件能力只表示支持，不自动启用新服务器的代理业务；管理员启用必须安排签名运行时安装，安装状态和设备应用确认分开，见 [ADR 0044](docs/adr/0044-singbox-plugin-lifecycle.md)。链路管理归代理节点，策略页面引用已有资源。
 - 精确运行确认与持久恢复屏障按 [ADR 0047](docs/adr/0047-runtime-checkpoints-and-recovery-barriers.md) 实现：实际配置/受控实例与稳定 activation 共同核对，结果先持久化再发送，未 ACK 不按 TTL 删除；屏障后禁止低于已承诺 revision 的 apply/rollback/recovery。旧 revision 心跳不替代新能力的精确收据，检查请求不得隐式重启旧业务；这些通用基础能力不代表混合路径或端到端探测已实现。
 - 诊断自然结束、保护停止、取消及退役按 [ADR 0049](docs/adr/0049-confirmed-diagnostic-completion.md) 保留活动所有权，确认进程、挂载与排队 job 已清理后才提交终态；原始结果先固定，重启只重试清理。`cleaning` 为非终态，不因期限释放互斥；旧面板不能单独配新 Agent。
+- 周期拨测按 [ADR 0050](docs/adr/0050-authorized-probe-leases.md) 明确记录来源、地区和自有/第三方同意依据；新设备只凭绑定身份、配置版本和单调期限的短租约执行，不恢复旧一天缓存。旧八字段 `ProbeSpec` 及已有历史保持，旧 Agent 的离线窗口不能冒称已修复；授权证据不得进入匿名看板。
 - 离线诊断工厂按 [ADR 0048](docs/adr/0048-nodequality-factory-capacity.md) 对 prepare/build/export 分阶段核算副本、树、临时文件和收据，准入与动态守卫均保留管理空间和 inode。容量计划不是来源认证或镜像审批，动态轮询不是内核硬配额；失败原日志与清理结果分别留存，不为取证重跑构建，也不删除旧材料来腾空间。
 - 系统管理员与代理用户分别命名；服务器网卡总流量留在 core。计量 `epoch` 只标记计数器重置，不得用作套餐周期。业务搬迁保留用户 ID、令牌、旧订阅路径、节点凭据、授权和历史流量，数据库表先不改名。
 - 诊断任务生命周期、资源预算、持久化、取消及历史由共用服务管理；插件只转换参数、执行和解析报告，见 [ADR 0028](docs/adr/0028-shared-diagnostic-job-service.md)。后续插件登记代码可以经独立审查和相称验证后合入准备；NodeQuality 迁移及前置阶段的实机验收通过后，才能签收、正式发布或部署后续新增诊断能力。

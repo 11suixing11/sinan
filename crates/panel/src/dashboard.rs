@@ -241,6 +241,7 @@ fn sanitize_probe(probe: &mut ProbeSpec) {
 }
 fn sanitize_results(results: &mut [ProbeResult]) {
     for result in results {
+        result.execution = None;
         if result.error.is_some() {
             result.error = Some("检测未完成".into());
         }

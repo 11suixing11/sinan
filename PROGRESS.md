@@ -1652,3 +1652,13 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 一次前端构建取得19dist，Bun48/1024零失败/跳过，三套受影响实际dist Chromium（TcpQuality、NodeQuality门禁、确认取消）通过，涵盖手机/等待清理/报告/重复提交/取消接管/恢复。原旧dist预检、枚举Clippy、core首轮3失败及展开报告夹具失败均保留；集中修复后只补受影响/未执行范围，未重复未变Python/其余浏览器。
 - 见[本步验收](docs/acceptance/confirmed-diagnostic-completion.md)、[机器证据](docs/acceptance/evidence/confirmed-diagnostic-completion.json)、[ADR0049](docs/adr/0049-confirmed-diagnostic-completion.md)及原milestone下的[#143](https://github.com/theLucius7/sinan/issues/143)。四源码CI继续disabled_manually，未新建单项PR、正式签署、发布或生产部署；新Agent与面板需同版切换，旧设备未因源码验证而获得保护。
 - 当前源码的专用Linux/systemd确认、完整NodeQuality与持续代理流量/心跳/故障矩阵，以及builder身份/双架构复建/Geekbench和Ookla条件仍待；混合订阅链路亦未签收。本步骤不是P0总验收或整体目标完成，后续继续按完整大步骤集中修改和提交。
+
+
+## 2026-10-02：周期拨测来源、授权与可撤销许可大步骤
+
+- 集中修改协议、Agent、面板迁移/事务、三个管理入口、测试代码和文档，修改期间未测试，冻结后统一验收。旧八字段协议及历史保持，授权另存 target_authorization；自有/第三方明确依据、地区和可选期限，缺失/过期不下发，匿名不泄漏依据与执行上下文。单机/任务 CAS 与分配事务提高服务器版本，自然到期改变有效集合也提高版本。
+- 新 Agent 冷/重启动不恢复一天权限；绑定服务器与当前连接的最长90秒许可、5秒GET/上传、单调期限与持久高水位。断连/换会话/依据变化/空集合/到期取消在途，合并watch更新也核对原会话；周期先持久化，元数据改变不突发，旧任务不能移除新运行。面板签发摘要最多3小时/512条，短窗口复用不延寿，迟到与撤销结果确认丢弃。升级的无证明旧补传同样确认丢弃，不堵同批有效结果，也不伪造新历史。
+- 三入口与实际提交回调保护读失败/pending/过时版本/变化的服务器及目标，保留草稿和离线配置；匿名图表消费安全授权状态，历史不当作当前仍获授权。旧 Agent 的离线窗口需要升级才能修复，保存成功仍不表示设备已停止。
+- 最终659功能输入及19dist与接受的收据一致；十包/71不同目标共618不同方法通过、0仍失败、18条件忽略。九包及未变面板方法保留，失败和受影响/未执行范围按目标补验，重复不累加；格式、Clippy、core与diff通过，各自有PG收尾核实。一次前端构建，Bun56/1133零失败/跳过，八套受影响实际dist浏览器通过，33截图留存。
+- 编译/lint/旧入口、磁盘预检与512MiB动态保护、SQL保留关键字、响应DTO和旧迁移快照失败记录保留；面板改逐目标编译运行并回收本次无占用测试缓存，保持管理空间，没有删除开发材料。既有工厂失败说明同步对齐，未复测未变工厂；私有保留方法标签纠正不替代实际日志索引。
+- 见[本步验收](docs/acceptance/authorized-probe-leases.md)、[机器证据](docs/acceptance/evidence/authorized-probe-leases.json)、[ADR0050](docs/adr/0050-authorized-probe-leases.md)及[#144](https://github.com/theLucius7/sinan/issues/144)。专用Linux真实Agent重启/断连/标准ICMP与持续代理联测、完整NodeQuality许可/工厂身份/双架构及负载、混合订阅路径仍待；未正式发布、生产迁移/部署或恢复四源码CI。本步不是整体目标完成，后续继续以完整大步骤推进。

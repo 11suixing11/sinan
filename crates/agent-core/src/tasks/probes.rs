@@ -1,12 +1,21 @@
 mod icmp;
 #[cfg(test)]
+mod lease_tests;
+mod leases;
+mod scheduler;
+
+use leases::AcceptedLease;
+use scheduler::sample_loop;
+#[cfg(test)]
 mod scheduling_tests;
 
 use crate::{SharedState, artifacts::PanelClient};
 use anyhow::{Context, Result, ensure};
 use sinan_adapter_sdk::Privileged;
+#[cfg(test)]
+use sinan_protocol::now_timestamp;
 use sinan_protocol::{
-    ProbeBatch, ProbeKind, ProbeResult, ProbeSpec, TaskAck, now_timestamp, telemetry::now_millis,
+    ProbeBatch, ProbeKind, ProbeResult, ProbeSpec, TaskAck, telemetry::now_millis,
 };
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::{
@@ -18,125 +27,113 @@ use tokio::{
 use uuid::Uuid;
 
 pub(super) async fn run(
+    server_id: i64,
     state: SharedState,
     ops: Arc<dyn Privileged>,
     clients: watch::Receiver<Option<Arc<PanelClient>>>,
     retirement: Arc<crate::retirement::Retirement>,
 ) -> Result<()> {
+    // Previous versions persisted a whole day of offline execution permission.
+    // Keep results and the schedule, but never restore that permission after restart.
+    state
+        .lock()
+        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
+        .remove_json("probes:configuration")?;
+    let (leases, authorized) = watch::channel(None);
     tokio::try_join!(
-        sample_loop(state.clone(), ops, retirement.clone()),
-        synchronize(state, clients, retirement)
+        sample_loop(
+            state.clone(),
+            ops,
+            clients.clone(),
+            authorized,
+            retirement.clone()
+        ),
+        synchronize(server_id, state, clients, leases, retirement)
     )?;
     Ok(())
 }
 
 async fn synchronize(
+    server_id: i64,
     state: SharedState,
-    clients: watch::Receiver<Option<Arc<PanelClient>>>,
+    mut clients: watch::Receiver<Option<Arc<PanelClient>>>,
+    leases: watch::Sender<Option<AcceptedLease>>,
     retirement: Arc<crate::retirement::Retirement>,
 ) -> Result<()> {
-    let mut refreshed = Instant::now() - Duration::from_secs(31);
-    loop {
-        {
-            let _guard = retirement.gate.read().await;
-            if !retirement.requested() {
-                let client = clients.borrow().clone();
-                if let Some(client) = client {
-                    if refreshed.elapsed() >= Duration::from_secs(30) {
-                        refreshed = Instant::now();
-                        match client
-                            .get_json::<Vec<ProbeSpec>>("/api/agent/v1/probes")
-                            .await
-                        {
-                            Ok(specs)
-                                if !retirement.requested()
-                                    && specs.len() <= 32
-                                    && specs.iter().all(ProbeSpec::valid) =>
-                            {
-                                state
-                                    .lock()
-                                    .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                                    .set_json("probes:configuration", &(now_timestamp(), specs))?;
-                            }
-                            Ok(_) => tracing::warn!("panel provided invalid probes"),
-                            Err(error) => {
-                                tracing::warn!(%error,"probe configuration refresh failed")
-                            }
-                        }
-                    }
-                    if !retirement.requested()
-                        && let Err(error) = upload(&state, &client).await
-                    {
-                        tracing::warn!(%error,"probe results retained for retry");
-                    }
-                }
-            }
-        }
-        tokio::time::sleep(Duration::from_secs(3)).await;
-    }
-}
-
-async fn sample_loop(
-    state: SharedState,
-    ops: Arc<dyn Privileged>,
-    retirement: Arc<crate::retirement::Retirement>,
-) -> Result<()> {
-    let mut due = HashMap::<Uuid, Instant>::new();
-    let mut configured = HashMap::<Uuid, ProbeSpec>::new();
-    let mut running = HashMap::<Uuid, (ProbeSpec, AbortHandle)>::new();
-    let mut tasks = JoinSet::<(ProbeSpec, Option<ProbeResult>)>::new();
-    let mut tick = tokio::time::interval(Duration::from_secs(1));
+    let mut refreshed: Option<Instant> = None;
+    let mut tick = tokio::time::interval(Duration::from_secs(3));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
-            completed = tasks.join_next(), if !tasks.is_empty() => {
-                let Some(completed) = completed else { continue };
-                match completed {
-                    Ok((spec, Some(mut result))) => {
-                        if running.get(&spec.id).is_some_and(|(current, _)| current == &spec) { running.remove(&spec.id); }
-                        let _guard = retirement.gate.read().await;
-                        if retirement.requested() { continue; }
-                        let mut state = state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
-                        let configuration = state.get_json::<(i64, Vec<ProbeSpec>)>("probes:configuration")?;
-                        if !configuration.is_some_and(|(fetched, specs)| fetched > now_timestamp() - 86400 && specs.contains(&spec)) {
-                            continue;
-                        }
-                        result.sampled_at = result.sampled_at.saturating_add(state.get_json::<i64>("clock_offset_ms")?.unwrap_or(0));
-                        state.save_probe_result(&result)?;
-                    }
-                    Ok((spec, None)) => { running.remove(&spec.id); }
-                    Err(error) if error.is_cancelled() => {}
-                    Err(error) => return Err(error.into()),
+            biased;
+            changed = clients.changed() => {
+                leases.send_replace(None);
+                refreshed = None;
+                if changed.is_err() { return Ok(()); }
+                continue;
+            }
+            _ = tick.tick() => {}
+        }
+        if retirement.requested() {
+            leases.send_replace(None);
+            continue;
+        }
+        let client = clients.borrow_and_update().clone();
+        let Some(client) = client else {
+            leases.send_replace(None);
+            continue;
+        };
+        if refreshed.is_none_or(|refreshed| refreshed.elapsed() >= Duration::from_secs(30)) {
+            let request_started = Instant::now();
+            refreshed = Some(request_started);
+            let response = tokio::select! {
+                biased;
+                changed = clients.changed() => {
+                    leases.send_replace(None);
+                    refreshed = None;
+                    if changed.is_err() { return Ok(()); }
+                    continue;
+                }
+                response = timeout(Duration::from_secs(5), client.get_json::<sinan_protocol::ProbeLease>("/api/agent/v1/probe-lease")) => response
+                    .context("probe lease refresh exceeded its deadline").and_then(|response| response),
+            };
+            let _guard = retirement.gate.read().await;
+            if retirement.requested()
+                || !clients
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|current| Arc::ptr_eq(current, &client))
+            {
+                leases.send_replace(None);
+                continue;
+            }
+            match response.and_then(|snapshot| {
+                leases::accept_lease(snapshot, server_id, &state, client.clone(), request_started)
+            }) {
+                Ok(lease) => {
+                    leases.send_replace(Some(lease));
+                }
+                Err(error) => {
+                    leases.send_replace(None);
+                    tracing::warn!(%error, "probe execution permission could not be renewed; measurements stopped");
                 }
             }
-            _ = tick.tick() => {
-                let configuration = state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                    .get_json::<(i64, Vec<ProbeSpec>)>("probes:configuration")?;
-                let specs = configuration.filter(|(fetched, _)| !retirement.requested() && *fetched > now_timestamp() - 86400)
-                    .map(|(_, specs)| specs).unwrap_or_default();
-                running.retain(|_, (spec, task)| {
-                    let keep = specs.iter().any(|current| current.enabled && current == spec);
-                    if !keep { task.abort(); }
-                    keep
-                });
-                due.retain(|id, _| specs.iter().any(|spec| spec.id == *id && spec.enabled && configured.get(id) == Some(spec)));
-                configured = specs.iter().map(|spec| (spec.id, spec.clone())).collect();
-                let now = Instant::now();
-                let mut ready: Vec<_> = specs.into_iter().filter(|spec| spec.enabled && !running.contains_key(&spec.id)
-                    && due.get(&spec.id).is_none_or(|next| *next <= now)).collect();
-                // Oldest due targets run first; slow targets do not block completed results.
-                ready.sort_by_key(|spec| (due.get(&spec.id).copied(), spec.id));
-                for spec in ready.into_iter().take(4usize.saturating_sub(tasks.len())) {
-                    due.insert(spec.id, now + Duration::from_secs(u64::from(spec.interval_secs)));
-                    let ops = ops.clone();
-                    let retirement = retirement.clone();
-                    let saved = spec.clone();
-                    let task = tasks.spawn(async move {
-                        let _guard = retirement.gate.read().await;
-                        let result = if retirement.requested() { None } else { Some(sample(&spec, ops.as_ref()).await) };
-                        (spec, result)
-                    });
-                    running.insert(saved.id, (saved, task));
+        }
+        if retirement.requested() {
+            leases.send_replace(None);
+            continue;
+        }
+        let uploading = upload(&state, &client);
+        tokio::select! {
+            biased;
+            changed = clients.changed() => {
+                leases.send_replace(None);
+                refreshed = None;
+                if changed.is_err() { return Ok(()); }
+            }
+            result = timeout(Duration::from_secs(5), uploading) => {
+                if let Err(error) = result.context("probe upload exceeded its deadline").and_then(|result| result) {
+                    tracing::warn!(%error, "probe results retained for retry");
                 }
             }
         }
@@ -178,6 +175,7 @@ async fn sample(spec: &ProbeSpec, ops: &dyn Privileged) -> ProbeResult {
         latency_ms: None,
         loss_percent: 100.0,
         error: None,
+        execution: None,
     };
     match timeout(Duration::from_secs(12), measure(spec, ops))
         .await

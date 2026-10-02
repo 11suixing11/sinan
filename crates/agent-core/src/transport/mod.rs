@@ -176,6 +176,7 @@ pub async fn run_with_diagnostics(
         capabilities.push(sinan_protocol::RUNTIME_RECOVERY_BARRIER_CAPABILITY.into());
     }
     capabilities.push(sinan_protocol::RETIREMENT_CAPABILITY.into());
+    capabilities.push(sinan_protocol::PROBE_LEASE_CAPABILITY.into());
     capabilities.push(sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY.into());
     capabilities.extend(
         [
@@ -258,6 +259,7 @@ pub async fn run_with_diagnostics(
         agent_version,
     ));
     tasks.spawn(crate::tasks::run(
+        identity.server_id,
         config.allow_remote_commands,
         state.clone(),
         privileged.clone(),

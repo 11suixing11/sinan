@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 mod business_support;
+mod probe_support;
 mod release_fixture;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
@@ -40,9 +41,9 @@ async fn ready(panel: &TestPanel, server: i64) -> Result<()> {
     Ok(())
 }
 async fn probe(panel: &TestPanel, cookie: &str, server: i64, name: &str) -> Result<Value> {
-    Ok(panel.admin(Method::POST,&format!("/api/servers/{server}/probes"),cookie,Some(json!({
+    Ok(panel.admin(Method::POST,&format!("/api/servers/{server}/probes"),cookie,Some(probe_support::configured(json!({
         "id":Uuid::nil(),"name":name,"kind":"tcp","target":"example.test","port":443,"interval_secs":60,"carrier":"fixture","enabled":true
-    }))).await?.error_for_status()?.json().await?)
+    })))).await?.error_for_status()?.json().await?)
 }
 fn path(server: i64) -> String {
     format!("/api/servers/{server}/diagnostics/tcpquality")
@@ -52,6 +53,49 @@ fn region_path(server: i64, probe: &Value) -> String {
         "/api/plugins/tcpquality/servers/{server}/targets/{}",
         probe["id"].as_str().unwrap()
     )
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn tcp_diagnostics_select_only_currently_authorized_targets(pool: PgPool) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, _ack) = panel
+        .authenticated_device(&cookie, "permission filtered diagnostic")
+        .await?;
+    ready(&panel, server).await?;
+    let allowed = probe(&panel, &cookie, server, "allowed fixture").await?;
+    for authorization in [
+        Value::Null,
+        json!({"region":"fixture","source":"TEST_ONLY expired target","scope":"owned","evidence":"TEST_ONLY synthetic permission","expires_at":sinan_protocol::now_timestamp()-1}),
+    ] {
+        let id = Uuid::new_v4();
+        sqlx::query("INSERT INTO network_probes(id,server_id,spec,target_authorization) VALUES($1,$2,$3,$4)")
+            .bind(id).bind(server).bind(json!({"id":id,"name":"unknown permission fixture","kind":"tcp","target":"unpermitted.example.test","port":443,"interval_secs":60,"carrier":"fixture","enabled":true}))
+            .bind(authorization).execute(&panel.state.pool).await?;
+    }
+    let targets: Vec<Value> = panel
+        .admin(
+            Method::GET,
+            &format!("/api/plugins/tcpquality/servers/{server}/targets"),
+            &cookie,
+            None,
+        )
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0]["id"], allowed["id"]);
+    let job: Value = panel
+        .admin(Method::POST, &path(server), &cookie, Some(json!({})))
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let snapshot: Value = serde_json::from_str(job["job"]["options"]["targets"].as_str().unwrap())?;
+    assert_eq!(snapshot["targets"].as_array().unwrap().len(), 1);
+    assert!(!serde_json::to_string(&snapshot)?.contains("unpermitted.example.test"));
+    Ok(())
 }
 
 #[sqlx::test(migrations = "./migrations")]

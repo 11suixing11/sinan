@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 mod business_support;
+mod probe_support;
+use sinan_panel::probes::ConfiguredProbe;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
 use anyhow::Result;
@@ -146,12 +148,13 @@ async fn probes_preserve_missing_latency_deduplicate_and_acknowledge_deleted_tar
             Method::POST,
             &format!("/api/servers/{server}/probes"),
             &cookie,
-            Some(serde_json::to_value(spec)?),
+            Some(probe_support::configured(serde_json::to_value(spec)?)),
         )
         .await?
         .error_for_status()?
-        .json()
-        .await?;
+        .json::<ConfiguredProbe>()
+        .await?
+        .spec;
     let result = ProbeResult {
         id: Uuid::new_v4(),
         probe_id: spec.id,
@@ -159,6 +162,7 @@ async fn probes_preserve_missing_latency_deduplicate_and_acknowledge_deleted_tar
         latency_ms: None,
         loss_percent: 100.0,
         error: None,
+        execution: None,
     };
     let endpoint = format!("{}/api/agent/v1/probe-results", panel.base);
     for _ in 0..2 {
@@ -205,7 +209,7 @@ async fn probes_preserve_missing_latency_deduplicate_and_acknowledge_deleted_tar
             Method::DELETE,
             &format!("/api/servers/{server}/probes/{}", spec.id),
             &cookie,
-            None,
+            Some(json!({"revision":1})),
         )
         .await?
         .error_for_status()?;
@@ -244,12 +248,12 @@ async fn probe_destination_is_immutable_and_metadata_edits_preserve_offline_hist
             Method::POST,
             &format!("/api/servers/{server}/probes"),
             &cookie,
-            Some(json!({"id":Uuid::nil(),"name":"原目标","kind":"tcp","target":"original.test","port":443,"interval_secs":10,"carrier":"原线路","enabled":true})),
+            Some(json!({"id":Uuid::nil(),"name":"原目标","kind":"tcp","target":"original.test","port":443,"interval_secs":10,"carrier":"原线路","enabled":true,"authorization":probe_support::authorization()})),
         )
         .await?
         .error_for_status()?
-        .json()
-        .await?;
+        .json::<ConfiguredProbe>()
+        .await?.spec;
     let sample = ProbeResult {
         id: Uuid::new_v4(),
         probe_id: original.id,
@@ -257,6 +261,7 @@ async fn probe_destination_is_immutable_and_metadata_edits_preserve_offline_hist
         latency_ms: Some(0.0),
         loss_percent: 0.0,
         error: None,
+        execution: None,
     };
     let endpoint = format!("{}/api/agent/v1/probe-results", panel.base);
     panel
@@ -288,7 +293,7 @@ async fn probe_destination_is_immutable_and_metadata_edits_preserve_offline_hist
                 Method::PATCH,
                 &path,
                 &cookie,
-                Some(serde_json::to_value(changed)?),
+                Some(probe_support::editing(serde_json::to_value(changed)?, 1)),
             )
             .await?;
         assert_eq!(response.status(), StatusCode::CONFLICT);
@@ -321,12 +326,13 @@ async fn probe_destination_is_immutable_and_metadata_edits_preserve_offline_hist
             Method::PATCH,
             &path,
             &cookie,
-            Some(serde_json::to_value(&metadata)?),
+            Some(probe_support::editing(serde_json::to_value(&metadata)?, 1)),
         )
         .await?
         .error_for_status()?
-        .json()
-        .await?;
+        .json::<ConfiguredProbe>()
+        .await?
+        .spec;
     assert_eq!(updated, metadata);
     // A paused or renamed destination still owns samples queued by an offline Agent.
     let mut offline = sample.clone();
@@ -397,8 +403,8 @@ async fn probe_display_is_authenticated_target_bounded_and_preserves_full_day_hi
         (other, "其他设备"),
     ] {
         let spec: ProbeSpec = panel.admin(Method::POST, &format!("/api/servers/{owner}/probes"), &cookie,
-            Some(json!({"id":Uuid::nil(),"name":name,"kind":"icmp","target":"127.0.0.1","port":null,"interval_secs":10,"carrier":"测试线路","enabled":true})))
-            .await?.error_for_status()?.json().await?;
+            Some(json!({"id":Uuid::nil(),"name":name,"kind":"icmp","target":"127.0.0.1","port":null,"interval_secs":10,"carrier":"测试线路","enabled":true,"authorization":probe_support::authorization()})))
+            .await?.error_for_status()?.json::<ConfiguredProbe>().await?.spec;
         definitions.push(spec);
     }
     let endpoint = format!("{}/api/probes/overview", panel.base);
@@ -426,6 +432,7 @@ async fn probe_display_is_authenticated_target_bounded_and_preserves_full_day_hi
                 latency_ms: if index == 0 { None } else { Some(0.0) },
                 loss_percent: if index == 0 { 100.0 } else { 0.0 },
                 error: (index == 1).then(|| "ICMP tool unavailable".into()),
+                execution: None,
             })
         })
         .collect();

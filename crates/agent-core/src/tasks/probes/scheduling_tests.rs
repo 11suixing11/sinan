@@ -1,5 +1,6 @@
 use super::*;
 use sinan_adapter_sdk::{BoxFuture, CommandOutput};
+use sinan_protocol::{AuthorizedProbe, ProbeAuthorization, ProbeLease, ProbeScope};
 use std::{
     path::Path,
     sync::{
@@ -9,9 +10,11 @@ use std::{
 };
 
 #[derive(Default)]
-struct ControlledOps {
-    active: AtomicUsize,
-    peak: AtomicUsize,
+pub(super) struct ControlledOps {
+    pub(super) active: AtomicUsize,
+    pub(super) peak: AtomicUsize,
+    pub(super) starts: AtomicUsize,
+    pub(super) release: tokio::sync::Notify,
 }
 
 struct Active<'a>(&'a AtomicUsize);
@@ -24,11 +27,12 @@ impl Drop for Active<'_> {
 impl Privileged for ControlledOps {
     fn execute<'a>(&'a self, _: &'a Path, args: &'a [String]) -> BoxFuture<'a, CommandOutput> {
         Box::pin(async move {
+            self.starts.fetch_add(1, Ordering::SeqCst);
             let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
             self.peak.fetch_max(active, Ordering::SeqCst);
             let _active = Active(&self.active);
             if !args.last().unwrap().contains("127.0.0.1") {
-                std::future::pending::<()>().await;
+                self.release.notified().await;
             }
             Ok(CommandOutput {
                 success: true,
@@ -65,7 +69,7 @@ impl Privileged for ControlledOps {
     }
 }
 
-async fn until(condition: impl Fn() -> bool) -> Result<()> {
+pub(super) async fn until(condition: impl Fn() -> bool) -> Result<()> {
     timeout(Duration::from_secs(5), async {
         while !condition() {
             tokio::time::sleep(Duration::from_millis(25)).await;
@@ -73,6 +77,42 @@ async fn until(condition: impl Fn() -> bool) -> Result<()> {
     })
     .await
     .context("probe scheduler did not make progress")
+}
+
+pub(super) fn accepted(
+    session: &Arc<PanelClient>,
+    specs: &[ProbeSpec],
+    revision: u64,
+    duration: Duration,
+) -> AcceptedLease {
+    let now = Instant::now();
+    let issued_at = now_timestamp();
+    AcceptedLease {
+        snapshot: ProbeLease {
+            id: Uuid::new_v4(),
+            server_id: 7,
+            revision,
+            issued_at,
+            expires_at: issued_at + 90,
+            probes: specs
+                .iter()
+                .cloned()
+                .map(|spec| AuthorizedProbe {
+                    spec,
+                    authorization: ProbeAuthorization {
+                        region: "local fixture".into(),
+                        source: "operator-owned loopback".into(),
+                        scope: ProbeScope::Owned,
+                        evidence: "controlled test fixture".into(),
+                        expires_at: None,
+                    },
+                })
+                .collect(),
+        },
+        received: now,
+        deadline: now + duration,
+        session: session.clone(),
+    }
 }
 
 #[tokio::test]
@@ -98,30 +138,29 @@ async fn slow_probes_do_not_delay_results_and_configuration_changes_cancel_work(
             enabled: true,
         })
         .collect();
-    state
-        .lock()
-        .unwrap()
-        .set_json("probes:configuration", &(now_timestamp(), &specs))?;
-    let worker = tokio::spawn(sample_loop(state.clone(), ops.clone(), retirement.clone()));
+    let client = Arc::new(PanelClient::new("http://127.0.0.1:1", "fixture-session")?);
+    let (_clients, clients) = watch::channel(Some(client.clone()));
+    let (leases, lease_receiver) =
+        watch::channel(Some(accepted(&client, &specs, 1, Duration::from_secs(90))));
+    let worker = tokio::spawn(sample_loop(
+        state.clone(),
+        ops.clone(),
+        clients,
+        lease_receiver,
+        retirement.clone(),
+    ));
     until(|| state.lock().unwrap().probe_results().unwrap().len() == 1).await?;
     until(|| ops.active.load(Ordering::SeqCst) == 4).await?;
-    // Reconfigure a completed target before its hour-long interval, freeing one slot.
-    specs[0].name = "changed".into();
-    specs[1].enabled = false;
-    specs[5].enabled = false;
-    state
-        .lock()
-        .unwrap()
-        .set_json("probes:configuration", &(now_timestamp(), &specs))?;
+    // Remove a slow target and let a new ready target take the freed slot,
+    // without shortening the already completed target's persisted interval.
+    specs.retain(|spec| ![Uuid::from_u128(2), Uuid::from_u128(6)].contains(&spec.id));
+    let mut next = specs[0].clone();
+    next.id = Uuid::from_u128(7);
+    specs.push(next);
+    leases.send_replace(Some(accepted(&client, &specs, 2, Duration::from_secs(90))));
     until(|| state.lock().unwrap().probe_results().unwrap().len() == 2).await?;
     assert!(ops.peak.load(Ordering::SeqCst) <= 4);
-    for spec in &mut specs {
-        spec.enabled = false;
-    }
-    state
-        .lock()
-        .unwrap()
-        .set_json("probes:configuration", &(now_timestamp(), &specs))?;
+    leases.send_replace(Some(accepted(&client, &[], 3, Duration::from_secs(90))));
     until(|| ops.active.load(Ordering::SeqCst) == 0).await?;
     // Cancelled measurements release the gate used by retirement and persist no results.
     let guard = timeout(Duration::from_secs(1), retirement.gate.write()).await?;

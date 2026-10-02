@@ -94,9 +94,11 @@ async fn failed_enablement_backfill_rolls_back_and_can_be_retried_idempotently(
     assert_eq!(legacy_snapshot(&pool).await?, before);
 
     all.run(&pool).await?;
-    // The later asset migration adds only its empty legacy default.
+    // Later asset and probe migrations add only explicit legacy defaults.
     for server in before.get_mut("servers").unwrap().as_array_mut().unwrap() {
         server["asset_settings"] = serde_json::json!({});
+        server["probe_revision"] = serde_json::json!(0);
+        server["probe_fingerprint"] = Value::Null;
     }
     let enabled: (i64, String, bool) = sqlx::query_as(
         "SELECT server_id,source,enabled FROM server_plugins WHERE plugin='sing-box'",
