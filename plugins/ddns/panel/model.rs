@@ -5,9 +5,23 @@ use sqlx::{FromRow, PgPool};
 use std::{collections::BTreeSet, net::IpAddr};
 use uuid::Uuid;
 
+#[derive(Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum Provider {
+    #[default]
+    Cloudflare,
+    Tencent,
+    Aliyun,
+    Huawei,
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Config {
+    #[serde(default)]
+    pub provider: Provider,
+    #[serde(default)]
+    pub line: String,
     pub name: String,
     pub server_id: i64,
     pub zone_id: String,
@@ -31,10 +45,46 @@ impl Config {
         {
             return Err(ApiError::BadRequest("名称不能为空或超过 128 字节".into()));
         }
-        if !identifier(&self.zone_id) {
-            return Err(ApiError::BadRequest(
-                "Zone ID 必须为 32 位十六进制字符".into(),
-            ));
+        self.line = self.line.trim().into();
+        match self.provider {
+            Provider::Cloudflare | Provider::Huawei => {
+                if !identifier(&self.zone_id) {
+                    return Err(ApiError::BadRequest(
+                        "Zone ID 必须为 32 位十六进制字符".into(),
+                    ));
+                }
+                if !self.line.is_empty() {
+                    return Err(ApiError::BadRequest("此提供方只支持默认线路".into()));
+                }
+            }
+            Provider::Tencent | Provider::Aliyun => {
+                self.zone_id = domain(&self.zone_id)
+                    .filter(|v| !v.starts_with("*."))
+                    .ok_or_else(|| {
+                        ApiError::BadRequest("请填写托管的根域名，例如 example.com".into())
+                    })?;
+                if self.record_name != self.zone_id
+                    && !self.record_name.ends_with(&format!(".{}", self.zone_id))
+                {
+                    return Err(ApiError::BadRequest("记录不属于所填根域名".into()));
+                }
+                if self.line.is_empty() {
+                    self.line = if self.provider == Provider::Tencent {
+                        "0"
+                    } else {
+                        "default"
+                    }
+                    .into();
+                }
+                if self.line.len() > 64
+                    || !self
+                        .line
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"_-=".contains(&b))
+                {
+                    return Err(ApiError::BadRequest("解析线路标识无效".into()));
+                }
+            }
         }
         if self.server_id <= 0 || !matches!(self.record_type.as_str(), "A" | "AAAA") {
             return Err(ApiError::BadRequest("请选择服务器与 A / AAAA 类型".into()));
@@ -42,10 +92,14 @@ impl Config {
         if !(60..=86400).contains(&self.interval_secs) {
             return Err(ApiError::BadRequest("同步间隔必须为 60–86400 秒".into()));
         }
+        if self.proxied && self.provider != Provider::Cloudflare {
+            return Err(ApiError::BadRequest("代理开关仅适用于 Cloudflare".into()));
+        }
         if self.proxied {
             self.ttl = 1;
         }
-        if self.ttl != 1 && !(60..=86400).contains(&self.ttl) {
+        let automatic = self.provider == Provider::Cloudflare && self.ttl == 1;
+        if !automatic && !(60..=86400).contains(&self.ttl) {
             return Err(ApiError::BadRequest(
                 "TTL 必须为 1（自动）或 60–86400 秒".into(),
             ));
@@ -112,6 +166,10 @@ pub(super) struct Rule {
     pub config: Config,
     #[serde(skip)]
     pub api_token: String,
+    #[serde(skip)]
+    pub access_key_id: String,
+    #[serde(skip)]
+    pub access_key_secret: String,
     pub revision: i64,
     pub record_id: Option<String>,
     pub last_ip: Option<String>,
@@ -231,7 +289,12 @@ pub(super) async fn view(pool: &PgPool, rule: Rule) -> ApiResult<Value> {
     let info = observation(pool, rule.config.server_id).await?;
     let selected = info.select(&rule.config, rule.last_ip.as_deref(), now);
     let mut value = serde_json::to_value(&rule).map_err(anyhow::Error::from)?;
-    value["token_configured"] = (!rule.api_token.is_empty()).into();
+    value["token_configured"] = (if rule.config.provider == Provider::Cloudflare {
+        !rule.api_token.is_empty()
+    } else {
+        !rule.access_key_id.is_empty() && !rule.access_key_secret.is_empty()
+    })
+    .into();
     value["plugin_enabled"] = info.plugin_enabled.into();
     value["busy"] = (rule.lease_until > now).into();
     value["server_name"] = info.name.into();

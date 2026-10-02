@@ -1,11 +1,12 @@
 use super::{
-    cloudflare::Cloudflare,
     model::{self, Config, Observation, Rule},
+    providers::Providers,
 };
 use serde_json::{Value, json};
 use std::net::{IpAddr, Ipv4Addr};
 use uuid::Uuid;
 
+mod multicloud;
 mod provider;
 mod scheduling;
 
@@ -15,6 +16,8 @@ const TOKEN: &str = "TEST_ONLY_CLOUDFLARE_TOKEN";
 
 fn config() -> Config {
     Config {
+        provider: model::Provider::Cloudflare,
+        line: String::new(),
         name: "测试规则".into(),
         server_id: 1,
         zone_id: ZONE.into(),
@@ -33,6 +36,8 @@ fn rule() -> Rule {
         id: Uuid::new_v4(),
         config: config(),
         api_token: TOKEN.into(),
+        access_key_id: String::new(),
+        access_key_secret: String::new(),
         revision: 1,
         record_id: None,
         last_ip: None,

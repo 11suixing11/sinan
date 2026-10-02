@@ -20,7 +20,7 @@ pub(super) struct Data {
 
 pub(super) struct Mock {
     pub data: Arc<Mutex<Data>>,
-    pub client: Cloudflare,
+    pub client: Providers,
     task: JoinHandle<()>,
 }
 
@@ -37,7 +37,7 @@ impl Mock {
             ..Data::default()
         }));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let client = Cloudflare::local(&format!("http://{}/", listener.local_addr().unwrap()));
+        let client = Providers::local(&format!("http://{}/", listener.local_addr().unwrap()));
         let router = Router::new().fallback(handle).with_state(data.clone());
         let task = tokio::spawn(async move {
             axum::serve(listener, router).await.unwrap();

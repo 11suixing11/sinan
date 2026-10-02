@@ -2,6 +2,7 @@ mod channels;
 mod evaluation;
 mod events;
 mod outbox;
+pub(crate) mod plugin;
 mod resources;
 mod retry;
 pub mod rules;

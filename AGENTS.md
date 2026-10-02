@@ -54,4 +54,8 @@
 
 2026-10-02 用户授权 DDNS，首个提供方为 Cloudflare，覆盖上述 DDNS 排除项。用户进一步明确做成插件，实际实现位于 `plugins/ddns/panel/`，按服务器在 `server_plugins` 显式启用。按 [ADR 0048](docs/adr/0048-cloudflare-ddns.md) 实施：复用 Agent 已上报的 IP，面板持有 API Token 并执行有限 DNS 对账，凭据不发给 Agent 或公开界面；无有效地址或设备离线时保留解析。CI 暂停与实机门禁保持，真实 DNS 写入不属于开发测试。
 
+2026-10-02 用户授权 DDNS 增加腾讯云、阿里云、华为云，以及阿里云 CDT 管理，包含 ECS 固定公网 IP 与独立 EIP 的公网带宽/计费管理和自动流量控制，按 ADR 0056–0057 实施。凭据留在面板插件，真实开通、计费和带宽操作不属于开发验证，CI 继续暂停。
+
 详细架构约束见 `docs/adr/0001-declarative-snapshots.md` 至 `docs/adr/0011-loopback-local-api.md`。
+
+2026-10-02 用户进一步授权参考 CDT-Monitor 补齐 ECS 手动/自动启停、KeepCharging/StopCharging、流量阈值、每日计划、抢占式保活与账单/余额缓存，按 ADR 0058 实施。仅开发模拟验证，不操作真实云资源或发送真实通知，CI 继续暂停。

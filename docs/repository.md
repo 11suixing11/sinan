@@ -1,0 +1,82 @@
+# 仓库目录与维护约定
+
+本页说明现有代码与文档的位置。使用方法从[文档导航](README.md)进入，架构和范围以 [AGENTS.md](../AGENTS.md) 与[各项 ADR](adr/README.md) 为准。
+
+## 顶层目录
+
+| 路径 | 职责 |
+| --- | --- |
+| `crates/` | Rust 工作区：公共协议、配置编译、面板、Agent、适配器及原生 TCP 工具 |
+| `plugins/` | 插件面板业务、外部工具包装及固定来源材料；插件业务不回迁到核心 |
+| `web/src/` | 中文 React 界面；前端依赖与构建由 Bun 管理 |
+| `web/dist/` | 提交到仓库、由面板嵌入的构建产物；修改源码后生成，不手工编辑 |
+| `deploy/` | Compose、服务定义、安装模板、生成后的独立 bootstrap 入口和发布公钥 |
+| `scripts/` | [面板运维、接入与验收入口](../scripts/README.md)；包含已有 CI 包装脚本 |
+| `tools/` | [构建、签名、发布、规则检查与隔离测试工具](../tools/README.md) |
+| `tests/` | 仓库工具的 Python 回归；Rust 和前端测试各自随所属代码放置 |
+| `docs/` | 使用说明、接口契约、ADR、验收记录与证据 |
+| `.github/workflows/` | 远端构建和验证定义；当前暂停，不因本轮整理恢复 |
+| `PROGRESS.md` | 历史完成项、证据和未验证范围；保留既有记录与链接 |
+
+`target/`、`web/node_modules/` 和本机临时目录属于忽略的本地状态，不作为源码整理对象。已有迁移编号、公开安装脚本路径、签名制品结构和 ADR 文件名属于兼容边界。
+
+## Rust 工作区与分层
+
+| 模块 | 职责与依赖方向 |
+| --- | --- |
+| `protocol` | 面板与 Agent 的共享消息、能力、签名制品契约 |
+| `compiler` | 从业务模型确定性地生成完整运行时配置包 |
+| `panel` | HTTP 服务、管理员会话、服务器、遥测、通知、任务和插件嵌入 |
+| `agent-core` | 设备身份、传输、对账、持久状态、遥测、计量与制品；工作区依赖仅 `protocol`、`adapter-sdk` |
+| `adapter-sdk` | 无状态适配器接口与共享模型 |
+| `adapter-singbox`、`adapter-nodequality`、`adapter-tcpquality` | 运行时或工具翻译；工作区依赖仅 `adapter-sdk` |
+| `agent` | 注册具体适配器、启动 core 的二进制入口 |
+| `tcp-probe` | 原生 TCP 检测工具 |
+
+服务器网卡总流量属于核心；代理用户、授权、订阅、套餐与代理流量属于 sing-box 插件。`agent-core` 不引入具体插件名称或代理业务类型；分层检查入口为 `tools/check-core-boundary.py`。
+
+## 面板入口与插件
+
+`crates/panel/src/lib.rs` 声明模块并保留原有公共导出；`state.rs` 创建共享状态，`main.rs` 启动服务与后台任务。HTTP 路由在 `routes/` 按职责组合：
+
+| 文件 | 注册的接口 |
+| --- | --- |
+| `routes/mod.rs` | 健康检查、各组路由、插件、前端兜底及全局请求体限制 |
+| `routes/system.rs` | 登录/TOTP、统计、汇率、设置与通知 |
+| `routes/servers.rs` | 服务器、接入令牌、遥测配置、命令、周期拨测和流量矫正 |
+| `routes/diagnostics.rs` | IP 查询、共用诊断服务、旧诊断路径与 TCP 目标 |
+| `routes/agent.rs` | Agent 认证接口、上报、待办、结果、配置包和运行时下载 |
+| `routes/artifacts.rs` | 管理员制品目录、导入、版本查询及公开安装入口 |
+
+路由文件只组合处理函数，鉴权和业务校验仍由原处理函数负责。`sinan_panel::router`、`AppState`、`AgentConnection` 及旧代理业务 Rust 导出继续可用。新增接口按职责归组，不再把所有接口堆入 crate 根文件。
+
+`crates/panel/src/plugins/mod.rs` 通过薄的 path 桥连接 `plugins/singbox/panel/`、`plugins/ddns/panel/`、`plugins/alicloud/panel/`；`plugins/cloud_api/panel/` 是云 API 的共享实现，不是独立产品插件。诊断登记桥 `diagnostic_plugins.rs` 连接 NodeQuality/TCP 适配实现，共用诊断服务继续负责生命周期、预算、取消和历史。
+
+数据库迁移保持在 `crates/panel/migrations/`，按既有序列追加；不能为整理文件而重命名、合并或修改已发布迁移。
+
+## 前端入口
+
+| 路径 | 职责 |
+| --- | --- |
+| `web/src/App.tsx` | 会话读取、失效处理、公开看板访问控制与顶层页面组合 |
+| `web/src/app/routes.ts` | 解析 URL，复用看板/插件的严格路径解析及旧链接兼容 |
+| `web/src/app/navigation.ts` | 后台侧栏分组、名称与当前页面归属 |
+| `web/src/app/AdminPage.tsx` | 按解析结果选择页面，保留服务器筛选和组件重挂载边界 |
+| `web/src/app/AdminShell.tsx`、`Login.tsx` | 后台布局与登录表单 |
+| `web/src/pages/` | 服务器、系统设置、诊断、监控等核心管理页面 |
+| `web/src/plugins/` | 插件目录及 sing-box、DDNS、阿里云业务界面 |
+| `web/src/display/`、`statistics/` | 独立服务器看板与统计展示 |
+| `web/src/api.ts`、`hooks.ts`、`components.tsx` | 共享请求、状态钩子和通用组件 |
+
+Hash URL 是书签与兼容入口。新增页面要同时考虑路由、导航、管理员访问边界；公开访问只放行明确的看板路由，不据路径前缀推断权限。
+
+## 验证与文件维护
+
+- Rust 单元测试随模块放置；HTTP/PostgreSQL、协议与编译集成测试位于对应 crate 的 `tests/`。
+- `web/tests/*.test.ts` 使用 `bun test`；`web/tests/*.mjs` 是构建页面的 Playwright 回归，API 使用隔离夹具。
+- 仓库工具回归位于 `tests/test_*.py`、`tools/test-*.py` 和 `scripts/test-*.py`；具体入口见脚本导航，避免无差别执行实机验收驱动。
+- 修改前端后先生成 `web/dist`，再编译/测试嵌入它的面板。完整本地检查命令见[开发指南](dev.md)。
+- 使用文档放在 `docs/`，新的设计决策追加 `docs/adr/`，验证记录放在 `docs/acceptance/` 并标明源码和未验证范围；更新相应索引。
+- 部署模板及生成入口有摘要、签名和旧版本依赖；通过既有生成工具更新，不按普通重复文件删除。生产数据、真实凭据和临时日志不进入仓库。
+
+本轮只整理代码组合入口与文档导航；现有脚本、迁移、安装入口和历史验收记录继续使用原路径。

@@ -137,7 +137,7 @@ fn substitute(value: &mut Value, values: &[&str; 9]) -> Result<(), &'static str>
     Ok(())
 }
 
-pub(super) struct Message<'a> {
+pub(crate) struct Message<'a> {
     pub title: &'a str,
     pub server: &'a str,
     pub message: &'a str,
