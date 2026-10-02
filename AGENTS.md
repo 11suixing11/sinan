@@ -57,3 +57,5 @@
 2026-10-02 用户授权 DDNS 增加腾讯云、阿里云、华为云，以及阿里云 CDT 管理，包含 ECS 固定公网 IP 与独立 EIP 的公网带宽/计费管理和自动流量控制，按 ADR 0056–0057 实施。凭据留在面板插件，真实开通、计费和带宽操作不属于开发验证，CI 继续暂停。
 
 详细架构约束见 `docs/adr/0001-declarative-snapshots.md` 至 `docs/adr/0011-loopback-local-api.md`。
+
+2026-10-02 用户进一步授权参考 CDT-Monitor 补齐 ECS 手动/自动启停、KeepCharging/StopCharging、流量阈值、每日计划、抢占式保活与账单/余额缓存，按 ADR 0058 实施。仅开发模拟验证，不操作真实云资源或发送真实通知，CI 继续暂停。

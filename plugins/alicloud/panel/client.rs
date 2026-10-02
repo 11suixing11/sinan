@@ -7,10 +7,10 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 pub(super) struct Cloud {
-    ecs: Aliyun,
+    pub(super) ecs: Aliyun,
     vpc: Aliyun,
-    bss: Aliyun,
-    bss_international: Aliyun,
+    pub(super) bss: Aliyun,
+    pub(super) bss_international: Aliyun,
     cdt: Aliyun,
 }
 impl Cloud {

@@ -1,8 +1,11 @@
 mod api;
 mod billing;
 mod client;
+mod costs;
 mod model;
+mod notices;
 mod operations;
+mod power;
 #[cfg(test)]
 mod tests;
 mod worker;

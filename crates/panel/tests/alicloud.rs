@@ -192,6 +192,10 @@ async fn every_cloud_mutation_requires_administrator_session(pool: PgPool) -> Re
         format!("operations/{id}/confirm"),
         format!("operations/{id}/cancel"),
         format!("operations/{id}/dismiss"),
+        format!("resources/{id}/power-resume"),
+        format!("power-jobs/{id}/confirm"),
+        format!("power-jobs/{id}/cancel"),
+        format!("power-jobs/{id}/dismiss"),
     ] {
         assert_eq!(
             panel
@@ -233,5 +237,171 @@ async fn manual_refresh_cannot_bypass_provider_rate_limit(pool: PgPool) -> Resul
             .await?,
         now + 900
     );
+    Ok(())
+}
+
+#[sqlx::test]
+async fn power_policy_validates_revisions_and_power_jobs_are_admin_only_and_cancellable(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool.clone()).await?;
+    let cookie = panel.admin_cookie().await?;
+    let account = Uuid::new_v4();
+    let resource = Uuid::new_v4();
+    let eip = Uuid::new_v4();
+    let now = sinan_protocol::now_timestamp();
+    sqlx::query("INSERT INTO alicloud_accounts(id,name,access_key_id,access_key_secret,enabled) VALUES($1,'测试账号',$2,$3,false)").bind(account).bind(KEY).bind(SECRET).execute(&pool).await?;
+    for (id, kind, cloud_id) in [
+        (resource, "ecs", "i-testonly"),
+        (eip, "eip", "eip-testonly"),
+    ] {
+        sqlx::query("INSERT INTO alicloud_resources(id,account_id,name,kind,region,cloud_id) VALUES($1,$2,'测试资源',$3,'cn-hangzhou',$4)").bind(id).bind(account).bind(kind).bind(cloud_id).execute(&pool).await?;
+    }
+    let policy: Value =
+        sqlx::query_scalar("SELECT power_policy FROM alicloud_resources WHERE id=$1")
+            .bind(resource)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(policy["enabled"], false);
+    assert_eq!(policy["stop_mode"], "KeepCharging");
+    let path = format!("/api/plugins/alicloud/resources/{resource}/power-policy");
+    let body = json!({"revision":1,"policy":policy});
+    assert_eq!(
+        panel
+            .client
+            .patch(format!("{}{path}", panel.base))
+            .json(&body)
+            .send()
+            .await?
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        panel
+            .admin(Method::PATCH, &path, &cookie, Some(body.clone()))
+            .await?
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        panel
+            .admin(Method::PATCH, &path, &cookie, Some(body.clone()))
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let mut invalid = body.clone();
+    invalid["revision"] = 2.into();
+    invalid["policy"]["threshold_percent"] = 101.into();
+    assert_eq!(
+        panel
+            .admin(Method::PATCH, &path, &cookie, Some(invalid))
+            .await?
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        panel
+            .admin(
+                Method::PATCH,
+                &format!("/api/plugins/alicloud/resources/{eip}/power-policy"),
+                &cookie,
+                Some(body)
+            )
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let preview_path = format!("/api/plugins/alicloud/resources/{resource}/power-preview");
+    let preview = json!({"revision":2,"action":"stop","stop_mode":"StopCharging"});
+    assert_eq!(
+        panel
+            .client
+            .post(format!("{}{preview_path}", panel.base))
+            .json(&preview)
+            .send()
+            .await?
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    // Disabled accounts reject before any cloud I/O.
+    assert_eq!(
+        panel
+            .admin(Method::POST, &preview_path, &cookie, Some(preview))
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let job = Uuid::new_v4();
+    let state = json!({"cloud_id":"i-testonly","region":"cn-hangzhou","status":"Running","stopped_mode":"KeepCharging","charge_type":"PostPaid","network_type":"vpc","spot_strategy":"NoSpot","interruption_behavior":null,"public_ips":["192.0.2.1"],"locked":false});
+    sqlx::query("INSERT INTO alicloud_power_jobs(id,resource_id,account_revision,resource_revision,action,stop_mode,source,before_state,status,created_at,expires_at,updated_at) VALUES($1,$2,1,2,'stop','KeepCharging','manual',$3,'preview',$4,$5,$4)").bind(job).bind(resource).bind(state).bind(now).bind(now+300).execute(&pool).await?;
+    sqlx::query("UPDATE alicloud_accounts SET enabled=true WHERE id=$1")
+        .bind(account)
+        .execute(&pool)
+        .await?;
+    for _ in 0..2 {
+        assert_eq!(
+            panel
+                .admin(
+                    Method::POST,
+                    &format!("/api/plugins/alicloud/power-jobs/{job}/confirm"),
+                    &cookie,
+                    None
+                )
+                .await?
+                .status(),
+            StatusCode::ACCEPTED
+        );
+    }
+    assert_eq!(
+        panel
+            .admin(
+                Method::DELETE,
+                &format!("/api/plugins/alicloud/resources/{resource}"),
+                &cookie,
+                None
+            )
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        panel
+            .admin(
+                Method::POST,
+                &format!("/api/plugins/alicloud/power-jobs/{job}/cancel"),
+                &cookie,
+                None
+            )
+            .await?
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert!(
+        sqlx::query_scalar::<_, bool>("SELECT manual_hold FROM alicloud_resources WHERE id=$1")
+            .bind(resource)
+            .fetch_one(&pool)
+            .await?
+    );
+    assert_eq!(
+        panel
+            .admin(
+                Method::POST,
+                &format!("/api/plugins/alicloud/resources/{resource}/power-resume"),
+                &cookie,
+                None
+            )
+            .await?
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    let overview: Value = panel
+        .admin(Method::GET, "/api/plugins/alicloud", &cookie, None)
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(overview["power_jobs"][0]["status"], "cancelled");
+    assert!(!overview.to_string().contains(SECRET));
     Ok(())
 }

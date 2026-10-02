@@ -44,6 +44,25 @@ impl Aliyun {
         action: &str,
         parameters: &[(&str, String)],
     ) -> Result<Value, Failure> {
+        self.request(id, secret, action, parameters, false).await
+    }
+    pub(crate) async fn power_call(
+        &self,
+        id: &str,
+        secret: &str,
+        action: &str,
+        parameters: &[(&str, String)],
+    ) -> Result<Value, Failure> {
+        self.request(id, secret, action, parameters, true).await
+    }
+    async fn request(
+        &self,
+        id: &str,
+        secret: &str,
+        action: &str,
+        parameters: &[(&str, String)],
+        power: bool,
+    ) -> Result<Value, Failure> {
         let mut values: BTreeMap<String, String> = parameters
             .iter()
             .map(|(k, v)| ((*k).into(), v.clone()))
@@ -63,13 +82,16 @@ impl Aliyun {
         ]);
         let signature = signing::aliyun(secret, &values);
         values.insert("Signature".into(), signature);
-        let response = transport::json(
-            self.client
-                .post(&self.endpoint)
-                .header("content-type", "application/x-www-form-urlencoded")
-                .body(signing::query(&values)),
-        )
-        .await?;
+        let request = self
+            .client
+            .post(&self.endpoint)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(signing::query(&values));
+        let response = if power {
+            transport::power_json(request).await?
+        } else {
+            transport::json(request).await?
+        };
         if response
             .get("Code")
             .is_some_and(|code| code != "Success" && code != "200" && code != 200)

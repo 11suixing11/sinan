@@ -21,6 +21,9 @@ pub(super) struct Account {
     pub traffic_error: Option<String>,
     pub error_code: Option<String>,
     pub next_run_at: i64,
+    pub balance: Option<Json<super::costs::Balance>>,
+    pub balance_error: Option<String>,
+    pub balance_next_at: i64,
 }
 
 #[derive(Serialize, FromRow)]
@@ -37,6 +40,16 @@ pub(super) struct Resource {
     pub snapshot: Option<Json<Snapshot>>,
     pub checked_at: Option<i64>,
     pub error_code: Option<String>,
+    pub instance_bill: Option<Json<super::costs::InstanceBill>>,
+    pub bill_error: Option<String>,
+    pub bill_next_at: i64,
+    pub power_policy: Json<super::power::Policy>,
+    pub power_state: Option<Json<super::power::State>>,
+    pub power_checked_at: Option<i64>,
+    pub power_error: Option<String>,
+    pub next_power_at: i64,
+    pub manual_hold: bool,
+    pub threshold_hold: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,6 +131,13 @@ pub(super) fn identifier(value: &str, prefix: &str) -> bool {
 pub(super) fn message(code: &str) -> &'static str {
     match code {
         "authentication_failed" => "访问密钥无效或缺少权限",
+        "capacity_unavailable" => "实例库存或抢占价格条件不足，保活冷却后再尝试",
+        "insufficient_balance" => "账号余额不足或资源欠费，请前往阿里云核对",
+        "resource_locked" => "实例已被云端锁定，暂不能启停",
+        "request_rejected" => "云端明确拒绝本次启停请求，请核对状态与权限",
+        "stop_mode_unsupported" => "节省停机需要按量付费 VPC 实例",
+        "stop_mode_mismatch" => "实例已停止，但实际停机模式与请求不符；请在云端核对收费",
+        "stop_mode_unknown" => "实例已停止，但云端未提供可核实的停机模式",
         "rate_limited" => "云服务限流，请稍后重试",
         "resource_not_found" => "未找到指定地域和标识的资源",
         "unsupported_resource" => "仅支持 ECS 固定公网 IP 和按量付费的独立 EIP；不操作共享带宽包",

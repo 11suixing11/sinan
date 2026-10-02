@@ -22,3 +22,5 @@
 .cloud-page summary { cursor: pointer; font-size: 13px; }
 .cloud-page .notice a { text-decoration: underline; }
 @media(max-width: 680px) { .cloud-metrics { grid-template-columns: 1fr; gap: 14px; } .cloud-metrics strong { font-size: 20px; } .cloud-details { grid-template-columns: 1fr; } .cloud-resource { padding: 18px; } .cloud-actions { justify-content: flex-start; } }
+.cloud-event { padding: 14px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.cloud-event:last-child { border-bottom: 0; }

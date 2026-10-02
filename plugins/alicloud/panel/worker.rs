@@ -85,7 +85,7 @@ pub(super) async fn refresh(pool: &PgPool, id: Uuid, cloud: &Cloud) -> ApiResult
             continue;
         }
         let cycle = billing::month(now);
-        let existing: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM alicloud_operations WHERE resource_id=$1 AND (status IN ('queued','running','uncertain') OR (source='automatic' AND billing_cycle=$2 AND account_revision=$3 AND resource_revision=$4)))")
+        let existing: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM alicloud_operations WHERE resource_id=$1 AND (status IN ('queued','running','uncertain') OR (source='automatic' AND billing_cycle=$2 AND account_revision=$3 AND resource_revision=$4))) OR EXISTS(SELECT 1 FROM alicloud_power_jobs WHERE resource_id=$1 AND status IN ('queued','running','uncertain'))")
             .bind(resource.id).bind(&cycle).bind(account.revision).bind(resource.revision).fetch_one(&mut *tx).await?;
         if existing {
             continue;
@@ -109,6 +109,29 @@ pub(super) async fn refresh(pool: &PgPool, id: Uuid, cloud: &Cloud) -> ApiResult
 }
 
 pub async fn run(pool: PgPool) {
+    tokio::join!(
+        maintenance(pool.clone()),
+        super::power::run(pool.clone()),
+        ancillary(pool)
+    );
+}
+
+async fn ancillary(pool: PgPool) {
+    let mut timer = tokio::time::interval(Duration::from_secs(10));
+    timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        timer.tick().await;
+        if let Ok(cloud) = Cloud::new()
+            && let Err(error) = super::costs::tick(&pool, &cloud).await
+        {
+            tracing::warn!(%error,"Cloud cost cache failed");
+        }
+        if let Err(error) = super::notices::dispatch(&pool).await {
+            tracing::warn!(%error,"Cloud notification delivery failed");
+        }
+    }
+}
+async fn maintenance(pool: PgPool) {
     let mut timer = tokio::time::interval(Duration::from_secs(5));
     timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
@@ -137,5 +160,9 @@ async fn tick(pool: &PgPool) -> ApiResult<()> {
     sqlx::query("UPDATE alicloud_operations SET status='cancelled',updated_at=$1 WHERE status='preview' AND expires_at<=$1").bind(now).execute(pool).await?;
     sqlx::query("DELETE FROM alicloud_operations WHERE status IN ('preview','cancelled','dismissed','failed','succeeded') AND created_at<$1")
         .bind(now-180*86400).execute(pool).await?;
+    sqlx::query("DELETE FROM alicloud_events WHERE created_at<$1")
+        .bind(now - 180 * 86400)
+        .execute(pool)
+        .await?;
     Ok(())
 }
