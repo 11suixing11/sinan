@@ -174,6 +174,12 @@ pub async fn run_with_diagnostics(
     if exact_runtime_supported {
         capabilities.push(sinan_protocol::RUNTIME_CHECKPOINT_CAPABILITY.into());
         capabilities.push(sinan_protocol::RUNTIME_RECOVERY_BARRIER_CAPABILITY.into());
+        if reconcilers
+            .iter()
+            .any(|(_, reconciler)| reconciler.supports_runtime_probe())
+        {
+            capabilities.push(sinan_protocol::RUNTIME_PATH_PROBE_CAPABILITY.into());
+        }
     }
     capabilities.push(sinan_protocol::RETIREMENT_CAPABILITY.into());
     capabilities.push(sinan_protocol::PROBE_LEASE_CAPABILITY.into());

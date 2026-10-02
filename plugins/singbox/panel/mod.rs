@@ -8,6 +8,7 @@ pub mod entitlements;
 mod node_protocol;
 mod node_settings;
 pub mod nodes;
+pub mod ordered_paths;
 pub mod packages;
 pub mod policies;
 pub mod proxy_resources;
@@ -52,12 +53,18 @@ pub fn router() -> Router<AppState> {
             axum::routing::put(packages::update).delete(packages::remove),
         )
         .route("/chains", get(chains::list).post(chains::create))
-        .route("/chains/batch", post(chains::create_batch))
+        .route("/chains/batch", post(ordered_paths::create_batch))
         .route("/chains/{id}", delete(chains::remove))
         .route("/proxy-resources", get(proxy_resources::list))
         .route(
             "/proxy-resources/{kind}/{id}",
-            get(proxy_resources::get).delete(proxy_resources::remove),
+            get(proxy_resources::get)
+                .patch(ordered_paths::update_resource)
+                .delete(proxy_resources::remove),
+        )
+        .route(
+            "/proxy-resources/chain/{id}/apply-node-versions",
+            post(ordered_paths::apply_node_versions),
         )
         .route(
             "/users/{id}/policy-groups",

@@ -8,7 +8,8 @@ use crate::{
 use sha2::{Digest, Sha256};
 use sinan_adapter_sdk::{BoxFuture, Plan, RuntimeSpec, ServiceManager};
 use sinan_protocol::{
-    ApplyStatus, Bundle, RuntimeCheckpointRequest, RuntimeRecoveryBarrierRequest, now_timestamp,
+    ApplyStatus, Bundle, RuntimeCheckpointRequest, RuntimePathProbeRequest, RuntimePathProbeResult,
+    RuntimeRecoveryBarrierRequest, now_timestamp,
 };
 use std::{
     collections::BTreeMap,
@@ -227,6 +228,172 @@ impl Drop for Fixture {
     }
 }
 
+async fn probe_request(
+    fixture: &Fixture,
+    expected: RuntimeCheckpoint,
+) -> (ControlRequest, RuntimePathProbeResult) {
+    let request = ControlRequest::Probe(RuntimePathProbeRequest {
+        request_id: Uuid::new_v4(),
+        expected,
+        probe_id: Uuid::new_v4(),
+        expires_at: now_timestamp() + 60,
+    });
+    fixture
+        .state
+        .lock()
+        .unwrap()
+        .enqueue_runtime_control(&request)
+        .unwrap();
+    let ControlResult::Probe(result) = fixture.reconciler.runtime_control(&request).await.unwrap()
+    else {
+        unreachable!()
+    };
+    (request, result)
+}
+
+#[tokio::test]
+async fn path_probe_uses_exact_activation_without_apply_or_recovery_side_effects_and_replays_once()
+{
+    let fixture = Fixture::new();
+    fixture
+        .adapter
+        .probe_supported
+        .store(true, Ordering::SeqCst);
+    let target = fixture.target(1, "{}");
+    fixture.apply(target.clone()).await;
+    let expected = fixture
+        .checkpoint(Fixture::binding(&target))
+        .await
+        .observed
+        .unwrap();
+    let actions = fixture.services.inner.actions.lock().unwrap().clone();
+    let (request, result) = probe_request(&fixture, expected.clone()).await;
+    assert!(result.success);
+    assert_eq!(result.observed, Some(expected));
+    assert_eq!(result.elapsed_ms, Some(17));
+    assert_eq!(
+        fixture.services.inner.actions.lock().unwrap().clone(),
+        actions
+    );
+    assert_eq!(
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .runtime_revision_floor("demo")
+            .unwrap(),
+        0
+    );
+    assert_eq!(fixture.adapter.probe_calls.lock().unwrap().len(), 1);
+    assert_eq!(
+        fixture.reconciler.runtime_control(&request).await.unwrap(),
+        ControlResult::Probe(result)
+    );
+    assert_eq!(fixture.adapter.probe_calls.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn unsupported_stale_or_unfinished_probe_never_calls_the_adapter() {
+    let fixture = Fixture::new();
+    let target = fixture.target(1, "{}");
+    fixture.apply(target.clone()).await;
+    let expected = fixture
+        .checkpoint(Fixture::binding(&target))
+        .await
+        .observed
+        .unwrap();
+    assert!(!probe_request(&fixture, expected.clone()).await.1.success);
+    fixture
+        .adapter
+        .probe_supported
+        .store(true, Ordering::SeqCst);
+    let mut stale = expected.clone();
+    stale.activation_id = Uuid::new_v4();
+    assert!(!probe_request(&fixture, stale).await.1.success);
+    let intent = IntentRecord {
+        op_id: Uuid::new_v4(),
+        module: "demo".into(),
+        payload: serde_json::json!({}),
+    };
+    fixture.state.lock().unwrap().begin_intent(&intent).unwrap();
+    assert!(!probe_request(&fixture, expected).await.1.success);
+    assert!(fixture.adapter.probe_calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn activation_change_during_probe_and_private_native_failure_produce_only_redacted_receipts()
+{
+    let fixture = Fixture::new();
+    fixture
+        .adapter
+        .probe_supported
+        .store(true, Ordering::SeqCst);
+    fixture.adapter.probe_delay_ms.store(100, Ordering::SeqCst);
+    let target = fixture.target(1, "{}");
+    fixture.apply(target.clone()).await;
+    let binding = Fixture::binding(&target);
+    let expected = fixture.checkpoint(binding.clone()).await.observed.unwrap();
+    let change = async {
+        fixture.adapter.probe_started.notified().await;
+        fixture.services.generation.fetch_add(1, Ordering::SeqCst);
+    };
+    let ((_, result), ()) = tokio::join!(probe_request(&fixture, expected), change);
+    assert!(!result.success && result.elapsed_ms.is_none());
+    fixture.services.generation.fetch_sub(1, Ordering::SeqCst);
+    let expected = fixture.checkpoint(binding).await.observed.unwrap();
+    fixture.adapter.fail_probe.store(true, Ordering::SeqCst);
+    let (_, result) = probe_request(&fixture, expected).await;
+    assert!(!result.success);
+    assert!(!result.error.unwrap().contains("private fixture"));
+}
+
+#[tokio::test]
+async fn expired_or_excessive_probe_lease_never_starts_and_slow_adapter_is_cancelled() {
+    let fixture = Fixture::new();
+    fixture
+        .adapter
+        .probe_supported
+        .store(true, Ordering::SeqCst);
+    let target = fixture.target(1, "{}");
+    fixture.apply(target.clone()).await;
+    let expected = fixture
+        .checkpoint(Fixture::binding(&target))
+        .await
+        .observed
+        .unwrap();
+    for expires_at in [now_timestamp() - 1, now_timestamp() + 600] {
+        let request = ControlRequest::Probe(RuntimePathProbeRequest {
+            request_id: Uuid::new_v4(),
+            expected: expected.clone(),
+            probe_id: Uuid::new_v4(),
+            expires_at,
+        });
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .enqueue_runtime_control(&request)
+            .unwrap();
+        let ControlResult::Probe(result) =
+            fixture.reconciler.runtime_control(&request).await.unwrap()
+        else {
+            unreachable!()
+        };
+        assert!(!result.success);
+    }
+    assert!(fixture.adapter.probe_calls.lock().unwrap().is_empty());
+    fixture
+        .adapter
+        .probe_delay_ms
+        .store(10000, Ordering::SeqCst);
+    let start = std::time::Instant::now();
+    let (_, result) = probe_request(&fixture, expected).await;
+    assert!(!result.success && result.elapsed_ms.is_none());
+    assert!(start.elapsed() < std::time::Duration::from_secs(7));
+    assert_eq!(fixture.adapter.probe_calls.lock().unwrap().len(), 1);
+    assert!(fixture.services.inner.active.load(Ordering::SeqCst));
+}
+
 #[tokio::test]
 async fn exact_checkpoint_rejects_changed_files_links_binary_and_controlled_instance() {
     let fixture = Fixture::new();
@@ -313,6 +480,124 @@ async fn wrong_config_path_and_future_floor_are_rejected_without_a_recovery_prom
             .unwrap(),
         0
     );
+}
+
+#[tokio::test]
+async fn expired_barrier_recovers_a_durable_result_but_never_executes_an_unstarted_floor_change() {
+    let fixture = Fixture::new();
+    let target = fixture.target(1, "{}");
+    fixture.apply(target.clone()).await;
+    let expected = fixture
+        .checkpoint(Fixture::binding(&target))
+        .await
+        .observed
+        .unwrap();
+    let actions = fixture.services.inner.actions.lock().unwrap().clone();
+    let expired = ControlRequest::Barrier(RuntimeRecoveryBarrierRequest {
+        request_id: Uuid::new_v4(),
+        expected: expected.clone(),
+        minimum_revision: 1,
+        expires_at: now_timestamp() - 1,
+    });
+    fixture
+        .state
+        .lock()
+        .unwrap()
+        .enqueue_runtime_control(&expired)
+        .unwrap();
+    let unstarted = fixture.reconciler.runtime_control(&expired).await.unwrap();
+    let ControlResult::Barrier(failure) = &unstarted else {
+        unreachable!()
+    };
+    assert!(!failure.success && !failure.pending_intents_clear);
+    assert!(failure.observed.is_none() && failure.minimum_revision.is_none());
+    assert_eq!(failure.request_id, expired.id());
+    assert_eq!(failure.request_digest, expired.digest().unwrap());
+    assert!(failure.error.as_deref().unwrap().contains("expired"));
+    assert_eq!(
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .runtime_revision_floor("demo")
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .runtime_control_result(&expired)
+            .unwrap(),
+        Some(unstarted.clone())
+    );
+    let committed = ControlRequest::Barrier(RuntimeRecoveryBarrierRequest {
+        request_id: Uuid::new_v4(),
+        expected,
+        minimum_revision: 1,
+        expires_at: now_timestamp() + 60,
+    });
+    fixture
+        .state
+        .lock()
+        .unwrap()
+        .enqueue_runtime_control(&committed)
+        .unwrap();
+    let original = fixture
+        .reconciler
+        .runtime_control(&committed)
+        .await
+        .unwrap();
+    let ControlResult::Barrier(success) = &original else {
+        unreachable!()
+    };
+    assert!(success.success && success.pending_intents_clear);
+    assert_eq!(success.minimum_revision, Some(1));
+    fixture
+        .state
+        .lock()
+        .unwrap()
+        .set_json("clock_offset_ms", &180000i64)
+        .unwrap();
+    fixture.services.generation.fetch_add(1, Ordering::SeqCst);
+    // Reopening the actual persistent journal models an Agent restart. Recovery
+    // returns the old receipt, even after expiry and a changed live instance.
+    let reopened = Arc::new(Mutex::new(State::open(&fixture.config.state_db).unwrap()));
+    let reconciler = Reconciler::new(
+        fixture.config.clone(),
+        reopened.clone(),
+        fixture.adapter.clone(),
+        Arc::new(SystemOps),
+        fixture.services.clone(),
+    )
+    .with_trusted_keys(crate::release_test_support::trusted_keys());
+    assert!(!committed.valid_at(reconciler.runtime_control_now().unwrap()));
+    assert_eq!(
+        reopened
+            .lock()
+            .unwrap()
+            .enqueue_runtime_control(&committed)
+            .unwrap(),
+        Some(original.clone())
+    );
+    assert_eq!(
+        reconciler.runtime_control(&committed).await.unwrap(),
+        original
+    );
+    assert_eq!(
+        reconciler.runtime_control(&expired).await.unwrap(),
+        unstarted
+    );
+    assert_eq!(
+        reopened
+            .lock()
+            .unwrap()
+            .runtime_revision_floor("demo")
+            .unwrap(),
+        1
+    );
+    assert_eq!(*fixture.services.inner.actions.lock().unwrap(), actions);
 }
 
 #[tokio::test]

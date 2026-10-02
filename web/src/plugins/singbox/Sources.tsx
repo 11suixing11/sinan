@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Badge, Confirm, ErrorNotice, Icon, Loading } from '../../components'
 import { useAction, useResource } from '../../hooks'
 import { dateText, validatedSnapshot } from './groupTypes'
@@ -11,7 +11,7 @@ import { sourceRoot, sourceStatusText, validSubscriptionSources } from './source
 import type { SourceReceipt, SubscriptionSource } from './sourceTypes'
 import './sources.css'
 
-export default function Sources() {
+export default function Sources({ createRequest = 0 }: { createRequest?: number } = {}) {
   const query = useResource<unknown>(sourceRoot)
   const previous = useRef<SubscriptionSource[] | undefined>(undefined)
   const snapshot = validatedSnapshot(query, validSubscriptionSources, previous.current)
@@ -24,6 +24,13 @@ export default function Sources() {
   const [notice, setNotice] = useState('')
   const [includeArchived, setIncludeArchived] = useState(false)
   const error = sourceMetadataError(snapshot)
+  const requested = useRef(0)
+  useEffect(() => {
+    if (!createRequest || createRequest === requested.current || error || action.busy) return
+    requested.current = createRequest
+    setDetail(null); setEditorOpen(true); action.clearError()
+    if (session.mode !== 'create') setSession(current => ({ mode: 'create', generation: current.generation + 1 }))
+  }, [createRequest, error, action.busy, session.mode])
   const refresh = () => query.reload()
   const edit = (mode: SourceEditorMode, source?: SubscriptionSource) => {
     if (action.busy || sourceWriteError(snapshot, source?.id, source?.settings_revision, mode === 'archive' || mode === 'unarchive')) return
@@ -40,7 +47,7 @@ export default function Sources() {
     if (sourceMetadataError(snapshot) || session.source && !source) return
     setSession({ mode: session.mode, source, generation: session.generation + 1 })
   }
-  return <section className="panel sources-panel" aria-label="订阅来源管理"><div className="panel-heading"><div><h2>订阅来源 <span className="count">{snapshot.data?.length ?? '—'}</span></h2><p className="helper">集中抓取、解析和保存外部节点版本；与受管节点和两跳链路分开管理。</p></div><div className="source-section-actions"><button className="button button-secondary" onClick={refresh}><Icon name="refresh" size={16} />刷新来源列表</button><button className="button button-secondary" disabled={Boolean(error) || action.busy} onClick={() => edit('create')}><Icon name="plus" size={16} />添加订阅来源</button></div></div>
+  return <section className="panel sources-panel" aria-label="订阅来源管理"><div className="panel-heading"><div><h2>订阅来源 <span className="count">{snapshot.data?.length ?? '—'}</span></h2><p className="helper">抓取、解析和保存不可变外部节点版本；链路只引用明确节点与版本，来源本身不作为公开授权入口。</p></div><div className="source-section-actions"><button className="button button-secondary" onClick={refresh}><Icon name="refresh" size={16} />刷新来源列表</button><button className="button button-secondary" disabled={Boolean(error) || action.busy} onClick={() => edit('create')}><Icon name="plus" size={16} />添加订阅来源</button></div></div>
     <div className="panel-body"><ErrorNotice message={snapshot.error || action.error} retry={refresh} />{notice && <p className="notice" role="status">{notice}</p>}{error && <p className="helper" role="status">来源修改暂不可用，已读取的历史信息仍可查看。</p>}<label className="source-archive-filter"><input type="checkbox" checked={includeArchived} onChange={event => setIncludeArchived(event.target.checked)} />显示已归档来源</label>
       {query.loading && !snapshot.data ? <Loading /> : !snapshot.data ? <p className="helper">来源列表尚未取得，请刷新确认。</p> : !snapshot.data.filter(source => includeArchived || !source.archived).length ? <p className="helper">暂无{includeArchived ? '' : '活跃'}订阅来源。可添加 HTTPS 地址，或粘贴、上传订阅内容。</p> : <ul className="source-list">{snapshot.data.filter(source => includeArchived || !source.archived).map(source => <li key={source.id} data-source-id={source.id}>
         <div className="source-card-heading"><div><strong>{source.name}</strong><small>{source.kind === 'url' ? `HTTPS · ${source.host ?? '主机未知'}` : '粘贴或文件'} · 设置 {source.settings_revision} / 代次 {source.identity_epoch}</small></div><Badge tone={!snapshot.fresh || source.archived ? 'neutral' : source.last_error ? 'warm' : source.latest_success ? 'good' : 'neutral'}>{!snapshot.fresh ? '来源状态待确认' : source.archived ? '已归档' : source.active_job ? sourceStatusText[source.active_job.status] : source.last_error ? '更新失败，保留上次结果' : source.latest_success ? '有成功解析版本' : '等待首次解析'}</Badge></div>
@@ -52,7 +59,7 @@ export default function Sources() {
           void action.run(() => refreshSource(snapshot, source), () => { setNotice('刷新任务已提交，请查看抓取与解析状态。'); refresh() })
         }}>{source.kind === 'url' ? '抓取并解析' : '更新内容'}</button><button className="text-button danger-text" disabled={action.busy || Boolean(sourceWriteError(snapshot, source.id, source.settings_revision, true))} onClick={() => remove(source)}>删除来源</button></div>
       </li>)}</ul>}
-      <p className="helper">解析成功表示格式支持，不表示外部节点在线。本阶段的外部节点不进入现有受管两跳选择器，也不计入上方代理资源数。</p>
+      <p className="helper">解析成功表示格式支持，不表示外部节点在线。外部节点作为有序链路中的明确版本引用，来源本身不计入上方代理资源数，也不直接授予用户。</p>
     </div>
     <SourceEditor session={session} open={editorOpen} snapshot={snapshot} refresh={refresh} onClose={() => setEditorOpen(false)} onSaved={saved} onReset={resetEditor} />
     {detail && !editorOpen && <SourceDetailDrawer key={detail.id} selected={detail} snapshot={snapshot} refresh={refresh} onClose={() => setDetail(null)} edit={edit} remove={remove} />}

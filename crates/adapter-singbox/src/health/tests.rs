@@ -7,6 +7,12 @@ use std::{
 };
 use tokio::time::timeout;
 
+// These tests close an ephemeral UDP socket and immediately bind its old
+// address to prove descriptor release. Keep the whole lifecycle exclusive so
+// another health fixture cannot acquire that address between those operations.
+// A leaked descriptor still fails the single bind; there is no retry or yield.
+static UDP_LIFECYCLE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 struct CertificateDirectory(std::path::PathBuf);
 
 impl CertificateDirectory {
@@ -79,11 +85,15 @@ impl Drop for CertificateDirectory {
 }
 
 fn assert_released(addresses: impl IntoIterator<Item = SocketAddr>) {
-    for address in addresses {
-        // Binding immediately, with no retry/yield, proves no descriptor still
-        // owns this address even if a Quinn driver retains the abstract socket.
-        drop(std::net::UdpSocket::bind(address).expect("health socket remained bound"));
-    }
+    // Keep every rebound socket until all addresses have been checked. This
+    // also proves that distinct fixture descriptors did not share an address.
+    let _rebound: Vec<_> = addresses
+        .into_iter()
+        .map(|address| {
+            std::net::UdpSocket::bind(address)
+                .unwrap_or_else(|error| panic!("health socket {address} remained bound: {error}"))
+        })
+        .collect();
 }
 
 fn resources() -> Result<socket::Resources> {
@@ -110,6 +120,7 @@ fn resources() -> Result<socket::Resources> {
 #[tokio::test]
 async fn pure_quinn_loopback_validates_certificate_and_custom_alpn() -> Result<()> {
     use rustls::pki_types::PrivateKeyDer;
+    let _exclusive_sockets = UDP_LIFECYCLE.lock().await;
     let (_directory, certificate, key) = CertificateDirectory::new().await?;
     let chain = CertificateDer::pem_slice_iter(certificate.as_bytes())
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -184,6 +195,7 @@ async fn pure_quinn_loopback_validates_certificate_and_custom_alpn() -> Result<(
 
 #[tokio::test]
 async fn owned_quic_socket_transfers_datagrams_and_closes_retained_pollers() -> Result<()> {
+    let _exclusive_sockets = UDP_LIFECYCLE.lock().await;
     let socket = socket::Socket::bind("127.0.0.1:0".parse()?)?;
     let address = socket.local_addr()?;
     let peer = UdpSocket::bind("127.0.0.1:0").await?;
@@ -234,6 +246,7 @@ async fn owned_quic_socket_transfers_datagrams_and_closes_retained_pollers() -> 
 
 #[tokio::test]
 async fn quic_error_and_timeout_explicitly_join_owned_drivers() -> Result<()> {
+    let _exclusive_sockets = UDP_LIFECYCLE.lock().await;
     for invalid_name in [true, false] {
         let resources = resources()?;
         let address = resources.socket.local_addr()?;
@@ -267,6 +280,7 @@ async fn quic_error_and_timeout_explicitly_join_owned_drivers() -> Result<()> {
 
 #[tokio::test]
 async fn salamander_loopback_echo_and_timeout_release_both_sockets() -> Result<()> {
+    let _exclusive_sockets = UDP_LIFECYCLE.lock().await;
     let peer = UdpSocket::bind("127.0.0.1:0").await?;
     let bridge =
         crate::obfuscation::Bridge::new(peer.local_addr()?, "TEST_ONLY_salamander".into()).await?;
@@ -313,9 +327,11 @@ async fn salamander_loopback_echo_and_timeout_release_both_sockets() -> Result<(
 
 #[tokio::test]
 async fn cancelling_the_probe_closes_quic_and_bridge_sockets_without_a_retry() -> Result<()> {
+    let _exclusive_sockets = UDP_LIFECYCLE.lock().await;
     let peer = UdpSocket::bind("127.0.0.1:0").await?;
     let resources = resources()?;
     let retained = resources.socket.clone();
+    let mut retained_poller = retained.clone().create_io_poller();
     let address = retained.local_addr()?;
     let bridge =
         crate::obfuscation::Bridge::new(peer.local_addr()?, "TEST_ONLY_salamander".into()).await?;
@@ -341,8 +357,18 @@ async fn cancelling_the_probe_closes_quic_and_bridge_sockets_without_a_retry() -
     task.abort();
     assert!(task.await.unwrap_err().is_cancelled());
     assert!(retained.is_closed());
-    assert_released([address]);
-    assert_released(bridge_addresses);
+    assert_eq!(
+        retained.local_addr().unwrap_err().kind(),
+        ErrorKind::NotConnected
+    );
+    assert_eq!(
+        poll_fn(|cx| retained_poller.as_mut().poll_writable(cx))
+            .await
+            .unwrap_err()
+            .kind(),
+        ErrorKind::NotConnected
+    );
+    assert_released(std::iter::once(address).chain(bridge_addresses));
     Ok(())
 }
 
@@ -378,6 +404,7 @@ async fn driver_cleanup_waits_for_all_tasks_and_refuses_late_spawns() -> Result<
 #[tokio::test]
 #[ignore = "requires OpenSSL and official sing-box 1.14.2 in SINAN_TEST_UPSTREAM; runs only on ephemeral loopback ports"]
 async fn obfuscated_quic_health_checks_certificate_and_custom_alpn() -> Result<()> {
+    let _exclusive_sockets = UDP_LIFECYCLE.lock().await;
     let binary = std::env::var("SINAN_TEST_UPSTREAM")?;
     let directory = std::env::temp_dir().join(format!("sinan-health-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&directory)?;

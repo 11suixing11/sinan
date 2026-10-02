@@ -23,6 +23,17 @@ body:has(.nodes-page) { min-width: 320px; }
 .chain-preview ol { padding-left: 20px; }
 .chain-preview li > span { display: block; color: var(--text-muted, #727985); }
 .chain-editor .helper code { overflow-wrap: anywhere; }
+.chain-path-editor { border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 16px; margin: 18px 0; min-width: 0; }
+.chain-path-editor legend { padding: 0 7px; font-size: 14px; font-weight: 600; }
+.chain-hop-draft { border-bottom: 1px solid var(--border, #e5e7eb); margin-bottom: 16px; padding-bottom: 12px; min-width: 0; }
+.chain-hop-draft header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
+.chain-row-path { margin: 20px 0; }
+.chain-generation, .chain-lifecycle { border-top: 1px solid var(--border, #e5e7eb); padding: 16px 0; }
+.chain-generation p, .chain-generation small, .chain-lifecycle p, .chain-lifecycle li, .resource-path-summary { overflow-wrap: anywhere; font-size: 13px; line-height: 1.8; }
+.chain-generation small, .chain-lifecycle li small { display: block; color: var(--text-muted, #727985); }
+.resource-path-summary { max-width: 340px; }
+.resource-path-summary small { display: block; }
+.resource-topology.ordered-topology { grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); }
 @media (max-width: 600px) { .resource-topology, .resource-facts, .chain-draft-row { grid-template-columns: 1fr; } .topology-arrow { transform: rotate(90deg); justify-self: center; } .chain-draft-row { gap: 0; border-bottom: 1px solid var(--border, #e5e7eb); padding-bottom: 12px; margin-bottom: 16px; } .chain-draft-row > button { margin: 0; justify-self: start; } }
 @media (max-width: 360px) { .nodes-page .stats-grid { grid-template-columns: 1fr; } }
 .node-editor h3 { margin: 6px 0 18px; font-size: 15px; }

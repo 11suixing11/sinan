@@ -9,6 +9,89 @@ fn request() -> ControlRequest {
     })
 }
 
+#[test]
+fn probe_receipt_is_bound_durable_immutable_and_cannot_change_recovery_floor() {
+    let directory = std::env::temp_dir().join(format!("sn-probe-ledger-{}", Uuid::new_v4()));
+    std::fs::create_dir(&directory).unwrap();
+    let path = directory.join("state.db");
+    let request = ControlRequest::Probe(RuntimePathProbeRequest {
+        request_id: Uuid::new_v4(),
+        probe_id: Uuid::new_v4(),
+        expected: RuntimeCheckpoint {
+            binding: RuntimeBinding::new(Uuid::new_v4(), "demo".into(), 2, "a".repeat(64)),
+            activation_id: Uuid::new_v4(),
+            instance_id: "fixture-instance".into(),
+            healthy: true,
+        },
+        expires_at: sinan_protocol::now_timestamp() + 60,
+    });
+    let ControlRequest::Probe(value) = &request else {
+        unreachable!()
+    };
+    let result = ControlResult::Probe(RuntimePathProbeResult {
+        request_id: request.id(),
+        request_digest: request.digest().unwrap(),
+        observed: Some(value.expected.clone()),
+        probe_id: value.probe_id,
+        elapsed_ms: Some(17),
+        success: true,
+        error: None,
+    });
+    {
+        let mut state = State::open(&path).unwrap();
+        state.enqueue_runtime_control(&request).unwrap();
+        let ControlResult::Probe(mut wrong) = result.clone() else {
+            unreachable!()
+        };
+        wrong.probe_id = Uuid::new_v4();
+        assert!(
+            state
+                .finish_runtime_control(&ControlResult::Probe(wrong), None)
+                .is_err()
+        );
+        assert!(
+            state
+                .finish_runtime_control(&result, Some(("demo", 2)))
+                .is_err()
+        );
+        assert_eq!(state.runtime_revision_floor("demo").unwrap(), 0);
+        state.finish_runtime_control(&result, None).unwrap();
+    }
+    let mut state = State::open(&path).unwrap();
+    assert_eq!(
+        state.enqueue_runtime_control(&request).unwrap(),
+        Some(result.clone())
+    );
+    assert_eq!(
+        state.pending_runtime_results().unwrap(),
+        vec![result.clone()]
+    );
+    let ack = RuntimeControlAck {
+        request_id: request.id(),
+        request_digest: request.digest().unwrap(),
+    };
+    assert!(
+        state
+            .acknowledge_runtime_control("checkpoint", &ack)
+            .is_err()
+    );
+    state.acknowledge_runtime_control("probe", &ack).unwrap();
+    assert!(state.pending_runtime_results().unwrap().is_empty());
+    assert_eq!(
+        state.enqueue_runtime_control(&request).unwrap(),
+        Some(result)
+    );
+    let mut changed = value.clone();
+    changed.probe_id = Uuid::new_v4();
+    assert!(
+        state
+            .enqueue_runtime_control(&ControlRequest::Probe(changed))
+            .is_err()
+    );
+    drop(state);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
 fn failure(request: &ControlRequest) -> ControlResult {
     ControlResult::Checkpoint(RuntimeCheckpointResult {
         request_id: request.id(),

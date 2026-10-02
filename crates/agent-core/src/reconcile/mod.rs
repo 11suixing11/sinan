@@ -1,6 +1,7 @@
 mod apply;
 mod checkpoint;
 mod inspection;
+mod path_probe;
 
 use crate::{artifacts::PanelClient, config::Config, state::SharedState};
 use anyhow::{Context, Result};
@@ -41,6 +42,10 @@ impl std::fmt::Display for RecoveryBlocked {
 impl std::error::Error for RecoveryBlocked {}
 
 impl Reconciler {
+    pub fn supports_runtime_probe(&self) -> bool {
+        self.services.supports_runtime_checkpoint() && self.adapter.supports_runtime_probe()
+    }
+
     pub fn new(
         config: Config,
         state: SharedState,

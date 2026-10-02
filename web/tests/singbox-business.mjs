@@ -222,10 +222,10 @@ try {
     // The following independent chain scenarios start with an enabled entry.
     node.enabled = true
     chainFixtures = true
-    await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '两跳链路', exact: true }).click()
+    await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '链路', exact: true }).click()
     await page.getByRole('heading', { name: '代理节点', exact: true, level: 1 }).waitFor()
-    await page.getByRole('heading', { name: /^两跳链路/, level: 2 }).waitFor()
-    assert.equal(await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '两跳链路', exact: true }).getAttribute('aria-current'), 'page')
+    await page.getByRole('heading', { name: /^链路/, level: 2 }).waitFor()
+    assert.equal(await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '链路', exact: true }).getAttribute('aria-current'), 'page')
     assert.equal(await page.locator('nav[aria-label="主导航"]').getByRole('link', { name: '两跳链路', exact: true }).count(), 0)
     const chainMutationStart = mutations.length
     await page.getByRole('button', { name: '创建两跳链路', exact: true }).click()
@@ -237,9 +237,9 @@ try {
     await chainDialog.getByRole('button', { name: '创建未授权链路', exact: true }).click()
     await page.getByText('未授权验收链路', { exact: true }).waitFor()
     assert.deepEqual(mutations.slice(chainMutationStart), [{ path: '/api/plugins/sing-box/chains/batch', method: 'POST' }])
-    // The server query includes either endpoint and never shows unrelated chains.
+    // The server query includes any managed segment and never shows unrelated chains.
     assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=chains&server=1')
-    await page.getByText(`筛选范围：入口或出口属于「${metadata.name}」的链路。`, { exact: false }).waitFor()
+    await page.getByText(`筛选范围：任一受管段属于「${metadata.name}」的链路。`, { exact: false }).waitFor()
     await page.getByText('本服务器作为出口', { exact: true }).waitFor()
     assert.equal(await page.getByText('无关服务器链路', { exact: true }).count(), 0)
     let createdRow = page.getByRole('row').filter({ has: page.getByText('未授权验收链路', { exact: true }) })
@@ -259,7 +259,7 @@ try {
 
     await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '直连节点', exact: true }).click()
     await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption('2')
-    await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '两跳链路', exact: true }).click()
+    await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '链路', exact: true }).click()
     await page.getByText('未授权验收链路', { exact: true }).waitFor()
     assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=chains&server=2')
     assert.equal(await page.getByRole('row').count(), 2)
@@ -323,7 +323,7 @@ try {
     await page.getByText('普通节点需为代理用户授权并等待设备成功应用配置', { exact: false }).waitFor()
     await page.getByText('出口可使用内部连接凭据监听，无需为出口单独授权用户。', { exact: false }).waitFor()
     await page.goto(`${origin}/#/plugins/sing-box/nodes`)
-    await page.getByText('共享出口 · 1 条链路引用', { exact: true }).waitFor()
+    await page.getByText('共享端点 · 1 条链路引用', { exact: true }).waitFor()
     chainsFailure = true
     await page.reload()
     await page.getByText('链路夹具读取失败', { exact: true }).waitFor()

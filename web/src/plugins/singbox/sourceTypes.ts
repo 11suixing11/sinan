@@ -6,13 +6,13 @@ export type SourceFailure = { stage: string; kind: string; message: string; http
 export type SourceRevision = { id: string; source_id: number; settings_revision: number; identity_epoch: number; parser_version: string; format: string; parsed_at: number; counts: SourceCounts }
 export type SourceJobStatus = 'queued' | 'running' | 'cancelling' | 'succeeded' | 'unchanged' | 'failed' | 'cancelled' | 'superseded'
 export type SourceJob = { id: string; source_id: number; settings_revision: number; identity_epoch: number; parser_version: string; status: SourceJobStatus; stage: 'queued' | 'fetch' | 'parse' | 'store' | 'done'; created_at: number; started_at: number | null; finished_at: number | null; source_revision_id: string | null; error: SourceFailure | null }
+export type SourceDependency = { chain_id: number; chain_name: string; generation: number; state: 'applied' | 'candidate' | 'recovery'; hop_position: number; external_node_id: string; node_version_id: string; identity_epoch: number }
 export type SubscriptionSource = {
   id: number; name: string; kind: 'url' | 'inline'; host: string | null; configured: boolean; auth_configured: boolean;
   settings_revision: number; identity_epoch: number; archived: boolean; refresh_interval_secs: number;
   last_attempt_at: number | null; last_success_at: number | null; latest_success: SourceRevision | null;
   active_job: SourceJob | null; last_error: SourceFailure | null; stale_reason: string | null; counts: SourceCounts;
-  // No mixed paths exist in this release. A nonempty future dependency schema must be explicitly decoded.
-  dependencies: never[];
+  dependencies: SourceDependency[];
 }
 export type SourceNode = {
   id: string; source_id: number; identity_epoch: number; version_id: string; source_revision_id: string;
@@ -46,6 +46,10 @@ export function validSourceRevision(v: unknown): v is SourceRevision {
     && text(v.parser_version) && ['uri_list', 'base64_uri_list', 'sing_box_json', 'clash_yaml'].includes(String(v.format)) && integer(v.parsed_at) && validSourceCounts(v.counts)
 }
 export const sourceJobActive = (job: Pick<SourceJob, 'status'> | null | undefined) => !!job && ['queued', 'running', 'cancelling'].includes(job.status)
+export function validSourceDependency(v: unknown): v is SourceDependency {
+  return record(v) && exact(v, 'chain_id chain_name generation state hop_position external_node_id node_version_id identity_epoch') && integer(v.chain_id, 1) && text(v.chain_name) && integer(v.generation, 1)
+    && ['applied', 'candidate', 'recovery'].includes(String(v.state)) && integer(v.hop_position, 1) && v.hop_position <= 8 && sourceUuid(v.external_node_id) && sourceUuid(v.node_version_id) && integer(v.identity_epoch, 1)
+}
 export function validSourceJob(v: unknown): v is SourceJob {
   return record(v) && exact(v, 'id source_id settings_revision identity_epoch parser_version status stage created_at started_at finished_at source_revision_id error')
     && sourceUuid(v.id) && integer(v.source_id, 1) && integer(v.settings_revision, 1) && integer(v.identity_epoch, 1) && text(v.parser_version)
@@ -62,7 +66,7 @@ export function validSubscriptionSource(v: unknown): v is SubscriptionSource {
     && nullableTime(v.last_attempt_at) && nullableTime(v.last_success_at) && nullableText(v.stale_reason) && validSourceCounts(v.counts)
     && (v.latest_success === null || validSourceRevision(v.latest_success) && v.latest_success.source_id === v.id)
     && (v.active_job === null || validSourceJob(v.active_job) && v.active_job.source_id === v.id && sourceJobActive(v.active_job))
-    && (v.last_error === null || validSourceFailure(v.last_error)) && Array.isArray(v.dependencies) && v.dependencies.length === 0
+    && (v.last_error === null || validSourceFailure(v.last_error)) && Array.isArray(v.dependencies) && v.dependencies.every(validSourceDependency)
 }
 export function validSubscriptionSources(v: unknown): v is SubscriptionSource[] {
   return Array.isArray(v) && v.length <= 128 && v.every(validSubscriptionSource) && new Set(v.map(item => item.id)).size === v.length

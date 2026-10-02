@@ -1,6 +1,10 @@
 #![forbid(unsafe_code)]
 
 mod business_support;
+#[allow(dead_code)]
+#[path = "ordered_paths/support.rs"]
+mod ordered_support;
+mod release_fixture;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
 
@@ -8,11 +12,73 @@ use anyhow::{Context, Result, ensure};
 use business_support::{TestPanel, id};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
+use sinan_panel::{AppState, agent_api, runtime_control};
+use sinan_protocol::*;
 use sqlx::PgPool;
 use std::collections::BTreeSet;
+use std::ops::Deref;
 use uuid::Uuid;
 
 const ROOT: &str = "/api/plugins/sing-box";
+
+struct ControlledPanel(TestPanel);
+
+impl Deref for ControlledPanel {
+    type Target = TestPanel;
+    fn deref(&self) -> &TestPanel {
+        &self.0
+    }
+}
+
+impl ControlledPanel {
+    /// TEST_ONLY device capabilities and platform facts; no native binary is executed.
+    async fn create_server(&self, cookie: &str, name: &str) -> Result<i64> {
+        let server = self.0.create_server(cookie, name).await?;
+        sqlx::query("UPDATE servers SET capabilities=$2,static_info=$3 WHERE id=$1")
+            .bind(server)
+            .bind(json!([RUNTIME_CHECKPOINT_CAPABILITY,RUNTIME_RECOVERY_BARRIER_CAPABILITY,RUNTIME_PATH_PROBE_CAPABILITY]))
+            .bind(json!({"os":"linux","arch":sinan_protocol::release::native_arch()?,"libc":"gnu","runtime_libc":"gnu"}))
+            .execute(&self.state.pool).await?;
+        Ok(server)
+    }
+}
+
+async fn controlled_panel(pool: PgPool) -> Result<ControlledPanel> {
+    let panel = TestPanel::start_with_public_url(pool, Some("https://panel.example")).await?;
+    let binary = b"TEST_ONLY native binary never executed";
+    let archive = release_fixture::archive("sing-box", binary)?;
+    release_fixture::write(
+        &panel.state.config.data_dir,
+        "sing-box",
+        "1.14.2",
+        "sing-box",
+        &archive,
+        binary,
+        "tar.gz",
+    )?;
+    Ok(ControlledPanel(panel))
+}
+
+/// Drive product publication and exact digest-bound TEST_ONLY receipts, never coarse SQL health.
+async fn advance_phase(panel: &TestPanel, chain: i64, terminal: &str) -> Result<Vec<String>> {
+    let mut phases = Vec::new();
+    for _ in 0..32 {
+        let phase: String = sqlx::query_scalar("SELECT phase FROM singbox_chains WHERE id=$1")
+            .bind(chain)
+            .fetch_one(&panel.state.pool)
+            .await?;
+        phases.push(phase.clone());
+        if phase == terminal {
+            return Ok(phases);
+        }
+        panel.publish_now().await?;
+        ordered_support::confirm_devices(&panel.state).await?;
+        sinan_panel::plugins::singbox::ordered_paths::reconcile_pending(&panel.state).await?;
+        ordered_support::finish_controls(&panel.state, true).await?;
+        sinan_panel::plugins::singbox::ordered_paths::reconcile_pending(&panel.state).await?;
+    }
+    anyhow::bail!("controlled chain {chain} did not reach {terminal}; phases: {phases:?}")
+}
 
 async fn call(
     panel: &TestPanel,
@@ -120,7 +186,7 @@ async fn clean_servers(pool: &PgPool) -> Result<()> {
 
 async fn state(pool: &PgPool) -> Result<Value> {
     Ok(sqlx::query_scalar(
-        "SELECT jsonb_build_object('nodes',(SELECT COUNT(*) FROM nodes),'chains',(SELECT COUNT(*) FROM singbox_chains),'active_nodes',(SELECT COUNT(*) FROM nodes WHERE deleted_at IS NULL),'grants',(SELECT COUNT(*) FROM accesses),'servers',(SELECT jsonb_agg(jsonb_build_array(id,dirty_at) ORDER BY id) FROM servers))",
+        "SELECT jsonb_build_object('nodes',(SELECT COUNT(*) FROM nodes),'chains',(SELECT COUNT(*) FROM singbox_chains),'active_nodes',(SELECT COUNT(*) FROM nodes WHERE deleted_at IS NULL),'grants',(SELECT COUNT(*) FROM accesses),'versions',(SELECT COUNT(*) FROM singbox_chain_versions),'hops',(SELECT COUNT(*) FROM singbox_chain_hops),'endpoint_versions',(SELECT COUNT(*) FROM singbox_managed_endpoint_versions),'runtime_requirements',(SELECT COUNT(*) FROM singbox_chain_runtime_requirements),'receipts',(SELECT COUNT(*) FROM singbox_chain_creation_requests),'servers',(SELECT jsonb_agg(jsonb_build_array(id,dirty_at) ORDER BY id) FROM servers))",
     )
     .fetch_one(pool)
     .await?)
@@ -154,15 +220,18 @@ async fn usage_identity(pool: &PgPool) -> Result<Value> {
 
 async fn public_subscription(panel: &TestPanel, user: &Value) -> Result<Value> {
     panel.publish_now().await?;
-    sqlx::query("UPDATE server_module_status SET applied_rev=target_rev,healthy=TRUE WHERE module='singbox'")
-        .execute(&panel.state.pool)
-        .await?;
-    let url = user["subscription_url"]
+    ordered_support::confirm_devices(&panel.state).await?;
+    let token = user["subscription_token"]
         .as_str()
-        .context("legacy subscription URL")?;
+        .context("existing subscription token")?;
+    let path = format!("/sub/{token}");
+    assert_eq!(
+        user["subscription_url"],
+        format!("{}{path}", panel.state.config.public_url)
+    );
     Ok(panel
         .client
-        .get(format!("{url}?format=singbox"))
+        .get(format!("{}{path}?format=singbox", panel.base))
         .send()
         .await?
         .error_for_status()?
@@ -198,7 +267,7 @@ fn no_private_fields(value: &Value) {
 async fn catalog_has_typed_ids_distinct_grant_counts_and_preserves_existing_subscriptions(
     pool: PgPool,
 ) -> Result<()> {
-    let panel = TestPanel::start(pool.clone()).await?;
+    let panel = controlled_panel(pool.clone()).await?;
     let cookie = panel.admin_cookie().await?;
     let exit_server = panel.create_server(&cookie, "Exit server").await?;
     let exit = id(&panel
@@ -266,6 +335,9 @@ async fn catalog_has_typed_ids_distinct_grant_counts_and_preserves_existing_subs
         .bind(deleted)
         .execute(&pool)
         .await?;
+    let phases = advance_phase(&panel, chain, "applied").await?;
+    assert!(phases.iter().any(|phase| phase == "preparing_entry"));
+    assert!(phases.iter().any(|phase| phase == "switching_entry"));
 
     assert_eq!(
         panel
@@ -287,10 +359,16 @@ async fn catalog_has_typed_ids_distinct_grant_counts_and_preserves_existing_subs
     assert_eq!(direct["exit"], Value::Null);
     assert_eq!(
         direct["chain_refs"],
-        json!([{"id":chain,"name":"Managed route","role":"exit"}])
+        json!([{"id":chain,"name":"Managed route","role":"exit","generation":1,"hop_position":1,"state":"applied"}])
     );
     assert_eq!(route["entry"]["id"], entry);
     assert_eq!(route["exit"]["id"], exit);
+    assert_eq!(route["path_kind"], "ordered");
+    assert_eq!(route["hops"][0]["node_id"], exit);
+    assert_eq!(route["path_state"]["applied_generation"], 1);
+    assert_eq!(route["path_state"]["minimum_generation"], 1);
+    assert_eq!(route["path_state"]["probe"]["state"], "verified");
+    assert!(route["path_state"]["candidate_generation"].is_null());
     assert_eq!(route["available"], true);
     assert_eq!(route["unavailable_reasons"], json!([]));
     assert_eq!(route["entry"]["server_name"], "Entry server");
@@ -334,7 +412,7 @@ async fn catalog_has_typed_ids_distinct_grant_counts_and_preserves_existing_subs
         StatusCode::NOT_FOUND
     );
     no_private_fields(&list);
-    let relay: Uuid = sqlx::query_scalar("SELECT relay_uuid FROM singbox_chains WHERE id=$1")
+    let relay: Uuid = sqlx::query_scalar("SELECT relay_uuid FROM singbox_chain_hops WHERE chain_id=$1 AND generation=1 AND position=1")
         .bind(chain)
         .fetch_one(&pool)
         .await?;
@@ -385,7 +463,7 @@ async fn catalog_has_typed_ids_distinct_grant_counts_and_preserves_existing_subs
 async fn batch_middle_failure_rolls_back_entries_chains_and_dirty_markers(
     pool: PgPool,
 ) -> Result<()> {
-    let panel = TestPanel::start(pool.clone()).await?;
+    let panel = controlled_panel(pool.clone()).await?;
     let cookie = panel.admin_cookie().await?;
     let entry_server = panel.create_server(&cookie, "Entry").await?;
     panel.enable_plugin(&cookie, entry_server).await?;
@@ -420,7 +498,7 @@ async fn batch_middle_failure_rolls_back_entries_chains_and_dirty_markers(
 async fn concurrent_same_request_replays_normalized_body_and_rejects_changed_order(
     pool: PgPool,
 ) -> Result<()> {
-    let panel = TestPanel::start(pool.clone()).await?;
+    let panel = controlled_panel(pool.clone()).await?;
     let cookie = panel.admin_cookie().await?;
     let entry_server = panel.create_server(&cookie, "Entry").await?;
     panel.enable_plugin(&cookie, entry_server).await?;
@@ -478,7 +556,7 @@ async fn concurrent_same_request_replays_normalized_body_and_rejects_changed_ord
 async fn concurrent_batches_allocate_unique_auto_ports_without_partial_reservations(
     pool: PgPool,
 ) -> Result<()> {
-    let panel = TestPanel::start(pool.clone()).await?;
+    let panel = controlled_panel(pool.clone()).await?;
     let cookie = panel.admin_cookie().await?;
     let entry_server = panel.create_server(&cookie, "Entry").await?;
     panel.enable_plugin(&cookie, entry_server).await?;
@@ -539,7 +617,7 @@ async fn concurrent_batches_allocate_unique_auto_ports_without_partial_reservati
 async fn batch_rejects_unauthorized_entries_and_invalid_managed_topologies(
     pool: PgPool,
 ) -> Result<()> {
-    let panel = TestPanel::start(pool.clone()).await?;
+    let panel = controlled_panel(pool.clone()).await?;
     let cookie = panel.admin_cookie().await?;
     let a = panel.create_server(&cookie, "A").await?;
     let b = panel.create_server(&cookie, "B").await?;
@@ -615,9 +693,14 @@ async fn batch_rejects_unauthorized_entries_and_invalid_managed_topologies(
             existing_entry("Policy bypass", na3, nb),
             StatusCode::CONFLICT,
         ),
+        // A path cannot return to its own entry, even before entry-role reservation.
         (existing_entry("Same node", na, na), StatusCode::BAD_REQUEST),
         (
             existing_entry("Same server", na, na2),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            existing_entry("Public address loop", legacy_node, nb),
             StatusCode::BAD_REQUEST,
         ),
         (
@@ -679,8 +762,18 @@ async fn batch_rejects_unauthorized_entries_and_invalid_managed_topologies(
         );
         assert_eq!(state(&pool).await?, before);
     }
+    // Different server IDs still need distinct public endpoints: the default
+    // first nodes otherwise both point to proxy.example.com:20000.
+    call(
+        &panel,
+        &cookie,
+        Method::PATCH,
+        &format!("/nodes/{nb}"),
+        Some(json!({"public_host":"exit-b.example.com"})),
+    )
+    .await?;
     // Preserved nodes keep legacy enablement even when the explicit row is disabled.
-    let (status, _) = batch(
+    let (status, created) = batch(
         &panel,
         &cookie,
         request(vec![existing_entry(
@@ -690,7 +783,7 @@ async fn batch_rejects_unauthorized_entries_and_invalid_managed_topologies(
         )]),
     )
     .await?;
-    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(status, StatusCode::CREATED, "{created}");
     call(
         &panel,
         &cookie,
@@ -744,7 +837,7 @@ async fn batch_rejects_unauthorized_entries_and_invalid_managed_topologies(
 async fn batch_limits_and_unsupported_paths_fail_before_mutating_existing_business(
     pool: PgPool,
 ) -> Result<()> {
-    let panel = TestPanel::start(pool.clone()).await?;
+    let panel = controlled_panel(pool.clone()).await?;
     let cookie = panel.admin_cookie().await?;
     let a = panel.create_server(&cookie, "Entry").await?;
     panel.enable_plugin(&cookie, a).await?;
@@ -763,9 +856,11 @@ async fn batch_limits_and_unsupported_paths_fail_before_mutating_existing_busine
             .status(),
         StatusCode::UNAUTHORIZED
     );
-    let mut two_hops = valid.clone();
-    two_hops["items"][0]["hops"] =
+    let mut repeated_hop = valid.clone();
+    repeated_hop["items"][0]["hops"] =
         json!([{"kind":"managed","node_id":exit},{"kind":"managed","node_id":exit}]);
+    let mut too_many_hops = valid.clone();
+    too_many_hops["items"][0]["hops"] = json!(vec![json!({"kind":"managed","node_id":exit}); 9]);
     let mut subscription_hop = valid.clone();
     subscription_hop["items"][0]["hops"] = json!([{"kind":"subscription","node_id":exit}]);
     let mut missing_hop = valid.clone();
@@ -777,7 +872,8 @@ async fn batch_limits_and_unsupported_paths_fail_before_mutating_existing_busine
     for invalid in [
         request(vec![]),
         request(vec![new_entry("Too many", a, exit, None); 33]),
-        two_hops,
+        repeated_hop,
+        too_many_hops,
         subscription_hop,
         missing_hop,
         unknown_field,
@@ -793,7 +889,7 @@ async fn batch_limits_and_unsupported_paths_fail_before_mutating_existing_busine
 async fn resource_delete_preserves_shared_exit_history_and_deleted_request_replay(
     pool: PgPool,
 ) -> Result<()> {
-    let panel = TestPanel::start(pool.clone()).await?;
+    let panel = controlled_panel(pool.clone()).await?;
     let cookie = panel.admin_cookie().await?;
     let a = panel.create_server(&cookie, "Entry").await?;
     panel.enable_plugin(&cookie, a).await?;
@@ -818,6 +914,8 @@ async fn resource_delete_preserves_shared_exit_history_and_deleted_request_repla
     let group = policy(&panel, &cookie, "In use", &[], &[first]).await?;
     let user = id(&panel.create_user(&cookie, "Chain subscriber").await?)?;
     memberships(&panel, &cookie, user, &[group]).await?;
+    advance_phase(&panel, first, "applied").await?;
+    advance_phase(&panel, chains[1], "applied").await?;
     save_usage(&pool, a, user, entries[0]).await?;
     save_usage(&pool, b, legacy_id, exit).await?;
     let history = usage_identity(&pool).await?;
@@ -888,6 +986,29 @@ async fn resource_delete_preserves_shared_exit_history_and_deleted_request_repla
         None,
     )
     .await?;
+    let retiring: String = sqlx::query_scalar("SELECT phase FROM singbox_chains WHERE id=$1")
+        .bind(first)
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(retiring, "retiring");
+    let protected = panel
+        .admin(
+            Method::DELETE,
+            &format!("{ROOT}/proxy-resources/direct/{exit}"),
+            &cookie,
+            None,
+        )
+        .await?;
+    assert_eq!(protected.status(), StatusCode::CONFLICT);
+    let cleanup_refs: Value = protected.json().await?;
+    assert!(
+        cleanup_refs["references"]["chains"]
+            .as_array()
+            .context("pending cleanup references")?
+            .iter()
+            .any(|reference| reference["id"] == first)
+    );
+    advance_phase(&panel, first, "retired").await?;
     let deleted: Option<i64> = sqlx::query_scalar("SELECT deleted_at FROM nodes WHERE id=$1")
         .bind(entries[0])
         .fetch_one(&pool)
@@ -952,17 +1073,58 @@ async fn resource_delete_preserves_shared_exit_history_and_deleted_request_repla
     )
     .await?;
     assert_eq!(retained["available"], true);
-    // Compatibility removal detaches the relationship without deleting its entry.
+    assert_eq!(retained["path_kind"], "ordered");
+    // The old relationship endpoint cannot partially detach a new ordered path.
+    let before_detach = state(&pool).await?;
+    assert_eq!(
+        panel
+            .admin(
+                Method::DELETE,
+                &format!("{ROOT}/chains/{}", chains[1]),
+                &cookie,
+                None
+            )
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(state(&pool).await?, before_detach);
     call(
         &panel,
         &cookie,
         Method::DELETE,
-        &format!("/chains/{}", chains[1]),
+        &format!("/proxy-resources/chain/{}", chains[1]),
+        None,
+    )
+    .await?;
+    advance_phase(&panel, chains[1], "retired").await?;
+    let removed: Option<i64> = sqlx::query_scalar("SELECT deleted_at FROM nodes WHERE id=$1")
+        .bind(entries[1])
+        .fetch_one(&pool)
+        .await?;
+    assert!(removed.is_some());
+    // Explicitly imported legacy relationships still detach without deleting the entry.
+    let compatibility_entry = id(&panel
+        .create_node(&cookie, a, "Legacy detachable entry")
+        .await?)?;
+    let compatibility_chain = id(&panel
+        .import_legacy_chain(
+            &cookie,
+            "Imported legacy relationship",
+            compatibility_entry,
+            exit,
+        )
+        .await?)?;
+    call(
+        &panel,
+        &cookie,
+        Method::DELETE,
+        &format!("/chains/{compatibility_chain}"),
         None,
     )
     .await?;
     let retained: Option<i64> = sqlx::query_scalar("SELECT deleted_at FROM nodes WHERE id=$1")
-        .bind(entries[1])
+        .bind(compatibility_entry)
         .fetch_one(&pool)
         .await?;
     assert_eq!(retained, None);
@@ -970,7 +1132,7 @@ async fn resource_delete_preserves_shared_exit_history_and_deleted_request_repla
         &panel,
         &cookie,
         Method::GET,
-        &format!("/proxy-resources/direct/{}", entries[1]),
+        &format!("/proxy-resources/direct/{compatibility_entry}"),
         None,
     )
     .await?;
@@ -1007,7 +1169,7 @@ async fn resource_delete_preserves_shared_exit_history_and_deleted_request_repla
 async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_configuration(
     pool: PgPool,
 ) -> Result<()> {
-    let panel = TestPanel::start(pool.clone()).await?;
+    let panel = controlled_panel(pool.clone()).await?;
     let cookie = panel.admin_cookie().await?;
     let a = panel.create_server(&cookie, "Entry").await?;
     let b = panel.create_server(&cookie, "Exit").await?;
@@ -1015,15 +1177,22 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
     let orphan_old = id(&panel.create_node(&cookie, a, "Old cleanup").await?)?;
     let orphan_new = id(&panel.create_node(&cookie, a, "Resource cleanup").await?)?;
     let exit = id(&panel.create_node(&cookie, b, "Existing exit").await?)?;
-    let (status, created) = batch(
-        &panel,
-        &cookie,
-        request(vec![existing_entry("Historical chain", entry, exit)]),
-    )
-    .await?;
-    assert_eq!(status, StatusCode::CREATED);
-    let chain = ids(&created, "chain_ids")?[0];
-    assert_eq!(ids(&created, "entry_node_ids")?, vec![entry]);
+    let imported = panel
+        .import_legacy_chain(&cookie, "Historical chain", entry, exit)
+        .await?;
+    let chain = id(&imported)?;
+    assert_eq!(imported["entry_node_id"], entry);
+    assert_eq!(
+        call(
+            &panel,
+            &cookie,
+            Method::GET,
+            &format!("/proxy-resources/chain/{chain}"),
+            None
+        )
+        .await?["path_kind"],
+        "legacy"
+    );
     let original_settings: Value = sqlx::query_scalar("SELECT settings FROM nodes WHERE id=$1")
         .bind(exit)
         .fetch_one(&pool)
@@ -1092,7 +1261,8 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
         let list = call(&panel, &cookie, Method::GET, "/proxy-resources", None).await?;
         let route = resource(&list, "chain", chain)?;
         assert_eq!(route["available"], false);
-        assert_eq!(route["exit"]["protocol"], "snell-v6");
+        // Desired immutable input stays Reality while live metadata reports damage.
+        assert_eq!(route["exit"]["protocol"], "vless-reality");
         assert!(
             route["unavailable_reasons"]
                 .as_array()
@@ -1100,7 +1270,7 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
                 .iter()
                 .any(|value| value
                     .as_str()
-                    .is_some_and(|text| text.contains("出口协议参数")))
+                    .is_some_and(|text| text.contains("第 1 跳协议参数")))
         );
         assert_eq!(resource(&list, "direct", exit)?["available"], false);
         assert_eq!(resource(&list, "direct", orphan_new)?["available"], true);

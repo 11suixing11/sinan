@@ -2477,6 +2477,7 @@ dependencies = [
  "protoc-bin-vendored",
  "quinn",
  "rand 0.8.8",
+ "reqwest",
  "serde_json",
  "sinan-adapter-sdk",
  "tokio",
@@ -2553,6 +2554,7 @@ dependencies = [
  "base64 0.22.1",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror",
  "uuid",
 ]

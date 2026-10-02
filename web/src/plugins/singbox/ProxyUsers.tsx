@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import UserEntitlements from './UserEntitlements'
 import SubscriptionDialog from './SubscriptionDialog'
 import type { SubscriptionFormat } from './SubscriptionDialog'
-import type { Chain } from './groupTypes'
+import { validatedSnapshot, validProxyResources } from './groupTypes'
+import type { ProxyResource } from './groupTypes'
 import { api } from '../../api'
 import { Badge, Confirm, Empty, ErrorNotice, Field, FormDialog, Icon, Loading, Modal, PageHeader, Refresh, Stat } from '../../components'
 import { bytes, totalBytes } from '../../format'
@@ -11,8 +12,10 @@ import type { Access, Node, Usage, ProxyUser } from '../../types'
 
 export default function ProxyUsers() {
   const users = useResource<ProxyUser[]>('/api/plugins/sing-box/users')
-  const nodes = useResource<Node[]>('/api/plugins/sing-box/nodes')
-  const chains = useResource<Chain[]>('/api/plugins/sing-box/chains')
+  const resourceQuery = useResource<unknown>('/api/plugins/sing-box/proxy-resources')
+  const previous = useRef<ProxyResource[] | undefined>(undefined)
+  const resources = validatedSnapshot(resourceQuery, validProxyResources, previous.current)
+  if (resources.fresh) previous.current = resources.data
   const usage = useResource<Usage>('/api/plugins/sing-box/usage')
   const action = useAction()
   const [selected, setSelected] = useState<number | null>(null)
@@ -28,22 +31,25 @@ export default function ProxyUsers() {
   }, [users.data])
   const accesses = useResource<Access[]>(selected ? `/api/plugins/sing-box/users/${selected}/accesses` : null)
   const selectedUsage = useResource<Usage>(selected ? `/api/plugins/sing-box/usage?user_id=${selected}` : null)
+  const nodes = { ...resources, data: resources.data?.filter(resource => resource.kind === 'direct' && (resource.available || accesses.data?.some(access => access.node_id === resource.id && access.direct_grant))).map(resource => resource.entry) }
+  const chains = { ...resources, data: resources.data?.filter(resource => resource.kind === 'chain').map(resource => ({ entry_node_id: resource.entry.id })) }
   const userWriteError = resourceWriteError(users)
   const userError = (id?: number) => userWriteError || (id !== undefined && !users.data?.some(user => user.id === id) ? '此代理用户已不可用，暂不能提交。草稿已保留，可关闭窗口后重新选择。' : '')
   const editorWriteError = userError(editor && editor !== 'new' ? editor.id : undefined)
   const deleteWriteError = userError(deleting?.id)
   const resetWriteError = userError(resetting?.id)
-  const grantWriteError = resourceWriteError(users, nodes, chains, accesses)
+  const grantWriteError = resourceWriteError(users, resources, accesses)
   const user = users.data?.find(user => user.id === selected)
   const record = usage.data?.by_user.find(record => record.user_id === selected)
-  const refresh = () => { users.reload(); nodes.reload(); chains.reload(); usage.reload(); accesses.reload(); selectedUsage.reload() }
+  const refresh = () => { users.reload(); resourceQuery.reload(); usage.reload(); accesses.reload(); selectedUsage.reload() }
   const edit = (value: ProxyUser | 'new') => { if (userWriteError) return; action.clearError(); setEditor(value) }
   const submit = (form: FormData) => {
     if (editorWriteError || !editor) return
     void action.run(() => api<ProxyUser>(editor === 'new' ? '/api/plugins/sing-box/users' : `/api/plugins/sing-box/users/${editor?.id}`, editor === 'new' ? 'POST' : 'PATCH', { name: String(form.get('name')).trim() }), value => { setEditor(null); setSelected(value.id); users.reload() })
   }
-  const grant = (node: Node, checked: boolean) => {
+  const grant = (node: Pick<Node, 'id'>, checked: boolean) => {
     if (!selected || grantWriteError) return
+    if (!resources.data?.some(resource => resource.kind === 'direct' && resource.id === node.id && (!checked || resource.available))) return
     setNotice('')
     void action.run(() => checked ? api(`/api/plugins/sing-box/users/${selected}/accesses`, 'POST', { node_id: node.id }) : api(`/api/plugins/sing-box/users/${selected}/accesses/${node.id}`, 'DELETE'), () => { accesses.reload(); setNotice(checked ? '授权已保存，设备应用新配置后会出现在订阅中。' : '授权已撤销，已从订阅移除；运行时将在新配置应用后更新。') })
   }

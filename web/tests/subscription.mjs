@@ -3,6 +3,7 @@ import { createServer } from 'node:http'
 import { readFile, mkdir } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
 
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
 const root = fileURLToPath(new URL('../dist/', import.meta.url))
@@ -30,14 +31,15 @@ try {
     let mode = 'ready', modern = true, subscriptionRequests = 0, resets = 0, lastContent = '', lastAddress = ''
     const user = { id: 1, name: '订阅测试用户', subscription_token: 'stale-fixture-token', subscription_url: 'https://panel.example.com/sub/stale-fixture-token' }
     const entitlement = { user_id: 1, package_group_id: null, package_name: null, status: 'unmetered', allowed: true, monthly_bytes: null, used_bytes: '4096', expires_at: null }
-    const nodes = [{ id: 2, name: '现代协议节点 · 仅本用户可用', protocol: 'hysteria2', server_id: 1, public_host: 'proxy.example.com', port: 443 }]
+    const nodes = [{ id: 2, name: '现代协议节点 · 仅本用户可用', protocol: 'hysteria2', server_id: 1, public_host: 'proxy.example.com', port: 443, sni: 'proxy.example.com' }]
+    const servers = [{ id: 1, name: '订阅示例服务器', enabled: true, online: false, read_only: false }]
     await page.route('**/api/**', async route => {
       const request = route.request(), url = new URL(request.url()), path = url.pathname
       const respond = json => route.fulfill({ json })
       if (path === '/api/dashboard/access') return respond({ authenticated: mode !== 'unauthorized', public_dashboard: false })
       if (path === '/api/plugins/sing-box/users') return respond([user])
-      if (path === '/api/plugins/sing-box/nodes') return respond(nodes)
-      if (path === '/api/plugins/sing-box/chains' || path.endsWith('/accesses') || path.endsWith('/policy-groups') && !path.includes('/users/') || path.endsWith('/package-groups')) return respond([])
+      if (path === '/api/plugins/sing-box/proxy-resources') return respond(proxyResourceFixtures(nodes, servers))
+      if (path.endsWith('/accesses') || path.endsWith('/policy-groups') && !path.includes('/users/') || path.endsWith('/package-groups')) return respond([])
       if (path === '/api/plugins/sing-box/usage') return respond({ uplink: '0', downlink: '0', total: '0', by_user: [], by_node: [] })
       if (path === '/api/plugins/sing-box/users/1/policy-groups') return respond({ group_ids: [] })
       if (path === '/api/plugins/sing-box/users/1/entitlement') return respond(entitlement)

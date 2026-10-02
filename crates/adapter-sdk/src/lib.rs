@@ -41,6 +41,29 @@ pub struct Prepared {
     pub listen_ports: Vec<u16>,
 }
 
+/// Private companion to the native configuration, covered by the bundle signature.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeProbePlan {
+    pub schema: u32,
+    pub runtime_version: String,
+    pub required_build_tags: Vec<String>,
+    pub bindings: Vec<RuntimeProbeBinding>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeProbeBinding {
+    pub id: String,
+    pub selector: String,
+    pub target: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RuntimeProbeMeasurement {
+    pub elapsed_ms: u64,
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Plan {
@@ -390,6 +413,16 @@ pub trait UsageSource: Send + Sync {
 
 pub trait Adapter: Send + Sync {
     fn describe(&self) -> Descriptor;
+    fn supports_runtime_probe(&self) -> bool {
+        false
+    }
+    fn runtime_probe<'a>(
+        &'a self,
+        _runtime: &'a Prepared,
+        _probe_id: &'a str,
+    ) -> BoxFuture<'a, RuntimeProbeMeasurement> {
+        Box::pin(async { anyhow::bail!("runtime path verification is unsupported") })
+    }
     /// Optional startup budget; callers must impose their own upper bound.
     fn health_timeout(&self, _target: &Prepared) -> std::time::Duration {
         std::time::Duration::ZERO

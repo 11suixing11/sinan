@@ -18,6 +18,9 @@ pub async fn run(state: AppState) {
         if let Err(error) = super::entitlements::refresh(&state.pool, now_timestamp()).await {
             tracing::error!(%error, "package eligibility refresh failed; will retry");
         }
+        if let Err(_error) = super::ordered_paths::lifecycle::tick(&state).await {
+            tracing::error!("ordered path transition failed; durable work retained");
+        }
         if let Err(error) = publish_due(&state).await {
             tracing::error!(%error, "configuration publication failed; pending work retained");
         }
@@ -75,12 +78,52 @@ async fn snapshot(
 }
 
 async fn publish_server(state: &AppState, server_id: i64) -> anyhow::Result<()> {
+    let mut retries = 0;
+    let revision = loop {
+        match publish_server_transaction(state, server_id).await {
+            Ok(revision) => break revision,
+            Err(error)
+                if retries < 2
+                    && error
+                        .chain()
+                        .filter_map(|cause| cause.downcast_ref::<sqlx::Error>())
+                        .any(|error| {
+                            error
+                                .as_database_error()
+                                .is_some_and(|database| database.code().as_deref() == Some("40001"))
+                        }) =>
+            {
+                // Waiting on the authorization lock can outlive the RR snapshot.
+                // Retry the complete uncommitted ledger/configuration transaction;
+                // a fresh snapshot may simply find that another publisher finished it.
+                retries += 1;
+                tokio::task::yield_now().await;
+            }
+            Err(error) => return Err(error),
+        }
+    };
+    if let Some(rev) = revision {
+        agent_api::notify(
+            state,
+            server_id,
+            Envelope::new("manifest.changed", ManifestChanged { rev })?,
+        )
+        .await;
+    }
+    Ok(())
+}
+
+async fn publish_server_transaction(
+    state: &AppState,
+    server_id: i64,
+) -> anyhow::Result<Option<u64>> {
     let mut tx = state.pool.begin().await?;
     // Authorization and relay selection must see the same ledger and clock.
     // Otherwise a reset/expiry between queries could leave an entry with direct routing.
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         .execute(&mut *tx)
         .await?;
+    super::entitlements::lock(&mut tx).await?;
     let at = now_timestamp();
     let query = format!(
         "SELECT s.manifest_rev FROM servers s LEFT JOIN server_plugins p ON p.server_id=s.id AND p.plugin='sing-box' WHERE s.id=$1 AND s.deleted_at IS NULL AND {DUE} AND ({}) IS NOT NULL FOR UPDATE OF s SKIP LOCKED",
@@ -91,47 +134,58 @@ async fn publish_server(state: &AppState, server_id: i64) -> anyhow::Result<()> 
         .fetch_optional(&mut *tx)
         .await?
     else {
-        return Ok(());
+        return Ok(None);
     };
     // Device declarations may have changed since the due-work scan. Recheck
     // under the server lock before creating legacy deployment evidence.
     if !super::settings::is_enabled(&mut tx, server_id).await? {
         tx.commit().await?;
-        return Ok(());
+        return Ok(None);
     }
     let nodes = snapshot(&mut tx, server_id, at).await?;
-    let source = serde_json::to_value(&nodes)?;
     let relays = super::chains::load(&mut tx, server_id, at).await?;
-    let native = sinan_compiler::compile_server_with_relays(&nodes, &relays)?;
-    let bundle = serde_json::to_string(&Bundle {
-        files: BTreeMap::from([("config.json".into(), native)]),
-    })?;
+    let plan =
+        super::ordered_paths::publication::plan(state, &mut tx, server_id, at, nodes, relays)
+            .await?;
+    let source = super::ordered_paths::publication::source(&plan)?;
+    let native = sinan_compiler::compile_server_with_paths(
+        &plan.nodes,
+        &plan.legacy,
+        &plan.paths,
+        &plan.accepts,
+        plan.probe_control.as_ref(),
+    )?;
+    let mut files = BTreeMap::from([("config.json".into(), native)]);
+    if let Some(probes) = &plan.probe_plan {
+        files.insert("runtime-probes.json".into(), serde_json::to_string(probes)?);
+    }
+    let bundle = serde_json::to_string(&Bundle { files })?;
     let hash = crate::auth::hash_token(&bundle);
     let previous = sqlx::query("SELECT rev,bundle_sha256 FROM deployments WHERE server_id=$1 AND module=$2 ORDER BY rev DESC LIMIT 1")
         .bind(server_id).bind(MODULE).fetch_optional(&mut *tx).await?;
     if let Some(previous) = previous.filter(|row| row.get::<String, _>("bundle_sha256") == hash) {
-        // Subscription-only metadata may change without changing native bytes.
-        sqlx::query(
-            "UPDATE deployments SET source_json=$4 WHERE server_id=$1 AND module=$2 AND rev=$3",
+        // Public display metadata is separate from immutable accounting/path evidence.
+        super::ordered_paths::publication::record(
+            &mut tx,
+            server_id,
+            previous.get::<i64, _>("rev"),
+            &hash,
+            &plan,
         )
-        .bind(server_id)
-        .bind(MODULE)
-        .bind(previous.get::<i64, _>("rev"))
-        .bind(source)
-        .execute(&mut *tx)
         .await?;
         sqlx::query("UPDATE servers SET dirty_at=NULL WHERE id=$1")
             .bind(server_id)
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
-        return Ok(());
+        return Ok(None);
     }
     let rev = manifest_rev
         .checked_add(1)
         .ok_or_else(|| anyhow::anyhow!("revision overflow"))?;
     sqlx::query("INSERT INTO deployments(server_id,module,rev,bundle,bundle_sha256,source_json,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)")
-        .bind(server_id).bind(MODULE).bind(rev).bind(bundle).bind(hash).bind(source).bind(now_timestamp()).execute(&mut *tx).await?;
+        .bind(server_id).bind(MODULE).bind(rev).bind(bundle).bind(&hash).bind(source).bind(now_timestamp()).execute(&mut *tx).await?;
+    super::ordered_paths::publication::record(&mut tx, server_id, rev, &hash, &plan).await?;
     sqlx::query("INSERT INTO server_module_status(server_id,module,target_rev,updated_at) VALUES($1,$2,$3,$4) ON CONFLICT(server_id,module) DO UPDATE SET target_rev=EXCLUDED.target_rev,updated_at=EXCLUDED.updated_at")
         .bind(server_id).bind(MODULE).bind(rev).bind(now_timestamp()).execute(&mut *tx).await?;
     sqlx::query("UPDATE servers SET manifest_rev=$2,dirty_at=NULL WHERE id=$1")
@@ -139,19 +193,9 @@ async fn publish_server(state: &AppState, server_id: i64) -> anyhow::Result<()> 
         .bind(rev)
         .execute(&mut *tx)
         .await?;
+    let revision = rev.try_into()?;
     tx.commit().await?;
-    agent_api::notify(
-        state,
-        server_id,
-        Envelope::new(
-            "manifest.changed",
-            ManifestChanged {
-                rev: rev.try_into()?,
-            },
-        )?,
-    )
-    .await;
-    Ok(())
+    Ok(Some(revision))
 }
 
 #[cfg(test)]

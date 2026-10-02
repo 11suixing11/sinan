@@ -195,3 +195,96 @@ async fn confirmed_floor_never_decreases_across_a_new_activation(pool: PgPool) -
     assert_eq!(floor, 2);
     Ok(())
 }
+
+#[sqlx::test]
+async fn unreceived_expired_barrier_replays_its_original_payload_until_a_durable_terminal_receipt(
+    pool: PgPool,
+) -> Result<()> {
+    let (panel, server) = fixture(pool).await?;
+    confirmed(&panel.state, server).await?;
+    let mut request = runtime_control::request_barrier(&panel.state, server, MODULE, 1).await?;
+    // TEST_ONLY simulate downtime past the original command's fixed deadline.
+    request.expires_at = now_timestamp() - 1;
+    let digest = request.digest()?;
+    let payload = json!(request);
+    sqlx::query("UPDATE runtime_control_requests SET created_at=$2-120,expires_at=$2,request_json=$3,request_digest=$4 WHERE request_id=$1")
+        .bind(request.request_id).bind(request.expires_at).bind(&payload).bind(&digest).execute(&panel.state.pool).await?;
+    let mut expired_checkpoint =
+        runtime_control::request_checkpoint(&panel.state, server, MODULE).await?;
+    expire(&panel.state.pool, &mut expired_checkpoint).await?;
+    let restarted = AppState::new(panel.state.pool.clone(), (*panel.state.config).clone()).await?;
+    let mut receiver = attach(&restarted, server).await;
+    runtime_control::replay_pending(&restarted, server).await?;
+    assert_eq!(
+        receive(&mut receiver).await?,
+        Message::RuntimeRecoveryBarrierRequest(request.clone())
+    );
+    assert!(
+        receiver.try_recv().is_err(),
+        "expired checkpoints are not recovered as new work"
+    );
+    runtime_control::replay_pending(&restarted, server).await?;
+    assert_eq!(
+        receive(&mut receiver).await?,
+        Message::RuntimeRecoveryBarrierRequest(request.clone())
+    );
+    let persisted:(Value,String,i64,String)=sqlx::query_as("SELECT request_json,request_digest,expires_at,state FROM runtime_control_requests WHERE request_id=$1")
+        .bind(request.request_id).fetch_one(&panel.state.pool).await?;
+    assert_eq!(
+        persisted,
+        (
+            payload,
+            digest.clone(),
+            request.expires_at,
+            "expired".to_owned()
+        ),
+        "replay never renews the deadline or changes the original request identity"
+    );
+    agent_api::process_message(
+        &restarted,
+        server,
+        Message::RuntimeRecoveryBarrierResult(RuntimeRecoveryBarrierResult {
+            request_id: request.request_id,
+            request_digest: digest.clone(),
+            observed: None,
+            minimum_revision: None,
+            pending_intents_clear: false,
+            success: false,
+            error: Some("TEST_ONLY original deadline expired before device execution".into()),
+        }),
+    )
+    .await?;
+    assert_eq!(
+        receive(&mut receiver).await?,
+        Message::RuntimeRecoveryBarrierAck(RuntimeControlAck {
+            request_id: request.request_id,
+            request_digest: digest,
+        })
+    );
+    assert_eq!(
+        outcome(&panel.state.pool, request.request_id).await?,
+        "late"
+    );
+    runtime_control::replay_pending(&restarted, server).await?;
+    assert!(
+        receiver.try_recv().is_err(),
+        "a durable receipt excludes further expired-command recovery"
+    );
+    confirmed(&panel.state, server).await?;
+    let mut corrupted = runtime_control::request_barrier(&restarted, server, MODULE, 1).await?;
+    assert_eq!(
+        receive(&mut receiver).await?,
+        Message::RuntimeRecoveryBarrierRequest(corrupted.clone())
+    );
+    corrupted.expires_at = now_timestamp() - 1;
+    sqlx::query("UPDATE runtime_control_requests SET created_at=$2-120,expires_at=$2,request_json=$3,request_digest=$4 WHERE request_id=$1")
+        .bind(corrupted.request_id).bind(corrupted.expires_at).bind(json!(corrupted)).bind("0".repeat(64)).execute(&panel.state.pool).await?;
+    assert!(
+        runtime_control::replay_pending(&restarted, server)
+            .await
+            .is_err(),
+        "the persisted original digest must be checked before replay"
+    );
+    assert!(receiver.try_recv().is_err());
+    Ok(())
+}

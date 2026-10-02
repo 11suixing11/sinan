@@ -11,7 +11,7 @@ use axum::{
 };
 use serde::Serialize;
 use sinan_protocol::now_timestamp;
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{FromRow, PgConnection, Postgres, Transaction};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Serialize, FromRow)]
@@ -51,6 +51,9 @@ pub struct ChainReference {
     pub id: i64,
     pub name: String,
     pub role: &'static str,
+    pub generation: i64,
+    pub hop_position: Option<i32>,
+    pub state: String,
 }
 
 #[derive(Serialize)]
@@ -66,14 +69,10 @@ pub struct ProxyResource {
     pub policy_group_ids: Vec<i64>,
     pub user_count: i64,
     pub chain_refs: Vec<ChainReference>,
-}
-
-#[derive(FromRow)]
-struct ChainRow {
-    id: i64,
-    name: String,
-    entry_node_id: i64,
-    exit_node_id: i64,
+    pub settings_revision: i64,
+    pub path_kind: Option<String>,
+    pub hops: Vec<super::ordered_paths::models::PublicHop>,
+    pub path_state: Option<super::ordered_paths::models::PathState>,
 }
 
 pub async fn list(
@@ -107,12 +106,13 @@ fn validate_identity(kind: &str, id: i64) -> ApiResult<()> {
 }
 
 async fn read_resources(state: &AppState) -> ApiResult<Vec<ProxyResource>> {
+    use super::ordered_paths::{models::*, storage};
     let mut tx = state.pool.begin().await?;
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         .execute(&mut *tx)
         .await?;
     let query = format!(
-        "SELECT n.id,n.name,n.server_id,s.name AS server_name,n.protocol,n.port,n.settings,n.protocol_config,n.public_host,n.sni,n.enabled,n.deleted_at IS NOT NULL AS node_deleted,s.deleted_at IS NOT NULL AS server_deleted,({}) IS NOT NULL AS plugin_enabled,(s.last_seen IS NOT NULL AND $1-s.last_seen<=60) AS online,m.target_rev AS desired_revision,m.applied_rev AS applied_revision,m.updated_at AS applied_observed_at FROM nodes n JOIN servers s ON s.id=n.server_id LEFT JOIN server_plugins p ON p.server_id=s.id AND p.plugin='sing-box' LEFT JOIN server_module_status m ON m.server_id=s.id AND m.module='singbox' WHERE (n.deleted_at IS NULL AND s.deleted_at IS NULL) OR EXISTS(SELECT 1 FROM singbox_chains c WHERE c.entry_node_id=n.id OR c.exit_node_id=n.id) ORDER BY n.id",
+        "SELECT n.id,n.name,n.server_id,s.name AS server_name,n.protocol,n.port,n.settings,n.protocol_config,n.public_host,n.sni,n.enabled,n.deleted_at IS NOT NULL AS node_deleted,s.deleted_at IS NOT NULL AS server_deleted,({}) IS NOT NULL AS plugin_enabled,(s.last_seen IS NOT NULL AND $1-s.last_seen<=60) AS online,m.target_rev AS desired_revision,m.applied_rev AS applied_revision,m.updated_at AS applied_observed_at FROM nodes n JOIN servers s ON s.id=n.server_id LEFT JOIN server_plugins p ON p.server_id=s.id AND p.plugin='sing-box' LEFT JOIN server_module_status m ON m.server_id=s.id AND m.module='singbox' ORDER BY n.id",
         super::settings::SOURCE_SQL
     );
     let endpoints: BTreeMap<i64, ResourceEndpoint> = sqlx::query_as::<_, ResourceEndpoint>(&query)
@@ -139,9 +139,9 @@ async fn read_resources(state: &AppState) -> ApiResult<Vec<ProxyResource>> {
             (endpoint.id, endpoint)
         })
         .collect();
-    let chains = sqlx::query_as::<_, ChainRow>(
-        "SELECT id,name,entry_node_id,exit_node_id FROM singbox_chains ORDER BY id",
-    )
+    let chains = sqlx::query_as::<_, super::ordered_paths::models::ChainRow>(&format!(
+        "SELECT {CHAIN_COLUMNS} FROM singbox_chains WHERE deleted_at IS NULL ORDER BY id"
+    ))
     .fetch_all(&mut *tx)
     .await?;
     let mut resources = Vec::new();
@@ -160,8 +160,27 @@ async fn read_resources(state: &AppState) -> ApiResult<Vec<ProxyResource>> {
         .bind(endpoint.id)
         .fetch_all(&mut *tx)
         .await?;
-        let user_count = sqlx::query_scalar("SELECT COUNT(DISTINCT g.user_id) FROM (SELECT user_id FROM accesses WHERE node_id=$1 AND direct_grant UNION SELECT up.user_id FROM singbox_user_policies up JOIN singbox_policy_nodes pn ON pn.group_id=up.group_id WHERE pn.node_id=$1) g JOIN users u ON u.id=g.user_id WHERE u.deleted_at IS NULL")
-            .bind(endpoint.id).fetch_one(&mut *tx).await?;
+        let user_count=sqlx::query_scalar("SELECT COUNT(DISTINCT g.user_id) FROM (SELECT user_id FROM accesses WHERE node_id=$1 AND direct_grant UNION SELECT up.user_id FROM singbox_user_policies up JOIN singbox_policy_nodes pn ON pn.group_id=up.group_id WHERE pn.node_id=$1) g JOIN users u ON u.id=g.user_id WHERE u.deleted_at IS NULL").bind(endpoint.id).fetch_one(&mut *tx).await?;
+        let references = node_chain_references(&mut tx, endpoint.id).await?;
+        let chain_refs = references
+            .into_iter()
+            .map(|reference| ChainReference {
+                id: reference.id,
+                name: reference.name,
+                role: if reference.role == "entry" {
+                    "entry"
+                } else {
+                    "exit"
+                },
+                generation: reference.generation,
+                hop_position: reference.hop_position,
+                state: reference.state,
+            })
+            .collect();
+        let revision = sqlx::query_scalar("SELECT resource_revision FROM nodes WHERE id=$1")
+            .bind(endpoint.id)
+            .fetch_one(&mut *tx)
+            .await?;
         let reasons = endpoint_reasons(endpoint, "节点");
         resources.push(ProxyResource {
             kind: "direct",
@@ -173,56 +192,184 @@ async fn read_resources(state: &AppState) -> ApiResult<Vec<ProxyResource>> {
             unavailable_reasons: reasons,
             policy_group_ids,
             user_count,
-            chain_refs: chains
-                .iter()
-                .filter(|chain| chain.exit_node_id == endpoint.id)
-                .map(|chain| ChainReference {
-                    id: chain.id,
-                    name: chain.name.clone(),
-                    role: "exit",
-                })
-                .collect(),
+            chain_refs,
+            settings_revision: revision,
+            path_kind: None,
+            hops: vec![],
+            path_state: None,
         });
     }
     for chain in chains {
-        // Node/server identities are retained by foreign keys and soft deletion.
-        let entry = endpoints
+        let current_entry = endpoints
             .get(&chain.entry_node_id)
-            .ok_or_else(|| anyhow::anyhow!("chain entry identity is missing"))?;
-        let exit = endpoints
-            .get(&chain.exit_node_id)
-            .ok_or_else(|| anyhow::anyhow!("chain exit identity is missing"))?;
-        let mut reasons = endpoint_reasons(entry, "入口");
-        reasons.extend(endpoint_reasons(exit, "出口"));
-        if entry.protocol != "vless-reality" || exit.protocol != "vless-reality" {
-            reasons.push("现有受管两跳需要两端均使用 VLESS + Reality".into());
+            .ok_or(ApiError::NotFound)?;
+        let mut reasons = endpoint_reasons(current_entry, "入口");
+        let mut generations = Vec::new();
+        let desired = storage::version(&mut tx, chain.id, chain.desired_generation).await?;
+        let entry = if chain.path_kind == "legacy" {
+            current_entry.clone()
+        } else {
+            frozen_endpoint(&desired.snapshot.entry, &endpoints)?
+        };
+        let hops = project_hops(&mut tx, &desired.snapshot, &endpoints).await?;
+        for hop in &hops {
+            if let PublicHop::Managed {
+                position, endpoint, ..
+            } = hop
+            {
+                reasons.extend(endpoint_reasons(endpoint, &format!("第 {position} 跳")));
+            }
         }
-        if entry.server_id == exit.server_id {
-            reasons.push("入口与出口必须属于不同服务器".into());
+        for (state, generation) in [
+            ("desired", Some(chain.desired_generation)),
+            ("applied", chain.applied_generation),
+            ("candidate", chain.candidate_generation),
+            ("recovery", chain.recovery_generation),
+        ] {
+            if let Some(generation) = generation {
+                let version = storage::version(&mut tx, chain.id, generation).await?;
+                generations.push(GenerationView {
+                    generation,
+                    state: state.into(),
+                    hops: project_hops(&mut tx, &version.snapshot, &endpoints).await?,
+                });
+            }
         }
+        let exit = match hops.last() {
+            Some(PublicHop::Managed { endpoint, .. }) => Some(endpoint.clone()),
+            _ => None,
+        };
+        let dependencies=sqlx::query_as::<_,DependencyViewRow>("SELECT d.server_id,d.role,CASE WHEN d.role='entry' THEN NULL ELSE d.hop_position END AS hop_position,d.generation,d.stage,d.revision AS required_revision,m.applied_rev AS applied_revision,d.bundle_sha256,CASE WHEN d.observed_at IS NOT NULL AND m.applied_rev=d.revision AND m.target_rev=d.revision AND s.dirty_at IS NULL AND m.healthy THEN 'ready' WHEN m.last_result_rev>=d.revision AND NOT m.healthy AND m.last_error IS NOT NULL THEN 'failed' ELSE 'pending' END AS state,d.observed_at FROM singbox_path_stage_deployments d LEFT JOIN server_module_status m ON m.server_id=d.server_id AND m.module='singbox' JOIN servers s ON s.id=d.server_id WHERE d.chain_id=$1 AND d.generation=ANY(ARRAY[$2,$3,$4,$5]) ORDER BY d.generation,d.stage,d.server_id").bind(chain.id).bind(chain.desired_generation).bind(chain.applied_generation).bind(chain.candidate_generation).bind(chain.recovery_generation).fetch_all(&mut *tx).await?.into_iter().map(DependencyViewRow::view).collect();
+        let probe=sqlx::query_as::<_,ProbeViewRow>("SELECT stage,request_id,state,observed_at,error FROM singbox_path_probes WHERE chain_id=$1 AND generation=$2 AND request_id IS NOT NULL ORDER BY CASE WHEN stage='switched' THEN 0 ELSE 1 END LIMIT 1").bind(chain.id).bind(chain.candidate_generation.or(chain.applied_generation).unwrap_or(chain.desired_generation)).fetch_optional(&mut *tx).await?.map(ProbeViewRow::view);
         let policy_group_ids = sqlx::query_scalar(
             "SELECT group_id FROM singbox_policy_chains WHERE chain_id=$1 ORDER BY group_id",
         )
         .bind(chain.id)
         .fetch_all(&mut *tx)
         .await?;
-        let user_count = sqlx::query_scalar("SELECT COUNT(DISTINCT up.user_id) FROM singbox_user_policies up JOIN singbox_policy_chains pc ON pc.group_id=up.group_id JOIN users u ON u.id=up.user_id WHERE pc.chain_id=$1 AND u.deleted_at IS NULL")
-            .bind(chain.id).fetch_one(&mut *tx).await?;
+        let user_count=sqlx::query_scalar("SELECT COUNT(DISTINCT up.user_id) FROM singbox_user_policies up JOIN singbox_policy_chains pc ON pc.group_id=up.group_id JOIN users u ON u.id=up.user_id WHERE pc.chain_id=$1 AND u.deleted_at IS NULL").bind(chain.id).fetch_one(&mut *tx).await?;
+        let path_state = PathState {
+            desired_generation: desired.generation,
+            candidate_generation: chain.candidate_generation,
+            applied_generation: chain.applied_generation,
+            recovery_generation: chain.recovery_generation,
+            minimum_generation: chain.minimum_generation,
+            phase: chain.phase,
+            last_error: chain.last_error,
+            capabilities: desired.capabilities,
+            dependencies,
+            probe,
+            generations,
+        };
         resources.push(ProxyResource {
             kind: "chain",
             id: chain.id,
             name: chain.name,
-            entry: entry.clone(),
-            exit: Some(exit.clone()),
+            entry,
+            exit,
             available: reasons.is_empty(),
             unavailable_reasons: reasons,
             policy_group_ids,
             user_count,
             chain_refs: vec![],
+            settings_revision: chain.settings_revision,
+            path_kind: Some(chain.path_kind),
+            hops,
+            path_state: Some(path_state),
         });
     }
     tx.commit().await?;
     Ok(resources)
+}
+
+#[derive(FromRow)]
+struct DependencyViewRow {
+    server_id: i64,
+    role: String,
+    hop_position: Option<i32>,
+    generation: i64,
+    stage: String,
+    required_revision: Option<i64>,
+    applied_revision: Option<i64>,
+    bundle_sha256: Option<String>,
+    state: String,
+    observed_at: Option<i64>,
+}
+impl DependencyViewRow {
+    fn view(self) -> super::ordered_paths::models::DependencyView {
+        super::ordered_paths::models::DependencyView {
+            server_id: self.server_id,
+            role: self.role,
+            hop_position: self.hop_position,
+            generation: self.generation,
+            stage: self.stage,
+            required_revision: self.required_revision,
+            applied_revision: self.applied_revision,
+            bundle_sha256: self.bundle_sha256,
+            state: self.state,
+            observed_at: self.observed_at,
+        }
+    }
+}
+#[derive(FromRow)]
+struct ProbeViewRow {
+    stage: String,
+    request_id: uuid::Uuid,
+    state: String,
+    observed_at: Option<i64>,
+    error: Option<String>,
+}
+impl ProbeViewRow {
+    fn view(self) -> super::ordered_paths::models::ProbeView {
+        super::ordered_paths::models::ProbeView {
+            stage: self.stage,
+            request_id: self.request_id,
+            state: self.state,
+            observed_at: self.observed_at,
+            error: self.error,
+        }
+    }
+}
+fn frozen_endpoint(
+    frozen: &sinan_compiler::ManagedEndpointSnapshot,
+    endpoints: &BTreeMap<i64, ResourceEndpoint>,
+) -> ApiResult<ResourceEndpoint> {
+    let mut endpoint = endpoints
+        .get(&frozen.node.id)
+        .cloned()
+        .ok_or(ApiError::NotFound)?;
+    endpoint.port = i32::from(frozen.node.port);
+    endpoint.public_port = i32::from(frozen.node.public_port());
+    endpoint.public_host = frozen.node.public_host.clone();
+    endpoint.sni = frozen.node.sni.clone();
+    endpoint.protocol_config_valid &= endpoint.protocol == frozen.node.protocol_config.kind();
+    endpoint.protocol = frozen.node.protocol_config.kind().into();
+    Ok(endpoint)
+}
+async fn project_hops(
+    connection: &mut PgConnection,
+    frozen: &super::ordered_paths::models::FrozenVersion,
+    endpoints: &BTreeMap<i64, ResourceEndpoint>,
+) -> ApiResult<Vec<super::ordered_paths::models::PublicHop>> {
+    use super::ordered_paths::models::*;
+    let mut hops = Vec::new();
+    for (index, hop) in frozen.hops.iter().enumerate() {
+        let position = index + 1;
+        hops.push(match hop{
+            FrozenHop::Managed{endpoint,..}=>PublicHop::Managed{position,node_id:endpoint.node.id,endpoint_version_id:endpoint.version_id,endpoint:frozen_endpoint(endpoint,endpoints)?},
+            FrozenHop::Subscription{source_id,identity_epoch,external_node_id,node_version_id,source_revision_id,update_mode,outbound,..}=>{
+                let(source_name,archived,deleted,epoch,seen,current):(String,bool,Option<i64>,i64,Option<uuid::Uuid>,Option<uuid::Uuid>)=sqlx::query_as("SELECT s.name,s.archived,s.deleted_at,s.identity_epoch,n.last_seen_revision,s.current_success_revision FROM singbox_subscription_sources s JOIN singbox_external_nodes n ON n.source_id=s.id WHERE s.id=$1 AND n.id=$2").bind(source_id).bind(external_node_id).fetch_one(&mut *connection).await?;
+                let preview:serde_json::Value=sqlx::query_scalar("SELECT public_preview FROM singbox_external_node_versions WHERE id=$1 AND node_id=$2").bind(node_version_id).bind(external_node_id).fetch_one(&mut *connection).await?;
+                let node_present=current.is_some() && seen==current && epoch==*identity_epoch;
+                let source_archived=archived || deleted.is_some();
+                let common=outbound.common();
+                let protocol=serde_json::to_value(outbound.protocol()).map_err(anyhow::Error::from)?.as_str().unwrap_or("unknown").to_owned();
+                let transport=common.transport.as_ref().and_then(|transport|serde_json::to_value(transport).ok()).and_then(|value|value.get("type").and_then(serde_json::Value::as_str).map(str::to_owned));
+                PublicHop::Subscription{position,source_id:*source_id,source_name,identity_epoch:*identity_epoch,external_node_id:*external_node_id,node_version_id:*node_version_id,source_revision_id:*source_revision_id,update_mode:update_mode.clone(),name:preview.get("name").and_then(serde_json::Value::as_str).unwrap_or("订阅节点").to_owned(),protocol,server:common.server.clone(),server_port:common.server_port,sni:common.tls.as_ref().and_then(|tls|tls.server_name.clone()),transport,capabilities:Capabilities{tcp:outbound.tcp(),udp:outbound.udp()},source_archived,node_present,update_error:if source_archived{Some("来源已归档或删除，保留冻结版本，不再自动跟随".into())}else if !node_present{Some("来源身份已更换或节点本次缺失，保留已冻结版本".into())}else{None}}
+            },
+        });
+    }
+    Ok(hops)
 }
 
 fn endpoint_reasons(endpoint: &ResourceEndpoint, role: &str) -> Vec<String> {
@@ -283,19 +430,11 @@ pub(super) async fn remove_direct_node(state: &AppState, id: i64) -> ApiResult<(
 async fn remove_chain_resource(state: &AppState, id: i64) -> ApiResult<()> {
     let mut tx = state.pool.begin().await?;
     super::entitlements::lock(&mut tx).await?;
-    let chain = sqlx::query_as::<_, ChainRow>(
-        "SELECT id,name,entry_node_id,exit_node_id FROM singbox_chains WHERE id=$1",
-    )
-    .bind(id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or(ApiError::NotFound)?;
-    let servers: Vec<i64> = sqlx::query_scalar(
-        "SELECT DISTINCT server_id FROM nodes WHERE id=ANY($1) ORDER BY server_id",
-    )
-    .bind(vec![chain.entry_node_id, chain.exit_node_id])
-    .fetch_all(&mut *tx)
-    .await?;
+    let chain = super::ordered_paths::storage::chain(&mut tx, id, true).await?;
+    if chain.deleted_at.is_some() {
+        return Err(ApiError::NotFound);
+    }
+    let servers = super::ordered_paths::storage::referenced_servers(&mut tx, id).await?;
     lock_cleanup_servers(&mut tx, &servers).await?;
     ensure_chain_unreferenced(&mut tx, id).await?;
     // Protect even legacy/corrupt direct references to this dedicated entry.
@@ -303,11 +442,15 @@ async fn remove_chain_resource(state: &AppState, id: i64) -> ApiResult<()> {
     if !policies.is_empty() {
         return Err(reference_error(policies, vec![]));
     }
-    sqlx::query("DELETE FROM singbox_chains WHERE id=$1")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
-    ensure_node_unreferenced(&mut tx, chain.entry_node_id).await?;
+    let other_refs = node_chain_references(&mut tx, chain.entry_node_id)
+        .await?
+        .into_iter()
+        .filter(|reference| reference.id != id)
+        .collect::<Vec<_>>();
+    if !other_refs.is_empty() {
+        return Err(reference_error(vec![], other_refs));
+    }
+    sqlx::query("UPDATE singbox_chains SET deleted_at=$2,route_enabled=FALSE,phase=CASE WHEN path_kind='ordered' THEN 'retiring' ELSE 'retired' END,applied_generation=CASE WHEN path_kind='legacy' THEN NULL ELSE applied_generation END WHERE id=$1").bind(id).bind(now_timestamp()).execute(&mut *tx).await?;
     soft_delete_node(&mut tx, chain.entry_node_id).await?;
     business::mark_dirty(&mut tx, &servers).await?;
     tx.commit().await?;
@@ -350,6 +493,16 @@ struct NodeChainReference {
     id: i64,
     name: String,
     role: String,
+    generation: i64,
+    hop_position: Option<i32>,
+    state: String,
+}
+
+async fn node_chain_references(
+    connection: &mut PgConnection,
+    id: i64,
+) -> ApiResult<Vec<NodeChainReference>> {
+    Ok(sqlx::query_as("SELECT DISTINCT c.id,c.name,CASE WHEN c.entry_node_id=$1 THEN 'entry' ELSE 'exit' END AS role,v.generation,CASE WHEN c.entry_node_id=$1 THEN NULL ELSE h.position END AS hop_position,CASE WHEN v.generation=c.applied_generation THEN 'applied' WHEN v.generation=c.candidate_generation THEN 'candidate' ELSE 'recovery' END AS state FROM singbox_chains c JOIN singbox_chain_versions v ON v.chain_id=c.id AND v.generation=ANY(ARRAY[c.applied_generation,c.candidate_generation,c.recovery_generation]) LEFT JOIN singbox_chain_hops h ON h.chain_id=c.id AND h.generation=v.generation WHERE (c.deleted_at IS NULL OR c.phase<>'retired') AND (c.entry_node_id=$1 OR h.managed_node_id=$1) ORDER BY c.id,v.generation,hop_position").bind(id).fetch_all(connection).await?)
 }
 
 async fn node_policies(
@@ -374,8 +527,7 @@ pub(super) async fn ensure_chain_unreferenced(
 
 async fn ensure_node_unreferenced(tx: &mut Transaction<'_, Postgres>, id: i64) -> ApiResult<()> {
     let policies = node_policies(tx, id).await?;
-    let chains = sqlx::query_as::<_, NodeChainReference>("SELECT id,name,CASE WHEN entry_node_id=$1 THEN 'entry' ELSE 'exit' END AS role FROM singbox_chains WHERE entry_node_id=$1 OR exit_node_id=$1 ORDER BY id")
-        .bind(id).fetch_all(&mut **tx).await?;
+    let chains = node_chain_references(tx, id).await?;
     if !policies.is_empty() || !chains.is_empty() {
         return Err(reference_error(policies, chains));
     }

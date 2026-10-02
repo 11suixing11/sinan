@@ -3,14 +3,15 @@
 mod health;
 mod native;
 mod obfuscation;
+mod path_probe;
 mod sentinel;
 mod stats;
 mod version;
 
 use anyhow::{Context, Result, bail};
 use sinan_adapter_sdk::{
-    Adapter, BoxFuture, Descriptor, Plan, Prepared, Privileged, RuntimeSpec, ServiceManager,
-    UsageSource,
+    Adapter, BoxFuture, Descriptor, Plan, Prepared, Privileged, RuntimeProbeMeasurement,
+    RuntimeSpec, ServiceManager, UsageSource,
 };
 use std::time::Duration;
 use tokio::time::timeout;
@@ -46,6 +47,16 @@ impl SingboxAdapter {
 }
 
 impl Adapter for SingboxAdapter {
+    fn supports_runtime_probe(&self) -> bool {
+        true
+    }
+    fn runtime_probe<'a>(
+        &'a self,
+        runtime: &'a Prepared,
+        probe_id: &'a str,
+    ) -> BoxFuture<'a, RuntimeProbeMeasurement> {
+        Box::pin(path_probe::execute(runtime, probe_id))
+    }
     fn health_timeout(&self, target: &Prepared) -> Duration {
         health::budget(target) + Duration::from_secs(5)
     }
@@ -93,6 +104,14 @@ impl Adapter for SingboxAdapter {
             {
                 bail!("staged configuration differs from the desired configuration");
             }
+            if let Some(plan) = runtime.files.get(path_probe::PLAN_FILE)
+                && tokio::fs::read(runtime.revision_dir.join(path_probe::PLAN_FILE))
+                    .await
+                    .context("read staged verification plan")?
+                    != plan.as_bytes()
+            {
+                bail!("staged verification plan differs from the desired plan");
+            }
             let version_args = ["version".into()];
             let output = timeout(
                 COMMAND_TIMEOUT,
@@ -104,6 +123,7 @@ impl Adapter for SingboxAdapter {
                 bail!("runtime version command failed");
             }
             version::validate_output(&output.stdout, &runtime.kernel_version)?;
+            path_probe::validate_build(&runtime, &output.stdout)?;
             let check_args = [
                 "check".into(),
                 "-c".into(),

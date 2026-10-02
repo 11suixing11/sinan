@@ -24,9 +24,10 @@
 - core 管服务器；sing-box 插件管代理用户、授权、订阅、用户流量、配额和周期，详见 [ADR 0023](docs/adr/0023-proxy-business-boundary.md) 与 [搬迁及启用兼容 ADR 0030](docs/adr/0030-singbox-plugin-business.md)。core 不得引用代理业务的 `user`、`subscription`、`quota`，含复数、蛇形和驼峰形式；CI 使用 `tools/check-core-boundary.py` 检查。系统账户与 SQLite 原生 API 仅允许检查器列出的具体表达式，不允许文件或整行豁免。
 - sing-box 面板业务实现物理位于根 `plugins/singbox/panel/`；面板只保留薄的 Rust path 嵌入桥，不得移回 `crates/panel/src/plugins/`。
 - 设备声明插件能力只表示支持，不自动启用新服务器的代理业务；管理员启用必须安排签名运行时安装，安装状态和设备应用确认分开，见 [ADR 0044](docs/adr/0044-singbox-plugin-lifecycle.md)。链路管理归代理节点，策略页面引用已有资源。
-- 代理资源与原子链路创建按 [ADR 0054](docs/adr/0054-proxy-resource-batch-lifecycle.md) 使用 `kind` 与 ID 一起标识，专用入口不重复展示；批量入口／链路同事务创建，删除不清除幂等收据。旧、新节点删除共用策略及链路引用保护，完整链路资源删除清理入口并保留共享出口；旧链路解除关系接口语义保持。本步骤仍为受管两跳，不替代 ADR 0040 的订阅来源和完整混合路径实现。
+- 代理资源与原子链路创建按 [ADR 0054](docs/adr/0054-proxy-resource-batch-lifecycle.md) 使用 `kind` 与 ID 一起标识，专用入口不重复展示；批量入口／链路同事务创建，删除不清除幂等收据。旧、新节点删除共用策略及链路引用保护，完整链路资源删除清理入口并保留共享出口；旧链路解除关系接口语义保持。有序混合路径进一步按 ADR 0056 实施并单独记录最终验收，不能沿用原两跳证据。
 - 订阅来源按 [ADR 0055](docs/adr/0055-subscription-source-lifecycle.md) 在插件内有界获取、解析及保存不可变版本；来源设置 revision、身份 epoch、解析器版本与 claim 同时限制迟到结果。失败保留成功批次，归档／删除保留历史及幂等收据；完整地址、认证、原文、配置和摘要不进入公开输出。只导入节点，不执行来源内全局配置或嵌套下载；来源预览不能冒称网络在线、完整混合路径或引用保护已验收。
 - 精确运行确认与持久恢复屏障按 [ADR 0047](docs/adr/0047-runtime-checkpoints-and-recovery-barriers.md) 实现：实际配置/受控实例与稳定 activation 共同核对，结果先持久化再发送，未 ACK 不按 TTL 删除；屏障后禁止低于已承诺 revision 的 apply/rollback/recovery。旧 revision 心跳不替代新能力的精确收据，检查请求不得隐式重启旧业务；这些通用基础能力不代表混合路径或端到端探测已实现。
+- 有序路径和通用具体出站验证按 [ADR 0056](docs/adr/0056-ordered-path-publication-and-native-probe.md) 实施：链路、来源、代数、订阅与计量属于 sing-box 插件／compiler；core 仅执行已签计划中的 probe UUID，前后核对精确运行实例并持久回执。私有回环控制凭据不进入普通输出，不用临时 SOCKS 入口模拟原生凭据过期。旧链路捕获不补造探测成功；native check、HTTPS 验证、实际出口／逐跳／UDP 流量验收分别记录。
 - 诊断自然结束、保护停止、取消及退役按 [ADR 0049](docs/adr/0049-confirmed-diagnostic-completion.md) 保留活动所有权，确认进程、挂载与排队 job 已清理后才提交终态；原始结果先固定，重启只重试清理。`cleaning` 为非终态，不因期限释放互斥；旧面板不能单独配新 Agent。
 - 周期拨测按 [ADR 0050](docs/adr/0050-authorized-probe-leases.md) 明确记录来源、地区和自有/第三方同意依据；新设备只凭绑定身份、配置版本和单调期限的短租约执行，不恢复旧一天缓存。旧八字段 `ProbeSpec` 及已有历史保持，旧 Agent 的离线窗口不能冒称已修复；授权证据不得进入匿名看板。
 - 节点出口 IPQuality 按 [ADR 0051](docs/adr/0051-independent-node-ipquality.md) 使用独立固定源和最小离线 rootfs，不依赖商业硬件工具；章节认证、版本和真实归档身份核对后同事务投影逐来源缓存，单调任务序号阻止旧回报倒灌。NAT 出口与网卡地址分别展示，部分结果、失败和取消不抹掉最近成功。外层签名的 notice 必须绑定完整配套对应源资产，不能用库存或 URLs 代替真实源包；源码准备不等于实机签收、许可审批或正式发布。
@@ -66,6 +67,6 @@
 
 2026-10-01 用户进一步确认统一延迟检测任务，以及资源超限、服务器到期、网卡流量和 Telegram 完整通知配置，见 [ADR 0039](docs/adr/0039-latency-tasks-and-notification-rules.md)。仍复用现有 Agent 拨测协议；通知仅提醒，不执行付款、停用或远程命令，诊断实机门禁和 CI 暂停安排不变。
 
-2026-10-01 用户明确链路在代理节点页统一创建/管理，且中间段可来自机场等订阅配置。按 [ADR 0040](docs/adr/0040-mixed-chains-and-subscriptions.md) 规划有序混合链路，覆盖此前仅两台受管服务器及外部出口的对应排除项；中间/最终段可为受管节点或订阅中的具体节点。保持单运行时、独立公开入口、线性无环路径、入口单次计量及内部秘密不进入用户订阅；不扩展自动出口池。当前源码分别按 ADR 0054／0055 提供统一资源与订阅来源版本管理；完整有序路径编译、版本化发布及真实混合运行仍继续后续实施／验收，不以来源解析成功替代。
+2026-10-01 用户明确链路在代理节点页统一创建/管理，且中间段可来自机场等订阅配置。按 [ADR 0040](docs/adr/0040-mixed-chains-and-subscriptions.md) 规划有序混合链路，覆盖此前仅两台受管服务器及外部出口的对应排除项；中间/最终段可为受管节点或订阅中的具体节点。保持单运行时、独立公开入口、线性无环路径、入口单次计量及内部秘密不进入用户订阅；不扩展自动出口池。当前源码分别按 ADR 0054／0055 提供统一资源与订阅来源版本管理；完整有序路径编译、版本化发布及真实混合运行按 ADR 0056 实施／验收，不以来源解析成功替代。
 
 详细架构约束见 `docs/adr/0001-declarative-snapshots.md` 至 `docs/adr/0011-loopback-local-api.md`。

@@ -157,7 +157,7 @@ try {
     assert.equal(await dialog.getByRole('button', { name: /创建链路|选择此节点|加入链路/ }).count(), 0)
     await shot('preview')
     await dialog.getByRole('combobox', { name: '选择订阅版本', exact: true }).selectOption(olderRevision.id)
-    await dialog.getByText('历史节点版本仅供查看，不能用于新的引用。', { exact: true }).waitFor()
+    await dialog.getByText('此历史版本视图仅供查看，不提供新的引用操作。', { exact: true }).waitFor()
     assert.equal(await dialog.getByText('可供后续路径引用', { exact: true }).count(), 0)
     await dialog.getByRole('button', { name: '关闭来源详情', exact: true }).click()
     await shot('list')

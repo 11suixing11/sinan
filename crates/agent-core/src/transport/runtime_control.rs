@@ -5,7 +5,8 @@ use crate::{
 };
 use anyhow::Result;
 use sinan_protocol::{
-    Envelope, RuntimeCheckpointResult, RuntimeControlAck, RuntimeRecoveryBarrierResult,
+    Envelope, RuntimeCheckpointResult, RuntimeControlAck, RuntimePathProbeResult,
+    RuntimeRecoveryBarrierResult,
 };
 use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
@@ -145,6 +146,15 @@ fn unsupported(request: &ControlRequest) -> Result<ControlResult> {
             request_id: value.request_id,
             request_digest,
             observed: None,
+            success: false,
+            error,
+        }),
+        ControlRequest::Probe(value) => ControlResult::Probe(RuntimePathProbeResult {
+            request_id: value.request_id,
+            request_digest,
+            observed: None,
+            probe_id: value.probe_id,
+            elapsed_ms: None,
             success: false,
             error,
         }),

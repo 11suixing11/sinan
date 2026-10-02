@@ -104,6 +104,16 @@ pub(super) async fn run(
                                     control.enqueue(super::runtime_control::Input::Request(crate::state::runtime_control::ControlRequest::Barrier(request)));
                                 }
                             }
+                            Message::RuntimePathProbeRequest(request) => {
+                                if let Some(control) = &runtime.runtime_control {
+                                    control.enqueue(super::runtime_control::Input::Request(crate::state::runtime_control::ControlRequest::Probe(request)));
+                                }
+                            }
+                            Message::RuntimePathProbeAck(ack) => {
+                                if let Some(control) = &runtime.runtime_control {
+                                    control.enqueue(super::runtime_control::Input::Ack("probe", ack));
+                                }
+                            }
                             Message::RuntimeCheckpointAck(ack) => {
                                 if let Some(control) = &runtime.runtime_control {
                                     control.enqueue(super::runtime_control::Input::Ack("checkpoint", ack));

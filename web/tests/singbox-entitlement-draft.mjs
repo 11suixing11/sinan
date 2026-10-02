@@ -3,6 +3,7 @@ import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolve, extname, sep } from 'node:path'
+import { proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
 
 // Serve the actual built dist; all business requests use private API fixtures.
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
@@ -37,6 +38,12 @@ try {
       { id: 2, name: '新套餐', monthly_bytes: '2147483648', reset_day: 15, reset_hour: 8, reset_minute: 30, timezone: 'UTC', duration_days: 60 },
     ]
     const nodes = [1, 2].map(id => ({ id, name: `节点 ${id}`, server_id: id, protocol: 'vless-reality', public_host: 'proxy.example.com', port: 20000 + id, sni: 'www.example.com', public_key: 'TEST_ONLY', short_id: '0123abcd' }))
+    const servers = [1, 2].map(id => ({ id, name: `服务器 ${id}`, enabled: true, online: false, read_only: false }))
+    const proxyResources = () => {
+      const missingIds = [...new Set(chainEntries.flatMap(chain => [chain.entry_node_id, chain.exit_node_id]))].filter(id => !nodes.some(node => node.id === id))
+      const retired = missingIds.map((id, index) => ({ id, name: `已删除历史节点 ${id}`, server_id: index % 2 + 1, protocol: 'vless-reality', public_host: 'retired.example.com', port: 20000 + id, sni: 'www.example.com', node_deleted: true }))
+      return proxyResourceFixtures([...nodes, ...retired], servers, chainEntries)
+    }
     const user = { id: 1, name: '测试代理用户', subscription_token: 'TEST_ONLY', subscription_url: 'https://panel.example.com/s/TEST_ONLY' }
     const usage = { uplink: '10', downlink: '20', total: '30', by_user: [{ user_id: 1, name: user.name, deleted: false, uplink: '10', downlink: '20' }], by_node: [] }
     const entitlement = () => ({
@@ -93,8 +100,7 @@ try {
         assert.deepEqual(payload, { name: '已保留的用户草稿' })
         userWrites.push(payload); Object.assign(user, payload); value = user
       }
-      else if (pathname === `${prefix}/nodes` && method === 'GET') value = nodes
-      else if (pathname === `${prefix}/chains` && method === 'GET') value = chainEntries
+      else if (pathname === `${prefix}/proxy-resources` && method === 'GET') value = proxyResources()
       else if (pathname === `${prefix}/policy-groups` && method === 'GET') value = policies
       else if (pathname === `${prefix}/policy-groups` && method === 'POST') {
         const payload = request.postDataJSON()
@@ -247,14 +253,14 @@ try {
     // A clean snapshot is also unwritable while the real header refresh is pending.
     assert.equal(failures.size, 0)
     await enabled(direct)
-    await recoverRead(`${prefix}/nodes`, page.getByRole('button', { name: '刷新', exact: true }), async () => {
+    await recoverRead(`${prefix}/proxy-resources`, page.getByRole('button', { name: '刷新', exact: true }), async () => {
       assert.equal(await direct.isDisabled(), true)
       assert.equal(await direct.isChecked(), false)
       assert.equal(accessWrites.length, 0)
     })
     await enabled(direct)
     // Each direct-grant dependency must independently block writes after a failed GET.
-    for (const dependency of [`${prefix}/users`, `${prefix}/nodes`, `${prefix}/chains`, `${prefix}/users/1/accesses`]) {
+    for (const dependency of [`${prefix}/users`, `${prefix}/proxy-resources`, `${prefix}/users/1/accesses`]) {
       await failedRead(dependency, () => page.getByRole('button', { name: '刷新', exact: true }).click())
       assert.equal(await direct.isDisabled(), true)
       assert.equal(await direct.isChecked(), false)
@@ -303,15 +309,15 @@ try {
     // Let the actual periodic GET begin; no prior error or click behind the open dialog.
     assert.equal(failures.size, 0)
     await enabled(dialog.getByRole('button', { name: '保存', exact: true }))
-    await recoverRead(`${prefix}/nodes`, null, async () => {
+    await recoverRead(`${prefix}/proxy-resources`, null, async () => {
       await blockedForm(dialog, '保存')
       assert.equal(await dialog.getByRole('textbox', { name: '名称', exact: true }).inputValue(), '已保留的策略草稿')
       assert.equal(await dialog.locator('input[name="node_ids"][value="2"]').isChecked(), true)
     })
     await enabled(dialog.getByRole('button', { name: '保存', exact: true }))
-    await failedRead(`${prefix}/chains`)
+    await failedRead(`${prefix}/proxy-resources`)
     await blockedForm(dialog, '保存')
-    await recoverRead(`${prefix}/chains`, dialog.getByRole('button', { name: '重试', exact: true }), async () => {
+    await recoverRead(`${prefix}/proxy-resources`, dialog.getByRole('button', { name: '重试', exact: true }), async () => {
       await blockedForm(dialog, '保存')
       assert.equal(await dialog.getByRole('textbox', { name: '名称', exact: true }).inputValue(), '已保留的策略草稿')
       assert.equal(await dialog.locator('input[name="node_ids"][value="2"]').isChecked(), true)
@@ -342,9 +348,9 @@ try {
     dialog = page.getByRole('dialog')
     assert.equal(await dialog.locator('input[name="chain_ids"][value="42"]').isChecked(), true)
     assert.equal(await dialog.getByRole('button', { name: '保存', exact: true }).isDisabled(), true)
-    await failedRead(`${prefix}/chains`)
+    await failedRead(`${prefix}/proxy-resources`)
     await blockedForm(dialog, '保存')
-    await recoverRead(`${prefix}/chains`, dialog.getByRole('button', { name: '重试', exact: true }), async () => {
+    await recoverRead(`${prefix}/proxy-resources`, dialog.getByRole('button', { name: '重试', exact: true }), async () => {
       await blockedForm(dialog, '保存')
       assert.equal(await dialog.locator('input[name="chain_ids"][value="42"]').isChecked(), true)
       chainEntries = chainEntries.filter(chain => chain.id !== 42)

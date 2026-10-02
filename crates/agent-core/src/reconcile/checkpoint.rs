@@ -101,7 +101,10 @@ impl Reconciler {
         }))
     }
 
-    async fn observe_checkpoint(&self, binding: &RuntimeBinding) -> Result<RuntimeCheckpoint> {
+    pub(super) async fn observe_checkpoint(
+        &self,
+        binding: &RuntimeBinding,
+    ) -> Result<RuntimeCheckpoint> {
         ensure!(
             binding.valid() && binding.module == self.adapter.describe().module,
             "checkpoint module or binding is invalid"
@@ -151,7 +154,7 @@ impl Reconciler {
         })
     }
 
-    fn runtime_control_now(&self) -> Result<i64> {
+    pub(super) fn runtime_control_now(&self) -> Result<i64> {
         let offset = self
             .state
             .lock()
@@ -201,12 +204,16 @@ impl Reconciler {
             return Ok(saved);
         }
         let digest = request.digest()?;
+        if let ControlRequest::Probe(probe) = request {
+            return self.execute_path_probe(probe, digest).await;
+        }
         let attempt: Result<(RuntimeCheckpoint, Option<u64>)> = async {
             ensure!(request.module() == self.adapter.describe().module, "runtime control module mismatch");
             ensure!(request.valid_at(self.runtime_control_now()?), "runtime control request expired or exceeds the allowed deadline");
             let binding = match request {
                 ControlRequest::Checkpoint(value) => &value.expected,
                 ControlRequest::Barrier(value) => &value.expected.binding,
+                ControlRequest::Probe(_) => unreachable!("probe handled above"),
             };
             self.require_revision_floor(binding.revision)?;
             ensure!(self.services.supports_runtime_checkpoint(), "exact runtime inspection is unsupported");
@@ -216,6 +223,7 @@ impl Reconciler {
             let observed = self.observe_checkpoint(binding).await?;
             let floor = match request {
                 ControlRequest::Checkpoint(_) => None,
+                ControlRequest::Probe(_) => unreachable!("probe handled above"),
                 ControlRequest::Barrier(value) => {
                     ensure!(observed == value.expected, "expected activation or runtime instance differs from the observed checkpoint");
                     ensure!(value.minimum_revision >= self.revision_floor()? && value.minimum_revision <= observed.binding.revision,
@@ -243,6 +251,7 @@ impl Reconciler {
                     error,
                 })
             }
+            ControlRequest::Probe(_) => unreachable!("probe handled above"),
             ControlRequest::Barrier(value) => {
                 ControlResult::Barrier(RuntimeRecoveryBarrierResult {
                     request_id: value.request_id,

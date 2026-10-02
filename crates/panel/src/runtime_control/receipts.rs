@@ -9,14 +9,14 @@ use sinan_protocol::{
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
-struct StoredRequest {
-    payload: Value,
-    expires_at: i64,
-    state: String,
-    duplicate: bool,
+pub(super) struct StoredRequest {
+    pub(super) payload: Value,
+    pub(super) expires_at: i64,
+    pub(super) state: String,
+    pub(super) duplicate: bool,
 }
 
-async fn request_for_result(
+pub(super) async fn request_for_result(
     connection: &mut PgConnection,
     server_id: i64,
     request_id: Uuid,
@@ -51,7 +51,7 @@ async fn request_for_result(
     })
 }
 
-async fn save_receipt(
+pub(super) async fn save_receipt(
     connection: &mut PgConnection,
     request_id: Uuid,
     payload: &Value,
@@ -68,7 +68,7 @@ async fn save_receipt(
     Ok(())
 }
 
-fn preliminary_outcome(
+pub(super) fn preliminary_outcome(
     request: &StoredRequest,
     success: bool,
     matches: bool,

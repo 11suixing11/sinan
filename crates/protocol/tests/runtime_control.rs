@@ -35,6 +35,98 @@ fn barrier() -> RuntimeRecoveryBarrierRequest {
     }
 }
 
+fn probe() -> RuntimePathProbeRequest {
+    RuntimePathProbeRequest {
+        request_id: Uuid::from_u128(5),
+        expected: checkpoint(),
+        probe_id: Uuid::from_u128(6),
+        expires_at: 1_800_000_120,
+    }
+}
+
+#[test]
+fn probe_wire_roundtrips_and_digest_binds_the_entire_applied_activation() {
+    let original = probe();
+    let result = RuntimePathProbeResult {
+        request_id: original.request_id,
+        request_digest: original.digest().unwrap(),
+        observed: Some(original.expected.clone()),
+        probe_id: original.probe_id,
+        elapsed_ms: Some(17),
+        success: true,
+        error: None,
+    };
+    for message in [
+        Message::RuntimePathProbeRequest(original.clone()),
+        Message::RuntimePathProbeResult(result),
+        Message::RuntimePathProbeAck(RuntimeControlAck {
+            request_id: original.request_id,
+            request_digest: original.digest().unwrap(),
+        }),
+    ] {
+        assert_eq!(
+            message.clone().into_envelope().unwrap().decode().unwrap(),
+            message
+        );
+    }
+    let mut variants = Vec::new();
+    let mut changed = original.clone();
+    changed.probe_id = Uuid::from_u128(99);
+    variants.push(changed);
+    let mut changed = original.clone();
+    changed.expected.activation_id = Uuid::from_u128(99);
+    variants.push(changed);
+    let mut changed = original.clone();
+    changed.expected.instance_id = "backend:another".into();
+    variants.push(changed);
+    let mut changed = original.clone();
+    changed.expected.binding.deployment_id = Uuid::from_u128(99);
+    variants.push(changed);
+    let mut changed = original.clone();
+    changed.expires_at += 1;
+    variants.push(changed);
+    for changed in variants {
+        assert_ne!(original.digest().unwrap(), changed.digest().unwrap());
+    }
+    let mut wire = json!(original);
+    wire["url"] = json!("https://arbitrary.example");
+    assert!(serde_json::from_value::<RuntimePathProbeRequest>(wire).is_err());
+}
+
+#[test]
+fn probe_deadlines_and_result_shape_fail_closed() {
+    let original = probe();
+    assert!(original.valid_at(1_800_000_000));
+    assert!(!original.valid_at(1_799_999_999));
+    assert!(!original.valid_at(original.expires_at));
+    let mut invalid = original.clone();
+    invalid.probe_id = Uuid::nil();
+    assert!(!invalid.valid());
+    let mut invalid = original.clone();
+    invalid.expected.healthy = false;
+    assert!(!invalid.valid());
+    let mut result = RuntimePathProbeResult {
+        request_id: original.request_id,
+        request_digest: original.digest().unwrap(),
+        observed: Some(original.expected),
+        probe_id: original.probe_id,
+        elapsed_ms: Some(17),
+        success: true,
+        error: None,
+    };
+    assert!(result.valid());
+    for measurement in [None, Some(0), Some(5001)] {
+        result.elapsed_ms = measurement;
+        assert!(!result.valid());
+    }
+    result.success = false;
+    result.error = Some("failed".into());
+    result.elapsed_ms = Some(17);
+    assert!(!result.valid());
+    result.elapsed_ms = None;
+    assert!(result.valid());
+}
+
 #[test]
 fn runtime_control_messages_roundtrip_without_changing_legacy_apply() {
     let request = request();

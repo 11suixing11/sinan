@@ -4,9 +4,66 @@ use uuid::Uuid;
 
 pub const RUNTIME_CHECKPOINT_CAPABILITY: &str = "runtime:checkpoint-v1";
 pub const RUNTIME_RECOVERY_BARRIER_CAPABILITY: &str = "runtime:barrier-v1";
+pub const RUNTIME_PATH_PROBE_CAPABILITY: &str = "runtime:path-probe-v1";
 pub const RUNTIME_CONTROL_MAX_TTL_SECS: i64 = 600;
 pub const RUNTIME_CHECKPOINT_REQUEST_KIND: &str = "runtime.checkpoint.request";
 pub const RUNTIME_BARRIER_REQUEST_KIND: &str = "runtime.barrier.request";
+pub const RUNTIME_PATH_PROBE_REQUEST_KIND: &str = "runtime.path_probe.request";
+
+/// Selects one probe already authorized by the signed, applied bundle.
+/// Neither credentials nor an arbitrary target are accepted from a request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimePathProbeRequest {
+    pub request_id: Uuid,
+    pub expected: RuntimeCheckpoint,
+    pub probe_id: Uuid,
+    pub expires_at: i64,
+}
+
+impl RuntimePathProbeRequest {
+    pub fn valid(&self) -> bool {
+        !self.request_id.is_nil()
+            && !self.probe_id.is_nil()
+            && self.expected.valid()
+            && self.expected.healthy
+            && self.expires_at > 0
+    }
+    pub fn valid_at(&self, now: i64) -> bool {
+        self.valid()
+            && deadline_valid(self.expires_at, now)
+            && self.expires_at.saturating_sub(now) <= 120
+    }
+    pub fn digest(&self) -> serde_json::Result<String> {
+        request_digest(RUNTIME_PATH_PROBE_REQUEST_KIND, self)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimePathProbeResult {
+    pub request_id: Uuid,
+    pub request_digest: String,
+    pub observed: Option<RuntimeCheckpoint>,
+    pub probe_id: Uuid,
+    pub elapsed_ms: Option<u64>,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+impl RuntimePathProbeResult {
+    pub fn valid(&self) -> bool {
+        !self.request_id.is_nil()
+            && !self.probe_id.is_nil()
+            && hash(&self.request_digest)
+            && self.observed.as_ref().is_none_or(RuntimeCheckpoint::valid)
+            && result_fields_valid(self.success, &self.observed, &self.error)
+            && self
+                .elapsed_ms
+                .is_none_or(|elapsed| elapsed > 0 && elapsed <= 5000)
+            && (self.success == self.elapsed_ms.is_some())
+    }
+}
 
 fn hash(value: &str) -> bool {
     value.len() == 64

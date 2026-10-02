@@ -2,6 +2,13 @@
 
 mod relays;
 pub use relays::{Relay, compile_server_with_relays};
+pub mod external;
+mod paths;
+pub use paths::{
+    ManagedAcceptance, ManagedEndpointSnapshot, OrderedPath, PathCapabilities, PathHop,
+    ProbeControl, compile_server_with_paths, path_capabilities, path_outbound_tag,
+    required_build_tags, validate_path,
+};
 
 use base64::{
     Engine,
@@ -80,6 +87,12 @@ pub enum CompileError {
     RequiresJson { node_id: i64, protocol: String },
     #[error("cannot serialize configuration: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("chain {chain_id}, hop {position:?}: {reason}")]
+    InvalidPath {
+        chain_id: i64,
+        position: Option<usize>,
+        reason: &'static str,
+    },
 }
 
 pub fn stat_name(user_id: i64, node_id: i64) -> String {

@@ -194,7 +194,8 @@ async fn group_credentials_and_quota_cover_all_modern_protocols_without_losing_m
 async fn reality_chains_reject_non_reality_endpoints_but_can_share_hosts_with_modern_nodes(
     pool: PgPool,
 ) -> Result<()> {
-    let panel = TestPanel::start(pool.clone()).await?;
+    let panel =
+        TestPanel::start_with_public_url(pool.clone(), Some("https://panel.example")).await?;
     let cookie = panel.admin_cookie().await?;
     let a = panel.create_server(&cookie, "Entry server").await?;
     let b = panel.create_server(&cookie, "Exit server").await?;
@@ -202,6 +203,7 @@ async fn reality_chains_reject_non_reality_endpoints_but_can_share_hosts_with_mo
     let exit = id(&panel.create_node(&cookie, b, "Exit").await?)?;
     let modern_entry = modern_node(&panel, &cookie, a, "anytls").await?;
     let modern_exit = modern_node(&panel, &cookie, b, "shadowsocks2022").await?;
+    super::chains::ordered_negative_inputs(&panel).await?;
     for (n, e) in [
         (entry, modern_exit),
         (modern_entry, exit),
@@ -217,14 +219,9 @@ async fn reality_chains_reject_non_reality_endpoints_but_can_share_hosts_with_mo
             .await?;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
-    let chain = id(&call(
-        &panel,
-        &cookie,
-        Method::POST,
-        "/chains",
-        Some(json!({"name":"Reality pair","entry_node_id":entry,"exit_node_id":exit})),
-    )
-    .await?)?;
+    let chain = id(&panel
+        .import_legacy_chain(&cookie, "Reality pair", entry, exit)
+        .await?)?;
     let user = panel.create_user(&cookie, "Mixed route user").await?;
     let uid = id(&user)?;
     let group = create_policy(&panel, &cookie, &[modern_entry, modern_exit], &[chain]).await?;
@@ -257,10 +254,24 @@ async fn reality_chains_reject_non_reality_endpoints_but_can_share_hosts_with_mo
         json!([format!("u{uid}_n{modern_exit}")])
     );
     applied(&pool).await?;
-    let sub = format!(
-        "{}?format=singbox",
-        user["subscription_url"].as_str().unwrap()
+    let token = user["subscription_token"]
+        .as_str()
+        .context("existing subscription token")?;
+    let published = reqwest::Url::parse(
+        user["subscription_url"]
+            .as_str()
+            .context("returned subscription URL")?,
+    )?;
+    ensure!(
+        published.origin().ascii_serialization() == "https://panel.example"
+            && published.path() == format!("/sub/{token}")
+            && published.query().is_none()
+            && published.fragment().is_none(),
+        "returned subscription URL must preserve the configured origin and token path"
     );
+    // The HTTPS origin is reserved TEST_ONLY configuration for signed probes;
+    // request its exact public subscription path from this fixture's loopback listener.
+    let sub = format!("{}{}?format=singbox", panel.base, published.path());
     let client: Value = panel
         .client
         .get(&sub)

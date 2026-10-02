@@ -86,10 +86,14 @@ async fn save(state: &AppState, id: Option<i64>, request: PolicyRequest) -> ApiR
     let chains = ids(&request.chain_ids)?;
     let mut tx = state.pool.begin().await?;
     super::entitlements::lock(&mut tx).await?;
-    let valid_nodes: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM nodes n JOIN servers s ON s.id=n.server_id WHERE n.id=ANY($1) AND n.deleted_at IS NULL AND s.deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM singbox_chains c WHERE c.entry_node_id=n.id)")
+    let valid_nodes: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM nodes n JOIN servers s ON s.id=n.server_id WHERE n.id=ANY($1) AND n.deleted_at IS NULL AND s.deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM singbox_chains c WHERE c.entry_node_id=n.id AND (c.deleted_at IS NULL OR c.phase<>'retired'))")
         .bind(&nodes).fetch_one(&mut *tx).await?;
-    let valid_chains: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id JOIN servers ns ON ns.id=n.server_id JOIN servers es ON es.id=e.server_id WHERE c.id=ANY($1) AND n.deleted_at IS NULL AND e.deleted_at IS NULL AND n.protocol='vless-reality' AND e.protocol='vless-reality' AND ns.deleted_at IS NULL AND es.deleted_at IS NULL")
-        .bind(&chains).fetch_one(&mut *tx).await?;
+    let mut valid_chains = 0;
+    for chain in &chains {
+        if super::ordered_paths::chain_is_structurally_available(&mut tx, *chain).await? {
+            valid_chains += 1;
+        }
+    }
     if valid_nodes != nodes.len() as i64 || valid_chains != chains.len() as i64 {
         return Err(ApiError::BadRequest(
             "所选节点或链路不可用；链路入口必须通过链路授权".into(),

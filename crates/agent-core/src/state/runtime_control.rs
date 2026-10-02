@@ -4,7 +4,8 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use sinan_protocol::{
     Envelope, RuntimeCheckpointRequest, RuntimeCheckpointResult, RuntimeControlAck,
-    RuntimeRecoveryBarrierRequest, RuntimeRecoveryBarrierResult,
+    RuntimePathProbeRequest, RuntimePathProbeResult, RuntimeRecoveryBarrierRequest,
+    RuntimeRecoveryBarrierResult,
 };
 use uuid::Uuid;
 
@@ -18,6 +19,7 @@ const MAX_BATCH_BYTES: usize = 64 * 1024;
 pub enum ControlRequest {
     Checkpoint(RuntimeCheckpointRequest),
     Barrier(RuntimeRecoveryBarrierRequest),
+    Probe(RuntimePathProbeRequest),
 }
 
 impl ControlRequest {
@@ -25,36 +27,42 @@ impl ControlRequest {
         match self {
             Self::Checkpoint(v) => v.request_id,
             Self::Barrier(v) => v.request_id,
+            Self::Probe(v) => v.request_id,
         }
     }
     pub fn module(&self) -> &str {
         match self {
             Self::Checkpoint(v) => &v.expected.module,
             Self::Barrier(v) => &v.expected.binding.module,
+            Self::Probe(v) => &v.expected.binding.module,
         }
     }
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Checkpoint(_) => "checkpoint",
             Self::Barrier(_) => "barrier",
+            Self::Probe(_) => "probe",
         }
     }
     pub fn valid(&self) -> bool {
         match self {
             Self::Checkpoint(v) => v.valid(),
             Self::Barrier(v) => v.valid(),
+            Self::Probe(v) => v.valid(),
         }
     }
     pub fn valid_at(&self, now: i64) -> bool {
         match self {
             Self::Checkpoint(v) => v.valid_at(now),
             Self::Barrier(v) => v.valid_at(now),
+            Self::Probe(v) => v.valid_at(now),
         }
     }
     pub fn digest(&self) -> Result<String> {
         Ok(match self {
             Self::Checkpoint(v) => v.digest()?,
             Self::Barrier(v) => v.digest()?,
+            Self::Probe(v) => v.digest()?,
         })
     }
 }
@@ -64,6 +72,7 @@ impl ControlRequest {
 pub enum ControlResult {
     Checkpoint(RuntimeCheckpointResult),
     Barrier(RuntimeRecoveryBarrierResult),
+    Probe(RuntimePathProbeResult),
 }
 
 impl ControlResult {
@@ -71,30 +80,35 @@ impl ControlResult {
         match self {
             Self::Checkpoint(v) => v.request_id,
             Self::Barrier(v) => v.request_id,
+            Self::Probe(v) => v.request_id,
         }
     }
     pub fn digest(&self) -> &str {
         match self {
             Self::Checkpoint(v) => &v.request_digest,
             Self::Barrier(v) => &v.request_digest,
+            Self::Probe(v) => &v.request_digest,
         }
     }
     fn kind(&self) -> &'static str {
         match self {
             Self::Checkpoint(_) => "checkpoint",
             Self::Barrier(_) => "barrier",
+            Self::Probe(_) => "probe",
         }
     }
     fn valid(&self) -> bool {
         match self {
             Self::Checkpoint(v) => v.valid(),
             Self::Barrier(v) => v.valid(),
+            Self::Probe(v) => v.valid(),
         }
     }
     pub fn envelope(&self) -> Result<Envelope> {
         Ok(match self {
             Self::Checkpoint(v) => Envelope::new("runtime.checkpoint.result", v)?,
             Self::Barrier(v) => Envelope::new("runtime.barrier.result", v)?,
+            Self::Probe(v) => Envelope::new("runtime.path_probe.result", v)?,
         })
     }
 }
@@ -273,6 +287,14 @@ impl State {
                         .as_ref()
                         .is_some_and(|observed| observed.binding == request.expected),
                     "checkpoint receipt differs from the persisted request"
+                );
+            }
+            (ControlRequest::Probe(request), ControlResult::Probe(result)) => {
+                ensure!(
+                    (!result.success || result.observed.as_ref() == Some(&request.expected))
+                        && result.probe_id == request.probe_id
+                        && floor.is_none(),
+                    "probe receipt differs from the persisted request"
                 );
             }
             (ControlRequest::Barrier(request), ControlResult::Barrier(result))

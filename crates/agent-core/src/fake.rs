@@ -178,9 +178,36 @@ pub struct FakeAdapter {
     pub apply_delay_ms: AtomicU64,
     pub next_health_delay_ms: AtomicU64,
     pub health_budget_secs: AtomicU64,
+    pub probe_supported: AtomicBool,
+    pub probe_delay_ms: AtomicU64,
+    pub fail_probe: AtomicBool,
+    pub probe_calls: Mutex<Vec<String>>,
+    pub probe_started: tokio::sync::Notify,
 }
 
 impl Adapter for FakeAdapter {
+    fn supports_runtime_probe(&self) -> bool {
+        self.probe_supported.load(Ordering::SeqCst)
+    }
+    fn runtime_probe<'a>(
+        &'a self,
+        _runtime: &'a Prepared,
+        id: &'a str,
+    ) -> BoxFuture<'a, sinan_adapter_sdk::RuntimeProbeMeasurement> {
+        Box::pin(async move {
+            self.probe_calls.lock().unwrap().push(id.into());
+            self.probe_started.notify_one();
+            tokio::time::sleep(Duration::from_millis(
+                self.probe_delay_ms.load(Ordering::SeqCst),
+            ))
+            .await;
+            anyhow::ensure!(
+                !self.fail_probe.load(Ordering::SeqCst),
+                "private fixture credential must never escape"
+            );
+            Ok(sinan_adapter_sdk::RuntimeProbeMeasurement { elapsed_ms: 17 })
+        })
+    }
     fn health_timeout(&self, _target: &Prepared) -> Duration {
         Duration::from_secs(self.health_budget_secs.load(Ordering::SeqCst))
     }

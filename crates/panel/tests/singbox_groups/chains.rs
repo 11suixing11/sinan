@@ -1,5 +1,17 @@
 use super::*;
 
+pub(super) async fn ordered_negative_inputs(panel: &TestPanel) -> Result<()> {
+    sqlx::query("UPDATE servers SET capabilities=$1")
+        .bind(json!([
+            sinan_protocol::RUNTIME_CHECKPOINT_CAPABILITY,
+            sinan_protocol::RUNTIME_RECOVERY_BARRIER_CAPABILITY,
+            sinan_protocol::RUNTIME_PATH_PROBE_CAPABILITY
+        ]))
+        .execute(&panel.state.pool)
+        .await?;
+    Ok(())
+}
+
 #[sqlx::test(migrations = "./migrations")]
 async fn chain_is_private_billed_once_and_requires_both_applied_endpoints(
     pool: PgPool,
@@ -18,14 +30,9 @@ async fn chain_is_private_billed_once_and_requires_both_applied_endpoints(
         Some(json!({"settings":{"public_port":8443,"reality":{"fingerprint":"firefox"}}})),
     )
     .await?;
-    let chain = call(
-        &panel,
-        &cookie,
-        Method::POST,
-        "/chains",
-        Some(json!({"name":"Two hops","entry_node_id":entry,"exit_node_id":exit})),
-    )
-    .await?;
+    let chain = panel
+        .import_legacy_chain(&cookie, "Two hops", entry, exit)
+        .await?;
     let chain_id = id(&chain)?;
     let relay: Uuid = sqlx::query_scalar("SELECT relay_uuid FROM singbox_chains WHERE id=$1")
         .bind(chain_id)
@@ -213,7 +220,7 @@ async fn chain_is_private_billed_once_and_requires_both_applied_endpoints(
 async fn chain_rejects_existing_direct_grants_cycles_nesting_and_same_server(
     pool: PgPool,
 ) -> Result<()> {
-    let panel = TestPanel::start(pool).await?;
+    let panel = TestPanel::start_with_public_url(pool, Some("https://panel.example")).await?;
     let cookie = panel.admin_cookie().await?;
     let a = panel.create_server(&cookie, "A").await?;
     let b = panel.create_server(&cookie, "B").await?;
@@ -224,6 +231,7 @@ async fn chain_rejects_existing_direct_grants_cycles_nesting_and_same_server(
     let nc = id(&panel.create_node(&cookie, c, "C").await?)?;
     let user = id(&panel.create_user(&cookie, "Direct").await?)?;
     panel.grant(&cookie, user, na2).await?;
+    ordered_negative_inputs(&panel).await?;
     for (entry, exit, status) in [
         (na, na2, StatusCode::BAD_REQUEST),
         (na2, nb, StatusCode::CONFLICT),
@@ -242,14 +250,7 @@ async fn chain_rejects_existing_direct_grants_cycles_nesting_and_same_server(
             status
         );
     }
-    let chain = id(&call(
-        &panel,
-        &cookie,
-        Method::POST,
-        "/chains",
-        Some(json!({"name":"AB","entry_node_id":na,"exit_node_id":nb})),
-    )
-    .await?)?;
+    let chain = id(&panel.import_legacy_chain(&cookie, "AB", na, nb).await?)?;
     for (entry, exit) in [(nb, na), (nb, nc), (nc, na), (na, nc)] {
         assert_eq!(
             panel
@@ -302,14 +303,9 @@ async fn retiring_chain_exit_schedules_entry_revocation_even_without_user_reques
     let b = panel.create_server(&cookie, "B").await?;
     let entry = id(&panel.create_node(&cookie, a, "Entry").await?)?;
     let exit = id(&panel.create_node(&cookie, b, "Exit").await?)?;
-    let chain = id(&call(
-        &panel,
-        &cookie,
-        Method::POST,
-        "/chains",
-        Some(json!({"name":"AB","entry_node_id":entry,"exit_node_id":exit})),
-    )
-    .await?)?;
+    let chain = id(&panel
+        .import_legacy_chain(&cookie, "AB", entry, exit)
+        .await?)?;
     let user = id(&panel.create_user(&cookie, "Member").await?)?;
     let group = create_policy(&panel, &cookie, &[], &[chain]).await?;
     set_policies(&panel, &cookie, user, &[group]).await?;
@@ -339,7 +335,8 @@ async fn retiring_chain_exit_schedules_entry_revocation_even_without_user_reques
 
 #[sqlx::test(migrations = "./migrations")]
 async fn chains_reject_modern_protocol_at_either_endpoint(pool: PgPool) -> Result<()> {
-    let panel = TestPanel::start(pool.clone()).await?;
+    let panel =
+        TestPanel::start_with_public_url(pool.clone(), Some("https://panel.example")).await?;
     let cookie = panel.admin_cookie().await?;
     let a = panel.create_server(&cookie, "A").await?;
     let b = panel.create_server(&cookie, "B").await?;
@@ -359,6 +356,7 @@ async fn chains_reject_modern_protocol_at_either_endpoint(pool: PgPool) -> Resul
         )
         .await?)?);
     }
+    ordered_negative_inputs(&panel).await?;
     for (entry_node, exit_node) in [(modern[0], exit), (entry, modern[1])] {
         let response = panel.admin(
             Method::POST,
@@ -372,13 +370,8 @@ async fn chains_reject_modern_protocol_at_either_endpoint(pool: PgPool) -> Resul
         .fetch_one(&pool)
         .await?;
     assert_eq!(count, 0);
-    call(
-        &panel,
-        &cookie,
-        Method::POST,
-        "/chains",
-        Some(json!({"name":"Reality", "entry_node_id":entry, "exit_node_id":exit})),
-    )
-    .await?;
+    panel
+        .import_legacy_chain(&cookie, "Reality", entry, exit)
+        .await?;
     Ok(())
 }

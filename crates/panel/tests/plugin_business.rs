@@ -310,6 +310,7 @@ async fn migration_case(pool: PgPool, binary: Option<std::path::PathBuf>) -> Res
         node["protocol_config"] = json!({"type":"vless-reality"});
         node["enabled"] = json!(true);
         node["settings"] = json!({});
+        node["resource_revision"] = json!(1);
     }
     for access in legacy
         .get_mut("accesses")

@@ -4,13 +4,14 @@ import type { ChainBatchDraft, ProxyWriteSnapshot } from '../src/plugins/singbox
 import { filterProxyResources, proxyResourceCounts, proxyResourceKey, validatedSnapshot, validProxyResources } from '../src/plugins/singbox/groupTypes'
 import type { ProxyResource, ResourceEndpoint } from '../src/plugins/singbox/groupTypes'
 import { nodeRoute } from '../src/plugins/singbox/nodeRoute'
+import { publicResourceFields } from './proxy-resource-fixtures.mjs'
 const requestId = '00000000-0000-4000-8000-000000000001'
 const nextId = '00000000-0000-4000-8000-000000000002'
 function endpoint(id: number, server = id): ResourceEndpoint { return { id, name: `节点 ${id}`, server_id: server, server_name: `服务器 ${server}`, protocol: 'vless-reality', port: 443, public_port: 8443, public_host: 'proxy.example.com', sni: 'www.example.com', enabled: true, node_deleted: false, server_deleted: false, plugin_enabled: true, online: false, desired_revision: null, applied_revision: null, applied_observed_at: null } }
-function resource(kind: 'direct' | 'chain', id: number, entry: ResourceEndpoint, exit: ResourceEndpoint | null = null): ProxyResource { return { kind, id, name: `资源 ${kind} ${id}`, entry, exit, available: true, unavailable_reasons: [], policy_group_ids: [], user_count: 0, chain_refs: [] } }
+function resource(kind: 'direct' | 'chain', id: number, entry: ResourceEndpoint, exit: ResourceEndpoint | null = null): ProxyResource { return { kind, id, name: `资源 ${kind} ${id}`, entry, exit, available: true, unavailable_reasons: [], policy_group_ids: [], user_count: 0, chain_refs: [], ...publicResourceFields(kind, exit) } as ProxyResource }
 function snapshot(): ProxyWriteSnapshot {
   const direct1 = resource('direct', 1, endpoint(1)), direct2 = resource('direct', 2, endpoint(2)), chain1 = resource('chain', 1, endpoint(3), endpoint(2))
-  direct2.chain_refs = [{ id: 1, name: chain1.name, role: 'exit' }]
+  direct2.chain_refs = [{ id: 1, name: chain1.name, role: 'exit', generation: 1, hop_position: 1, state: 'applied' }]
   return { resources: { data: [direct1, direct2, chain1], fresh: true, error: '' },
     nodes: { data: [1, 2, 3].map(id => ({ ...endpoint(id), public_key: 'TEST_ONLY', short_id: 'abcd' })), fresh: true, error: '' },
     servers: { data: [1, 2, 3].map(id => ({ id, name: `服务器 ${id}`, enabled: true, online: false, read_only: false, agent_supported: true, source: 'administrator' })), fresh: true, error: '' } }
@@ -117,7 +118,7 @@ test('new existing-entry selection rejects users, policies and shared-exit roles
     const current = snapshot(), entry = current.resources.data![0]
     if (change === 'users') entry.user_count = 1
     if (change === 'policies') entry.policy_group_ids = [9]
-    if (change === 'refs') entry.chain_refs = [{ id: 9, name: '另一条链路', role: 'exit' }]
+    if (change === 'refs') entry.chain_refs = [{ id: 9, name: '另一条链路', role: 'exit', generation: 1, hop_position: 1, state: 'applied' }]
     expect(() => prepareChainBatch(draft('existing'), current, undefined, () => requestId)).toThrow('已有授权或链路引用')
   }
   expect(JSON.parse(prepareChainBatch(draft('existing'), snapshot(), undefined, () => requestId).serialized).items[0].entry).toEqual({ mode: 'existing', node_id: 1 })

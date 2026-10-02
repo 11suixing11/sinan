@@ -7,6 +7,52 @@ use sinan_adapter_singbox::SingboxAdapter;
 use support::{TempDir, TestOps, TestServices};
 
 #[tokio::test]
+async fn signed_path_plan_requires_matching_staged_bytes_native_features_and_private_controller() {
+    let directory = TempDir::new();
+    let mut spec = directory.spec(18085, serde_json::json!([]));
+    let mut native: serde_json::Value = serde_json::from_str(&spec.files["config.json"]).unwrap();
+    native["outbounds"] = serde_json::json!([{"type":"direct","tag":"direct"},{"type":"vless","tag":"chain-1-g2-h1","server":"127.0.0.1","server_port":20000,
+        "uuid":"00000000-0000-0000-0000-000000000001"}]);
+    native["experimental"]["clash_api"] =
+        serde_json::json!({"external_controller":"127.0.0.1:18086","secret":"a".repeat(64)});
+    spec.files.insert("config.json".into(), native.to_string());
+    let plan = serde_json::json!({"schema":1,"runtime_version":"1.14.2","required_build_tags":["with_clash_api","with_v2ray_api"],
+        "bindings":[{"id":"00000000-0000-0000-0000-000000000002","selector":"chain-1-g2-h1","target":"https://panel.example/health"}]}).to_string();
+    spec.files
+        .insert("runtime-probes.json".into(), plan.clone());
+    std::fs::write(directory.0.join("config.json"), &spec.files["config.json"]).unwrap();
+    std::fs::write(directory.0.join("runtime-probes.json"), &plan).unwrap();
+    let complete = TestOps {
+        version: Some("sing-box version 1.14.2\nTags: with_v2ray_api,with_clash_api\n".into()),
+        ..TestOps::default()
+    };
+    assert!(
+        SingboxAdapter::new()
+            .prepare(spec.clone(), &complete)
+            .await
+            .is_ok()
+    );
+    assert_eq!(complete.commands.lock().unwrap().len(), 2);
+    let incomplete = TestOps::default();
+    assert!(
+        SingboxAdapter::new()
+            .prepare(spec.clone(), &incomplete)
+            .await
+            .is_err()
+    );
+    assert_eq!(incomplete.commands.lock().unwrap().len(), 1);
+    std::fs::write(directory.0.join("runtime-probes.json"), "{}").unwrap();
+    let untouched = TestOps::default();
+    assert!(
+        SingboxAdapter::new()
+            .prepare(spec, &untouched)
+            .await
+            .is_err()
+    );
+    assert!(untouched.commands.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn prepares_only_checked_native_configuration() {
     let directory = TempDir::new();
     let spec = directory.spec(

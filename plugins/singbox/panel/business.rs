@@ -8,7 +8,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 
 pub(crate) const NODE_COLUMNS: &str = "n.id, n.name, n.server_id, n.protocol, n.port, n.public_host, n.sni, n.private_key, n.public_key, n.short_id, n.protocol_config, n.enabled, n.settings";
 
-#[derive(FromRow)]
+#[derive(Clone, FromRow)]
 pub(crate) struct NodeRow {
     pub enabled: bool,
     pub settings: serde_json::Value,
@@ -152,7 +152,7 @@ pub(crate) async fn mark_dirty(
     transaction: &mut Transaction<'_, Postgres>,
     server_ids: &[i64],
 ) -> ApiResult<()> {
-    let affected: Vec<i64> = sqlx::query_scalar("SELECT id FROM servers WHERE id=ANY($1) OR id IN (SELECT unnest(ARRAY[n.server_id,e.server_id]) FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id WHERE n.server_id=ANY($1) OR e.server_id=ANY($1)) ORDER BY id FOR UPDATE")
+    let affected: Vec<i64> = sqlx::query_scalar("WITH impacted AS (SELECT DISTINCT c.id FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id LEFT JOIN nodes e ON e.id=c.exit_node_id LEFT JOIN singbox_chain_hops h ON h.chain_id=c.id AND h.generation=ANY(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation]) WHERE (c.deleted_at IS NULL OR c.phase<>'retired') AND (n.server_id=ANY($1) OR e.server_id=ANY($1) OR h.managed_server_id=ANY($1))), dependencies AS (SELECT n.server_id FROM impacted i JOIN singbox_chains c ON c.id=i.id JOIN nodes n ON n.id=c.entry_node_id UNION SELECT n.server_id FROM impacted i JOIN singbox_chains c ON c.id=i.id JOIN nodes n ON n.id=c.exit_node_id UNION SELECT h.managed_server_id FROM impacted i JOIN singbox_chains c ON c.id=i.id JOIN singbox_chain_hops h ON h.chain_id=c.id WHERE h.kind='managed' AND h.generation=ANY(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation])) SELECT id FROM servers WHERE id=ANY($1) OR id IN(SELECT server_id FROM dependencies) ORDER BY id FOR UPDATE")
         .bind(server_ids).fetch_all(&mut **transaction).await?;
     sqlx::query("UPDATE servers SET dirty_at=FLOOR(EXTRACT(EPOCH FROM clock_timestamp())*1000)::bigint WHERE id=ANY($1) AND deleted_at IS NULL").bind(&affected).execute(&mut **transaction).await?;
     Ok(())

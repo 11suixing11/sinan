@@ -315,13 +315,32 @@ pub async fn remove(
 ) -> ApiResult<StatusCode> {
     auth::require_admin(&state, &headers).await?;
     let mut tx = state.pool.begin().await?;
+    super::super::entitlements::lock(&mut tx).await?;
     let source = service::load_source(&mut tx, id, true).await?;
     if source.settings_revision != input.settings_revision {
         return Err(ApiError::Conflict("来源设置已被修改，请刷新后重试".into()));
     }
+    let dependencies = super::super::ordered_paths::source_dependencies(&mut tx, id).await?;
+    if !dependencies.is_empty() {
+        let names = dependencies
+            .iter()
+            .map(|reference| {
+                format!(
+                    "链路 #{}「{}」第 {} 跳（{} 代）",
+                    reference.chain_id,
+                    reference.chain_name,
+                    reference.hop_position,
+                    reference.generation
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("、");
+        return Err(ApiError::ConflictReferences {
+            message: format!("来源仍被应用、候选或恢复路径引用，请先完成链路撤销：{names}"),
+            references: serde_json::json!({"chains":dependencies}),
+        });
+    }
     jobs::supersede(&mut tx, id).await?;
-    // External hops are rejected by the legacy chain API. Full path references
-    // must join this guard when the versioned mixed-path publisher is introduced.
     sqlx::query("UPDATE singbox_subscription_sources SET deleted_at=$2,archived=TRUE,input_config='{}'::jsonb,host=NULL,next_refresh_at=NULL,conditional_etag=NULL,conditional_last_modified=NULL,conditional_settings_revision=NULL,conditional_identity_epoch=NULL,updated_at=$2 WHERE id=$1")
         .bind(id).bind(now_timestamp()).execute(&mut *tx).await?;
     tx.commit().await?;

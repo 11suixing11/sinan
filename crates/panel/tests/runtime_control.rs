@@ -7,6 +7,8 @@ mod barriers;
 mod business_support;
 #[path = "runtime_control/exact.rs"]
 mod exact;
+#[path = "runtime_control/path_probe.rs"]
+mod path_probe;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
 

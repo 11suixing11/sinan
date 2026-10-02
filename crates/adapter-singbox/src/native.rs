@@ -31,9 +31,23 @@ pub(crate) fn stats_address(address: &str) -> Result<SocketAddr> {
 
 pub(crate) fn listen_addresses(spec: &RuntimeSpec) -> Result<Vec<Listener>> {
     let stats = stats_address(&spec.stats_listen)?;
-    if spec.files.len() != 1 {
-        bail!("runtime bundle must contain only config.json");
+    if spec
+        .files
+        .keys()
+        .any(|name| name != "config.json" && name != crate::path_probe::PLAN_FILE)
+        || spec.files.len()
+            != if spec.files.contains_key(crate::path_probe::PLAN_FILE) {
+                2
+            } else {
+                1
+            }
+    {
+        bail!("runtime bundle contains an unrecognized file");
     }
+    let probe = crate::path_probe::configuration(spec)?;
+    let probe_port = probe
+        .as_ref()
+        .map(|configuration| configuration.controller_port());
     let config: serde_json::Value = serde_json::from_str(
         spec.files
             .get("config.json")
@@ -90,7 +104,7 @@ pub(crate) fn listen_addresses(spec: &RuntimeSpec) -> Result<Vec<Listener>> {
             .as_u64()
             .context("inbound has no listen port")?
             .try_into()?;
-        if port == 0 || port == stats.port() || !ports.insert(port) {
+        if port == 0 || port == stats.port() || probe_port == Some(port) || !ports.insert(port) {
             bail!("invalid or duplicate native listen port");
         }
         let listen: IpAddr = inbound["listen"]

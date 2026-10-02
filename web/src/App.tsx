@@ -63,7 +63,7 @@ export default function App() {
   const nodePage = nodeRoute(path)
   const match = route.match(/^\/servers\/([1-9]\d*)(?:\/(ip-info|node-quality|tcp-quality|plugins))?$/)
   const display = dashboardRoute(route)
-  const current = navigation.find(item => (route === item.path && (item.path !== '/plugins/sing-box/nodes' || nodePage !== null)) || (item.path === '/servers' && Boolean(match)) || (item.path === '/plugins/catalog' && isCatalogPath(route)))
+  const current = navigation.find(item => (item.path === '/plugins/sing-box/nodes' ? nodePage !== null : route === item.path) || (item.path === '/servers' && Boolean(match)) || (item.path === '/plugins/catalog' && isCatalogPath(route)))
   const title = display ? '服务器看板' : current?.label ?? '控制面板'
   useEffect(() => { document.title = `${title} · 司南` }, [title])
   if (session === null) return <div className="boot"><Brand /><Loading /></div>
@@ -77,7 +77,7 @@ export default function App() {
       : route === '/statistics' ? <Statistics />
       : route === '/latency' ? <LatencyTasks />
       : route === '/plugins/sing-box' ? <SingboxOverview />
-        : nodePage ? <Nodes serverId={nodePage.serverId} initialKind={nodePage.kind} />
+        : nodePage ? <Nodes serverId={nodePage.serverId} initialKind={nodePage.kind} initialResource={nodePage.resource} initialServerRole={nodePage.serverRole} />
         : route === '/plugins/sing-box/users' ? <ProxyUsers />
           : route === '/plugins/sing-box/groups' ? <Groups />
             : route === '/system/plugins' ? <Plugins />

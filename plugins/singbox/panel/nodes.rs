@@ -185,6 +185,7 @@ pub async fn update(
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or(ApiError::NotFound)?;
+    let previous_node = node.clone();
     let previous = (
         node.enabled,
         node.settings.clone(),
@@ -230,8 +231,9 @@ pub async fn update(
     }
     business::validate_node(&node)?;
     validate_server_config(&mut transaction, &node).await?;
+    super::ordered_paths::ensure_node_edit_safe(&mut transaction, &node, &previous_node).await?;
     sqlx::query(
-        "UPDATE nodes SET name=$2,public_host=$3,sni=$4,port=$5,protocol_config=$6,enabled=$7,settings=$8 WHERE id=$1",
+        "UPDATE nodes SET name=$2,public_host=$3,sni=$4,port=$5,protocol_config=$6,enabled=$7,settings=$8,resource_revision=resource_revision+1 WHERE id=$1",
     )
     .bind(id)
     .bind(&node.name)
@@ -317,6 +319,14 @@ pub(super) async fn validate_server_config(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     node: &NodeRow,
 ) -> ApiResult<()> {
+    if node.port == 18086 {
+        let reserved:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id WHERE n.server_id=$1 AND c.path_kind='ordered' AND (c.deleted_at IS NULL OR c.phase<>'retired'))").bind(node.server_id).fetch_one(&mut **transaction).await?;
+        if reserved {
+            return Err(ApiError::Conflict(
+                "端口 18086 正在供本机有序链路的私有确认接口使用".into(),
+            ));
+        }
+    }
     let query = format!(
         "SELECT {NODE_COLUMNS} FROM nodes n WHERE n.server_id=$1 AND n.deleted_at IS NULL AND n.id<>$2 ORDER BY n.id"
     );

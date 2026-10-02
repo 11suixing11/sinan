@@ -94,8 +94,12 @@ async fn view(connection: &mut PgConnection, row: SourceRow) -> ApiResult<Source
         last_error,
         stale_reason,
         counts,
-        // Legacy managed two-hop resources cannot reference external versions.
-        dependencies: Vec::new(),
+        dependencies: super::super::ordered_paths::source_dependencies(connection, row.id)
+            .await?
+            .into_iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(anyhow::Error::from)?,
     })
 }
 

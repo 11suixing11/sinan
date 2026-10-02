@@ -331,6 +331,16 @@ pub async fn process_message(
             )
             .await;
         }
+        Message::RuntimePathProbeResult(result) => {
+            let ack =
+                crate::runtime_control::record_path_probe_result(state, server_id, result).await?;
+            notify(
+                state,
+                server_id,
+                Envelope::new("runtime.path_probe.ack", ack)?,
+            )
+            .await;
+        }
         Message::RuntimeRecoveryBarrierResult(result) => {
             let ack =
                 crate::runtime_control::record_barrier_result(state, server_id, result).await?;

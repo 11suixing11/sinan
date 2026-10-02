@@ -1,10 +1,14 @@
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
 import { Field, FormDialog } from '../../components'
-import { resourceWriteError, useAction } from '../../hooks'
+import { resourceWriteError, useAction, useResource } from '../../hooks'
 import type { Node, PluginServer } from '../../types'
-import { assignmentRequestId, proxyResourceKey, validProxyResources } from './groupTypes'
+import { assignmentRequestId, proxyResourceKey, validatedSnapshot, validProxyResources } from './groupTypes'
 import type { Chain, ProxyResource, ResourceSnapshot } from './groupTypes'
+import { sourceRoot, validSourceNodePage, validSubscriptionSources } from './sourceTypes'
+import type { SourceNode, SourceNodePage, SubscriptionSource } from './sourceTypes'
+import ChainPathEditor from './ChainPathEditor'
+import ChainExitExpansion from './ChainExitExpansion'
 
 const root = '/api/plugins/sing-box'
 
@@ -63,9 +67,11 @@ export async function deleteChain(id: number, snapshot: ChainWriteSnapshot, writ
   return write(id)
 }
 
-export type ProxyWriteSnapshot = { resources: ResourceSnapshot<ProxyResource[]>; nodes: ResourceSnapshot<Node[]>; servers: ResourceSnapshot<PluginServer[]> }
-export type ChainBatchDraft = { mode: 'new' | 'existing'; server_id: string; public_host: string; sni: string; entry_node_id: string; exit_node_id: string; rows: { name: string; port: string }[] }
-export type ChainBatchRequest = { request_id: string; items: { name: string; entry: { mode: 'new'; server_id: number; public_host: string; sni: string; port: number | null } | { mode: 'existing'; node_id: number }; hops: { kind: 'managed'; node_id: number }[] }[] }
+export type ProxyWriteSnapshot = { resources: ResourceSnapshot<ProxyResource[]>; nodes: ResourceSnapshot<Node[]>; servers: ResourceSnapshot<PluginServer[]>; sources?: ResourceSnapshot<SubscriptionSource[]>; sourceNodes?: Record<number, ResourceSnapshot<SourceNodePage>> }
+export type ChainDraftHop = { kind: 'managed'; node_id: string } | { kind: 'subscription'; source_id: number; node: Pick<SourceNode, 'id' | 'source_id' | 'identity_epoch' | 'version_id' | 'name' | 'protocol' | 'server' | 'server_port' | 'capabilities'> | null; update_mode: 'follow_node' | 'pinned' }
+export type ChainBatchDraft = { mode: 'new' | 'existing'; server_id: string; public_host: string; sni: string; entry_node_id: string; exit_node_id: string; hops?: ChainDraftHop[]; rows: { name: string; port: string; hops?: ChainDraftHop[] }[] }
+export type ChainRequestHop = { kind: 'managed'; node_id: number } | { kind: 'subscription'; source_id: number; external_node_id: string; node_version_id: string; update_mode: 'follow_node' | 'pinned' }
+export type ChainBatchRequest = { request_id: string; items: { name: string; entry: { mode: 'new'; server_id: number; public_host: string; sni: string; port: number | null } | { mode: 'existing'; node_id: number }; hops: ChainRequestHop[] }[] }
 export type PendingChainBatch = { draft: string; source_draft: string; serialized: string; request_id: string; attempted: boolean }
 export type ChainBatchResult = { request_id: string; chain_ids: number[]; entry_node_ids: number[] }
 
@@ -136,11 +142,42 @@ export function chainBatchSelectionError(draft: ChainBatchDraft, snapshot: Proxy
   const error = proxyWriteError(snapshot)
   if (error) return error
   const entry = draft.mode === 'existing' ? nodeId(draft.entry_node_id) : null
-  const exit = nodeId(draft.exit_node_id)
   const serverId = draft.mode === 'new' ? nodeId(draft.server_id) : undefined
   if (draft.mode === 'new' && draft.server_id && !snapshot.servers.data?.some(server => server.id === serverId && server.enabled)) return '已选入口服务器已不可用或尚未启用，请重新选择；草稿已保留。'
-  if (draft.mode === 'existing' && draft.entry_node_id && entry === null || draft.exit_node_id && exit === null) return '请选择有效的入口和出口；草稿已保留。'
-  return managedSelectionError(snapshot, entry, exit, serverId ?? undefined)
+  if (draft.mode === 'existing' && draft.entry_node_id && entry === null) return '请选择有效的入口；草稿已保留。'
+  const entryError = managedSelectionError(snapshot, entry, null, serverId ?? undefined)
+  if (entryError) return entryError
+  for (const [rowIndex, row] of draft.rows.entries()) {
+    const hops = row.hops ?? draft.hops ?? [{ kind: 'managed' as const, node_id: draft.exit_node_id }]
+    if (!hops.length || hops.length > 8) return `第 ${rowIndex + 1} 条路径需要 1–8 个入口后的代理跳。`
+    const entryServer = serverId ?? snapshot.nodes.data?.find(node => node.id === entry)?.server_id
+    const servers = new Set<number>(entryServer ? [entryServer] : [])
+    const identities = new Set<string>()
+    for (const [index, hop] of hops.entries()) {
+      const prefix = `第 ${rowIndex + 1} 条、第 ${index + 1} 跳：`
+      if (hop.kind === 'managed') {
+        const id = nodeId(hop.node_id)
+        if (id === null) return `${prefix}请选择受管节点。`
+        const error = managedSelectionError(snapshot, null, id)
+        if (error) return prefix + error
+        const server = snapshot.nodes.data!.find(node => node.id === id)!.server_id
+        if (servers.has(server)) return `${prefix}受管服务器不能与入口相同，也不能在同一路径中重复。`
+        servers.add(server)
+      } else {
+        if (resourceWriteError(snapshot.sources ?? { fresh: false, error: '' }) || !validSubscriptionSources(snapshot.sources?.data)) return `${prefix}来源列表等待最新确认；草稿已保留。`
+        const source = snapshot.sources!.data!.find(source => source.id === hop.source_id)
+        const page = snapshot.sourceNodes?.[hop.source_id]
+        if (!source || source.archived || !page?.fresh || page.error || !validSourceNodePage(page.data) || page.data.source_id !== source.id || page.data.current_identity_epoch !== source.identity_epoch) return `${prefix}来源或当前节点版本等待确认，归档及历史节点不能用于新引用。`
+        const selected = hop.node && page.data.nodes.find(node => node.id === hop.node!.id && node.version_id === hop.node!.version_id)
+        if (!selected?.selectable || selected.identity_epoch !== source.identity_epoch || !hop.node || hop.node.identity_epoch !== selected.identity_epoch) return `${prefix}所选节点已缺失、更换代次或产生新版本；请明确重新选点，草稿不会自动替换。`
+        if (!['follow_node', 'pinned'].includes(hop.update_mode)) return `${prefix}请选择跟随节点或固定版本。`
+      }
+      const identity = hop.kind === 'managed' ? `managed:${hop.node_id}` : `source:${hop.source_id}:${hop.node?.id ?? ''}`
+      if (identities.has(identity)) return `${prefix}同一路径不能重复引用同一个节点。`
+      identities.add(identity)
+    }
+  }
+  return ''
 }
 function publicHost(value: string) { return value.length <= 253 && !/[\s/?#@\\]/.test(value) && !value.includes('://') && (value.includes(':') ? /^\[?[0-9a-fA-F:]+\]?$/.test(value) : /^[a-zA-Z0-9.-]+$/.test(value)) }
 export function prepareChainBatch(draft: ChainBatchDraft, snapshot: ProxyWriteSnapshot, previous?: PendingChainBatch, requestId: () => string = assignmentRequestId): PendingChainBatch {
@@ -153,8 +190,8 @@ export function prepareChainBatch(draft: ChainBatchDraft, snapshot: ProxyWriteSn
   const error = chainBatchSelectionError(draft, snapshot)
   if (error) throw new Error(error)
   if (!['new', 'existing'].includes(draft.mode) || draft.rows.length < 1 || draft.rows.length > 32 || draft.mode === 'existing' && draft.rows.length !== 1) throw new Error('新入口批次支持 1–32 条链路；现有入口只能创建一条。')
-  const exit = nodeId(draft.exit_node_id), entry = nodeId(draft.entry_node_id), serverId = nodeId(draft.server_id)
-  if (exit === null || draft.mode === 'existing' && entry === null || draft.mode === 'new' && serverId === null) throw new Error('请选择入口服务器或节点，以及出口节点；草稿已保留。')
+  const entry = nodeId(draft.entry_node_id), serverId = nodeId(draft.server_id)
+  if (draft.mode === 'existing' && entry === null || draft.mode === 'new' && serverId === null) throw new Error('请选择入口服务器或节点；草稿已保留。')
   const host = draft.public_host.trim(), sni = draft.sni.trim()
   if (draft.mode === 'new' && (!publicHost(host) || !sni || sni.length > 253 || !/^[a-zA-Z0-9.-]+$/.test(sni))) throw new Error('请填写有效的公开域名或 IP，以及 Reality 协议域名；不包含协议、端口或路径。')
   const ports = new Set<number>()
@@ -166,7 +203,10 @@ export function prepareChainBatch(draft: ChainBatchDraft, snapshot: ProxyWriteSn
       if (ports.has(port)) throw new Error('同一入口服务器上的批次端口不能重复；自动端口会分别分配。')
       ports.add(port)
     }
-    return { name, entry: draft.mode === 'new' ? { mode: 'new', server_id: serverId!, public_host: host, sni, port } : { mode: 'existing', node_id: entry! }, hops: [{ kind: 'managed', node_id: exit }] }
+    const hops: ChainRequestHop[] = (row.hops ?? draft.hops ?? [{ kind: 'managed' as const, node_id: draft.exit_node_id }]).map(hop => hop.kind === 'managed'
+      ? { kind: 'managed', node_id: nodeId(hop.node_id)! }
+      : { kind: 'subscription', source_id: hop.source_id, external_node_id: hop.node!.id, node_version_id: hop.node!.version_id, update_mode: hop.update_mode })
+    return { name, entry: draft.mode === 'new' ? { mode: 'new', server_id: serverId!, public_host: host, sni, port } : { mode: 'existing', node_id: entry! }, hops }
   })
   const fingerprint = JSON.stringify(items)
   if (previous?.draft === fingerprint && previous.source_draft === JSON.stringify(draft)) return previous
@@ -193,9 +233,13 @@ export async function submitChainBatch(pending: PendingChainBatch, snapshot: Pro
   const request = savedBatchRequest(pending)
   if (!pending.attempted) for (const item of request.items) {
     const entry = item.entry
-    const selection = managedSelectionError(snapshot, entry.mode === 'existing' ? entry.node_id : null, item.hops[0]?.node_id ?? null, entry.mode === 'new' ? entry.server_id : undefined)
+    const selection = managedSelectionError(snapshot, entry.mode === 'existing' ? entry.node_id : null, null, entry.mode === 'new' ? entry.server_id : undefined)
     if (selection) throw new Error(selection)
     if (entry.mode === 'new' && !snapshot.servers.data?.some(server => server.id === entry.server_id && server.enabled)) throw new Error('已选入口服务器已不可用或尚未启用；草稿已保留。')
+  }
+  if (!pending.attempted) {
+    const selection = chainBatchSelectionError(JSON.parse(pending.source_draft) as ChainBatchDraft, snapshot)
+    if (selection) throw new Error(selection)
   }
   pending.attempted = true
   return write(request)
@@ -212,20 +256,40 @@ export async function deleteProxyResource(resource: Pick<ProxyResource, 'kind' |
   return write(`${root}/proxy-resources/${resource.kind}/${resource.id}`)
 }
 
-export default function Chains({ snapshot, serverId, refresh, onCreated }: { snapshot: ProxyWriteSnapshot; serverId?: number; refresh: () => void; onCreated: (result: ChainBatchResult) => void }) {
+export default function Chains({ snapshot, serverId, refresh, onCreated, onAddSource, replacement }: { snapshot: ProxyWriteSnapshot; serverId?: number; refresh: () => void; onCreated: (result: ChainBatchResult) => void; onAddSource?: () => void; replacement?: { generation: number; resource: ProxyResource } }) {
   const action = useAction()
   const [creating, setCreating] = useState(false)
   const [draft, setDraft] = useState<ChainBatchDraft>({ mode: 'new', server_id: '', public_host: '', sni: '', entry_node_id: '', exit_node_id: '', rows: [{ name: '', port: '' }] })
   const pending = useRef<PendingChainBatch | undefined>(undefined)
   const [submittedDraft, setSubmittedDraft] = useState('')
   const [lastRequestId, setLastRequestId] = useState('')
+  const [replacementBlocked, setReplacementBlocked] = useState(false)
+  const [replacementDraft, setReplacementDraft] = useState(false)
+  const replacementSeen = useRef(0)
+  useEffect(() => {
+    if (!replacement || replacementSeen.current === replacement.generation || action.busy || proxyWriteError(snapshot)) return
+    replacementSeen.current = replacement.generation
+    if (pending.current?.attempted) { setReplacementBlocked(true); setCreating(true); return }
+    setReplacementBlocked(false); setReplacementDraft(true)
+    const resource = replacement.resource
+    setDraft({ mode: 'new', server_id: String(resource.entry.server_id), public_host: resource.entry.public_host, sni: resource.entry.sni, entry_node_id: '', exit_node_id: '', rows: [{ name: `${resource.name} · 替代`, port: '' }], hops: resource.hops.map(hop => hop.kind === 'managed' ? { kind: 'managed', node_id: String(hop.node_id) } : { kind: 'subscription', source_id: hop.source_id, update_mode: hop.update_mode, node: { id: hop.external_node_id, source_id: hop.source_id, identity_epoch: hop.identity_epoch, version_id: hop.node_version_id, name: hop.name, protocol: hop.protocol, server: hop.server, server_port: hop.server_port, capabilities: hop.capabilities } }) })
+    pending.current = undefined; setSubmittedDraft(''); setLastRequestId(''); setCreating(true)
+  }, [replacement, action.busy, snapshot])
+  const sourceQuery = useResource<unknown>(creating ? sourceRoot : null)
+  const sourceHistory = useRef<SubscriptionSource[] | undefined>(undefined)
+  const sources = validatedSnapshot(sourceQuery, validSubscriptionSources, sourceHistory.current)
+  if (sources.fresh) sourceHistory.current = sources.data
+  const [sourceNodes, setSourceNodes] = useState<Record<number, ResourceSnapshot<SourceNodePage>>>({})
+  const observe = useCallback((id: number, value: ResourceSnapshot<SourceNodePage>) => setSourceNodes(previous => ({ ...previous, [id]: value })), [])
+  const selectedSources = [...new Set([...(draft.hops ?? []), ...draft.rows.flatMap(row => row.hops ?? [])].flatMap(hop => hop.kind === 'subscription' && hop.source_id > 0 ? [hop.source_id] : []))]
+  const writeSnapshot: ProxyWriteSnapshot = { ...snapshot, sources, sourceNodes }
   const enabledServers = snapshot.servers.data?.filter(server => server.enabled) ?? []
   const choices = snapshot.nodes.data?.filter(node => node.protocol === 'vless-reality' && node.enabled !== false && enabledServers.some(server => server.id === node.server_id)
     && snapshot.resources.data?.some(resource => resource.kind === 'direct' && resource.id === node.id && resource.available)) ?? []
   const writeError = proxyWriteError(snapshot)
   const unchanged = submittedDraft === JSON.stringify(draft)
   const replay = unchanged && pending.current?.attempted === true
-  const selectionError = writeError || replay ? '' : chainBatchSelectionError(draft, snapshot)
+  const selectionError = writeError || replay ? '' : chainBatchSelectionError(draft, writeSnapshot)
   const update = (value: Partial<ChainBatchDraft>) => { action.clearError(); setDraft(current => ({ ...current, ...value })) }
   const rowUpdate = (index: number, value: Partial<ChainBatchDraft['rows'][number]>) => update({ rows: draft.rows.map((row, i) => i === index ? { ...row, ...value } : row) })
   const open = () => {
@@ -235,32 +299,48 @@ export default function Chains({ snapshot, serverId, refresh, onCreated }: { sna
     setCreating(true)
   }
   const submit = () => {
-    if (!creating || action.busy || proxyWriteError(snapshot) || !replay && chainBatchSelectionError(draft, snapshot)) return
+    if (!creating || action.busy || proxyWriteError(snapshot) || !replay && chainBatchSelectionError(draft, writeSnapshot)) return
     void action.run(async () => {
-      const submission = prepareChainBatch(draft, snapshot, pending.current)
+      const submission = prepareChainBatch(draft, writeSnapshot, pending.current)
       pending.current = submission
       setSubmittedDraft(JSON.stringify(draft)); setLastRequestId(submission.request_id)
-      const result = await submitChainBatch(submission, snapshot) as ChainBatchResult
+      const result = await submitChainBatch(submission, writeSnapshot) as ChainBatchResult
       const ids = (value: unknown): value is number[] => Array.isArray(value) && value.length === draft.rows.length && value.every(id => Number.isSafeInteger(id) && id > 0) && new Set(value).size === value.length
       if (!result || result.request_id !== submission.request_id || !ids(result.chain_ids) || !ids(result.entry_node_ids)) throw new Error('面板返回的批次结果不完整，请刷新确认或重试原批次；原请求已保留。')
       return result
-    }, result => { pending.current = undefined; setSubmittedDraft(''); setLastRequestId(''); setCreating(false); setDraft({ mode: 'new', server_id: '', public_host: '', sni: '', entry_node_id: '', exit_node_id: '', rows: [{ name: '', port: '' }] }); onCreated(result); refresh() })
+    }, result => { pending.current = undefined; setSubmittedDraft(''); setLastRequestId(''); setReplacementBlocked(false); setReplacementDraft(false); setCreating(false); setDraft({ mode: 'new', server_id: '', public_host: '', sni: '', entry_node_id: '', exit_node_id: '', rows: [{ name: '', port: '' }] }); onCreated(result); refresh() })
   }
   return <>
+    {creating && selectedSources.map(id => <SourceObservation key={id} id={id} observe={observe} />)}
     <button className="button button-primary" disabled={action.busy || Boolean(writeError)} onClick={open}>创建两跳链路</button>
-    {creating && <FormDialog wide className="chain-editor" title="创建两跳链路" onClose={() => setCreating(false)} onSubmit={submit} busy={action.busy} disabled={Boolean(writeError)} submitDisabled={Boolean(selectionError)} error={writeError || selectionError || action.error} retry={writeError || selectionError ? refresh : undefined} submitLabel={lastRequestId && unchanged ? '重试原批次' : '创建未授权链路'}>
-      <p className="helper">当前支持两台受管服务器的 VLESS + Reality 两跳链路。一次批量提交全部创建或全部拒绝；不支持外部订阅和多段混合链路。</p>
+    <button className="button button-secondary" disabled={action.busy || Boolean(writeError)} onClick={() => { if (action.busy || proxyWriteError(snapshot)) return; if (!draft.hops) update({ hops: [{ kind: 'managed', node_id: draft.exit_node_id }] }); open() }}>创建有序链路</button>
+    {creating && <FormDialog wide className="chain-editor" title={draft.hops ? '创建有序链路' : '创建两跳链路'} onClose={() => setCreating(false)} onSubmit={submit} busy={action.busy} disabled={Boolean(writeError)} submitDisabled={Boolean(selectionError)} error={writeError || selectionError || action.error} retry={writeError || selectionError ? refresh : undefined} submitLabel={lastRequestId && unchanged ? '重试原批次' : '创建未授权链路'}>
+      <p className="helper">入口固定为受管 Reality；入口后可按顺序选择 1–8 个受管或订阅节点，最后一跳为出口。一次批量提交全部创建或全部拒绝。完整路径承载与运行时能力由面板在提交时校验，不以解析或 TCP/UDP 字段推断连通。</p>
       <Field label="入口方式"><select name="entry_mode" value={draft.mode} onChange={event => update({ mode: event.target.value as 'new' | 'existing', rows: event.target.value === 'existing' ? draft.rows.slice(0, 1) : draft.rows })}><option value="new">新建 Reality 专用入口</option><option value="existing">使用现有未授权入口（单条）</option></select></Field>
       <div className="node-fields-grid">
         {draft.mode === 'new' ? <><Field label="入口服务器"><select name="server_id" required value={draft.server_id} onChange={event => update({ server_id: event.target.value })}><option value="" disabled>选择入口服务器</option>{draft.server_id && !enabledServers.some(server => String(server.id) === draft.server_id) && <option value={draft.server_id}>服务器 #{draft.server_id}（已不可用）</option>}{enabledServers.map(server => <option key={server.id} value={server.id}>{server.name}{server.online ? ' · 在线' : ' · 离线，等待应用'}</option>)}</select></Field><Field label="入口公开地址" hint="同批次共享客户端连接域名或 IP，不含协议、端口和路径。"><input name="public_host" required value={draft.public_host} onChange={event => update({ public_host: event.target.value })} placeholder="entry.example.com" autoComplete="off" /></Field><Field label="Reality 协议域名" hint="同批次共享 SNI。"><input name="sni" required value={draft.sni} onChange={event => update({ sni: event.target.value })} placeholder="www.example.com" autoComplete="off" /></Field></> : <Field label="入口节点" hint="只能选择未授权、无链路引用的独立 Reality 节点。"><select name="entry_node_id" required value={draft.entry_node_id} onChange={event => update({ entry_node_id: event.target.value })}><option value="" disabled>选择入口</option>{draft.entry_node_id && !choices.some(node => String(node.id) === draft.entry_node_id) && <option value={draft.entry_node_id}>节点 #{draft.entry_node_id}（已不可用，请重新选择）</option>}{choices.map(node => <option key={node.id} value={node.id}>{node.name}（服务器 #{node.server_id}）</option>)}</select></Field>}
-        <Field label="出口节点" hint="必须与入口分属不同服务器，同一现有出口可被多条链路共享。"><select name="exit_node_id" required value={draft.exit_node_id} onChange={event => update({ exit_node_id: event.target.value })}><option value="" disabled>选择出口</option>{draft.exit_node_id && !choices.some(node => String(node.id) === draft.exit_node_id) && <option value={draft.exit_node_id}>节点 #{draft.exit_node_id}（已不可用，请重新选择）</option>}{choices.map(node => <option key={node.id} value={node.id}>{node.name}（服务器 #{node.server_id}）</option>)}</select></Field>
+        {!draft.hops && <Field label="出口节点" hint="必须与入口分属不同服务器，同一现有出口可被多条链路共享。"><select name="exit_node_id" required value={draft.exit_node_id} onChange={event => update({ exit_node_id: event.target.value })}><option value="" disabled>选择出口</option>{draft.exit_node_id && !choices.some(node => String(node.id) === draft.exit_node_id) && <option value={draft.exit_node_id}>节点 #{draft.exit_node_id}（已不可用，请重新选择）</option>}{choices.map(node => <option key={node.id} value={node.id}>{node.name}（服务器 #{node.server_id}）</option>)}</select></Field>}
       </div>
+      {draft.hops && <ChainPathEditor label="共享有序路径" hops={draft.hops} onChange={hops => update({ hops })} snapshot={writeSnapshot} />}
+      {draft.hops && <ChainExitExpansion draft={draft} snapshot={writeSnapshot} onChange={value => update(value)} />}
+      {draft.hops && onAddSource && <button className="text-button" type="button" onClick={() => { setCreating(false); onAddSource() }}>添加订阅来源并保留链路草稿</button>}
+      {replacementBlocked ? <p className="notice" role="status">先确认已发送批次的结果，原草稿和精确请求已保留。确认后再选择创建替代链路。</p> : replacementDraft && <p className="notice" role="status">替代链路将创建新入口与凭据，不继承任何授权。完成后需明确调整策略组引用，等待新路径应用，再清理旧链路；不承诺无损切换。</p>}
       <h3>链路与入口端口 <span className="count">{draft.rows.length} / 32</span></h3>
       {draft.rows.map((row, index) => <div className="chain-draft-row" key={index}><Field label={`链路 ${index + 1} 名称`}><input name={index === 0 ? 'name' : `name_${index}`} required maxLength={128} value={row.name} onChange={event => rowUpdate(index, { name: event.target.value })} autoComplete="off" /></Field>{draft.mode === 'new' && <Field label={`入口端口 ${index + 1}`} hint="留空时分别自动分配；18085 为保留端口。"><input name={`entry_port_${index}`} type="number" min={1} max={65535} step={1} value={row.port} onChange={event => rowUpdate(index, { port: event.target.value })} placeholder="自动分配" /></Field>}{draft.rows.length > 1 && <button className="text-button danger-text" type="button" onClick={() => update({ rows: draft.rows.filter((_, i) => i !== index) })}>移除第 {index + 1} 条</button>}</div>)}
+      {draft.hops && draft.rows.map((row, index) => <section key={index} className="chain-row-path"><h4>第 {index + 1} 条路径</h4>{row.hops ? <><ChainPathEditor label={`第 ${index + 1} 条独立路径`} hops={row.hops} onChange={hops => rowUpdate(index, { hops })} snapshot={writeSnapshot} /><button className="text-button" type="button" onClick={() => rowUpdate(index, { hops: undefined })}>恢复使用共享路径</button></> : <button className="text-button" type="button" onClick={() => rowUpdate(index, { hops: draft.hops!.map(hop => ({ ...hop })) })}>单独编辑第 {index + 1} 条路径</button>}</section>)}
       {draft.mode === 'new' && <button type="button" className="button button-secondary button-small" disabled={draft.rows.length >= 32} onClick={() => update({ rows: [...draft.rows, { name: '', port: '' }] })}>添加一条链路</button>}
-      <div className="chain-preview" aria-label="批次预览"><h3>批次预览</h3><p>{draft.rows.length} 条链路，共享入口服务器和出口；{draft.mode === 'new' ? '每条新建独立入口监听，自动端口由面板分别分配。' : '使用所选现有入口监听。'}</p><ol>{draft.rows.map((row, index) => <li key={index}><strong>{row.name.trim() || `链路 ${index + 1}`}</strong><span>{draft.mode === 'new' ? `${draft.public_host || '待填写地址'}:${row.port || '自动端口'}` : `入口节点 #${draft.entry_node_id || '待选择'}`} → 出口节点 #{draft.exit_node_id || '待选择'}</span></li>)}</ol></div>
+      <div className="chain-preview" aria-label="批次预览"><h3>批次预览</h3><p>{draft.rows.length} 条链路，共享入口服务器；{draft.mode === 'new' ? '每条新建独立入口监听，自动端口由面板分别分配。' : '所选现有监听将成为专用入口，不能再单独授权。'}</p><ol>{draft.rows.map((row, index) => <li key={index}><strong>{row.name.trim() || `链路 ${index + 1}`}</strong><span>客户端 → {draft.mode === 'new' ? `${draft.public_host || '待填写地址'}:${row.port || '提交时自动分配'}` : `入口节点 #${draft.entry_node_id || '待选择'}`} → {(row.hops ?? draft.hops ?? [{ kind: 'managed' as const, node_id: draft.exit_node_id }]).map(hop => hop.kind === 'managed' ? `受管 #${hop.node_id || '待选择'}` : `${sources.data?.find(source => source.id === hop.source_id)?.name ?? `来源 #${hop.source_id}`} / ${hop.node?.name ?? '待选择'}（${hop.update_mode === 'pinned' ? '固定版本' : '跟随所选节点'} · ${hop.node?.version_id ?? '无版本'}）`).join(' → ')} → 互联网</span></li>)}</ol></div>
       {lastRequestId && <p className="helper" role="status">批次编号：<code>{lastRequestId}</code>。{unchanged ? '请求内容已保留；失败或超时后重试会复用同一编号和内容。' : '草稿已修改，下次提交会使用新批次编号；可先刷新列表确认原批次结果。'}关闭窗口后仍可重新打开继续，离开此页面前请先确认提交结果。</p>}
-      <p className="helper">创建成功不会自动授权给用户。加入策略组并分配后，还需等两端配置应用成功；设备在线和应用状态不代表已验证公网连通。</p>
+      <p className="helper">创建成功不会自动授权给用户。有序路径先准备全部受管依赖，并验证指定出站后才切用户入口；配置应用、路径探测和第三方持续健康分别记录，失败不会跳过任何一段或改直连。</p>
     </FormDialog>}
   </>
+}
+
+function SourceObservation({ id, observe }: { id: number; observe: (id: number, value: ResourceSnapshot<SourceNodePage>) => void }) {
+  const query = useResource<unknown>(`${sourceRoot}/${id}/nodes`)
+  const previous = useRef<SourceNodePage | undefined>(undefined)
+  const value = validatedSnapshot(query, validSourceNodePage, previous.current)
+  if (value.fresh && value.data?.source_id === id) previous.current = value.data
+  useEffect(() => { observe(id, { ...value, fresh: value.fresh && value.data?.source_id === id }) }, [id, observe, value.data, value.fresh, value.error])
+  return null
 }
