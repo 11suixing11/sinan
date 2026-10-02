@@ -138,6 +138,32 @@ def save_manifests(prepared, controller, fixture):
 
 
 class DriverContracts(unittest.TestCase):
+    def ordered_driver(self, root, ids=None):
+        """Real driver methods with a boundary stub, never a product or device."""
+        driver = object.__new__(DRIVER.Driver)
+        driver.directory = root
+        driver.state_file = root / "private-state.json"
+        driver.state = {"requests": {}, "ids": ids or {}, "tokens": {}, "prefix": "TEST_ONLY"}
+        driver.manifest = {"run_id": "ab12640c-270f-4a82-a506-41176e42e19f",
+            "panel": {"origin": "https://owned.test"}, "source_identity": {"frozen": "TEST_ONLY"},
+            "roles": {role: {"address": "10.231.0." + str(number), "sni": "reality.test"}
+                      for number, role in enumerate(("A", "M", "B"), 2)}}
+        driver.panel = mock.Mock()
+        driver.control = mock.Mock()
+        driver.fixtures = mock.Mock()
+        driver.fixtures.manifest = {"addresses": {"fixture": "10.231.0.1"},
+                                    "ports": {"handshake": 21002}}
+        driver.fixtures.source.side_effect = lambda version: "TEST_ONLY private source " + version
+        driver.event = mock.Mock()
+        driver.environment_owned = False
+        driver.fixture_started = False
+        def immediately(label, read, predicate, **options):
+            value = read()
+            self.assertTrue(predicate(value), label)
+            return value
+        driver.wait = mock.Mock(side_effect=immediately)
+        return driver
+
     def assert_manifest_rejected_before_business(self, mutation):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -294,8 +320,9 @@ class DriverContracts(unittest.TestCase):
             driver.state_file = Path(temporary).resolve() / "state.json"
             driver.state = {"requests": {}}
             calls = []
-            body = {"request_id": "opaque-request", "items": [{"name": "TEST_ONLY"}]}
+            body = {"request_id": "b1697cd3-4c69-4f1c-91a1-6e2734a7a1ef", "items": [{"name": "TEST_ONLY"}]}
             def request(path, method, supplied, expected):
+                self.assertEqual(path, "/api/plugins/sing-box/chains/ordered-batch")
                 saved = json.loads(driver.state_file.read_bytes())
                 self.assertEqual(saved["requests"]["batch"]["body"], body)
                 calls.append(copy.deepcopy(supplied))
@@ -303,11 +330,226 @@ class DriverContracts(unittest.TestCase):
                     raise DRIVER.Rejected("panel_transport_failed")
                 return {"chain_ids": [7]}
             driver.panel = mock.Mock(request=request)
-            self.assertEqual(driver.request_once("batch", "/chains/batch", "POST", body), {"chain_ids": [7]})
+            self.assertEqual(driver.request_once("batch", DRIVER.ORDERED_BATCH, "POST", body), {"chain_ids": [7]})
             self.assertEqual(calls, [body, body])
             with self.assertRaises(DRIVER.Rejected):
-                driver.request_once("batch", "/chains/batch", "POST", {**body, "items": []})
+                driver.request_once("batch", DRIVER.ORDERED_BATCH, "POST", {**body, "items": []})
             self.assertEqual(len(calls), 2)
+
+    def test_setup_and_atomic_replay_use_ordered_routes_and_keep_numeric_policy_ids(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            driver = self.ordered_driver(Path(temporary).resolve())
+            source_node = {"id": "c1d62c7f-9b5d-49c0-b382-1c4ff5c4eecc",
+                           "version_id": "9ab7aef7-b438-4155-ade3-69c60aacdd0d",
+                           "identity_epoch": 1, "selectable": True}
+            receipt = {"request_id": None, "chain_ids": [41, 42], "entry_node_ids": [13, 14]}
+            calls, named_calls = [], []
+            numbered = {"server_A": 1, "server_M": 2, "server_B": 3,
+                        "node_M": 11, "node_B": 12, "node_three": 13, "node_four": 14,
+                        "user_three": 21, "user_four": 22, "policy_three": 31, "policy_four": 32}
+            def named(key, path, fields):
+                named_calls.append((key, path, copy.deepcopy(fields)))
+                driver.state["ids"][key] = numbered[key]
+                return {"id": numbered[key], **fields, "device_public_key": "TEST_ONLY-" + key,
+                        "subscription_url": "https://owned.test/sub/TEST_ONLY-" + key,
+                        "subscription_token": "TEST_ONLY-" + key}
+            driver.named = mock.Mock(side_effect=named)
+            driver.credentials_unchanged = mock.Mock()
+            driver.control.call.return_value = {"dedicated": True, "isolated": True, "test_only": True,
+                "panel_origin": driver.manifest["panel"]["origin"],
+                "source_identity": driver.manifest["source_identity"],
+                "roles": {role: {"filesystem_id": number, "netns_id": number, "systemd_id": str(number)}
+                          for number, role in enumerate(("A", "M", "B"), 1)}}
+            def request(path, method="GET", body=None, expected=(200,)):
+                calls.append((path, method, copy.deepcopy(body), expected))
+                if path.startswith("/api/servers/") and method == "GET":
+                    return {"id": int(path.rsplit("/", 1)[1]), "online": True,
+                            "device_public_key": "TEST_ONLY-" + path,
+                            "capabilities": ["singbox", "artifact:minisign-v1", "runtime:checkpoint-v1",
+                                             "runtime:barrier-v1", "runtime:path-probe-v1"]}
+                if path.endswith("/enable") and method == "POST":
+                    return {}
+                if path.endswith("/deployments/check") and method == "POST":
+                    return {"ready": True}
+                if path == "/api/plugins/sing-box/ordered-subscription-sources":
+                    if method == "GET":
+                        return []
+                    self.assertEqual(method, "POST")
+                    self.assertEqual(body["input"], {"kind": "inline", "content": driver.fixtures.source("v1")})
+                    return {"source_id": 7, "settings_revision": 1, "identity_epoch": 1,
+                            "job_id": "d992c067-893f-4c09-b1b5-1b3e5c8158d4"}
+                if path == "/api/plugins/sing-box/ordered-subscription-sources/7/nodes":
+                    return {"source_id": 7, "success_revision": {"id": "76347930-1c2b-4332-970c-6b5e1d937acf"},
+                            "nodes": [copy.deepcopy(source_node)]}
+                if path == "/api/plugins/sing-box/chains/ordered-batch":
+                    if expected == (400,):
+                        self.assertEqual(body["items"][1]["hops"][0]["node_id"], 0)
+                        return {"error": "TEST_ONLY invalid middle item"}
+                    if expected == (409,):
+                        self.assertTrue(body["items"][0]["name"].endswith("-changed"))
+                        return {"error": "TEST_ONLY request collision"}
+                    if receipt["request_id"] is None:
+                        receipt["request_id"] = body["request_id"]
+                    self.assertEqual(body["request_id"], receipt["request_id"])
+                    return copy.deepcopy(receipt)
+                if path in ("/api/plugins/sing-box/ordered-proxy-resources/chain/41",
+                            "/api/plugins/sing-box/ordered-proxy-resources/chain/42"):
+                    return {"path_state": {"phase": "applied", "applied_generation": 1,
+                                           "candidate_generation": None}}
+                if path in ("/api/plugins/sing-box/users/21/policy-groups",
+                            "/api/plugins/sing-box/users/22/policy-groups"):
+                    self.assertEqual(method, "PUT")
+                    return {}
+                if path == "/api/plugins/sing-box/nodes" and method == "GET":
+                    return [{"id": number} for number in (11, 12, 13, 14)]
+                self.fail("unexpected API contract: " + path)
+            driver.panel.request.side_effect = request
+            with mock.patch.object(DRIVER, "write_json"):
+                driver.setup()
+            initial = copy.deepcopy(driver.state["requests"]["create-chains"]["body"])
+            self.assertEqual(driver.state["ids"]["source"], 7)
+            self.assertEqual(initial["items"][0]["hops"][0], {"kind": "subscription", "source_id": 7,
+                "external_node_id": source_node["id"], "node_version_id": source_node["version_id"],
+                "update_mode": "follow_node"})
+            self.assertEqual([hop["kind"] for hop in initial["items"][1]["hops"]],
+                             ["managed", "subscription", "managed"])
+            policies = [fields for key, path, fields in named_calls if key.startswith("policy_")]
+            self.assertEqual(policies, [{"node_ids": [], "chain_ids": [41]},
+                                        {"node_ids": [], "chain_ids": [42]}])
+            driver.scenario_atomic_replay()
+            batches = [row for row in calls if row[0] == "/api/plugins/sing-box/chains/ordered-batch"]
+            self.assertEqual(len(batches), 4)
+            self.assertEqual(batches[1][2], initial)
+            self.assertEqual(driver.state["initial_batch_receipt"], receipt)
+            self.assertTrue(driver.state["requests"]["invalid-batch"]["path"].endswith("/chains/ordered-batch"))
+
+    def test_inline_update_polls_ordered_job_without_reinterpreting_uuid_as_a_source_id(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            driver = self.ordered_driver(Path(temporary).resolve(), {"source": 7})
+            job_id = "d992c067-893f-4c09-b1b5-1b3e5c8158d4"
+            calls = []
+            def request(path, method="GET", body=None, expected=(200,)):
+                calls.append((path, method, copy.deepcopy(body)))
+                if path == "/api/plugins/sing-box/ordered-subscription-sources/7" and method == "GET":
+                    return {"id": 7, "settings_revision": 5}
+                if path == "/api/plugins/sing-box/ordered-subscription-sources/7" and method == "PATCH":
+                    return {"source_id": 7, "settings_revision": 6, "identity_epoch": 2, "job_id": job_id}
+                if path == "/api/plugins/sing-box/ordered-subscription-source-jobs/" + job_id:
+                    return {"id": job_id, "source_id": 7, "status": "succeeded"}
+                self.fail("unexpected API contract: " + path)
+            driver.panel.request.side_effect = request
+            result = driver.patch_source("v3", "replace")
+            self.assertEqual(result["source_id"], 7)
+            self.assertEqual(calls[1][2]["input"], {"kind": "inline", "content": "TEST_ONLY private source v3",
+                                                   "identity_action": "replace"})
+            self.assertEqual(calls[1][2]["settings_revision"], 5)
+            self.assertEqual(driver.state["source_fixture_version"], "v3")
+            self.assertEqual(calls[2][0], "/api/plugins/sing-box/ordered-subscription-source-jobs/" + job_id)
+
+    def test_follow_pinned_apply_and_failed_source_keep_ordered_api_binding(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            driver = self.ordered_driver(Path(temporary).resolve(), {"source": 7})
+            initial = {"id": "c1d62c7f-9b5d-49c0-b382-1c4ff5c4eecc", "identity_epoch": 1,
+                       "version_id": "9ab7aef7-b438-4155-ade3-69c60aacdd0d"}
+            latest = {**initial, "version_id": "e1132060-107e-4381-ae29-cfd3a2e627ec"}
+            replacement = {**latest, "identity_epoch": 2}
+            def resource(identifier, generation, version):
+                return {"id": identifier, "settings_revision": 3,
+                        "path_state": {"applied_generation": generation, "desired_generation": generation},
+                        "hops": [{"kind": "subscription", "position": 1, "identity_epoch": 1,
+                                  "node_version_id": version}]}
+            three_old = resource(41, 1, initial["version_id"])
+            four_old = resource(42, 1, initial["version_id"])
+            three_new = resource(41, 2, latest["version_id"])
+            four_new = resource(42, 2, latest["version_id"])
+            driver.source_version = mock.Mock(side_effect=[initial, latest, replacement])
+            driver.applied = mock.Mock(side_effect=[three_old, four_old, three_new, four_old,
+                                                    four_new, three_new, four_new])
+            driver.patch_source = mock.Mock()
+            driver.traffic, driver.real_proofs = mock.Mock(), mock.Mock()
+            job_id = "d992c067-893f-4c09-b1b5-1b3e5c8158d4"
+            successful = {"settings_revision": 5, "latest_success": {"id": initial["version_id"]}}
+            calls, source_reads = [], 0
+            def request(path, method="GET", body=None, expected=(200,)):
+                nonlocal source_reads
+                calls.append((path, method, copy.deepcopy(body)))
+                if path == "/api/plugins/sing-box/ordered-proxy-resources/chain/42/apply-node-versions":
+                    self.assertEqual(method, "POST")
+                    return {"id": 42, "settings_revision": 4, "generation": 2}
+                if path == "/api/plugins/sing-box/ordered-subscription-sources/7" and method == "GET":
+                    source_reads += 1
+                    return {**successful, "last_error": None if source_reads == 1 else {"kind": "document"}}
+                if path == "/api/plugins/sing-box/ordered-subscription-sources/7" and method == "PATCH":
+                    return {"source_id": 7, "job_id": job_id}
+                if path == "/api/plugins/sing-box/ordered-subscription-source-jobs/" + job_id:
+                    return {"status": "failed", "error": {"kind": "document"}}
+                self.fail("unexpected API contract: " + path)
+            driver.panel.request.side_effect = request
+            driver.scenario_source_versions()
+            self.assertEqual(calls[0][2]["versions"], [{"hop_position": 1, "node_version_id": latest["version_id"]}])
+            self.assertEqual(calls[0][2]["settings_revision"], 3)
+            self.assertEqual(calls[0][2]["generation"], 1)
+            self.assertEqual(calls[2][2]["input"]["identity_action"], "update")
+            self.assertEqual(driver.patch_source.call_args_list, [mock.call("v2"), mock.call("v3", "replace")])
+            self.assertTrue(driver.state["source_replaced"])
+            self.assertEqual(source_reads, 2)
+
+    def test_retirement_guards_and_deleted_replay_stay_on_ordered_resources(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            ids = {"source": 7, "chain_three": 41, "chain_four": 42, "node_B": 12, "node_M": 11,
+                   "user_three": 21, "user_four": 22, "policy_three": 31, "policy_four": 32}
+            driver = self.ordered_driver(Path(temporary).resolve(), ids)
+            initial = {"request_id": "b1697cd3-4c69-4f1c-91a1-6e2734a7a1ef", "items": [{"name": "TEST_ONLY"}]}
+            receipt = {"request_id": initial["request_id"], "chain_ids": [41, 42], "entry_node_ids": [13, 14]}
+            driver.state["requests"]["create-chains"] = {"path": DRIVER.ORDERED_BATCH, "method": "POST", "body": initial}
+            driver.state["initial_batch_receipt"] = copy.deepcopy(receipt)
+            driver.quiet_usage = mock.Mock(return_value={"uplink": 4096, "downlink": 4096})
+            driver.subscription, driver.credentials_unchanged = mock.Mock(), mock.Mock()
+            def control(operation, role=None, arguments=None):
+                if operation == "panel_evidence":
+                    return {"chains": [{"id": 41, "phase": "retired"}, {"id": 42, "phase": "retired"}],
+                            "current_dependencies": []}
+                self.assertEqual(operation, "device_snapshot")
+                return {"runtime": {"active": True}}
+            driver.control.call.side_effect = control
+            calls = []
+            def request(path, method="GET", body=None, expected=(200,)):
+                calls.append((path, method, copy.deepcopy(body), expected))
+                if path == "/api/plugins/sing-box/ordered-subscription-sources/7":
+                    if method == "GET":
+                        return {"id": 7, "settings_revision": 5}
+                    self.assertEqual((method, body, expected), ("DELETE", {"settings_revision": 5}, (409,)))
+                    return {"error": "TEST_ONLY referenced source"}
+                if path.startswith("/api/plugins/sing-box/ordered-proxy-resources/"):
+                    self.assertEqual(method, "DELETE")
+                    self.assertIn(expected, ((409,), (204,)))
+                    return None
+                if path == "/api/plugins/sing-box/ordered-proxy-resources":
+                    self.assertEqual(method, "GET")
+                    return []
+                if path == "/api/plugins/sing-box/chains/ordered-batch":
+                    self.assertEqual((method, body), ("POST", initial))
+                    return copy.deepcopy(receipt)
+                if path in ("/api/plugins/sing-box/nodes/11", "/api/plugins/sing-box/nodes/12"):
+                    return {"enabled": True}
+                if path in ("/api/plugins/sing-box/users/21/policy-groups", "/api/plugins/sing-box/users/22/policy-groups"):
+                    self.assertEqual((method, body), ("PUT", {"group_ids": []}))
+                    return {}
+                if path in ("/api/plugins/sing-box/policy-groups/31", "/api/plugins/sing-box/policy-groups/32"):
+                    self.assertEqual((method, expected), ("DELETE", (204,)))
+                    return None
+                self.fail("unexpected API contract: " + path)
+            driver.panel.request.side_effect = request
+            driver.scenario_retirement()
+            self.assertTrue(driver.state["retired"])
+            self.assertEqual(calls[0][:2], ("/api/plugins/sing-box/ordered-proxy-resources/direct/12", "DELETE"))
+            self.assertEqual(calls[1][:2], ("/api/plugins/sing-box/ordered-proxy-resources/chain/41", "DELETE"))
+            removed = [row[0] for row in calls if row[1] == "DELETE" and row[3] == (204,)]
+            self.assertEqual(removed, ["/api/plugins/sing-box/policy-groups/31",
+                "/api/plugins/sing-box/ordered-proxy-resources/chain/41",
+                "/api/plugins/sing-box/policy-groups/32",
+                "/api/plugins/sing-box/ordered-proxy-resources/chain/42"])
+            self.assertEqual(driver.state["initial_batch_receipt"], receipt)
 
     def test_unkeyed_creation_is_not_blindly_retried(self):
         with tempfile.TemporaryDirectory() as temporary:

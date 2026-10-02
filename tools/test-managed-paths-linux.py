@@ -3,6 +3,11 @@
 
 No panel business function or device-result writer is available to this driver.
 The prepared environment owns installation, isolation, and read-only observations.
+Ordered paths use the separate mainline ordered API family. Numeric source/path
+IDs and UUID request, external-node, version, revision, and job IDs retain their
+actual types; the legacy numeric two-hop APIs are not fallback endpoints.
+Runtime path proofs use the signed panel /health plan. This driver does not
+create periodic ProbeSpec monitoring authorizations or execution leases.
 """
 
 import argparse
@@ -31,6 +36,10 @@ from managed_paths_support import OwnedProcess, write_pipe
 
 
 PLUGIN = "/api/plugins/sing-box"
+ORDERED_SOURCES = PLUGIN + "/ordered-subscription-sources"
+ORDERED_SOURCE_JOBS = PLUGIN + "/ordered-subscription-source-jobs"
+ORDERED_RESOURCES = PLUGIN + "/ordered-proxy-resources"
+ORDERED_BATCH = PLUGIN + "/chains/ordered-batch"
 MAX_BYTES = 2 * 1024 * 1024
 SCENARIOS = (
     "baseline", "atomic-replay", "source-versions", "candidate-failure",
@@ -830,7 +839,7 @@ class Driver:
         return item
 
     def resource(self, which):
-        return self.panel.request(PLUGIN + "/proxy-resources/chain/" + str(self.state["ids"]["chain_" + which]))
+        return self.panel.request(ORDERED_RESOURCES + "/chain/" + str(self.state["ids"]["chain_" + which]))
 
     def applied(self, which, generation=None):
         def ready(item):
@@ -842,7 +851,7 @@ class Driver:
 
     def source_nodes(self):
         identifier = self.state["ids"]["source"]
-        return self.panel.request(PLUGIN + f"/subscription-sources/{identifier}/nodes")
+        return self.panel.request(ORDERED_SOURCES + f"/{identifier}/nodes")
 
     def source_version(self):
         page = self.wait("source_nodes", self.source_nodes,
@@ -854,13 +863,13 @@ class Driver:
 
     def patch_source(self, version, action="update"):
         identifier = self.state["ids"]["source"]
-        source = self.panel.request(PLUGIN + f"/subscription-sources/{identifier}")
+        source = self.panel.request(ORDERED_SOURCES + f"/{identifier}")
         body = {"request_id": str(uuid.uuid4()), "settings_revision": source["settings_revision"],
                 "input": {"kind": "inline", "content": self.fixtures.source(version), "identity_action": action}}
-        receipt = self.request_once("source-" + body["request_id"], PLUGIN + f"/subscription-sources/{identifier}",
+        receipt = self.request_once("source-" + body["request_id"], ORDERED_SOURCES + f"/{identifier}",
                                     "PATCH", body)
         if receipt.get("job_id"):
-            job = self.wait("source_job", lambda: self.panel.request(PLUGIN + "/subscription-source-jobs/" + receipt["job_id"]),
+            job = self.wait("source_job", lambda: self.panel.request(ORDERED_SOURCE_JOBS + "/" + receipt["job_id"]),
                             lambda item: item.get("status") in ("succeeded", "failed", "cancelled", "superseded"))
             require(job.get("status") == "succeeded", "source_job_not_successful")
         self.state["source_fixture_version"] = version
@@ -1040,7 +1049,7 @@ class Driver:
                 "sni": self.manifest["roles"][role]["sni"], "port": port, "settings": settings})
         source_id = self.state["ids"].get("source")
         if source_id is None:
-            sources = self.panel.request(PLUGIN + "/subscription-sources")
+            sources = self.panel.request(ORDERED_SOURCES)
             name = self.state["prefix"] + "-source"
             matches = [item for item in sources if item.get("name") == name]
             require(len(matches) <= 1, "owned_source_ambiguous")
@@ -1049,7 +1058,7 @@ class Driver:
             else:
                 body = {"request_id": str(uuid.uuid4()), "name": name,
                         "input": {"kind": "inline", "content": self.fixtures.source("v1")}}
-                receipt = self.request_once("create-source", PLUGIN + "/subscription-sources", "POST", body)
+                receipt = self.request_once("create-source", ORDERED_SOURCES, "POST", body)
                 source_id = receipt["source_id"]
             self.state["ids"]["source"] = source_id
             self.state["source_fixture_version"] = "v1"
@@ -1070,7 +1079,7 @@ class Driver:
                     request["items"].append({"name": self.state["prefix"] + "-" + which,
                                               "entry": {"mode": "existing", "node_id": self.state["ids"]["node_" + which]},
                                               "hops": hops})
-            receipt = self.request_once("create-chains", PLUGIN + "/chains/batch", "POST", request)
+            receipt = self.request_once("create-chains", ORDERED_BATCH, "POST", request)
             require(len(receipt.get("chain_ids", [])) == 2 and len(receipt.get("entry_node_ids", [])) == 2,
                     "batch_receipt_incomplete")
             for position, which in enumerate(("three", "four")):
@@ -1141,11 +1150,11 @@ class Driver:
 
     def scenario_atomic_replay(self):
         body = self.state["requests"]["create-chains"]["body"]
-        replay = self.panel.request(PLUGIN + "/chains/batch", "POST", body, expected=(200,))
+        replay = self.panel.request(ORDERED_BATCH, "POST", body, expected=(200,))
         require(replay == self.state["initial_batch_receipt"], "batch_replay_ids_changed")
         changed = json.loads(canonical(body))
         changed["items"][0]["name"] += "-changed"
-        self.panel.request(PLUGIN + "/chains/batch", "POST", changed, expected=(409,))
+        self.panel.request(ORDERED_BATCH, "POST", changed, expected=(409,))
         before = self.panel.request(PLUGIN + "/nodes")
         bad = self.state["requests"].get("invalid-batch", {}).get("body")
         if bad is None:
@@ -1157,7 +1166,7 @@ class Driver:
                                   "public_host": self.manifest["roles"]["A"]["address"],
                                   "sni": self.manifest["roles"]["A"]["sni"], "port": 20111 + index}
             bad["items"][1]["hops"][0] = {"kind": "managed", "node_id": 0}
-        self.request_once("invalid-batch", PLUGIN + "/chains/batch", "POST", bad, statuses=(400,))
+        self.request_once("invalid-batch", ORDERED_BATCH, "POST", bad, statuses=(400,))
         after = self.panel.request(PLUGIN + "/nodes")
         require({item["id"] for item in before} == {item["id"] for item in after}, "atomic_batch_left_nodes")
         self.credentials_unchanged()
@@ -1181,16 +1190,16 @@ class Driver:
         body = {"request_id": str(uuid.uuid4()), "settings_revision": pinned["settings_revision"],
                 "generation": pinned["path_state"]["desired_generation"],
                 "versions": [{"hop_position": external(pinned)["position"], "node_version_id": latest["version_id"]}]}
-        self.request_once("apply-version-" + body["request_id"], PLUGIN + f"/proxy-resources/chain/{pinned['id']}/apply-node-versions", "POST", body)
+        self.request_once("apply-version-" + body["request_id"], ORDERED_RESOURCES + f"/chain/{pinned['id']}/apply-node-versions", "POST", body)
         self.applied("four", before["four"] + 1)
         source_id = self.state["ids"]["source"]
-        source = self.panel.request(PLUGIN + f"/subscription-sources/{source_id}")
+        source = self.panel.request(ORDERED_SOURCES + f"/{source_id}")
         bad = {"request_id": str(uuid.uuid4()), "settings_revision": source["settings_revision"],
                "input": {"kind": "inline", "content": "<html>TEST_ONLY invalid subscription</html>", "identity_action": "update"}}
-        receipt = self.request_once("invalid-source-" + bad["request_id"], PLUGIN + f"/subscription-sources/{source_id}", "PATCH", bad)
-        job = self.wait("invalid_source", lambda: self.panel.request(PLUGIN + "/subscription-source-jobs/" + receipt["job_id"]),
+        receipt = self.request_once("invalid-source-" + bad["request_id"], ORDERED_SOURCES + f"/{source_id}", "PATCH", bad)
+        job = self.wait("invalid_source", lambda: self.panel.request(ORDERED_SOURCE_JOBS + "/" + receipt["job_id"]),
                         lambda item: item.get("status") == "failed")
-        current = self.panel.request(PLUGIN + f"/subscription-sources/{source_id}")
+        current = self.panel.request(ORDERED_SOURCES + f"/{source_id}")
         require(job.get("error") is not None and current.get("last_error") is not None
                 and current["latest_success"]["id"] == source["latest_success"]["id"], "source_failure_erased_success")
         self.patch_source("v3", "replace")
@@ -1366,16 +1375,16 @@ class Driver:
 
     def scenario_retirement(self):
         ids = self.state["ids"]
-        self.panel.request(PLUGIN + f"/proxy-resources/direct/{ids['node_B']}", "DELETE", expected=(409,))
-        self.panel.request(PLUGIN + f"/proxy-resources/chain/{ids['chain_three']}", "DELETE", expected=(409,))
-        source = self.panel.request(PLUGIN + f"/subscription-sources/{ids['source']}")
-        self.panel.request(PLUGIN + f"/subscription-sources/{ids['source']}", "DELETE",
+        self.panel.request(ORDERED_RESOURCES + f"/direct/{ids['node_B']}", "DELETE", expected=(409,))
+        self.panel.request(ORDERED_RESOURCES + f"/chain/{ids['chain_three']}", "DELETE", expected=(409,))
+        source = self.panel.request(ORDERED_SOURCES + f"/{ids['source']}")
+        self.panel.request(ORDERED_SOURCES + f"/{ids['source']}", "DELETE",
                            {"settings_revision": source["settings_revision"]}, expected=(409,))
         before = self.quiet_usage()
         for which in ("three", "four"):
             self.panel.request(PLUGIN + f"/users/{ids['user_' + which]}/policy-groups", "PUT", {"group_ids": []})
             self.panel.request(PLUGIN + f"/policy-groups/{ids['policy_' + which]}", "DELETE", expected=(204,))
-            self.panel.request(PLUGIN + f"/proxy-resources/chain/{ids['chain_' + which]}", "DELETE", expected=(204,))
+            self.panel.request(ORDERED_RESOURCES + f"/chain/{ids['chain_' + which]}", "DELETE", expected=(204,))
         evidence = self.wait("paths_retired", lambda: self.control.call("panel_evidence", arguments={"owned_ids": self.owned()}),
                              lambda item: len([chain for chain in item.get("chains", []) if chain.get("phase") == "retired"]) == 2)
         require(isinstance(evidence.get("current_dependencies"), list)
@@ -1383,9 +1392,9 @@ class Driver:
                 "retired_dependencies_not_confirmed_absent")
         for which in ("three", "four"):
             self.subscription(which, blocked=True)
-        replay = self.panel.request(PLUGIN + "/chains/batch", "POST", self.state["requests"]["create-chains"]["body"])
+        replay = self.panel.request(ORDERED_BATCH, "POST", self.state["requests"]["create-chains"]["body"])
         require(replay == self.state["initial_batch_receipt"], "deleted_receipt_recreated_resources")
-        resources = self.panel.request(PLUGIN + "/proxy-resources")
+        resources = self.panel.request(ORDERED_RESOURCES)
         require(not any(item["kind"] == "chain" and item["id"] in self.owned()["chains"] for item in resources),
                 "receipt_replay_revived_deleted_path")
         for role in ("M", "B"):

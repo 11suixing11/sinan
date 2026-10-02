@@ -94,6 +94,7 @@
 - [共用诊断任务服务验收](shared-diagnostic-service.md)
 
 - [作者原生制品交接及提交收尾](native-artifact-handoff.md)
+- [托管验收工具与主线 API 合同](managed-tool-api-compatibility.md)
 
 ## 原生 TCP 与制品发布
 
