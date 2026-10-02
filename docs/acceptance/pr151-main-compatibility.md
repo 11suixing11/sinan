@@ -24,7 +24,7 @@
 
 Rust/PostgreSQL 冻结输入为 `053f9c33ba50788defed1f3021ad4ce461e261be`。相同工作区默认特征、锁文件和元数据下，100 个 lib/bin/example/integration 目标分 80 批全部新执行一次：993 通过、0 失败、23 条件忽略；不是将先前失败整轮的部分成功拼成通过。fmt、core boundary 和工作区全 targets Clippy 通过。macOS umask 077、真实 IPv4/IPv6 回环 ICMP、实际面板/专用 PostgreSQL 与 Chromium 虚拟 WebAuthn 各另列一项，不加入 993，也不将原 23 个忽略改少。条件忽略包括 Linux/root/systemd、固定官方运行时、Pebble及显式浏览器场景；macOS 专项不代替其他系统验收。四个 Linux 专用磁盘夹具不在本机编译执行范围内。
 
-前端构建冻结 `52d0ca808afb630c69f1d6d1b78acb16c73f4722`：Bun 138 个测试通过、2128 次 expect 调用，双强制 TypeScript/Vite 构建及 25 个 dist 资产逐字一致。当前 44 套完整 Chromium 覆盖为首轮 43 套通过，加 display-data 整套修复后通过；原失败保留，未称一次整轮首过。浏览器使用私有回环 API 替身；虚拟 WebAuthn 与真实面板/数据库的专项单列，不能认证真实认证器、云账号或生产 DNS。display-data 仅将测量等待与既有五秒刷新时钟对齐，保留未知、真实零值和恢复断言。
+前端产物提交为 `52d0ca808afb630c69f1d6d1b78acb16c73f4722`；实际构建输入为 `f7e996eca97cf3bd9f3f118c6f976094924095ae`，源码、单元夹具与产物按实际消费字节映射：Bun 138 个测试通过、2128 次 expect 调用，双强制 TypeScript/Vite 构建及 25 个 dist 资产逐字一致。当前 44 套完整 Chromium 覆盖为首轮 43 套通过，加 display-data 整套修复后通过；原失败保留，未称一次整轮首过。浏览器使用私有回环 API 替身；虚拟 WebAuthn 与真实面板/数据库的专项单列，不能认证真实认证器、云账号或生产 DNS。display-data 仅将测量等待与既有五秒刷新时钟对齐，保留未知、真实零值和恢复断言。
 
 Python 70 个唯一 suite 的完整覆盖冻结 `9d27ae726dee0d18ab64bd271d92c3d589892b59`，最终逐 suite 消费输入与收据映射到 `fa80fc03c76ef0e0c1b18b55654dfd00a5db3d06`：990 个 started 方法中，883 个完整通过、106 个方法跳过，另一个父方法包含 10 个子例跳过；另有 1 个 setUpClass 跳过。1464 个子例成功不重复加到方法数。3 组 GNU Bash 重复执行的 38 方法、73 子例另列，不增加唯一覆盖数。只复用依赖输入逐字一致的完整成功 suite；失败 suite 内的部分成功与空事件退出零均未认证。当前未发现 pwsh，PowerShell/Windows 原生安装未在这一输入上重验。17 个固定官方来源共 687969 字节及原许可/helper 身份保持。
 
@@ -41,3 +41,10 @@ Rust 冻结输入到最终文档提交仅有两份非 Markdown 夹具变化：`t
 实际设备上的 Linux/systemd 清理、最小 rootfs 构建、双架构闭包、正式凭据、工具权利和连续代理联合负载仍待验；源码与本地夹具不能关闭这些验收。NodeQuality r2–r21 full 新启动/旧排队门禁、缺字段默认 full、原 JSON 和精确 Started 恢复保持；独立 IPQuality 制品身份不改写旧版本。P0保护→IP→业务→共用框架→TCP 的实机签收顺序保持。
 
 四个源码 GitHub Actions 工作流继续暂停，未执行不算通过。本聊天未正式签署、发布或部署，公开 agent-v0.3.0 与本次源码候选分别成立；未改其他聊天的 issue 状态，未操作真实云资源、DNS、计费或通知。
+
+
+## 作者后续原生准备记录
+
+合并前实时读取作者推进 `fb3845b1b6372b6a5984ebbdae679119e8bae232`，本聊天停止旧推送，普通整合其 [ARM64 准备文档](remote-native-build.md) 与 [原机器摘要](evidence/remote-native-build.json)。它们对应作者自己的 `864767c` / `5adda2d` 输入、784 项功能库存与 19 个旧 dist；304 秒准备、测试根签名和作者原生 ARM64 编译属于该作者记录，不能认证本聊天的新整合源、25 个 dist、正式签名包、AMD64或当前注册联合负载。本聊天未重演该私有构建或签署步骤，原 OOM、权限与磁盘拒绝历史继续保留。
+
+新增机器摘要是精确保留的作者证据数据，不是执行输入；最终映射单独列出其原 Git blob/mode/SHA、来源与实际 Cargo/Python 消费边界，不对任意 JSON 文件豁免。上述993、44套与Python70结果仍只认证各自实际冻结的运行输入。
