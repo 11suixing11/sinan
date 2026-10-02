@@ -1,0 +1,252 @@
+{
+  "schema": 1,
+  "source_base": "6178324cab033b1c283a81391e32478b17ed6475",
+  "scope": "Sing-box subscription sources, bounded parsing and download, immutable external-node versions, guarded source jobs and node-page administration",
+  "freeze": {
+    "functional_files": 712,
+    "sha256": "d990f0ee99d354a15e9732bcac465565a19c4382664cb71744a37f1182e60669"
+  },
+  "panel_targets": [
+    {
+      "name": "lib",
+      "passed": 106,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "subscription_sources",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "proxy_resources",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "singbox_groups",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "foundation",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "business",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "node_ports",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "node_settings",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "plugin_business",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "name": "subscription_preview",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    }
+  ],
+  "rust_passed": 166,
+  "rust_failed": 0,
+  "rust_ignored": 1,
+  "new_methods": {
+    "parser": 12,
+    "fetch": 13,
+    "worker": 5,
+    "source_api": 8
+  },
+  "panel_attempts": [
+    "r1",
+    "r2",
+    "r3"
+  ],
+  "initial_panel_failures": [
+    {
+      "attempt": "r1",
+      "stage": "clippy",
+      "causes": [
+        "YAML root Rc borrow type mismatch",
+        "Worker adjacent if statements in macro"
+      ]
+    },
+    {
+      "attempt": "r2",
+      "stage": "clippy",
+      "causes": [
+        "Two parser collapsible-if lints",
+        "Parser manual-is-multiple-of lint"
+      ]
+    }
+  ],
+  "initial_panel_failure_logs": [
+    {
+      "attempt": "r1",
+      "sha256": "837effb75414c3b8c08c2f704555e186e3f94c828617c65d15a2254cad5cf61f"
+    },
+    {
+      "attempt": "r2",
+      "sha256": "58ef4beb50b904af633af5426ab9f9bc575749491e0e30c9d4a0048380d528dc"
+    }
+  ],
+  "fmt_and_panel_all_target_clippy": true,
+  "core_boundary": true,
+  "bun": {
+    "pass": 83,
+    "fail": 0,
+    "skip": 0,
+    "expect_calls": 1346,
+    "tests": 83,
+    "files": 14
+  },
+  "build_runs": 1,
+  "dist_files": 19,
+  "browser_suites": [
+    {
+      "name": "node-routes",
+      "accepted_attempt": "r1"
+    },
+    {
+      "name": "node-settings",
+      "accepted_attempt": "r1"
+    },
+    {
+      "name": "singbox-chains-write-guards",
+      "accepted_attempt": "r1"
+    },
+    {
+      "name": "singbox-business",
+      "accepted_attempt": "r1"
+    },
+    {
+      "name": "proxy-resources",
+      "accepted_attempt": "r1"
+    },
+    {
+      "name": "singbox-groups",
+      "accepted_attempt": "r1"
+    },
+    {
+      "name": "subscription-sources",
+      "accepted_attempt": "r2"
+    }
+  ],
+  "browser_suites_passed": 7,
+  "web_attempts": [
+    "r1",
+    "r2"
+  ],
+  "initial_visual_issue": "Synthetic clock left finite modal entrance animation translucent; screenshot fixture now finishes that animation and checks computed opacity and white modal background",
+  "visual_issue_was_product_change": false,
+  "retained_unchanged_build_bun_and_other_browsers": true,
+  "source_viewports": [
+    1440,
+    390,
+    320
+  ],
+  "source_final_screenshots": {
+    "sources-historical-failure-1440.png": {
+      "sha256": "66b7c49b34844e9b2f666911cf985d955315cf78e18ae94a316ce3c278fbaaea",
+      "size": 231355
+    },
+    "sources-historical-failure-320.png": {
+      "sha256": "aa6d3c6931e07c15a1aa43e8de7485003785a4c88be7cfb0e5c643e010e7ecce",
+      "size": 63498
+    },
+    "sources-historical-failure-390.png": {
+      "sha256": "7633460b4cbdf8e6a0a806bcd81e00f1b4445abc42b76429d62694f2b204f915",
+      "size": 65676
+    },
+    "sources-list-1440.png": {
+      "sha256": "818a5251b6fda0435b10e7221260555dada3f0581dc8a817ba256a5792ddc983",
+      "size": 160888
+    },
+    "sources-list-320.png": {
+      "sha256": "0f550581874889c5df365a059f264bb46d069d39c6ae32d4eab1082229fa211e",
+      "size": 79590
+    },
+    "sources-list-390.png": {
+      "sha256": "9b8f50174f613e8236cf30800d85809b6dce8b524e3810f11c79fe36522cd923",
+      "size": 89998
+    },
+    "sources-preview-1440.png": {
+      "sha256": "095fc8e831ab14c94fad8ec9994273817a1288f46da3547f7aa2c3b3a4c65a90",
+      "size": 231513
+    },
+    "sources-preview-320.png": {
+      "sha256": "43f841f95d7091265e974ac766a3dcc75b16fd1ae831d057a24759921686099f",
+      "size": 69682
+    },
+    "sources-preview-390.png": {
+      "sha256": "f08ab32ac1bf2b391659374f08e5b55ccb97ede87312a68c4cb2926b36d03e1a",
+      "size": 72665
+    },
+    "sources-url-editor-1440.png": {
+      "sha256": "bc295caeafe8cef681b5ea2c61e2f90dff8f359f0312eaea5a1043f894c15f07",
+      "size": 185991
+    },
+    "sources-url-editor-320.png": {
+      "sha256": "5a9666868c92f7465d4d1b015f6963d5ef0f63397a80637885fd7ca1a69c738a",
+      "size": 61632
+    },
+    "sources-url-editor-390.png": {
+      "sha256": "cc4ccac083dbe29579a8c3b3ca104ff71a48ed0cb4cc6f48618d6902f2691fb7",
+      "size": 66867
+    }
+  },
+  "source_screenshots_visually_reviewed": true,
+  "functional_source_and_dist_unchanged_after_acceptance": true,
+  "owned_postgres_stopped": true,
+  "owned_socket_removed": true,
+  "unrelated_runtime_files_byte_unchanged": 179,
+  "runtime_unchanged_scope": [
+    "agent",
+    "agent-core",
+    "adapter-sdk",
+    "protocol",
+    "compiler",
+    "adapter-nodequality",
+    "adapter-tcpquality",
+    "adapter-ipquality"
+  ],
+  "runtime_scope_retested": false,
+  "real_loopback_tls_failure_exercised": true,
+  "production_database_or_panel_accessed": false,
+  "third_party_subscription_queried": false,
+  "dedicated_linux_node_accessed": false,
+  "remote_ci_executed": false,
+  "signed_or_published": false,
+  "production_deployed": false,
+  "mixed_subscription_paths_implemented": false,
+  "remaining": [
+    "Ordered mixed-path compiler and versioned publisher",
+    "Following and pinned path updates with current/pending/recovery reference guards",
+    "Real three/four-hop paths, entry-only metering and no fallback bypass",
+    "Actual provider and process-restart behavior",
+    "Dedicated-node native migration, diagnostics with sustained proxy traffic and IPQuality builder chain",
+    "Full NodeQuality license and execution prerequisites"
+  ],
+  "ignored_native_test": "imported_subscription_keeps_real_connection_authorization_and_counters_after_migration",
+  "original_failures_preserved": true
+}

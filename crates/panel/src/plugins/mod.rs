@@ -23,7 +23,7 @@ pub fn router() -> Router<AppState> {
 }
 
 pub async fn run(state: AppState) {
-    singbox::publisher::run(state).await
+    singbox::run(state).await
 }
 
 pub async fn ingest_usage(

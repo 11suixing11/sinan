@@ -15,6 +15,8 @@ pub mod proxy_users;
 pub mod publisher;
 pub mod settings;
 pub mod statistics;
+pub mod subscription_parser;
+pub mod subscription_sources;
 pub mod subscriptions;
 pub mod usage;
 
@@ -25,6 +27,13 @@ use axum::{
     Router,
     routing::{delete, get, post},
 };
+
+pub async fn run(state: AppState) {
+    tokio::join!(
+        publisher::run(state.clone()),
+        subscription_sources::worker::run(state)
+    );
+}
 
 pub fn router() -> Router<AppState> {
     let management = Router::new()
@@ -88,6 +97,9 @@ pub fn router() -> Router<AppState> {
         )
         .route("/usage", get(usage::summary));
     Router::new()
-        .nest("/api/plugins/sing-box", management)
+        .nest(
+            "/api/plugins/sing-box",
+            management.merge(subscription_sources::routes()),
+        )
         .route("/sub/{token}", get(subscriptions::get))
 }

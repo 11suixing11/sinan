@@ -77,7 +77,8 @@ try {
         value = node
       } else if (path === '/api/plugins/sing-box/nodes') {
         assert.equal(metadata.enabled, true); value = nodesEmpty ? [] : chainFixtures ? [node, exitNode, ...additionalNodes] : [node, exitNode]
-      } else if (path === '/api/plugins/sing-box/proxy-resources') {
+      } else if (path === '/api/plugins/sing-box/subscription-sources') value = []
+      else if (path === '/api/plugins/sing-box/proxy-resources') {
         assert.equal(route.request().method(), 'GET')
         if (chainsFailure) { await route.fulfill({ status:500,json:{error:'链路夹具读取失败'} }); return }
         value = nodesEmpty ? [] : proxyResourceFixtures([node,exitNode,...additionalNodes],[metadata,exitMetadata,...otherMetadata],chainFixtures ? [...chains,...additionalChains] : chains).filter(resource => chainFixtures || resource.kind === 'chain' || [2,3].includes(resource.id))

@@ -35,6 +35,7 @@ try {
       else if (path === '/api/plugins/sing-box/chains' && method === 'GET') value = []
       else if (path === '/api/plugins/sing-box/nodes' && method === 'GET') value = nodes
       else if (path === '/api/plugins/sing-box/proxy-resources' && method === 'GET') value = proxyResourceFixtures(nodes, pluginServers)
+      else if (path === '/api/plugins/sing-box/subscription-sources' && method === 'GET') value = []
       else if (path === '/api/plugins/sing-box/nodes' && method === 'POST') {
         const body = route.request().postDataJSON(); writes.push(body)
         value = { ...body,id:1,protocol:body.protocol_config.type,port:body.port ?? 20000 }

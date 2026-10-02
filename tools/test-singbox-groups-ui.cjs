@@ -54,6 +54,7 @@ async function main() {
       else if (pathname === '/api/me') data = {}
       else if (pathname === `${root}/nodes`) data = nodes
       else if (method === 'GET' && pathname === `${root}/servers`) data = servers
+      else if (method === 'GET' && pathname === `${root}/subscription-sources`) data = []
       else if (method === 'GET' && pathname === `${root}/proxy-resources`) data = proxyResourceFixtures(nodes, servers, chains)
       else if (method === 'POST' && pathname === `${root}/chains/batch`) {
         assert.match(payload.request_id, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/)

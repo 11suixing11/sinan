@@ -12,6 +12,7 @@ import type { ProxyResource, ProxyResourceFilter, ResourceEndpoint } from './gro
 import { ConnectionFields, nodeSettingsRequest } from './NodeSettingsFields'
 import NodeDeployment from './NodeDeployment'
 import { installationView } from './Settings'
+import Sources from './Sources'
 import './nodes.css'
 
 const root = '/api/plugins/sing-box'
@@ -146,6 +147,7 @@ export default function Nodes({ serverId, initialKind = 'all' }: { serverId?: nu
       <Field label="公开地址" hint="填写客户端连接使用的域名或 IP，不含协议、端口和路径。"><input name="public_host" required defaultValue={editor === 'new' ? '' : editor.public_host} placeholder="node.example.com" autoComplete="off" spellCheck={false} /></Field><ConnectionFields node={editor} /></div><h3>协议与安全</h3><ProtocolFields key={editor === 'new' ? 'new' : editor.id} node={editor} />
     </FormDialog>}
     {deployment !== null && <NodeDeployment serverId={deployment} server={servers.fresh ? servers.data?.find(server => server.id === deployment) : undefined} onClose={() => setDeployment(null)} />}
+    <Sources />
     {detail && <ResourceDetail selected={detail} snapshot={snapshot} onClose={() => setDetail(null)} />}
     {deleting && <Confirm title={`删除「${deleting.name}」？`} busy={action.busy} disabled={Boolean(deleteError)} error={deleteError || action.error} retry={deleteError ? refresh : undefined} onClose={() => setDeleting(null)} onConfirm={() => { if (!deleting || action.busy || proxyDeleteError(resources, deleting)) return; void action.run(() => deleteProxyResource(deleting, snapshot), () => { setDeleting(null); refresh() }) }}>
       {deleting.kind === 'chain' ? '删除链路会删除其专用入口，并撤销内部连接凭据；共享出口保留，历史流量保留。' : '删除直连节点会移除监听配置及直接用户授权，历史流量保留。'}存在策略组或链路引用时，面板会拒绝删除并列出引用；请先解除对应关系，再重试。设备应用新配置后才完成监听与内部连接的撤销。

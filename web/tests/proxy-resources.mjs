@@ -45,6 +45,7 @@ try {
       if (method === 'GET' && path === '/api/dashboard/access') value={authenticated:true,public_dashboard:false}
       else if (method === 'GET' && path === '/api/me') value={authenticated:true}
       else if (method === 'GET' && path === `${prefix}/servers`) value=servers
+      else if (method === 'GET' && path === `${prefix}/subscription-sources`) value=[]
       else if (method === 'GET' && path === `${prefix}/nodes`) {
         if (nodesFailure) {await route.fulfill({status:500,json:{error:'旧节点设置无法解析'}});return}
         value=nodes

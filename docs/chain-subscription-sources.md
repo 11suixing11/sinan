@@ -1,6 +1,6 @@
 # 链路中的订阅来源设计
 
-状态：规划完成，尚未实现。日期：2026-10-01。属于 [代理节点与混合链路方案](node-chain-design.md)，决策见 [ADR 0040](adr/0040-mixed-chains-and-subscriptions.md)。
+状态：来源管理、四格式解析、刷新任务与不可变版本已完成本地集中验收，见 [ADR 0055](adr/0055-subscription-source-lifecycle.md) 与 [本步验收](acceptance/subscription-sources.md)。有序混合路径、版本跟随发布及真实多跳继续后续实现。日期：2026-10-02。属于 [代理节点与混合链路方案](node-chain-design.md)，总体决策见 [ADR 0040](adr/0040-mixed-chains-and-subscriptions.md)。
 
 ## 添加来源与选择节点
 
@@ -86,7 +86,7 @@ URL 来源支持手动刷新及可配置周期刷新，默认每日一次；上�
 
 这些限制约束来源获取和解析，不混用 GitHub 制品公钥或把机场内容当成签名制品。订阅的 URL 指向允许的公网来源也不证明其代理配置合法，两个校验步骤独立执行。
 
-## 待实现 API
+## 来源 API 与后续路径 API
 
 管理接口位于 `/api/plugins/sing-box`，沿用管理员会话和写请求保护：
 
@@ -96,9 +96,13 @@ URL 来源支持手动刷新及可配置周期刷新，默认每日一次；上�
 | `GET /subscription-sources/{id}`、`PATCH /subscription-sources/{id}` | 设置/状态/依赖、替换来源或刷新周期；携带设置 revision 防止覆盖新修改；`archived=true` 可带已有引用归档，停止刷新与新引用 |
 | `POST /subscription-sources/{id}/refresh` | 有界获取与解析任务，返回任务 ID；重复运行返回现有任务或冲突 |
 | `GET /subscription-source-jobs/{id}` | 脱敏任务阶段和结果，禁止回传原始正文 |
+| `POST /subscription-source-jobs/{id}/cancel` | 提交取消意图；运行中的任务先显示等待工作退出，最终状态由后台确认 |
 | `GET /subscription-sources/{id}/nodes` | 节点公开预览、稳定 ID、版本、可选性及拒绝原因 |
+| `GET /subscription-sources/{id}/revisions`、`GET /subscription-sources/{id}/revisions/{revision}/nodes` | 有界成功批次历史及不可变节点预览；历史行不用于新引用 |
 | `DELETE /subscription-sources/{id}` | 当前/待应用/恢复依赖冲突返回 409 和清单；解除依赖后按历史证据保留政策清理，不能级联删除发布证明 |
 | `POST /proxy-resources/chain/{id}/apply-node-versions` | 同节点的版本应用，携带当前路径代数；不得用于换身份或重排路径 |
+
+来源接口是 ADR 0055 本步范围；最后一行路径版本应用仍待后续实现。当前两跳链路不接受外部节点，界面预览的“可用于选点”只表示来源资格，不能据此认为已有链路创建或发布能力。实际字段及请求收据见 [HTTP API](api.md#订阅来源)。
 
 新表单提交链路仅携带已解析的来源/节点/版本 ID 和更新方式，链路事务重新确认版本所属与能力，不在锁内重新下载。任务取消或输入更新后，迟到解析结果不自动写入新一代来源。
 

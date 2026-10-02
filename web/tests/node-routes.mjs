@@ -30,6 +30,7 @@ try {
       else if (path === '/api/plugins/sing-box/servers') data = servers
       else if (path === '/api/plugins/sing-box/nodes') data = nodes
       else if (path === '/api/plugins/sing-box/proxy-resources') data = proxyResourceFixtures(nodes, servers)
+      else if (path === '/api/plugins/sing-box/subscription-sources') data = []
       else if (path === '/api/plugins/sing-box/usage') data = { total:'0', uplink:'0', downlink:'0', by_node:[], by_user:[] }
       else if (['policy-groups','package-groups','chains'].some(key => path === `/api/plugins/sing-box/${key}`)) data = []
       else { errors.push(`Unexpected API ${path}`); return route.fulfill({ status:404, json:{} }) }

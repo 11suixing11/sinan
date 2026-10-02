@@ -23,6 +23,7 @@ ed25519-dalek.workspace = true
 futures-util.workspace = true
 tar = "0.4"
 flate2 = "1"
+saphyr-parser = { version = "=0.1.0", default-features = false }
 reqwest.workspace = true
 rustls = { version = "0.23", default-features = false }
 tracing.workspace = true
