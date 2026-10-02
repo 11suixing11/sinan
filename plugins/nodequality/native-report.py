@@ -8,6 +8,7 @@ import json
 import os
 import pathlib
 import re
+import signal
 import sys
 import stat
 import tempfile
@@ -147,7 +148,7 @@ def bounded_text(data):
     return encoded[:MAX_SECTION-len(suffix)].decode("utf-8", errors="ignore") + suffix.decode("utf-8")
 
 
-def save_section(root, name, text, complete):
+def save_section(root, name, text, complete, *, blocking=True):
     if not text:
         return
     # Capture, the live watcher and cleanup share this stable private lock inode.
@@ -155,7 +156,8 @@ def save_section(root, name, text, complete):
     with os.fdopen(descriptor, "r+") as lock:
         if not stat.S_ISREG(os.fstat(lock.fileno()).st_mode):
             raise ValueError("chapter publication lock is not an ordinary file")
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        operation = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
+        fcntl.flock(lock, operation)
         save_section_locked(root, name, text, complete)
 
 
@@ -187,7 +189,7 @@ def save_section_locked(root, name, text, complete):
     write_atomic(path, json.dumps(chapter, ensure_ascii=False).encode("utf-8"))
 
 
-def publish_sections(root, files, archive=False):
+def publish_sections(root, files, archive=False, *, blocking=True):
     failed = []
     for index, (name, _) in enumerate(SECTIONS):
         text = bounded_text(files.get(name + ".log", b""))
@@ -204,7 +206,7 @@ def publish_sections(root, files, archive=False):
         # the preceding pipeline finished; archive capture proves the last stage.
         following = any(other + ".log" in files for other, _ in SECTIONS[index + 1:])
         try:
-            save_section(root, name, text, valid and (archive or following))
+            save_section(root, name, text, valid and (archive or following), blocking=blocking)
         except (OSError, ValueError):
             # Keep the rejected sidecar untouched and publish the other chapters
             # before reporting failure to the collector or live watcher.
@@ -213,12 +215,12 @@ def publish_sections(root, files, archive=False):
         raise ValueError("chapter publication failed: " + ", ".join(failed))
 
 
-def snapshot(root):
+def snapshot(root, *, blocking=True):
     capture_path = root / "upload.base64"
     if capture_path.is_file() and not capture_path.is_symlink():
         try:
             _, files = archive_files(root)
-            publish_sections(root, files, archive=True)
+            publish_sections(root, files, archive=True, blocking=blocking)
             return
         except (OSError, ValueError, zipfile.BadZipFile, RuntimeError):
             pass
@@ -238,18 +240,52 @@ def snapshot(root):
                     continue
                 with path.open("rb") as source:
                     files[path.name] = source.read(MAX_SECTION if extension == "log" else limit + 1)
-        publish_sections(root, files)
+        publish_sections(root, files, blocking=blocking)
 
 
-def watch_sections(root):
-    while True:
-        try:
-            snapshot(root)
-        except (OSError, ValueError, zipfile.BadZipFile, RuntimeError):
-            # Incomplete writes or unavailable stages are retried, without erasing
-            # the last atomic chapter snapshot or producing unbounded logs.
-            pass
-        time.sleep(1)
+def watch_sections(root, owner_pid):
+    if type(owner_pid) is not int or owner_pid <= 1 or os.getppid() != owner_pid:
+        raise ValueError("chapter watcher requires its actual direct parent")
+
+    def directory_identity(path):
+        metadata = path.lstat()
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise ValueError("chapter watcher directory is not an ordinary directory")
+        return metadata.st_dev, metadata.st_ino
+
+    root_identity = directory_identity(root)
+    runtime_identity = directory_identity(root / ".runner")
+    stopped = False
+
+    def stop(_signum, _frame):
+        nonlocal stopped
+        stopped = True
+
+    # A cancelled launcher may have ignored these signals while starting us.
+    # Set our own dispositions rather than inheriting an immortal watcher.
+    previous = {signum: signal.signal(signum, stop)
+                for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)}
+    try:
+        while not stopped and os.getppid() == owner_pid:
+            try:
+                if (directory_identity(root) != root_identity
+                        or directory_identity(root / ".runner") != runtime_identity):
+                    break
+            except (OSError, ValueError):
+                break
+            try:
+                # A busy publisher must not prevent owner-loss or cancellation
+                # checks. Capture/render keep their serialized publication.
+                snapshot(root, blocking=False)
+            except (OSError, ValueError, zipfile.BadZipFile, RuntimeError):
+                # Partial writes are retried while this run still owns us.
+                # Previously published chapters are never removed on exit.
+                pass
+            if not stopped:
+                time.sleep(1)
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
 
 
 def render(root):
@@ -293,8 +329,16 @@ def render(root):
 
 
 def main():
-    mode, target = sys.argv[1:]
+    mode, target, *arguments = sys.argv[1:]
     root = pathlib.Path(target)
+    if mode == "watch-sections":
+        if (len(arguments) != 1 or not re.fullmatch(r"[1-9][0-9]*", arguments[0])
+                or int(arguments[0]) <= 1):
+            raise ValueError("chapter watcher requires a canonical owner PID")
+        watch_sections(root, int(arguments[0]))
+        return
+    if arguments:
+        raise ValueError("unexpected report operation arguments")
     if mode == "capture":
         capture(root)
     elif mode == "stream-log":
@@ -302,9 +346,8 @@ def main():
     elif mode == "render":
         render(root)
     elif mode == "snapshot":
-        snapshot(root)
-    elif mode == "watch-sections":
-        watch_sections(root)
+        # Cleanup must not block behind another chapter publisher.
+        snapshot(root, blocking=False)
     elif mode == "response":
         capture_response(root)
     else:

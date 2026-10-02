@@ -97,6 +97,8 @@ jobs:
           python3 tools/test-nodequality-native-ip-score-policy.py
           python3 tools/test-nodequality-native-netflix-policy.py
           python3 tools/test-nodequality-native-report-policy.py
+          python3 tools/test-nodequality-native-fixture-process.py
+          python3 tools/test-nodequality-native-watcher.py
           python3 tools/test-nodequality-access-policy.py
           python3 tools/test-nodequality-query-policy.py
           python3 tools/test-nodequality-openai-policy.py

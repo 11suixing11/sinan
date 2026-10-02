@@ -33,10 +33,10 @@ export default function Groups({ initialTab = 'policy-groups' }: { initialTab?: 
   const [tab, setTab] = useState<Tab>(initialTab)
   const [editor, setEditor] = useState<Editor | null>(null)
   const [deleting, setDeleting] = useState<{ kind: Tab; id: number; name: string } | null>(null)
-  const policyWriteError = resourceWriteError(policies, flat, resources)
-  const packageWriteError = resourceWriteError(packages)
+  const policyWriteError = resourceWriteError(policies, packages, flat, resources)
+  const packageWriteError = resourceWriteError(policies, packages, flat, resources)
   const writeError = (kind: Tab, id?: number) => {
-    const dependencyError = kind === 'policy-groups' ? resourceWriteError(policies, flat, resources) : resourceWriteError(packages)
+    const dependencyError = resourceWriteError(policies, packages, flat, resources)
     if (dependencyError) return dependencyError
     const data = kind === 'policy-groups' ? policies.getCurrent() : packages.getCurrent()
     return id !== undefined && !data?.some(value => value.id === id) ? '此资源已不可用，暂不能提交。草稿已保留，可关闭窗口后重新选择。' : ''
@@ -52,7 +52,7 @@ export default function Groups({ initialTab = 'policy-groups' }: { initialTab?: 
     action.clearError()
     setEditor(value.kind === 'policy-groups' ? { ...value, nodeIds: [...(value.value?.node_ids ?? [])], chainIds: [...(value.value?.chain_ids ?? [])] } : value)
   }
-  const choose = (kind: 'nodeIds' | 'chainIds', id: number, checked: boolean) => { if (resourceWriteError(policies, flat, resources)) return; setEditor(previous => previous?.kind === 'policy-groups' ? { ...previous, [kind]: checked ? [...previous[kind], id] : previous[kind].filter(value => value !== id) } : previous) }
+  const choose = (kind: 'nodeIds' | 'chainIds', id: number, checked: boolean) => { if (resourceWriteError(policies, packages, flat, resources)) return; setEditor(previous => previous?.kind === 'policy-groups' ? { ...previous, [kind]: checked ? [...previous[kind], id] : previous[kind].filter(value => value !== id) } : previous) }
   const remove = (kind: Tab, value: { id: number; name: string }) => { if (writeError(kind, value.id)) return; action.clearError(); setDeleting({ kind, ...value }) }
   const submit = (form: FormData) => {
     if (!editor || writeError(editor.kind, editor.value?.id) || currentSelectionError()) return

@@ -1,4 +1,4 @@
-# ADR 0063：NodeQuality 离线工厂的容量与失败证据
+# ADR 0065：NodeQuality 离线工厂的容量与失败证据
 
 > 主线整合编号 0063；作者原独立分支编号 0048。旧主线同号决策及链接保留，历史验收仅认证原冻结输入。
 
@@ -51,7 +51,7 @@ prepare/build/export 在创建本次输出前检查预算、目标文件系统�
 
 实际 prepare/build 仍要求独立批准的固定 builder 身份，按 [ADR 0043](0043-nodequality-offline-rootfs.md) 校验。三个工具的本机摘要、dpkg 声明或再次传入 image SHA 不能证明实际镜像及其 provisioning 来源。已有私有 builder 盘点显示当时缺少 `mmdebstrap` 和 `file-mirror-automount` hook；不能用这份历史盘点宣称当前已具备工厂依赖。
 
-当前默认与离线准备制品谱系按 [ADR 0045](0060-nodequality-artifact-lineages.md) 保持。日常入口和旧报告不依赖新增真实 rootfs；完整能力没有删减，Geekbench、Ookla、NextTrace 等原工具仍按原要求取得来源、许可及能力证据。工厂容量修复不解除完整入口门禁。
+当前默认与离线准备制品谱系按 [ADR 0045](0062-nodequality-artifact-lineages.md) 保持。日常入口和旧报告不依赖新增真实 rootfs；完整能力没有删减，Geekbench、Ookla、NextTrace 等原工具仍按原要求取得来源、许可及能力证据。工厂容量修复不解除完整入口门禁。
 
 ## 验收要求
 

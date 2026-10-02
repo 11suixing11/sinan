@@ -145,7 +145,7 @@
 
 ### 统一代理资源与批量两跳
 
-以下接口与面板、迁移同版使用；设计及验收状态见 [ADR 0054](adr/0069-proxy-resource-batch-lifecycle.md) 和 [本步记录](acceptance/proxy-resources.md)。
+以下接口与面板、迁移同版使用；设计及验收状态见 [ADR 0054](adr/0071-proxy-resource-batch-lifecycle.md) 和 [本步记录](acceptance/proxy-resources.md)。
 
 | 方法与路径 | 请求或用途 |
 | --- | --- |
@@ -184,7 +184,7 @@
 
 ## 订阅来源
 
-本步接口位于 `/api/plugins/sing-box`，见 [ADR 0055](adr/0070-subscription-source-lifecycle.md) 与 [验收边界](acceptance/subscription-sources.md)。仅管理员使用；来源节点不是对用户授权的公开入口，当前受管两跳创建仍不接受订阅跳。
+本步接口位于 `/api/plugins/sing-box`，见 [ADR 0055](adr/0072-subscription-source-lifecycle.md) 与 [验收边界](acceptance/subscription-sources.md)。仅管理员使用；来源节点不是对用户授权的公开入口，当前受管两跳创建仍不接受订阅跳。
 
 | 方法与相对路径 | 请求／行为 |
 | --- | --- |

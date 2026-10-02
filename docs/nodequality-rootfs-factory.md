@@ -1,6 +1,6 @@
 # NodeQuality 离线工厂操作边界
 
-本文件说明容量接口与后续实际操作顺序。容量保护及回收的[独立验收](acceptance/nodequality-factory-capacity.md)已完成，真实完整工厂构建仍待。设计决定见 [ADR 0048](adr/0063-nodequality-factory-capacity.md)。不执行上游 benchmark，不安装运行时，不签署正式 Release，也不解除完整验机门禁。
+本文件说明容量接口与后续实际操作顺序。容量保护及回收的[独立验收](acceptance/nodequality-factory-capacity.md)已完成，真实完整工厂构建仍待。设计决定见 [ADR 0048](adr/0065-nodequality-factory-capacity.md)。不执行上游 benchmark，不安装运行时，不签署正式 Release，也不解除完整验机门禁。
 
 ## 已有材料与尚缺条件
 

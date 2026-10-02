@@ -21,6 +21,14 @@ try {
   for (const [width, height] of [[1280, 900], [1280, 600], [390, 900]]) {
     const page = await browser.newPage({ viewport: { width, height } })
     const errors = [], requests = [], mutations = [], now = Math.floor(Date.now() / 1000)
+    const refreshPage = () => page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).click()
+    const showResourceDetail = async id => {
+      await page.locator(`[data-resource-key="chain:${id}"]`).getByRole('button', { name: '路径与引用', exact: true }).click()
+      const dialog = page.getByRole('dialog')
+      await dialog.getByText('资源存在', { exact: true }).waitFor()
+      return dialog
+    }
+    const closeResourceDetail = () => page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).click()
     page.on('pageerror', error => errors.push(error.message))
     const metadata = { id: 1, name: '纯监控验收服务器', enabled: false, source: null, read_only: false, online: true, agent_supported: false, installation: { state: 'not_enabled', reason: '尚未启用插件；设备支持此插件不代表已安装', target_rev: 0, applied_rev: 0 } }
     const entry = { id: 1, name: metadata.name, online: true, device_public_key: 'test-only-key', static_info: { runtime_version: 'test-only-runtime' }, latest_metrics: { network_interfaces: { eth0: { received_bytes: 1024, transmitted_bytes: 2048 } } }, last_seen: now, manifest_rev: 0, capabilities: [] }
@@ -85,6 +93,10 @@ try {
       } else if (path === '/api/plugins/sing-box/ordered-proxy-resources') {
         if (chainsFailure) { await route.fulfill({ status:500,json:{error:'链路夹具读取失败'} }); return }
         value = nodesEmpty ? [] : proxyResourceFixtures([node,exitNode,...additionalNodes],[metadata,exitMetadata,...otherMetadata],chainFixtures ? [...chains,...additionalChains] : chains).filter(resource => chainFixtures || resource.kind === 'chain' || [2,3].includes(resource.id))
+      } else if (/^\/api\/plugins\/sing-box\/ordered-proxy-resources\/chain\/\d+$/.test(path)) {
+        assert.equal(route.request().method(), 'GET')
+        value = proxyResourceFixtures([node,exitNode,...additionalNodes],[metadata,exitMetadata,...otherMetadata],chainFixtures ? [...chains,...additionalChains] : chains).find(resource => resource.kind === 'chain' && resource.id === Number(path.split('/').at(-1)))
+        assert(value, 'details must identify a current chain from the rich projection')
       } else if (path === '/api/plugins/sing-box/chains/ordered-batch') {
         assert.equal(route.request().method(), 'POST')
         const body = route.request().postDataJSON()
@@ -200,7 +212,7 @@ try {
     await nodeEditor.locator('input[name="handshake_server"]').fill('handshake.example.com')
     await nodeEditor.locator('select[name="fingerprint"]').selectOption('firefox')
     await nodeEditor.getByRole('button', { name: '保存并自动发布', exact: true }).click()
-    await page.getByText('节点已保存，正在等待自动发布与设备应用。', { exact: true }).waitFor()
+    await page.getByText('资源已保存，正在等待自动发布与设备应用。', { exact: true }).waitFor()
     await page.getByText('已设为停用', { exact: true }).waitFor()
     await page.getByText('proxy.example.com:8443', { exact: true }).waitFor()
     await page.getByText('监听 0.0.0.0 / 443', { exact: true }).waitFor()
@@ -227,9 +239,10 @@ try {
     // The following independent chain scenarios start with an enabled entry.
     node.enabled = true
     chainFixtures = true
+    await refreshPage()
     await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '链路', exact: true }).click()
     await page.getByRole('heading', { name: '代理节点', exact: true, level: 1 }).waitFor()
-    await page.getByRole('heading', { name: /^链路/, level: 2 }).waitFor()
+    await page.getByRole('heading', { name: /^有序链路与资源引用/, level: 2 }).waitFor()
     assert.equal(await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '链路', exact: true }).getAttribute('aria-current'), 'page')
     assert.equal(await page.locator('nav[aria-label="主导航"]').getByRole('link', { name: '两跳链路', exact: true }).count(), 0)
     const chainMutationStart = mutations.length
@@ -249,16 +262,25 @@ try {
     assert.equal(await page.getByText('无关服务器链路', { exact: true }).count(), 0)
     let createdRow = page.getByRole('row').filter({ has: page.getByText('未授权验收链路', { exact: true }) })
     assert.equal(await createdRow.getByRole('link', { name: metadata.name, exact: true }).getAttribute('href'), '#/servers/1')
-    assert.equal(await createdRow.getByRole('link', { name: exitMetadata.name, exact: true }).getAttribute('href'), '#/servers/2')
+    await createdRow.getByText('有序混合链路', { exact: true }).waitFor()
+    await createdRow.getByText('状态与指定路径验证见详情', { exact: true }).waitFor()
     await createdRow.getByText(metadata.installation.reason, { exact: true }).waitFor()
     assert.equal(await createdRow.getByText('目标配置已应用', { exact: true }).count(), 0)
+    let resourceDetail = await showResourceDetail(9)
+    assert.equal(await resourceDetail.getByRole('link', { name: metadata.name, exact: true }).getAttribute('href'), '#/servers/1')
+    assert.equal(await resourceDetail.getByRole('link', { name: exitMetadata.name, exact: true }).getAttribute('href'), '#/servers/2')
+    assert.equal(await resourceDetail.getByText('目标配置已应用', { exact: true }).count(), 0)
+    await closeResourceDetail()
     metadata.installation = { state: 'ready', reason: '入口设备已确认目标配置，健康检查通过。', target_rev: 2, applied_rev: 2 }
-    await page.getByRole('button', { name: '刷新', exact: true }).click()
+    await refreshPage()
     await createdRow.getByText('目标配置已应用', { exact: true }).waitFor()
-    await createdRow.getByText('等待应用配置', { exact: true }).waitFor()
-    await createdRow.getByText('目标版本 3 · 已应用版本 2', { exact: true }).waitFor()
     assert.equal(await createdRow.getByText('目标配置已应用', { exact: true }).count(), 1)
     assert.equal(await createdRow.getByText('资源存在', { exact: true }).count(), 1)
+    resourceDetail = await showResourceDetail(9)
+    await resourceDetail.getByText('等待应用配置', { exact: true }).waitFor()
+    await resourceDetail.getByText('目标版本 3 · 已应用版本 2', { exact: true }).waitFor()
+    assert.equal(await resourceDetail.getByText('目标配置已应用', { exact: true }).count(), 1)
+    await closeResourceDetail()
     await page.getByText('两端状态仅表示设备应用与健康信息，尚未验证公网可达或链路连通。', { exact: false }).waitFor()
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
 
@@ -273,17 +295,23 @@ try {
     // Equal revisions alone cannot certify a still-pending dirty configuration.
     exitMetadata.installation = { state: 'pending', reason: '新配置仍待发布确认，版本相等不足以确认应用。', target_rev: 3, applied_rev: 3 }
     await page.reload()
-    await page.getByText(exitMetadata.installation.reason, { exact: true }).waitFor()
-    assert.equal(await page.getByText('目标配置已应用', { exact: true }).count(), 1)
+    resourceDetail = await showResourceDetail(9)
+    await resourceDetail.getByText(exitMetadata.installation.reason, { exact: true }).waitFor()
+    assert.equal(await resourceDetail.getByText('目标配置已应用', { exact: true }).count(), 1)
+    await closeResourceDetail()
     exitMetadata.installation = { state: 'failed', reason: '出口夹具设备应用失败。', target_rev: 3, applied_rev: 2 }
     await page.reload()
-    await page.getByText(exitMetadata.installation.reason, { exact: true }).waitFor()
-    await page.getByText('安装或部署失败', { exact: true }).waitFor()
-    assert.equal(await page.getByText('目标配置已应用', { exact: true }).count(), 1)
+    resourceDetail = await showResourceDetail(9)
+    await resourceDetail.getByText(exitMetadata.installation.reason, { exact: true }).waitFor()
+    await resourceDetail.getByText('安装或部署失败', { exact: true }).waitFor()
+    assert.equal(await resourceDetail.getByText('目标配置已应用', { exact: true }).count(), 1)
+    await closeResourceDetail()
     exitMetadata.installation = { state: 'ready', reason: '出口设备已确认目标配置，健康检查通过。', target_rev: 3, applied_rev: 3 }
     await page.reload()
-    await page.getByText(exitMetadata.installation.reason, { exact: true }).waitFor()
-    assert.equal(await page.getByText('目标配置已应用', { exact: true }).count(), 2)
+    resourceDetail = await showResourceDetail(9)
+    await resourceDetail.getByText(exitMetadata.installation.reason, { exact: true }).waitFor()
+    assert.equal(await resourceDetail.getByText('目标配置已应用', { exact: true }).count(), 2)
+    await closeResourceDetail()
 
     await page.goto(`${origin}/#/plugins/sing-box/nodes?kind=chains&server=3`)
     await page.getByText('无关服务器链路', { exact: true }).waitFor()
@@ -303,13 +331,19 @@ try {
     await page.goto(`${origin}/#/plugins/sing-box/nodes?kind=chains&server=1`)
     createdRow = page.getByRole('row').filter({ has: page.getByText('未授权验收链路', { exact: true }) })
     await createdRow.getByText('目标配置已应用', { exact: true }).first().waitFor()
-    assert.equal(await createdRow.getByText('目标配置已应用', { exact: true }).count(), 2)
+    resourceDetail = await showResourceDetail(9)
+    assert.equal(await resourceDetail.getByText('目标配置已应用', { exact: true }).count(), 2)
+    await closeResourceDetail()
     pluginServersFailure = true
-    await page.getByRole('button', { name: '刷新', exact: true }).click()
+    await refreshPage()
     await page.getByText('服务器夹具读取失败', { exact: true }).waitFor()
-    assert.equal(await createdRow.getByText('应用状态待确认', { exact: true }).count(), 2)
+    assert.equal(await createdRow.getByText('应用状态待确认', { exact: true }).count(), 1)
     assert.equal(await page.getByText('目标配置已应用', { exact: true }).count(), 0)
-    assert.equal(await createdRow.getByRole('link', { name: '服务器 #2', exact: true }).getAttribute('href'), '#/servers/2')
+    resourceDetail = await showResourceDetail(9)
+    assert.equal(await resourceDetail.getByText('应用状态待确认', { exact: true }).count(), 2)
+    assert.equal(await resourceDetail.getByText('目标配置已应用', { exact: true }).count(), 0)
+    assert.equal(await resourceDetail.getByRole('link', { name: '服务器 #2', exact: true }).getAttribute('href'), '#/servers/2')
+    await closeResourceDetail()
     assert.deepEqual(mutations.slice(chainMutationStart), [{ path: '/api/plugins/sing-box/chains/ordered-batch', method: 'POST' }])
     pluginServersFailure = false
     chainFixtures = false
@@ -320,7 +354,7 @@ try {
     // changed fixtures rather than expecting a route change to remount loaders.
     await page.getByRole('link', { name: '查看全部资源', exact: true }).click()
     const recoveredResources = page.waitForResponse(response => new URL(response.url()).pathname === '/api/plugins/sing-box/proxy-resources' && response.request().method() === 'GET' && response.status() === 200)
-    await page.getByRole('button', { name: '刷新', exact: true }).click()
+    await refreshPage()
     await recoveredResources
     await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 1 && document.querySelector('[data-resource-key="direct:3"]'))
     await page.locator('[data-resource-key="direct:3"]').waitFor()

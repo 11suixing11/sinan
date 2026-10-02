@@ -100,7 +100,7 @@ try {
       await page.getByRole('button', { name: '创建节点', exact: true }).first().click()
       const dialog = page.getByRole('dialog'); await dialog.locator('[name=name]').fill('TEST_ONLY 固定服务器草稿')
       hosts.splice(0, 1); await nodesRefresh(page)
-      await dialog.getByText('已选服务器已不存在或未启用，请明确重新选择；当前草稿已保留。', { exact: true }).waitFor()
+      await dialog.getByText('已选节点所属服务器已不存在或未启用；当前草稿已保留。', { exact: true }).waitFor()
       assert.equal(await dialog.locator('[name=server_id]').inputValue(), '1'); await forceForm(dialog.locator('form')); assert.equal(writes.length, 0)
       await dialog.locator('[name=server_id]').selectOption('2'); await dialog.locator('[name=public_host]').fill('127.0.0.1'); await dialog.locator('[name=sni]').fill('localhost'); await dialog.getByRole('button', { name: '创建并自动发布', exact: true }).click()
       await wait(() => writes.length === 1, 'Explicit new server selection'); assert.equal(writes[0].body.server_id, 2)

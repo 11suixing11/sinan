@@ -110,12 +110,14 @@ try {
       // Same-event reload + old form callback proves that handler refs, not only disabled DOM, gate writes.
       await attempt(true)
       await wait(() => gate.reached > 0, 'held GET must actually be requested')
-      await attempt(); await checkDraft()
+      await attempt()
       assert.equal(writes.length, baseline, 'pending refresh must send zero writes'); totals.blocked_submissions += 2
+      await checkDraft()
       control.releaseAsFailure(readPath)
       await page.getByText('TEST_ONLY 刷新失败，保留旧快照', { exact: true }).first().waitFor()
-      await attempt(); await checkDraft()
+      await attempt()
       assert.equal(writes.length, baseline, 'failed refresh must send zero writes'); ++totals.blocked_submissions
+      await checkDraft()
       control.recover(readPath); await refresh(page)
       await saved()
       await wait(() => writes.length === baseline + 1, 'one recovered write must reach the fixture')
@@ -210,7 +212,7 @@ try {
       await page.getByRole('row').filter({ hasText: 'TEST_ONLY 原策略' }).getByRole('button', { name: '编辑', exact: true }).click()
       const dialog = page.getByRole('dialog'); await dialog.locator('input[name="name"]').fill('TEST_ONLY 消失资源草稿')
       resources.splice(resources.findIndex(value => value.kind === 'chain'), 1); resources.splice(resources.findIndex(value => value.id === 1), 1)
-      await refresh(page); await dialog.getByText('已选节点或链路已不存在。原选择仍保留，请刷新确认，或明确取消这些选择后再保存。', { exact: true }).waitFor()
+      await refresh(page); await dialog.getByText('已选资源已不可用或身份已变更，请取消这些选择后再保存。其余草稿已保留。', { exact: true }).waitFor()
       assert(await dialog.locator('input[name="chain_ids"][value="10"]').isChecked()); assert(await dialog.locator('input[name="node_ids"][value="1"]').isChecked())
       await forceSubmit(dialog); assert.equal(writes.length, 0)
       if (process.env.SINAN_UI_SCREENSHOT_DIR) { await mkdir(process.env.SINAN_UI_SCREENSHOT_DIR, { recursive: true }); const screenshot = resolve(process.env.SINAN_UI_SCREENSHOT_DIR, `singbox-snapshot-missing-resource-${width}.png`); await page.screenshot({ path: screenshot, fullPage: true }); totals.screenshots.push(screenshot) }
@@ -221,7 +223,7 @@ try {
       const { page, policies, writes } = control
       await page.getByRole('row').filter({ hasText: 'TEST_ONLY 原策略' }).getByRole('button', { name: '编辑', exact: true }).click()
       const dialog = page.getByRole('dialog'); await dialog.locator('input[name="name"]').fill('TEST_ONLY 已删除实体草稿'); policies.splice(0, 1); await refresh(page)
-      await dialog.getByText('此组已不存在，请关闭对话框后重新选择；当前草稿已保留。', { exact: true }).waitFor(); await forceSubmit(dialog)
+      await dialog.getByText('此资源已不可用，暂不能提交。草稿已保留，可关闭窗口后重新选择。', { exact: true }).waitFor(); await forceSubmit(dialog)
       assert.equal(writes.length, 0); assert.equal(await dialog.locator('input[name="name"]').inputValue(), 'TEST_ONLY 已删除实体草稿')
     })
     await fixture('users', async control => {

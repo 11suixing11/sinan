@@ -4,7 +4,7 @@
 
 ## 不可变数据与 API
 
-旧主线 0001–0038 迁移、数值订阅来源及外部节点版本、数值混合链路版本和原凭据保留。新建 0039–0044 迁移登记运行时确认、节点 IP 章节世代和 UUID 有序链路；不改旧迁移的摘要或把两套外部节点编号互相转换。作者原分支的旧编号数据库需要单独迁移安排，本聊天未升级该私有数据库。
+旧主线 0001–0039 迁移、数值订阅来源及外部节点版本、数值混合链路版本和原凭据保留。新建 0040–0045 迁移登记运行时确认、节点 IP 章节世代和 UUID 有序链路；不改旧迁移的摘要或把两套外部节点编号互相转换。作者原分支的旧编号数据库需要单独迁移安排，本聊天未升级该私有数据库。
 
 现有 `/api/plugins/sing-box/subscription-sources`、`/subscription-source-jobs`、`/proxy-resources` 与 `/chains/batch` 保留主线契约。新 UUID 来源使用 `/ordered-subscription-sources` 和 `/ordered-subscription-source-jobs`，丰富有序资源使用 `/ordered-proxy-resources`，创建使用 `/chains/ordered-batch`。管理界面继续在代理节点页统一呈现；内部版本表与接口身份分开，公开入口不因列表合并而重复或失去引用保护。
 

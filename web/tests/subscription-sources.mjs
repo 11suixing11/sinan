@@ -173,7 +173,7 @@ try {
     listMode = 'held'; await manager.getByRole('button', { name: '刷新来源列表', exact: true }).click(); await heldStarted
     const beforeHeld = writes.length; await force('添加订阅来源'); await force('删除来源'); assert.equal(writes.length, beforeHeld)
     listMode = 'ok'; heldRelease(); await enable(manager.getByRole('button', { name: '添加订阅来源', exact: true }))
-    oldNodesFailure = true; await page.getByRole('button', { name: '刷新', exact: true }).click()
+    oldNodesFailure = true; await page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).click()
     await page.getByText('旧节点元数据损坏', { exact: true }).waitFor()
     await manager.getByRole('button', { name: '添加订阅来源', exact: true }).click()
     await dialog.locator('[name=source_name]').fill('URL 新来源')

@@ -1,10 +1,10 @@
-# ADR 0067：从认证 Debian 缓存派生最小 IPQuality 输入
+# ADR 0069：从认证 Debian 缓存派生最小 IPQuality 输入
 
 > 主线整合编号 0067；作者原独立分支编号 0052。旧主线同号决策及链接保留，历史验收仅认证原冻结输入。
 
 日期：2026-10-02。状态：实现与 117 项受影响工具合同验收完成；真实派生磁盘准入拒绝，正向最小制品及 builder 验收待执行。详情见 [验收记录](../acceptance/ipquality-derived-inputs.md)。
 
-后续：独立输出盘上的一次真实离线派生已成功，跨工厂最小证明见 [ADR 0053](0068-ipquality-minimal-profile-chain.md)；本 ADR 的旧磁盘拒绝及 117 项合同记录保留，实际 builder／最小 rootfs／发布验收仍未完成。
+后续：独立输出盘上的一次真实离线派生已成功，跨工厂最小证明见 [ADR 0053](0070-ipquality-minimal-profile-chain.md)；本 ADR 的旧磁盘拒绝及 117 项合同记录保留，实际 builder／最小 rootfs／发布验收仍未完成。
 
 ## 问题
 

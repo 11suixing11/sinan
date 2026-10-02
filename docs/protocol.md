@@ -56,7 +56,7 @@ Linux 宿主 ABI 与 Agent 编译 ABI 不同时，运行时先保留旧的编译
 
 ## 已签运行计划中的具体出站验证
 
-路径验证需设备声明 `runtime:path-probe-v1`，并具有精确 checkpoint 能力。请求不携带目标 URL、代理凭据或命令，只选择已签 `runtime-probes.json` 中的 UUID；`expected` 是完整健康 checkpoint。正常请求 60 秒，剩余期限不得超过 120 秒；Agent 与 apply/recovery 共用 gate，前后确认实例、配置和无未完成 intent，SDK 请求上限 5 秒。成功须包含同一 checkpoint 与 1 至 5000 毫秒结果；失败不含测量值，错误固定脱敏。结果先持久再发送，重复消息不换内容、不续期，ACK 后保留去重身份。该消息不推进恢复 floor，不允许把迟到或不同 activation 的结果用于新路径切换；具体原生方法及证明范围见 [ADR 0056](adr/0071-ordered-path-publication-and-native-probe.md)。
+路径验证需设备声明 `runtime:path-probe-v1`，并具有精确 checkpoint 能力。请求不携带目标 URL、代理凭据或命令，只选择已签 `runtime-probes.json` 中的 UUID；`expected` 是完整健康 checkpoint。正常请求 60 秒，剩余期限不得超过 120 秒；Agent 与 apply/recovery 共用 gate，前后确认实例、配置和无未完成 intent，SDK 请求上限 5 秒。成功须包含同一 checkpoint 与 1 至 5000 毫秒结果；失败不含测量值，错误固定脱敏。结果先持久再发送，重复消息不换内容、不续期，ACK 后保留去重身份。该消息不推进恢复 floor，不允许把迟到或不同 activation 的结果用于新路径切换；具体原生方法及证明范围见 [ADR 0056](adr/0073-ordered-path-publication-and-native-probe.md)。
 
 ## HTTP 期望状态
 

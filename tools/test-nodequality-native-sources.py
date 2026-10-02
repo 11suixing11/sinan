@@ -20,6 +20,7 @@ import threading
 from unittest import mock
 
 sys.dont_write_bytecode = True
+from nodequality_native_fixture_process import OwnedProcesses
 FULL_START_GUARD = "[[ $mode != full ]] || die 'new full diagnostics are paused: complete tool provenance, redistribution rights, upload control and host side effects remain unverified'"
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / 'plugins/nodequality'
@@ -42,6 +43,7 @@ class SourceTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='sinan-pinned-sources-')
         self.root = Path(self.temporary.name)
+        self.processes = OwnedProcesses(self.root)
         self.sources = self.root / 'inputs'
         self.sources.mkdir(mode=0o700)
         self.lock = json.loads((PLUGIN / 'source-lock.json').read_bytes())
@@ -71,8 +73,8 @@ class SourceTests(unittest.TestCase):
                                 SINAN_CHAIN_HELPER=str(self.fixture_plugin / 'native-source-helper.py'),
                                 SINAN_CHAIN_DIRECTORY=str(self.materialized), NQ_SOURCE_EXECUTED=str(self.executed))
 
-    def tearDown(self):
-        self.temporary.cleanup()
+    def tearDown(self, test_case=None):
+        self.processes.cleanup_temporary(self.temporary, self if test_case is None else test_case)
 
     def shim(self, *args):
         return subprocess.run(['bash', str(PLUGIN / 'curl-shim.sh'), *args], env=self.environment,
@@ -159,7 +161,7 @@ class SourceTests(unittest.TestCase):
             runner = runner.replace('@' + name + '@\n', payload)
         path = self.root / 'nodequality'
         path.write_text(runner)
-        result = subprocess.run(['bash', str(path), '--workspace', str(workspace), '--mode', 'full', '--ip-version', 'ipv4'],
+        result = self.processes.run(['bash', str(path), '--workspace', str(workspace), '--mode', 'full', '--ip-version', 'ipv4'],
                                 env=dict(self.environment, PATH=str(binaries) + ':' + os.environ['PATH']),
                                 capture_output=True, timeout=6)
         self.assertNotEqual(result.returncode, 0, 'synthetic sources produce no benchmark report')
@@ -343,7 +345,7 @@ sys.stdout.buffer.write((pathlib.Path(os.environ['NQ_INPUTS']) / matching[0]['na
         return tree, environment
 
     def build(self, tree, environment, arch):
-        return subprocess.run(['bash', str(tree / 'tools/build-nodequality-native.sh'), arch, str(self.root / 'artifacts')],
+        return self.processes.run(['bash', str(tree / 'tools/build-nodequality-native.sh'), arch, str(self.root / 'artifacts')],
                               env=environment, capture_output=True, timeout=10)
 
     def test_real_builder_packages_both_architectures_immutably_without_executing_downloads(self):
@@ -358,13 +360,13 @@ sys.stdout.buffer.write((pathlib.Path(os.environ['NQ_INPUTS']) / matching[0]['na
             runner_path = self.root / 'nodequality'
             runner_path.write_bytes(runner)
             for option in ('--version', '--help'):
-                result = subprocess.run(['bash', str(runner_path), option], capture_output=True, check=True, timeout=3)
+                result = self.processes.run(['bash', str(runner_path), option], capture_output=True, check=True, timeout=3)
                 self.assertTrue(result.stdout)
             self.assertFalse(self.executed.exists())
         self.assertEqual((output / 'amd64').read_bytes(), (output / 'arm64').read_bytes())
         self.assertEqual(len((self.root / 'downloads').read_text().splitlines()), 34)
         second_root = self.root / 'independent-artifacts'
-        subprocess.run(['bash', str(tree / 'tools/build-nodequality-native.sh'), 'amd64', str(second_root)],
+        self.processes.run(['bash', str(tree / 'tools/build-nodequality-native.sh'), 'amd64', str(second_root)],
                        env=environment, capture_output=True, check=True, timeout=10)
         self.assertEqual((output / 'amd64').read_bytes(), (second_root / 'nodequality' / VERSION / 'amd64').read_bytes())
         prior = {name: (output / name).read_bytes() for name in ('amd64', 'arm64', 'SHA256SUMS')}

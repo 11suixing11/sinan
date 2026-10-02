@@ -21,8 +21,8 @@ const permission = { kind: 'owned', source: 'TEST_ONLY 自有清单', scope: 'TE
 
 async function fillAuthorization(scope) {
   await scope.getByLabel('目标地区').fill('测试地区')
-  await scope.getByLabel('授权来源', { exact: false }).fill('TEST_ONLY 自有清单')
   await scope.getByLabel('目标授权依据').selectOption('owned')
+  await scope.getByLabel('授权来源', { exact: false }).fill('TEST_ONLY 自有清单')
   await scope.getByLabel('授权适用范围', { exact: false }).fill('TEST_ONLY 管理记录')
   await scope.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).check()
 }

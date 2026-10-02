@@ -74,7 +74,7 @@ try {
     })
 
     const createButton = page.getByRole('button', { name: '创建两跳链路', exact: true })
-    const refreshButton = page.getByRole('button', { name: '刷新', exact: true })
+    const refreshButton = page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true })
     const oldRow = page.getByRole('row').filter({ has: page.getByText(previous.name, { exact: true }) })
     const refreshLists = async () => {
       // An open modal covers the page Refresh button; exercise the real polling loader.
@@ -107,6 +107,8 @@ try {
     const failedRead = async pathname => {
       failures.add(pathname)
       const response = page.waitForResponse(response => new URL(response.url()).pathname === pathname && response.request().method() === 'GET' && response.status() === 500)
+      // Keep a failed trigger's original exception instead of an unhandled close rejection.
+      void response.catch(() => {})
       await refreshLists(); await response
       await page.getByRole('alert').filter({ hasText: `链路夹具读取失败：${pathname}` }).first().waitFor()
     }

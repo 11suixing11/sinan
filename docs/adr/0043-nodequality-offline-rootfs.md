@@ -7,7 +7,7 @@
 
 原固定 NodeQuality 链保留完整上游源码和许可材料，但原 BenchOS 是缺少完整构建来源的独立归档。其现有两架构归档都超过 Sinan 外层制品的 256 MiB 总预算，不能直接换一个下载地址后称为受控离线环境。当前也没有 Geekbench Pro 授权，其他第三方工具的固定来源、再分发和上传行为仍有未闭合项。
 
-新增 `tools/nodequality-rootfs-build.py`，只接受显式输入锁和已经取得的本地普通文件。工具不下载、执行在线脚本、自动批准 builder 镜像或启用完整验机。分别执行准备、原生构建和导出；制品打包重新核验准备目录，并将最终归档与清单绑定。本ADR原冻结步骤使用r17默认及r18显式准备身份，历史收据保持该命名。最新整合因同名r18与主线普通包碰撞，按[ADR0045](0060-nodequality-artifact-lineages.md)使用 `sinan-native-r1` 默认与 `offline-rootfs-r1` 显式离线准备，包装器仍拒绝完整验机。
+新增 `tools/nodequality-rootfs-build.py`，只接受显式输入锁和已经取得的本地普通文件。工具不下载、执行在线脚本、自动批准 builder 镜像或启用完整验机。分别执行准备、原生构建和导出；制品打包重新核验准备目录，并将最终归档与清单绑定。本ADR原冻结步骤使用r17默认及r18显式准备身份，历史收据保持该命名。最新整合因同名r18与主线普通包碰撞，按[ADR0045](0062-nodequality-artifact-lineages.md)使用 `sinan-native-r1` 默认与 `offline-rootfs-r1` 显式离线准备，包装器仍拒绝完整验机。
 
 这次交付的是可审阅的来源准备、原生构建配方与安全导出代码。不存在已解决的真实 snapshot/package lock、已审批 builder 镜像、已经产出的 rootfs 或成功复建记录。测试代码中的假签名状态、输入锁和普通文件都是自有夹具，不能当成 Debian 签名或真实构建证据。
 
@@ -66,7 +66,7 @@ CLI 的 TERM/HUP handler 将中断转换为 `SystemExit(128+signal)`，让资源
 
 失败构建目录在删除前也重新读取挂载清单：检测到残留挂载或清单不能读取时保留目录、报告清理失败，并给原始错误附加 note，不能在拒绝清理后继续递归删除挂载内容。prepare/export 不执行挂载命令，只清理自己登记的私有输出目录。工厂输入缓存和构建目录的容量需求属于独立 builder 的容量规划；设备制品的 256 MiB 总预算不代表工厂磁盘消耗也被限制到该值。
 
-2026-10-02 的后续工厂容量步骤按 [ADR 0048](0063-nodequality-factory-capacity.md)集中实现：新增 schema-only 的 plan，prepare/build/export 分别在已有缓存和先前阶段输出占用后重新准入，并动态检查输出字节、文件系统保留量与 inode；默认当前阶段输出 4 GiB、剩余保留 512 MiB 和 1,024 inode。`capacity-plan.json` 和末次/峰值 `factory-capacity.json` 独立于原收据，`hard_quota=false`。原独立 builder 条件、prepared/build/export 字段和设备 256 MiB 总界限保持。失败原命令输出与 cleanup 分开尽力保存到新的私有失败目录，每次写入仍保留管理字节/inode；清理成功后只可重新尝试保存异常内的原日志，不重跑构建。仍不足或有残挂时明确未知，不能保证失败证据齐全。该后续步骤的[独立容量验收](../acceptance/nodequality-factory-capacity.md)已完成，不修改本文历史测试结果，也不表示真实构建已完成；具体 CLI 和边界见[工厂操作说明](../nodequality-rootfs-factory.md)。
+2026-10-02 的后续工厂容量步骤按 [ADR 0048](0065-nodequality-factory-capacity.md)集中实现：新增 schema-only 的 plan，prepare/build/export 分别在已有缓存和先前阶段输出占用后重新准入，并动态检查输出字节、文件系统保留量与 inode；默认当前阶段输出 4 GiB、剩余保留 512 MiB 和 1,024 inode。`capacity-plan.json` 和末次/峰值 `factory-capacity.json` 独立于原收据，`hard_quota=false`。原独立 builder 条件、prepared/build/export 字段和设备 256 MiB 总界限保持。失败原命令输出与 cleanup 分开尽力保存到新的私有失败目录，每次写入仍保留管理字节/inode；清理成功后只可重新尝试保存异常内的原日志，不重跑构建。仍不足或有残挂时明确未知，不能保证失败证据齐全。该后续步骤的[独立容量验收](../acceptance/nodequality-factory-capacity.md)已完成，不修改本文历史测试结果，也不表示真实构建已完成；具体 CLI 和边界见[工厂操作说明](../nodequality-rootfs-factory.md)。
 
 ## 开源工具库存与完整能力
 
@@ -128,4 +128,4 @@ Bookworm 的 `stun-client` 在 amd64 与 arm64 提供客户端 `/usr/bin/stun`�
 
 ## 实际输入收集的后续步骤
 
-[ADR 0046](0061-nodequality-input-collection.md) 增加实际 Snapshot 索引、APT 闭包及完整对应源码的收集入口，补齐本工具之前依赖人工取得材料的环节。输入认证、候选 builder 身份和完整镜像审批分别记录；尚无真正 builder 材料时也可保存未绑定的已收集材料，不能填入虚构摘要使锁通过校验。收集不执行这里的准备、构建或导出，原生制品及完整验机条件保持。后续实际取得结果按新的整步收据记录，不重写本 ADR 对先前步骤的范围说明。
+[ADR 0046](0063-nodequality-input-collection.md) 增加实际 Snapshot 索引、APT 闭包及完整对应源码的收集入口，补齐本工具之前依赖人工取得材料的环节。输入认证、候选 builder 身份和完整镜像审批分别记录；尚无真正 builder 材料时也可保存未绑定的已收集材料，不能填入虚构摘要使锁通过校验。收集不执行这里的准备、构建或导出，原生制品及完整验机条件保持。后续实际取得结果按新的整步收据记录，不重写本 ADR 对先前步骤的范围说明。

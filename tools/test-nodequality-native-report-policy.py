@@ -625,7 +625,7 @@ class WiringTests(unittest.TestCase):
         try:
             self.recorder.close()
         finally:
-            self.base.tearDown()
+            self.base.tearDown(self)
 
     def run_fixture(self, upload='false', old=False, **settings):
         self.counter += 1
@@ -636,7 +636,7 @@ class WiringTests(unittest.TestCase):
             self.assertEqual(content.count(before), 1)
             path.write_text(content.replace(before, 'REPORT_ROLES = frozenset()', 1))
         artifact_root = self.base.root / ('artifact-' + str(self.counter))
-        run = subprocess.run(['bash', str(self.tree / 'tools/build-nodequality-native.sh'), 'amd64', str(artifact_root)], env=self.env, capture_output=True, timeout=10)
+        run = self.base.processes.run(['bash', str(self.tree / 'tools/build-nodequality-native.sh'), 'amd64', str(artifact_root)], env=self.env, capture_output=True, timeout=10)
         self.assertEqual(run.returncode, 0, run.stderr)
         artifact = artifact_root / 'nodequality' / source_tests.VERSION / 'amd64'
         runner = self.base.root / ('runner-' + str(self.counter))
@@ -668,23 +668,11 @@ class WiringTests(unittest.TestCase):
         if upload is not None:
             command += ['--upload-report', upload]
         before = len(self.recorder.records)
-        process = subprocess.Popen(command, env=env, stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE, start_new_session=True)
         try:
-            stdout, stderr = process.communicate(timeout=20)
-        except subprocess.TimeoutExpired:
-            # A fixture deadline must also stop its inherited watcher/children.
-            os.killpg(process.pid, signal.SIGTERM)
-            try:
-                process.communicate(timeout=2)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.communicate(timeout=2)
-            raise
+            run = self.base.processes.run(command, env=env, timeout=20)
         finally:
             if old:
                 (self.plugin / 'native-source-helper.py').write_text(content)
-        run = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
         if run.returncode and (workspace / 'log.txt').is_file():
             run.stderr += (workspace / 'log.txt').read_bytes()
         records = [json.loads(line) for line in trace.read_text().splitlines()]

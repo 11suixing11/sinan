@@ -1,4 +1,4 @@
-本记录保留主线 `74b403c` 数值r18的原始范围与证据，不证明当前统一分支。当前策略沿用更严格的有界匿名YouTube/Netflix并新增OpenAI停用层，旧未接线public-access helper及测试由access、Netflix与OpenAI当前链覆盖；历史代码保留在原Git提交。当前身份及验收见[ADR0045](../adr/0060-nodequality-artifact-lineages.md)。
+本记录保留主线 `74b403c` 数值r18的原始范围与证据，不证明当前统一分支。当前策略沿用更严格的有界匿名YouTube/Netflix并新增OpenAI停用层，旧未接线public-access helper及测试由access、Netflix与OpenAI当前链覆盖；历史代码保留在原Git提交。当前身份及验收见[ADR0045](../adr/0062-nodequality-artifact-lineages.md)。
 
 # NodeQuality 公共认证材料访问边界
 

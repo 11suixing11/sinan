@@ -75,8 +75,8 @@ try {
     await panel.locator('form').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
     await panel.getByRole('alert').filter({ hasText: '授权' }).waitFor()
     assert.equal(writes.length, 0, 'Loopback does not automatically authorize the target')
-    await panel.getByLabel('授权来源', { exact: false }).fill('TEST_ONLY 自有服务')
     await panel.getByLabel('目标授权依据').selectOption('owned')
+    await panel.getByLabel('授权来源', { exact: false }).fill('TEST_ONLY 自有服务')
     await panel.getByLabel('授权适用范围', { exact: false }).fill('TEST_ONLY 管理记录')
     await panel.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).check()
     readMode = 'failure'

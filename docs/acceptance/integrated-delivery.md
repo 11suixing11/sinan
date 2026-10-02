@@ -1,6 +1,12 @@
 # 集成源码交付索引
 
-2026-10-02，集成分支 `remediation/all-diagnostics-20261001`，统一交付入口为 [PR #151](https://github.com/theLucius7/sinan/pull/151)。本索引以代码提交 `10f5f3c6138822d45e423e9354dc320a90491301` 为基线，汇总实现、已有证据和未验范围。源码交付、实机签收和正式发布分别记录；PR 当前为草稿。
+2026-10-03，集成分支 `remediation/all-diagnostics-20261001`，统一交付入口为 [PR #151](https://github.com/theLucius7/sinan/pull/151)。当前最后一份功能提交为 `5adda2db2cc2155d9f74a9e0dbf30076bebee11e`，已推送；本索引汇总实现、已有证据和未验范围。源码交付、实机签收和正式发布分别记录；PR 当前为草稿。
+
+## 本轮收尾
+
+用户要求“继续，赶紧收尾提交”，本轮将现有实现和分项证据集中交付，不再扩展环境或测试范围。报告采集器修复的 74 项集中验收已完成；本轮只更新交付记录和 PR 描述，没有新增测试、构建或实机通过结果。
+
+此前拟定的新 Debian 12 VM 与当前版本注册日常矩阵只完成只读核对及部分私有编排准备：新 VM 未创建，native 构建、制品签名和注册矩阵未执行；新 VM 预算守卫脚本尚未实现。私有缓存补充脚本未执行，不能作为锁文件闭包或 Linux 编译成功证据。旧 VM、磁盘、缓存、失败与部分材料保留，当前交付不包含服务器安装或生产部署。
 
 ## 面板与被控服务器的业务关系
 
@@ -11,13 +17,14 @@
 5. **发布依赖真实设备确认。** 面板生成完整签名配置，Agent 执行安装与对账并返回持久回执；链路发布核对精确运行实例、完整向量和恢复屏障。失败、未知及未确认不能通过生成一份配置直接变为在线。
 6. **订阅和计量读取插件业务状态。** 用户订阅按授权和发布资格选择资源，不暴露中间段秘密；链路在入口计量一次。core 的服务器网卡总流量独立保留，计量 `epoch` 标记计数器重置，不替代套餐周期。
 
-面板业务实现在 `plugins/singbox/panel/`，API 为 `/api/plugins/sing-box/...`；前端实现在 `web/src/plugins/singbox/`。Agent 入口注册适配器，`agent-core` 只负责通用身份、传输、任务、制品、对账与服务器管理。具体边界见 [ADR 0023](../adr/0023-proxy-business-boundary.md)、[ADR 0044](../adr/0059-singbox-plugin-lifecycle.md) 和 [ADR 0056](../adr/0071-ordered-path-publication-and-native-probe.md)。
+面板业务实现在 `plugins/singbox/panel/`，API 为 `/api/plugins/sing-box/...`；前端实现在 `web/src/plugins/singbox/`。Agent 入口注册适配器，`agent-core` 只负责通用身份、传输、任务、制品、对账与服务器管理。具体边界见 [ADR 0023](../adr/0023-proxy-business-boundary.md)、[ADR 0044](../adr/0061-singbox-plugin-lifecycle.md) 和 [ADR 0056](../adr/0073-ordered-path-publication-and-native-probe.md)。
 
 ## 实现及独立证据
 
 | 范围 | 已整理的实现 | 证据入口 |
 | --- | --- | --- |
 | 服务器保护 | 诊断预算、常驻优先级、预检、运行保护、遥测解耦、有界补传、确认取消、独立章节与日常／完整入口 | [整改状态与故障矩阵](ordered-remediation.md) |
+| 报告采集器收尾 | 运行所有权、目录身份、忙锁下停止、inert fixture 异常清理；实机矩阵单独记账 | [watcher 生命周期](nodequality-watcher-lifecycle.md) |
 | IP 查询 | 逐源分类错误、目标与时间、失败保留成功、未知值和独立服务器 IP 页面；节点自查与制品准备独立记录 | [查询整合验收](unified-query-integration.md)、[IPQuality 最小工厂证明](ipquality-minimal-profile.md) |
 | 业务边界与兼容 | 插件目录、API、管理员／代理用户分离；旧身份、授权、订阅和账本保持 | [业务迁移](singbox-plugin-business.md)、[旧订阅实际连接](imported-subscription-runtime.md) |
 | 代理节点、用户与链路 | 原子批量资源、引用保护、来源解析与不可变版本、有序路径发布、授权及入口计量 | [资源](proxy-resources.md)、[来源](subscription-sources.md)、[有序路径](ordered-paths.md) |
@@ -25,7 +32,7 @@
 | 信任与真实托管工具 | 正常私有面板 CA、冻结 native 准备、设备控制、实际 API 驱动、注册参数与登录前清单绑定 | [面板信任](managed-agent-paths.md)、[启动前闭包](managed-agent-environment.md) |
 | 服务器与代理周期 | 服务器成本／到期／账单日网卡配额、轻量拨测，以及插件内代理套餐／周期按各自归属实现 | [进度与对应阶段记录](../../PROGRESS.md) |
 
-每份验收及机器收据绑定其自己的源码和输入，数量不能累加成一次全功能通过。最新受影响工具合同为 12＋19＝31 项通过；其前一步 Agent-core 为 265 通过、8 条件忽略，工具合同为 47 通过，全工作区 all-targets Clippy 通过。后续只有工具和文档变化，未重复不受影响的 Rust／前端测试或构建。
+每份验收及机器收据绑定其自己的源码和输入，数量不能累加成一次全功能通过。启动前闭包步骤的受影响工具合同为 12＋19＝31 项通过；其前一步 Agent-core 为 265 通过、8 条件忽略，工具合同为 47 通过，全工作区 all-targets Clippy 通过。报告采集器后续修改的输入及结果独立记录；不重复不受影响的 Rust／前端测试或构建。
 
 ## 未签收范围
 

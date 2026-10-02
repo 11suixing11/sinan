@@ -82,6 +82,20 @@ try {
       await page.waitForTimeout(75)
       assert.equal(mutations.length, count, 'a submit event must not write an invalid or refreshing snapshot')
     }
+    const blockedPolicySave = async save => {
+      assert.equal(await save.isDisabled(), true)
+      const count = mutations.length
+      await save.evaluate(button => {
+        const disabled = button.disabled
+        try { button.disabled = false; button.click() } finally { button.disabled = disabled }
+        const key = Object.keys(button).find(key => key.startsWith('__reactProps$'))
+        const props = key && button[key]
+        if (typeof props?.onClick !== 'function') throw new Error('actual policy assignment callback was not found in this dist')
+        props.onClick()
+      })
+      await page.waitForTimeout(75)
+      assert.equal(mutations.length, count, 'stale and pending assignment callbacks must send zero PUTs')
+    }
     page.on('pageerror', error => errors.push(error.message))
     await page.route('**/api/**', async route => {
       const request = route.request(), pathname = new URL(request.url()).pathname, method = request.method()
@@ -179,19 +193,25 @@ try {
     await policyFailure
     assert(Date.now() - editedAt >= 5500)
     assert(usageReads.length > usageCount, 'other resource polling must remain active')
-    assert.equal(policyReads.length, readCount, 'unsaved policy assignments must not be refreshed by polling')
+    assert.equal(policyReads.length, readCount, 'unsaved assigned-policy snapshots must not be refreshed by polling')
     assert.equal(await previous.isChecked(), false)
     assert.equal(await next.isChecked(), true)
     assert.deepEqual(groupIds, [1], 'editing a draft must not mutate the fixture server')
     const savePolicies = page.getByRole('button', { name: '保存策略组分配', exact: true })
     assert.equal(await savePolicies.isDisabled(), true)
-    assert.equal(await previous.isDisabled(), true)
+    assert.equal(await previous.isEnabled(), true, 'local policy drafts remain editable while writes are blocked')
+    await blockedPolicySave(savePolicies)
+    assert.equal(await previous.isChecked(), false)
+    assert.equal(await next.isChecked(), true)
     assert.equal(writes.length, 0)
     await recoverRead(`${prefix}/policy-groups`, page.getByRole('button', { name: '重试', exact: true }).first(), async () => {
       assert.equal(await savePolicies.isDisabled(), true)
       assert.equal(await previous.isChecked(), false)
       assert.equal(await next.isChecked(), true)
       assert.equal(writes.length, 0)
+      await blockedPolicySave(savePolicies)
+      assert.equal(await previous.isChecked(), false)
+      assert.equal(await next.isChecked(), true)
     })
     await enabled(savePolicies)
     assert.equal(await previous.isChecked(), false, 'successful explicit refresh must preserve the unsaved draft')

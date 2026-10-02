@@ -174,7 +174,7 @@ try {
     await dialog.getByRole('alert').filter({hasText:'无法连接面板'}).waitFor()
     const committed = chains.length, beforeAllocations = allocations, original=writes.at(-1)
     await poll()
-    const blockedRetry = dialog.getByRole('button',{name:'重试原批次',exact:true}), writeCount = writes.length
+    const blockedRetry = dialog.getByRole('button',{name:'重试原批次',exact:true}), replayWriteCount = writes.length
     await dialog.getByRole('alert').filter({hasText:'链路身份已变更'}).waitFor()
     assert.equal(await blockedRetry.isDisabled(),true)
     assert.equal(await page.locator('[data-resource-key="direct:1"]').count(),0)
@@ -183,7 +183,7 @@ try {
     await dialog.locator('form').evaluate(form => form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
     await blockedRetry.evaluate(button => {const disabled=button.disabled;try {button.disabled=false;button.click()} finally {button.disabled=disabled}})
     await page.waitForTimeout(50)
-    assert.equal(writes.length,writeCount);assert.equal(writes.at(-1).serialized,original.serialized)
+    assert.equal(writes.length,replayWriteCount);assert.equal(writes.at(-1).serialized,original.serialized)
     assert.equal(chains.length,committed);assert.equal(allocations,beforeAllocations)
     // An explicit page departure discards the unresolved local editor after its committed resource is confirmed.
     await dialog.getByRole('button',{name:'取消',exact:true}).click()
@@ -237,7 +237,7 @@ try {
     assert(nodes.some(node => node.id === 2))
     await dialog.getByRole('button',{name:'取消',exact:true}).click()
     // Old /nodes can fail while the public projection still identifies a broken resource for cleanup.
-    broken=true;nodesFailure=true;await page.getByRole('button',{name:'刷新',exact:true}).click()
+    broken=true;nodesFailure=true;await page.locator('header.page-header').getByRole('button',{name:'刷新',exact:true}).click()
     await page.getByRole('alert').filter({hasText:'旧节点设置无法解析'}).waitFor()
     const brokenRow=page.locator('[data-resource-key="chain:1"]')
     await brokenRow.getByText('资源已不可用',{exact:true}).waitFor()
@@ -251,16 +251,16 @@ try {
     assert.equal(writes.at(-1).path,`${prefix}/ordered-proxy-resources/chain/1`)
     nodesFailure=false;broken=false;await poll();await enabled(create)
     // Bad metadata and a failed GET keep the last good public list readable but block writes.
-    malformed=true;await page.getByRole('button',{name:'刷新',exact:true}).click()
+    malformed=true;await page.locator('header.page-header').getByRole('button',{name:'刷新',exact:true}).click()
     await page.getByRole('alert').filter({hasText:'资源信息格式不完整'}).waitFor()
     assert.equal(await create.isDisabled(),true)
     assert.equal(await page.locator('[data-resource-key="direct:2"]').count(),1)
     assert.equal(await page.locator('[data-resource-key="direct:2"]').getByRole('button',{name:'删除',exact:true}).isDisabled(),true)
-    malformed=false;resourceFailure=true;await page.getByRole('button',{name:'刷新',exact:true}).click()
+    malformed=false;resourceFailure=true;await page.locator('header.page-header').getByRole('button',{name:'刷新',exact:true}).click()
     await page.getByRole('alert').filter({hasText:'资源快照读取被拒绝'}).waitFor()
     await page.locator('[data-resource-key="direct:2"]').getByText('资源状态待确认',{exact:true}).waitFor()
     assert.equal(await create.isDisabled(),true)
-    resourceFailure=false;await page.getByRole('button',{name:'刷新',exact:true}).click();await enabled(create)
+    resourceFailure=false;await page.locator('header.page-header').getByRole('button',{name:'刷新',exact:true}).click();await enabled(create)
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),true)
     assert.equal(writes.some(write => write.path.includes('grant') || write.path.includes('polic') || write.path.includes('/access')),false)
     assert.deepEqual(errors,[])
