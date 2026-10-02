@@ -92,9 +92,10 @@ try {
     await dialog.getByLabel('API Token', { exact: false }).fill('TEST_ONLY_CLOUDFLARE_TOKEN')
     await dialog.getByLabel('IP 类型', { exact: false }).selectOption('AAAA')
     await settle()
-    const draftReads = reads.length
+    const draftReads = reads.length, draftWrites = writes.length
     await advance(15_000)
-    assert.equal(reads.length, draftReads, 'Editing pauses both polling feeds without rewriting the name or secret')
+    for (const path of ['/api/plugins/ddns/rules', '/api/plugins/ddns/servers']) assert(reads.slice(draftReads).includes(path), 'Editing keeps both current polling feeds live')
+    assert.equal(writes.length, draftWrites, 'Fresh reads do not submit the preserved draft')
     assert.equal(await dialog.getByLabel('规则名称', { exact: true }).inputValue(), '家庭 IPv6')
     assert.equal(await dialog.getByLabel('API Token', { exact: false }).inputValue(), 'TEST_ONLY_CLOUDFLARE_TOKEN')
     await dialog.getByLabel('启用 Cloudflare 代理', { exact: false }).check()
@@ -211,7 +212,7 @@ try {
     assert.equal(writes.length, publicWrites)
     assert.deepEqual(errors, [])
     assert.deepEqual(unexpected, [])
-    results.push({ width, create: 'passed', editWithoutToken: 'passed', manualSync: 'passed', pause: 'passed', removePreservesDns: 'passed', draftPolling: 'paused', unknownWrites: 'blocked', zeroTimestamps: 'preserved', noIpAndOffline: 'history preserved', hiddenPolling: 'paused', scopedServer: 'finite', unauthenticated: 'no DDNS reads' })
+    results.push({ width, create: 'passed', editWithoutToken: 'passed', manualSync: 'passed', pause: 'passed', removePreservesDns: 'passed', draftPolling: 'live', unknownWrites: 'blocked', zeroTimestamps: 'preserved', noIpAndOffline: 'history preserved', hiddenPolling: 'paused', scopedServer: 'finite', unauthenticated: 'no DDNS reads' })
     await context.close()
   }
   console.log(JSON.stringify(results))

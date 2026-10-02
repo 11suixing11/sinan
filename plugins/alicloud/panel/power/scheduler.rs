@@ -124,13 +124,14 @@ pub(super) async fn evaluate(
             occurrence + 600,
         ))
     } else if p.keepalive
+        && r.next_power_at <= now
         && !r.manual_hold
         && !p.blocks_start(account, r, now)
         && state.spot()
         && state.status == "Stopped"
         && (!p.schedule_enabled || p.in_window(now))
     {
-        let recent: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM alicloud_power_jobs WHERE resource_id=$1 AND action='start' AND status<>'preview' AND created_at>$2)").bind(r.id).bind(now-900).fetch_one(&mut **tx).await?;
+        let recent: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM alicloud_power_jobs WHERE resource_id=$1 AND action='start' AND status<>'preview' AND GREATEST(created_at,updated_at)>$2)").bind(r.id).bind(now-900).fetch_one(&mut **tx).await?;
         if recent {
             None
         } else {

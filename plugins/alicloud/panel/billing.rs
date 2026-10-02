@@ -124,16 +124,29 @@ pub(super) async fn query(client: &Aliyun, account: &Account, now: i64) -> Resul
                 currency: field(entry, "Currency")?,
             };
             // Repeated rows indicate unstable pagination rather than extra consumption.
-            let key =
-                serde_json::to_string(entry).map_err(|_| Failure::from("invalid_response"))?;
+            // Monthly rows are aggregates of these billing dimensions. A changed
+            // nickname, amount or usage on a repeated page is not another charge.
+            let key = serde_json::to_string(&(
+                &row.instance_id,
+                &row.region,
+                &row.product_type,
+                &row.billing_item,
+                field(entry, "Item")?,
+                &row.currency,
+                field(entry, "OwnerID")?,
+                field(entry, "SubscriptionType")?,
+            ))
+            .map_err(|_| Failure::from("invalid_response"))?;
             if !identities.insert(key) {
                 return Err("billing_incomplete".into());
             }
             total = total.and_then(|sum| {
-                (row.unit == "GB")
-                    .then_some(())
-                    .and_then(|_| micro_gb(&row.usage))
-                    .and_then(|v| sum.checked_add(v))
+                (row.unit == "GB"
+                    && entry["Item"] == "PayAsYouGoBill"
+                    && !row.instance_id.is_empty())
+                .then_some(())
+                .and_then(|_| micro_gb(&row.usage))
+                .and_then(|v| sum.checked_add(v))
             });
             rows.push(row);
         }
@@ -186,14 +199,18 @@ pub(super) fn traffic(result: &Value, now: i64) -> Result<Traffic, Failure> {
         .and_then(Value::as_array)
         .filter(|v| !v.is_empty() && v.len() <= 256)
         .ok_or(Failure::from("invalid_response"))?;
-    if result
-        .get("NextToken")
-        .is_some_and(|v| !v.is_null() && v != "")
-        || result
-            .get("TotalCount")
-            .is_some_and(|v| v.as_u64() != Some(entries.len() as u64))
-    {
-        return Err("invalid_response".into());
+    // A nested compatibility response must prove the same complete snapshot.
+    // Metadata at either level can advertise additional pages; never discard it.
+    for metadata in [result, &result["Data"]] {
+        if metadata
+            .get("NextToken")
+            .is_some_and(|v| !v.is_null() && v != "")
+            || metadata
+                .get("TotalCount")
+                .is_some_and(|v| v.as_u64() != Some(entries.len() as u64))
+        {
+            return Err("invalid_response".into());
+        }
     }
     let mut seen = BTreeSet::new();
     let (mut mainland, mut overseas) = (0_u64, 0_u64);

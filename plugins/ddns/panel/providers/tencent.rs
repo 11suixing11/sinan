@@ -63,6 +63,9 @@ impl Tencent {
 }
 
 fn record(value: &Value, zone: &str, detail: bool) -> Result<Record, Failure> {
+    if !value["Weight"].is_null() && value["Weight"].as_u64().is_none() {
+        return Err("invalid_response".into());
+    }
     Ok(Record {
         id: id(&value[if detail { "Id" } else { "RecordId" }])?,
         name: full_name(

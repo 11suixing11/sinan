@@ -147,11 +147,15 @@ pub(super) async fn cancel(pool: &PgPool, id: Uuid, dismiss: bool) -> ApiResult<
     let status = if dismiss && current.status == "uncertain" {
         // Closing uncertain tracking never undoes a cloud action. Pause automation.
         sqlx::query(
-            "UPDATE alicloud_resources SET auto_enabled=false,revision=revision+1 WHERE id=$1",
+            "UPDATE alicloud_resources SET auto_enabled=false,power_policy=jsonb_set(power_policy,'{enabled}','false'),manual_hold=true,revision=revision+1 WHERE id=$1",
         )
         .bind(resource.id)
         .execute(&mut *tx)
         .await?;
+        sqlx::query("UPDATE alicloud_operations SET status='cancelled',updated_at=$2 WHERE resource_id=$1 AND status IN ('preview','queued')")
+            .bind(resource.id).bind(sinan_protocol::now_timestamp()).execute(&mut *tx).await?;
+        sqlx::query("UPDATE alicloud_power_jobs SET status='cancelled',updated_at=$2 WHERE resource_id=$1 AND status IN ('preview','queued')")
+            .bind(resource.id).bind(sinan_protocol::now_timestamp()).execute(&mut *tx).await?;
         "dismissed"
     } else if !dismiss && matches!(current.status.as_str(), "preview" | "queued") {
         "cancelled"

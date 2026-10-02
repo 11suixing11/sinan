@@ -155,6 +155,19 @@ async fn update_account(
         return Err(ApiError::Conflict("账号配置已变化，请刷新后重试".into()));
     }
     let (key, secret) = input.credentials(Some(&previous))?;
+    if input.site != previous.site
+        || key != previous.access_key_id
+        || secret != previous.access_key_secret
+    {
+        let unresolved: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM alicloud_operations o JOIN alicloud_resources r ON r.id=o.resource_id WHERE r.account_id=$1 AND o.status IN ('running','uncertain')) OR EXISTS(SELECT 1 FROM alicloud_power_jobs j JOIN alicloud_resources r ON r.id=j.resource_id WHERE r.account_id=$1 AND j.status IN ('running','uncertain'))")
+            .bind(id).fetch_one(&mut *tx).await?;
+        if unresolved {
+            return Err(ApiError::Conflict(
+                "此账号仍有已发送或结果待核对的云操作，请先核对或结束跟踪，再更换站点及访问密钥"
+                    .into(),
+            ));
+        }
+    }
     // Any edit invalidates queued authorization and cached billing evidence.
     sqlx::query("UPDATE alicloud_accounts SET name=$2,site=$3,access_key_id=$4,access_key_secret=$5,enabled=$6,auto_enabled=$7,limit_gb=$8,revision=revision+1,bill=NULL,traffic=NULL,traffic_error=NULL,error_code=NULL,next_run_at=0,balance=NULL,balance_error=NULL,balance_next_at=0 WHERE id=$1")
         .bind(id).bind(input.name.trim()).bind(input.site).bind(key).bind(secret).bind(input.enabled).bind(input.auto_enabled).bind(input.limit_gb).execute(&mut *tx).await?;
@@ -169,10 +182,14 @@ async fn remove_account(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
+    input: Option<Json<Revision>>,
 ) -> ApiResult<StatusCode> {
     auth::require_admin(&state, &headers).await?;
     let mut tx = lock(&state.pool, id).await?;
-    account_on(&mut tx, id).await?;
+    let current = account_on(&mut tx, id).await?;
+    if input.is_some_and(|Json(input)| input.revision != current.revision) {
+        return Err(ApiError::Conflict("账号配置已变化，请刷新后重试".into()));
+    }
     let has_resources: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM alicloud_resources WHERE account_id=$1 AND NOT archived)",
     )
@@ -320,10 +337,20 @@ async fn remove_resource(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
+    input: Option<Json<Revision>>,
 ) -> ApiResult<StatusCode> {
     auth::require_admin(&state, &headers).await?;
     let resource = resource(&state.pool, id).await?;
     let mut tx = lock(&state.pool, resource.account_id).await?;
+    let current: Resource =
+        sqlx::query_as("SELECT * FROM alicloud_resources WHERE id=$1 AND NOT archived")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+    if input.is_some_and(|Json(input)| input.revision != current.revision) {
+        return Err(ApiError::Conflict("资源配置已变化，请刷新后重试".into()));
+    }
     operations::idle(&mut tx, id).await?;
     sqlx::query("UPDATE alicloud_resources SET archived=true,auto_enabled=false,revision=revision+1 WHERE id=$1").bind(id).execute(&mut *tx).await?;
     sqlx::query("UPDATE alicloud_operations SET status='cancelled',updated_at=$2 WHERE resource_id=$1 AND status='preview'").bind(id).bind(sinan_protocol::now_timestamp()).execute(&mut *tx).await?;
@@ -337,9 +364,15 @@ async fn refresh_resource(
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<model::Snapshot>> {
     auth::require_admin(&state, &headers).await?;
-    let resource = resource(&state.pool, id).await?;
-    let mut tx = lock(&state.pool, resource.account_id).await?;
-    let account = account_on(&mut tx, resource.account_id).await?;
+    let initial = resource(&state.pool, id).await?;
+    let mut tx = lock(&state.pool, initial.account_id).await?;
+    let account = account_on(&mut tx, initial.account_id).await?;
+    let resource: Resource =
+        sqlx::query_as("SELECT * FROM alicloud_resources WHERE id=$1 AND NOT archived")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(ApiError::NotFound)?;
     if !account.enabled {
         return Err(ApiError::Conflict("请先启用云账号".into()));
     }
@@ -356,6 +389,11 @@ async fn refresh_resource(
 #[serde(deny_unknown_fields)]
 struct Preview {
     target: Target,
+    revision: i64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Revision {
     revision: i64,
 }
 async fn preview(

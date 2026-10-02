@@ -28,6 +28,20 @@ pub(crate) fn query(values: &BTreeMap<String, String>) -> String {
         .join("&")
 }
 
+pub(crate) fn huawei_query(url: &reqwest::Url) -> String {
+    // Signing must retain every transmitted pair, including repeated names.
+    let mut pairs: Vec<_> = url
+        .query_pairs()
+        .map(|(key, value)| (encode(&key), encode(&value)))
+        .collect();
+    pairs.sort();
+    pairs
+        .into_iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
 pub(crate) fn iso_time(timestamp: i64) -> String {
     let date = httpdate::fmt_http_date(
         UNIX_EPOCH + Duration::from_secs(timestamp.clamp(0, 253402300799) as u64),
@@ -99,15 +113,11 @@ pub(crate) fn huawei(
     body: &str,
     date: &str,
 ) -> String {
-    let values: BTreeMap<_, _> = url
-        .query_pairs()
-        .map(|(k, v)| (k.into_owned(), v.into_owned()))
-        .collect();
     let path = format!("{}/", url.path().trim_end_matches('/'));
     let headers = "content-type;host;x-sdk-date";
     let canonical = format!(
         "{method}\n{path}\n{}\ncontent-type:application/json\nhost:{}\nx-sdk-date:{date}\n\n{headers}\n{}",
-        query(&values),
+        huawei_query(url),
         url.host_str().expect("fixed host"),
         hash(body)
     );

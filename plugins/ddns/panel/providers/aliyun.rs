@@ -24,6 +24,9 @@ impl AliDns {
 
 fn record(value: &Value) -> Result<Record, Failure> {
     let zone = text(value, "DomainName")?;
+    let locked = value["Locked"]
+        .as_bool()
+        .ok_or(Failure::from("invalid_response"))?;
     Ok(Record {
         id: id(&value["RecordId"])?,
         name: full_name(&text(value, "RR")?, &zone).ok_or(Failure::from("invalid_response"))?,
@@ -36,7 +39,7 @@ fn record(value: &Value) -> Result<Record, Failure> {
         active: value["Status"]
             .as_str()
             .is_some_and(|v| v.eq_ignore_ascii_case("enable"))
-            && value["Locked"] != true,
+            && !locked,
         marker: None,
     })
 }
