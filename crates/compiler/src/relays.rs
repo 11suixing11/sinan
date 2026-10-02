@@ -1,4 +1,4 @@
-use super::{CompileError, Node, compile_server, pretty, protocols, unbracket_host};
+use super::{CompileError, Node, compile_server, pretty, protocols};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -7,6 +7,8 @@ use uuid::Uuid;
 /// A dedicated two-hop route. Only the panel and the two runtimes receive this secret.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Relay {
+    #[serde(default)]
+    pub settings: crate::NodeSettings,
     #[serde(default)]
     pub fingerprint: crate::Fingerprint,
     pub chain_id: i64,
@@ -60,13 +62,38 @@ pub fn compile_server_with_relays(
             });
         }
         let tag = format!("chain-{}", relay.chain_id);
+        let mut settings = relay.settings.clone();
+        // Keep serialized legacy relay snapshots that predate the settings object readable.
+        settings.reality.fingerprint = relay.fingerprint;
+        let endpoint = Node {
+            id: relay.exit_node_id,
+            name: tag.clone(),
+            port: relay.port,
+            public_host: relay.public_host.clone(),
+            sni: relay.sni.clone(),
+            private_key: String::new(),
+            public_key: relay.public_key.clone(),
+            short_id: relay.short_id.clone(),
+            enabled: true,
+            users: vec![],
+            protocol_config: crate::ProtocolConfig::VlessReality,
+            settings,
+        };
+        crate::settings::validate(&endpoint)?;
         if entry.is_some_and(|node| !node.users.is_empty()) {
-            config["outbounds"].as_array_mut().expect("compiled outbounds").push(json!({
-                "type":"vless", "tag":tag, "server":unbracket_host(&relay.public_host),
-                "server_port":relay.port, "uuid":relay.uuid, "flow":"xtls-rprx-vision",
-                "tls":{"enabled":true,"server_name":relay.sni,"utls":{"enabled":true,"fingerprint":relay.fingerprint},
-                    "reality":{"enabled":true,"public_key":relay.public_key,"short_id":relay.short_id}}
-            }));
+            let mut outbound = protocols::client(
+                &endpoint,
+                &crate::Access {
+                    user_id: 0,
+                    uuid: relay.uuid,
+                    credential: String::new(),
+                },
+            );
+            outbound["tag"] = json!(tag);
+            config["outbounds"]
+                .as_array_mut()
+                .expect("compiled outbounds")
+                .push(outbound);
             rules.push(json!({"inbound":[format!("node-{}",relay.entry_node_id)],"action":"route","outbound":tag}));
         }
         if let Some(exit) = exit {
@@ -74,7 +101,8 @@ pub fn compile_server_with_relays(
             let inbounds = config["inbounds"]
                 .as_array_mut()
                 .expect("compiled inbounds");
-            let relay_identity = json!({"name":format!("relay_{}",relay.chain_id),"uuid":relay.uuid,"flow":"xtls-rprx-vision"});
+            let relay_identity =
+                protocols::reality_identity(exit, format!("relay_{}", relay.chain_id), relay.uuid);
             if let Some(existing) = inbounds.iter_mut().find(|value| value["tag"] == tag) {
                 existing["users"]
                     .as_array_mut()

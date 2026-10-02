@@ -10,6 +10,7 @@ use uuid::Uuid;
 #[test]
 fn relay_compilation_does_not_reinterpret_modern_protocols_as_reality() {
     let relay = Relay {
+        settings: Default::default(),
         fingerprint: Default::default(),
         chain_id: 1,
         entry_node_id: 1,

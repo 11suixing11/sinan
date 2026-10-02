@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { errorMessage } from './api'
+import { resourceRefreshingMessage } from './hooks'
 
 const paths: Record<string, ReactNode> = {
   server: <><rect x="4" y="3" width="16" height="7" rx="2" /><rect x="4" y="14" width="16" height="7" rx="2" /><path d="M8 6.5h.01M8 17.5h.01M12 6.5h4M12 17.5h4" /></>,
@@ -24,7 +25,17 @@ export function Icon({ name, size = 20 }: { name: string; size?: number }) { ret
 export function Brand() { return <div className="brand"><span className="brand-mark"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="16" cy="16" r="10.5" stroke="currentColor" opacity=".5" /><path d="m21 8-3 11-7 5 3-11 7-5Z" fill="currentColor" /><path d="M16 1v4m0 22v4M1 16h4m22 0h4" stroke="currentColor" /></svg></span><div><strong>司南</strong><small>服务器与节点</small></div></div> }
 export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'good' | 'bad' | 'warm' | 'neutral' }) { return <span className={`badge badge-${tone}`}><span className="badge-dot" />{children}</span> }
 export function PageHeader({ eyebrow, title, description, children }: { eyebrow: string; title: string; description: string; children?: ReactNode }) { return <header className="page-header"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div><div className="header-actions">{children}</div></header> }
-export function ErrorNotice({ message, retry }: { message?: string; retry?: () => void }) { return message ? <div className="notice notice-error" role="alert"><span>{message}</span>{retry && <button className="text-button" onClick={retry}>重试</button>}</div> : null }
+export function ErrorNotice({ message, retry }: { message?: string; retry?: () => void }) {
+  const transient = message === resourceRefreshingMessage
+  const [showRefresh, setShowRefresh] = useState(false)
+  useEffect(() => {
+    setShowRefresh(false)
+    if (!transient) return
+    const timer = window.setTimeout(() => setShowRefresh(true), 250)
+    return () => window.clearTimeout(timer)
+  }, [message, transient])
+  return message && (!transient || showRefresh) ? <div className="notice notice-error" role="alert"><span>{message}</span>{retry && <button className="text-button" onClick={retry}>重试</button>}</div> : null
+}
 export function Empty({ icon = 'box', title, description, children }: { icon?: string; title: string; description: string; children?: ReactNode }) { return <div className="empty"><span className="empty-icon"><Icon name={icon} size={27} /></span><h3>{title}</h3><p>{description}</p>{children}</div> }
 export function Loading() { return <div className="loading" role="status"><span className="spinner" />正在加载…</div> }
 export function Refresh({ onClick }: { onClick: () => void }) { return <button className="button button-secondary" onClick={onClick}><Icon name="refresh" size={16} /><span>刷新</span></button> }

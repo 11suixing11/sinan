@@ -3,6 +3,75 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::json;
 
 #[test]
+fn generated_reality_transport_links_roundtrip_without_dropping_parameters() {
+    let (private_key, public_key) = super::super::business::generate_reality_keypair();
+    let identity = uuid::Uuid::new_v4();
+    for transport in [
+        json!({"type":"ws","path":"/edge+a&b","host":"edge.example.com","max_early_data":2048,"early_data_header_name":"Sec-WebSocket-Protocol"}),
+        json!({"type":"httpupgrade","path":"/upgrade+a&b","host":"edge.example.com"}),
+        json!({"type":"grpc","service_name":"test.service_v1-api"}),
+    ] {
+        let node: sinan_compiler::Node = serde_json::from_value(json!({
+            "id":1,"name":"测试 + 节点","port":443,"public_host":"proxy.example.com","sni":"www.example.com",
+            "private_key":private_key,"public_key":public_key,"short_id":"abcd1234",
+            "settings":{"reality":{"flow":"none"},"transport":transport},
+            "users":[{"user_id":1,"uuid":identity}]
+        })).unwrap();
+        let client: serde_json::Value = serde_json::from_str(
+            &sinan_compiler::compile_client(std::slice::from_ref(&node), 1).unwrap(),
+        )
+        .unwrap();
+        let links = sinan_compiler::subscription_links(&[node], 1).unwrap();
+        let parsed = parse(links.as_bytes()).unwrap();
+        assert!(parsed.rejected.is_empty());
+        assert_eq!(parsed.nodes.len(), 1);
+        assert_eq!(parsed.nodes[0].name, "测试 + 节点");
+        assert_eq!(
+            parsed.nodes[0].outbound.0["transport"],
+            client["outbounds"][1]["transport"]
+        );
+        assert_eq!(
+            parsed.nodes[0].outbound.0["tls"],
+            client["outbounds"][1]["tls"]
+        );
+        assert_eq!(parsed.nodes[0].outbound.0["uuid"], identity.to_string());
+    }
+}
+
+#[test]
+fn websocket_early_data_uri_fields_validate_and_vmess_preserves_them() {
+    let identity = uuid::Uuid::new_v4();
+    for query in [
+        "type=ws&ed=65536",
+        "type=ws&ed=-1",
+        "type=ws&ed=2.5",
+        "type=ws&ed=1024&eh=bad%20header",
+        "type=ws&ed=1024&eh=Host",
+        "type=ws&ed=0&eh=X-Early",
+        "type=grpc&ed=1024",
+        "type=tcp&eh=X-Early",
+    ] {
+        let uri = format!("vless://{identity}@proxy.example.com:443?{query}");
+        let parsed = parse(uri.as_bytes()).unwrap();
+        assert!(parsed.nodes.is_empty(), "{query}");
+        assert_eq!(parsed.rejected.len(), 1, "{query}");
+    }
+    let config = json!({"v":"2","ps":"WebSocket","add":"proxy.example.com","port":443,"id":identity,
+        "aid":0,"net":"ws","tls":"tls","path":"/ws","ed":2048,"eh":"Sec-WebSocket-Protocol"});
+    let uri = format!("vmess://{}", STANDARD.encode(config.to_string()));
+    let parsed = parse(uri.as_bytes()).unwrap();
+    assert!(parsed.rejected.is_empty());
+    assert_eq!(
+        parsed.nodes[0].outbound.0["transport"]["max_early_data"],
+        2048
+    );
+    assert_eq!(
+        parsed.nodes[0].outbound.0["transport"]["early_data_header_name"],
+        "Sec-WebSocket-Protocol"
+    );
+}
+
+#[test]
 fn four_subscription_formats_produce_equivalent_proxy_parameters() {
     let uri = format!(
         "ss://{}@proxy.example.com:443#测试节点",

@@ -25,6 +25,9 @@ export default function ProtocolFields({ node }: { node: Node | 'new' }) {
   const tls = existing?.protocol_config?.tls
   const [mode, setMode] = useState(tls?.mode ?? 'acme')
   const [challenge, setChallenge] = useState(tls?.challenge ?? 'http-01')
+  const [email, setEmail] = useState(tls?.email ?? '')
+  const [certificate, setCertificate] = useState('')
+  const [privateKey, setPrivateKey] = useState('')
   const needsTls = ['hysteria2', 'tuic', 'anytls', 'naive'].includes(protocol)
   const reality = protocol === 'vless-reality'
   return <>
@@ -42,12 +45,12 @@ export default function ProtocolFields({ node }: { node: Node | 'new' }) {
     {needsTls && <>
       <Field label="TLS 证书"><select name="tls_mode" value={mode} onChange={event => setMode(event.target.value as 'acme' | 'manual')}><option value="acme">自动申请和续期（Let's Encrypt）</option><option value="manual">手动导入证书</option></select></Field>
       {mode === 'acme' ? <>
-        <Field label="联系邮箱"><input type="email" name="email" required maxLength={254} defaultValue={tls?.email ?? ''} placeholder="admin@example.com" autoComplete="email" /></Field>
+        <Field label="联系邮箱"><input type="email" name="email" required maxLength={254} value={email} onChange={event => setEmail(event.target.value)} placeholder="admin@example.com" autoComplete="email" /></Field>
         <Field label="域名验证方式"><select name="challenge" value={challenge} onChange={event => setChallenge(event.target.value as 'http-01' | 'tls-alpn-01')}><option value="http-01">HTTP-01（TCP 80）</option><option value="tls-alpn-01">TLS-ALPN-01（TCP 443）</option></select></Field>
         <p className="helper">{challenge === 'http-01' ? 'TCP 80' : 'TCP 443'} 需允许公网访问且未被其他服务占用。保存即授权使用 Let's Encrypt 自动签发和续期；同一服务器共用邮箱与验证方式。编辑现有自动证书时，这两项会同步修改该服务器的其他自动证书节点。首次签发最多等待 4 分钟，失败时部署回滚。</p>
       </> : <>
-        <Field label="PEM 证书链" hint={tls?.mode === 'manual' ? '已配置证书。保持两项为空可保留；替换时需同时填写证书链和私钥。' : '包含服务器证书及必要的中间证书。'}><textarea name="certificate" rows={5} maxLength={65536} required={tls?.mode !== 'manual'} autoComplete="off" spellCheck={false} placeholder="-----BEGIN CERTIFICATE-----" /></Field>
-        <Field label="PEM 私钥" hint="私钥仅用于服务器配置，保存后不会回显，也不会出现在客户端订阅中。"><textarea name="key" rows={5} maxLength={16384} required={tls?.mode !== 'manual'} autoComplete="off" spellCheck={false} placeholder="-----BEGIN PRIVATE KEY-----" /></Field>
+        <Field label="PEM 证书链" hint={tls?.mode === 'manual' ? '已配置证书。保持两项为空可保留；替换时需同时填写证书链和私钥。' : '包含服务器证书及必要的中间证书。'}><textarea name="certificate" value={certificate} onChange={event => setCertificate(event.target.value)} rows={5} maxLength={65536} required={tls?.mode !== 'manual'} autoComplete="off" spellCheck={false} placeholder="-----BEGIN CERTIFICATE-----" /></Field>
+        <Field label="PEM 私钥" hint="私钥仅用于服务器配置，保存后不会回显，也不会出现在客户端订阅中。"><textarea name="key" value={privateKey} onChange={event => setPrivateKey(event.target.value)} rows={5} maxLength={16384} required={tls?.mode !== 'manual'} autoComplete="off" spellCheck={false} placeholder="-----BEGIN PRIVATE KEY-----" /></Field>
       </>}
     </>}
     <ProtocolSettings key={protocol} protocol={protocol} node={node} />

@@ -170,6 +170,7 @@ pub(crate) async fn load(
             );
             Ok(Relay {
                 fingerprint: settings.reality.fingerprint,
+                settings: settings.clone(),
                 chain_id: r.chain_id,
                 entry_node_id: r.entry_node_id,
                 exit_node_id: r.exit_node_id,

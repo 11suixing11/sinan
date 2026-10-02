@@ -45,3 +45,11 @@
 @media (max-width: 640px) { .group-form-grid, .group-details { grid-template-columns: 1fr; } }
 
 @media (min-width: 801px) { .sidebar nav { min-height: 0; overflow-y: auto; scrollbar-width: thin; } }
+
+/* Keep brief background reads from flashing disabled controls; native write
+   guards still take effect immediately, and lasting unavailable states remain visible. */
+.app-shell button { transition: background .16s, color .16s, box-shadow .16s, transform .16s, opacity .12s; }
+.app-shell button:disabled { transition-delay: 0s, 0s, 0s, 0s, .25s; }
+.app-shell .switch, .app-shell .server-setup-switch { transition: background .2s, opacity .12s; }
+.app-shell .switch-input:disabled + .switch, .app-shell .server-setup-toggle input:disabled + .server-setup-switch { transition-delay: 0s, .25s; }
+@media (prefers-reduced-motion: reduce) { .app-shell button, .app-shell .switch, .app-shell .server-setup-switch { transition-duration: 0s; } }

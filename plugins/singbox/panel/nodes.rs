@@ -3,7 +3,7 @@ use crate::{
     AppState,
     auth::require_admin,
     error::{ApiError, ApiResult},
-    plugins::singbox::business::{self, NODE_COLUMNS, NodeRow, NodeView},
+    plugins::singbox::business::{self, NODE_COLUMNS, NodeChainReference, NodeRow, NodeView},
 };
 use axum::{
     Json,
@@ -52,11 +52,12 @@ pub async fn list(
     let rows = sqlx::query_as::<_, NodeRow>(&query)
         .fetch_all(&state.pool)
         .await?;
-    Ok(Json(
-        rows.into_iter()
-            .map(NodeRow::view)
-            .collect::<ApiResult<_>>()?,
-    ))
+    let mut views = rows
+        .into_iter()
+        .map(NodeRow::view)
+        .collect::<ApiResult<Vec<_>>>()?;
+    populate_references(&state.pool, &mut views).await?;
+    Ok(Json(views))
 }
 
 pub async fn get(
@@ -73,7 +74,9 @@ pub async fn get(
         .fetch_optional(&state.pool)
         .await?
         .ok_or(ApiError::NotFound)?;
-    Ok(Json(node.view()?))
+    let mut view = node.view()?;
+    populate_references(&state.pool, std::slice::from_mut(&mut view)).await?;
+    Ok(Json(view))
 }
 
 pub async fn create(
@@ -176,6 +179,12 @@ pub async fn update(
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or(ApiError::NotFound)?;
+    // Older rows omit settings added after their creation. Compare normalized
+    // models so saving identical defaults neither changes frozen paths nor
+    // schedules a needless publication.
+    let normalized: sinan_compiler::NodeSettings =
+        serde_json::from_value(node.settings).map_err(anyhow::Error::from)?;
+    node.settings = serde_json::to_value(normalized).map_err(anyhow::Error::from)?;
     let previous = (
         node.enabled,
         node.settings.clone(),
@@ -266,7 +275,23 @@ pub async fn update(
         business::mark_dirty(&mut transaction, &[server_id]).await?;
     }
     transaction.commit().await?;
-    Ok(Json(node.view()?))
+    let mut view = node.view()?;
+    populate_references(&state.pool, std::slice::from_mut(&mut view)).await?;
+    Ok(Json(view))
+}
+
+async fn populate_references(pool: &sqlx::PgPool, nodes: &mut [NodeView]) -> ApiResult<()> {
+    let ids = nodes.iter().map(|node| node.id).collect::<Vec<_>>();
+    let rows: Vec<(i64, i64, String)> = sqlx::query_as(
+        "SELECT DISTINCT refs.node_id,c.id,c.name FROM singbox_live_chains c JOIN LATERAL (SELECT c.entry_node_id AS node_id UNION SELECT h.managed_node_id FROM singbox_chain_hops h WHERE h.chain_id=c.id AND h.managed_node_id IS NOT NULL) refs ON TRUE WHERE c.path_kind='mixed' AND refs.node_id=ANY($1) ORDER BY refs.node_id,c.id",
+    ).bind(ids).fetch_all(pool).await?;
+    for (node_id, id, name) in rows {
+        if let Some(node) = nodes.iter_mut().find(|node| node.id == node_id) {
+            node.configuration_locked = true;
+            node.referenced_chains.push(NodeChainReference { id, name });
+        }
+    }
+    Ok(())
 }
 
 pub async fn remove(

@@ -245,7 +245,11 @@
 }
 ```
 
-上例用于 HY2 节点。公共字段省略保留，`public_port:null` 恢复跟随监听端口；协议设置组省略保留，提供组时组内未提供项恢复该组默认值。仅 `hysteria2.obfs_password` 在启用混淆且省略/空字符串时保留原密码，没有原值则自动生成；`obfs_enabled:false` 清除。管理响应只含 `obfs_enabled`，不回显密码。未知字段、不匹配协议、非法端口/IP/ALPN/带宽/超时会原子拒绝。Reality、TUIC、AnyTLS 的字段与范围见[协议设置](proxy-protocols.md#节点连接与高级设置)和编译器 `NodeSettings`；旧 API 不传这些字段保持兼容。
+上例用于 HY2 节点。公共字段省略保留，`public_port:null` 恢复跟随监听端口；协议设置组省略保留，提供组时组内未提供项恢复该组默认值。仅 `hysteria2.obfs_password` 在启用混淆且省略/空字符串时保留原密码，没有原值则自动生成；`obfs_enabled:false` 清除。管理响应只含 `obfs_enabled`，不回显密码。未知字段、不匹配协议、非法端口/IP/ALPN/带宽/超时会原子拒绝。Reality、TUIC、AnyTLS、Snell、Shadowsocks 及传输的字段与范围见[协议设置](proxy-protocols.md#节点连接与高级设置)和编译器 `NodeSettings`；旧 API 不传这些字段保持兼容。
+
+新增可空标量 `tcp_keep_alive_seconds`、`tcp_keep_alive_interval_seconds`、`tls_min_version`、`tls_max_version`、`tls_handshake_timeout_seconds` 同样区分省略保留与 `null` 清空；`disable_tcp_keep_alive` 默认为 false。TLS 版本值为 `"1.2"` / `"1.3"`。传输示例为 `{"transport":{"type":"ws","path":"/proxy","host":null,"max_early_data":0,"early_data_header_name":""},"reality":{"flow":"none"}}`；传输组和 Reality 组分别整体替换，不可只提交 flow 而期望该组其他值自动合并。
+
+节点管理响应新增 `configuration_locked` 及 `referenced_chains:[{id,name}]`，列出存活混合链路对该节点的引用。锁定时连接配置仍可读取，PATCH 只改 `name` / `enabled`；更改其它连接参数会返回冲突，不影响已部署链路。旧数据和无引用节点返回 false / 空列表。
 
 影响配置或订阅投影的节点、用户或授权变更在同一个数据库事务中更新对应服务器的 `dirty_at`；仅重置订阅令牌和字段未变的节点 PATCH 不触发发布。发布任务每秒检查一次，在最后一次变更后等待完整 5 秒，然后编译该服务器的完整快照。`dirty_at` 内部使用 Unix 毫秒，重启面板不会丢失待发布状态。新变更会重新开始合并窗口。
 

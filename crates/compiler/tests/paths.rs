@@ -326,6 +326,7 @@ fn input_order_is_deterministic_and_legacy_bytes_remain_unchanged() {
         serde_json::to_value(b.constraints).unwrap()
     );
     let relay = Relay {
+        settings: Default::default(),
         fingerprint: Default::default(),
         chain_id: 5,
         entry_node_id: 1,

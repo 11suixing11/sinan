@@ -34,6 +34,7 @@
 - [ADR 0037：可复制接入入口与按服务器架构导入](0037-bootstrap-and-selective-import.md)
 - [ADR 0038：服务器运营设置、看板访问和 GitHub Agent 下载](0038-server-operations-and-public-dashboard.md)
 - [ADR 0041：跨平台单行 Agent 接入](0041-cross-platform-enrollment.md)
+- [ADR 0061：节点高级参数与后台刷新呈现](0061-node-options-and-background-refresh.md)
 - [ADR 0042：节点配置与面板部署管理](0042-node-settings-and-panel-operations.md)
 - [ADR 0043：运行时状态、脱敏日志与明确运维操作](0043-runtime-operations.md)
 - [ADR 0044：远程命令的持久状态和确认取消](0044-command-lifecycle.md)

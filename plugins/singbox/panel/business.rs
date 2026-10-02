@@ -27,6 +27,8 @@ pub(crate) struct NodeRow {
 
 #[derive(Serialize)]
 pub struct NodeView {
+    pub configuration_locked: bool,
+    pub referenced_chains: Vec<NodeChainReference>,
     pub enabled: bool,
     pub settings: serde_json::Value,
     pub id: i64,
@@ -39,6 +41,12 @@ pub struct NodeView {
     pub public_key: String,
     pub short_id: String,
     pub protocol_config: serde_json::Value,
+}
+
+#[derive(Serialize, FromRow)]
+pub struct NodeChainReference {
+    pub id: i64,
+    pub name: String,
 }
 
 impl NodeRow {
@@ -63,6 +71,8 @@ impl NodeRow {
         let config: sinan_compiler::ProtocolConfig =
             serde_json::from_value(self.protocol_config).map_err(anyhow::Error::from)?;
         Ok(NodeView {
+            configuration_locked: false,
+            referenced_chains: Vec::new(),
             enabled: self.enabled,
             settings: super::node_settings::view(self.settings)?,
             id: self.id,

@@ -44,6 +44,8 @@ export default function Nodes({ serverId, chainsOnly = false, selected }: { serv
     return value && !resources.getCurrent()?.some(item => item.kind === value.kind && item.id === value.id) ? '此代理资源已不存在，请重新选择；当前草稿已保留。' : ''
   }
   const editorError = editor ? writeError(editor === 'new' ? undefined : { kind: 'direct', id: editor.id }) || (editor === 'new' && !servers.getCurrent()?.some(server => String(server.id) === draftServer && server.enabled) ? '已选服务器已不存在或未启用，请明确重新选择；当前草稿已保留。' : '') : ''
+  const currentEditor = editor && editor !== 'new' ? nodes.data?.find(node => node.id === editor.id) : null
+  const connectionLocked = Boolean(currentEditor?.configuration_locked || (editor && editor !== 'new' && editor.configuration_locked))
   const deletingError = deleting ? writeError(deleting) : ''
   const edit = (node: Node | 'new') => { if (writeError(node === 'new' ? undefined : { kind: 'direct', id: node.id }) || (node === 'new' && creationError())) return; action.clearError(); setDraftServer(currentFilter.current || String(servers.getCurrent()?.find(server => server.enabled)?.id ?? '')); setEditor(node) }
   const submit = (form: FormData) => {
@@ -51,11 +53,12 @@ export default function Nodes({ serverId, chainsOnly = false, selected }: { serv
     const fields = { name: String(form.get('name')).trim(), public_host: String(form.get('public_host')).trim(), sni: String(form.get('sni') ?? '').trim(), protocol_config: protocolRequest(form), enabled: form.get('enabled') === 'on', settings: nodeSettingsRequest(form) }
     const port = String(form.get('port') ?? '').trim()
     const selectedPort = port ? { port: Number(port) } : {}
-    const request = editor === 'new' ? { ...fields, ...selectedPort, server_id: Number(draftServer) } : { ...fields, ...selectedPort }
+    const locked = connectionLocked || (editor !== 'new' && nodes.getCurrent()?.find(node => node.id === editor.id)?.configuration_locked)
+    const request = editor === 'new' ? { ...fields, ...selectedPort, server_id: Number(draftServer) } : locked ? { name: fields.name, enabled: fields.enabled } : { ...fields, ...selectedPort }
     const serverId = editor === 'new' ? Number(draftServer) : editor!.server_id
     void action.run(() => api(editor === 'new' ? '/api/plugins/sing-box/nodes' : `/api/plugins/sing-box/nodes/${editor?.id}`, editor === 'new' ? 'POST' : 'PATCH', request), () => { setEditor(null); setSaved(serverId); refresh() })
   }
-  return <div className="nodes-page">
+  return <div className="nodes-page" onInvalidCapture={event => { if (event.target instanceof HTMLElement) { const details = event.target.closest('details'); if (details) details.open = true } }}>
     <PageHeader eyebrow="sing-box 插件" title="代理节点" description="统一管理直连节点与有序链路；从受管节点或订阅来源选择中间段和最终出口。"><Refresh onClick={refresh} /><button className="button button-primary" disabled={!canCreate} onClick={() => edit('new')}><Icon name="plus" size={18} />创建节点</button><button className="button button-secondary" disabled={!canCreateChain || creatingChain} onClick={() => { if (creationError()) return; action.clearError(); setCreatingChain(true); setCreatedChains([]) }}>创建链路</button></PageHeader>
     <div className="stats-grid"><Stat icon="nodes" label="代理资源" value={resources.data ? all.length : '—'} note="直连节点与独立链路入口" /><Stat icon="server" label="所在服务器" value={resources.data ? new Set(all.map(node => node.server_id)).size : '—'} note="每台服务器运行一份完整配置" /><Stat icon="activity" label="累计代理流量" value={usage.data ? bytes(usage.data.total) : '—'} note="含已删除节点的历史用量" /></div>
     <ErrorNotice message={resources.error || nodes.error || servers.error || usage.error} retry={refresh} />
@@ -69,14 +72,19 @@ export default function Nodes({ serverId, chainsOnly = false, selected }: { serv
     {!creatingChain && <SubscriptionSources onChange={resources.reload} />}
     {selected && <ProxyResourceDetail key={`${selected.kind}-${selected.id}`} selected={selected} onClose={() => { window.location.hash = '/plugins/sing-box/nodes' }} onChanged={refresh} onEdit={node => { window.location.hash = '/plugins/sing-box/nodes'; edit(node) }} onDelete={resource => { if (writeError(resource)) return; window.location.hash = '/plugins/sing-box/nodes'; action.clearError(); setDeleting(resource) }} onDeployment={id => { window.location.hash = '/plugins/sing-box/nodes'; setDeployment(id) }} />}
     {editor && <FormDialog wide className="node-editor" title={editor === 'new' ? '创建节点' : '编辑节点'} onClose={() => setEditor(null)} onSubmit={submit} busy={action.busy} submitDisabled={Boolean(editorError)} error={editorError || action.error} submitLabel={editor === 'new' ? '创建并自动发布' : '保存并自动发布'}>
-      <h3>基本信息与连接地址</h3><div className="node-fields-grid">
+      <h3>基本信息</h3><div className="node-fields-grid">
       <Field label="节点名称"><input name="name" required maxLength={128} defaultValue={editor === 'new' ? '' : editor.name} placeholder="例如：香港 · 直连" autoComplete="off" /></Field>
       {editor === 'new' && <Field label="所属服务器"><select name="server_id" required value={draftServer} onChange={event => setDraftServer(event.target.value)}>{draftServer && !enabledServers.some(server => String(server.id) === draftServer) && <option value={draftServer}>已选服务器已不存在或未启用（原选择保留）</option>}{enabledServers.map(server => <option key={server.id} value={server.id}>{server.name}{server.online ? ' · 在线' : ' · 离线'}</option>)}</select></Field>}
+      <label className="node-switch"><input name="enabled" type="checkbox" defaultChecked={editor === 'new' || editor.enabled !== false} /><span>启用节点<small>停用保留授权与历史流量。</small></span></label>
+      </div>
+      {connectionLocked && <div className="node-lock-notice" role="status">此节点已被链路引用，当前可修改名称和启用状态。调整连接参数请先替换链路中的节点。<br />{(currentEditor?.referenced_chains ?? (editor === 'new' ? [] : editor.referenced_chains) ?? []).map(chain => <a key={chain.id} href={resourceLink({ kind: 'chain', id: chain.id })} onClick={() => setEditor(null)}>{chain.name}</a>)}</div>}
+      <fieldset className="node-connection-fields" disabled={connectionLocked}><h3>连接地址</h3><div className="node-fields-grid">
       <Field label="监听端口" hint={editor === 'new' ? '可填写 443 等端口；留空时从 20000–29999 自动分配。18085 为保留端口。' : '修改后客户端需更新订阅；服务器上已有其他服务占用的端口不可使用。'}><input name="port" type="number" min={1} max={65535} step={1} required={editor !== 'new'} defaultValue={editor === 'new' ? '' : editor.port} placeholder="自动分配" /></Field>
       <Field label="公开地址" hint="填写客户端连接使用的域名或 IP，不含协议、端口和路径。"><input name="public_host" required defaultValue={editor === 'new' ? '' : editor.public_host} placeholder="node.example.com" autoComplete="off" spellCheck={false} /></Field>
       <ConnectionFields node={editor} />
       </div><h3>协议与安全</h3>
       <ProtocolFields key={editor === 'new' ? 'new' : editor.id} node={editor} />
+      </fieldset>
     </FormDialog>}
     {deployment !== null && <NodeDeployment serverId={deployment} server={servers.data?.find(server => server.id === deployment)} onClose={() => setDeployment(null)} />}
     {deleting && <Confirm title={`删除「${deleting.name}」？`} busy={action.busy} confirmDisabled={Boolean(deletingError)} error={deletingError || action.error} onClose={() => setDeleting(null)} onConfirm={() => { if (writeError(deleting)) return; void action.run(() => api(deleting.kind === 'chain' ? `/api/plugins/sing-box/proxy-resources/chain/${deleting.id}` : `/api/plugins/sing-box/nodes/${deleting.id}`, 'DELETE'), () => { setDeleting(null); refresh() }) }}>{deleting.kind === 'chain' ? '请先从策略组移除此链路。删除会同时停用专用入口和内部连接，保留历史流量与版本证据；设备应用新配置后停止监听。' : '此节点及其授权将从订阅中移除，历史流量会保留。被链路引用的节点不能直接删除。设备应用新配置后，代理入口停止监听。'}</Confirm>}

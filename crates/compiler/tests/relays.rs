@@ -29,6 +29,7 @@ fn node(id: i64, users: Vec<Access>) -> Node {
 }
 fn relay(id: i64) -> Relay {
     Relay {
+        settings: Default::default(),
         fingerprint: Default::default(),
         chain_id: id,
         entry_node_id: 1,

@@ -15,7 +15,7 @@ async fn chain_is_private_billed_once_and_requires_both_applied_endpoints(
         &cookie,
         Method::PATCH,
         &format!("/nodes/{exit}"),
-        Some(json!({"settings":{"public_port":8443,"reality":{"fingerprint":"firefox"}}})),
+        Some(json!({"settings":{"public_port":8443,"reality":{"fingerprint":"firefox","flow":"none"},"transport":{"type":"grpc","service_name":"private-relay"}}})),
     )
     .await?;
     let chain = call(
@@ -59,6 +59,26 @@ async fn chain_is_private_billed_once_and_requires_both_applied_endpoints(
     assert_eq!(
         entry_config["outbounds"][1]["tls"]["utls"]["fingerprint"],
         "firefox"
+    );
+    assert!(entry_config["outbounds"][1].get("flow").is_none());
+    assert_eq!(
+        entry_config["outbounds"][1]["transport"],
+        json!({"type":"grpc","service_name":"private-relay"})
+    );
+    assert_eq!(
+        exit_config["inbounds"][0]["transport"],
+        entry_config["outbounds"][1]["transport"]
+    );
+    assert!(exit_config["inbounds"][0]["users"][0].get("flow").is_none());
+    let snapshot: Value = sqlx::query_scalar(
+        "SELECT path_json FROM singbox_chain_versions WHERE chain_id=$1 AND generation=1",
+    )
+    .bind(chain_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(
+        snapshot["hops"][0]["endpoint"]["settings"]["transport"],
+        entry_config["outbounds"][1]["transport"]
     );
     assert_eq!(
         exit_config["inbounds"][0]["users"][0]["uuid"],

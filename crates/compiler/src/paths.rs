@@ -120,11 +120,19 @@ impl Hop {
 }
 
 fn managed_outbound(endpoint: &Node, identity: Uuid) -> Value {
-    json!({"type":"vless", "server":crate::unbracket_host(&endpoint.public_host),
-        "server_port":endpoint.public_port(), "uuid":identity, "flow":"xtls-rprx-vision",
-        "tls":{"enabled":true,"server_name":endpoint.sni,
-            "utls":{"enabled":true,"fingerprint":endpoint.settings.reality.fingerprint},
-            "reality":{"enabled":true,"public_key":endpoint.public_key,"short_id":endpoint.short_id}}})
+    let mut value = crate::protocols::client(
+        endpoint,
+        &crate::Access {
+            user_id: 0,
+            uuid: identity,
+            credential: String::new(),
+        },
+    );
+    value
+        .as_object_mut()
+        .expect("managed outbound")
+        .remove("tag");
+    value
 }
 
 pub fn validate(path: &Path) -> Result<Networks, CompileError> {
@@ -271,8 +279,11 @@ pub fn compile(
                 && *host == server_id
             {
                 present = true;
-                let identity = json!({"name":format!("relay_{}_g{}_h{}",path.chain_id,path.generation,position),
-                    "uuid":identity,"flow":"xtls-rprx-vision"});
+                let identity = crate::protocols::reality_identity(
+                    endpoint,
+                    format!("relay_{}_g{}_h{}", path.chain_id, path.generation, position),
+                    *identity,
+                );
                 let inbounds = config["inbounds"]
                     .as_array_mut()
                     .expect("compiled inbounds");
