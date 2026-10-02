@@ -25,6 +25,7 @@ try {
       const path = new URL(route.request().url()).pathname, method=route.request().method()
       const reply = (json, status=200) => route.fulfill({json,status})
       if (path === '/api/dashboard/access') return reply({authenticated:true,public_dashboard:false})
+      if (path === '/api/exchange-rates') return reply({base:'CNY',rates:{CNY:1},rate_dates:{},rate_date:null,source:null,source_url:null,fetched_at:null,attempted_at:null,next_refresh_at:0,stale:true,status:'unavailable',error_code:null})
       if (path === '/api/settings') return reply({public_dashboard:false,notification_enabled:true,offline_alerts:true,offline_minutes:5,telegram_enabled:false,telegram_chat_id:'',telegram_token_configured:false})
       if (path === '/api/telemetry/policy') {
         if (method === 'PATCH') {

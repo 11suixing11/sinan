@@ -3,11 +3,12 @@ import type { ProbeOverview } from '../probes'
 import ProbeQuality from './ProbeQuality'
 import { time, uptime } from '../format'
 import type { Server } from '../types'
-import { count, fresh, network, number, percentage, ratio, size, speed, status } from './data'
-import { Icon, OSIcon } from './Icon'
-import AssetInfo, { AssetChips } from './AssetInfo'
+import { fresh, network, number, percentage, ratio, size, speed, status } from './data'
+import { Icon, OSIcon, Region } from './Icon'
 import { dashboardServer } from './dashboard'
-import { trafficSize } from '../server-assets'
+import { assetDate, assetPrice, defaultAssets, expiryState, trafficSize } from '../server-assets'
+import { useCurrency } from './CurrencyContext'
+import { convert, money, remainingCost } from './currency'
 
 export function Metric({ label, value, detail, display }: { label: string; value: number | null; detail: string; display?: string }) {
   const tone = value !== null && value >= 90 ? 'danger' : value !== null && value >= 75 ? 'warning' : 'good'
@@ -22,28 +23,32 @@ export const ServerCard = memo(function ServerCard({ server, unavailable, probes
   const metrics = server.latest_metrics, info = server.static_info
   const state = status(server, unavailable), live = fresh(server) && !unavailable
   const up = network(metrics, 'transmit_bytes_per_sec'), down = network(metrics, 'receive_bytes_per_sec')
-  const swapDisabled = metrics.swap_total === 0 && metrics.swap_used === 0
-  const quota = server.asset_settings?.traffic_limit && server.asset_settings.traffic_limit !== '0'
+  const asset = { ...defaultAssets, ...server.asset_settings }
+  const { currency, quote } = useCurrency()
+  const quota = asset.traffic_limit !== '0'
+  const trafficKnown = server.traffic?.observed_from != null || server.traffic?.corrected
+  const showAsset = !server.public_view && (asset.price !== null || asset.expires_at !== null)
+  const expiry = expiryState(asset, now)
+  const remainder = convert(remainingCost(asset, now), asset.currency, currency, quote)
+  const sampleTime = server.metrics_sampled_at ? time(server.metrics_sampled_at / 1000) : '采样时间未知'
   return <a className={`d-card d-glass ${!server.online && !unavailable ? 'd-offline' : ''}`} href={dashboardServer(server.id)} aria-label={`${server.name}，${state.label}，查看详情`}>
-    <div className="d-card-header"><span className={`d-dot d-bg-${state.tone}`} /><strong title={server.name}>{server.name}</strong><span className={`d-card-state d-${state.tone}`}>{state.label}</span><OSIcon system={info.system} /></div>
-    <AssetChips server={server} />
+    <div className="d-card-header"><span className={`d-dot d-bg-${state.tone}`} title={state.label} /><strong title={[server.name, asset.group_name, ...asset.tags].filter(Boolean).join(' · ')}>{server.name}</strong><OSIcon system={info.system} /><Region region={asset.region} /></div>
     <div className="d-card-body">
-      <div className="d-chips"><span>{info.system ?? '系统尚未上报'}</span><span>{info.arch ?? '架构未知'}</span></div>
+      <div className="d-chips"><span title={`${info.system ?? '系统尚未上报'} · ${info.arch ?? '架构未知'} · 最近采样 ${sampleTime}`}>{live && metrics.uptime_secs !== undefined ? `运行 ${uptime(metrics.uptime_secs)}` : state.label}</span>{!server.public_view && asset.price !== null && <span title={assetPrice(asset)}>{assetPrice(asset)}</span>}</div>
       <div className={`d-metrics ${!live ? 'd-historical' : ''}`}>
         <Metric label={`处理器${info.cpu_cores ? ` · ${info.cpu_cores} 核` : ''}`} value={number(metrics.cpu_percent)} detail={[metrics.load_1, metrics.load_5, metrics.load_15].map(value => number(value) === null ? '—' : value!.toFixed(2)).join(' / ')} />
         <Metric label="内存" value={ratio(metrics.memory_used, info.memory_total)} detail={`${size(metrics.memory_used)} / ${size(info.memory_total)}`} />
         <Metric label="磁盘" value={ratio(metrics.disk_used, info.disk_total)} detail={`${size(metrics.disk_used)} / ${size(info.disk_total)}`} />
-        {quota ? <Metric label="本期流量额度" value={server.traffic?.percent ?? null} detail={`${server.traffic?.observed_from != null || server.traffic?.corrected ? trafficSize(server.traffic.used) : '等待采样'} / ${trafficSize(server.asset_settings?.traffic_limit)}${server.traffic?.incomplete ? ' · 不完整' : ''}`} /> : <Metric label="交换内存" value={ratio(metrics.swap_used, metrics.swap_total)} display={swapDisabled ? '未启用' : undefined} detail={swapDisabled ? '设备未配置交换空间' : `${size(metrics.swap_used)} / ${size(metrics.swap_total)}`} />}
+        <Metric label="流量" value={quota ? server.traffic?.percent ?? null : null} display={quota ? undefined : '∞'} detail={`${trafficKnown ? trafficSize(server.traffic?.used) : '—'} / ${quota ? trafficSize(asset.traffic_limit) : '∞'}${server.traffic?.incomplete ? ' · 不完整' : ''}`} />
       </div>
-      <div className="d-data-grid">
-        <div className="d-data"><small>实时速率</small><span className="d-good"><Icon name="up" size={12} />{live ? speed(up) : '—'}</span><span className="d-info"><Icon name="down" size={12} />{live ? speed(down) : '—'}</span></div>
-        <div className="d-data"><small>网卡累计</small><span><Icon name="up" size={12} />{size(network(metrics, 'transmitted_bytes'))}</span><span><Icon name="down" size={12} />{size(network(metrics, 'received_bytes'))}</span></div>
-        <div className="d-data"><small>系统运行</small><span><Icon name="clock" size={12} />{metrics.uptime_secs === undefined ? '—' : uptime(metrics.uptime_secs)}</span><span><Icon name="network" size={12} />{count(metrics.tcp_connections)} 个连接</span></div>
+      <div className={`d-data-grid ${showAsset ? '' : 'd-data-two'}`}>
+        <div className="d-data" title="实时速率" aria-label="实时速率"><span className="d-good"><Icon name="up" size={12} />{live ? speed(up) : '—'}</span><span className="d-info"><Icon name="down" size={12} />{live ? speed(down) : '—'}</span></div>
+        <div className="d-data" title="累计流量" aria-label="累计流量"><span><Icon name="up" size={12} />{size(network(metrics, 'transmitted_bytes'))}</span><span><Icon name="down" size={12} />{size(network(metrics, 'received_bytes'))}</span></div>
+        {showAsset && <div className="d-data" aria-label="剩余价值与到期"><span className={expiry.tone === 'bad' ? 'd-danger' : expiry.tone === 'warm' ? 'd-warning' : ''} title={`到期 ${assetDate(asset.expires_at)}（UTC）`}><Icon name="calendar" size={12} />{expiry.label}</span><span title={`剩余价值 ${money(remainder, currency)}`}><Icon name="wallet" size={12} />{money(remainder, currency)}</span></div>}
       </div>
       <ProbeQuality probes={probes} now={now} online={server.online} unavailable={probeError || unavailable} loading={probeLoading} />
-      <div className="d-card-foot"><span className={!live ? 'd-warning' : ''}>{unavailable ? '状态待确认 · 保留历史' : server.metrics_stale ? '指标已过期' : !server.online ? '最近上报的数据' : !server.metrics_sampled_at ? '采样时间未知' : '指标正常'}</span><span title={server.metrics_sampled_at ? time(server.metrics_sampled_at / 1000) : undefined}>{server.metrics_sampled_at ? new Date(server.metrics_sampled_at).toLocaleTimeString('zh-CN', { hour12: false }) : '尚无采样时间'}</span></div>
+      {!live && server.online && <div className="d-card-foot d-warning" title={`最近采样 ${sampleTime}`}>{unavailable ? '状态待确认' : server.metrics_stale ? '指标已过期' : '采样时间未知'}</div>}
       {!server.online && !unavailable && <div className="d-offline-overlay"><strong>{state.label}</strong><span>{server.last_seen ? `最后在线 ${time(server.last_seen)}` : '等待设备首次接入'}</span></div>}
     </div>
-    <AssetInfo server={server} now={now} />
   </a>
 })

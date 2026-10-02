@@ -19,7 +19,8 @@ fn mount(
 ) -> (Mount, Sample) {
     (
         Mount {
-            identity: Identity::Mount(path.into()),
+            identity: unix_identity(name.as_ref(), file_system.as_ref(), Path::new(path), None),
+            source: name.into(),
             path: path.into(),
             file_system: file_system.into(),
             is_file: false,
@@ -32,6 +33,28 @@ fn mount(
         },
     )
 }
+
+#[cfg(unix)]
+fn device_mount(
+    name: &'static str,
+    path: &'static str,
+    file_system: &str,
+    device: u64,
+    capacity: u64,
+    available: u64,
+) -> (Mount, Sample) {
+    let mut entry = mount(name, path, file_system, capacity, available);
+    entry.0.identity = unix_identity(
+        name.as_ref(),
+        file_system.as_ref(),
+        Path::new(path),
+        Some(device),
+    );
+    entry
+}
+
+#[cfg(target_os = "linux")]
+const THIN_DEVICE: &str = "/dev/mapper/docker-253:0-12345-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 #[cfg(unix)]
 fn sample_totals(samples: &[Sample]) -> Option<(u64, u64)> {
@@ -90,6 +113,153 @@ fn container_retains_overlay_root_but_not_file_mounts() {
     assert_eq!(sample_totals(&samples), Some((1000, 800)));
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn container_driver_views_do_not_multiply_host_capacity() {
+    let mut mounts = vec![
+        device_mount("/dev/vda1", "/", "ext4", 1, 1000, 200),
+        device_mount("/dev/vdb1", "/var/lib/docker", "ext4", 2, 2000, 500),
+        device_mount(
+            "/dev/mapper/docker-data",
+            "/docker-data",
+            "ext4",
+            3,
+            3000,
+            1500,
+        ),
+        device_mount(
+            "/dev/mapper/docker-pool",
+            "/docker-pool",
+            "xfs",
+            4,
+            4000,
+            2000,
+        ),
+        device_mount("/dev/vdc1", "/data/docker-backups", "ext4", 5, 5000, 2500),
+        device_mount("/dev/example-btrfs", "/srv/btrfs", "btrfs", 6, 6000, 3000),
+    ];
+    for (source, path, filesystem) in [
+        (
+            "fuse-overlayfs",
+            "/srv/rootless/merged",
+            "fuse.fuse-overlayfs",
+        ),
+        (THIN_DEVICE, "/custom/container", "ext4"),
+        ("none", "/custom/aufs/mnt/id", "aufs"),
+    ] {
+        mounts.push(device_mount(source, path, filesystem, 100, 1000, 200));
+    }
+    for path in [
+        "/custom/overlay2/id/merged",
+        "/custom/overlay/id/merged",
+        "/var/lib/docker/volumes/id/_data",
+        "/home/example/docker/containers/id",
+    ] {
+        // Bind mounts keep their backing filesystem identity and capacity.
+        mounts.push(device_mount("/dev/root-alias", path, "ext4", 1, 1000, 200));
+    }
+    // Btrfs snapshots have distinct st_dev values, but share their source device.
+    mounts.push(device_mount(
+        "/dev/example-btrfs",
+        "/custom/io.containerd.snapshotter.v1.btrfs/snapshots/1/fs",
+        "btrfs",
+        7,
+        6000,
+        3000,
+    ));
+    let samples = select(mounts);
+    assert_eq!(samples.len(), 6);
+    assert_eq!(sample_totals(&samples), Some((21000, 11300)));
+    assert!(
+        samples
+            .iter()
+            .any(|sample| sample.path == "/var/lib/docker")
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn ordinary_partitions_remain_visible_under_container_like_directories() {
+    let paths = [
+        "/mnt/overlay/backups",
+        "/media/overlay2/archive",
+        "/srv/aufs/data",
+        "/var/lib/docker/volumes/archive/_data",
+        "/custom/devicemapper/mnt/archive",
+        "/home/example/docker/containers/storage",
+        "/custom/io.containerd.snapshotter.v1.btrfs/physical-disk",
+    ];
+    let mounts = paths
+        .iter()
+        .enumerate()
+        .map(|(index, path)| {
+            // Independent physical devices must not be rejected by directory names.
+            device_mount("/dev/disk-alias", path, "ext4", index as u64 + 1, 1000, 400)
+        })
+        .collect();
+    let samples = select(mounts);
+    assert_eq!(samples.len(), paths.len());
+    assert_eq!(sample_totals(&samples), Some((7000, 4200)));
+    // A loop-backed filesystem is also retained without positive driver evidence.
+    let samples = select(vec![device_mount(
+        "/dev/loop0",
+        "/custom/devicemapper/mnt/id",
+        "ext4",
+        8,
+        2000,
+        500,
+    )]);
+    assert_eq!(sample_totals(&samples), Some((2000, 1500)));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn container_root_capacity_is_retained_for_each_storage_driver() {
+    for (source, filesystem) in [
+        ("fuse-overlayfs", "fuse.fuse-overlayfs"),
+        (THIN_DEVICE, "ext4"),
+        ("none", "aufs"),
+        ("overlay", "overlay"),
+        ("overlay", "overlayfs"),
+        ("fuse-overlayfs", "fuse.overlayfs"),
+    ] {
+        let samples = select(vec![mount(source, "/", filesystem, 1000, 200)]);
+        assert_eq!(samples.len(), 1);
+        assert_eq!(sample_totals(&samples), Some((1000, 800)));
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn container_device_filter_preserves_non_container_volume_names() {
+    for source in [
+        "/dev/mapper/docker-data",
+        "/dev/mapper/docker-pool",
+        "/dev/mapper/docker-253:0-data-container",
+        "/dev/mapper/docker-253:0-12345-",
+        "/dev/mapper/docker-:0-12345-container",
+        "/dev/mapper/docker-253:0-12345-archive",
+        "/dev/mapper/docker-253:0-12345-012345",
+        "/dev/mapper/docker-253:0-12345-base-init",
+        "/dev/vda1",
+    ] {
+        assert!(!container_device(source.as_ref()), "{source}");
+    }
+    assert!(container_device(THIN_DEVICE.as_ref()));
+    assert!(container_device(format!("{THIN_DEVICE}-init").as_ref()));
+    assert!(container_device(
+        "/dev/mapper/docker-253:0-12345-base".as_ref()
+    ));
+    for source in [
+        THIN_DEVICE.replace("253:0", "253:"),
+        THIN_DEVICE.replace("12345", "inode"),
+        THIN_DEVICE.replace("abcdef", "ghijkl"),
+        format!("{THIN_DEVICE}-backup"),
+    ] {
+        assert!(!container_device(source.as_ref()), "{source}");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn filesystem_identity_deduplicates_bind_mounts_and_device_aliases() {
@@ -140,10 +310,10 @@ fn btrfs_subvolumes_keep_source_device_deduplication() {
 #[test]
 fn unavailable_names_keep_distinct_mount_fallbacks() {
     let samples = select(vec![
-        mount("Data", "C:\\", "NTFS", 1000, 200),
-        mount("Data", "D:\\", "NTFS", 2000, 1500),
-        mount("", "E:\\", "NTFS", 3000, 2500),
-        mount("", "F:\\", "NTFS", 4000, 3000),
+        mount("", "/data/a", "ext4", 1000, 200),
+        mount("", "/data/b", "ext4", 2000, 1500),
+        mount("", "/data/c", "ext4", 3000, 2500),
+        mount("", "/data/d", "ext4", 4000, 3000),
     ]);
     assert_eq!(samples.len(), 4);
     assert_eq!(sample_totals(&samples), Some((10000, 2800)));

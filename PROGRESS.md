@@ -1933,3 +1933,12 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 最终659功能输入及19dist与接受的收据一致；十包/71不同目标共618不同方法通过、0仍失败、18条件忽略。九包及未变面板方法保留，失败和受影响/未执行范围按目标补验，重复不累加；格式、Clippy、core与diff通过，各自有PG收尾核实。一次前端构建，Bun56/1133零失败/跳过，八套受影响实际dist浏览器通过，33截图留存。
 - 编译/lint/旧入口、磁盘预检与512MiB动态保护、SQL保留关键字、响应DTO和旧迁移快照失败记录保留；面板改逐目标编译运行并回收本次无占用测试缓存，保持管理空间，没有删除开发材料。既有工厂失败说明同步对齐，未复测未变工厂；私有保留方法标签纠正不替代实际日志索引。
 - 见[本步验收](docs/acceptance/authorized-probe-leases.md)、[机器证据](docs/acceptance/evidence/authorized-probe-leases.json)、[ADR0050](docs/adr/0067-authorized-probe-leases.md)及[#144](https://github.com/theLucius7/sinan/issues/144)。专用Linux真实Agent重启/断连/标准ICMP与持续代理联测、完整NodeQuality许可/工厂身份/双架构及负载、混合订阅路径仍待；未正式发布、生产迁移/部署或恢复四源码CI。本步不是整体目标完成，后续继续以完整大步骤推进。
+
+## 2026-10-03：重新对齐 NodeFlare 服务器看板
+
+- 基于主线 `943d57f`，重新对照本地 NodeFlare `88c8a43` 的总览、工具条、卡片及线路质量布局。移除大标题、刷新说明、独立成本区、长脚注/页脚、全屏及暂停入口；搜索分组常驻，状态/地区/排序/表格按需展开。保留自动读取、隐藏取消、空值/权限错误、全部设备隐藏和真正空列表的区别，NodeFlare 许可继续随产物保留。
+- 按用户补充把币种与汇率管理移至后台“看板与通知”：显示币种沿用当前浏览器偏好；报价日期、来源、缓存表和显式更新移出看板。失败保留最近报价，200 但抓取失败不记成功，POST 新报价不因后续 GET 失败而丢失，不改原币价格、通知或自动抓取调度。
+- 跟进预付多周期/一次性剩余价值，修复连续 live 响应回退新样本；保留样本按最小 15 秒容差老化，权限与可见集合即时更新。磁盘新增真实 fuse-overlay/aufs、Docker thin 派生设备排除，保留根盘、独立分区、LVM 和既有身份去重；不会仅按路径名称误排除普通磁盘。
+- 本地 Bun 75 通过、1476 断言；TS/Vite、core 边界、fmt、Agent core 全 targets Clippy 通过。core 全 targets 270 通过、8 条件忽略；含 13 项磁盘测试。首次受沙箱影响的运行失败及之后授权重跑分开记录，没有复用此前全工作区通过数字。
+- 实际 dist 的 dashboard、server-display、server-assets、display-data、telemetry-settings、monitoring、server-operations 七套隔离浏览器回归通过，覆盖桌面/手机、真实零值/不可用、历史/目标授权、隐藏/公开切换、取消与超时及后台汇率错误。末轮缓存修复后只重跑相关 Bun/build/display-data，不声称七套最终同时重跑。截图已目视核对；细节见[本轮验证](docs/acceptance/dashboard-nodeflare-refresh.md)。
+- 未运行远端 CI、整个 Rust 工作区/PostgreSQL、实机部署或真实通知/汇率提供方请求；8 项条件测试未执行。自动续期修复已具备；NodeFlare 的流量重置时区仍未移植，本轮不更改现有 UTC 账本边界。下一步为提交审查，正式部署与跨平台实机能力单独验证。
