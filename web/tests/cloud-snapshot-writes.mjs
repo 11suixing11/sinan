@@ -97,7 +97,7 @@ try {
         await confirmation.getByRole('checkbox').check(); await wait(() => confirm.isEnabled(), 'Current matching preview becomes confirmable')
         assert.equal(writes.length, 1, 'Only the read-only preview was requested')
         if (kind === 'bandwidth') overview.operations[0].target = { ...overview.operations[0].target, bandwidth_mbps: 9 }
-        else overview.power_jobs[0].stop_mode = 'KeepCharging'
+        else overview.power_jobs[0].stop_mode = overview.power_jobs[0].stop_mode === 'KeepCharging' ? 'StopCharging' : 'KeepCharging'
         await reread(); await wait(() => confirm.isDisabled(), 'Changed current preview cannot inherit the original confirmation')
         await confirmation.locator('form').evaluate(element => { const key = Object.keys(element).find(key => key.startsWith('__reactProps$')); element[key].onSubmit({ preventDefault() {}, currentTarget: element }) })
         assert.equal(writes.length, 1, 'No billing or power confirmation POST follows changed preview'); ++totals.blocked
