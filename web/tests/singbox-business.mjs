@@ -79,7 +79,7 @@ try {
         assert.equal(route.request().method(), 'PATCH')
         const payload = route.request().postDataJSON()
         assert.deepEqual(payload, { name: node.name, public_host: node.public_host, sni: node.sni, protocol_config: { type: 'vless-reality' }, port: 443, enabled: false,
-          settings: { listen: '0.0.0.0', public_port: 8443, tcp_fast_open: false, tls_alpn: [], reality: { handshake_server: 'handshake.example.com', handshake_port: 443, fingerprint: 'firefox' } } })
+          settings: { listen: '0.0.0.0', public_port: 8443, tcp_fast_open: false, disable_tcp_keep_alive: false, tcp_keep_alive_seconds: null, tcp_keep_alive_interval_seconds: null, tls_alpn: [], tls_min_version: null, tls_max_version: null, tls_handshake_timeout_seconds: null, transport: { type: 'tcp' }, reality: { handshake_server: 'handshake.example.com', handshake_port: 443, fingerprint: 'firefox', max_time_difference_seconds: null, flow: 'vision' } } })
         Object.assign(node, payload)
         metadata.installation = { state: 'pending', reason: '节点设置已保存，等待设备应用。', target_rev: 2, applied_rev: 1 }
         value = node

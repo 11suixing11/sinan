@@ -116,7 +116,9 @@ try {
       let extraDependencies = 0
       if (pageName === 'groups') for (const path of ['package-groups', 'proxy-resources', 'ordered-proxy-resources'].map(name => `${prefix}/${name}`)) {
         const dependency = hold(path)
-        await page.clock.runFor(5000); await wait(() => dependency.reached > 0, `Current dependency must be read: ${path}`)
+        // Start this read on the next poll boundary before measuring its 100ms hold.
+        await page.clock.runFor(5000 - (await page.evaluate(() => Date.now())) % 5000)
+        await wait(() => dependency.reached > 0, `Current dependency must be read: ${path}`)
         await forceSubmit(dialog)
         assert.equal(writes.length, 0, `Every shared dependency blocks the original submit callback immediately: ${path}`)
         await page.clock.runFor(100)
