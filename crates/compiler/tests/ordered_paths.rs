@@ -382,7 +382,7 @@ fn ordered_managed_transports_keep_private_acceptance_flow_and_required_features
             position: 1,
             relay_uuid: identity,
         };
-        let entry = compile(&[node(1, true)], &[ordered.clone()], &[]);
+        let entry = compile(&[node(1, true)], std::slice::from_ref(&ordered), &[]);
         let outgoing = entry["outbounds"]
             .as_array()
             .unwrap()
@@ -407,7 +407,7 @@ fn ordered_managed_transports_keep_private_acceptance_flow_and_required_features
                 .contains(&identity.to_string())
         );
         for local in [vec![live], vec![]] {
-            let exit = compile(&local, &[], &[accept.clone()]);
+            let exit = compile(&local, &[], std::slice::from_ref(&accept));
             let identities = exit["inbounds"][0]["users"].as_array().unwrap();
             let internal = identities
                 .iter()
@@ -423,7 +423,7 @@ fn ordered_managed_transports_keep_private_acceptance_flow_and_required_features
                     json!(["u7_n2"])
                 }
             );
-            assert_eq!(exit, compile(&local, &[], &[accept.clone()]));
+            assert_eq!(exit, compile(&local, &[], std::slice::from_ref(&accept)));
         }
     }
 }

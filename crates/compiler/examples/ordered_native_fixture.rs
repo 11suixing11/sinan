@@ -342,8 +342,20 @@ fn execute() -> Result<()> {
             include_bytes!("../src/protocols.rs").as_slice(),
         ),
         (
-            "settings.rs",
-            include_bytes!("../src/settings.rs").as_slice(),
+            "settings/mod.rs",
+            include_bytes!("../src/settings/mod.rs").as_slice(),
+        ),
+        (
+            "settings/apply.rs",
+            include_bytes!("../src/settings/apply.rs").as_slice(),
+        ),
+        (
+            "settings/transport.rs",
+            include_bytes!("../src/settings/transport.rs").as_slice(),
+        ),
+        (
+            "settings/validate.rs",
+            include_bytes!("../src/settings/validate.rs").as_slice(),
         ),
         (
             "certificates.rs",

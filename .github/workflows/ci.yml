@@ -91,6 +91,7 @@ jobs:
           python3 tools/test-managed-paths-preparation.py
           python3 tools/test-managed-paths-fixtures.py
           python3 tools/test-managed-paths-linux-contracts.py
+          python3 tools/test-ordered-paths-native-contracts.py
           python3 tools/test-nodequality-native-browser-policy.py
           python3 tools/test-nodequality-native-data-policy.py
           python3 tools/test-nodequality-native-dependency-policy.py
