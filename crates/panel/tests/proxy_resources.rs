@@ -949,6 +949,7 @@ async fn resource_delete_preserves_shared_exit_history_and_deleted_request_repla
     assert_eq!(state(&pool).await?, before);
     for path in [
         format!("/nodes/{exit}"),
+        format!("/proxy-resources/direct/{exit}"),
         format!("/ordered-proxy-resources/direct/{exit}"),
         format!("/nodes/{}", entries[0]),
     ] {
@@ -1157,6 +1158,7 @@ async fn resource_delete_preserves_shared_exit_history_and_deleted_request_repla
     let policy = policy(&panel, &cookie, "Direct protected", &[exit], &[]).await?;
     for path in [
         format!("/nodes/{exit}"),
+        format!("/proxy-resources/direct/{exit}"),
         format!("/ordered-proxy-resources/direct/{exit}"),
     ] {
         let blocked = panel
@@ -1185,6 +1187,7 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
     let b = panel.create_server(&cookie, "Exit").await?;
     let entry = id(&panel.create_node(&cookie, a, "Existing entry").await?)?;
     let orphan_old = id(&panel.create_node(&cookie, a, "Old cleanup").await?)?;
+    let orphan_numeric = id(&panel.create_node(&cookie, a, "Numeric resource cleanup").await?)?;
     let orphan_new = id(&panel.create_node(&cookie, a, "Resource cleanup").await?)?;
     let exit = id(&panel.create_node(&cookie, b, "Existing exit").await?)?;
     let imported = panel
@@ -1446,6 +1449,10 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
     for (node, path) in [
         (orphan_old, format!("/nodes/{orphan_old}")),
         (
+            orphan_numeric,
+            format!("/proxy-resources/direct/{orphan_numeric}"),
+        ),
+        (
             orphan_new,
             format!("/ordered-proxy-resources/direct/{orphan_new}"),
         ),
@@ -1469,5 +1476,81 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
             .await?;
         assert!(deleted.is_some());
     }
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn retired_node_cleanup_keeps_damaged_ordered_owners_and_bounded_public_references(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = controlled_panel(pool.clone()).await?;
+    let cookie = panel.admin_cookie().await?;
+    let a = panel.create_server(&cookie, "Entry").await?;
+    panel.enable_plugin(&cookie, a).await?;
+    let b = panel.create_server(&cookie, "Exit").await?;
+    let exit = id(&panel.create_node(&cookie, b, "Shared exit").await?)?;
+    let body = request(vec![new_entry("Retained owner", a, exit, None)]);
+    let (status, created) = batch(&panel, &cookie, body.clone()).await?;
+    assert_eq!(status, StatusCode::CREATED);
+    let chain = ids(&created, "chain_ids")?[0];
+    let entry = ids(&created, "entry_node_ids")?[0];
+    // TEST_ONLY damaged metadata lacks its desired immutable version. It still
+    // owns the dedicated entry, including after the server is retired.
+    sqlx::query("UPDATE singbox_chains SET desired_generation=99 WHERE id=$1")
+        .bind(chain)
+        .execute(&pool)
+        .await?;
+    sqlx::query("UPDATE servers SET deleted_at=1 WHERE id=$1")
+        .bind(a)
+        .execute(&pool)
+        .await?;
+    let before = state(&pool).await?;
+    let paths = [
+        format!("/nodes/{entry}"),
+        format!("/proxy-resources/direct/{entry}"),
+        format!("/ordered-proxy-resources/direct/{entry}"),
+    ];
+    for path in &paths {
+        let response = panel
+            .admin(Method::DELETE, &format!("{ROOT}{path}"), &cookie, None)
+            .await?;
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let error: Value = response.json().await?;
+        no_private_fields(&error);
+        assert!(error["error"].as_str().is_some_and(|value| value.contains("仍被")));
+    }
+    assert_eq!(state(&pool).await?, before);
+    assert_eq!(batch(&panel, &cookie, body.clone()).await?, (StatusCode::OK, created));
+    let mut new_request = body;
+    new_request["request_id"] = json!(Uuid::new_v4());
+    assert_eq!(batch(&panel, &cookie, new_request).await?.0, StatusCode::CONFLICT);
+    assert_eq!(state(&pool).await?, before);
+    // Preserved/corrupt policy references must block deletion without producing
+    // an unbounded response or leaking private endpoint configuration.
+    for index in 0..40 {
+        let policy: i64 = sqlx::query_scalar(
+            "INSERT INTO singbox_policy_groups(name) VALUES($1) RETURNING id",
+        )
+        .bind(format!("TEST_ONLY public policy {index}"))
+        .fetch_one(&pool)
+        .await?;
+        sqlx::query("INSERT INTO singbox_policy_nodes(group_id,node_id) VALUES($1,$2)")
+            .bind(policy)
+            .bind(entry)
+            .execute(&pool)
+            .await?;
+    }
+    let before = state(&pool).await?;
+    for path in &paths {
+        let response = panel
+            .admin(Method::DELETE, &format!("{ROOT}{path}"), &cookie, None)
+            .await?;
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let error: Value = response.json().await?;
+        no_private_fields(&error);
+        assert_eq!(error["references"]["policies"].as_array().context("bounded policies")?.len(), 32);
+        assert_eq!(error["references"]["chains"], json!([]));
+    }
+    assert_eq!(state(&pool).await?, before);
     Ok(())
 }
