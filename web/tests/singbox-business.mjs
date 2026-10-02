@@ -374,7 +374,9 @@ try {
     await page.getByText('共享端点 · 1 条链路引用', { exact: true }).waitFor()
     chainsFailure = true
     await page.reload()
-    await page.getByText('链路夹具读取失败', { exact: true }).waitFor()
+    // Flat and ordered projections report their own failed reads in separate panels.
+    await page.locator('.nodes-page > [role="alert"]').getByText('链路夹具读取失败', { exact: true }).waitFor()
+    await page.locator('section[aria-label="有序链路与资源引用"]').getByText('链路夹具读取失败', { exact: true }).waitFor()
     assert.equal(await page.getByRole('button',{name:'创建节点',exact:true}).first().isDisabled(),true)
     assert.equal(await page.getByRole('button',{name:'创建两跳链路',exact:true}).isDisabled(),true)
     assert.equal(await page.getByText('目标配置已应用',{exact:true}).count(),0)
