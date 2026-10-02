@@ -1,0 +1,119 @@
+{
+  "schema": 1,
+  "source_base": "6e3f5522e88320337fab4bebb1374c46ef771675",
+  "scope": "Unified direct/two-hop proxy resources, atomic creation, immutable idempotency receipts and protected deletion",
+  "freeze": {
+    "functional_files": 684,
+    "sha256": "fa2b73ce38817a2f030b55b1c9d70ec1a02eb901532a8cfaba244e4071e26fb8"
+  },
+  "panel_targets": [
+    {
+      "name": "lib",
+      "passed": 76,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "proxy_resources",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "singbox_groups",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "foundation",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "business",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "node_ports",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "node_settings",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "name": "plugin_business",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "name": "subscription_preview",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    }
+  ],
+  "rust_passed": 128,
+  "rust_failed": 0,
+  "rust_ignored": 1,
+  "panel_attempts": [
+    "r1",
+    "r2"
+  ],
+  "initial_panel_failures": [
+    {
+      "target": "proxy_resources",
+      "case": "damaged_chains_stay_readable_and_cleanable_without_exposing_private_configuration",
+      "cause": "Test fixture violated the existing protocol/type database CHECK constraint"
+    }
+  ],
+  "repaired_panel_method_only": "damaged_chains_stay_readable_and_cleanable_without_exposing_private_configuration",
+  "fmt_and_panel_all_target_clippy": true,
+  "bun": {
+    "pass": 69,
+    "fail": 0,
+    "skip": 0,
+    "expect_calls": 1255,
+    "tests": 69,
+    "files": 13
+  },
+  "build_runs": 1,
+  "dist_files": 19,
+  "browser_suites": [
+    "node-routes",
+    "node-settings",
+    "singbox-chains-write-guards",
+    "singbox-business",
+    "proxy-resources",
+    "singbox-groups"
+  ],
+  "browser_suites_passed": 6,
+  "web_attempts": [
+    "r1",
+    "r2"
+  ],
+  "initial_browser_failures": [
+    "singbox-business"
+  ],
+  "retained_unchanged_build_bun_and_other_browsers": true,
+  "owned_postgres_stopped": true,
+  "owned_socket_removed": true,
+  "unrelated_runtime_files_byte_unchanged": 250,
+  "production_database_or_panel_accessed": false,
+  "remote_ci_executed": false,
+  "signed_or_published": false,
+  "production_deployed": false,
+  "mixed_subscription_paths_implemented": false,
+  "new_native_two_host_traffic_acceptance": false,
+  "full_nodequality_acceptance": false,
+  "overall_goal_complete": false
+}

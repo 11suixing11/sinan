@@ -10,6 +10,7 @@ mod node_settings;
 pub mod nodes;
 pub mod packages;
 pub mod policies;
+pub mod proxy_resources;
 pub mod proxy_users;
 pub mod publisher;
 pub mod settings;
@@ -42,7 +43,13 @@ pub fn router() -> Router<AppState> {
             axum::routing::put(packages::update).delete(packages::remove),
         )
         .route("/chains", get(chains::list).post(chains::create))
+        .route("/chains/batch", post(chains::create_batch))
         .route("/chains/{id}", delete(chains::remove))
+        .route("/proxy-resources", get(proxy_resources::list))
+        .route(
+            "/proxy-resources/{kind}/{id}",
+            get(proxy_resources::get).delete(proxy_resources::remove),
+        )
         .route(
             "/users/{id}/policy-groups",
             get(policies::user_get).put(policies::user_set),

@@ -9,9 +9,288 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sinan_compiler::Relay;
 use sqlx::{FromRow, Postgres, Transaction};
+use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BatchRequest {
+    pub request_id: Uuid,
+    pub items: Vec<BatchItem>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BatchItem {
+    pub name: String,
+    pub entry: BatchEntry,
+    pub hops: Vec<BatchHop>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+pub enum BatchEntry {
+    New {
+        server_id: i64,
+        public_host: String,
+        sni: String,
+        port: Option<i64>,
+    },
+    Existing {
+        node_id: i64,
+    },
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct BatchHop {
+    pub kind: String,
+    #[serde(default)]
+    pub node_id: Option<i64>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BatchReceipt {
+    pub request_id: Uuid,
+    pub chain_ids: Vec<i64>,
+    pub entry_node_ids: Vec<i64>,
+}
+
+pub async fn create_batch(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(mut request): Json<BatchRequest>,
+) -> ApiResult<(StatusCode, Json<BatchReceipt>)> {
+    require_admin(&state, &headers).await?;
+    if request.request_id.is_nil() || request.items.is_empty() || request.items.len() > 32 {
+        return Err(ApiError::BadRequest(
+            "一次创建需要有效请求 ID 和 1 至 32 条链路".into(),
+        ));
+    }
+    for (index, item) in request.items.iter_mut().enumerate() {
+        item.name = super::business::name(&item.name).map_err(|error| item_error(index, error))?;
+        if item.hops.len() != 1 || item.hops[0].kind != "managed" {
+            return Err(ApiError::BadRequest(format!(
+                "第 {} 条：本次仅支持一个受管出口；混合订阅及多段路径尚未实现",
+                index + 1
+            )));
+        }
+        if item.hops[0].node_id.is_none_or(|id| id <= 0) || !item.hops[0].additional.is_empty() {
+            return Err(ApiError::BadRequest(format!(
+                "第 {} 条：请选择有效出口节点",
+                index + 1
+            )));
+        }
+        match &item.entry {
+            BatchEntry::New {
+                server_id, port, ..
+            } => {
+                if *server_id <= 0 {
+                    return Err(ApiError::BadRequest(format!(
+                        "第 {} 条：请选择有效入口服务器",
+                        index + 1
+                    )));
+                }
+                if let Some(port) = port {
+                    super::nodes::validate_port(*port).map_err(|error| item_error(index, error))?;
+                }
+            }
+            BatchEntry::Existing { node_id } if *node_id <= 0 => {
+                return Err(ApiError::BadRequest(format!(
+                    "第 {} 条：请选择有效入口节点",
+                    index + 1
+                )));
+            }
+            BatchEntry::Existing { .. } => {}
+        }
+    }
+    let normalized = serde_json::to_vec(&request.items).map_err(anyhow::Error::from)?;
+    let request_sha256 = format!("{:x}", Sha256::digest(&normalized));
+    let mut tx = state.pool.begin().await?;
+    super::entitlements::lock(&mut tx).await?;
+    if let Some((previous_hash, receipt)) = sqlx::query_as::<_, (String, serde_json::Value)>(
+        "SELECT request_sha256,receipt FROM singbox_chain_creation_requests WHERE request_id=$1",
+    )
+    .bind(request.request_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    {
+        if previous_hash != request_sha256 {
+            return Err(ApiError::Conflict(
+                "此请求 ID 已用于不同内容，请为修改后的草稿使用新的请求 ID".into(),
+            ));
+        }
+        let receipt: BatchReceipt = serde_json::from_value(receipt).map_err(anyhow::Error::from)?;
+        tx.commit().await?;
+        // A replay reports original IDs even after resource deletion, never recreates.
+        return Ok((StatusCode::OK, Json(receipt)));
+    }
+    let mut servers = BTreeSet::new();
+    for (index, item) in request.items.iter().enumerate() {
+        let mut node_ids = vec![item.hops[0].node_id.expect("validated managed hop")];
+        match &item.entry {
+            BatchEntry::New { server_id, .. } => {
+                servers.insert(*server_id);
+            }
+            BatchEntry::Existing { node_id } => node_ids.push(*node_id),
+        }
+        for node_id in node_ids {
+            let server = sqlx::query_scalar::<_, i64>(
+                "SELECT server_id FROM nodes WHERE id=$1 AND deleted_at IS NULL",
+            )
+            .bind(node_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(ApiError::NotFound)
+            .map_err(|error| item_error(index, error))?;
+            servers.insert(server);
+        }
+    }
+    let servers: Vec<i64> = servers.into_iter().collect();
+    for server in &servers {
+        let live: bool = sqlx::query_scalar("SELECT deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM server_retirements r WHERE r.server_id=s.id AND r.status IN ('pending','failed','offline_unconfirmed')) FROM servers s WHERE id=$1 FOR UPDATE")
+            .bind(server).fetch_optional(&mut *tx).await?
+            .ok_or_else(|| ApiError::BadRequest(format!("服务器 #{server} 不存在")))?;
+        if !live {
+            return Err(ApiError::Conflict(format!(
+                "服务器 #{server} 已退役或正在退役，不能创建链路"
+            )));
+        }
+        super::settings::require_enabled(&mut tx, *server).await?;
+    }
+    let mut receipt = BatchReceipt {
+        request_id: request.request_id,
+        chain_ids: Vec::with_capacity(request.items.len()),
+        entry_node_ids: Vec::with_capacity(request.items.len()),
+    };
+    for (index, item) in request.items.into_iter().enumerate() {
+        let entry_node_id = match item.entry {
+            BatchEntry::Existing { node_id } => node_id,
+            BatchEntry::New {
+                server_id,
+                public_host,
+                sni,
+                port,
+            } => {
+                super::nodes::create_locked(
+                    &mut tx,
+                    super::nodes::CreateNode {
+                        enabled: Some(true),
+                        settings: Default::default(),
+                        name: item.name.clone(),
+                        server_id,
+                        public_host,
+                        sni,
+                        protocol_config: Default::default(),
+                        port,
+                    },
+                )
+                .await
+                .map_err(|error| item_error(index, error))?
+                .id
+            }
+        };
+        let chain_id = create_locked(
+            &mut tx,
+            &item.name,
+            entry_node_id,
+            item.hops[0].node_id.expect("validated managed hop"),
+        )
+        .await
+        .map_err(|error| item_error(index, error))?;
+        receipt.chain_ids.push(chain_id);
+        receipt.entry_node_ids.push(entry_node_id);
+    }
+    super::business::mark_dirty(&mut tx, &servers).await?;
+    sqlx::query("INSERT INTO singbox_chain_creation_requests(request_id,request_sha256,receipt,created_at) VALUES($1,$2,$3,$4)")
+        .bind(receipt.request_id).bind(request_sha256)
+        .bind(serde_json::to_value(&receipt).map_err(anyhow::Error::from)?)
+        .bind(sinan_protocol::now_timestamp()).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok((StatusCode::CREATED, Json(receipt)))
+}
+
+fn item_error(index: usize, error: ApiError) -> ApiError {
+    match error {
+        ApiError::BadRequest(message) => {
+            ApiError::BadRequest(format!("第 {} 条：{message}", index + 1))
+        }
+        ApiError::Conflict(message) => {
+            ApiError::Conflict(format!("第 {} 条：{message}", index + 1))
+        }
+        ApiError::NotFound => {
+            ApiError::BadRequest(format!("第 {} 条：节点不存在或已删除", index + 1))
+        }
+        error => error,
+    }
+}
+
+async fn create_locked(
+    tx: &mut Transaction<'_, Postgres>,
+    name: &str,
+    entry_id: i64,
+    exit_id: i64,
+) -> ApiResult<i64> {
+    if entry_id == exit_id {
+        return Err(ApiError::BadRequest("入口与出口不能是同一节点".into()));
+    }
+    let query = format!(
+        "SELECT {} FROM nodes n WHERE n.id=ANY($1) AND n.deleted_at IS NULL ORDER BY n.id FOR UPDATE",
+        super::business::NODE_COLUMNS
+    );
+    let nodes = sqlx::query_as::<_, super::business::NodeRow>(&query)
+        .bind(vec![entry_id, exit_id])
+        .fetch_all(&mut **tx)
+        .await?;
+    let entry = nodes
+        .iter()
+        .find(|node| node.id == entry_id)
+        .ok_or(ApiError::NotFound)?;
+    let exit = nodes
+        .iter()
+        .find(|node| node.id == exit_id)
+        .ok_or(ApiError::NotFound)?;
+    if entry.server_id == exit.server_id
+        || !entry.enabled
+        || !exit.enabled
+        || entry.protocol != "vless-reality"
+        || exit.protocol != "vless-reality"
+    {
+        return Err(ApiError::BadRequest(
+            "入口和出口必须是不同服务器上的已启用 VLESS + Reality 节点".into(),
+        ));
+    }
+    let conflict: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_chains WHERE entry_node_id=ANY($1) OR exit_node_id=$2) OR EXISTS(SELECT 1 FROM accesses WHERE node_id=$2) OR EXISTS(SELECT 1 FROM singbox_policy_nodes WHERE node_id=$2)")
+        .bind(vec![entry_id, exit_id]).bind(entry_id).fetch_one(&mut **tx).await?;
+    if conflict {
+        return Err(ApiError::Conflict(
+            "入口需要尚未授权的独立节点；不支持重复入口、嵌套或循环链路".into(),
+        ));
+    }
+    for node in [entry, exit] {
+        let model = node.model(vec![]).map_err(|_| {
+            ApiError::BadRequest(format!(
+                "节点 #{} 的协议或参数无法解析，请先修复节点配置",
+                node.id
+            ))
+        })?;
+        if !model.protocol_config.is_reality() {
+            return Err(ApiError::BadRequest(format!(
+                "节点 #{} 的实际协议配置不是 VLESS + Reality",
+                node.id
+            )));
+        }
+        super::business::validate_node(node)?;
+        super::nodes::validate_server_config(tx, node).await?;
+    }
+    Ok(sqlx::query_scalar("INSERT INTO singbox_chains(name,entry_node_id,exit_node_id,relay_uuid) VALUES($1,$2,$3,$4) RETURNING id")
+        .bind(name).bind(entry_id).bind(exit_id).bind(Uuid::new_v4()).fetch_one(&mut **tx).await?)
+}
 
 #[derive(Serialize, FromRow)]
 pub struct Chain {
@@ -98,16 +377,10 @@ pub async fn remove(
     require_admin(&state, &headers).await?;
     let mut tx = state.pool.begin().await?;
     super::entitlements::lock(&mut tx).await?;
-    let used: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_policy_chains WHERE chain_id=$1)")
-            .bind(id)
-            .fetch_one(&mut *tx)
-            .await?;
-    if used {
-        return Err(ApiError::Conflict("请先从策略组移除此链路".into()));
-    }
     let servers: Vec<i64> = sqlx::query_scalar("SELECT unnest(ARRAY[n.server_id,e.server_id]) FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id WHERE c.id=$1")
         .bind(id).fetch_all(&mut *tx).await?;
+    super::proxy_resources::lock_cleanup_servers(&mut tx, &servers).await?;
+    super::proxy_resources::ensure_chain_unreferenced(&mut tx, id).await?;
     super::business::mark_dirty(&mut tx, &servers).await?;
     if sqlx::query("DELETE FROM singbox_chains WHERE id=$1")
         .bind(id)

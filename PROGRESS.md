@@ -1,5 +1,12 @@
 # 执行进度
 
+## 2026-10-02：统一代理资源与原子批量链路（整步实现与集中验收）
+
+- 核对已有 sing-box 安装、用户／授权、节点、两跳编译和套餐实现，完成统一资源列表／详情、一次原子创建独立入口与链路、不可变幂等收据及完整资源删除。旧、新节点删除共用策略和链路引用保护；链路入口不重复展示，共享出口和旧订阅／流量保持。原删除缺口已创建 [Issue #147](https://github.com/theLucius7/sinan/issues/147) 并归入现有 milestone。
+- 后端、前端、迁移、回归代码和文档集中修改结束后统一验收，最终冻结 684 份功能输入，SHA256 `fa2b73ce38817a2f030b55b1c9d70ec1a02eb901532a8cfaba244e4071e26fb8`。面板 9 targets 有效去重 128 通过、1 既有真实 sing-box 条件忽略；Bun 69 项／1255 断言、单次 TS/Vite 构建与 6 组实际 dist 浏览器通过。新资源页覆盖 1440／390／320 宽度、失响应后角色变化的原批次重放、30 秒提交期限及旧节点读取失败仍可清理。
+- 初轮业务浏览器筛选前提与 PostgreSQL 损坏夹具违反既有类型约束分别修正，只补验失败组／方法和尚未执行范围；已过构建、Bun、其它浏览器、面板库和 7 个新集成方法保留，原失败日志保持。最终 fmt、面板 all-targets Clippy、core 分层和 diff 通过；自有数据库和所属 socket 已清理，250 份 Agent／SDK／协议／编译／诊断输入逐字不变而未重测。设计、具体通过和未验边界见 [ADR 0054](docs/adr/0054-proxy-resource-batch-lifecycle.md)、[验收记录](docs/acceptance/proxy-resources.md) 与 [机器收据](docs/acceptance/proxy-resources-local.json)。
+- 本步仍为既有受管 Reality 两跳。订阅来源、外部节点、完整有序混合路径及实际候选探测继续后续实施，原 builder、许可、完整验机、联合负载及新增诊断签收条件不缩小；CI 继续暂停，无签署、发布或生产部署。
+
 ## 2026-10-02：IPQuality 最小闭包贯穿工厂（整步实现与集中验收）
 
 - 静态检查确认原工厂只要求十一种直接包存在，完整 NodeQuality 库存也可满足；已创建 [Issue #146](https://github.com/theLucius7/sinan/issues/146) 并加入现有 milestone。现已补齐真实派生重验证、隔离求解、精确包／源公开证明及 prepare/build/export/制品的同一摘要链；私有父身份保存在准备上下文，共用扩展默认关闭。设计及结果见 [ADR 0053](docs/adr/0053-ipquality-minimal-profile-chain.md) 和 [本步验收](docs/acceptance/ipquality-minimal-profile.md)。

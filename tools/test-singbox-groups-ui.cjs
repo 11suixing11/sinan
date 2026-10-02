@@ -2,19 +2,45 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
 const path = require('node:path')
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright')
+const { createServer } = require('node:http')
+const { pathToFileURL } = require('node:url')
 
 async function main() {
-  const origin = new URL(process.argv[2] || 'http://127.0.0.1:4176')
-  assert(['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname))
-  const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM_PATH || undefined })
+  const dependency = process.env.SINAN_PLAYWRIGHT_MODULE || process.env.PLAYWRIGHT_MODULE || 'playwright'
+  const { chromium } = await import(path.isAbsolute(dependency) ? pathToFileURL(dependency).href : dependency)
+  const { proxyResourceFixtures } = await import('../web/tests/proxy-resource-fixtures.mjs')
+  const screenshots = process.env.SINAN_UI_SCREENSHOT_DIR || process.env.SINAN_GROUPS_SCREENSHOTS
+  let server, browser
   try {
+    let origin
+    if (process.argv[2]) origin = new URL(process.argv[2])
+    else {
+      const dist = path.resolve(__dirname, '../web/dist')
+      const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' }
+      server = createServer(async (request, response) => {
+        const pathname = new URL(request.url, 'http://127.0.0.1').pathname
+        const file = path.resolve(dist, pathname === '/' ? 'index.html' : `.${pathname}`)
+        if (!file.startsWith(`${dist}${path.sep}`)) { response.writeHead(400).end(); return }
+        try {
+          const body = await fs.readFile(file)
+          response.writeHead(200, { 'Content-Type': mime[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' }).end(body)
+        } catch { response.writeHead(404).end() }
+      })
+      await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
+      origin = new URL(`http://127.0.0.1:${server.address().port}`)
+    }
+    assert(['http:', 'https:'].includes(origin.protocol) && ['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname))
+    assert.equal(origin.username, ''); assert.equal(origin.password, '')
+    browser = await chromium.launch({ headless: true, executablePath: process.env.SINAN_CHROME_PATH || process.env.CHROMIUM_PATH || undefined })
     const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } })
+    page.setDefaultTimeout(10000)
     const errors = [], writes = [], assignments = []
     const root = '/api/plugins/sing-box'
     const nodes = [{ id: 1, name: '标准节点', server_id: 1 }, { id: 2, name: '入口节点', server_id: 1 }, { id: 3, name: '出口节点', server_id: 2 }, { id: 4, name: '备用入口', server_id: 1 }].map(n => ({ ...n, port: 20000 + n.id, protocol: 'vless-reality', public_host: 'proxy.example.com', sni: 'www.example.com' }))
     nodes.push({ ...nodes[0], id: 5, name: '现代节点', server_id: 2, protocol: 'shadowsocks2022' })
     const chains = [{ id: 1, name: '两跳示例', entry_node_id: 2, exit_node_id: 3, available: true }]
+    const servers = [1, 2].map(id => ({ id, name: `测试服务器 ${id}`, enabled: true, online: false, agent_supported: true, read_only: false, source: 'administrator' }))
+    const chainReceipts = new Map()
     const policies = [{ id: 1, name: '常用节点', node_ids: [1], chain_ids: [1], member_count: 1 }]
     const plans = [{ id: 1, name: '月度套餐', monthly_bytes: '536870912000', reset_day: 31, reset_hour: 12, reset_minute: 30, timezone: 'Asia/Taipei', duration_days: 365 }]
     let groupIds = [1], assigned = false, exhausted = false
@@ -27,10 +53,26 @@ async function main() {
       if (pathname === '/api/dashboard/access') data = { authenticated: true, public_dashboard: false }
       else if (pathname === '/api/me') data = {}
       else if (pathname === `${root}/nodes`) data = nodes
-      else if (method === 'GET' && pathname === `${root}/servers`) data = [1, 2].map(id => ({ id, name: `测试服务器 ${id}`, enabled: true, online: false, agent_supported: true, read_only: false, source: 'administrator' }))
+      else if (method === 'GET' && pathname === `${root}/servers`) data = servers
+      else if (method === 'GET' && pathname === `${root}/proxy-resources`) data = proxyResourceFixtures(nodes, servers, chains)
+      else if (method === 'POST' && pathname === `${root}/chains/batch`) {
+        assert.match(payload.request_id, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/)
+        assert.deepEqual(payload.items, [{ name: '测试链路', entry: { mode: 'existing', node_id: 4 }, hops: [{ kind: 'managed', node_id: 3 }] }])
+        const previous = chainReceipts.get(payload.request_id)
+        if (previous) {
+          assert.deepEqual(payload, previous.body)
+          data = previous.receipt
+        } else {
+          const chain = { id: Math.max(...chains.map(chain => chain.id)) + 1, name: payload.items[0].name, entry_node_id: 4, exit_node_id: 3, available: true }
+          data = { request_id: payload.request_id, chain_ids: [chain.id], entry_node_ids: [4] }
+          chains.push(chain)
+          chainReceipts.set(payload.request_id, { body: structuredClone(payload), receipt: data })
+          await route.fulfill({ status: 201, json: data }); return
+        }
+      }
       else if (pathname === `${root}/chains`) {
-        if (method === 'POST') { data = { ...payload, id: chains.length + 1, available: true }; chains.push(data) }
-        else data = chains
+        assert.equal(method, 'GET', 'The resource editor must use one atomic batch POST')
+        data = chains
       } else if (pathname === `${root}/policy-groups`) {
         if (method === 'POST') { data = { ...payload, id: policies.length + 1, member_count: 0 }; policies.push(data) }
         else data = policies
@@ -56,7 +98,7 @@ async function main() {
       }
       await route.fulfill({ json: data })
     })
-    await page.goto(`${origin}/#/plugins/sing-box/groups`)
+    await page.goto(`${origin.origin}/#/plugins/sing-box/groups`)
     await page.getByRole('button', { name: '创建策略组', exact: true }).click()
     await page.getByRole('textbox', { name: '名称', exact: true }).fill('测试策略')
     await page.getByRole('checkbox', { name: /标准节点/ }).check()
@@ -77,18 +119,24 @@ async function main() {
     await page.getByRole('button', { name: '保存', exact: true }).click()
     await page.getByText('精确额度', { exact: true }).waitFor()
     assert.deepEqual(writes.at(-1).payload, { name: '精确额度', monthly_bytes: '549755813888', reset_day: 31, reset_hour: 2, reset_minute: 30, timezone: 'Asia/Taipei', duration_days: 90 })
-    await page.goto(`${origin}/#/plugins/sing-box/nodes?kind=chains`)
+    await page.goto(`${origin.origin}/#/plugins/sing-box/nodes?kind=chains`)
     await page.getByRole('link', { name: '两跳链路', exact: true }).waitFor()
     await page.getByRole('button', { name: '创建两跳链路', exact: true }).click()
-    await page.getByRole('textbox', { name: '名称', exact: true }).fill('测试链路')
+    await page.locator('select[name="entry_mode"]').selectOption('existing')
+    await page.locator('input[name="name"]').fill('测试链路')
     assert.equal(await page.locator('select[name="entry_node_id"] option[value="5"]').count(), 0)
     assert.equal(await page.locator('select[name="exit_node_id"] option[value="5"]').count(), 0)
     await page.locator('select[name="entry_node_id"]').selectOption('4')
     await page.locator('select[name="exit_node_id"]').selectOption('3')
     await page.getByRole('button', { name: '创建未授权链路', exact: true }).click()
     await page.getByText('测试链路', { exact: true }).waitFor()
-    assert.deepEqual(writes.at(-1).payload, { name: '测试链路', entry_node_id: 4, exit_node_id: 3 })
-    await page.goto(`${origin}/#/plugins/sing-box/users`)
+    const chainWrites = writes.filter(write => write.pathname === `${root}/chains/batch`)
+    assert.equal(chainWrites.length, 1)
+    assert.equal(chainWrites[0].method, 'POST')
+    assert.deepEqual(chainWrites[0].payload.items, [{ name: '测试链路', entry: { mode: 'existing', node_id: 4 }, hops: [{ kind: 'managed', node_id: 3 }] }])
+    assert.equal(writes.filter(write => write.pathname === `${root}/chains`).length, 0)
+    assert.equal(chains.filter(chain => chain.name === '测试链路').length, 1)
+    await page.goto(`${origin.origin}/#/plugins/sing-box/users`)
     await page.getByRole('heading', { name: '可用范围与套餐', exact: true }).waitFor()
     await page.getByRole('button', { name: '订阅链接', exact: true }).click()
     assert.equal(await page.getByRole('combobox', { name: '订阅格式' }).inputValue(), 'singbox')
@@ -113,15 +161,18 @@ async function main() {
     exhausted = true
     await page.reload()
     await page.getByText('本期流量已用完', { exact: true }).waitFor()
-    if (process.env.SINAN_GROUPS_SCREENSHOTS) {
-      await fs.mkdir(process.env.SINAN_GROUPS_SCREENSHOTS, { recursive: true })
-      await page.screenshot({ path: path.join(process.env.SINAN_GROUPS_SCREENSHOTS, 'user-desktop.png'), fullPage: true })
+    if (screenshots) {
+      await fs.mkdir(screenshots, { recursive: true })
+      await page.screenshot({ path: path.join(screenshots, 'user-desktop.png'), fullPage: true })
     }
     await page.setViewportSize({ width: 390, height: 844 })
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
-    if (process.env.SINAN_GROUPS_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.SINAN_GROUPS_SCREENSHOTS, 'user-mobile.png'), fullPage: true })
+    if (screenshots) await page.screenshot({ path: path.join(screenshots, 'user-mobile.png'), fullPage: true })
     assert.deepEqual(errors, [])
     console.log('PASS: policy/package/chain forms, precise quota, scoped grants, stable assignment retry, expiry display, desktop/mobile Chromium')
-  } finally { await browser.close() }
+  } finally {
+    try { await browser?.close() }
+    finally { if (server?.listening) await new Promise(resolve => server.close(resolve)) }
+  }
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

@@ -155,13 +155,23 @@ async fn chain_is_private_billed_once_and_requires_both_applied_endpoints(
             StatusCode::OK
         );
     }
-    // Losing the exit revokes the entry; it must never fall back to direct.
+    // A referenced exit cannot be deleted through the legacy node endpoint.
+    let conflict = panel
+        .admin(
+            Method::DELETE,
+            &format!("{ROOT}/nodes/{exit}"),
+            &cookie,
+            None,
+        )
+        .await?;
+    assert_eq!(conflict.status(), StatusCode::CONFLICT);
+    // Disabling an exit still revokes the entry without a direct fallback.
     call(
         &panel,
         &cookie,
-        Method::DELETE,
+        Method::PATCH,
         &format!("/nodes/{exit}"),
-        None,
+        Some(json!({"enabled":false})),
     )
     .await?;
     assert!(eligible(&pool, uid, now_timestamp()).await?.is_empty());

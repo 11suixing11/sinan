@@ -3,6 +3,7 @@ import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolve, extname, sep } from 'node:path'
+import { proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
 
 // Shipped dist with controlled API responses; PostgreSQL verifies migration/data.
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
@@ -76,6 +77,18 @@ try {
         value = node
       } else if (path === '/api/plugins/sing-box/nodes') {
         assert.equal(metadata.enabled, true); value = nodesEmpty ? [] : chainFixtures ? [node, exitNode, ...additionalNodes] : [node, exitNode]
+      } else if (path === '/api/plugins/sing-box/proxy-resources') {
+        assert.equal(route.request().method(), 'GET')
+        if (chainsFailure) { await route.fulfill({ status:500,json:{error:'链路夹具读取失败'} }); return }
+        value = nodesEmpty ? [] : proxyResourceFixtures([node,exitNode,...additionalNodes],[metadata,exitMetadata,...otherMetadata],chainFixtures ? [...chains,...additionalChains] : chains).filter(resource => chainFixtures || resource.kind === 'chain' || [2,3].includes(resource.id))
+      } else if (path === '/api/plugins/sing-box/chains/batch') {
+        assert.equal(route.request().method(), 'POST')
+        const body = route.request().postDataJSON()
+        assert.match(body.request_id,/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+        assert.deepEqual(body.items,[{name:'未授权验收链路',entry:{mode:'existing',node_id:2},hops:[{kind:'managed',node_id:3}]}])
+        const chain = { id:9,name:'未授权验收链路',entry_node_id:2,exit_node_id:3,available:true }
+        metadata.installation = { state:'pending',reason:'新链路已保存，两端配置仍待设备应用。',target_rev:2,applied_rev:2 }
+        chains.push(chain); value = {request_id:body.request_id,chain_ids:[9],entry_node_ids:[2]}
       } else if (path === '/api/plugins/sing-box/users') value = []
       else if (path === '/api/plugins/sing-box/chains') {
         if (route.request().method() === 'POST') {
@@ -210,18 +223,19 @@ try {
     chainFixtures = true
     await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '两跳链路', exact: true }).click()
     await page.getByRole('heading', { name: '代理节点', exact: true, level: 1 }).waitFor()
-    await page.getByRole('heading', { name: '两跳链路', exact: true, level: 2 }).waitFor()
+    await page.getByRole('heading', { name: /^两跳链路/, level: 2 }).waitFor()
     assert.equal(await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '两跳链路', exact: true }).getAttribute('aria-current'), 'page')
     assert.equal(await page.locator('nav[aria-label="主导航"]').getByRole('link', { name: '两跳链路', exact: true }).count(), 0)
     const chainMutationStart = mutations.length
     await page.getByRole('button', { name: '创建两跳链路', exact: true }).click()
     const chainDialog = page.getByRole('dialog')
+    await chainDialog.locator('select[name="entry_mode"]').selectOption('existing')
     await chainDialog.locator('input[name="name"]').fill('未授权验收链路')
     await chainDialog.locator('select[name="entry_node_id"]').selectOption('2')
     await chainDialog.locator('select[name="exit_node_id"]').selectOption('3')
     await chainDialog.getByRole('button', { name: '创建未授权链路', exact: true }).click()
     await page.getByText('未授权验收链路', { exact: true }).waitFor()
-    assert.deepEqual(mutations.slice(chainMutationStart), [{ path: '/api/plugins/sing-box/chains', method: 'POST' }])
+    assert.deepEqual(mutations.slice(chainMutationStart), [{ path: '/api/plugins/sing-box/chains/batch', method: 'POST' }])
     // The server query includes either endpoint and never shows unrelated chains.
     assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=chains&server=1')
     await page.getByText(`筛选范围：入口或出口属于「${metadata.name}」的链路。`, { exact: false }).waitFor()
@@ -242,7 +256,7 @@ try {
     await page.getByText('两端状态仅表示设备应用与健康信息，尚未验证公网可达或链路连通。', { exact: false }).waitFor()
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
 
-    await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '节点监听', exact: true }).click()
+    await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '直连节点', exact: true }).click()
     await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption('2')
     await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '两跳链路', exact: true }).click()
     await page.getByText('未授权验收链路', { exact: true }).waitFor()
@@ -290,21 +304,31 @@ try {
     assert.equal(await createdRow.getByText('应用状态待确认', { exact: true }).count(), 2)
     assert.equal(await page.getByText('目标配置已应用', { exact: true }).count(), 0)
     assert.equal(await createdRow.getByRole('link', { name: '服务器 #2', exact: true }).getAttribute('href'), '#/servers/2')
-    assert.deepEqual(mutations.slice(chainMutationStart), [{ path: '/api/plugins/sing-box/chains', method: 'POST' }])
+    assert.deepEqual(mutations.slice(chainMutationStart), [{ path: '/api/plugins/sing-box/chains/batch', method: 'POST' }])
     pluginServersFailure = false
     chainFixtures = false
-    await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '节点监听', exact: true }).click()
-    await page.getByText('链路专用入口', { exact: true }).waitFor()
+    await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '直连节点', exact: true }).click()
+    assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=direct&server=1')
+    // Tabs preserve the server scope and the component keeps pending drafts. The
+    // shared exit belongs to server 2, so explicitly clear scope and refresh the
+    // changed fixtures rather than expecting a route change to remount loaders.
+    await page.getByRole('link', { name: '查看全部资源', exact: true }).click()
+    const recoveredResources = page.waitForResponse(response => new URL(response.url()).pathname === '/api/plugins/sing-box/proxy-resources' && response.request().method() === 'GET' && response.status() === 200)
+    await page.getByRole('button', { name: '刷新', exact: true }).click()
+    await recoveredResources
+    await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 1 && document.querySelector('[data-resource-key="direct:3"]'))
+    await page.locator('[data-resource-key="direct:3"]').waitFor()
+    assert.equal(await page.locator('[data-resource-key="direct:2"]').count(),0)
     await page.getByText('普通节点需为代理用户授权并等待设备成功应用配置', { exact: false }).waitFor()
     await page.getByText('出口可使用内部连接凭据监听，无需为出口单独授权用户。', { exact: false }).waitFor()
     await page.goto(`${origin}/#/plugins/sing-box/nodes`)
-    await page.getByText('链路出口', { exact: true }).waitFor()
+    await page.getByText('共享出口 · 1 条链路引用', { exact: true }).waitFor()
     chainsFailure = true
     await page.reload()
     await page.getByText('链路夹具读取失败', { exact: true }).waitFor()
-    await page.getByText('链路身份待确认', { exact: true }).first().waitFor()
-    assert.equal(await page.getByText('链路身份待确认', { exact: true }).count(), 2)
-    assert.equal(await page.getByText('普通节点监听', { exact: true }).count(), 0)
+    assert.equal(await page.getByRole('button',{name:'创建节点',exact:true}).isDisabled(),true)
+    assert.equal(await page.getByRole('button',{name:'创建两跳链路',exact:true}).isDisabled(),true)
+    assert.equal(await page.getByText('目标配置已应用',{exact:true}).count(),0)
     chainsFailure = false
     nodesEmpty = true
     await page.reload()

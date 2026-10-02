@@ -24,6 +24,7 @@
 - core 管服务器；sing-box 插件管代理用户、授权、订阅、用户流量、配额和周期，详见 [ADR 0023](docs/adr/0023-proxy-business-boundary.md) 与 [搬迁及启用兼容 ADR 0030](docs/adr/0030-singbox-plugin-business.md)。core 不得引用代理业务的 `user`、`subscription`、`quota`，含复数、蛇形和驼峰形式；CI 使用 `tools/check-core-boundary.py` 检查。系统账户与 SQLite 原生 API 仅允许检查器列出的具体表达式，不允许文件或整行豁免。
 - sing-box 面板业务实现物理位于根 `plugins/singbox/panel/`；面板只保留薄的 Rust path 嵌入桥，不得移回 `crates/panel/src/plugins/`。
 - 设备声明插件能力只表示支持，不自动启用新服务器的代理业务；管理员启用必须安排签名运行时安装，安装状态和设备应用确认分开，见 [ADR 0044](docs/adr/0044-singbox-plugin-lifecycle.md)。链路管理归代理节点，策略页面引用已有资源。
+- 代理资源与原子链路创建按 [ADR 0054](docs/adr/0054-proxy-resource-batch-lifecycle.md) 使用 `kind` 与 ID 一起标识，专用入口不重复展示；批量入口／链路同事务创建，删除不清除幂等收据。旧、新节点删除共用策略及链路引用保护，完整链路资源删除清理入口并保留共享出口；旧链路解除关系接口语义保持。本步骤仍为受管两跳，不替代 ADR 0040 的订阅来源和完整混合路径实现。
 - 精确运行确认与持久恢复屏障按 [ADR 0047](docs/adr/0047-runtime-checkpoints-and-recovery-barriers.md) 实现：实际配置/受控实例与稳定 activation 共同核对，结果先持久化再发送，未 ACK 不按 TTL 删除；屏障后禁止低于已承诺 revision 的 apply/rollback/recovery。旧 revision 心跳不替代新能力的精确收据，检查请求不得隐式重启旧业务；这些通用基础能力不代表混合路径或端到端探测已实现。
 - 诊断自然结束、保护停止、取消及退役按 [ADR 0049](docs/adr/0049-confirmed-diagnostic-completion.md) 保留活动所有权，确认进程、挂载与排队 job 已清理后才提交终态；原始结果先固定，重启只重试清理。`cleaning` 为非终态，不因期限释放互斥；旧面板不能单独配新 Agent。
 - 周期拨测按 [ADR 0050](docs/adr/0050-authorized-probe-leases.md) 明确记录来源、地区和自有/第三方同意依据；新设备只凭绑定身份、配置版本和单调期限的短租约执行，不恢复旧一天缓存。旧八字段 `ProbeSpec` 及已有历史保持，旧 Agent 的离线窗口不能冒称已修复；授权证据不得进入匿名看板。

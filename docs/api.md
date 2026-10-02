@@ -119,7 +119,48 @@
 | `POST /api/plugins/sing-box/nodes` | `{"name":"节点名称","server_id":1,"public_host":"node.example.com","sni":"www.example.com","port":443}`；`port` 可省略 |
 | `GET /api/plugins/sing-box/nodes/{id}` | 节点详情 |
 | `PATCH /api/plugins/sing-box/nodes/{id}` | 可选 `name`、`public_host`、`sni`、`port`、`protocol_config`、`enabled`、`settings`，至少一个字段；省略字段保留现值 |
-| `DELETE /api/plugins/sing-box/nodes/{id}` | 删除节点及现有授权，并安排重新发布 |
+| `DELETE /api/plugins/sing-box/nodes/{id}` | 与直连资源删除共用引用保护；策略或链路仍引用时返回 409 清单，否则软删节点、移除现有授权并安排重新发布 |
+
+### 统一代理资源与批量两跳
+
+以下接口与面板、迁移同版使用；设计及验收状态见 [ADR 0054](adr/0054-proxy-resource-batch-lifecycle.md) 和 [本步记录](acceptance/proxy-resources.md)。
+
+| 方法与路径 | 请求或用途 |
+| --- | --- |
+| `GET /api/plugins/sing-box/proxy-resources` | 同一快照中的直连／链路公开资源数组；链路入口不作为直连重复出现 |
+| `GET /api/plugins/sing-box/proxy-resources/{kind}/{id}` | `kind=direct|chain`；类型与 ID 一起标识资源 |
+| `DELETE /api/plugins/sing-box/proxy-resources/direct/{id}` | 与旧节点删除共用策略和链路引用保护 |
+| `DELETE /api/plugins/sing-box/proxy-resources/chain/{id}` | 无策略引用时删除链路及专用入口；共享出口、历史流量和创建收据保持 |
+| `POST /api/plugins/sing-box/chains/batch` | 至多 32 行原子创建，一次请求保存全部入口／链路或整批回滚 |
+
+资源包含 `kind,id,name,entry,exit,available,unavailable_reasons,policy_group_ids,user_count,chain_refs`。公开端点包含节点／服务器 ID 和名称、协议、公开地址、监听 `port`、实际公开 `public_port`、SNI、启用／删除状态，以及 `online,desired_revision,applied_revision,applied_observed_at`；不包含私钥、内部 relay UUID、用户身份或完整配置。`public_port` 使用已有节点设置的有效覆盖值，未覆盖则沿用监听端口；损坏设置、协议配置解析失败或与协议标记不一致，让对应资源不可用并说明原因，不使整个列表失去可读性。`available` 表示结构及插件配置可用，在线和应用观察另列，不表示端到端连通。`user_count` 是未删除代理用户的授权并集人数，不是当前套餐资格人数。退役或软删端点的链路仍可读取与明确清理。
+
+批量请求示例：
+
+```json
+{
+  "request_id": "<本次提交的 UUID>",
+  "items": [
+    {
+      "name": "入口到出口",
+      "entry": {
+        "mode": "new",
+        "server_id": 1,
+        "public_host": "entry.example.com",
+        "sni": "www.example.com",
+        "port": null
+      },
+      "hops": [{ "kind": "managed", "node_id": 2 }]
+    }
+  ]
+}
+```
+
+旧入口可使用 `entry={"mode":"existing","node_id":1}`，须未授权且未被链路或普通策略引用。本步只支持一个受管 Reality hop；额外跳或订阅引用明确拒绝，不会缩短路径。端口省略或 null 才自动分配，每行独立入口，出口可以共享。整批规范化请求绑定 `request_id`；首次返回 201，重放返回 200，响应均为 `{request_id,chain_ids,entry_node_ids}` 且 ID 顺序对应请求行。相同键不同内容返回 409；删除后重放只返回原 ID，不重新创建。客户端应保留结果不确定时的原键与请求，不循环提交单行。
+
+引用冲突响应为 `{error,references}`，`references` 包含公开策略／链路 ID、名称及角色，不能泄露凭据。旧 `/chains/{id}` DELETE 继续只解除关系并保留入口，新完整资源删除同时清理入口，两种语义不同。创建不自动授予任何代理用户权限。
+
+### 节点对象与字段
 
 节点对象：
 

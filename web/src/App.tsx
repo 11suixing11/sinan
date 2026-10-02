@@ -77,7 +77,7 @@ export default function App() {
       : route === '/statistics' ? <Statistics />
       : route === '/latency' ? <LatencyTasks />
       : route === '/plugins/sing-box' ? <SingboxOverview />
-        : nodePage ? <Nodes key={`${nodePage.serverId ?? 'all'}-${nodePage.chains ? 'chains' : 'direct'}`} serverId={nodePage.serverId} initialKind={nodePage.chains ? 'chains' : 'direct'} />
+        : nodePage ? <Nodes serverId={nodePage.serverId} initialKind={nodePage.kind} />
         : route === '/plugins/sing-box/users' ? <ProxyUsers />
           : route === '/plugins/sing-box/groups' ? <Groups />
             : route === '/system/plugins' ? <Plugins />

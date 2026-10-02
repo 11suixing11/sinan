@@ -11,7 +11,6 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use serde::Deserialize;
-use sinan_protocol::now_timestamp;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -82,6 +81,22 @@ pub async fn create(
     Json(request): Json<CreateNode>,
 ) -> ApiResult<(StatusCode, Json<NodeView>)> {
     require_admin(&state, &headers).await?;
+    let mut transaction = state.pool.begin().await?;
+    super::entitlements::lock(&mut transaction).await?;
+    business::lock_server(&mut transaction, request.server_id).await?;
+    super::settings::require_enabled(&mut transaction, request.server_id).await?;
+    let node = create_locked(&mut transaction, request).await?;
+    business::mark_dirty(&mut transaction, &[node.server_id]).await?;
+    transaction.commit().await?;
+    Ok((StatusCode::CREATED, Json(node.view()?)))
+}
+
+/// The caller owns the topology and server locks. Batch creation uses the same
+/// protocol, certificate, settings, port and whole-server checks as one node.
+pub(super) async fn create_locked(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    request: CreateNode,
+) -> ApiResult<NodeRow> {
     let requested_port = request.port.map(validate_port).transpose()?;
     let protocol = request.protocol_config.build(None)?;
     let (private_key, public_key) = if protocol.is_reality() {
@@ -109,16 +124,12 @@ pub async fn create(
         },
     };
     business::validate_node(&node)?;
-    let mut transaction = state.pool.begin().await?;
-    super::entitlements::lock(&mut transaction).await?;
-    business::lock_server(&mut transaction, request.server_id).await?;
-    super::settings::require_enabled(&mut transaction, request.server_id).await?;
     if let Some(port) = requested_port {
-        ensure_port_available(&mut transaction, node.server_id, port, None).await?;
+        ensure_port_available(transaction, node.server_id, port, None).await?;
     } else {
-        node.port = sqlx::query_scalar::<_, i32>("SELECT candidate.port FROM generate_series(20000,29999) AS candidate(port) WHERE NOT EXISTS(SELECT 1 FROM nodes WHERE server_id=$1 AND deleted_at IS NULL AND nodes.port=candidate.port) ORDER BY candidate.port LIMIT 1").bind(node.server_id).fetch_optional(&mut *transaction).await?.ok_or_else(|| ApiError::Conflict("服务器没有可分配端口".into()))?;
+        node.port = sqlx::query_scalar::<_, i32>("SELECT candidate.port FROM generate_series(20000,29999) AS candidate(port) WHERE NOT EXISTS(SELECT 1 FROM nodes WHERE server_id=$1 AND deleted_at IS NULL AND nodes.port=candidate.port) ORDER BY candidate.port LIMIT 1").bind(node.server_id).fetch_optional(&mut **transaction).await?.ok_or_else(|| ApiError::Conflict("服务器没有可分配端口".into()))?;
     }
-    validate_server_config(&mut transaction, &node).await?;
+    validate_server_config(transaction, &node).await?;
     let query = format!(
         "INSERT INTO nodes AS n (name,server_id,protocol,port,public_host,sni,private_key,public_key,short_id,protocol_config,enabled,settings) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING {NODE_COLUMNS}"
     );
@@ -135,12 +146,10 @@ pub async fn create(
         .bind(node.protocol_config)
         .bind(node.enabled)
         .bind(node.settings)
-        .fetch_one(&mut *transaction)
+        .fetch_one(&mut **transaction)
         .await
         .map_err(port_database_error)?;
-    business::mark_dirty(&mut transaction, &[node.server_id]).await?;
-    transaction.commit().await?;
-    Ok((StatusCode::CREATED, Json(node.view()?)))
+    Ok(node)
 }
 
 pub async fn update(
@@ -258,33 +267,11 @@ pub async fn remove(
     Path(id): Path<i64>,
 ) -> ApiResult<StatusCode> {
     require_admin(&state, &headers).await?;
-    let mut transaction = state.pool.begin().await?;
-    super::entitlements::lock(&mut transaction).await?;
-    let server_id: i64 =
-        sqlx::query_scalar("SELECT server_id FROM nodes WHERE id=$1 AND deleted_at IS NULL")
-            .bind(id)
-            .fetch_optional(&mut *transaction)
-            .await?
-            .ok_or(ApiError::NotFound)?;
-    business::lock_server(&mut transaction, server_id).await?;
-    let result = sqlx::query("UPDATE nodes SET deleted_at=$2 WHERE id=$1 AND deleted_at IS NULL")
-        .bind(id)
-        .bind(now_timestamp())
-        .execute(&mut *transaction)
-        .await?;
-    if result.rows_affected() == 0 {
-        return Err(ApiError::NotFound);
-    }
-    sqlx::query("DELETE FROM accesses WHERE node_id=$1")
-        .bind(id)
-        .execute(&mut *transaction)
-        .await?;
-    business::mark_dirty(&mut transaction, &[server_id]).await?;
-    transaction.commit().await?;
+    super::proxy_resources::remove_direct_node(&state, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn validate_port(port: i64) -> ApiResult<i32> {
+pub(super) fn validate_port(port: i64) -> ApiResult<i32> {
     if !(1..=65535).contains(&port) {
         return Err(ApiError::BadRequest(
             "节点端口必须为 1 至 65535 的整数".into(),
@@ -326,7 +313,7 @@ fn port_database_error(error: sqlx::Error) -> ApiError {
     }
 }
 
-async fn validate_server_config(
+pub(super) async fn validate_server_config(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     node: &NodeRow,
 ) -> ApiResult<()> {
