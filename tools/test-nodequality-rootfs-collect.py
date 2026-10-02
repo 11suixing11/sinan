@@ -760,7 +760,9 @@ class CollectionContracts(unittest.TestCase):
                 oversized = COLLECT.source_closure([{'source_name': 'fixture', 'source_version': '1'}], [MAIN, SECURITY], parsed)
                 oversized[0]['files'][0].update(size=4 * 1024**2, sha256=identity(b'owned oversized source declaration')['sha256'])
                 payload_attempts.clear()
-                with mock.patch.object(COLLECT, 'source_closure', return_value=oversized):
+                sufficient_capacity = types.SimpleNamespace(f_bavail=(4 * 1024**3) // 4096, f_frsize=4096)
+                with mock.patch.object(COLLECT, 'source_closure', return_value=oversized), \
+                     mock.patch.object(os, 'statvfs', return_value=sufficient_capacity):
                     with self.assertRaisesRegex(ValueError, 'factory byte budget exceeded'):
                         COLLECT.collect(request, keyring, provenance, None, root / 'refused', 4 * 1024**2, 30)
                 self.assertEqual(payload_attempts, [])

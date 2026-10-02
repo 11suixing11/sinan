@@ -65,7 +65,9 @@ try {
     })
     const start = page.getByRole('button', { name: plugin === 'nodequality' ? '日常检查' : '开始 TCP 诊断', exact: true })
     const cancel = page.getByRole('button', { name: '请求取消测试', exact: true })
-    const version = page.getByLabel(plugin === 'nodequality' ? '测试 IP 版本' : 'IP 版本', { exact: true })
+    const version = plugin === 'nodequality'
+      ? page.getByRole('combobox', { name: /^测试 IP 版本/ })
+      : page.getByLabel('IP 版本', { exact: true })
     const refreshFailed = async () => {
       const observed = page.waitForResponse(response => new URL(response.url()).pathname === readPath && response.request().method() === 'GET')
       await page.getByRole('button', { name: '重试', exact: true }).first().click(); await observed
@@ -109,6 +111,8 @@ try {
       assert.equal(await start.isDisabled(), true); await forceClick(start); assert.equal(writes.length, 1); ++totals.blocked
       // Losing new-task capability must not prevent confirmed cancellation.
       assert.equal(await cancel.isEnabled(), true)
+      ready = true; await poll()
+      assert.equal(await start.isDisabled(), true); await forceClick(start); assert.equal(writes.length, 1); ++totals.blocked
       for (const identity of [null, id.toUpperCase(), 'TEST_ONLY malformed task identity']) {
         record.job.id = identity; await poll()
         assert.equal(await start.isDisabled(), true); await forceClick(start); assert.equal(writes.length, 1); ++totals.blocked
