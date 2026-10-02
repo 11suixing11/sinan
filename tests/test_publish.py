@@ -2,6 +2,7 @@
 """Publication CI gates and asset/tag identity checks with real signed bundles."""
 
 import copy
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -115,6 +116,91 @@ class PublicationTests(unittest.TestCase):
     def verify(self, publish_release=False):
         return publish.checked_publication(self.github, TAG, self.fixture.roots,
                                            "minisign", publish_release)
+
+    def test_optional_ipquality_publication_requires_both_architectures_and_exact_component_count(self):
+        metadata = json.loads((self.fixture.bundle / "release.json").read_text())
+        metadata["artifacts"].append({"name": "ipquality", "arch": "amd64"})
+        with self.assertRaisesRegex(ValueError, "every selected module on both architectures"):
+            publish.require_components(metadata)
+        metadata["artifacts"].append({"name": "ipquality", "arch": "arm64"})
+        publish.require_components(metadata)
+        metadata["artifacts"].append({"name": "ipquality", "arch": "arm64"})
+        with self.assertRaisesRegex(ValueError, "every selected module on both architectures"):
+            publish.require_components(metadata)
+
+    def ipquality_fixture(self):
+        import ipquality_artifact
+        files = {}
+        for arch in ("amd64", "arm64"):
+            files[arch] = self.fixture.append_ipquality_fixture(arch)
+        self.github = FakeGithub(self.fixture.bundle)
+        return ipquality_artifact, files
+
+    def test_paired_sources_publish_only_after_hash_and_inventory_checks(self):
+        artifact, files = self.ipquality_fixture()
+        with patch.object(artifact, "validate_files"), \
+                patch.object(artifact, "validate_source_offer") as validate:
+            evidence = self.verify()
+            self.assertFalse(evidence["published"])
+            self.assertEqual(validate.call_count, 2)
+            self.assertEqual(self.github.patches, [])
+            self.assertEqual(len(evidence["source_offers"]), 2)
+            for arch, sources in files.items():
+                offer = artifact.source_offer(sources, artifact.VERSION, arch)
+                record = next(item for item in evidence["source_offers"] if item["asset"] == offer["asset"])
+                self.assertEqual(record, dict(offer, url=f"https://github.com/{release.REPOSITORY}/releases/download/{TAG}/{offer['asset']}"))
+        with patch.object(artifact, "validate_files"), \
+                patch.object(artifact, "validate_source_offer", side_effect=ValueError("incomplete Debian source inventory")):
+            with self.assertRaisesRegex(ValueError, "incomplete Debian source inventory"):
+                self.verify(True)
+        self.assertEqual(self.github.patches, [])
+
+    def test_github_source_digest_cannot_replace_the_signed_binary_source_declaration(self):
+        artifact, files = self.ipquality_fixture()
+        offer = artifact.source_offer(files["amd64"], artifact.VERSION, "amd64")
+        (self.fixture.bundle / offer["asset"]).write_bytes(b"replaced corresponding source archive")
+        # GitHub's current digest legitimately describes the replacement. The signed
+        # notice inside the unchanged binary still authenticates the earlier source.
+        self.github = FakeGithub(self.fixture.bundle)
+        with patch.object(artifact, "validate_files"), \
+                patch.object(artifact, "validate_source_offer"):
+            with self.assertRaisesRegex(ValueError, "signed declaration"):
+                self.verify(True)
+        self.assertEqual(self.github.patches, [])
+
+    def test_missing_paired_source_blocks_publication(self):
+        artifact, files = self.ipquality_fixture()
+        offer = artifact.source_offer(files["arm64"], artifact.VERSION, "arm64")
+        (self.fixture.bundle / offer["asset"]).unlink()
+        self.github = FakeGithub(self.fixture.bundle)
+        with patch.object(artifact, "validate_files"), \
+                patch.object(artifact, "validate_source_offer"):
+            with self.assertRaisesRegex(ValueError, "ordinary file"):
+                self.verify(True)
+        self.assertEqual(self.github.patches, [])
+
+    def test_only_fixed_source_offer_names_receive_the_larger_download_bound(self):
+        artifact, files = self.ipquality_fixture()
+        offer = artifact.source_offer(files["amd64"], artifact.VERSION, "amd64")
+        item = next(asset for asset in self.github.assets if asset["name"] == offer["asset"])
+        item["size"] = release.MAX_BINARY + 1
+        self.assertEqual(publish.release_snapshot(self.github, TAG)["id"], 7)
+        item["name"] = "untrusted-sources.tar.gz"
+        self.refuse_before_download("oversized asset")
+        self.assertEqual(release.source_offer_asset_limit(offer["asset"]), artifact.MAX_SOURCE_OFFER)
+        self.assertEqual(release.source_offer_asset_limit("untrusted-sources.tar.gz"), release.MAX_BINARY)
+
+    def test_real_download_pipe_limits_selected_size_and_error_output(self):
+        github = publish.Github()
+        asset = {"id": 1, "name": "fixture", "size": 8}
+        for index, program in enumerate(("import sys; sys.stdout.buffer.write(b'x'*64)",
+                                         "import sys; sys.stderr.buffer.write(b'e'*70000)")):
+            with self.subTest(program=program):
+                target = self.fixture.directory / f"bounded-download-{index}"
+                with patch.object(github, "command", return_value=[sys.executable, "-c", program]):
+                    with self.assertRaises(ValueError):
+                        github.download(asset, target)
+                self.assertLessEqual(target.stat().st_size, asset["size"])
 
     def test_verified_draft_remains_draft_without_publish_flag(self):
         evidence = self.verify()

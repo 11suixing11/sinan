@@ -3,6 +3,8 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 #[cfg(target_os = "linux")]
+use sinan_adapter_ipquality::IpQualityAdapter;
+#[cfg(target_os = "linux")]
 use sinan_adapter_nodequality::NodeQualityAdapter;
 use sinan_adapter_sdk::{Adapter, DiagnosticAdapter, Privileged, ServiceManager};
 use sinan_adapter_singbox::SingboxAdapter;
@@ -147,6 +149,7 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
                 vec![
                     Arc::new(NodeQualityAdapter::new()),
                     Arc::new(TcpQualityAdapter::new()),
+                    Arc::new(IpQualityAdapter::new()),
                 ]
             };
             #[cfg(not(target_os = "linux"))]

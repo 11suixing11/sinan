@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { convert, costSummary, money, price, quoteDate, remainingCost } from '../src/display/currency'
+import { convert, costSummary, money, price, quoteDate, quoteState, remainingCost } from '../src/display/currency'
 import type { ExchangeRates } from '../src/display/currency'
 import type { Server } from '../src/types'
 import { defaultAssets } from '../src/server-assets'
@@ -18,6 +18,24 @@ test('conversion uses CNY quotes, keeps real stale data and never fabricates mis
   expect(money(null, 'CNY')).toBe('—')
   expect(quoteDate(quote, 'USD', 'EUR')).toBe('2026-09-29')
   expect(quoteDate(quote, 'GBP', 'CNY')).toBeNull()
+  expect(convert(0, 'GBP', 'CNY', undefined)).toBe(0)
+  expect(convert(null, 'GBP', 'CNY', undefined)).toBeNull()
+})
+
+test('a failed cache read qualifies retained quotes, and unknown status cannot become fresh', () => {
+  const fresh: ExchangeRates = { ...quote, status: 'fresh', stale: false, error_code: null }
+  expect(quoteState(fresh)).toBe('fresh')
+  expect(quoteState(fresh, 'cache read failed')).toBe('read-error')
+  expect(convert(10, 'USD', 'CNY', fresh)).toBe(80)
+  expect(quoteState(fresh)).toBe('fresh')
+  expect(quoteState(quote)).toBe('stale')
+  expect(quoteState({ ...fresh, error_code: 'fetch_failed' })).toBe('stale')
+  expect(quoteState({ ...fresh, stale: true })).toBe('stale')
+  expect(quoteState({ ...fresh, status: 'unavailable' })).toBe('unavailable')
+  expect(quoteState(undefined)).toBe('unavailable')
+  expect(quoteState(undefined, 'cache read failed')).toBe('read-error')
+  expect(quoteState({ ...fresh, status: undefined } as unknown as ExchangeRates)).toBe('unknown')
+  expect(quoteState({ ...fresh, stale: undefined } as unknown as ExchangeRates)).toBe('unknown')
 })
 
 test('cost totals exclude public and hidden resources, identify partial coverage and separate billing periods', () => {

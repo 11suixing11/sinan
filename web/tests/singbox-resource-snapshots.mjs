@@ -18,7 +18,7 @@ const origin = `http://127.0.0.1:${server.address().port}`, totals = { scenarios
 const browser = await chromium.launch({ headless: true, ...(process.env.SINAN_CHROME_PATH ? { executablePath: process.env.SINAN_CHROME_PATH } : {}) })
 const wait = async (condition, message) => { const end = Date.now() + 10000; while (!await condition()) { assert(Date.now() < end, message); await new Promise(resolve => setTimeout(resolve, 20)) } }
 const forceForm = form => form.evaluate(element => element.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
-const forceClick = button => button.evaluate(element => { element.disabled = false; element.click() })
+const forceClick = button => button.evaluate(element => { const disabled = element.disabled; try { element.disabled = false; element.click() } finally { element.disabled = disabled } })
 try {
   for (const width of [1440, 390]) {
     const fixture = async (hash, callback) => {
@@ -65,7 +65,8 @@ try {
         else if (path === '/api/latency-tasks') value = tasks
         else if (path === '/api/probes/overview') value = []
         else if (path === `${prefix}/nodes`) value = nodes
-        else if (path === `${prefix}/proxy-resources`) value = resources
+        else if ([`${prefix}/ordered-proxy-resources`, `${prefix}/ordered-subscription-sources`].includes(path)) value = []
+          else if (path === `${prefix}/proxy-resources`) value = resources
         else if (path === `${prefix}/usage`) value = { total: '0', uplink: '0', downlink: '0', by_node: [], by_user: [] }
         else if (path === `${prefix}/subscription-sources`) value = sources
         else if (path === `${prefix}/subscription-sources/10/nodes`) value = [{ id: 101, source_id: 10, node_version_id: 201, source_revision_id: 100, identity_epoch: 1, name: 'TEST_ONLY 外部段', protocol: 'trojan', server: '127.0.0.1', port: 443, transport: 'tcp', tcp: true, udp: false, selectable: true, present: true, identity_unique: true, reason: null }]
@@ -99,7 +100,7 @@ try {
       await page.getByRole('button', { name: '创建节点', exact: true }).first().click()
       const dialog = page.getByRole('dialog'); await dialog.locator('[name=name]').fill('TEST_ONLY 固定服务器草稿')
       hosts.splice(0, 1); await nodesRefresh(page)
-      await dialog.getByText('已选服务器已不存在或未启用，请明确重新选择；当前草稿已保留。', { exact: true }).waitFor()
+      await dialog.getByText('已选节点所属服务器已不存在或未启用；当前草稿已保留。', { exact: true }).waitFor()
       assert.equal(await dialog.locator('[name=server_id]').inputValue(), '1'); await forceForm(dialog.locator('form')); assert.equal(writes.length, 0)
       await dialog.locator('[name=server_id]').selectOption('2'); await dialog.locator('[name=public_host]').fill('127.0.0.1'); await dialog.locator('[name=sni]').fill('localhost'); await dialog.getByRole('button', { name: '创建并自动发布', exact: true }).click()
       await wait(() => writes.length === 1, 'Explicit new server selection'); assert.equal(writes[0].body.server_id, 2)
@@ -175,7 +176,7 @@ try {
       const dialog = page.getByRole('dialog'); await dialog.getByLabel('任务名称').fill('TEST_ONLY 原修订草稿')
       tasks[0].revision = 2
       await nodesRefresh(page)
-      await dialog.getByText('此任务已不存在或已改变，请重新确认；当前草稿已保留。', { exact: true }).waitFor()
+      await dialog.getByText('延迟任务目标或版本已变化；草稿已保留。', { exact: true }).waitFor()
       await forceForm(dialog.locator('form')); assert.equal(writes.length, 0); ++totals.blocked
       assert.equal(await dialog.getByLabel('任务名称').inputValue(), 'TEST_ONLY 原修订草稿')
       await dialog.getByRole('button', { name: '取消', exact: true }).click()

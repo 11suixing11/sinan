@@ -35,7 +35,7 @@ impl Reconciler {
         let module = self.adapter.describe().module;
         let rev = target.spec.revision;
         match self.apply_prepared_locked(previous, target, op_id).await {
-            Ok(()) => Ok(ApplyResult {
+            Ok(()) => self.stable_apply_result(ApplyResult {
                 module,
                 rev,
                 op_id,
@@ -43,19 +43,22 @@ impl Reconciler {
                 healthy: true,
                 error: None,
             }),
-            Err(error) => Ok(ApplyResult {
-                module,
-                rev,
-                op_id,
-                status: ApplyStatus::Failed,
-                healthy: self
+            Err(error) => {
+                let healthy = self
                     .state
                     .lock()
                     .map_err(|_| anyhow::anyhow!("state poisoned"))?
                     .get_json::<bool>(&format!("health:{}", self.adapter.describe().module))?
-                    .unwrap_or(false),
-                error: Some(format!("{error:#}")),
-            }),
+                    .unwrap_or(false);
+                self.stable_apply_result(ApplyResult {
+                    module,
+                    rev,
+                    op_id,
+                    status: ApplyStatus::Failed,
+                    healthy,
+                    error: Some(format!("{error:#}")),
+                })
+            }
         }
     }
 
@@ -64,14 +67,33 @@ impl Reconciler {
             .previous()?
             .context("no applied runtime after coalescing")?;
         let module = self.adapter.describe().module;
-        self.verify_applied_runtime(&previous).await?;
-        let healthy = self
-            .state
-            .lock()
-            .map_err(|_| anyhow::anyhow!("state poisoned"))?
-            .get_json::<bool>(&format!("health:{module}"))?
-            .unwrap_or(false);
-        Ok(ApplyResult {
+        let observed: Result<()> = async {
+            self.require_revision_floor(previous.spec.revision)?;
+            self.verify_applied_runtime(&previous).await?;
+            let healthy = self
+                .state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("state poisoned"))?
+                .get_json::<bool>(&format!("health:{module}"))?
+                .unwrap_or(false);
+            anyhow::ensure!(healthy, "current runtime is unhealthy");
+            if self.services.supports_runtime_checkpoint()
+                && let Some(activation) = self.saved_activation()?
+            {
+                self.validate_activation(&previous, &activation).await?;
+            }
+            Ok(())
+        }
+        .await;
+        let healthy = observed.is_ok();
+        let error = observed.err().map(|error| format!("{error:#}"));
+        if !healthy {
+            self.state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("state poisoned"))?
+                .set_json(&format!("health:{module}"), &false)?;
+        }
+        self.stable_apply_result(ApplyResult {
             module,
             rev: previous.spec.revision,
             op_id: Uuid::new_v4(),
@@ -81,7 +103,7 @@ impl Reconciler {
                 ApplyStatus::Failed
             },
             healthy,
-            error: (!healthy).then(|| "current runtime is unhealthy".into()),
+            error,
         })
     }
 
@@ -91,9 +113,15 @@ impl Reconciler {
         target: Prepared,
         op_id: Uuid,
     ) -> Result<()> {
+        self.require_revision_floor(target.spec.revision)?;
         self.verify_runtime(&target).await?;
         if let Some(previous) = &previous {
             self.verify_applied_runtime(previous).await?;
+            anyhow::ensure!(
+                previous.spec.revision != target.spec.revision
+                    || previous.spec.config_hash == target.spec.config_hash,
+                "same revision changed content"
+            );
         }
         let plan = self
             .bounded(self.adapter.plan(previous.as_ref(), &target))
@@ -105,14 +133,59 @@ impl Reconciler {
         &self,
         previous: Option<Prepared>,
         target: Prepared,
-        plan: Plan,
+        mut plan: Plan,
         op_id: Uuid,
     ) -> Result<()> {
         let descriptor = self.adapter.describe();
+        self.require_revision_floor(target.spec.revision)?;
         self.verify_runtime(&target).await?;
         if let Some(previous) = &previous {
             self.verify_applied_runtime(previous).await?;
+            anyhow::ensure!(
+                previous.spec.revision != target.spec.revision
+                    || previous.spec.config_hash == target.spec.config_hash,
+                "same revision changed content"
+            );
         }
+        let preserved_activation = if self.services.supports_runtime_checkpoint()
+            && plan == Plan::Noop
+        {
+            match self.saved_activation()? {
+                Some(activation) => {
+                    let prior = previous.as_ref().context("no runtime to preserve")?;
+                    anyhow::ensure!(
+                        activation.bundle_sha256 == target.spec.config_hash,
+                        "unchanged deployment changed its bundle digest"
+                    );
+                    match self.validate_activation(prior, &activation).await {
+                        Ok(()) => Some(activation),
+                        Err(error) => {
+                            if target.spec.revision <= prior.spec.revision {
+                                return Err(error);
+                            }
+                            // Only an explicit higher deployment may replace an invalid
+                            // activation. Observation and same-revision polls never restart.
+                            plan = Plan::Restart;
+                            None
+                        }
+                    }
+                }
+                None => {
+                    anyhow::ensure!(
+                        previous
+                            .as_ref()
+                            .is_none_or(|old| target.spec.revision > old.spec.revision),
+                        "runtime has no certified activation; administrator must create a new deployment"
+                    );
+                    // An explicit new deployment may reapply an unchanged configuration.
+                    // A checkpoint or same-revision poll never restarts legacy traffic.
+                    plan = Plan::Restart;
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let intent = ApplyIntent {
             previous,
             target,
@@ -153,7 +226,16 @@ impl Reconciler {
                 self.runtime_health(&intent.target).await?,
                 "runtime failed health check"
             );
-            self.checkpoint(op_id, Some(&intent.target), true)?;
+            let activation = self
+                .activation_after_apply(&intent.target, preserved_activation.as_ref())
+                .await?;
+            self.checkpoint(
+                op_id,
+                op_id,
+                Some(&intent.target),
+                true,
+                activation.as_ref(),
+            )?;
             Ok(())
         }
         .await;
@@ -171,6 +253,7 @@ impl Reconciler {
     }
 
     async fn switch(&self, target: &Prepared) -> Result<()> {
+        self.require_revision_floor(target.spec.revision)?;
         self.verify_runtime(target).await?;
         let descriptor = self.adapter.describe();
         let kernel_link = self
@@ -201,6 +284,19 @@ impl Reconciler {
     }
 
     pub(super) async fn rollback(&self, intent: &ApplyIntent, op_id: Uuid) -> Result<()> {
+        let floor = self.revision_floor()?;
+        if floor != 0
+            && !intent
+                .previous
+                .as_ref()
+                .is_some_and(|previous| previous.spec.revision >= floor)
+        {
+            return Err(super::RecoveryBlocked(
+                "recovery would cross the committed revision floor; unfinished intent retained"
+                    .into(),
+            )
+            .into());
+        }
         let descriptor = self.adapter.describe();
         if let Some(previous) = &intent.previous {
             self.verify_applied_runtime(previous).await?;
@@ -223,7 +319,14 @@ impl Reconciler {
                 self.runtime_health(previous).await?,
                 "rollback health check failed"
             );
-            self.checkpoint(op_id, Some(previous), true)?;
+            let activation = self.activation_after_apply(previous, None).await?;
+            self.checkpoint(
+                op_id,
+                Uuid::new_v4(),
+                Some(previous),
+                true,
+                activation.as_ref(),
+            )?;
         } else {
             self.bounded(self.services.stop(&descriptor.service_unit))
                 .await?;
@@ -241,12 +344,19 @@ impl Reconciler {
                 .join("current");
             self.bounded(self.privileged.remove_symlink(&kernel_link))
                 .await?;
-            self.checkpoint(op_id, None, false)?;
+            self.checkpoint(op_id, Uuid::new_v4(), None, false, None)?;
         }
         Ok(())
     }
 
-    fn checkpoint(&self, op_id: Uuid, applied: Option<&Prepared>, healthy: bool) -> Result<()> {
+    fn checkpoint(
+        &self,
+        op_id: Uuid,
+        receipt_id: Uuid,
+        applied: Option<&Prepared>,
+        healthy: bool,
+        activation: Option<&super::checkpoint::Activation>,
+    ) -> Result<()> {
         let module = self.adapter.describe().module;
         let mut state = self
             .state
@@ -255,10 +365,44 @@ impl Reconciler {
         let mut updates = vec![(format!("health:{module}"), serde_json::json!(healthy))];
         if let Some(applied) = applied {
             updates.push((format!("applied:{module}"), serde_json::to_value(applied)?));
+            updates.push((
+                format!("apply_receipt:{module}"),
+                serde_json::to_value(ApplyResult {
+                    module: module.clone(),
+                    rev: applied.spec.revision,
+                    op_id: receipt_id,
+                    status: ApplyStatus::Applied,
+                    healthy,
+                    error: None,
+                })?,
+            ));
         } else {
             state.remove_json(&format!("applied:{module}"))?;
         }
+        updates.push((
+            format!("runtime_activation:{module}"),
+            serde_json::to_value(activation)?,
+        ));
         state.complete_intent(op_id, &updates)
+    }
+
+    pub(super) fn stable_apply_result(&self, result: ApplyResult) -> Result<ApplyResult> {
+        let key = format!("apply_receipt:{}", self.adapter.describe().module);
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("state poisoned"))?;
+        if let Some(saved) = state.get_json::<ApplyResult>(&key)?
+            && saved.module == result.module
+            && saved.rev == result.rev
+            && saved.status == result.status
+            && saved.healthy == result.healthy
+            && saved.error == result.error
+        {
+            return Ok(saved);
+        }
+        state.set_json(&key, &result)?;
+        Ok(result)
     }
 
     async fn sample_runtime(&self, runtime: &Prepared) -> Result<Option<UsageBatch>> {

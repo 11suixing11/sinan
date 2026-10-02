@@ -103,17 +103,53 @@ async fn load(tx: &mut Transaction<'_, Postgres>, user_id: i64) -> ApiResult<Sna
             .await?;
     let accesses = sqlx::query("SELECT a.node_id,a.uuid,a.credential FROM singbox_eligible_accesses($2) a WHERE a.user_id=$1 AND NOT EXISTS (SELECT 1 FROM singbox_live_chains c JOIN nodes n ON n.id=c.entry_node_id LEFT JOIN nodes e ON e.id=c.exit_node_id WHERE c.entry_node_id=a.node_id AND ((c.path_kind='legacy' AND (SELECT COUNT(*) FROM server_module_status m JOIN servers s ON s.id=m.server_id WHERE m.server_id=ANY(ARRAY[n.server_id,e.server_id]) AND m.module='singbox' AND m.healthy AND m.applied_rev=m.target_rev AND s.dirty_at IS NULL AND s.deleted_at IS NULL) <> 2) OR (c.path_kind='mixed' AND NOT singbox_path_ready(c.id))))")
         .bind(user_id).bind(at).fetch_all(&mut **tx).await?;
-    let eligible_nodes = accesses.len();
-    let current: BTreeMap<i64, (Uuid, String)> = accesses
-        .into_iter()
-        .map(|row| (row.get("node_id"), (row.get("uuid"), row.get("credential"))))
-        .collect();
-    let snapshots: Vec<serde_json::Value> = sqlx::query_scalar("SELECT COALESCE(p.source_json,d.source_json) FROM deployments d LEFT JOIN singbox_deployment_projections p ON p.server_id=d.server_id AND p.rev=d.rev JOIN server_module_status m ON m.server_id=d.server_id AND m.module=d.module AND m.applied_rev=d.rev JOIN servers s ON s.id=d.server_id WHERE m.module='singbox' AND m.healthy AND s.deleted_at IS NULL AND EXISTS (SELECT 1 FROM nodes n WHERE n.server_id=s.id AND n.id=ANY($1)) ORDER BY d.server_id")
+    let mut current = BTreeMap::<i64, (Uuid, String)>::new();
+    for row in accesses {
+        let node_id: i64 = row.get("node_id");
+        let chain: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM singbox_chains WHERE entry_node_id=$1 AND path_kind='ordered' AND (deleted_at IS NULL OR phase<>'retired')",
+        )
+        .bind(node_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if let Some(chain) = chain
+            && !super::ordered_paths::lifecycle::qualified(tx, chain).await?
+        {
+            continue;
+        }
+        current.insert(node_id, (row.get("uuid"), row.get("credential")));
+    }
+    let eligible_nodes = current.len();
+    let snapshots: Vec<(i64,i64,serde_json::Value)> = sqlx::query_as("SELECT d.server_id,d.rev,COALESCE(p.source_json,d.source_json) FROM deployments d LEFT JOIN singbox_deployment_projections p ON p.server_id=d.server_id AND p.rev=d.rev JOIN server_module_status m ON m.server_id=d.server_id AND m.module=d.module AND m.applied_rev=d.rev JOIN servers s ON s.id=d.server_id WHERE m.module='singbox' AND m.healthy AND s.deleted_at IS NULL AND EXISTS (SELECT 1 FROM nodes n WHERE n.server_id=s.id AND n.id=ANY($1)) ORDER BY d.server_id")
         .bind(current.keys().copied().collect::<Vec<_>>()).fetch_all(&mut **tx).await?;
     let mut nodes = Vec::new();
-    for snapshot in snapshots {
-        let snapshot: Vec<Node> = serde_json::from_value(snapshot).map_err(anyhow::Error::from)?;
+    for (server, revision, snapshot) in snapshots {
+        let snapshot =
+            super::ordered_paths::models::public_nodes(snapshot).map_err(anyhow::Error::from)?;
+        let projection:BTreeMap<i64,serde_json::Value>=sqlx::query_as::<_,(i64,serde_json::Value)>("SELECT node_id,public_fields FROM singbox_deployment_public_projection WHERE server_id=$1 AND module='singbox' AND revision=$2").bind(server).bind(revision).fetch_all(&mut **tx).await?.into_iter().collect();
         for mut node in snapshot {
+            if let Some(display) = projection.get(&node.id) {
+                if let Some(name) = display.get("name").and_then(serde_json::Value::as_str) {
+                    node.name = name.into();
+                }
+                if let Some(host) = display
+                    .get("public_host")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    node.public_host = host.into();
+                }
+                if let Some(sni) = display.get("sni").and_then(serde_json::Value::as_str) {
+                    node.sni = sni.into();
+                }
+                if let Some(port) = display
+                    .get("public_port")
+                    .and_then(serde_json::Value::as_u64)
+                    .and_then(|value| u16::try_from(value).ok())
+                    .filter(|port| *port > 0)
+                {
+                    node.settings.public_port = Some(port);
+                }
+            }
             node.users.retain(|access| {
                 access.user_id == user_id
                     && current.get(&node.id).is_some_and(|(uuid, credential)| {

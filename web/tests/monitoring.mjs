@@ -116,6 +116,8 @@ try {
     await dialog.waitFor({ state: 'detached' })
     const taskWrite = writes.filter(write => write.path === '/api/latency-tasks').at(-1).body
     assert.deepEqual(taskWrite.server_ids, [1, 2]); assert.equal(taskWrite.spec.port, null); assert.equal(taskWrite.spec.interval_secs, 45); assert.equal(taskWrite.default_enabled, true)
+    assert.equal(taskWrite.spec.monitor.authorization.kind, 'owned'); assert.equal(taskWrite.spec.monitor.region, '华东'); assert.equal(taskWrite.spec.monitor.authorization.expires_at, null)
+    assert.equal(Object.hasOwn(taskWrite.spec, 'authorization'), false, 'Spec retains the original eight fields')
     await page.getByRole('button', { name: '编辑', exact: true }).click()
     dialog = page.getByRole('dialog')
     assert.equal(await dialog.getByLabel('目标地址', { exact: false }).isDisabled(), true)

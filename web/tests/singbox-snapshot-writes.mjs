@@ -19,7 +19,7 @@ const wait = async (condition, description) => {
   while (!await condition()) { assert(Date.now() < deadline, description); await new Promise(resolve => setTimeout(resolve, 20)) }
 }
 const forceSubmit = (dialog, reload = false) => dialog.locator('form').evaluate((form, reload) => { if (reload) Array.from(document.querySelectorAll('.page-header button')).find(button => button.textContent.trim() === '刷新').click(); form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) }, reload)
-const forceClick = (button, reload = false) => button.evaluate((element, reload) => { if (reload) Array.from(document.querySelectorAll('.page-header button')).find(button => button.textContent.trim() === '刷新').click(); element.disabled = false; element.click() }, reload)
+const forceClick = (button, reload = false) => button.evaluate((element, reload) => { if (reload) Array.from(document.querySelectorAll('.page-header button')).find(button => button.textContent.trim() === '刷新').click(); const disabled = element.disabled; try { element.disabled = false; element.click() } finally { element.disabled = disabled } }, reload)
 const refresh = page => page.locator('.page-header button').filter({ hasText: /^刷新$/ }).evaluate(button => button.click())
 
 let browser
@@ -34,7 +34,7 @@ try {
       const users = [1, 2].map(id => ({ id, name: `TEST_ONLY 用户 ${id}`, subscription_token: `TEST_ONLY_${id}`, subscription_url: `http://127.0.0.1/s/TEST_ONLY_${id}` }))
       const nodes = [1, 2].map(id => ({ id, name: `TEST_ONLY 节点 ${id}`, server_id: id, protocol: 'vless-reality', public_host: '127.0.0.1', port: 20000 + id, sni: 'localhost', public_key: 'TEST_ONLY', short_id: '0123abcd' }))
       const resources = nodes.map(node => ({ ...node, kind: 'direct', server_name: `TEST_ONLY 服务器 ${node.server_id}`, role: 'direct', entry_node_id: null, tcp: true, udp: true, available: true, enabled: true, stage: 'direct', reference_count: 0, entry_eligible: true }))
-      resources.push({ ...resources[0], id: 10, kind: 'chain', name: 'TEST_ONLY 原链路', role: 'entry', entry_node_id: 1, stage: 'ready' })
+      resources.push({ ...resources[0], id: 10, kind: 'chain', name: 'TEST_ONLY 原链路', role: 'chain_entry', entry_node_id: 1, stage: 'ready' })
       const policies = [{ id: 1, name: 'TEST_ONLY 原策略', node_ids: [1], chain_ids: [10], member_count: 1 }, { id: 2, name: 'TEST_ONLY 新策略', node_ids: [2], chain_ids: [], member_count: 0 }]
       const packages = [1, 2].map(id => ({ id, name: `TEST_ONLY 套餐 ${id}`, monthly_bytes: String(id * 1073741824), reset_day: 1, reset_hour: 0, reset_minute: 0, timezone: 'UTC', duration_days: 30 }))
       let groupIds = [1], packageId = 1, direct = false
@@ -64,6 +64,7 @@ try {
         else if (method === 'GET' && /^\/api\/plugins\/sing-box\/users\/\d+\/portal$/.test(path)) value = { configuration: { enabled: false, reason: 'TEST_ONLY 未启用', origin }, keys: 0, url: null, activation_expires_at: null }
         else if (method === 'GET' && path === `${prefix}/users`) value = users
         else if (method === 'GET' && path === `${prefix}/nodes`) value = nodes
+        else if (method === 'GET' && [`${prefix}/ordered-proxy-resources`, `${prefix}/ordered-subscription-sources`].includes(path)) value = []
         else if (method === 'GET' && path === `${prefix}/proxy-resources`) value = resources
         else if (method === 'GET' && path === `${prefix}/policy-groups`) value = policies
         else if (method === 'GET' && path === `${prefix}/package-groups`) value = packages
@@ -110,12 +111,14 @@ try {
       // Same-event reload + old form callback proves that handler refs, not only disabled DOM, gate writes.
       await attempt(true)
       await wait(() => gate.reached > 0, 'held GET must actually be requested')
-      await attempt(); await checkDraft()
+      await attempt()
       assert.equal(writes.length, baseline, 'pending refresh must send zero writes'); totals.blocked_submissions += 2
+      await checkDraft()
       control.releaseAsFailure(readPath)
       await page.getByText('TEST_ONLY 刷新失败，保留旧快照', { exact: true }).first().waitFor()
-      await attempt(); await checkDraft()
+      await attempt()
       assert.equal(writes.length, baseline, 'failed refresh must send zero writes'); ++totals.blocked_submissions
+      await checkDraft()
       control.recover(readPath); await refresh(page)
       await saved()
       await wait(() => writes.length === baseline + 1, 'one recovered write must reach the fixture')
@@ -187,7 +190,7 @@ try {
       const { page, writes } = control; control.setDirect(granted); await refresh(page)
       const input = page.getByRole('checkbox', { name: '授权 TEST_ONLY 节点 1', exact: true })
       await wait(async () => await input.isEnabled() && await input.isChecked() === granted, 'direct grant readback')
-      const attempt = (reload = false) => input.evaluate((element, reload) => { if (reload) Array.from(document.querySelectorAll('.page-header button')).find(button => button.textContent.trim() === '刷新').click(); element.disabled = false; element.click() }, reload)
+      const attempt = (reload = false) => input.evaluate((element, reload) => { if (reload) Array.from(document.querySelectorAll('.page-header button')).find(button => button.textContent.trim() === '刷新').click(); const disabled = element.disabled; try { element.disabled = false; element.click() } finally { element.disabled = disabled } }, reload)
       await blockAndRecover(control, `${prefix}/users/1/entitlement`, attempt, async () => { await wait(() => input.isEnabled(), 'grant snapshot restored'); await input.click() })
       assert.equal(writes[0].method, granted ? 'DELETE' : 'POST'); assert.equal(writes[0].path, `${prefix}/users/1/accesses${granted ? '/1' : ''}`)
     })
@@ -210,7 +213,7 @@ try {
       await page.getByRole('row').filter({ hasText: 'TEST_ONLY 原策略' }).getByRole('button', { name: '编辑', exact: true }).click()
       const dialog = page.getByRole('dialog'); await dialog.locator('input[name="name"]').fill('TEST_ONLY 消失资源草稿')
       resources.splice(resources.findIndex(value => value.kind === 'chain'), 1); resources.splice(resources.findIndex(value => value.id === 1), 1)
-      await refresh(page); await dialog.getByText('已选节点或链路已不存在。原选择仍保留，请刷新确认，或明确取消这些选择后再保存。', { exact: true }).waitFor()
+      await refresh(page); await dialog.getByText('已选资源已不可用或身份已变更，请取消这些选择后再保存。其余草稿已保留。', { exact: true }).waitFor()
       assert(await dialog.locator('input[name="chain_ids"][value="10"]').isChecked()); assert(await dialog.locator('input[name="node_ids"][value="1"]').isChecked())
       await forceSubmit(dialog); assert.equal(writes.length, 0)
       if (process.env.SINAN_UI_SCREENSHOT_DIR) { await mkdir(process.env.SINAN_UI_SCREENSHOT_DIR, { recursive: true }); const screenshot = resolve(process.env.SINAN_UI_SCREENSHOT_DIR, `singbox-snapshot-missing-resource-${width}.png`); await page.screenshot({ path: screenshot, fullPage: true }); totals.screenshots.push(screenshot) }
@@ -221,7 +224,7 @@ try {
       const { page, policies, writes } = control
       await page.getByRole('row').filter({ hasText: 'TEST_ONLY 原策略' }).getByRole('button', { name: '编辑', exact: true }).click()
       const dialog = page.getByRole('dialog'); await dialog.locator('input[name="name"]').fill('TEST_ONLY 已删除实体草稿'); policies.splice(0, 1); await refresh(page)
-      await dialog.getByText('此组已不存在，请关闭对话框后重新选择；当前草稿已保留。', { exact: true }).waitFor(); await forceSubmit(dialog)
+      await dialog.getByText('此资源已不可用，暂不能提交。草稿已保留，可关闭窗口后重新选择。', { exact: true }).waitFor(); await forceSubmit(dialog)
       assert.equal(writes.length, 0); assert.equal(await dialog.locator('input[name="name"]').inputValue(), 'TEST_ONLY 已删除实体草稿')
     })
     await fixture('users', async control => {

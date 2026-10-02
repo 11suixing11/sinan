@@ -5,18 +5,19 @@ import { resourceRoute } from '../plugins/singbox/resourceTypes'
 import type { ResourceKey } from '../plugins/singbox/resourceTypes'
 
 type ServerSection = 'ip-info' | 'node-quality' | 'tcp-quality' | 'plugins' | 'ddns'
-type SimplePage = 'servers' | 'statistics' | 'latency' | 'alicloud' | 'ddns'
+type SimplePage = 'singbox-overview' | 'servers' | 'statistics' | 'latency' | 'alicloud' | 'ddns'
   | 'proxy-users' | 'groups' | 'plugins' | 'catalog' | 'settings' | 'notifications' | 'security' | 'not-found'
 
 export type AppRoute =
   | { page: 'dashboard'; serverId?: number }
   | { page: 'proxy-portal'; account: string; activation?: string }
   | { page: 'server'; serverId: number; section?: ServerSection }
-  | { page: 'nodes'; serverId?: number; chains?: boolean; selected?: ResourceKey }
+  | { page: 'nodes'; serverId?: number; chains?: boolean; selected?: ResourceKey; kind?: 'direct'; serverRole?: 'any' | 'entry' | 'middle' | 'exit' }
   | { page: SimplePage }
 
 const pages: Readonly<Record<string, SimplePage>> = {
   '/servers': 'servers',
+  '/plugins/sing-box': 'singbox-overview',
   '/statistics': 'statistics',
   '/latency': 'latency',
   '/plugins/alicloud': 'alicloud',
@@ -40,8 +41,13 @@ export function resolveRoute(path: string): AppRoute {
     return { page: 'server', serverId: Number(server[1]), section: server[2] as ServerSection | undefined }
   }
 
+  if (path === '/plugins/sing-box/chains') return { page: 'nodes', chains: true }
   const node = nodeRoute(path)
-  if (node) return { page: 'nodes', ...node }
+  if (node) {
+    if (node.resource) return { page: 'nodes', selected: node.resource }
+    return { page: 'nodes', ...(node.serverId === undefined ? {} : { serverId: node.serverId }), chains: node.chains,
+      ...(node.kind === 'direct' ? { kind: 'direct' as const } : {}), ...(node.serverRole ? { serverRole: node.serverRole } : {}) }
+  }
   const resource = resourceRoute(path)
   if (resource) return { page: 'nodes', selected: resource }
   if (isCatalogPath(path)) return { page: 'catalog' }

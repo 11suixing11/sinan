@@ -2655,6 +2655,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
+name = "sinan-adapter-ipquality"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "sinan-adapter-sdk",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "sinan-adapter-nodequality"
 version = "0.3.0"
 dependencies = [
@@ -2712,6 +2724,7 @@ dependencies = [
  "anyhow",
  "clap",
  "serde_json",
+ "sinan-adapter-ipquality",
  "sinan-adapter-nodequality",
  "sinan-adapter-sdk",
  "sinan-adapter-singbox",
@@ -2732,8 +2745,11 @@ dependencies = [
  "ed25519-dalek",
  "flate2",
  "futures-util",
+ "libc",
  "rand 0.8.8",
  "reqwest",
+ "rustls",
+ "rustls-pki-types",
  "rusqlite",
  "rusqlite_migration",
  "serde",
@@ -2745,10 +2761,12 @@ dependencies = [
  "tar",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite 0.28.0",
  "toml",
  "tracing",
  "uuid",
+ "webpki-roots 1.0.9",
 ]
 
 [[package]]
@@ -2758,6 +2776,7 @@ dependencies = [
  "base64 0.22.1",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.21",
  "uuid",
 ]

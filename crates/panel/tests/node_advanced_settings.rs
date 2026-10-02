@@ -516,3 +516,38 @@ async fn referenced_node_views_explain_immutable_configuration_before_editing(
     patch(&panel, &cookie, hop, json!({"reality":{"flow":"none"}})).await?;
     Ok(())
 }
+
+#[sqlx::test]
+async fn legacy_configuration_lock_uses_public_identity_and_releases_after_shared_cleanup(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool.clone()).await?;
+    let cookie = panel.admin_cookie().await?;
+    let entry_server = panel.create_server(&cookie, "Legacy entry").await?;
+    let exit_server = panel.create_server(&cookie, "Legacy exit").await?;
+    let entry = id(&panel.create_node(&cookie, entry_server, "Entry").await?)?;
+    let exit = id(&panel.create_node(&cookie, exit_server, "Exit").await?)?;
+    let created = call(&panel, &cookie, Method::POST, "/chains",
+        Some(json!({"name":"Legacy owner","entry_node_id":entry,"exit_node_id":exit}))).await?;
+    let chain = id(&created)?;
+    let expected = json!([{"id":chain,"name":"Legacy owner"}]);
+    for node in [entry, exit] {
+        let view = call(&panel, &cookie, Method::GET, &format!("/nodes/{node}"), None).await?;
+        assert_eq!(view["configuration_locked"], true);
+        assert_eq!(view["referenced_chains"], expected);
+        let denied = panel.admin(Method::PATCH, &format!("{ROOT}/nodes/{node}"), &cookie,
+            Some(json!({"settings":{"tcp_keep_alive_seconds":25}}))).await?;
+        assert_eq!(denied.status(), StatusCode::CONFLICT);
+    }
+    call(&panel, &cookie, Method::DELETE,
+        &format!("/ordered-proxy-resources/chain/{chain}"), None).await?;
+    let unlocked = call(&panel, &cookie, Method::GET, &format!("/nodes/{exit}"), None).await?;
+    assert_eq!(unlocked["configuration_locked"], false);
+    assert_eq!(unlocked["referenced_chains"], json!([]));
+    patch(&panel, &cookie, exit, json!({"tcp_keep_alive_seconds":25})).await?;
+    let versions: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM singbox_ordered_chain_versions WHERE chain_id=$1",
+    ).bind(chain).fetch_one(&pool).await?;
+    assert_eq!(versions, 1);
+    Ok(())
+}

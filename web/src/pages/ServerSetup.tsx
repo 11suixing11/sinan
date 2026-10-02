@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { api } from '../api'
 import { ErrorNotice, Field, Icon, Modal } from '../components'
 import { useAction } from '../hooks'
-import { emptyMonitoring, withMonitoring, bindProbeAuthorization } from '../probes'
+import { emptyMonitoring, withMonitoring, initialProbePayloads } from '../probes'
 import type { Probe, ProbeMonitoring } from '../probes'
 import ProbeMonitoringFields from './ProbeMonitoringFields'
 import type { AgentSettings, Server } from '../types'
@@ -46,8 +46,8 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
   }
   const submit = () => {
     const agent_settings: AgentSettings = { sample_interval_secs: Number(sample), upload_interval_secs: Number(upload), auto_update: autoUpdate, discover_public_ips: discover }
-    const initialProbes: Probe[] = probes.map(probe => bindProbeAuthorization(withMonitoring({ id: '00000000-0000-0000-0000-000000000000', name: probe.name.trim(), kind: probe.kind, target: probe.target.trim(), port: probe.kind === 'tcp' ? Number(probe.port) : null, interval_secs: Number(probe.interval), carrier: probe.carrier.trim(), enabled: true, monitor: null }, probe.monitoring)))
-    void action.run(() => api<Server>('/api/servers', 'POST', { name: name.trim(), agent_settings, telemetry_settings: { persist_interval_secs: Number(persist) }, probes: initialProbes, asset_settings: assetPayload(asset) }), onCreated)
+    const initialProbes: Probe[] = probes.map(probe => withMonitoring({ id: '00000000-0000-0000-0000-000000000000', name: probe.name.trim(), kind: probe.kind, target: probe.target.trim(), port: probe.kind === 'tcp' ? Number(probe.port) : null, interval_secs: Number(probe.interval), carrier: probe.carrier.trim(), enabled: true, monitor: null }, probe.monitoring))
+    void action.run(() => api<Server>('/api/servers', 'POST', { name: name.trim(), agent_settings, telemetry_settings: { persist_interval_secs: Number(persist) }, probes: initialProbePayloads(initialProbes), asset_settings: assetPayload(asset) }), onCreated)
   }
 
   return <Modal title="添加服务器" onClose={onClose} busy={action.busy} className="server-setup-modal">

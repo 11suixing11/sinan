@@ -13,7 +13,14 @@ pub async fn upload_section(
         ));
     }
     let mut tx = state.pool.begin().await?;
-    let row = sqlx::query("SELECT j.expected_sections,j.job,j.created_at,j.expires_at FROM diagnostic_jobs j JOIN servers s ON s.id=j.server_id WHERE j.id=$1 AND j.server_id=$2 AND s.deleted_at IS NULL FOR UPDATE OF j")
+    // Projection may write server caches. Keep the same server -> job lock order
+    // as creation, cancellation and terminal updates.
+    sqlx::query("SELECT id FROM servers WHERE id=$1 AND deleted_at IS NULL FOR UPDATE")
+        .bind(server_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let row = sqlx::query("SELECT j.expected_sections,j.job,j.created_at,j.expires_at,j.generation FROM diagnostic_jobs j WHERE j.id=$1 AND j.server_id=$2 FOR UPDATE")
         .bind(id).bind(server_id).fetch_optional(&mut *tx).await?.ok_or(ApiError::NotFound)?;
     let expected: Vec<String> = row.get("expected_sections");
     if expected.len() > sinan_protocol::DIAGNOSTIC_SECTION_COUNT || !expected.contains(&update.name)
@@ -65,8 +72,24 @@ pub async fn upload_section(
     if total + update.text.len() as i64 > REPORT_LIMIT as i64 {
         return Err(ApiError::BadRequest("已保存报告章节超过 512 KiB".into()));
     }
+    let job: Value = row.get("job");
+    if let Some(plugin) = crate::diagnostic_plugins::for_job(&job) {
+        plugin
+            .record_section(
+                service::SectionContext {
+                    server_id,
+                    job: &job,
+                    created_at: row.get("created_at"),
+                    expires_at: row.get("expires_at"),
+                    job_generation: row.get("generation"),
+                },
+                &update,
+                &mut tx,
+            )
+            .await?;
+    }
     sqlx::query("INSERT INTO diagnostic_report_sections(job_id,name,text,complete,revision,collected_at,received_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(job_id,name) DO UPDATE SET text=EXCLUDED.text,complete=EXCLUDED.complete,revision=EXCLUDED.revision,collected_at=EXCLUDED.collected_at,received_at=EXCLUDED.received_at")
-        .bind(id).bind(update.name).bind(update.text).bind(update.complete).bind(update.revision as i64).bind(update.collected_at).bind(now_timestamp()).execute(&mut *tx).await?;
+        .bind(id).bind(&update.name).bind(&update.text).bind(update.complete).bind(update.revision as i64).bind(update.collected_at).bind(now_timestamp()).execute(&mut *tx).await?;
     sqlx::query("UPDATE diagnostic_jobs j SET report_completeness=CASE WHEN (SELECT COUNT(*) FROM diagnostic_report_sections s WHERE s.job_id=j.id AND s.complete)=cardinality(j.expected_sections) THEN 'complete' ELSE 'partial' END WHERE j.id=$1")
         .bind(id).execute(&mut *tx).await?;
     // Execution status, terminal error and legacy text are deliberately preserved.

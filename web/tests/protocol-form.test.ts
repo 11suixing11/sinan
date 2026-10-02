@@ -81,3 +81,10 @@ test('HY2 response fields respect fixed runtime and HTTP body limitations', () =
   expect(nodeSettingsRequest(form({protocol:'hysteria2',masquerade_enabled:'on',masquerade_status_code:'404',masquerade_content_type:'application/json',masquerade_content:'TEST_ONLY body'}))).toHaveProperty('hysteria2.masquerade',{status_code:404,content_type:'',content:'TEST_ONLY body'})
   expect(nodeSettingsRequest(form({protocol:'hysteria2',masquerade_enabled:'on',masquerade_status_code:'204',masquerade_content:'TEST_ONLY stale body'}))).toHaveProperty('hysteria2.masquerade',{status_code:204,content_type:'',content:''})
 })
+
+
+test('HTTPUpgrade drops inactive WS and gRPC settings while preserving the selected endpoint', () => {
+  const request = nodeSettingsRequest(form({ protocol: 'vless-reality', transport_type: 'httpupgrade', transport_path: '/upgrade', transport_host: 'proxy.example.com', reality_flow: 'vision', max_early_data: '2048', early_data_header_name: 'TEST_ONLY inactive', service_name: 'TEST_ONLY inactive' }))
+  expect(request).toHaveProperty('transport', { type: 'httpupgrade', path: '/upgrade', host: 'proxy.example.com' })
+  expect(request).toHaveProperty('reality.flow', 'none')
+})

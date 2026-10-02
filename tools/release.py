@@ -3,12 +3,15 @@
 
 import argparse
 import base64
+import contextlib
 import hashlib
 import gzip
 import io
 import json
+import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import tarfile
 
@@ -39,8 +42,60 @@ def read_regular(path, limit=MAX_BINARY):
     return path.read_bytes()
 
 
+def regular_file_proof(path, limit=MAX_BINARY, destination=None):
+    """Hash or copy a bounded ordinary asset without loading the asset into memory."""
+    path = Path(path)
+    ensure(path.is_file() and not path.is_symlink(), "asset must be an ordinary file")
+    before = path.lstat()
+    ensure(stat.S_ISREG(before.st_mode) and before.st_nlink == 1
+           and 0 < before.st_size <= limit, "asset size or identity outside permitted range")
+
+    def identity(value):
+        return (value.st_dev, value.st_ino, value.st_mode, value.st_nlink, value.st_size,
+                value.st_mtime_ns, value.st_ctime_ns)
+
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+                         | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0))
+    value, consumed = hashlib.sha256(), 0
+    with os.fdopen(descriptor, "rb") as source:
+        ensure(identity(os.fstat(source.fileno())) == identity(before), "asset changed before reading")
+        target = Path(destination).open("xb") if destination is not None else contextlib.nullcontext()
+        with target as output:
+            while True:
+                content = source.read(1024 * 1024)
+                if not content:
+                    break
+                consumed += len(content)
+                ensure(consumed <= before.st_size and consumed <= limit, "asset grew while reading")
+                value.update(content)
+                if output is not None:
+                    output.write(content)
+        ensure(consumed == before.st_size and identity(os.fstat(source.fileno())) == identity(before)
+               and identity(path.lstat()) == identity(before), "asset changed while reading")
+    return {"sha256": value.hexdigest(), "size": consumed}
+
+
+def source_offer_asset_limit(name):
+    """Only the fixed paired IPQuality source assets may exceed the binary bound."""
+    if not isinstance(name, str) or not re.fullmatch(
+            r"ipquality-[0-9A-Za-z.+_-]+-linux-(?:amd64|arm64)-sources\.tar\.gz", name):
+        return MAX_BINARY
+    from ipquality_artifact import MAX_SOURCE_OFFER, VERSION as IPQUALITY_VERSION
+    if name in {f"ipquality-{IPQUALITY_VERSION}-linux-{arch}-sources.tar.gz"
+                for arch in ("amd64", "arm64")}:
+        return MAX_SOURCE_OFFER
+    return MAX_BINARY
+
+
+def source_offer_url(tag, asset):
+    ensure(isinstance(tag, str) and tag.startswith("agent-v") and VERSION.fullmatch(tag[7:]),
+           "invalid source-offer release tag")
+    ensure(source_offer_asset_limit(asset) != MAX_BINARY, "invalid source-offer asset identity")
+    return f"https://github.com/{REPOSITORY}/releases/download/{tag}/{asset}"
+
+
 def canonical_path(entry):
-    ensure(entry["name"] in ("agent", "sing-box", "nodequality", "tcpquality"), "unsupported module")
+    ensure(entry["name"] in ("agent", "sing-box", "nodequality", "tcpquality", "ipquality"), "unsupported module")
     ensure(SEGMENT.fullmatch(entry["version"]), "invalid version segment")
     ensure(entry["arch"] in ("amd64", "arm64", "linux-gnu-amd64", "linux-gnu-arm64", "linux-musl-amd64", "linux-musl-arm64", "macos-arm64", "freebsd-amd64", "freebsd-arm64", "windows-amd64", "windows-arm64"), "unsupported architecture")
     return "/".join(entry[k] for k in ("name", "version", "arch"))
@@ -137,6 +192,8 @@ def assemble(args):
     ]
     if getattr(args, "tcp_probe_version", None) is not None:
         modules.append(("tcpquality", args.tcp_probe_version, "tar.gz", "sinan-tcp-probe"))
+    if getattr(args, "ipquality_version", None) is not None:
+        modules.append(("ipquality", args.ipquality_version, "tar.gz", "ipquality"))
     for name, version, archive_format, binary_name in modules:
         for arch in architectures:
             entry = {"name": name, "version": version, "arch": arch,
@@ -151,8 +208,25 @@ def assemble(args):
                 auxiliary = {name: {"sha256": digest(content), "size": len(content)}
                              for name, content in files.items() if name != binary_name}
                 entry["auxiliary_files"] = auxiliary
-            if name == "nodequality" and version == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
-                from nodequality_rootfs_artifact import archive_files, validate_files
+            if name == "ipquality":
+                from ipquality_artifact import (MAX_SOURCE_OFFER, archive_files, source_offer,
+                                               validate_files, validate_source_offer)
+                files = archive_files(data)
+                validate_files(files, version, arch)
+                offer = source_offer(files, version, arch)
+                paired = source / name / version / (arch + ".sources.tar.gz")
+                validate_source_offer(paired, files, version, arch)
+                proof = regular_file_proof(paired, MAX_SOURCE_OFFER, output / offer["asset"])
+                ensure(proof == {key: offer[key] for key in ("sha256", "size")},
+                       "paired source archive differs from the signed declaration")
+                auxiliary = {name: {"sha256": digest(content), "size": len(content)}
+                             for name, content in files.items() if name != binary_name}
+                entry["auxiliary_files"] = auxiliary
+            if name == "nodequality" and version in {"a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20", "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1"}:
+                if version.endswith("-offline-rootfs-r1"):
+                    from nodequality_native_rootfs_artifact import archive_files, validate_files
+                else:
+                    from nodequality_rootfs_artifact import archive_files, validate_files
                 files = archive_files(data)
                 validate_files(files, version, arch)
                 auxiliary = {name: {"sha256": digest(content), "size": len(content)}
@@ -183,10 +257,11 @@ def assemble(args):
 
 def installer_source(template, agent_unit, runtime_unit, source_root=SOURCE_ROOT):
     """Render audited static Linux installation logic for release or trusted bootstrap."""
+    source_root = Path(source_root)
     text = read_regular(Path(template), 262144).decode("utf-8")
     if "@@LEGACY_CHECKPOINT_PREFLIGHT@@" in text:
         ensure(text.count("@@LEGACY_CHECKPOINT_PREFLIGHT@@") == 2, "missing or duplicate legacy preflight marker")
-        guard = read_regular(Path(source_root) / "tools/legacy_agent_checkpoint.py", 65536).decode("utf-8")
+        guard = read_regular(source_root / "tools/legacy_agent_checkpoint.py", 65536).decode("utf-8")
         text = text.replace("@@LEGACY_CHECKPOINT_PREFLIGHT@@", guard.rstrip())
     for marker, filename in (("@@AGENT_UNIT@@", agent_unit),
                              ("@@RUNTIME_UNIT@@", runtime_unit)):
@@ -333,12 +408,22 @@ def validate_manifest(bundle, expected_tag=None, protocol_version=1):
                    and re.fullmatch(re.escape(TOOL_VERSION) + r"-[0-9a-f]{40}-r1", entry["version"])
                    and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
                    "wrong or incomplete native TCP artifact identity")
-        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
+        if entry["name"] == "ipquality":
+            from ipquality_artifact import BINARY, FILES, VERSION as IPQUALITY_VERSION
+            ensure(entry["format"] == "tar.gz" and entry["binary_name"] == BINARY
+                   and entry["arch"] in ("amd64", "arm64")
+                   and entry["version"] == IPQUALITY_VERSION
+                   and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
+                   "wrong or incomplete offline IPQuality artifact identity")
+        if entry["name"] == "nodequality" and entry["version"] in {"a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20", "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1"}:
             from nodequality_rootfs_artifact import BINARY, FILES
             ensure(entry["format"] == "tar.gz" and entry["binary_name"] == BINARY
                    and entry["arch"] in ("amd64", "arm64")
                    and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
                    "wrong or incomplete offline NodeQuality artifact identity")
+        if entry["name"] == "nodequality" and entry["version"] not in {"a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20", "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1"}:
+            ensure(not entry.get("auxiliary_files"),
+                   "runner-only NodeQuality identity cannot claim offline auxiliary files")
         if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21":
             from nodequality_node_query_artifact import BINARY
             ensure(entry["format"] == "tar.gz" and entry["binary_name"] == BINARY
@@ -371,6 +456,21 @@ def verify_bundle(bundle, roots, minisign, expected_tag=None, exact_assets=True)
         if entry["name"] == "tcpquality":
             from tcp_probe_artifact import archive_files, validate_files
             validate_files(archive_files(data), entry["version"], entry["arch"])
+        if entry["name"] == "ipquality":
+            from ipquality_artifact import (MAX_SOURCE_OFFER, archive_files, source_offer,
+                                           validate_files, validate_source_offer)
+            files = archive_files(data)
+            validate_files(files, entry["version"], entry["arch"])
+            offer = source_offer(files, entry["version"], entry["arch"])
+            expected_files.add(offer["asset"])
+            paired = bundle / offer["asset"]
+            ensure(regular_file_proof(paired, MAX_SOURCE_OFFER)
+                   == {key: offer[key] for key in ("sha256", "size")},
+                   "paired source archive differs from the signed declaration")
+            validate_source_offer(paired, files, entry["version"], entry["arch"])
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1":
+            from nodequality_native_rootfs_artifact import archive_files, validate_files
+            validate_files(archive_files(data), entry["version"], entry["arch"])
         if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
             from nodequality_rootfs_artifact import archive_files, validate_files
             validate_files(archive_files(data), entry["version"], entry["arch"])
@@ -390,6 +490,7 @@ def main():
         build.add_argument("--" + argument, required=True)
     build.add_argument("--nodequality-version", default=NODEQUALITY_VERSION)
     build.add_argument("--tcp-probe-version", help="opt-in native TCP version with its full source SHA")
+    build.add_argument("--ipquality-version", help="opt-in fixed standalone IPQuality version with its complete signed offline profile")
     build.add_argument("--arch", action="append", choices=("amd64", "arm64"),
                        help="CI test bundle architectures; production requires both")
     render = commands.add_parser("render-installer")

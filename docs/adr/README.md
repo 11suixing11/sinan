@@ -34,7 +34,7 @@
 - [ADR 0037：可复制接入入口与按服务器架构导入](0037-bootstrap-and-selective-import.md)
 - [ADR 0038：服务器运营设置、看板访问和 GitHub Agent 下载](0038-server-operations-and-public-dashboard.md)
 - [ADR 0041：跨平台单行 Agent 接入](0041-cross-platform-enrollment.md)
-- [ADR 0061：节点高级参数与后台刷新呈现](0075-node-options-and-background-refresh.md)
+- [ADR 0075：节点高级参数与后台刷新呈现](0075-node-options-and-background-refresh.md)
 - [ADR 0042：节点配置与面板部署管理](0042-node-settings-and-panel-operations.md)
 - [ADR 0043：运行时状态、脱敏日志与明确运维操作](0043-runtime-operations.md)
 - [ADR 0044：远程命令的持久状态和确认取消](0044-command-lifecycle.md)
@@ -84,3 +84,22 @@
 - [ADR 0056：多云 DDNS 插件](0056-multicloud-ddns.md)
 - [ADR 0057：阿里云 CDT 与公网带宽管理](0057-alicloud-cdt-management.md)
 - [ADR 0058：阿里云 ECS 启停、自动策略与费用缓存](0058-alicloud-power-and-billing-cache.md)
+
+## PR151 追加决策及来源
+
+以下来自作者独立实现，按主线追加编号；本聊天整合验证另记。
+
+- [ADR 0059：singbox-plugin-lifecycle](0061-singbox-plugin-lifecycle.md)
+- [ADR 0060：nodequality-artifact-lineages](0062-nodequality-artifact-lineages.md)
+- [ADR 0061：nodequality-input-collection](0063-nodequality-input-collection.md)
+- [ADR 0062：runtime-checkpoints-and-recovery-barriers](0064-runtime-checkpoints-and-recovery-barriers.md)
+- [ADR 0063：nodequality-factory-capacity](0065-nodequality-factory-capacity.md)
+- [ADR 0064：confirmed-diagnostic-completion](0066-confirmed-diagnostic-completion.md)
+- [ADR 0065：authorized-probe-leases](0067-authorized-probe-leases.md)
+- [ADR 0066：independent-node-ipquality](0068-independent-node-ipquality.md)
+- [ADR 0067：ipquality-derived-debian-inputs](0069-ipquality-derived-debian-inputs.md)
+- [ADR 0068：ipquality-minimal-profile-chain](0070-ipquality-minimal-profile-chain.md)
+- [ADR 0069：proxy-resource-batch-lifecycle](0071-proxy-resource-batch-lifecycle.md)
+- [ADR 0070：subscription-source-lifecycle](0072-subscription-source-lifecycle.md)
+- [ADR 0071：ordered-path-publication-and-native-probe](0073-ordered-path-publication-and-native-probe.md)
+- [ADR 0072：private-panel-certificate-authorities](0074-private-panel-certificate-authorities.md)

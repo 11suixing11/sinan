@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { Loading } from '../components'
 import Servers from '../pages/Servers'
 import ServerDetail from '../pages/ServerDetail'
+import SingboxOverview from '../plugins/singbox/Overview'
 import Nodes from '../plugins/singbox/Nodes'
 import ProxyUsers from '../plugins/singbox/ProxyUsers'
 import Groups from '../plugins/singbox/Groups'
@@ -30,15 +31,18 @@ export default function AdminPage({ route }: { route: Exclude<AppRoute, { page: 
       return <ServerDetail key={serverId} id={serverId} />
     }
     case 'servers': return <Servers />
+    case 'singbox-overview': return <SingboxOverview />
     case 'statistics': return <Statistics />
     case 'latency': return <LatencyTasks />
     case 'alicloud': return <Suspense fallback={<Loading />}><Alicloud /></Suspense>
     case 'ddns': return <Suspense fallback={<Loading />}><Ddns /></Suspense>
     case 'nodes': return <Nodes
-      key={route.serverId ?? (route.chains ? 'node-chains' : 'all-nodes')}
+      key="nodes"
       serverId={route.serverId}
       chainsOnly={route.chains}
       selected={route.selected}
+      initialKind={route.kind}
+      initialServerRole={route.serverRole}
     />
     case 'proxy-users': return <ProxyUsers />
     case 'groups': return <Groups />

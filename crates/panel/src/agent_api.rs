@@ -196,19 +196,35 @@ async fn reconcile_hint(
     applied: AppliedRevisions,
 ) -> anyhow::Result<()> {
     let mut tx = state.pool.begin().await?;
+    crate::runtime_control::lock_server(&mut tx, server_id).await?;
+    let exact: bool = sqlx::query_scalar("SELECT COALESCE((SELECT checkpoint_required FROM runtime_control_devices WHERE server_id=$1),false)")
+        .bind(server_id).fetch_one(&mut *tx).await?;
     let rows = sqlx::query(
-        "SELECT module,target_rev,applied_rev FROM server_module_status WHERE server_id=$1 FOR UPDATE",
+        "SELECT module,target_rev,applied_rev,healthy FROM server_module_status WHERE server_id=$1 FOR UPDATE",
     )
     .bind(server_id)
     .fetch_all(&mut *tx)
     .await?;
     let mut differs = false;
+    let mut checks = Vec::new();
     for row in rows {
         let module: String = row.get("module");
         let reported = applied.get(&module).copied().unwrap_or(0);
         let known = row.get::<i64, _>("applied_rev") as u64;
         differs |= reported != row.get::<i64, _>("target_rev") as u64 || reported != known;
-        if reported > known
+        if exact && reported != row.get::<i64, _>("target_rev") as u64 {
+            sqlx::query("UPDATE server_module_status SET healthy=false,updated_at=$3 WHERE server_id=$1 AND module=$2")
+                .bind(server_id).bind(&module).bind(now_timestamp()).execute(&mut *tx).await?;
+        }
+        if exact
+            && reported > 0
+            && reported == row.get::<i64, _>("target_rev") as u64
+            && (!row.get::<bool, _>("healthy") || known != reported)
+        {
+            checks.push(module.clone());
+        }
+        if !exact
+            && reported > known
             && let Ok(rev) = i64::try_from(reported)
         {
             let published: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM deployments WHERE server_id=$1 AND module=$2 AND rev=$3)")
@@ -221,6 +237,14 @@ async fn reconcile_hint(
         }
     }
     tx.commit().await?;
+    for module in checks {
+        // Failure to support a previously advertised capability stays conservative.
+        if let Err(error) =
+            crate::runtime_control::request_checkpoint(state, server_id, &module).await
+        {
+            tracing::debug!(%error, "runtime checkpoint request not scheduled");
+        }
+    }
     if differs {
         let rev: i64 = sqlx::query_scalar("SELECT manifest_rev FROM servers WHERE id=$1")
             .bind(server_id)
@@ -249,12 +273,14 @@ pub async fn process_message(
                 .filter(|value| value.len() <= 128)
                 .take(64)
                 .collect();
+            crate::runtime_control::register_capabilities(state, server_id, &capabilities).await?;
             sqlx::query("UPDATE servers SET capabilities=$2 WHERE id=$1 AND deleted_at IS NULL")
                 .bind(server_id)
-                .bind(serde_json::to_value(capabilities)?)
+                .bind(serde_json::to_value(&capabilities)?)
                 .execute(&state.pool)
                 .await?;
             reconcile_hint(state, server_id, hello.applied).await?;
+            crate::runtime_control::replay_pending(state, server_id).await?;
         }
         Message::Heartbeat(heartbeat) => {
             sqlx::query(
@@ -264,7 +290,8 @@ pub async fn process_message(
             .bind(now_timestamp())
             .execute(&state.pool)
             .await?;
-            reconcile_hint(state, server_id, heartbeat.applied).await?
+            reconcile_hint(state, server_id, heartbeat.applied).await?;
+            crate::runtime_control::replay_pending(state, server_id).await?;
         }
         Message::TelemetryStatic(info) => {
             sqlx::query("UPDATE servers SET static_info=$2,static_info_received_at=$3 WHERE id=$1 AND deleted_at IS NULL")
@@ -295,6 +322,31 @@ pub async fn process_message(
             crate::diagnostics::cancellation::record_result(state, server_id, result).await?;
         }
         Message::ApplyResult(result) => record_apply_result(state, server_id, result).await?,
+        Message::RuntimeCheckpointResult(result) => {
+            let ack =
+                crate::runtime_control::record_checkpoint_result(state, server_id, result).await?;
+            notify(
+                state,
+                server_id,
+                Envelope::new("runtime.checkpoint.ack", ack)?,
+            )
+            .await;
+        }
+        Message::RuntimePathProbeResult(result) => {
+            let ack =
+                crate::runtime_control::record_path_probe_result(state, server_id, result).await?;
+            notify(
+                state,
+                server_id,
+                Envelope::new("runtime.path_probe.ack", ack)?,
+            )
+            .await;
+        }
+        Message::RuntimeRecoveryBarrierResult(result) => {
+            let ack =
+                crate::runtime_control::record_barrier_result(state, server_id, result).await?;
+            notify(state, server_id, Envelope::new("runtime.barrier.ack", ack)?).await;
+        }
         Message::UsageBatch(batch) => crate::plugins::ingest_usage(state, server_id, batch).await?,
         Message::RetirementResult(result) => {
             crate::retirement::record_result(state, server_id, result).await?
@@ -324,8 +376,17 @@ pub async fn record_apply_result(
     anyhow::ensure!(exists, "unpublished revision");
     let applied = result.status == ApplyStatus::Applied;
     anyhow::ensure!(!applied || result.healthy, "applied result must be healthy");
+    let mut tx = state.pool.begin().await?;
+    crate::runtime_control::lock_server(&mut tx, server_id).await?;
+    let exact: bool = sqlx::query_scalar("SELECT COALESCE((SELECT checkpoint_required FROM runtime_control_devices WHERE server_id=$1),false)")
+        .bind(server_id).fetch_one(&mut *tx).await?;
+    if exact {
+        tx.commit().await?;
+        return crate::runtime_control::record_apply(state, server_id, &result).await;
+    }
     sqlx::query("UPDATE server_module_status SET applied_rev=CASE WHEN $4 THEN GREATEST(applied_rev,$3) ELSE applied_rev END,last_result_rev=$3,healthy=$5,last_error=$6,updated_at=$7 WHERE server_id=$1 AND module=$2 AND last_result_rev<=$3 AND applied_rev<=$3")
-        .bind(server_id).bind(result.module).bind(rev).bind(applied).bind(result.healthy).bind(result.error.map(|error| error.chars().take(2048).collect::<String>())).bind(now_timestamp()).execute(&state.pool).await?;
+        .bind(server_id).bind(result.module).bind(rev).bind(applied).bind(result.healthy).bind(result.error.map(|error| error.chars().take(2048).collect::<String>())).bind(now_timestamp()).execute(&mut *tx).await?;
+    tx.commit().await?;
     Ok(())
 }
 

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 mod business_support;
+#[path = "probe_support.rs"]
 mod probe_support;
 mod release_fixture;
 #[path = "../../protocol/tests/support/release.rs"]
@@ -53,6 +54,57 @@ fn region_path(server: i64, probe: &Value) -> String {
         "/api/plugins/tcpquality/servers/{server}/targets/{}",
         probe["id"].as_str().unwrap()
     )
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn tcp_diagnostics_select_only_currently_authorized_targets(pool: PgPool) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, _ack) = panel
+        .authenticated_device(&cookie, "permission filtered diagnostic")
+        .await?;
+    ready(&panel, server).await?;
+    let allowed = probe(&panel, &cookie, server, "allowed fixture").await?;
+    for expires_at in [None, Some(sinan_protocol::now_timestamp() - 1)] {
+        let id = Uuid::new_v4();
+        let mut spec = probe_support::authorized(
+            json!({"id":id,"name":"unknown permission fixture","kind":"tcp","target":"unpermitted.example.test","port":443,"interval_secs":60,"carrier":"fixture","enabled":true}),
+        );
+        if let Some(expires_at) = expires_at {
+            spec["monitor"]["authorization"]["expires_at"] = json!(expires_at);
+        } else {
+            spec["monitor"]["authorization"] = Value::Null;
+        }
+        sqlx::query("INSERT INTO network_probes(id,server_id,spec) VALUES($1,$2,$3)")
+            .bind(id)
+            .bind(server)
+            .bind(spec)
+            .execute(&panel.state.pool)
+            .await?;
+    }
+    let targets: Vec<Value> = panel
+        .admin(
+            Method::GET,
+            &format!("/api/plugins/tcpquality/servers/{server}/targets"),
+            &cookie,
+            None,
+        )
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0]["id"], allowed["id"]);
+    let job: Value = panel
+        .admin(Method::POST, &path(server), &cookie, Some(json!({})))
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let snapshot: Value = serde_json::from_str(job["job"]["options"]["targets"].as_str().unwrap())?;
+    assert_eq!(snapshot["targets"].as_array().unwrap().len(), 1);
+    assert!(!serde_json::to_string(&snapshot)?.contains("unpermitted.example.test"));
+    Ok(())
 }
 
 #[sqlx::test(migrations = "./migrations")]

@@ -23,6 +23,7 @@
 - [PR #140 最新主线整合与统一验证](pr140-current-main-validation.md)
 - [PR #145：最终整合验收](pr145-integration-20261002.md)
 - [PR #148 多云功能与保护补修整合](pr148-cloud-guards-integration.md)
+- [PR #151 主线兼容整合与待验范围](pr151-main-compatibility.md)
 - [剩余 issue 集成验收（2026-10-02）](remaining-issues-20261002.md)
 - [剩余安装、Reality 与 TCP 验收准备](remaining-native-validation-preparation.md)
 

@@ -32,6 +32,7 @@ try {
       const request=route.request(),path=new URL(request.url()).pathname,method=request.method()
       requests.push(`${method} ${path}`)
       const reply=value=>route.fulfill({json:value})
+      if(path==='/api/plugins/sing-box/ordered-proxy-resources'||path==='/api/plugins/sing-box/ordered-subscription-sources')return reply([])
       if(path==='/api/dashboard/access')return reply({authenticated:true,public_dashboard:false})
       if(path==='/api/plugins/sing-box/servers')return reply([1,2,3].map(id=>({id,name:`测试服务器 ${id}`,enabled:true,online:true,agent_supported:true})))
       if(path==='/api/plugins/sing-box/nodes')return reply(nodes)
@@ -66,6 +67,7 @@ try {
       }
       if(path==='/api/plugins/sing-box/package-groups')return reply([])
       if(path==='/api/plugins/sing-box/users')return reply([{id:1,name:'测试代理用户',subscription_url:'https://panel.example.com/sub/TEST_ONLY',subscription_token:'TEST_ONLY'}])
+      if(path==='/api/plugins/sing-box/users/1/portal')return reply({configuration:{enabled:false,reason:'TEST_ONLY 未启用',origin:`http://127.0.0.1:${server.address().port}`},keys:0,url:null,activation_expires_at:null})
       if(path.endsWith('/users/1/policy-groups'))return reply({group_ids:[]})
       if(path.endsWith('/users/1/entitlement'))return reply({user_id:1,package_group_id:null,monthly_bytes:null,starts_at:null,expires_at:null,used_bytes:'0',status:'unmetered',allowed:true})
       if(path.endsWith('/accesses'))return reply([])

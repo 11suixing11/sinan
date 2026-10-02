@@ -11,7 +11,7 @@ import ServerTable from './ServerTable'
 import { useDashboardPoll } from './useDashboardPoll'
 import { useDashboardServers } from './useDashboardServers'
 import { useCurrency } from './CurrencyContext'
-import { costSummary, money } from './currency'
+import { costSummary, money, quoteState } from './currency'
 
 function Stat({ icon, label, value, unit, children, tone, title }: { icon?: string; label: string; value: ReactNode; unit?: string; children: ReactNode; tone?: string; title?: string }) {
   return <div className="d-overview-item" title={title}><div className="d-overview-label"><span>{label}</span><span className={`d-stat-icon ${tone ? `d-${tone}` : ''}`}><Icon name={icon ?? 'server'} size={17} /></span></div><div className="d-overview-value"><strong className={tone ? `d-${tone}` : ''}>{value}</strong>{unit && <b>{unit}</b>}</div><div className="d-overview-note">{children}</div></div>
@@ -59,10 +59,16 @@ export default function Overview({ now }: { now: number }) {
   const costs = costSummary(entries, currency, quote, now)
   const showCosts = entries.some(server => !server.public_view)
   const needsConversion = entries.some(server => !server.public_view && server.asset_settings?.price !== null && server.asset_settings?.price !== undefined && server.asset_settings.currency !== currency)
-  const staleCosts = needsConversion && (quote?.stale || quote?.status === 'stale' || Boolean(currencyError))
+  const referenceState = quoteState(quote, currencyError)
+  const staleCosts = needsConversion && referenceState !== 'fresh'
   const busiest = (field: 'transmit_bytes_per_sec' | 'receive_bytes_per_sec') => entries.filter(fresh).reduce<Server | null>((best, server) => (network(server.latest_metrics, field) ?? -1) > (best ? network(best.latest_metrics, field) ?? -1 : -1) ? server : best, null)
   const topUpload = busiest('transmit_bytes_per_sec'), topDownload = busiest('receive_bytes_per_sec')
-  const peak = (server: Server | null, field: 'transmit_bytes_per_sec' | 'receive_bytes_per_sec') => unavailable ? '等待更新' : server && (network(server.latest_metrics, field) ?? 0) > 0 ? <span title={server.name}>峰值 {server.name}</span> : '暂无实时流量'
+  const peak = (server: Server | null, field: 'transmit_bytes_per_sec' | 'receive_bytes_per_sec') => {
+    if (unavailable) return '等待更新'
+    if (!server) return '暂无有效速率数据'
+    const value = network(server.latest_metrics, field)
+    return value === null ? '暂无有效速率数据' : value > 0 ? <span title={server.name}>峰值 {server.name}</span> : '暂无实时流量'
+  }
   const [uploadValue, uploadUnit] = (unavailable ? '—' : speed(upload.value)).split(' ')
   const [downloadValue, downloadUnit] = (unavailable ? '—' : speed(download.value)).split(' ')
   const refresh = () => { resource.reload(); probes.reload() }
@@ -73,7 +79,7 @@ export default function Overview({ now }: { now: number }) {
   return <div className="d-home">
     <section className={`d-overview d-glass ${showCosts ? 'd-overview-assets' : ''}`} aria-label="服务器总览">
       <Stat icon="server" label="在线节点" value={!servers || unavailable ? '—' : counts.online} unit={servers ? `/ ${entries.length} 台` : undefined} tone="good">{unavailable ? '等待更新' : !entries.length ? '等待接入' : counts.online === counts.all ? '全部运行正常' : `${counts.offline} 台离线${counts.pending ? ` · ${counts.pending} 台待接入` : ''}`}</Stat>
-      {showCosts && <Stat icon="wallet" label="资产" value={money(costs.total, currency)} title={`${costs.converted} 台可折算 · ${costs.missingPrices} 台未填写费用；每 30 天约 ${money(costs.recurring, currency)}`}><span>剩余价值 {money(costs.remaining, currency)}</span>{costs.missingRates > 0 ? <span className="d-warning" title={`${costs.missingRates} 台缺少汇率，未计入合计`}>汇率缺失</span> : staleCosts ? <span className="d-warning" title="使用上次有效汇率">旧汇率</span> : null}</Stat>}
+      {showCosts && <Stat icon="wallet" label="资产" value={money(costs.total, currency)} title={`${costs.converted} 台可折算 · ${costs.missingPrices} 台未填写费用；每 30 天约 ${money(costs.recurring, currency)}`}><span>剩余价值 {money(costs.remaining, currency)}</span>{costs.missingRates > 0 ? <span className="d-warning" title={`${costs.missingRates} 台缺少汇率，未计入合计`}>汇率缺失</span> : staleCosts ? <span className="d-warning" title={referenceState === 'read-error' ? '汇率读取失败，使用上次有效汇率' : referenceState === 'stale' ? '使用上次有效汇率' : '无法确认参考汇率状态'}>{referenceState === 'read-error' ? '汇率读取失败' : referenceState === 'stale' ? '旧汇率' : '汇率状态未知'}</span> : null}</Stat>}
       <Stat icon="database" label="累计流量" value={size(total)} title={`网卡累计 · ${completeCounters.length} / ${entries.length} 台有完整计数`}><span className="d-good">上传 {size(sent.value)}</span><span className="d-info">下载 {size(received.value)}</span></Stat>
       <Stat icon="up" label="实时上行" value={uploadValue} unit={uploadUnit} tone="good" title={`${upload.count} / ${entries.length} 台有有效采样`}>{peak(topUpload, 'transmit_bytes_per_sec')}</Stat>
       <Stat icon="down" label="实时下行" value={downloadValue} unit={downloadUnit} tone="info" title={`${download.count} / ${entries.length} 台有有效采样`}>{peak(topDownload, 'receive_bytes_per_sec')}</Stat>

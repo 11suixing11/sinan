@@ -4,6 +4,7 @@ import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
 
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
 const dist = process.env.SINAN_WEB_DIST ?? fileURLToPath(new URL('../dist/', import.meta.url))
@@ -33,8 +34,9 @@ try {
     const errors = [], writes = [], gates = new Map(), reads = new Map()
     const row = { id: 1, name: 'TEST_ONLY 原策略', node_ids: [1], chain_ids: [], member_count: 1 }
     const user = { id: 1, name: 'TEST_ONLY 原用户', subscription_token: 'TEST_ONLY', subscription_url: 'http://127.0.0.1/s/TEST_ONLY' }
-    const node = { id: 1, name: 'TEST_ONLY 节点', server_id: 1, protocol: 'vless-reality', public_host: '127.0.0.1', port: 24443, sni: 'localhost', public_key: 'TEST_ONLY', short_id: '0123abcd' }
+    const node = { enabled: true, id: 1, name: 'TEST_ONLY 节点', server_id: 1, protocol: 'vless-reality', public_host: '127.0.0.1', port: 24443, sni: 'localhost', public_key: 'TEST_ONLY', short_id: '0123abcd' }
     const resource = { ...node, kind: 'direct', server_name: 'TEST_ONLY 服务器', role: 'direct', entry_node_id: null, tcp: true, udp: true, available: true, enabled: true, stage: 'direct', reference_count: 0, entry_eligible: true }
+    const servers = [{ id: 1, name: resource.server_name, enabled: true, online: true, read_only: false }]
     const usage = { uplink: '10', downlink: '20', total: '30', by_user: [], by_node: [] }
     const hold = path => {
       let release
@@ -68,6 +70,7 @@ try {
       else if (path === `${prefix}/policy-groups`) value = [row]
       else if (path === `${prefix}/package-groups`) value = []
       else if (path === `${prefix}/proxy-resources`) value = [resource]
+      else if (path === `${prefix}/ordered-proxy-resources`) value = proxyResourceFixtures([node], servers)
       else if (path === `${prefix}/nodes`) value = [node]
       else if (path === `${prefix}/users`) value = [user]
       else if (path === `${prefix}/usage`) value = usage
@@ -110,6 +113,20 @@ try {
       assert(await input.evaluate(input => input === window.testInput && document.querySelector('.app-shell') === window.testShell), 'Polling must not remount the draft or shell')
       assert.equal(await input.inputValue(), 'TEST_ONLY 未保存草稿')
 
+      let extraDependencies = 0
+      if (pageName === 'groups') for (const path of ['package-groups', 'proxy-resources', 'ordered-proxy-resources'].map(name => `${prefix}/${name}`)) {
+        const dependency = hold(path)
+        await page.clock.runFor(5000); await wait(() => dependency.reached > 0, `Current dependency must be read: ${path}`)
+        await forceSubmit(dialog)
+        assert.equal(writes.length, 0, `Every shared dependency blocks the original submit callback immediately: ${path}`)
+        await page.clock.runFor(100)
+        assert.equal(await dialog.getByRole('alert').count(), 0, `A short dependency read retains the presentation: ${path}`)
+        finish(path)
+        await wait(() => save.isEnabled(), `Equal recovered dependency restores the original draft: ${path}`)
+        assert.equal(await input.inputValue(), 'TEST_ONLY 未保存草稿')
+        extraDependencies++
+      }
+
       const slow = hold(readPath)
       await page.clock.runFor(5000); await wait(() => slow.reached > 0, 'Next automatic poll must run')
       await page.clock.runFor(600); await settle()
@@ -147,7 +164,7 @@ try {
       await page.clock.runFor(10_000); await settle()
       assert.equal(reads.get(readPath), count, 'Hidden pages pause automatic reads')
       assert.deepEqual(errors, [])
-      summary.push({ width, page: pageName, short_reads_stable: true, slow_reads_visible: true, blocked_writes: 4, recovered_writes: writes.length })
+      summary.push({ width, page: pageName, short_reads_stable: true, slow_reads_visible: true, blocked_writes: 4 + extraDependencies, recovered_writes: writes.length })
     } finally { for (const gate of gates.values()) gate.release(); await page.close() }
   }
   console.log(JSON.stringify({ passed: true, scenarios: summary }, null, 2))

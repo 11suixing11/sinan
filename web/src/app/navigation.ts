@@ -15,6 +15,7 @@ export const navigation: readonly NavigationItem[] = [
   { page: 'latency', path: '/latency', label: '延迟检测', icon: 'activity', group: '服务器' },
   { page: 'alicloud', path: '/plugins/alicloud', label: '阿里云 CDT', icon: 'activity', group: '云服务插件' },
   { page: 'ddns', path: '/plugins/ddns', label: '动态域名解析', icon: 'nodes', group: 'DDNS 插件' },
+  { page: 'singbox-overview', path: '/plugins/sing-box', label: '代理服务', icon: 'box', group: 'sing-box 插件' },
   { page: 'nodes', path: '/plugins/sing-box/nodes', label: '代理节点', icon: 'nodes', group: 'sing-box 插件' },
   { page: 'proxy-users', path: '/plugins/sing-box/users', label: '代理用户', icon: 'users', group: 'sing-box 插件' },
   { page: 'groups', path: '/plugins/sing-box/groups', label: '策略与套餐', icon: 'nodes', group: 'sing-box 插件' },

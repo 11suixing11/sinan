@@ -7,7 +7,7 @@ use tokio::sync::{mpsc, watch};
 use uuid::Uuid;
 
 pub(super) async fn run(
-    reconcilers: Vec<(String, Reconciler)>,
+    reconcilers: Vec<(String, Arc<Reconciler>)>,
     runtime: Runtime,
     client: watch::Receiver<Option<Arc<PanelClient>>>,
     mut triggers: mpsc::Receiver<()>,
@@ -79,6 +79,11 @@ pub(super) async fn run(
         let Some(active_client) = active_client else {
             continue;
         };
+        for (_, reconciler) in &reconcilers {
+            if let Some(result) = reconciler.recovery_failure_result()? {
+                let _ = outgoing.try_send(Envelope::new("apply.result", result)?);
+            }
+        }
         let manifest = match active_client.manifest().await {
             Ok(manifest) => manifest,
             Err(error) => {

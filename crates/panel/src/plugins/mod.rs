@@ -32,7 +32,7 @@ pub fn router() -> Router<AppState> {
 
 pub async fn run(state: AppState) {
     tokio::join!(
-        singbox::publisher::run(state.clone()),
+        singbox::run(state.clone()),
         ddns::run(state.pool.clone()),
         alicloud::run(state.pool.clone())
     );

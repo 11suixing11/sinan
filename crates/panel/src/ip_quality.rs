@@ -21,6 +21,7 @@ use std::{
 mod cache;
 mod errors;
 mod fields;
+pub(crate) mod node;
 mod providers;
 mod queries;
 pub use providers::{ProviderDescription, ProviderRegistry};
@@ -155,11 +156,13 @@ pub struct IpQuality {
 
 #[derive(Serialize)]
 pub struct ServerIpInfoView {
+    pub server_id: i64,
     pub ip_addresses: Vec<String>,
     pub public_ip_addresses: Vec<String>,
     pub private_ip_addresses: Vec<String>,
     pub quality: Vec<IpQuality>,
     pub providers: Vec<ProviderDescription>,
+    pub node_quality: node::NodeQualityView,
     pub node_query_ready: bool,
     pub node_query_reason: Option<String>,
 }
@@ -176,15 +179,26 @@ pub async fn view(state: &AppState, server_id: i64) -> ApiResult<ServerIpInfoVie
         .iter()
         .cloned()
         .partition(|ip| ip.parse::<IpAddr>().is_ok_and(public_ip));
-    let quality = cached(state, server_id, &ips).await?;
+    let mut node_quality = node::view(state, server_id).await?;
+    let mut quality = cached(state, server_id, &ips).await?;
+    quality.retain(|entry| !entry.provider.starts_with(node::PROVIDER_PREFIX));
+    quality.extend(node::cached(state, server_id, &mut node_quality).await?);
+    quality.sort_by(|a, b| a.ip.cmp(&b.ip).then_with(|| a.provider.cmp(&b.provider)));
+    let mut providers = state.quality_providers.descriptions_for(&quality);
+    providers.extend(providers::node_descriptions(
+        node_quality.source_ready,
+        node_quality.source_reason.as_deref(),
+    ));
     let node_query_reason =
         crate::diagnostic_plugins::nodequality::node_queries::readiness(state, server_id).await?;
     Ok(ServerIpInfoView {
-        providers: state.quality_providers.descriptions_for(&quality),
+        server_id,
         quality,
         ip_addresses: ips,
         public_ip_addresses,
         private_ip_addresses,
+        providers,
+        node_quality,
         node_query_ready: node_query_reason.is_none(),
         node_query_reason,
     })

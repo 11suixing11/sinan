@@ -1,0 +1,207 @@
+{
+  "schema": 1,
+  "step": "authorized-probe-leases",
+  "baseline": "c8f81e2d1e0f7de70de8e0cab4e8b192bf066ceb",
+  "issue": "https://github.com/theLucius7/sinan/issues/144",
+  "phase": "final-local-acceptance-passed-not-live-deployment",
+  "source": {
+    "functional_input_count": 659,
+    "final_fingerprint_sha256": "2eb3909e177fddacd0ff610cec9fc9aa9ff3064f0e5763cecc8d757e6ac0c69a",
+    "accepted_or_unchanged_parent_inputs_match": true,
+    "retained_parent_inputs_not_retested": 117,
+    "web_dist_files": 19,
+    "single_accepted_dist_matches": true
+  },
+  "rust": {
+    "packages": 10,
+    "unique_test_targets": 71,
+    "distinct_methods": {
+      "passed": 618,
+      "failed": 0,
+      "ignored": 18
+    },
+    "per_package": {
+      "sinan-adapter-nodequality": {
+        "passed": 16,
+        "ignored": 0
+      },
+      "sinan-adapter-sdk": {
+        "passed": 1,
+        "ignored": 0
+      },
+      "sinan-adapter-singbox": {
+        "passed": 18,
+        "ignored": 2
+      },
+      "sinan-adapter-tcpquality": {
+        "passed": 15,
+        "ignored": 0
+      },
+      "sinan-agent": {
+        "passed": 2,
+        "ignored": 0
+      },
+      "sinan-agent-core": {
+        "passed": 252,
+        "ignored": 8
+      },
+      "sinan-compiler": {
+        "passed": 20,
+        "ignored": 4
+      },
+      "sinan-panel": {
+        "passed": 232,
+        "ignored": 4
+      },
+      "sinan-protocol": {
+        "passed": 33,
+        "ignored": 0
+      },
+      "sinan-tcp-probe": {
+        "passed": 29,
+        "ignored": 0
+      }
+    },
+    "method_index_sha256": "339fae8d2b05ff474a417403531a3ab895dc524592c28f5dde7354a827f5179e",
+    "coverage": "r5 first nine packages; r6 pure panel library methods; r7-r9 failed and remaining panel methods; r10 affected ingest methods override prior passes without double counting",
+    "fmt": true,
+    "all_target_clippy": true,
+    "core_boundary": true,
+    "diff_check": true,
+    "postgres_cleanup": {
+      "stopped": true,
+      "pid_absent_after_stop": true,
+      "port_closed_after_stop": true,
+      "socket_entries_after_stop": []
+    },
+    "receipts": [
+      {
+        "attempt": "rust-r1",
+        "receipt_sha256": "2787c7b1ffcf184376c47859ae185d51279285e8389a1e20aad9834422778df3",
+        "accepted_scope": "fresh_frozen_workspace_acceptance_serial_packages",
+        "passed": false,
+        "failure": "rust-workspace-clippy failed; original log retained",
+        "postgres_stopped": true,
+        "port_closed": true
+      },
+      {
+        "attempt": "rust-r2",
+        "receipt_sha256": "dfddff8c09f574db30c10707c63376c9d391f7ca0778c33d493d3696b352b2d3",
+        "accepted_scope": "fresh_frozen_workspace_acceptance_serial_packages",
+        "passed": false,
+        "failure": "less than 2.5 GiB initial reserve; no acceptance command started",
+        "postgres_stopped": true,
+        "port_closed": true
+      },
+      {
+        "attempt": "rust-r3",
+        "receipt_sha256": "75ae3addbe5bf89f793951458d5c8dcc08135f173efe31ff18acd0fdf62e667a",
+        "accepted_scope": "fresh_frozen_workspace_acceptance_serial_packages",
+        "passed": false,
+        "failure": "rust-workspace-clippy failed; original log retained",
+        "postgres_stopped": true,
+        "port_closed": true
+      },
+      {
+        "attempt": "rust-r4",
+        "receipt_sha256": "72e91b6263a53625b07a02768a94e8181c5b64598485af05ae7d19f28fae7fe9",
+        "accepted_scope": "fresh_frozen_workspace_acceptance_serial_packages",
+        "passed": false,
+        "failure": "rust-workspace-clippy failed; original log retained",
+        "postgres_stopped": true,
+        "port_closed": true
+      },
+      {
+        "attempt": "rust-r5",
+        "receipt_sha256": "56d8b429805dbac320c1345a00c59e4c26dab3ee3430242842ceaac5994eccfc",
+        "accepted_scope": "fresh_frozen_workspace_acceptance_serial_packages",
+        "passed": false,
+        "failure": "rust-package-sinan-panel stopped below the disk reserve",
+        "postgres_stopped": true,
+        "port_closed": true
+      },
+      {
+        "attempt": "rust-r6",
+        "receipt_sha256": "7e2d7e30d9f1c6c17ec9159b4002ddc6d07bea4a8597a1fba50f68e40b1e5583",
+        "accepted_scope": "unchanged_frozen_panel_remaining_targets_serial_repair",
+        "passed": false,
+        "failure": "rust-panel-target-sinan_panel failed; original log retained",
+        "postgres_stopped": true,
+        "port_closed": true
+      },
+      {
+        "attempt": "rust-r7",
+        "receipt_sha256": "336fac6afec5d48ac11adffed698bf05bbd85847fb975b621b82e6b0b37f953e",
+        "accepted_scope": "unchanged_frozen_panel_remaining_targets_serial_repair",
+        "passed": false,
+        "failure": "rust-panel-target-latency_tasks failed; original log retained",
+        "postgres_stopped": true,
+        "port_closed": true
+      },
+      {
+        "attempt": "rust-r8",
+        "receipt_sha256": "cc060c8dc0932a568c3875122486527ac8432c053cbfb841777f0546dc1ea91f",
+        "accepted_scope": "unchanged_frozen_panel_remaining_targets_serial_repair",
+        "passed": false,
+        "failure": "rust-panel-target-plugin_business failed; original log retained",
+        "postgres_stopped": true,
+        "port_closed": true
+      },
+      {
+        "attempt": "rust-r9",
+        "receipt_sha256": "66af1706593837d79ba3174fffaa6de5919e0785e88c7a4964d4f1a19d97df01",
+        "accepted_scope": "unchanged_frozen_panel_remaining_targets_serial_repair",
+        "passed": true,
+        "failure": null,
+        "postgres_stopped": true,
+        "port_closed": true
+      },
+      {
+        "attempt": "rust-r10",
+        "receipt_sha256": "6e4ea9769b9418c356c5da040c5d179fc18ab1bff4ba5cc9b79bc54d22de14cf",
+        "accepted_scope": "unchanged_frozen_panel_remaining_targets_serial_repair",
+        "passed": true,
+        "failure": null,
+        "postgres_stopped": true,
+        "port_closed": true
+      }
+    ],
+    "metadata_label_correction": "One private driver metadata field used placeholder retained latency names; actual log names and the independent method index govern coverage, not that field."
+  },
+  "web": {
+    "build_runs": 1,
+    "bun_passed": 56,
+    "bun_failed": 0,
+    "bun_skipped": 0,
+    "assertions": 1133,
+    "affected_browser_suites": [
+      "monitoring",
+      "server-display",
+      "server-setup",
+      "probe-authorization",
+      "server-probe-authorization",
+      "dashboard",
+      "nodequality-chain-gate",
+      "tcpquality"
+    ],
+    "browser_passed": 8,
+    "screenshot_count": 33,
+    "source_and_dist_unchanged": true,
+    "receipt_sha256": "03a296b513abd7cd0e46c0dff302ef2e13de83b1670cabe7ecf463d63c5248c5"
+  },
+  "original_failures_retained": [
+    "Borrow compilation, lint and retired test signature errors; no Rust methods executed",
+    "Initial disk preflight refusal; no acceptance command executed",
+    "All-panel compile stopped under 512 MiB reserve, no completed panel test summary; owned test caches recorded/reclaimed and target strategy made serial",
+    "Reserved SQL column caused 12 migration failures, corrected consistently to target_authorization",
+    "One input DTO fixture parsed response-only task_id, corrected without weakening production parser",
+    "Two old migration snapshots lacked explicit new zero/null defaults; assertions still compare all old values",
+    "Final upgrade review changed missing-proof legacy outbox rejection to ACK discard; mixed proved/unproved/saved batch passes"
+  ],
+  "not_verified": [
+    "Dedicated Linux real Agent heartbeat/disconnection/restart/standard ICMP/continuous proxy load",
+    "Complete NodeQuality licensing, builder identity, dual architecture rebuild and hardware load matrix",
+    "Third party target consent beyond synthetic fixture records",
+    "Signed release, production migration/deployment and paused source CI"
+  ]
+}

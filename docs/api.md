@@ -151,9 +151,9 @@
 |---|---|
 | `GET /api/plugins/sing-box/servers` | 未删除服务器的插件启用元数据列表 |
 | `GET /api/plugins/sing-box/servers/{id}` | 单台服务器的插件启用元数据 |
-| `POST /api/plugins/sing-box/servers/{id}/enable` | 空 JSON `{}`；管理员明确启用，重复请求幂等 |
+| `POST /api/plugins/sing-box/servers/{id}/enable` | 空 JSON `{}`；管理员明确启用并安排首次安装，重复请求幂等 |
 
-元数据为 `{id,name,enabled,online,agent_supported,read_only,source}`。source 为 `administrator`、当前 `agent_capability`、兼容 `legacy_nodes` / `legacy_deployments` 或 null。设备声明与既有配置来源显示为只读；没有当前能力、管理员选择或历史代理配置的服务器保持关闭，保存过但已消失的设备声明不会单独启用。创建节点和读取部署需先启用，否则返回 409；启用不表示设备已经声明支持。关闭服务器的详情不请求代理节点或部署，后台不生成代理配置；已有网卡遥测继续显示。
+元数据为 `{id,name,enabled,online,agent_supported,read_only,source,installation}`。source 为 `administrator`、兼容 `legacy_nodes` / `legacy_deployments` 或 null；旧能力标记仅保留历史记录，单独能力声明不自动启用。`installation={state,reason,target_rev,applied_rev}`，state 为 `not_enabled`、`queued`、`waiting_agent`、`offline`、`pending`、`ready` 或 `failed`，reason 提供中文原因。启用安排无部署服务器的首次安全配置，重复请求不延后待办；实际安装仍须签名制品、设备支持和应用确认。创建节点和读取部署需先启用，否则返回 409。未启用服务器详情不请求节点或部署；已有网卡遥测继续显示。详见 [安装流程](singbox-installation.md)。
 
 服务器插件页 `/#/servers/{id}/plugins` 只管理这一台服务器，原 `/#/system/plugins` 保留为服务器插件汇总页。插件目录选择服务器后只跳转；启用仍须管理员明确调用上述服务器级接口，不创建全局安装或启用状态。
 
@@ -165,7 +165,77 @@
 | `POST /api/plugins/sing-box/nodes` | `{"name":"节点名称","server_id":1,"public_host":"node.example.com","sni":"www.example.com","port":443}`；`port` 可省略 |
 | `GET /api/plugins/sing-box/nodes/{id}` | 节点详情 |
 | `PATCH /api/plugins/sing-box/nodes/{id}` | 可选 `name`、`public_host`、`sni`、`port`、`protocol_config`、`enabled`、`settings`，至少一个字段；省略字段保留现值 |
-| `DELETE /api/plugins/sing-box/nodes/{id}` | 删除节点及现有授权，并安排重新发布 |
+| `DELETE /api/plugins/sing-box/nodes/{id}` | 与直连资源删除共用引用保护；策略或链路仍引用时返回 409 清单，否则软删节点、移除现有授权并安排重新发布 |
+
+### 统一代理资源与批量两跳
+
+以下接口与面板、迁移同版使用；设计及验收状态见 [ADR 0071](adr/0071-proxy-resource-batch-lifecycle.md) 和 [本步记录](acceptance/proxy-resources.md)。
+
+| 方法与路径 | 请求或用途 |
+| --- | --- |
+| `GET /api/plugins/sing-box/proxy-resources` | 同一快照中的直连／链路公开资源数组；链路入口不作为直连重复出现 |
+| `GET /api/plugins/sing-box/proxy-resources/{kind}/{id}` | `kind=direct|chain`；类型与 ID 一起标识资源 |
+| `DELETE /api/plugins/sing-box/proxy-resources/direct/{id}` | 与旧节点删除共用策略和链路引用保护 |
+| `DELETE /api/plugins/sing-box/proxy-resources/chain/{id}` | 无策略引用时删除链路及专用入口；共享出口、历史流量和创建收据保持 |
+| `POST /api/plugins/sing-box/chains/batch` | 至多 32 行原子创建，一次请求保存全部入口／链路或整批回滚 |
+
+资源包含 `kind,id,name,entry,exit,available,unavailable_reasons,policy_group_ids,user_count,chain_refs`。公开端点包含节点／服务器 ID 和名称、协议、公开地址、监听 `port`、实际公开 `public_port`、SNI、启用／删除状态，以及 `online,desired_revision,applied_revision,applied_observed_at`；不包含私钥、内部 relay UUID、用户身份或完整配置。`public_port` 使用已有节点设置的有效覆盖值，未覆盖则沿用监听端口；损坏设置、协议配置解析失败或与协议标记不一致，让对应资源不可用并说明原因，不使整个列表失去可读性。`available` 表示结构及插件配置可用，在线和应用观察另列，不表示端到端连通。`user_count` 是未删除代理用户的授权并集人数，不是当前套餐资格人数。退役或软删端点的链路仍可读取与明确清理。
+
+批量请求示例：
+
+```json
+{
+  "request_id": "<本次提交的 UUID>",
+  "items": [
+    {
+      "name": "入口到出口",
+      "entry": {
+        "mode": "new",
+        "server_id": 1,
+        "public_host": "entry.example.com",
+        "sni": "www.example.com",
+        "port": null
+      },
+      "hops": [{ "kind": "managed", "node_id": 2 }]
+    }
+  ]
+}
+```
+
+旧入口可使用 `entry={"mode":"existing","node_id":1}`，须未授权且未被链路或普通策略引用。本步只支持一个受管 Reality hop；额外跳或订阅引用明确拒绝，不会缩短路径。端口省略或 null 才自动分配，每行独立入口，出口可以共享。整批规范化请求绑定 `request_id`；首次返回 201，重放返回 200，响应均为 `{request_id,chain_ids,entry_node_ids}` 且 ID 顺序对应请求行。相同键不同内容返回 409；删除后重放只返回原 ID，不重新创建。客户端应保留结果不确定时的原键与请求，不循环提交单行。
+
+引用冲突响应为 `{error,references}`，`references` 包含公开策略／链路 ID、名称及角色，不能泄露凭据。旧 `/chains/{id}` DELETE 继续只解除关系并保留入口，新完整资源删除同时清理入口，两种语义不同。创建不自动授予任何代理用户权限。
+
+## 订阅来源
+
+本步接口位于 `/api/plugins/sing-box`，见 [ADR 0072](adr/0072-subscription-source-lifecycle.md) 与 [验收边界](acceptance/subscription-sources.md)。仅管理员使用；来源节点不是对用户授权的公开入口，当前受管两跳创建仍不接受订阅跳。
+
+| 方法与相对路径 | 请求／行为 |
+| --- | --- |
+| `GET /subscription-sources`、`GET /subscription-sources/{id}` | 脱敏来源数组／详情，包含实际成功批次与任务状态 |
+| `POST /subscription-sources` | `{request_id,name,input,refresh_interval_secs?}`；新来源及获取／解析任务，首次 202，原请求重放 200 |
+| `PATCH /subscription-sources/{id}` | `{request_id,settings_revision,name?,refresh_interval_secs?,archived?,input?}`；设置 CAS 与不可变请求收据，返回 200 |
+| `POST /subscription-sources/{id}/refresh` | `{settings_revision}`；URL 手动刷新，首次 202，同代活动任务返回原任务，不并行重复下载 |
+| `GET /subscription-source-jobs/{id}` | 脱敏任务与固定错误分类，不返回原文或底层网络错误 |
+| `POST /subscription-source-jobs/{id}/cancel` | 提交取消意图；`cancelling` 仍持运行所有权，最终确认后才 `cancelled` |
+| `GET /subscription-sources/{id}/nodes` | 当前源设置代数、实际成功批次与节点预览，含缺失和身份不唯一 |
+| `GET /subscription-sources/{id}/revisions` | 最近至多 100 个不可变成功批次 |
+| `GET /subscription-sources/{id}/revisions/{revision}/nodes` | 指定批次的历史节点预览，全部不用于新引用 |
+| `DELETE /subscription-sources/{id}` | `{settings_revision}`；来源软删除、取消工作，保留批次、版本及请求收据；不复活旧请求 |
+
+创建 `input` 为 `{"kind":"url","url":"https://source.example.invalid/subscription?token=<示例>","auth_headers":{"Authorization":"Bearer <示例>"}}` 或 `{"kind":"inline","content":"<有界配置正文>"}`。URL 刷新周期默认 86400 秒，允许 3600–604800；inline 不周期下载。未删除来源（含归档）最多 128 个，超限明确拒绝，软删历史不占额度。认证头仅 Authorization、Cookie、X-API-Key，大小写规范化，最多三项及总计 8 KiB。正文最大 2 MiB，来源写入路由允许 3 MiB JSON 外壳而不放宽其它接口。
+
+更新 URL 输入可以省略地址保留旧值；认证省略保留，显式 `auth_headers={"action":"replace","value":{...}}` 替换或 `{"action":"clear"}` 移除。空字符串不是清除指令。inline 更新必须给出 `identity_action="update"|"replace"`，分别表示同源更新和明确更换来源。URL、认证或输入类型更换建立新身份 epoch；名称和周期只提高设置 revision。旧成功批次携带原 epoch／revision，不能冒称新来源解析结果。
+
+创建／更新收据均为 `{source_id,settings_revision,identity_epoch,job_id}`，job_id 可为 null。相同 request_id 与相同规范化内容返回原收据，异内容 409；删除不移除收据。网络结果不确定时客户端保留并重放原键与原请求，不换键重建；成功保存立即清除敏感输入。
+
+来源公开字段包含 `id,name,kind,host,configured,auth_configured,settings_revision,identity_epoch,archived,refresh_interval_secs,last_attempt_at,last_success_at,latest_success,active_job,last_error,counts,stale_reason,dependencies`。`latest_success`／历史批次为 `{id,source_id,settings_revision,identity_epoch,parser_version,format,parsed_at,counts}`；不返回原文、URL 路径／查询、认证、规范化配置、内容或身份摘要。
+
+节点读取外壳为 `{source_id,current_settings_revision,current_identity_epoch,success_revision,nodes}`；节点包含 UUID 身份／版本、公开端点与参数类别、`present_in_latest,identity_state,supported,selectable,reasons,capabilities`。identity_state 为 unique（可明确匹配）、ambiguous（多个相同校验身份）或 unresolved（尚无可校验身份，不等同多个账号）。`selectable` 只表示当前来源下的导入资格，不能解释成运行时支持、网络在线或当前已有混合链路能力；客户端以服务端判定为准。任务状态为 queued／running／cancelling／succeeded／unchanged／failed／cancelled／superseded，阶段为 queued／fetch／parse／store／done。错误只有固定 stage／kind／message 与可选 http_status。
+
+刷新失败保留成功；304 只沿用匹配当前条件缓存代数的成功批次。取消、输入修改、归档和删除均使旧任务结果失效；同步有界解析实际退出后才释放任务。归档停止新刷新和引用，历史保持。当前旧两跳没有外部节点引用，空 dependencies 不替代后续混合路径当前／待应用／恢复引用保护。
+
+## 节点对象与字段
 
 节点对象：
 

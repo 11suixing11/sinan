@@ -98,6 +98,8 @@ cargo test --locked -p sinan-agent-core --lib retirement::tests
 
 面板测试通过真实 PostgreSQL 和 HTTP/WebSocket 检查 TOTP 会话绑定、过期和并发重放、限速与伪造转发头、443/默认端口分配和冲突、订阅旧链接失效，以及在线退役、离线软删除和回执验签。Agent 退役单元测试使用受控系统接口，检查操作互斥、待确认用量阻止清理、停服务失败、崩溃恢复和历史数据保留；它们不代替 Linux 上实际 systemd 停服验证。
 
+私有面板 CA 回归在 Unix 上使用 OpenSSL 和 `mkfifo` 生成隔离 TEST_ONLY 素材，实际服务由已锁定的 tokio-rustls 0.26.6 承载 HTTPS 与 WSS，不关闭 TLS 验证。定向命令为 `cargo test --locked -p sinan-agent-core --lib panel_tls::tests` 和 `cargo test --locked -p sinan-agent-core --lib private_panel_ca`；它们覆盖旧配置、CA 文件预算及 FIFO 替换、真实注册／下载／设备签名认证／退役，以及未知 CA、错误主机名和过期证书。素材和进程只由测试拥有，不导入宿主信任库。单元测试不能代替专用 Linux 上真实 Agent 服务的整条连接与清理验收。
+
 开发时不要把真实验证器秘密或设备凭据加入夹具。TOTP 确认与登录会消费验证码；自动化脚本需等待新的时间步，不能靠清空生产数据库的防重放状态重试。具体操作与部署所有者恢复步骤见[部署文档](deploy.md#管理员登录与二步验证)，API、状态码与订阅重置边界见 [API 文档](api.md)。
 
 ## 真实安装与 Reality CI

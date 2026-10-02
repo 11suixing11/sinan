@@ -23,9 +23,17 @@ test('old device DDNS, catalog alias and unified node selection retain their des
 
 test('unsafe resource IDs and ambiguous filtered paths never fall through into management routes', () => {
   for (const path of ['/servers/0', '/servers/9007199254740992/plugins', '/dashboard/9007199254740992',
-    '/plugins/sing-box/nodes/direct/9007199254740992', '/plugins/sing-box/nodes?server=42&kind=chains',
+    '/plugins/sing-box/nodes/direct/9007199254740992', '/plugins/sing-box/nodes?role=unknown',
     '/plugins/sing-box/nodes?server=42&server=43', 'constructor', '__proto__']) {
     expect(resolveRoute(path)).toEqual({ page: 'not-found' })
     expect(currentNavigation(resolveRoute(path))).toBeUndefined()
   }
+})
+
+test('combined node filters and old chain entry use the same page without replacing drafts', () => {
+  expect(resolveRoute('/plugins/sing-box/nodes?server=42&kind=chains&role=middle')).toEqual({ page: 'nodes', serverId: 42, chains: true, serverRole: 'middle' })
+  expect(resolveRoute('/plugins/sing-box/nodes?server=42&kind=direct')).toEqual({ page: 'nodes', serverId: 42, chains: false, kind: 'direct' })
+  expect(resolveRoute('/plugins/sing-box/chains')).toEqual({ page: 'nodes', chains: true })
+  expect(resolveRoute('/plugins/sing-box')).toEqual({ page: 'singbox-overview' })
+  for (const query of ['server=42&role=exit&role=entry', 'server=01', 'kind=chains&kind=direct', 'server=42&kind=chains&other=1']) expect(resolveRoute(`/plugins/sing-box/nodes?${query}`)).toEqual({ page: 'not-found' })
 })

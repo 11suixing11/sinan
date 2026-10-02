@@ -8,6 +8,8 @@ use std::{
 use tokio::time::timeout;
 
 mod logs;
+#[path = "services/runtime.rs"]
+mod runtime;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ServiceBackend {
@@ -216,6 +218,16 @@ impl SystemServiceManager {
 }
 
 impl ServiceManager for SystemServiceManager {
+    fn supports_runtime_checkpoint(&self) -> bool {
+        cfg!(target_os = "linux") && self.backend == ServiceBackend::Systemd
+    }
+    fn runtime_instance<'a>(
+        &'a self,
+        unit: &'a str,
+    ) -> BoxFuture<'a, sinan_adapter_sdk::RuntimeInstance> {
+        Box::pin(runtime::inspect(self, unit))
+    }
+
     fn recent_logs<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, sinan_adapter_sdk::ServiceLogs> {
         Box::pin(self.read_recent_logs(unit))
     }

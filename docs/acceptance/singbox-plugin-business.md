@@ -52,3 +52,7 @@ Bun 1.4.2 冻结依赖、五项字段测试/711 断言及 TypeScript/Vite 构建
 本轮冻结源码 `7d1bda4` 在 macOS 独立回环 PostgreSQL 完成19项专项、0失败/忽略：搬迁 publisher2、插件启用/旧数据迁移4、账本4、业务/旧订阅4、订阅重置2、端口2、真实 Agent 的配置发布/流量/丢失ACK/重启1。workspace 全 targets Clippy（warnings为错误）、fmt、core 门禁/六项行为、build-script5、runtime-cache3与差异检查通过。逐一 Git blob 对比及物理模块树确认13文件完全相同、pub(super)与公开 Rust 导出保持；独立数据库仅在127.0.0.1:55432启动并已停止。
 
 正常合入正式main `5d908b9` 保留本项桥与13项已验业务原字节；后续差异仅来自独立TCP/制品构建流程及验收文档，本项不将其他冻结源码证据转记为最终HEAD完整workspace或真实Docker/systemd验收。最终主线CI继续独立核对。
+
+## 整体交付补验：旧订阅实际连接
+
+源码979b998在专用Debian12，以搬迁前固定订阅合同和真实sing-box1.14.2通过迁移前后同客户端/PID、授权计数、历史保留与重复上报验收。详见[真实客户端验收](imported-subscription-runtime.md)。仅有自有回环TLS/Reality/echo和真实PostgreSQL，不冒充生产迁移或Agent托管再发布；前置P0门禁与CI暂停保持。

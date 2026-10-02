@@ -93,10 +93,10 @@ async fn musl_agent_on_gnu_host_receives_legacy_gnu_runtime(pool: PgPool) -> Res
             .await?;
         assert_eq!(response.status(), StatusCode::CONFLICT);
         assert!(
-            response
-                .text()
-                .await?
-                .contains("缺少此平台的已验签 sing-box 1.14.2 制品")
+            response.json::<serde_json::Value>().await?["error"]
+                .as_str()
+                .unwrap()
+                .contains("已验签")
         );
     }
     // A GNU Agent already running through a musl compatibility layer keeps its
@@ -214,7 +214,11 @@ async fn runtime_selection_matches_abi_and_preserves_legacy_devices(pool: PgPool
             .send()
             .await?;
         if let Some(target) = expected {
-            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.status(),
+                StatusCode::OK,
+                "runtime target: {target}"
+            );
             let value: serde_json::Value = response.json().await?;
             assert!(
                 value["modules"]["singbox"]["artifact"]["url"]
@@ -226,6 +230,16 @@ async fn runtime_selection_matches_abi_and_preserves_legacy_devices(pool: PgPool
             assert!(!response.status().is_success());
         }
     }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM singbox_runtime_manifest_facts WHERE server_id=$1"
+        )
+        .bind(server)
+        .fetch_one(&panel.state.pool)
+        .await?,
+        0,
+        "ordinary node revisions must retain legacy platform selection"
+    );
     for runtime_libc in [
         json!("unknown"),
         json!(""),

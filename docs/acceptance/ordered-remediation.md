@@ -1,6 +1,18 @@
 # 整改顺序与验收状态
 
-实施拆成独立 PR，实机能力验收按以下顺序推进。每项 PR 保存自己的问题、改动范围、源码身份、验证结果和未通过项。源码可以在独立审查及相称验证后合入准备；源码合入、实机能力签收和正式发布/部署分别记录。前置阶段未通过时，不签收、不正式发布或部署新增诊断能力；已有后续代码或绿色 CI 不代表对应阶段通过。
+集成源码的统一交付入口为 [PR #151](https://github.com/theLucius7/sinan/pull/151)；服务器与插件业务主流程、各项证据及尚未签收范围见 [交付索引](integrated-delivery.md)。
+
+2026-10-03 最新环境准备：最后一份功能提交 `5adda2d` 已推送；独立 Debian12 VM、冻结材料传输及 APT 已完成，native 构建与全新 r2 恢复均因宿主磁盘预留保护停止，正常停机确认。没有可签收的新二进制／签名、七场景注册日常矩阵或服务器插件安装。[实际准备记录](registered-native-preparation.md)保留两次失败及未知项。下表的待验条件、完整入口门禁与 CI 暂停保持，交付源码不代表生产环境已切换。
+
+本机历史 inert fixture 的 26 个报告采集器残留已独立记录为 [Issue #152](https://github.com/theLucius7/sinan/issues/152)；运行所有权和异常收尾整改的实现及集中验收边界见 [watcher 生命周期](nodequality-watcher-lifecycle.md)。旧“无残留”结果只对应其原始受验环境，不能替代本次父 KILL／异常路径。
+
+用户于2026-10-01改为一次整体交付，后续整改统一在集成分支完成，不再逐项创建PR。实机能力验收仍按以下顺序推进，每项保存问题、改动范围、源码身份、验证结果和未通过项；本文中的旧PR编号保留为历史证据。源码可以在独立审查及相称验证后合入准备；源码合入、实机能力签收和正式发布/部署分别记录。前置阶段未通过时，不签收、不正式发布或部署新增诊断能力；已有后续代码或绿色 CI 不代表对应阶段通过。
+
+用户随后要求“中途不要再进行测试，修改完了一个大步骤提交”：整步实现、测试代码及文档先集中修改，完成并冻结后统一验收、记录与提交。旧验收证据保留；编辑中的新实现不记为已验证。后续离线制品准备见[离线 rootfs 契约](nodequality-offline-rootfs.md)，默认日常版本和完整执行门禁保持。
+
+当前工作：独立 IPQuality 的真实最小派生与跨工厂证明已完成[整步验收](ipquality-minimal-profile.md)，实际 builder／rootfs 和发布仍待验。代理节点统一资源与原子批量受管两跳已完成[本地集中验收](proxy-resources.md)，见 [ADR 0071](../adr/0071-proxy-resource-batch-lifecycle.md)；订阅来源、四格式解析与不可变版本已完成[本地统一验收](subscription-sources.md)。完整有序混合路径及版本发布已完成[整步源码与集中验收](ordered-paths.md)，当前 compiler 的三／四跳真实 TCP/UDP、逐跳、出口与无旁路通过；显式搬移端口的编译图不能认证新 Agent 托管整链或实际面板账本。下文旧“之后独立任务”是原排序，服务器成本／到期／账单日网卡配额、轻量周期拨测、代理套餐已有代码及各自固定输入证据，不能据此说这些全部未实现，也不能把旧证据当作当前部署已签收。
+
+后续[私有面板 CA 与真实 Agent 托管入口](managed-agent-paths.md)已整步实现并集中验收：Agent-core 265 通过／8 条件忽略，工具合同 47 通过，全工作区 Clippy 与分层门禁通过。专用 Debian12 的冻结新源经真实准备入口因磁盘不足拒绝，没有构建、签名或三设备联测；原样托管包、设备回执与实际账本矩阵保持未验，既有 native 结果不升级，前置完整 NodeQuality 和 CI／发布条件保持。
 
 下表汇总的既有证据以主线 `d1ff2dfdea3cc45b38fd0dd25ef6a5b189081b1e` 为基线；TCP 后端 #77 和报告页 #78 的原审查基线分别为 `58868c4`、`233840a`。后续源码整合与检查以各 PR 最终提交及对应 CI 单独记录，不将这些基线当作最新主线、实机能力签收或正式发布证明。CI 结果只对其实际运行的提交和场景有效。
 
@@ -12,7 +24,7 @@
 | --- | --- | --- | --- |
 | P0 保护服务器 | [资源预算](diagnostic-resource-budget.md)、[常驻优先级](resident-service-priority.md)、[预检](diagnostic-preflight.md)、[取消](diagnostic-cancellation.md)、[遥测](telemetry-isolation.md)、[补传读取](../acceptance-bounded-usage.md)、[章节完整度](diagnostic-report-sections.md)、[日常/完整入口](diagnostic-modes.md) | 拒绝超限任务并说明原因；运行中保护触发能停止任务；诊断失败不使 Agent 或既有代理失去服务；取消确认后进程、cgroup 和挂载都已清理；真实负载中实际心跳持续；状态与章节完整度分开；完整入口需管理员确认、活跃流量警告和资源/负载记录 | 自动化与小型真实 systemd 夹具有证据；专用节点完整负载与持续代理业务总验未通过，阶段保持待验 |
 | P0 IP 查询 | [逐源错误](ip-provider-errors.md)、[缓存](ip-provider-cache.md)、[来源适配](ip-provider-adapters.md)、[未知值](ip-quality-unknown.md)、[独立页面](server-ip-view.md)、[面板环境基线](diagnostic-baseline.md) | 在面板网络环境解释失败；DNS/连接/TLS/超时/403/429/非 JSON/字段不匹配分别显示；失败后旧成功结果仍可读且标为历史；未知不显示零分、干净或成功 | 回环 HTTP、真实 PostgreSQL 和桌面/手机模拟 API 已验；面板实测外部源只确认 403。正式账户权限/额度、公网 DNS/TLS 和 IPQuality 节点自查/流媒体尚未验，按启用的实际来源独立验收 |
-| P1 sing-box 业务归位 | [边界](proxy-business-boundary.md)、[业务迁移](singbox-plugin-business.md)、[ADR 0023](../adr/0023-proxy-business-boundary.md) | core 管服务器；插件管代理用户、授权、订阅、用户流量和周期；无当前能力、管理员启用或旧节点/部署证据的纯监控服务器不请求或显示代理业务；旧节点/部署兼容迁移为插件启用；迁移前导入的身份、令牌、旧订阅 URL、凭据、授权与流量在迁移后仍有效 | 已验旧 schema 导入后执行 0012 迁移、十表快照和旧 `/sub` 两格式；真实旧客户端迁移后继续连接、授权和计量尚未实机验。新环境 Reality 结果不能补签该项 |
+| P1 sing-box 业务归位 | [边界](proxy-business-boundary.md)、[业务迁移](singbox-plugin-business.md)、[ADR 0023](../adr/0023-proxy-business-boundary.md) | core 管服务器；插件管代理用户、授权、订阅、用户流量和周期；无管理员启用或旧节点/部署证据的纯监控服务器不请求或显示代理业务；旧节点/部署兼容迁移为插件启用；迁移前导入的身份、令牌、旧订阅 URL、凭据、授权与流量在迁移后仍有效 | 已验旧 schema 导入后执行 0012 迁移、十表快照和旧 `/sub` 两格式；[旧订阅专用节点验收](imported-subscription-runtime.md)已验证迁移前导入格式、同一客户端/Reality进程继续连接与真实计数及去重；未测试Agent托管再发布或生产迁移，前置P0完整负载仍待验 |
 | P1 共用诊断框架 | [共用服务](shared-diagnostic-service.md)、[章节持久化](diagnostic-report-sections.md)、[两种入口](diagnostic-modes.md)、[执行链审计](nodequality-chain-audit.md)、[完整门禁](nodequality-full-start-gate.md) | NodeQuality 经共用生命周期运行；预算、互斥、状态、取消、章节、上传和历史保持；原完整能力经受控执行链实测，不用历史可读代替运行能力 | 参数与历史回归有证据；旧完整执行链有安全和授权缺口，新完整执行暂时拒绝。完整能力尚未恢复，本阶段不能签收 |
 | P2 TCP 接入 | [授权](tcpquality-license.md)、[原生探测](native-tcp-probe.md)、[签名制品](native-tcp-artifacts.md)、[适配器](tcpquality-adapter.md)、[#76](https://github.com/theLucius7/sinan/pull/76)、[#77](https://github.com/theLucius7/sinan/pull/77)、[#78](https://github.com/theLucius7/sinan/pull/78) | 前置阶段实机验收通过后签收接入能力；固定并验签完整制品；小预设白名单；不向第三方上传报告、不改宿主网络配置；与 NodeQuality 共用互斥/取消，参数和结果按插件区分 | 采用自有 Rust TCP 连接探测，未获许可的 `ibsgss/TcpQuality` 文件未引入；后端登记与报告页代码已独立审查合入准备。登记后的签名安装、实际启动、重连恢复及取消清理整链尚未实机验；已有测试不补签前置阶段 |
 
@@ -36,7 +48,7 @@
 
 固定源码 `b0869eff88254c7dc4b770be13c66cd569bee045` 的 [专用 Debian 12 验收](registered-nodequality-daily.md) 已通过七个日常场景：正常/重复提交、等待设备确认取消、Agent 重启、面板断连、cgroup 低可用内存拒绝、工作目录磁盘不足和运行中内存保护。使用真实注册 Agent、面板/PG、测试根验签 r8 与 systemd，持续 sing-box 回环流量 1917 次、0 失败。正常及资源保护场景心跳最大间隔 20 秒；主动停止面板的场景为 46 秒，按断连恢复记录。取消与保护停止保存部分章节，任务、进程、cgroup、挂载和测试服务收尾分别读回。
 
-这一证据补充上表相应故障行的**日常链路**；完整上游硬件负载、外部 IP 查询、旧客户端迁移与新 TCP 整链仍按原行保留待验。没有用日常成功替代完整执行、真实旧客户端业务或阶段总验，没有解除 full 门禁。版本/二进制/签名根/场景摘要及两次验收脚本失败见该独立记录，未运行暂停的 CI。
+这一证据补充上表相应故障行的**日常链路**；完整上游硬件负载、外部 IP 查询、旧客户端迁移与新 TCP 整链在该r8证据中未验证；后续旧客户端结果另见下方独立补充。没有用日常成功替代完整执行、真实旧客户端业务或阶段总验，没有解除 full 门禁。版本/二进制/签名根/场景摘要及两次验收脚本失败见该独立记录，未运行暂停的 CI。
 
 ## 独立自动验收证据
 
@@ -84,3 +96,25 @@
 ## 执行链补充：硬件百分位上传
 
 [r12独立验收](nodequality-ranking-upload.md) 让mark.check.place评分提交遵守既有上传开关，保留本地评分和所有硬件测试；关闭时百分位未知且解释原因，失败不复用旧百分位。Debian8项新增真实回环专项全部通过，整体104运行/103通过/1缺minisign跳过；Rust/API19通过，本机140个唯一用例最终131通过/9条件跳过，首次1次旧断言失败及其单项修复另行保留。单元结束无OOM及残留，SSH未重启。Geekbench/其他工具上传、rootfs与授权、完整运行和全故障矩阵仍未验收，#65保持打开，所有full门禁保持。
+
+## 整体分支中的查询修复
+
+用户改为整体交付后，集成分支正常保留main与r11–r13草稿实现，并完成[原生curl身份r14](nodequality-native-curl.md)和[Netflix错误判定r15](nodequality-query-errors.md)。这些证据只覆盖各自固定输入和受控请求，不补签完整负载、外部来源、旧客户端迁移或TCP整链。原有草稿在最终整体交付时统一整理，不再创建逐项新PR。
+
+[统一 r17 验收](unified-query-integration.md)进一步保留最新主线的目录、接入、监控与通知，完成公共 cookies/临时授权 guard、原始流读取上限、Netflix 页面和严格 Bash 补修。Rust/PG477通过、16条件忽略，前端构建与五套浏览器通过，专用 Debian 查询组合160个唯一方法最终全部通过；失败和补验分别保留。该结果不恢复完整执行门禁，也不认证注册节点自查、原生 TCP 实机整链或生产部署；用户无 Geekbench Pro 许可的当前条件单独记录。
+
+## 旧订阅实际连接补充
+
+[固定979b998的专用Debian结果](imported-subscription-runtime.md)验证旧schema导入、真实迁移、原订阅两格式、同一Reality客户端/服务端进程迁移前后传输，以及真实计数写入与重复补传去重。该场景已通过；没有运行生产迁移或真实Agent重新发布，不改变P0完整执行仍待验的顺序条件。
+
+最新主线与统一分支的新组合按[整步验收记录](integrated-main-native-r1.md)推进；两侧旧收据不替代当前组合，版本、迁移和资源清理的新增输入在完整编辑结束后统一验证。许可与完整实机门禁保持，不能以源码准备或历史报告可读代替完整执行能力。
+
+## 实际输入收集与业务编辑保护补充
+
+2026-10-02 的[大步骤验收](debian-inputs-and-singbox-snapshots.md)补齐实际 Debian Snapshot 收集接口和 sing-box 相关读取失败/等待时的写入保护。当前 92 个不同 Linux 契约方法、Bun 40 项及受影响四套实际 dist 浏览器通过，冻结输入和原始失败有独立摘要。真实 ARM64 仅完成签名元数据与隔离 APT 求解，237 个二进制包/168 个源码版本的完整材料超过显式 900 MiB 预算，在正文下载前拒绝；没有完整输入锁、builder 审批或 rootfs。aws-jp0 仍不可 SSH。该步不签收前置 P0 完整负载或后续新增诊断能力，CI 与完整入口门禁保持。
+
+## 实际 ARM64 材料完成补充
+
+同日的[完整 Debian 材料大步骤](complete-debian-materials.md)保留旧拒绝与原 gzip worker 失败，新增容量计划和有界失败证据。最终冻结后 collector 33 个不同方法全部通过；新的单次实际收集取得 237 个 deb、168 个源码版本的 539 个源文件，独立复核全部 776 个正文的 Size/SHA256 匹配。实际内存限额触发过回收，无 OOM；11 项终态清理与身份检查通过。
+
+完成范围仅为未绑定的 Debian ARM64 材料，不包括 builder/镜像审批、AMD64 及双架构构建、Geekbench/Ookla 许可或完整 Agent/sing-box 业务负载矩阵。前置 P0 完整验收和整体目标仍未签收，CI 与完整入口门禁保持。静态复核另发现链路弹窗提交没有复核相关列表失败/pending，已归入同一 milestone 的 [#142](https://github.com/theLucius7/sinan/issues/142)，留给后续完整步骤；没有把静态缺口宣称为已复现的权限绕过。

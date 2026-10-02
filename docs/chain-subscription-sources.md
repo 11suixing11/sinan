@@ -90,19 +90,25 @@ URL 来源支持手动刷新及可配置周期刷新，默认每日一次；上�
 
 这些限制约束来源获取和解析，不混用 GitHub 制品公钥或把机场内容当成签名制品。订阅的 URL 指向允许的公网来源也不证明其代理配置合法，两个校验步骤独立执行。
 
-## 管理 API
+## UUID 有序来源管理 API
+
+此接口与既有 `/subscription-sources` 数字 ID 来源分开保存和返回。旧接口、版本、历史和 mixed 路径保持；新表使用 `singbox_ordered_*` 名称。
 
 管理接口位于 `/api/plugins/sing-box`，沿用管理员会话和写请求保护：
 
 | 接口 | 用途 |
 | --- | --- |
-| `GET /subscription-sources`、`POST /subscription-sources` | 脱敏列表、创建 URL/粘贴/上传来源；写入字段不回显 |
-| `GET /subscription-sources/{id}`、`PATCH /subscription-sources/{id}` | 设置/状态/依赖、替换来源或刷新周期；携带设置 revision 防止覆盖新修改；`archived=true` 可带已有引用归档，停止刷新与新引用 |
-| `POST /subscription-sources/{id}/refresh` | 有界获取与解析任务，返回任务 ID；重复运行返回现有任务或冲突 |
-| `GET /subscription-source-jobs/{id}` | 脱敏任务阶段和结果，禁止回传原始正文 |
-| `GET /subscription-sources/{id}/nodes` | 节点公开预览、稳定 ID、版本、可选性及拒绝原因 |
-| `DELETE /subscription-sources/{id}` | 当前/待应用/恢复依赖冲突返回 409 和清单；解除依赖后按历史证据保留政策清理，不能级联删除发布证明 |
-| `POST /proxy-resources/chain/{id}/apply-node-versions` | 同节点的版本应用，携带当前路径代数；不得用于换身份或重排路径 |
+| `GET /ordered-subscription-sources`、`POST /ordered-subscription-sources` | 脱敏列表、创建 URL/粘贴/上传来源；写入字段不回显 |
+| `GET /ordered-subscription-sources/{id}`、`PATCH /ordered-subscription-sources/{id}` | 设置/状态/依赖、替换来源或刷新周期；携带设置 revision 防止覆盖新修改；`archived=true` 可带已有引用归档，停止刷新与新引用 |
+| `POST /ordered-subscription-sources/{id}/refresh` | 有界获取与解析任务，返回任务 ID；重复运行返回现有任务或冲突 |
+| `GET /ordered-subscription-source-jobs/{id}` | 脱敏任务阶段和结果，禁止回传原始正文 |
+| `POST /ordered-subscription-source-jobs/{id}/cancel` | 提交取消意图；运行中的任务先显示等待工作退出，最终状态由后台确认 |
+| `GET /ordered-subscription-sources/{id}/nodes` | 节点公开预览、稳定 ID、版本、可选性及拒绝原因 |
+| `GET /ordered-subscription-sources/{id}/revisions`、`GET /ordered-subscription-sources/{id}/revisions/{revision}/nodes` | 有界成功批次历史及不可变节点预览；历史行不用于新引用 |
+| `DELETE /ordered-subscription-sources/{id}` | 当前/待应用/恢复依赖冲突返回 409 和清单；解除依赖后按历史证据保留政策清理，不能级联删除发布证明 |
+| `POST /ordered-proxy-resources/chain/{id}/apply-node-versions` | 同节点的版本应用，携带当前路径代数；不得用于换身份或重排路径 |
+
+来源接口是 ADR 0055 本步范围；最后一行路径版本应用仍待后续实现。当前两跳链路不接受外部节点，界面预览的“可用于选点”只表示来源资格，不能据此认为已有链路创建或发布能力。实际字段及请求收据见 [HTTP API](api.md#订阅来源)。
 
 新表单提交链路仅携带已解析的来源/节点/版本 ID 和更新方式，链路事务重新确认版本所属与能力，不在锁内重新下载。任务取消或输入更新后，迟到解析结果不自动写入新一代来源。
 

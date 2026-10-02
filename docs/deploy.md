@@ -280,6 +280,19 @@ Agent 支持自动更新，默认关闭。安装好的监督服务可在服务�
 
 历史未签名缓存不会被自动认可；预检失败保持旧安装，明确报错。需按发布文档提供与实际二进制完全匹配、经过独立验证的签名证明，或安排迁移维护窗口。历史 0.1.0→0.2.0 连续升级验收不等于已经完成旧未签版本到新签名版本的迁移。
 
+### 自有 CA 的面板连接
+
+使用自有 CA 的 HTTPS 面板时，节点操作者先通过独立可信渠道核对并准备 CA，再在 Agent 本机配置的顶层指定证书文件；在注册设备之前设置即可：
+
+```toml
+panel_url = "https://panel.example.invalid"
+panel_ca_file = "/etc/sinan/trust/panel-ca.pem"
+```
+
+参见 [配置示例](../deploy/agent-private-panel.example.toml)。该字段省略时继续使用公有 webpki 根；设置后附加证书只用于此 Agent 的面板注册、制品与配置下载、认证 WSS 和退役回执。面板下载仍要求同一 origin，证书主机名与有效期校验继续生效。GitHub 下载、公网地址探测、安装入口及独立代理运行时不会加载此文件。
+
+文件最多 256 KiB、32 张完整 PEM 证书，不能包含私钥或其他 PEM 块；路径必须是绝对普通文件，文件及其上级目录都不能为符号链接。macOS 等存在系统目录别名的平台应填写真实路径，例如 `/private/etc/sinan/trust/panel-ca.pem`。将 CA 放在设备身份、运行配置与安装目录之外，确保退役清理凭据后仍可确认回执。CA 与发布制品公钥各自独立，添加它不会授权未签名制品。修改 CA 后重启 Agent，使所有面板连接使用新信任；仅更新文件不会替换现有 TLS 连接的信任集。详细边界见 [ADR 0074](adr/0074-private-panel-certificate-authorities.md)。
+
 ### 远程命令的本地授权
 
 远程命令默认关闭。只有节点操作者可在本机 Agent 配置的顶层设置 `allow_remote_commands = true` 并重启 Agent 来开启；例如 Linux 的 `/etc/sinan/agent.toml`。此字段不属于 `[settings]`，面板的 Agent 设置接口不能启用它。保持 `false` 或省略字段时，Agent 不领取远程命令，界面也禁用提交；旧响应缺少能力字段时同样默认禁用。

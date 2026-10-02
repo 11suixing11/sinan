@@ -9,15 +9,19 @@ pub mod mixed_paths;
 mod node_protocol;
 mod node_settings;
 pub mod nodes;
+pub mod ordered_paths;
 pub mod packages;
 pub mod policies;
 mod portal;
+pub mod proxy_resources;
 pub mod proxy_users;
 pub mod publisher;
 pub mod runtime_operations;
 pub mod settings;
 pub mod sources;
 pub mod statistics;
+pub mod subscription_parser;
+pub mod subscription_sources;
 pub mod subscriptions;
 pub mod usage;
 
@@ -28,6 +32,13 @@ use axum::{
     Router,
     routing::{delete, get, post},
 };
+
+pub async fn run(state: AppState) {
+    tokio::join!(
+        publisher::run(state.clone()),
+        subscription_sources::worker::run(state)
+    );
+}
 
 pub fn router() -> Router<AppState> {
     let management = Router::new()
@@ -46,7 +57,19 @@ pub fn router() -> Router<AppState> {
             axum::routing::put(packages::update).delete(packages::remove),
         )
         .route("/chains", get(chains::list).post(chains::create))
+        .route("/chains/ordered-batch", post(ordered_paths::create_batch))
         .route("/chains/{id}", delete(chains::remove))
+        .route("/ordered-proxy-resources", get(proxy_resources::list))
+        .route(
+            "/ordered-proxy-resources/{kind}/{id}",
+            get(proxy_resources::get)
+                .patch(ordered_paths::update_resource)
+                .delete(proxy_resources::remove),
+        )
+        .route(
+            "/ordered-proxy-resources/chain/{id}/apply-node-versions",
+            post(ordered_paths::apply_node_versions),
+        )
         .route(
             "/users/{id}/policy-groups",
             get(policies::user_get).put(policies::user_set),
@@ -92,6 +115,9 @@ pub fn router() -> Router<AppState> {
         .merge(portal::router())
         .merge(mixed_paths::router());
     Router::new()
-        .nest("/api/plugins/sing-box", management)
+        .nest(
+            "/api/plugins/sing-box",
+            management.merge(subscription_sources::routes()),
+        )
         .route("/sub/{token}", get(subscriptions::get))
 }

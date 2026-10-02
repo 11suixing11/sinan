@@ -62,13 +62,19 @@ export function useResource<T>(path: string | null, poll = 5000) {
     const timer = poll ? window.setInterval(() => { if (document.visibilityState === 'visible') void load(true) }, poll) : undefined
     return () => { active = false; snapshot.current.valid = false; ++generation.current; controller.abort(); window.clearTimeout(presentation); window.clearInterval(timer) }
   }, [path, poll, revision])
-  return { data: previousPath.current === path ? data : undefined, error, loading, ready: previousPath.current === path && availability.ready, reload, isCurrent, getCurrent }
+  const currentData = previousPath.current === path ? data : undefined
+  return { data: currentData, error, loading, ready: previousPath.current === path && availability.ready,
+    refreshing: loading || !isCurrent(), fresh: currentData !== undefined && currentData !== null && !error && isCurrent(),
+    reload, isCurrent, getCurrent }
 }
 
 export type ResourceState<T> = ReturnType<typeof useResource<T>>
 
-export function resourceWriteError(...resources: { isCurrent: () => boolean }[]): string {
-  return resources.every(resource => resource.isCurrent()) ? '' : resourceRefreshingMessage
+export function resourceWriteError(...resources: { isCurrent?: () => boolean; fresh?: boolean; error?: string }[]): string {
+  const failure = resources.find(resource => resource.error)
+  if (failure) return `最新信息读取失败，暂不能修改；草稿已保留。${failure.error}`
+  return resources.every(resource => resource.isCurrent ? resource.isCurrent() : resource.fresh === true)
+    ? '' : resourceRefreshingMessage
 }
 
 export function useAction() {

@@ -28,12 +28,14 @@ try {
     const settle = () => new Promise(done => setTimeout(done, 100))
     const advance = async milliseconds => { await page.clock.runFor(milliseconds); await settle() }
     let rules = [], failSave = true, failSync = true, failRules = false, failServers = false, authenticated = true
+    let held = null
     const now = Math.floor(Date.now() / 1000)
     const servers = [{ id: 1, name: '测试服务器', online: true, enabled: false }, { id: 2, name: '另一台服务器', online: true, enabled: true }]
     await page.route('**/api/**', async route => {
       const request = route.request(), path = new URL(request.url()).pathname, method = request.method()
       const respond = (json, status = 200) => route.fulfill({ status, json })
       if (method === 'GET') reads.push(path)
+      if (method === 'GET' && held?.path === path) { ++held.reached; await held.promise }
       if (path === '/api/dashboard/access') return respond({ authenticated, public_dashboard: false })
       if (path === '/api/plugins/ddns/servers') return failServers ? respond({ error: '测试：服务器状态不可用' }, 503) : respond(servers)
       if (path === '/api/plugins/ddns/servers/1/enable') { servers[0].enabled = true; return respond({ enabled: true }) }
@@ -179,6 +181,41 @@ try {
     await dialog.getByLabel('完整域名', { exact: false }).fill('dual.example.com')
     await dialog.getByLabel('Zone ID', { exact: false }).fill('00000000000000000000000000000001')
     await dialog.getByLabel('API Token', { exact: false }).fill('TEST_ONLY_CLOUDFLARE_TOKEN')
+    for (const dependency of ['rules', 'servers']) {
+      let release
+      held = { path: `/api/plugins/ddns/${dependency}`, reached: 0, promise: new Promise(resolve => { release = resolve }) }
+      const baseline = writes.length
+      await dialog.locator('form').evaluate(form => {
+        document.querySelector('header.page-header button').click()
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      })
+      const deadline = Date.now() + 5000
+      while (!held.reached) { assert(Date.now() < deadline, 'Dual-stack prerequisite GET must be held'); await settle() }
+      await dialog.locator('form').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+      assert.equal(writes.length, baseline, 'Pending dual-stack reads must send zero POSTs')
+      if (dependency === 'rules') failRules = true; else failServers = true
+      release(); held = null
+      await dialog.getByRole('alert').filter({ hasText: '刷新' }).first().waitFor()
+      await dialog.locator('form').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+      assert.equal(writes.length, baseline, 'Failed dual-stack reads must send zero POSTs')
+      assert.equal(await dialog.getByLabel('IP 类型').inputValue(), 'dual')
+      assert.equal(await dialog.getByLabel('API Token', { exact: false }).inputValue(), 'TEST_ONLY_CLOUDFLARE_TOKEN')
+      if (dependency === 'rules') failRules = false; else failServers = false
+      await page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).evaluate(button => button.click())
+      await page.waitForFunction(() => !document.querySelector('[role="dialog"] footer .button-primary')?.disabled)
+    }
+    const capacityRules = Array.from({ length: 31 }, (_, index) => ({ id: `capacity-${index}`, config: { name: `TEST_ONLY capacity ${index}`, server_id: 1, record_name: `capacity${index}.example.com`, record_type: 'A', enabled: false, ttl: 1, interval_secs: 300 }, revision: 1, token_configured: true, busy: false, plugin_enabled: true, server_name: '测试服务器', candidate_ip: null, ip_status: 'no_public_ip', ip_received_at: null, last_ip: null, last_success_at: null, next_run_at: null, status: 'pending', error_code: null, failures: 0 }))
+    rules = capacityRules
+    const beforeCapacity = writes.length
+    await page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).evaluate(button => button.click())
+    await page.locator('.panel-heading').last().getByText('31 / 32 条', { exact: true }).waitFor()
+    await dialog.locator('form').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await dialog.getByRole('alert').filter({ hasText: '两条规则名额' }).waitFor()
+    assert.equal(writes.length, beforeCapacity, 'One available slot cannot create a dual-stack pair')
+    assert.equal(await dialog.getByLabel('规则名称', { exact: true }).inputValue(), '家庭双栈')
+    rules = []
+    await page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).evaluate(button => button.click())
+    await page.waitForFunction(() => !document.querySelector('[role="dialog"] footer .button-primary')?.disabled)
     failSave = true
     await dialog.getByRole('button', { name: '保存规则' }).click()
     await dialog.getByRole('alert').filter({ hasText: '测试：双栈其中一种记录已存在' }).waitFor()
@@ -189,6 +226,7 @@ try {
     await dialog.waitFor({ state: 'hidden' })
     assert.equal(writes.at(-1).path, '/api/plugins/ddns/rules/dual-stack')
     assert.equal(writes.at(-1).body.api_token, 'TEST_ONLY_CLOUDFLARE_TOKEN')
+    assert.deepEqual(Object.keys(writes.at(-1).body).sort(), ['api_token', 'config'])
     await page.getByRole('heading', { name: '家庭双栈', exact: true }).first().waitFor()
     assert.equal(await page.getByRole('heading', { name: '家庭双栈', exact: true }).count(), 2)
     const hiddenReads = reads.length

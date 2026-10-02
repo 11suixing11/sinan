@@ -199,3 +199,19 @@ official HTTPS self endpoints, family validation, bounded requests and explicit
 source/error records. No public cookies, temporary web keys or panel credential
 forwarding is used; missing configured media adapters remain NotAttempted.
 Local fixture acceptance is not official-account, billing or media permission.
+
+Independent native policy preparation (PR #151 integration):
+The default build-nodequality.sh, source-helper.py, runner.sh.tmpl and numeric
+r2-r21 historical identities retain their main-line bytes and meanings. The
+explicit build-nodequality-native.sh binds native-source-helper.py,
+native-runner.sh.tmpl and native browser/Netflix/report helpers to the distinct
+sinan-native-r1 identity. The explicit build-nodequality-native-offline.py binds
+its independently validated runtime archive to offline-rootfs-r1. These new
+bytes never reuse main-line r14-r21 labels or certify their historical receipts.
+The native policy chain retains the original 17 sources and licenses, composes
+its bounded browser/query/access/Netflix policies, and suppresses the borrowed
+OpenAI-cookie request. OpenAI remains unknown, NotAttempted, with no request,
+credential or public authorization. All new full starts are still rejected
+before external prerequisites or workspace changes. Canonical source retention,
+synthetic fixtures, signed preparation and native device acceptance are separate
+records; neither toolchain rights nor a formal release is granted here.

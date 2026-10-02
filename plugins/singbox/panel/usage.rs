@@ -49,8 +49,8 @@ pub async fn ingest(state: &AppState, server_id: i64, mut batch: UsageBatch) -> 
     if inserted {
         for (record, (user_id, node_id)) in batch.records.iter().zip(identities) {
             // Revoked identities remain valid for terminal samples and offline outbox replay.
-            let authorized: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM nodes n JOIN deployments d ON d.server_id=n.server_id WHERE n.id=$1 AND n.server_id=$2 AND d.module='singbox' AND d.source_json @> $3)")
-                .bind(node_id).bind(server_id).bind(json!([{"id":node_id,"users":[{"user_id":user_id}]}]))
+            let authorized: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM nodes n JOIN deployments d ON d.server_id=n.server_id WHERE n.id=$1 AND n.server_id=$2 AND d.module='singbox' AND (d.source_json @> $3 OR d.source_json @> $4))")
+                .bind(node_id).bind(server_id).bind(json!([{"id":node_id,"users":[{"user_id":user_id}]}])).bind(json!({"schema_version":1,"accounting_users":[{"user_id":user_id,"node_id":node_id,"stat_name":record.stat_name}]}))
                 .fetch_one(&mut *tx).await?;
             ensure!(
                 authorized,
