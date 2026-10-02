@@ -272,11 +272,11 @@ class FactoryCapacityTests(unittest.TestCase):
         lock, cache = self.lock_file()
         output = self.root / 'failed-preparation'
         # Byte identities are intentionally wrong: bypass only synthetic
-        # authentication and prove the real locked-copy failure remains fatal.
+        # authentication and retain the real pre-copy identity rejection.
         with mock.patch.object(BUILD.os, 'statvfs', return_value=filesystem()), \
                 mock.patch.object(BUILD, 'verify_tools'), \
                 mock.patch.object(BUILD, 'verify_inputs', return_value=({'fixture': True}, [])):
-            with self.assertRaisesRegex(ValueError, 'copied locked input changed'):
+            with self.assertRaisesRegex(ValueError, '^locked input checksum or size mismatch$'):
                 BUILD.prepare(lock, cache, output, 'a' * 64)
         self.assertFalse(output.exists())
         evidence = list(self.root.glob(output.name + '-failure-*'))
@@ -532,18 +532,22 @@ class FactoryCapacityTests(unittest.TestCase):
 
         def opening(path, limit):
             stream, metadata = real_open(path, limit)
-            if Path(path) == source and not opened:
+            if Path(path) == source:
                 opened.append(stream)
-                source.unlink()
-                os.mkfifo(source)
+                # The first descriptor belongs to checked_blob prevalidation.
+                # Replace the path only after the actual copy holds its FD.
+                if len(opened) == 2:
+                    self.assertTrue(opened[0].closed)
+                    source.unlink()
+                    os.mkfifo(source)
             return stream, metadata
 
         with mock.patch.object(BUILD, 'open_regular', side_effect=opening):
             BUILD.copy_locked(cache, value, target, BUILD.MAX_ARCHIVE, BUILD.Deadline(5))
         self.assertEqual(target.read_bytes(), content)
         self.assertTrue(stat.S_ISFIFO(source.lstat().st_mode))
-        self.assertEqual(len(opened), 1)
-        self.assertTrue(opened[0].closed)
+        self.assertEqual(len(opened), 2)
+        self.assertTrue(all(stream.closed for stream in opened))
 
     def test_locked_copy_rejects_growth_before_writing_excess_and_closes_fd(self):
         cache = self.root / 'copy-cache'
@@ -557,16 +561,21 @@ class FactoryCapacityTests(unittest.TestCase):
 
         def opening(path, limit):
             stream, metadata = real_open(path, limit)
-            if Path(path) == source and not opened:
+            if Path(path) == source:
                 opened.append(stream)
-                with source.open('ab') as append:
-                    append.write(b'owned growth')
+                # Exercise the copying bound after the initial input checksum
+                # succeeds, before the held copy descriptor reads any bytes.
+                if len(opened) == 2:
+                    self.assertTrue(opened[0].closed)
+                    with source.open('ab') as append:
+                        append.write(b'owned growth')
             return stream, metadata
 
         with mock.patch.object(BUILD, 'open_regular', side_effect=opening), \
-                self.assertRaisesRegex(ValueError, 'grew'):
+                self.assertRaisesRegex(ValueError, '^copied locked input exceeds byte limit$'):
             BUILD.copy_locked(cache, value, target, BUILD.MAX_ARCHIVE, BUILD.Deadline(5))
-        self.assertTrue(opened[0].closed)
+        self.assertEqual(len(opened), 2)
+        self.assertTrue(all(stream.closed for stream in opened))
         self.assertEqual(target.stat().st_size, 0)
 
     def test_compressed_archive_footer_cannot_cross_capacity_writer_limit(self):
