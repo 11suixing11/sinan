@@ -1,6 +1,21 @@
 use super::*;
 use std::collections::BTreeMap;
 
+mod transport_tests;
+
+#[test]
+fn huawei_signing_retains_and_sorts_all_encoded_query_pairs() {
+    let url = reqwest::Url::parse("https://dns.myhuaweicloud.com/v2/zones/00000000000000000000000000000001/recordsets?name=node.example.com.&name=*.example.com.&empty&name=*.example.com.&q=+&q=%2B").unwrap();
+    assert_eq!(
+        signing::huawei_query(&url),
+        "empty=&name=%2A.example.com.&name=%2A.example.com.&name=node.example.com.&q=%20&q=%2B"
+    );
+    assert_eq!(
+        signing::huawei_query(&reqwest::Url::parse("https://dns.myhuaweicloud.com/").unwrap()),
+        ""
+    );
+}
+
 #[test]
 fn independent_rfc3986_and_hmac_vectors_cover_unicode_and_all_provider_schemes() {
     assert_eq!(

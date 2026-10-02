@@ -23,7 +23,7 @@ async fn active_power_job_does_not_roll_back_fresh_billing_or_queue_bandwidth_ch
     let mut snapshot = response(&initial);
     snapshot.value["Instances"]["Instance"][0]["InternetMaxBandwidthOut"] = 10.into();
     snapshot.value["Instances"]["Instance"][0]["InternetChargeType"] = "PayByTraffic".into();
-    let mock=Mock::start(vec![Reply::ok("QueryInstanceBill",json!({"RequestId":"test-bill","Data":{"BillingCycle":billing::month(now),"PageNum":1,"TotalCount":1,"Items":{"Item":[{"ProductCode":"cdt","InstanceID":"test-instance","Usage":"100","UsageUnit":"GB","Currency":"CNY","PretaxAmount":"1.00"}]}}})),Reply::ok("ListCdtInternetTraffic",json!({"RequestId":"test-traffic","TrafficDetails":[{"BusinessRegionId":"cn-hangzhou","Traffic":100}]})),snapshot]).await;
+    let mock=Mock::start(vec![Reply::ok("QueryInstanceBill",json!({"RequestId":"test-bill","Data":{"BillingCycle":billing::month(now),"PageNum":1,"TotalCount":1,"Items":{"Item":[{"Item":"PayAsYouGoBill","ProductCode":"cdt","InstanceID":"test-instance","Usage":"100","UsageUnit":"GB","Currency":"CNY","PretaxAmount":"1.00"}]}}})),Reply::ok("ListCdtInternetTraffic",json!({"RequestId":"test-traffic","TrafficDetails":[{"BusinessRegionId":"cn-hangzhou","Traffic":100}]})),snapshot]).await;
     super::super::super::worker::refresh(&pool, a, &Cloud::local(&mock.endpoint))
         .await
         .unwrap();

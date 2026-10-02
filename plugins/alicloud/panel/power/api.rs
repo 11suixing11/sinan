@@ -187,21 +187,38 @@ async fn resume(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
+    input: Option<Json<Revision>>,
 ) -> ApiResult<StatusCode> {
     auth::require_admin(&state, &headers).await?;
-    let initial = resource(&state.pool, id).await?;
-    let mut tx = lock(&state.pool, initial.account_id).await?;
+    let Json(input) = input.ok_or_else(|| {
+        ApiError::BadRequest("请携带当前资源修订号恢复自动策略".into())
+    })?;
+    resume_on(&state.pool, id, input.revision).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Revision {
+    revision: i64,
+}
+pub(super) async fn resume_on(pool: &sqlx::PgPool, id: Uuid, revision: i64) -> ApiResult<()> {
+    let initial = resource(pool, id).await?;
+    let mut tx = lock(pool, initial.account_id).await?;
     let r = jobs::fresh(&mut tx, id).await?;
     if r.kind != "ecs" {
         return Err(ApiError::BadRequest("仅 ECS 支持启停策略".into()));
     }
+    if r.revision != revision {
+        return Err(ApiError::Conflict("启停策略或资源配置已变化，请刷新后重试".into()));
+    }
     operations::idle(&mut tx, id).await?;
-    sqlx::query("UPDATE alicloud_resources SET manual_hold=false,next_power_at=0 WHERE id=$1")
+    sqlx::query("UPDATE alicloud_resources SET manual_hold=false,next_power_at=0,revision=revision+1 WHERE id=$1")
         .bind(id)
         .execute(&mut *tx)
         .await?;
+    cancel_queued(&mut tx, id).await?;
     tx.commit().await?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(())
 }
 async fn cancel(
     State(state): State<AppState>,

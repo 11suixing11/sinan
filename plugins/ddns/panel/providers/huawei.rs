@@ -131,6 +131,11 @@ impl Huawei {
         let entries = list["recordsets"]
             .as_array()
             .ok_or(Failure::from("invalid_response"))?;
+        if list.get("links").is_some_and(|links| !links.is_object())
+            || list["links"].get("next").is_some_and(|next| !next.is_string())
+        {
+            return Err("invalid_response".into());
+        }
         if list["metadata"]["total_count"].as_u64() != Some(entries.len() as u64)
             || entries.len() > 100
             || list["links"]["next"]

@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 mod business_support;
+#[path = "alicloud/regressions.rs"]
+mod regressions;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
 use anyhow::Result;
@@ -383,17 +385,39 @@ async fn power_policy_validates_revisions_and_power_jobs_are_admin_only_and_canc
             .fetch_one(&pool)
             .await?
     );
+    let resume_path = format!("/api/plugins/alicloud/resources/{resource}/power-resume");
+    assert_eq!(
+        panel.admin(Method::POST, &resume_path, &cookie, None).await?.status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        panel.admin(Method::POST, &resume_path, &cookie, Some(json!({"revision":1}))).await?.status(),
+        StatusCode::CONFLICT
+    );
+    assert!(
+        sqlx::query_scalar::<_, bool>("SELECT manual_hold FROM alicloud_resources WHERE id=$1")
+            .bind(resource).fetch_one(&pool).await?
+    );
     assert_eq!(
         panel
             .admin(
                 Method::POST,
                 &format!("/api/plugins/alicloud/resources/{resource}/power-resume"),
                 &cookie,
-                None
+                Some(json!({"revision":2}))
             )
             .await?
             .status(),
         StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        panel.admin(Method::POST, &resume_path, &cookie, Some(json!({"revision":2}))).await?.status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT revision FROM alicloud_resources WHERE id=$1")
+            .bind(resource).fetch_one(&pool).await?,
+        3
     );
     let overview: Value = panel
         .admin(Method::GET, "/api/plugins/alicloud", &cookie, None)
