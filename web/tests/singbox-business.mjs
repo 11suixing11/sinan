@@ -124,7 +124,6 @@ try {
       else if (path === '/api/servers/1/enrollment') value = { token: 'TEST_ONLY_ENROLLMENT', expires_at: now + 3600, install_command: null, warning: '夹具未导入 Agent 制品。' }
       else if (path === '/api/artifacts/agent-versions' && route.request().method() === 'GET') value = { versions: [] }
       else if (['/api/servers/1/probes', '/api/servers/1/probe-results', '/api/servers/1/commands'].includes(path)) value = []
-      else if (path === '/api/security/passkeys') value = { configuration: { enabled: false, reason: 'TEST_ONLY 未启用' }, keys: [] }
       else if (path === '/api/security/totp') value = { enabled: false }
       else if (path === '/api/security/passkeys') value = { configuration: { enabled: false, reason: 'TEST_ONLY 未启用', origin: `http://127.0.0.1:${server.address().port}` }, keys: [] }
       else if (path.endsWith('/runtime-operations')) value = { supported:false,online:false,retiring:false,operations:[] }
@@ -246,6 +245,8 @@ try {
     await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '链路', exact: true }).click()
     await page.getByRole('heading', { name: '代理节点', exact: true, level: 1 }).waitFor()
     await page.getByRole('heading', { name: /^有序链路与资源引用/, level: 2 }).waitFor()
+    // The Nodes component and these headings remain mounted across category hash changes.
+    await page.locator('nav[aria-label="节点资源类型"] a[aria-current="page"]').filter({ hasText: /^链路$/ }).waitFor()
     assert.equal(await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '链路', exact: true }).getAttribute('aria-current'), 'page')
     assert.equal(await page.locator('nav[aria-label="主导航"]').getByRole('link', { name: '两跳链路', exact: true }).count(), 0)
     const chainMutationStart = mutations.length

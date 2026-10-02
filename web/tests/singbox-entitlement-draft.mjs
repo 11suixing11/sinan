@@ -71,8 +71,15 @@ try {
       const released = new Promise(resolve => { release = resolve })
       heldReads.set(pathname, { enter, released })
       const response = page.waitForResponse(response => new URL(response.url()).pathname === pathname && response.request().method() === 'GET' && response.status() === 200)
-      try { if (retry) await retry.click(); await arrived; await page.waitForTimeout(25); await pending() }
-      finally { release(); await response }
+      // Some editors use the page refresh callback rather than a dialog retry button.
+      void response.catch(() => {})
+      let triggered = false
+      try {
+        if (typeof retry === 'function') await retry()
+        else if (retry) await retry.click()
+        triggered = true
+        await arrived; await page.waitForTimeout(25); await pending()
+      } finally { release(); if (triggered) await response }
     }
     const blockedForm = async (dialog, label) => {
       assert.equal(await dialog.getByRole('button', { name: label, exact: true }).isDisabled(), true)
@@ -245,14 +252,14 @@ try {
     await failedRead(`${prefix}/package-groups`)
     await blockedForm(dialog, '确认分配')
     assert.equal(await dialog.locator('select[name="package_group_id"]').inputValue(), '2')
-    await recoverRead(`${prefix}/package-groups`, dialog.getByRole('button', { name: '重试', exact: true }), async () => {
+    await recoverRead(`${prefix}/package-groups`, () => page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).evaluate(button => button.click()), async () => {
       await blockedForm(dialog, '确认分配')
       assert.equal(await dialog.locator('select[name="package_group_id"]').inputValue(), '2')
     })
     await enabled(dialog.getByRole('button', { name: '确认分配', exact: true }))
     await failedRead(`${prefix}/users/1/entitlement`)
     await blockedForm(dialog, '确认分配')
-    await recoverRead(`${prefix}/users/1/entitlement`, dialog.getByRole('button', { name: '重试', exact: true }), async () => {
+    await recoverRead(`${prefix}/users/1/entitlement`, () => page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).evaluate(button => button.click()), async () => {
       await blockedForm(dialog, '确认分配')
       assert.equal(await dialog.locator('select[name="package_group_id"]').inputValue(), '2')
     })
@@ -317,7 +324,7 @@ try {
     await dialog.getByRole('textbox', { name: '代理用户名称', exact: true }).fill('已保留的用户草稿')
     await failedRead(`${prefix}/users`)
     await blockedForm(dialog, '保存修改')
-    await recoverRead(`${prefix}/users`, dialog.getByRole('button', { name: '重试', exact: true }), async () => {
+    await recoverRead(`${prefix}/users`, () => page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).evaluate(button => button.click()), async () => {
       await blockedForm(dialog, '保存修改')
       assert.equal(await dialog.getByRole('textbox', { name: '代理用户名称', exact: true }).inputValue(), '已保留的用户草稿')
     })

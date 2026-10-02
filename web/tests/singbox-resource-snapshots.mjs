@@ -176,7 +176,7 @@ try {
       const dialog = page.getByRole('dialog'); await dialog.getByLabel('任务名称').fill('TEST_ONLY 原修订草稿')
       tasks[0].revision = 2
       await nodesRefresh(page)
-      await dialog.getByText('此任务已不存在或已改变，请重新确认；当前草稿已保留。', { exact: true }).waitFor()
+      await dialog.getByText('延迟任务目标或版本已变化；草稿已保留。', { exact: true }).waitFor()
       await forceForm(dialog.locator('form')); assert.equal(writes.length, 0); ++totals.blocked
       assert.equal(await dialog.getByLabel('任务名称').inputValue(), 'TEST_ONLY 原修订草稿')
       await dialog.getByRole('button', { name: '取消', exact: true }).click()
