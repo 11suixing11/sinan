@@ -1496,8 +1496,8 @@ async fn retired_node_cleanup_keeps_damaged_ordered_owners_and_bounded_public_re
     assert_eq!(status, StatusCode::CREATED);
     let chain = ids(&created, "chain_ids")?[0];
     let entry = ids(&created, "entry_node_ids")?[0];
-    // TEST_ONLY damaged metadata lacks its desired immutable version. It still
-    // owns the dedicated entry, including after the server is retired.
+    // TEST_ONLY desired metadata points to a missing immutable version. The
+    // surviving candidate still owns the dedicated entry on a retired server.
     sqlx::query("UPDATE singbox_chains SET desired_generation=99 WHERE id=$1")
         .bind(chain)
         .execute(&pool)
@@ -1519,10 +1519,18 @@ async fn retired_node_cleanup_keeps_damaged_ordered_owners_and_bounded_public_re
         assert_eq!(response.status(), StatusCode::CONFLICT);
         let error: Value = response.json().await?;
         no_private_fields(&error);
-        assert!(
-            error["error"]
-                .as_str()
-                .is_some_and(|value| value.contains("仍被"))
+        assert!(error["error"].as_str().is_some_and(|value| value.contains("仍被")));
+        assert_eq!(error["references"]["policies"], json!([]));
+        assert_eq!(
+            error["references"]["chains"],
+            json!([{
+                "id":chain,
+                "name":"Retained owner",
+                "role":"entry",
+                "generation":1,
+                "hop_position":null,
+                "state":"candidate"
+            }])
         );
     }
     assert_eq!(state(&pool).await?, before);
@@ -1537,6 +1545,31 @@ async fn retired_node_cleanup_keeps_damaged_ordered_owners_and_bounded_public_re
         StatusCode::CONFLICT
     );
     assert_eq!(state(&pool).await?, before);
+    // TEST_ONLY corrupt the remaining pointer too, without altering immutable
+    // history. Missing projections must not free an unresolved entry owner.
+    sqlx::query("UPDATE singbox_chains SET candidate_generation=99 WHERE id=$1")
+        .bind(chain)
+        .execute(&pool)
+        .await?;
+    let before = state(&pool).await?;
+    for path in &paths {
+        let response = panel
+            .admin(Method::DELETE, &format!("{ROOT}{path}"), &cookie, None)
+            .await?;
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let error: Value = response.json().await?;
+        no_private_fields(&error);
+        assert!(error["error"].as_str().is_some_and(|value| value.contains("仍被")));
+        assert!(error.get("references").is_none());
+    }
+    assert_eq!(state(&pool).await?, before);
+    let generations: Vec<i64> = sqlx::query_scalar(
+        "SELECT generation FROM singbox_ordered_chain_versions WHERE chain_id=$1 ORDER BY generation",
+    )
+    .bind(chain)
+    .fetch_all(&pool)
+    .await?;
+    assert_eq!(generations, vec![1]);
     // Preserved/corrupt policy references must block deletion without producing
     // an unbounded response or leaking private endpoint configuration.
     for index in 0..40 {
