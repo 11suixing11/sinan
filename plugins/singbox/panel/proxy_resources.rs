@@ -553,7 +553,11 @@ fn reference_error(
         .map(|reference| &mut reference.name)
         .chain(chains.iter_mut().map(|reference| &mut reference.name))
     {
-        *name = name.chars().filter(|value| !value.is_control()).take(128).collect();
+        *name = name
+            .chars()
+            .filter(|value| !value.is_control())
+            .take(128)
+            .collect();
     }
     let mut names: Vec<String> = policies
         .iter()
