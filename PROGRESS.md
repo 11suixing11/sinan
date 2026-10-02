@@ -2,6 +2,14 @@
 
 使用入口见[文档导航](docs/README.md)，修改代码前可查[目录与维护约定](docs/repository.md)；设计和验收历史分别从 [ADR 索引](docs/adr/README.md)与[验收索引](docs/acceptance/README.md)进入。
 
+## 2026-10-02：PR #148 多云功能与保护补修
+
+- 审查作者 `366f2f5 → 478043a → 403da459`，保存本聊天补修后正常整合作者推进。作者同期合入上游 `1f4ea0b` 后，通过后续 [PR #150](https://github.com/theLucius7/sinan/pull/150) 普通交付已验证保护补修；原 main `3e99ce9` 与作者祖先全部保留，不 force，不改其他任务工作树。
+- 补云/DNS 实际提交当前快照、账号/资源修订与预览意图保护；未知回执期间不换凭据，人工结束未知变配同时暂停降速与启停，恢复/移除修订校验，保活从实际失败响应起冷却。账单控制要求明确后付 GB 项目与身份、完整分页及不重复计费维度，退款/调整/缺字段只保留展示；供应商签名和异常分页/权重/锁状态拒绝边界保持。
+- 运行输入冻结 `1a00e5a`，实现全部完成后统一最终验证：Rust/PostgreSQL 同默认 workspace/lock 分 73 批覆盖 89 metadata 目标，788/0/20；首 19 批与续跑 54 批认证，原工具误认共享夹具的未认证 diagnostics 23 项不叠加。fmt/core/全 targets Clippy、macOS umask077、另列回环 ICMP 通过。自己的 PostgreSQL 已停。
+- Bun69/1429、双强制 TS/Vite、23 dist 逐字复现；八组受影响 Chromium 为首六通过加两份旧预期夹具修正后通过，外部演练不叠加，全部私有 API。实际编译 debug-embed 逐资产 GET/HEAD 与当前 23 dist 及根 index 一致。后续 `830b3dd` 只改两份浏览器夹具，整合最新 main 的 `6243ae6` 整树相同；全部运行输入保持原验证边界。
+- 旧 35 SQL、作者新 36–38、lock/workflow、固定来源/许可/helper、NQ full 门禁与旧正式接入守卫保留。605 本地链接及 actionlint/core 通过，收尾文档另核对。CI 继续暂停；未执行真实云/DNS/计费/通知、原生设备验收或正式签署发布部署。完整来源与首轮失败见[整合记录](docs/acceptance/pr148-cloud-guards-integration.md)。
+
 ## 2026-10-02：项目入口与文档整理
 
 - 作者在其 fork 的 `main`（功能基线 `478043a`，整理提交 `403da459`）整理；本聊天上游整合基线为 `3e99ce9`。面板共享状态迁入 `state.rs`，HTTP 路由按系统、服务器、诊断、Agent 和制品分组，crate 根保留原公共导出。逐条比较 85 个直接注册路由，HTTP 方法、处理函数和路由级限制一致；插件处理与通用鉴权不搬迁。
