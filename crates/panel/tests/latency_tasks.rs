@@ -67,7 +67,7 @@ async fn assignment_defaults_keep_wire_compatibility_and_preserve_measurement_id
         .await?;
     assert_eq!(legacy[0].as_object().unwrap().len(), 8);
     assert_eq!(legacy[0]["enabled"], false);
-    assert!(probes[0].runnable(sinan_protocol::now_timestamp()));
+    assert!(!probes[0].runnable(sinan_protocol::now_timestamp()));
     assert_eq!(probes.len(), 1);
     let probe_id = probes[0].id;
     assert_ne!(probe_id.to_string(), task["id"].as_str().unwrap());
@@ -143,7 +143,7 @@ async fn assignment_defaults_keep_wire_compatibility_and_preserve_measurement_id
         0
     );
     panel
-        .admin(Method::DELETE, &path, &cookie, None)
+        .admin(Method::DELETE, &path, &cookie, Some(json!({"revision":3})))
         .await?
         .error_for_status()?;
     assert_eq!(

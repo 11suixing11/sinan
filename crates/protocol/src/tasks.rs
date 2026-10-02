@@ -90,6 +90,8 @@ pub struct CommandResult {
 
 mod probes;
 pub use probes::*;
+mod probe_leases;
+pub use probe_leases::*;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProbeBatch {

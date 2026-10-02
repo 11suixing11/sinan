@@ -7,6 +7,8 @@ use anyhow::Result;
 use business_support::TestPanel;
 use reqwest::{Method, StatusCode};
 use serde_json::json;
+use sha2::Digest;
+use sinan_panel::probes::ConfiguredProbe;
 use sinan_protocol::{
     CommandResult, CommandStatus, ProbeBatch, ProbeKind, ProbeResult, ProbeSpec, RemoteCommand,
     TaskAck, now_timestamp, telemetry::now_millis,
@@ -144,7 +146,7 @@ async fn probes_preserve_missing_latency_deduplicate_and_acknowledge_deleted_tar
         execution_authorized: None,
         enabled: true,
     };
-    let spec: ProbeSpec = panel
+    let spec: ConfiguredProbe = panel
         .admin(
             Method::POST,
             &format!("/api/servers/{server}/probes"),
@@ -155,6 +157,14 @@ async fn probes_preserve_missing_latency_deduplicate_and_acknowledge_deleted_tar
         .error_for_status()?
         .json()
         .await?;
+    let issued = probe_support::issued(
+        &panel.state.pool,
+        &panel.client,
+        &panel.base,
+        server,
+        &ack.session_token,
+    )
+    .await?;
     let result = ProbeResult {
         id: Uuid::new_v4(),
         probe_id: spec.id,
@@ -164,6 +174,7 @@ async fn probes_preserve_missing_latency_deduplicate_and_acknowledge_deleted_tar
         address_family: None,
         error: None,
         attempts: None,
+        execution: Some(probe_support::execution(&issued, spec.id)?),
     };
     let endpoint = format!("{}/api/agent/v1/probe-results", panel.base);
     for _ in 0..2 {
@@ -210,7 +221,7 @@ async fn probes_preserve_missing_latency_deduplicate_and_acknowledge_deleted_tar
             Method::DELETE,
             &format!("/api/servers/{server}/probes/{}", spec.id),
             &cookie,
-            None,
+            Some(json!({"revision":spec.revision})),
         )
         .await?
         .error_for_status()?;
@@ -244,7 +255,7 @@ async fn probe_destination_is_immutable_and_metadata_edits_preserve_offline_hist
     let (server, _socket, ack) = panel
         .authenticated_device(&cookie, "probe identity")
         .await?;
-    let mut original: ProbeSpec = panel
+    let mut original: ConfiguredProbe = panel
         .admin(
             Method::POST,
             &format!("/api/servers/{server}/probes"),
@@ -256,15 +267,24 @@ async fn probe_destination_is_immutable_and_metadata_edits_preserve_offline_hist
         .json()
         .await?;
     original.execution_authorized = None;
+    let issued = probe_support::issued(
+        &panel.state.pool,
+        &panel.client,
+        &panel.base,
+        server,
+        &ack.session_token,
+    )
+    .await?;
     let sample = ProbeResult {
         id: Uuid::new_v4(),
         probe_id: original.id,
-        sampled_at: now_millis() - 1000,
+        sampled_at: now_millis(),
         latency_ms: Some(0.0),
         loss_percent: 0.0,
         address_family: None,
         error: None,
         attempts: None,
+        execution: Some(probe_support::execution(&issued, original.id)?),
     };
     let endpoint = format!("{}/api/agent/v1/probe-results", panel.base);
     panel
@@ -311,7 +331,7 @@ async fn probe_destination_is_immutable_and_metadata_edits_preserve_offline_hist
                 .bind(original.id)
                 .fetch_one(&panel.state.pool)
                 .await?;
-        assert_eq!(serde_json::from_value::<ProbeSpec>(spec)?, original);
+        assert_eq!(serde_json::from_value::<ProbeSpec>(spec)?, original.spec);
         let preserved: (serde_json::Value, String) =
             sqlx::query_as("SELECT result,digest FROM probe_results WHERE id=$1")
                 .bind(sample.id)
@@ -323,7 +343,7 @@ async fn probe_destination_is_immutable_and_metadata_edits_preserve_offline_hist
     metadata.name = "更新名称".into();
     metadata.interval_secs = 30;
     metadata.enabled = false;
-    let updated: ProbeSpec = panel
+    let updated: ConfiguredProbe = panel
         .admin(
             Method::PATCH,
             &path,
@@ -335,11 +355,12 @@ async fn probe_destination_is_immutable_and_metadata_edits_preserve_offline_hist
         .json()
         .await?;
     metadata.execution_authorized = Some(true);
+    metadata.revision = updated.revision;
     assert_eq!(updated, metadata);
-    // A paused or renamed destination still owns samples queued by an offline Agent.
+    // Exact accepted history still ACKs after pause; new stale-revision samples are discarded.
     let mut offline = sample.clone();
     offline.id = Uuid::new_v4();
-    offline.sampled_at -= 10_000;
+    offline.sampled_at = sample.sampled_at;
     offline.latency_ms = None;
     offline.loss_percent = 100.0;
     let received: TaskAck = panel
@@ -375,7 +396,7 @@ async fn probe_destination_is_immutable_and_metadata_edits_preserve_offline_hist
         .error_for_status()?
         .json()
         .await?;
-    assert_eq!(history, vec![sample, offline]);
+    assert_eq!(history, vec![sample]);
     let overview: Vec<serde_json::Value> = panel
         .admin(Method::GET, "/api/probes/overview", &cookie, None)
         .await?
@@ -383,7 +404,7 @@ async fn probe_destination_is_immutable_and_metadata_edits_preserve_offline_hist
         .json()
         .await?;
     assert_eq!(overview.len(), 1);
-    assert_eq!(overview[0]["probe"], serde_json::to_value(&metadata)?);
+    assert_eq!(overview[0]["probe"], serde_json::to_value(&metadata.spec)?);
     assert_eq!(overview[0]["results"], serde_json::to_value(history)?);
     Ok(())
 }
@@ -404,7 +425,7 @@ async fn probe_display_is_authenticated_target_bounded_and_preserves_full_day_hi
         (server, "历史"),
         (other, "其他设备"),
     ] {
-        let spec: ProbeSpec = panel.admin(Method::POST, &format!("/api/servers/{owner}/probes"), &cookie,
+        let spec: ConfiguredProbe = panel.admin(Method::POST, &format!("/api/servers/{owner}/probes"), &cookie,
             Some(probe_support::authorized(json!({"id":Uuid::nil(),"name":name,"kind":"icmp","target":"127.0.0.1","port":null,"interval_secs":10,"carrier":"测试线路","enabled":true}))))
             .await?.error_for_status()?.json().await?;
         definitions.push(spec);
@@ -436,19 +457,19 @@ async fn probe_display_is_authenticated_target_bounded_and_preserves_full_day_hi
                 address_family: None,
                 error: (index == 1).then(|| "ICMP tool unavailable".into()),
                 attempts: None,
+                execution: None,
             })
         })
         .collect();
-    panel
-        .client
-        .post(format!("{}/api/agent/v1/probe-results", panel.base))
-        .bearer_auth(&ack.session_token)
-        .json(&ProbeBatch {
-            results: samples.clone(),
-        })
-        .send()
-        .await?
-        .error_for_status()?;
+    // Seed genuine legacy-shaped fixture history, without inventing an issuance
+    // receipt for timestamps predating this test's live session.
+    for result in &samples {
+        let value = serde_json::to_value(result)?;
+        let digest = format!("{:x}", sha2::Sha256::digest(serde_json::to_vec(result)?));
+        sqlx::query("INSERT INTO probe_results(id,server_id,probe_id,sampled_at,result,digest) VALUES($1,$2,$3,$4,$5,$6)")
+            .bind(result.id).bind(server).bind(result.probe_id).bind(result.sampled_at).bind(value).bind(digest)
+            .execute(&panel.state.pool).await?;
+    }
     let overview: Vec<serde_json::Value> = panel
         .admin(Method::GET, "/api/probes/overview", &cookie, None)
         .await?

@@ -17,6 +17,6 @@ export default function ProbeAuthorizationFields({ probe, onChange, editing = fa
       <label>授权到期（UTC）<input type="datetime-local" min="1970-01-01T00:00" max="9999-12-31T23:59" value={authorization.expires_at == null ? '' : new Date(authorization.expires_at * 1000).toISOString().slice(0, 16)} onChange={event => authorize({ expires_at: event.target.value ? Math.floor(Date.parse(event.target.value + 'Z') / 1000) : null })} /><small>留空表示授权未设到期，请按实际记录填写。</small></label>
     </div>
     <label><input required={probe.enabled} type="checkbox" checked={authorization.enabled && authorizationMatches(probe)} onChange={event => authorize({ enabled: event.target.checked })} />确认有权按上述范围检测此目标</label>
-    <p className="helper">不预置公共测速服务器。改变目标、端口、方式或地址家族后须重新勾选确认。撤销需 Agent 同步后生效，断连时不能即时收到撤销；建议按实际授权设置到期。兼容 Agent 在到期后停止新探测，历史保留。填写记录不等于系统代为取得授权。旧 Agent 需先升级到支持授权检查的版本。</p>
+    <p className="helper">不预置公共测速服务器。改变目标、端口、方式或地址家族后须重新勾选确认。执行许可最长 90 秒；断连、授权撤销或许可到期会取消在途检测，冷启动须重新取得许可，历史保留。填写记录不等于系统代为取得授权。旧 Agent 需先升级到支持短期拨测许可的版本。</p>
   </>
 }

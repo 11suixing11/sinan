@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { familyLabel, authorizationMatches, bindProbeAuthorization, changeProbe, lossLabel, probeSlots, probeState, probeTone, probeValue } from '../src/probes'
+import { probeWriteError, familyLabel, authorizationMatches, bindProbeAuthorization, changeProbe, lossLabel, probeSlots, probeState, probeTone, probeValue } from '../src/probes'
 import type { Probe, ProbeResult } from '../src/probes'
 
 const probe: Probe = { id: 'probe', name: '回环', kind: 'icmp', target: '127.0.0.1', port: null, interval_secs: 10, carrier: '', enabled: true, monitor: { region: '', address_family: 'any', authorization: { kind: 'owned', source: 'TEST_ONLY owner', scope: 'TEST_ONLY owned loopback measurement', enabled: true, expires_at: null, identity: { kind: 'icmp', target: '127.0.0.1', port: null, address_family: 'any' } } } }
@@ -77,4 +77,23 @@ test('unconfirmed targets are inert and actual four failed connections keep meas
   expect(probeState(probe, failed, 101_000)).toBe('最近采样')
   expect(familyLabel(probe, failed)).toBe('IPv6')
   expect(probeValue({ ...failed, attempts: undefined }, 'loss_percent')).toBeNull()
+})
+
+
+test('probe edits and deletion require the same positive safe persisted revision', () => {
+  const current: Probe = { ...probe, revision: 4 }
+  expect(probeWriteError(current, { ...current })).toBe('')
+  for (const revision of [undefined, null, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])
+    expect(probeWriteError({ ...current, revision }, current)).toContain('草稿已保留')
+  expect(probeWriteError(current, undefined)).toContain('草稿已保留')
+  expect(probeWriteError(current, { ...current, revision: 5 })).toContain('草稿已保留')
+})
+
+test('admin revision survives binding while public presentation cannot confer a grant', () => {
+  const current: Probe = { ...probe, revision: 7, execution_authorized: true, monitor: null }
+  const payload = bindProbeAuthorization(current)
+  expect(payload.revision).toBe(7)
+  expect(payload.enabled).toBe(false)
+  expect(payload.execution_authorized).toBeUndefined()
+  expect(payload.monitor).toBeNull()
 })

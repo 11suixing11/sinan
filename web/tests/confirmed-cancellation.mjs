@@ -38,7 +38,7 @@ try {
     else if (path === '/api/plugins/sing-box/servers/1/deployments') value = { status: null, history: [] }
     else if (path === '/api/servers/1/agent-settings') value = { sample_interval_secs: 1, upload_interval_secs: 5, discover_public_ips: false, auto_update: false }
     else if (path === '/api/servers/1/telemetry-settings') value = { persist_interval_secs: 60 }
-    else if (path === '/api/servers/1/node-quality/reports') value = { plugin_ready: true, plugin_reason: null, cancel_supported: supported, reports: [record] }
+    else if (path === '/api/servers/1/node-quality/reports') value = { plugin_ready: true, plugin_reason: null, full_ready: false, daily_ready: true, cancel_supported: supported, reports: [record] }
     else if (path === `/api/servers/1/diagnostics/${id}/cancel`) {
       assert.equal(route.request().method(), 'POST')
       cancelPosts++
@@ -50,30 +50,49 @@ try {
   })
   const origin = `http://127.0.0.1:${server.address().port}`
   await page.goto(`${origin}/#/servers/1/node-quality`)
+  record.status = 'cleaning'
+  record.error = '原执行结果：测试超时；清理原因：设备仍有活动进程或挂载'
+  await page.reload()
+  await page.getByText('等待设备确认清理', { exact: true }).waitFor()
+  await page.getByText(record.error, { exact: true }).waitFor()
+  assert.equal(await page.getByText('报告已完成', { exact: true }).count(), 0)
+  assert.equal(await page.getByRole('button', { name: '日常检查', exact: true }).isDisabled(), true)
+  if (!(await page.locator('details.quality-report-text').evaluate(element => element.open))) await page.getByText('查看报告文本', { exact: true }).click()
+  assert.equal(await page.getByText(report, { exact: true }).isVisible(), true)
+  await page.setViewportSize({ width: 390, height: 844 })
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true)
+  await page.setViewportSize({ width: 1280, height: 900 })
   await page.getByRole('button', { name: '请求取消测试', exact: true }).click()
   await page.getByText('等待设备确认取消', { exact: true }).waitFor()
   assert.equal(cancelPosts, 1)
   assert.equal(await page.getByText('设备已确认取消', { exact: true }).count(), 0)
-  await page.getByText('查看报告文本', { exact: true }).click()
+  if (!(await page.locator('details.quality-report-text').evaluate(element => element.open))) await page.getByText('查看报告文本', { exact: true }).click()
   assert.equal(await page.getByText(report, { exact: true }).isVisible(), true)
   record.cancel_error = '设备仍有活动进程或挂载，将继续重试'
   await page.reload()
   await page.getByText(record.cancel_error, { exact: true }).waitFor()
   assert.equal(await page.getByText('等待设备确认取消', { exact: true }).isVisible(), true)
-  record.status = 'cancelled'; record.agent_completed = true; record.cancel_error = null
+  record.status = 'cancelled'; record.agent_completed = true; record.cancel_error = null; record.error = null
   // The existing page must pick up confirmation through its normal poll.
   await page.getByText('设备已确认取消', { exact: true }).waitFor({ timeout: 10_000 })
-  await page.getByText('查看报告文本', { exact: true }).click()
+  if (!(await page.locator('details.quality-report-text').evaluate(element => element.open))) await page.getByText('查看报告文本', { exact: true }).click()
   assert.equal(await page.getByText(report, { exact: true }).isVisible(), true)
   record.status = 'running'; record.agent_completed = false; supported = false
   await page.reload()
   await page.getByText('此 Agent 或服务后端不支持确认式取消，请先升级。', { exact: true }).waitFor()
   assert.equal(await page.getByRole('button', { name: '请求取消测试', exact: true }).isDisabled(), true)
   assert.equal(cancelPosts, 1)
+  record.status = 'cleaning'; record.error = '设备重启后继续等待清理'; supported = true
+  await page.reload()
+  await page.getByText('等待设备确认清理', { exact: true }).waitFor()
+  record.status = 'succeeded'; record.agent_completed = true; record.error = null
+  await page.getByText('报告已完成', { exact: true }).waitFor({ timeout: 10_000 })
+  assert.equal(await page.getByRole('button', { name: '请求取消测试', exact: true }).count(), 0)
+  assert.equal(await page.getByRole('button', { name: '日常检查', exact: true }).isEnabled(), true)
   await page.setViewportSize({ width: 390, height: 844 })
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true)
   assert.deepEqual(errors, [])
-  console.log('PASS: bundled desktop/mobile UI, pending/failed cleanup/confirmed/legacy states, reports preserved, no premature terminal state')
+  console.log('PASS: bundled desktop/mobile UI, automatic cleanup pending/restart/final, cancellation pending/failed/confirmed/legacy states, reports preserved, no premature terminal state')
 } finally {
   await browser.close()
   await new Promise(resolve => server.close(resolve))

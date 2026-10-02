@@ -92,7 +92,7 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
               <ProbeMonitoringFields value={probe.monitoring} onChange={monitoring => updateProbe(probe.key, { monitoring })} />
               <p className="server-setup-help">{probe.kind === 'icmp' ? '设备需具备 ICMP 检测权限；工具或权限不可用时会显示检测错误。' : 'TCP 通过建立连接测量可达性，连接失败率与 ICMP 丢包率分别展示。'}</p>
             </div>)}
-            {probes.length > 0 && <p className="server-setup-help">已配置 {probes.length} / 32 个目标。已确认目标授权后才开始调度，可在服务器详情中编辑、撤销授权或暂停。</p>}
+            {probes.length > 0 && <p className="server-setup-help">已配置 {probes.length} / 32 个目标。已确认目标授权且新版 Agent 取得最长 90 秒执行许可后才开始调度。断连和冷启动不沿用许可，可在服务器详情中编辑、撤销授权或暂停。</p>}
           </section>
         </fieldset>
         <ErrorNotice message={action.error} />

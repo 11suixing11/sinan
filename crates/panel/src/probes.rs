@@ -9,9 +9,122 @@ use axum::{
 };
 use sha2::{Digest, Sha256};
 use sinan_protocol::{
-    ProbeBatch, ProbeResult, ProbeSpec, TaskAck, now_timestamp, telemetry::now_millis,
+    AuthorizedProbe, MAX_PROBE_LEASE_SECS, PROBE_LEASE_CAPABILITY, ProbeBatch, ProbeLease,
+    ProbeResult, ProbeSpec, TaskAck, now_timestamp, telemetry::now_millis,
 };
+use sqlx::{Postgres, Transaction};
+use std::collections::BTreeMap;
 use uuid::Uuid;
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct ConfiguredProbe {
+    #[serde(flatten)]
+    pub spec: ProbeSpec,
+    pub revision: Option<i64>,
+}
+
+impl std::ops::Deref for ConfiguredProbe {
+    type Target = ProbeSpec;
+    fn deref(&self) -> &ProbeSpec {
+        &self.spec
+    }
+}
+
+impl std::ops::DerefMut for ConfiguredProbe {
+    fn deref_mut(&mut self) -> &mut ProbeSpec {
+        &mut self.spec
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ConfiguredProbe {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let mut value = serde_json::Value::deserialize(deserializer)?;
+        let fields = value
+            .as_object_mut()
+            .ok_or_else(|| serde::de::Error::custom("probe configuration must be an object"))?;
+        let revision = fields
+            .remove("revision")
+            .map(serde_json::from_value::<Option<i64>>)
+            .transpose()
+            .map_err(serde::de::Error::custom)?
+            .flatten();
+        let spec = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        Ok(Self { spec, revision })
+    }
+}
+
+pub(crate) async fn bump_revision(
+    tx: &mut Transaction<'_, Postgres>,
+    server: i64,
+) -> ApiResult<()> {
+    sqlx::query("UPDATE servers SET probe_revision=probe_revision+1 WHERE id=$1")
+        .bind(server)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+async fn lock_server(tx: &mut Transaction<'_, Postgres>, server: i64) -> ApiResult<()> {
+    crate::latency_tasks::lock(tx).await?;
+    sqlx::query("SELECT id FROM servers WHERE id=$1 AND deleted_at IS NULL FOR UPDATE")
+        .bind(server)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    Ok(())
+}
+
+fn probe_digest(probe: &AuthorizedProbe) -> ApiResult<String> {
+    let canonical = serde_json::to_value(probe).map_err(anyhow::Error::from)?;
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&canonical).map_err(anyhow::Error::from)?)
+    ))
+}
+
+async fn eligible(
+    connection: &mut sqlx::PgConnection,
+    server: i64,
+    at: i64,
+) -> ApiResult<Vec<AuthorizedProbe>> {
+    let rows: Vec<(Uuid, serde_json::Value)> = sqlx::query_as(
+        "SELECT id,spec FROM network_probes WHERE server_id=$1 ORDER BY id LIMIT 33",
+    )
+    .bind(server)
+    .fetch_all(connection)
+    .await?;
+    if rows.len() > 32 {
+        return Err(ApiError::Conflict("拨测目标超过配置上限".into()));
+    }
+    Ok(rows
+        .into_iter()
+        .filter_map(|(id, value)| {
+            let mut spec: ProbeSpec = serde_json::from_value(value).ok()?;
+            spec.execution_authorized = None;
+            if spec.id != id || !spec.runnable_at(at) {
+                return None;
+            }
+            let authorization = spec.monitor.as_ref()?.authorization.clone()?;
+            Some(AuthorizedProbe {
+                spec,
+                authorization,
+            })
+        })
+        .collect())
+}
+
+fn session_hash(headers: &HeaderMap) -> ApiResult<String> {
+    let token = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .filter(|value| !value.is_empty() && value.len() <= 512)
+        .ok_or(ApiError::Unauthorized)?;
+    Ok(auth::hash_token(token))
+}
 
 #[derive(serde::Serialize)]
 pub struct Overview {
@@ -67,18 +180,20 @@ pub async fn list(
     Path(server): Path<i64>,
 ) -> ApiResult<Json<Vec<serde_json::Value>>> {
     auth::require_admin(&state, &headers).await?;
-    let rows: Vec<(serde_json::Value, Option<Uuid>)> =
-        sqlx::query_as("SELECT spec,task_id FROM network_probes WHERE server_id=$1 ORDER BY id")
-            .bind(server)
-            .fetch_all(&state.pool)
-            .await?;
+    let rows: Vec<(serde_json::Value, Option<Uuid>, i64)> = sqlx::query_as(
+        "SELECT spec,task_id,revision FROM network_probes WHERE server_id=$1 ORDER BY id",
+    )
+    .bind(server)
+    .fetch_all(&state.pool)
+    .await?;
     Ok(Json(
         rows.into_iter()
-            .map(|(mut spec, task)| {
+            .map(|(mut spec, task, revision)| {
                 spec["execution_authorized"] = serde_json::json!(
                     serde_json::from_value::<ProbeSpec>(spec.clone())
                         .is_ok_and(|spec| spec.authorized_at(now_timestamp()))
                 );
+                spec["revision"] = serde_json::json!(revision);
                 if let Some(task) = task {
                     spec["task_id"] = serde_json::json!(task);
                 }
@@ -147,7 +262,7 @@ pub async fn agent_list(
         let mut wire = serde_json::json!({"id":spec.id,"name":spec.name,"kind":spec.kind,"target":spec.target,
             "port":spec.port,"interval_secs":spec.interval_secs,"carrier":spec.carrier,"enabled":false});
         if query.authorization == Some(1) {
-            wire["enabled"] = serde_json::json!(spec.runnable_at(now_timestamp()));
+            wire["enabled"] = serde_json::json!(false);
             if let Some(monitor) = spec.monitor { wire["monitor"] = serde_json::json!({"region":monitor.region,"address_family":monitor.address_family,"authorization":monitor.authorization}); }
         }
         wire
@@ -162,25 +277,103 @@ pub async fn agent_authorized_list(
     let mut specs = read(&state, server).await?;
     for spec in &mut specs.0 {
         spec.execution_authorized = None;
+        spec.enabled = false;
     }
     Ok(specs)
+}
+
+pub async fn agent_lease(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> ApiResult<Json<ProbeLease>> {
+    let server = auth::require_agent(&state, &headers).await?;
+    let session_hash = session_hash(&headers)?;
+    let mut tx = state.pool.begin().await?;
+    lock_server(&mut tx, server).await?;
+    let (mut revision, capabilities, previous_fingerprint): (
+        i64,
+        serde_json::Value,
+        Option<String>,
+    ) = sqlx::query_as(
+        "SELECT probe_revision,capabilities,probe_fingerprint FROM servers WHERE id=$1",
+    )
+    .bind(server)
+    .fetch_one(&mut *tx)
+    .await?;
+    if !capabilities.as_array().is_some_and(|values| {
+        values
+            .iter()
+            .any(|value| value.as_str() == Some(PROBE_LEASE_CAPABILITY))
+    }) {
+        return Err(ApiError::Conflict(
+            "此 Agent 尚不支持可撤销拨测租约，请先升级 Agent".into(),
+        ));
+    }
+    let issued_at = now_timestamp();
+    let probes = eligible(&mut tx, server, issued_at).await?;
+    let digests: BTreeMap<_, _> = probes
+        .iter()
+        .map(|probe| Ok((probe.spec.id.to_string(), probe_digest(probe)?)))
+        .collect::<ApiResult<_>>()?;
+    let fingerprint = format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&digests).map_err(anyhow::Error::from)?)
+    );
+    if previous_fingerprint.as_deref() != Some(fingerprint.as_str()) {
+        revision = sqlx::query_scalar("UPDATE servers SET probe_revision=probe_revision+1,probe_fingerprint=$2 WHERE id=$1 RETURNING probe_revision")
+            .bind(server).bind(fingerprint).fetch_one(&mut *tx).await?;
+    }
+    let saved: Option<(Uuid, i64, i64, serde_json::Value)> = sqlx::query_as(
+        "SELECT id,issued_at,expires_at,probe_digests FROM probe_leases WHERE server_id=$1 AND revision=$2 AND issued_at>$3 AND expires_at>$4 AND session_hash=$5 ORDER BY issued_at DESC,id DESC LIMIT 1",
+    ).bind(server).bind(revision).bind(issued_at - 25).bind(issued_at).bind(&session_hash)
+        .fetch_optional(&mut *tx).await?;
+    if let Some((id, issued_at, expires_at, saved)) = saved
+        && saved == serde_json::to_value(&digests).map_err(anyhow::Error::from)?
+    {
+        tx.commit().await?;
+        return Ok(Json(ProbeLease {
+            id,
+            server_id: server,
+            revision: revision as u64,
+            issued_at,
+            expires_at,
+            probes,
+        }));
+    }
+    let expires_at = probes
+        .iter()
+        .filter_map(|probe| probe.authorization.expires_at)
+        .fold(issued_at + MAX_PROBE_LEASE_SECS, i64::min);
+    let lease = ProbeLease {
+        id: Uuid::new_v4(),
+        server_id: server,
+        revision: revision as u64,
+        issued_at,
+        expires_at,
+        probes,
+    };
+    sqlx::query("INSERT INTO probe_leases(id,server_id,revision,issued_at,expires_at,probe_digests,session_hash) VALUES($1,$2,$3,$4,$5,$6,$7)")
+        .bind(lease.id).bind(server).bind(revision).bind(issued_at).bind(expires_at)
+        .bind(serde_json::to_value(digests).map_err(anyhow::Error::from)?).bind(session_hash)
+        .execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM probe_leases WHERE server_id=$1 AND (issued_at<$2 OR id IN (SELECT id FROM probe_leases WHERE server_id=$1 ORDER BY issued_at DESC,id DESC OFFSET 512))")
+        .bind(server).bind(issued_at - 3 * 3_600).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(Json(lease))
 }
 
 pub async fn create(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(server): Path<i64>,
-    Json(mut spec): Json<ProbeSpec>,
-) -> ApiResult<Json<ProbeSpec>> {
+    Json(mut input): Json<ConfiguredProbe>,
+) -> ApiResult<Json<ConfiguredProbe>> {
+    let spec = &mut input.spec;
     auth::require_admin(&state, &headers).await?;
     spec.id = Uuid::new_v4();
-    prepare_write(&mut spec)?;
+    prepare_write(spec)?;
     let mut tx = state.pool.begin().await?;
-    sqlx::query("SELECT id FROM servers WHERE id=$1 AND deleted_at IS NULL FOR UPDATE")
-        .bind(server)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(ApiError::NotFound)?;
+    lock_server(&mut tx, server).await?;
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM network_probes WHERE server_id=$1")
         .bind(server)
         .fetch_one(&mut *tx)
@@ -194,23 +387,28 @@ pub async fn create(
         .bind(serde_json::to_value(&spec).map_err(anyhow::Error::from)?)
         .execute(&mut *tx)
         .await?;
+    bump_revision(&mut tx, server).await?;
     tx.commit().await?;
-    Ok(Json(presentation(spec)))
+    input.spec = presentation(input.spec);
+    input.revision = Some(1);
+    Ok(Json(input))
 }
 
 pub async fn update(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path((server, id)): Path<(i64, Uuid)>,
-    Json(mut spec): Json<ProbeSpec>,
-) -> ApiResult<Json<ProbeSpec>> {
+    Json(mut input): Json<ConfiguredProbe>,
+) -> ApiResult<Json<ConfiguredProbe>> {
+    let spec = &mut input.spec;
     auth::require_admin(&state, &headers).await?;
     if spec.id != id {
         return Err(ApiError::BadRequest("拨测配置无效".into()));
     }
     let mut tx = state.pool.begin().await?;
-    let (previous, task): (serde_json::Value, Option<Uuid>) = sqlx::query_as(
-        "SELECT spec,task_id FROM network_probes WHERE server_id=$1 AND id=$2 FOR UPDATE",
+    lock_server(&mut tx, server).await?;
+    let (previous, task, revision): (serde_json::Value, Option<Uuid>, i64) = sqlx::query_as(
+        "SELECT spec,task_id,revision FROM network_probes WHERE server_id=$1 AND id=$2 FOR UPDATE",
     )
     .bind(server)
     .bind(id)
@@ -222,6 +420,9 @@ pub async fn update(
             "此目标由统一延迟任务管理，请在延迟检测页面修改".into(),
         ));
     }
+    if input.revision != Some(revision) {
+        return Err(ApiError::Conflict("拨测已被修改，请刷新后重试".into()));
+    }
     let previous: ProbeSpec = serde_json::from_value(previous).map_err(anyhow::Error::from)?;
     // Samples and offline retries identify their destination only by this immutable ID.
     if !spec.same_measurement_identity(&previous) {
@@ -230,26 +431,39 @@ pub async fn update(
                 .into(),
         ));
     }
-    prepare_write(&mut spec)?;
-    sqlx::query("UPDATE network_probes SET spec=$3 WHERE server_id=$1 AND id=$2")
-        .bind(server)
-        .bind(id)
-        .bind(serde_json::to_value(&spec).map_err(anyhow::Error::from)?)
-        .execute(&mut *tx)
-        .await?;
+    prepare_write(spec)?;
+    sqlx::query(
+        "UPDATE network_probes SET spec=$3,revision=revision+1 WHERE server_id=$1 AND id=$2",
+    )
+    .bind(server)
+    .bind(id)
+    .bind(serde_json::to_value(&spec).map_err(anyhow::Error::from)?)
+    .execute(&mut *tx)
+    .await?;
+    bump_revision(&mut tx, server).await?;
     tx.commit().await?;
-    Ok(Json(presentation(spec)))
+    input.spec = presentation(input.spec);
+    input.revision = Some(revision + 1);
+    Ok(Json(input))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeleteProbe {
+    pub(crate) revision: Option<i64>,
 }
 
 pub async fn remove(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path((server, id)): Path<(i64, Uuid)>,
+    input: Option<Json<DeleteProbe>>,
 ) -> ApiResult<Json<serde_json::Value>> {
     auth::require_admin(&state, &headers).await?;
     let mut tx = state.pool.begin().await?;
-    let (task,): (Option<Uuid>,) = sqlx::query_as(
-        "SELECT task_id FROM network_probes WHERE server_id=$1 AND id=$2 FOR UPDATE",
+    lock_server(&mut tx, server).await?;
+    let (task, revision): (Option<Uuid>, i64) = sqlx::query_as(
+        "SELECT task_id,revision FROM network_probes WHERE server_id=$1 AND id=$2 FOR UPDATE",
     )
     .bind(server)
     .bind(id)
@@ -261,6 +475,10 @@ pub async fn remove(
             "此目标由统一延迟任务管理，请在延迟检测页面取消分配".into(),
         ));
     }
+    if input.and_then(|Json(input)| input.revision) != Some(revision) {
+        return Err(ApiError::Conflict("拨测已被修改，请刷新后重试".into()));
+    }
+    bump_revision(&mut tx, server).await?;
     if sqlx::query("DELETE FROM network_probes WHERE server_id=$1 AND id=$2")
         .bind(server)
         .bind(id)
@@ -345,7 +563,8 @@ pub async fn ingest(
         return Err(ApiError::BadRequest("拨测结果格式无效".into()));
     }
     let mut tx = state.pool.begin().await?;
-    sqlx::query("SELECT id FROM servers WHERE id=$1 FOR UPDATE")
+    lock_server(&mut tx, server).await?;
+    let revision: i64 = sqlx::query_scalar("SELECT probe_revision FROM servers WHERE id=$1")
         .bind(server)
         .fetch_one(&mut *tx)
         .await?;
@@ -365,23 +584,75 @@ pub async fn ingest(
                 return Err(ApiError::Conflict("拨测结果标识已存在不同内容".into()));
             }
         } else {
-            let configured: Option<serde_json::Value> =
+            if result.execution.is_none() {
+                // Any device can still have an old unproved outbox. Drain
+                // it without inventing permission or blocking proved samples.
+                acknowledged.push(result.id);
+                continue;
+            }
+            let current: Option<serde_json::Value> =
                 sqlx::query_scalar("SELECT spec FROM network_probes WHERE id=$1 AND server_id=$2")
                     .bind(result.probe_id)
                     .bind(server)
                     .fetch_optional(&mut *tx)
                     .await?;
-            // Removed or revoked targets discard late samples; prior accepted history remains.
-            let authorized = configured
-                .and_then(|value| serde_json::from_value::<ProbeSpec>(value).ok())
+            let mut belongs = current
+                .as_ref()
+                .and_then(|value| serde_json::from_value::<ProbeSpec>(value.clone()).ok())
                 .is_some_and(|spec| {
                     spec.authorized_at(result.sampled_at.div_euclid(1000))
+                        && spec.authorized_at(now_timestamp())
                         && result.address_family.is_none_or(|family| {
                             spec.address_family() == sinan_protocol::ProbeAddressFamily::Any
                                 || spec.address_family() == family
                         })
                 });
-            if authorized {
+            if let Some(execution) = &result.execution {
+                let within = execution
+                    .issued_at
+                    .checked_mul(1_000)
+                    .zip(execution.expires_at.checked_mul(1_000))
+                    .is_some_and(|(start, end)| {
+                        result.sampled_at >= start && result.sampled_at < end
+                    });
+                if !execution.valid() || execution.probe.spec.id != result.probe_id || !within {
+                    return Err(ApiError::BadRequest("拨测租约执行上下文无效".into()));
+                }
+                let receipt: Option<(i64, i64, i64, i64, serde_json::Value)> = sqlx::query_as(
+                    "SELECT server_id,revision,issued_at,expires_at,probe_digests FROM probe_leases WHERE id=$1",
+                ).bind(execution.lease_id).fetch_optional(&mut *tx).await?;
+                let digest = probe_digest(&execution.probe)?;
+                let issued =
+                    receipt.is_some_and(|(owner, revision, issued_at, expires_at, digests)| {
+                        owner == server
+                            && revision as u64 == execution.revision
+                            && issued_at == execution.issued_at
+                            && expires_at == execution.expires_at
+                            && issued_at >= now_timestamp() - 3 * 3_600
+                            && digests
+                                .get(result.probe_id.to_string().as_str())
+                                .and_then(serde_json::Value::as_str)
+                                == Some(digest.as_str())
+                    });
+                let current = current.and_then(|value| {
+                    let mut spec: ProbeSpec = serde_json::from_value(value).ok()?;
+                    spec.execution_authorized = None;
+                    if !spec.runnable_at(now_timestamp()) {
+                        return None;
+                    }
+                    let authorization = spec.monitor.as_ref()?.authorization.clone()?;
+                    Some(AuthorizedProbe {
+                        spec,
+                        authorization,
+                    })
+                });
+                belongs = belongs
+                    && issued
+                    && revision as u64 == execution.revision
+                    && current.as_ref() == Some(&execution.probe);
+            }
+            // Removed probes acknowledge and discard late samples from an offline Agent.
+            if belongs {
                 sqlx::query("INSERT INTO probe_results(id,server_id,probe_id,sampled_at,result,digest) VALUES($1,$2,$3,$4,$5,$6)").bind(result.id).bind(server).bind(result.probe_id).bind(result.sampled_at).bind(serde_json::to_value(&result).map_err(anyhow::Error::from)?).bind(digest).execute(&mut *tx).await?;
             }
         }

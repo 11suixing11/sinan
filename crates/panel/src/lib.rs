@@ -278,6 +278,7 @@ pub fn router(state: AppState) -> Router {
             post(commands::complete).layer(axum::extract::DefaultBodyLimit::max(4 * 1024 * 1024)),
         )
         .route("/api/agent/v1/probes", get(probes::agent_list))
+        .route("/api/agent/v1/probe-lease", get(probes::agent_lease))
         .route(
             "/api/agent/v1/probes/authorized",
             get(probes::agent_authorized_list),

@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 async fn ready(panel: &TestPanel, server: i64) -> Result<()> {
     sqlx::query("UPDATE servers SET static_info=static_info || '{\"os\":\"linux\"}'::jsonb,capabilities=$2,last_seen=$3 WHERE id=$1")
-        .bind(server).bind(json!(["diagnostic:nodequality","diagnostic:nodequality-modes","diagnostic:tcpquality","diagnostic:tcpquality-native-v1",sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY,sinan_protocol::DIAGNOSTIC_SERVICE_CAPABILITY,sinan_protocol::DIAGNOSTIC_CANCEL_CAPABILITY,sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY]))
+        .bind(server).bind(json!(["diagnostic:nodequality","diagnostic:nodequality-modes","diagnostic:tcpquality","diagnostic:tcpquality-native-v1",sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY,sinan_protocol::DIAGNOSTIC_SERVICE_CAPABILITY,sinan_protocol::DIAGNOSTIC_COMPLETION_CAPABILITY,sinan_protocol::DIAGNOSTIC_CANCEL_CAPABILITY,sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY]))
         .bind(sinan_protocol::now_timestamp()).execute(&panel.state.pool).await?;
     let mut artifacts = Vec::new();
     for (name, version, binary_name) in [

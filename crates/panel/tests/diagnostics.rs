@@ -3,6 +3,8 @@
 mod business_support;
 #[path = "diagnostics/chain_gate.rs"]
 mod chain_gate;
+#[path = "diagnostics/completion.rs"]
+mod completion;
 #[path = "diagnostics/modes.rs"]
 mod modes;
 mod probe_support;
@@ -38,6 +40,7 @@ async fn capable(panel: &TestPanel, server_id: i64) -> Result<()> {
                 "diagnostic:nodequality-modes".into(),
                 sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY.into(),
                 sinan_protocol::DIAGNOSTIC_SERVICE_CAPABILITY.into(),
+                sinan_protocol::DIAGNOSTIC_COMPLETION_CAPABILITY.into(),
                 sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY.into(),
             ],
             applied: BTreeMap::new(),

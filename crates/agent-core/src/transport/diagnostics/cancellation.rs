@@ -3,7 +3,7 @@ use sinan_protocol::{DiagnosticCancelRequest, DiagnosticCancelResult, Envelope};
 use tokio::sync::mpsc;
 
 mod actions;
-const PENDING: &str = "diagnostics:cancellations";
+pub(super) const PENDING: &str = "diagnostics:cancellations";
 const RESULTS: &str = "diagnostics:cancellation-results";
 
 pub struct CancellationControl {

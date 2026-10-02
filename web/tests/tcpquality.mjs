@@ -61,6 +61,11 @@ const origin = `http://127.0.0.1:${server.address().port}`;
  await page.getByLabel('受控目标地区').selectOption('europe');
  const frozen=await page.locator('article.quality-report').filter({hasText:'等待设备领取'}).innerText();
  if(!frozen.includes('IPv6 · 每目标 8 次 · 2 并发 · 东亚')||!frozen.includes('东亚 / 运营商未知')||frozen.includes('欧洲'))throw Error('Live target edit changed frozen task scope');
+ reports[0].status='cleaning';reports[0].error='测试执行结束，残留挂载等待清理';
+ await page.reload();await page.getByText('等待设备确认清理',{exact:true}).waitFor();
+ if(!(await page.getByRole('button',{name:'开始 TCP 诊断',exact:true}).isDisabled()))throw Error('Automatic cleanup released shared diagnostic mutex');
+ if(!(await page.getByText('测试执行结束，残留挂载等待清理',{exact:true}).isVisible()))throw Error('Cleanup cause missing');
+ if(!(await completed.innerText()).includes('均值 25.00 ms'))throw Error('Automatic cleanup hid existing report');
  await page.getByRole('button',{name:'请求取消测试',exact:true}).click();await page.getByText('等待设备确认取消',{exact:true}).first().waitFor();
  if(!(await page.getByRole('button',{name:'开始 TCP 诊断',exact:true}).isDisabled()))throw Error('Cancel barrier invalid');
  if(!(await page.locator('.quality-options').evaluate(el=>el.getBoundingClientRect().right<=innerWidth)))throw Error('Mobile controls overflow');
@@ -83,7 +88,7 @@ const origin = `http://127.0.0.1:${server.address().port}`;
  if(!(await page.getByRole('button',{name:'开始 TCP 诊断',exact:true}).isDisabled()))throw Error('Failed target read did not prevent creation');
  targetFailure=false;ready=false;await page.reload();await page.getByText('Agent 当前离线',{exact:true}).waitFor();
  if(!(await page.getByRole('button',{name:'开始 TCP 诊断',exact:true}).isDisabled()))throw Error('Offline agent allowed creation');
- if(errors.length)throw Error(errors.join(';'));outputs.push({width,errors:errors.length,posts:posts.length,regionWrites:regionWrites.length,partialVisible:true,unknownLatency:true,realZeroLatency:true,legacyFiltered:true,frozenScope:true,cancelBarrier:true,completePreserved:true,diagnosticPoll403Disabled:true,diagnosticRecovery:true,failedPollingKeepsHistory:true,targetPoll403Unknown:true,offlineDisabled:true});
+ if(errors.length)throw Error(errors.join(';'));outputs.push({width,errors:errors.length,posts:posts.length,regionWrites:regionWrites.length,partialVisible:true,unknownLatency:true,realZeroLatency:true,legacyFiltered:true,frozenScope:true,cancelBarrier:true,automaticCleanupBarrier:true,completePreserved:true,diagnosticPoll403Disabled:true,diagnosticRecovery:true,failedPollingKeepsHistory:true,targetPoll403Unknown:true,offlineDisabled:true});
  await context.close();
  }
  console.log(JSON.stringify(outputs)); } finally { await browser.close(); await new Promise(resolve=>server.close(resolve)); }
