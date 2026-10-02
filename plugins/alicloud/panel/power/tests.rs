@@ -5,6 +5,7 @@ use serde_json::json;
 use sqlx::{PgPool, types::Json};
 use uuid::Uuid;
 mod cases;
+mod regressions;
 
 async fn seed(pool: &PgPool) -> (Uuid, Uuid) {
     let a = Uuid::new_v4();
@@ -284,6 +285,12 @@ async fn threshold_is_sticky_and_preempts_start_notify_is_deduplicated(pool: PgP
         .execute(&pool)
         .await
         .unwrap();
+    assert!(
+        evaluate(&pool, a, r, &state("Stopped", "StopCharging"), now + 60)
+            .await
+            .threshold_hold
+    );
+    sqlx::query("UPDATE alicloud_accounts SET error_code=NULL,bill=jsonb_set(bill,'{usage_micro_gb}','null') WHERE id=$1").bind(a).execute(&pool).await.unwrap();
     assert!(
         evaluate(&pool, a, r, &state("Stopped", "StopCharging"), now + 60)
             .await

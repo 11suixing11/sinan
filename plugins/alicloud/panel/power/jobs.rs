@@ -303,6 +303,7 @@ pub(in super::super) async fn process(pool: &PgPool, id: Uuid, cloud: &Cloud) ->
                 .await?;
             }
             Err(error) => {
+                let observed_at = sinan_protocol::now_timestamp();
                 let rejected = matches!(
                     error.code,
                     "capacity_unavailable"
@@ -317,10 +318,21 @@ pub(in super::super) async fn process(pool: &PgPool, id: Uuid, cloud: &Cloud) ->
                     &r,
                     if rejected { "failed" } else { "uncertain" },
                     Some(error.code),
-                    now,
+                    observed_at,
                 )
                 .await?;
-                defer(&mut tx, id, r.id, now + error.retry_after.max(60)).await?;
+                let cooldown = if job.source == "keepalive" && rejected {
+                    900
+                } else {
+                    60
+                };
+                defer(
+                    &mut tx,
+                    id,
+                    r.id,
+                    observed_at + error.retry_after.max(cooldown),
+                )
+                .await?;
             }
         }
     }

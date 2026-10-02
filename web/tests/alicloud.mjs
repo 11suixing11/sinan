@@ -55,7 +55,7 @@ try {
     }
     if (path === '/api/plugins/alicloud/resources/resource/preview') {
       assert.equal(method, 'POST'); assert.equal(body.revision, 1)
-      const operation = { id: 'operation', resource_id: 'resource', before_state: snap, target: body.target, source: 'manual', billing_cycle: null, status: 'preview', created_at: now, updated_at: now, expires_at: now + 300, error_code: null, request_id: null }
+      const operation = { id: 'operation', resource_id: 'resource', account_revision: overview.accounts[0].revision, resource_revision: overview.resources[0].revision, before_state: snap, target: body.target, source: 'manual', billing_cycle: null, status: 'preview', created_at: now, updated_at: now, expires_at: now + 300, error_code: null, request_id: null }
       overview.operations = [operation]; return respond(operation)
     }
     if (path === '/api/plugins/alicloud/operations/operation/confirm') {
@@ -64,7 +64,7 @@ try {
       return respond(overview.operations[0], 202)
     }
     if (path === '/api/plugins/alicloud/operations/operation/dismiss') {
-      overview.operations[0].status = 'dismissed'; overview.resources[0].auto_enabled = false
+      overview.operations[0].status = 'dismissed'; overview.resources[0].auto_enabled = false; overview.resources[0].power_policy.enabled = false; overview.resources[0].manual_hold = true; overview.resources[0].revision++
       return route.fulfill({ status: 204 })
     }
     if (path === '/api/plugins/alicloud/resources/resource/power-policy') {
@@ -74,7 +74,7 @@ try {
     }
     if (path === '/api/plugins/alicloud/resources/resource/power-preview') {
       assert.equal(body.revision, overview.resources[0].revision)
-      const job = { id: 'power', resource_id: 'resource', action: body.action, stop_mode: body.stop_mode, before_state: powerState, source: 'manual', status: 'preview', created_at: now, expires_at: now + 300, error_code: null, request_id: null }
+      const job = { id: 'power', resource_id: 'resource', account_revision: overview.accounts[0].revision, resource_revision: overview.resources[0].revision, action: body.action, stop_mode: body.stop_mode, before_state: powerState, source: 'manual', status: 'preview', created_at: now, expires_at: now + 300, error_code: null, request_id: null }
       overview.power_jobs = [job]; return respond(job)
     }
     if (path === '/api/plugins/alicloud/power-jobs/power/confirm') {
@@ -84,10 +84,11 @@ try {
       return respond(overview.power_jobs[0], 202)
     }
     if (path === '/api/plugins/alicloud/power-jobs/power/dismiss') {
-      overview.power_jobs[0].status = 'dismissed'; overview.resources[0].power_policy.enabled = false
+      overview.power_jobs[0].status = 'dismissed'; overview.resources[0].power_policy.enabled = false; overview.resources[0].revision++
       return route.fulfill({ status: 204 })
     }
     if (path === '/api/plugins/alicloud/resources/resource/power-resume') {
+      assert.equal(body.revision, overview.resources[0].revision)
       overview.resources[0].manual_hold = false; return route.fulfill({ status: 204 })
     }
     unexpected.push(`${method} ${path}`); return respond({ error: 'Unexpected request' }, 500)

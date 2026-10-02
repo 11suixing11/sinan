@@ -5,6 +5,9 @@ use crate::plugins::cloud_api::{
 };
 use crate::plugins::ddns::{cloudflare::Outcome, model::Provider, worker};
 
+#[path = "multicloud_boundaries.rs"]
+mod boundaries;
+
 fn configured(provider: Provider) -> Rule {
     let mut rule = rule();
     rule.config.provider = provider;
