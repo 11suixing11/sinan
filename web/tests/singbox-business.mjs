@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolve, extname, sep } from 'node:path'
-import { proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
+import { flatResourceFixtures, proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
 
 // Shipped dist with controlled API responses; PostgreSQL verifies migration/data.
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
@@ -18,8 +18,8 @@ const server = createServer(async (request, response) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 const browser = await chromium.launch({ headless: true, ...(process.env.SINAN_CHROME_PATH ? { executablePath: process.env.SINAN_CHROME_PATH } : {}) })
 try {
-  for (const width of [1280, 390]) {
-    const page = await browser.newPage({ viewport: { width, height: 900 } })
+  for (const [width, height] of [[1280, 900], [1280, 600], [390, 900]]) {
+    const page = await browser.newPage({ viewport: { width, height } })
     const errors = [], requests = [], mutations = [], now = Math.floor(Date.now() / 1000)
     page.on('pageerror', error => errors.push(error.message))
     const metadata = { id: 1, name: '纯监控验收服务器', enabled: false, source: null, read_only: false, online: true, agent_supported: false, installation: { state: 'not_enabled', reason: '尚未启用插件；设备支持此插件不代表已安装', target_rev: 0, applied_rev: 0 } }
@@ -77,17 +77,20 @@ try {
         value = node
       } else if (path === '/api/plugins/sing-box/nodes') {
         assert.equal(metadata.enabled, true); value = nodesEmpty ? [] : chainFixtures ? [node, exitNode, ...additionalNodes] : [node, exitNode]
-      } else if (path === '/api/plugins/sing-box/subscription-sources') value = []
+      } else if (['/api/plugins/sing-box/subscription-sources','/api/plugins/sing-box/ordered-subscription-sources'].includes(path)) value = []
       else if (path === '/api/plugins/sing-box/proxy-resources') {
         assert.equal(route.request().method(), 'GET')
         if (chainsFailure) { await route.fulfill({ status:500,json:{error:'链路夹具读取失败'} }); return }
+        value = nodesEmpty ? [] : flatResourceFixtures([node,exitNode,...additionalNodes],[metadata,exitMetadata,...otherMetadata],chainFixtures ? [...chains,...additionalChains] : chains).filter(resource => chainFixtures || resource.kind === 'chain' || [2,3].includes(resource.id))
+      } else if (path === '/api/plugins/sing-box/ordered-proxy-resources') {
+        if (chainsFailure) { await route.fulfill({ status:500,json:{error:'链路夹具读取失败'} }); return }
         value = nodesEmpty ? [] : proxyResourceFixtures([node,exitNode,...additionalNodes],[metadata,exitMetadata,...otherMetadata],chainFixtures ? [...chains,...additionalChains] : chains).filter(resource => chainFixtures || resource.kind === 'chain' || [2,3].includes(resource.id))
-      } else if (path === '/api/plugins/sing-box/chains/batch') {
+      } else if (path === '/api/plugins/sing-box/chains/ordered-batch') {
         assert.equal(route.request().method(), 'POST')
         const body = route.request().postDataJSON()
         assert.match(body.request_id,/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
         assert.deepEqual(body.items,[{name:'未授权验收链路',entry:{mode:'existing',node_id:2},hops:[{kind:'managed',node_id:3}]}])
-        const chain = { id:9,name:'未授权验收链路',entry_node_id:2,exit_node_id:3,available:true }
+        const chain = { id:9,name:'未授权验收链路',entry_node_id:2,exit_node_id:3,available:true,path_kind:'ordered' }
         metadata.installation = { state:'pending',reason:'新链路已保存，两端配置仍待设备应用。',target_rev:2,applied_rev:2 }
         chains.push(chain); value = {request_id:body.request_id,chain_ids:[9],entry_node_ids:[2]}
       } else if (path === '/api/plugins/sing-box/users') value = []
@@ -103,11 +106,13 @@ try {
       else if (['/api/plugins/sing-box/policy-groups', '/api/plugins/sing-box/package-groups'].includes(path)) value = []
       else if (path === '/api/plugins/sing-box/usage') value = { uplink: '0', downlink: '0', total: '0', by_user: [], by_node: [] }
       else if (path === '/api/servers/1/agent-settings') value = { sample_interval_secs: 1, upload_interval_secs: 3, discover_public_ips: false, auto_update: false }
+      else if (path === '/api/servers/1/telemetry-settings') value = { persist_interval_secs: 60 }
       else if (path === '/api/servers/1/node-quality') value = { ip_addresses: [], quality: [], plugin_ready: false, plugin_reason: '夹具未启用诊断', reports: [] }
       else if (path === '/api/servers/1/enrollment') value = { token: 'TEST_ONLY_ENROLLMENT', expires_at: now + 3600, install_command: null, warning: '夹具未导入 Agent 制品。' }
       else if (path === '/api/artifacts/agent-versions' && route.request().method() === 'GET') value = { versions: [] }
       else if (['/api/servers/1/probes', '/api/servers/1/probe-results', '/api/servers/1/commands'].includes(path)) value = []
       else if (path === '/api/security/totp') value = { enabled: false }
+      else if (path.endsWith('/runtime-operations')) value = { supported:false,online:false,retiring:false,operations:[] }
       else { errors.push(`Unexpected API: ${path}`); await route.fulfill({ status: 404, json: {} }); return }
       await route.fulfill({ json: value })
     })
@@ -236,7 +241,7 @@ try {
     await chainDialog.locator('select[name="exit_node_id"]').selectOption('3')
     await chainDialog.getByRole('button', { name: '创建未授权链路', exact: true }).click()
     await page.getByText('未授权验收链路', { exact: true }).waitFor()
-    assert.deepEqual(mutations.slice(chainMutationStart), [{ path: '/api/plugins/sing-box/chains/batch', method: 'POST' }])
+    assert.deepEqual(mutations.slice(chainMutationStart), [{ path: '/api/plugins/sing-box/chains/ordered-batch', method: 'POST' }])
     // The server query includes any managed segment and never shows unrelated chains.
     assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=chains&server=1')
     await page.getByText(`筛选范围：任一受管段属于「${metadata.name}」的链路。`, { exact: false }).waitFor()
@@ -305,7 +310,7 @@ try {
     assert.equal(await createdRow.getByText('应用状态待确认', { exact: true }).count(), 2)
     assert.equal(await page.getByText('目标配置已应用', { exact: true }).count(), 0)
     assert.equal(await createdRow.getByRole('link', { name: '服务器 #2', exact: true }).getAttribute('href'), '#/servers/2')
-    assert.deepEqual(mutations.slice(chainMutationStart), [{ path: '/api/plugins/sing-box/chains/batch', method: 'POST' }])
+    assert.deepEqual(mutations.slice(chainMutationStart), [{ path: '/api/plugins/sing-box/chains/ordered-batch', method: 'POST' }])
     pluginServersFailure = false
     chainFixtures = false
     await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '直连节点', exact: true }).click()
@@ -327,7 +332,7 @@ try {
     chainsFailure = true
     await page.reload()
     await page.getByText('链路夹具读取失败', { exact: true }).waitFor()
-    assert.equal(await page.getByRole('button',{name:'创建节点',exact:true}).isDisabled(),true)
+    assert.equal(await page.getByRole('button',{name:'创建节点',exact:true}).first().isDisabled(),true)
     assert.equal(await page.getByRole('button',{name:'创建两跳链路',exact:true}).isDisabled(),true)
     assert.equal(await page.getByText('目标配置已应用',{exact:true}).count(),0)
     chainsFailure = false

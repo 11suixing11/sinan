@@ -28,3 +28,11 @@ pub async fn run(
     )?;
     Ok(())
 }
+
+// Retirement performs local recovery even if new remote commands are disabled.
+pub(crate) async fn cleanup_commands_for_retirement(
+    state: &SharedState,
+    ops: &dyn Privileged,
+) -> Result<()> {
+    commands::cleanup_for_retirement(state, ops).await
+}

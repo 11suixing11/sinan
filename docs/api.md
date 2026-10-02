@@ -85,6 +85,28 @@
 
 `last_seen` 为 Unix 秒，表示最近设备消息，距最后消息不超过 60 秒视为在线。`last_heartbeat_at` 为 Unix 秒，仅 heartbeat 消息更新，旧数据或尚无心跳时为 null。`metrics_sampled_at` 是既有遥测采样时间，单位毫秒；尚无指标或旧 telemetry.metrics 不含采样时间时为 null。`metrics_stale` 按 Agent 采样和上传设置计算；过期不清空最近指标，在线也可能指标过期。静态信息和指标字段见 [协议文档](protocol.md)。未采集到的指标缺省，前端显示“暂无数据”；不得把缺失值显示为测得的零。
 
+2026-10-02 新增 `metrics_received_at`（最近实时样本接收时间）、`metrics_persisted_at`（最新已持久化样本的采样时间）、`served_at`（查询时间），均为毫秒。不能将 `metrics_persisted_at` 解释为数据库写入的墙钟时间。`telemetry_settings` 为 `{ "persist_interval_secs": 60 }`，新建服务器可选同名字段，省略使用默认值；与名称、资产和初始拨测一起验证保存。旧 `agent_settings` 消息不增加字段。
+
+### 实时监控、历史和汇率
+
+| 方法与路径 | 用途与权限 |
+|---|---|
+| `GET/PATCH /api/servers/{id}/telemetry-settings` | 管理员读取或设置历史批量写入间隔，15–3600 秒 |
+| `GET /api/agent/v1/telemetry-settings` | 设备读取本机历史写入设置 |
+| `POST /api/agent/v1/telemetry/live` | 设备提交一个 `TelemetrySample`，仅更新内存；响应不是持久化 ACK |
+| `POST /api/agent/v1/telemetry` | 保留原批量持久化接口及 `TelemetryAck`；确认后 Agent 才删除本地样本 |
+| `GET/PATCH /api/telemetry/policy` | 管理员读取或设置 `{ "history_retention_days": 30 }`，1–3650 天 |
+| `GET /api/servers/{id}/history?window=24h` | 管理员读取有界聚合历史 |
+| `GET /api/dashboard/live` | 看板轻量实时快照，每次重新校验公开开关、会话和隐藏节点 |
+| `GET /api/dashboard/servers/{id}/history?window=24h` | 看板历史，公开模式沿用指标白名单 |
+| `GET /api/exchange-rates` | 管理员读取汇率缓存，不触发下载 |
+| `POST /api/exchange-rates/refresh` | 管理员手动刷新，30 秒冷却，忙时返回 429 |
+| `GET /api/dashboard/exchange-rates` | 看板汇率缓存，遵守公开开关与 `Cache-Control: no-store` |
+
+历史窗口支持 `15m`、`1h`、`2h`、`24h`、`7d`、`30d`、`90d`、`365d`，查询范围不超过所设保留天数。返回 `window/from/to/bucket_ms/retention_days/points`；每点记录 `bucket_at/sample_count/first_sampled_at/last_sampled_at/partial`，每项有效指标为 `count/avg/min/max`。空桶不补零，范围边缘和旧历史的观测局限以 `partial` 标记。累计网卡值使用精确字符串，不将累计计数求平均。
+
+汇率返回 `base/rates/rate_dates/rate_date/source/source_url/fetched_at/attempted_at/next_refresh_at/stale/status/error_code`。汇率接口时间为 Unix 秒，`rate_dates` 是各币种官方数据日期；状态为 `fresh/stale/unavailable`。未获取成功时只有恒等换算 `CNY:1`，不提供估算价格；更新失败保留真实旧快照。公开汇率接口不附带服务器成本或资产数据。上报、存储和换算规则见 [ADR 0047](adr/0047-monitoring-refresh-history-and-channels.md)。
+
 接入令牌响应为 `{token,expires_at,install_command,installation,warning}`。有兼容签名 Agent 时，`installation={version,tag,target,platform,bootstrap_url,install_command}`；自动模式 `version="latest"`、`tag=null`，在目标服务器执行时识别 ABI 后选择最新兼容稳定版，显式选版返回精确 version/tag。`target` 默认 `auto`，`platform` 默认 `unix`（Shell，Linux/macOS/FreeBSD），`windows` 返回 PowerShell 单行命令。缺少所选平台/版本的签名 proof 时命令与 installation 为 null，并返回中文 warning。令牌 24 小时有效、成功注册后只能消费一次。重新签发可用于同一设备升级，已经注册的服务器只接受原设备公钥。`GET /install.sh?token=…&agent_version=…&agent_target=…&platform=…` 返回同一安装描述 JSON；`GET /install.ps1` 固定 Windows 入口。两者验证活跃令牌，不返回面板可执行脚本。完整命令下载固定官方 GitHub 入口并核对摘要，入口自动准备依赖与独立验证发布签名。独立入口内嵌的可信 Linux 安装执行器兼容旧 `agent-v0.3.0` 的完整签名 proof，不修改已发布资产，也不要求旧 Release 安装器支持预下载 Agent；其他平台仍需对应已签制品。
 
 删除服务器使用面板实际持有的 WebSocket 连接判定在线，与列表按最近 60 秒消息显示的 `online` 不同：
@@ -123,7 +145,7 @@
 
 ### 统一代理资源与批量两跳
 
-以下接口与面板、迁移同版使用；设计及验收状态见 [ADR 0054](adr/0054-proxy-resource-batch-lifecycle.md) 和 [本步记录](acceptance/proxy-resources.md)。
+以下接口与面板、迁移同版使用；设计及验收状态见 [ADR 0054](adr/0069-proxy-resource-batch-lifecycle.md) 和 [本步记录](acceptance/proxy-resources.md)。
 
 | 方法与路径 | 请求或用途 |
 | --- | --- |
@@ -162,7 +184,7 @@
 
 ## 订阅来源
 
-本步接口位于 `/api/plugins/sing-box`，见 [ADR 0055](adr/0055-subscription-source-lifecycle.md) 与 [验收边界](acceptance/subscription-sources.md)。仅管理员使用；来源节点不是对用户授权的公开入口，当前受管两跳创建仍不接受订阅跳。
+本步接口位于 `/api/plugins/sing-box`，见 [ADR 0055](adr/0070-subscription-source-lifecycle.md) 与 [验收边界](acceptance/subscription-sources.md)。仅管理员使用；来源节点不是对用户授权的公开入口，当前受管两跳创建仍不接受订阅跳。
 
 | 方法与相对路径 | 请求／行为 |
 | --- | --- |
@@ -392,3 +414,23 @@
 任务记录包含 `{id,status,job,report,error,created_at,updated_at,expires_at,agent_completed,cancel_requested_at,cancel_error,expected_sections,report_completeness,sections}`。status 为 `queued`、`running`、`cancel_requested`、`cancelled`、`succeeded`、`failed`；job 的协议结构见 [设备协议](protocol.md)。入口 `mode=daily|full` 默认为 full，旧空请求因缺少明确完整确认而返回 400；`confirm_full` 和 `acknowledge_traffic_warning` 必须是真正 JSON bool。完整需要 confirm_full=true，流量 active/unknown 时还需要 acknowledge_traffic_warning=true，否则返回 409。`proxy_activity={state,reason,checked_at,last_positive_at}` 的 state 为 active、unknown 或 not_enabled，近一分钟正向代理计量为 active；配置存在但无新正向计量时为 unknown，不以网卡流量推断无连接。确认和该次流量证据作为 job 的额外审计字段保存。IP 版本允许 `both|ipv4|ipv6`；full 网络模式允许 `low|normal`，默认 both/low。daily 必须 low、关闭 upload_report，目标来自该服务器最多4个已启用TCP拨测，不能通过该接口传任意目标。每台设备同时最多一个活跃任务；等待确认取消也保持同机互斥；并发点击由事务锁与数据库唯一约束去重，返回 409。full 执行时限为30分钟，daily为90秒，面板均另留五分钟传输窗口。日常入口同时调用独立IP刷新接口，查询失败仍按逐源历史缓存显示；Agent只执行有界TCP检查，DNS2秒/每连接1秒/每地址族4次。资源profile日常64MiB/32tasks、完整512MiB/128，保留现有预检和运行保护。启动资源、负载与实际ServiceJob预算随检查点保存为environment独立章；日常预期2章，完整6章。
 
 report 为 `{text,report_url?}`，文本以纯文本呈现，协议接受上限 512 KiB；NodeQuality 适配器输出最多 256 KiB，超过时标注截断，原始 ZIP 保留在节点本地。可选链接限定 NodeQuality 官方 HTTPS origin。在线上传失败仍可保存本地报告。报告会执行节点上的资源和带宽测试，上游可能生成公开链接；只有管理员明确点击才创建任务。设备结果持久化后才确认，重复最终回报幂等；晚到的 running 不覆盖最终结果。
+
+
+## DDNS 插件（Cloudflare）
+
+全部接口要求管理员会话，不进入 Agent API 或公开看板。按服务器启用，插件标识为 `ddns`；核心 IP 报告不包含 Token。
+
+| 方法与路径 | 用途 |
+| --- | --- |
+| `GET /api/plugins/ddns/servers` | 服务器及插件启用状态 |
+| `POST /api/plugins/ddns/servers/{id}/enable` | 显式启用插件 |
+| `POST /api/plugins/ddns/servers/{id}/disable` | 停用插件，保留规则与 DNS；运行中返回 409 |
+| `GET /api/plugins/ddns/rules` | 规则、候选地址、插件状态与最近结果，无 Token |
+| `POST /api/plugins/ddns/rules` | 创建规则，目标服务器须已启用插件 |
+| `PATCH /api/plugins/ddns/rules/{id}` | 全量替换 config，必须带当前 revision；空 Token 保留 |
+| `DELETE /api/plugins/ddns/rules/{id}` | 删除本地规则及凭据，保留远端 DNS |
+| `POST /api/plugins/ddns/rules/{id}/sync` | 手动同步；插件与规则均需启用，限流返回 429 |
+
+写入体为 `{"config":{"name":"示例规则","server_id":1,"zone_id":"00000000000000000000000000000000","record_name":"node.example.com","record_type":"A","ttl":1,"proxied":false,"interval_secs":300,"enabled":false,"adopt_existing":false},"api_token":"YOUR_CLOUDFLARE_API_TOKEN"}`。Zone、域名、Token 与服务器 ID 均需替换为自己管理的资源。更新另加 `revision`；Zone、域名和类型不可改变。接口拒绝重复身份、非法域名/TTL、过期修订及运行中修改。
+
+执行返回的 `status` 为 pending/running/updated/unchanged/waiting/error，`error_code` 为固定脱敏代码。同步 API 成功返回结果不代表 Cloudflare 一定写入成功，应检查 status/error_code；失败保留 last_ip/last_success_at。busy 与 plugin_enabled 单独反映运行和启用状态；读取无外部请求。详细语义见 [DDNS 插件](ddns.md)。

@@ -8,14 +8,16 @@ usage() {
 Usage: tools/build-nodequality.sh <amd64|arm64> <ARTIFACT_ROOT>
 
 Build prerequisites: bash, curl, python3. No benchmark runs during packaging.
-Output: ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-sinan-native-r1/<arch>
-        ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-sinan-native-r1/SHA256SUMS
+Output: ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19/<arch>
+        ARTIFACT_ROOT/nodequality/a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19/SHA256SUMS
 
 Both targets contain one architecture-independent executable named nodequality.
 The canonical entrypoint, five first-level scripts, seven reference files and
 four full licenses are retained verbatim. Fixed helpers forbid runtime installs
 and swap changes, gate public reports and embed static data without removing
-hardware tests. Rootfs and secondary tools still require independent work.
+hardware sources. New full runs are refused by the artifact itself. Its signed
+execution-admission record declares unresolved rootfs and secondary tools;
+source and license retention do not authorize their execution or redistribution.
 Existing architecture files are immutable. Packaging verifies and retains the
 other architecture's checksum entry. Run architectures sequentially.
 USAGE
@@ -28,7 +30,7 @@ case "$arch" in amd64|arm64) ;; *) die 'architecture must be amd64 or arm64' ;; 
 [[ -n $2 ]] || die 'ARTIFACT_ROOT must not be empty'
 for tool in curl python3; do command -v "$tool" >/dev/null || die "missing build tool: $tool"; done
 upstream_revision=a92fca6c0067df29ddd03fdc2fee6f3000f64545
-version=$upstream_revision-sinan-native-r1
+version=$upstream_revision-r19
 output=$2/nodequality/$version
 [[ ! -L $output ]] || die 'output version directory must not be a symlink'
 mkdir -p "$output"
@@ -82,6 +84,7 @@ PY
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/sinan-nodequality-build.XXXXXX")
 script_dir=$(cd "$(dirname "$0")" && pwd -P)
 plugin_dir=$script_dir/../plugins/nodequality
+python3 "$plugin_dir/source-helper.py" admission "$plugin_dir/execution-admission.json" >/dev/null
 python3 "$plugin_dir/source-helper.py" downloads "$plugin_dir/source-lock.json" \
   | while IFS=$'\t' read -r filename source_url; do
       if [[ $filename == NodeQuality.sh ]]; then
@@ -113,14 +116,14 @@ for marker, path in (
     ("LOADER_POLICY_HELPER", plugin / "loader-policy.py"),
     ("RANKING_POLICY_HELPER", plugin / "ranking-policy.py"),
     ("IP_SCORE_POLICY_HELPER", plugin / "ip-score-policy.py"),
-    ("BROWSER_POLICY_HELPER", plugin / "browser-policy.py"),
-    ("QUERY_POLICY_HELPER", plugin / "query-policy.py"),
-    ("ACCESS_POLICY_HELPER", plugin / "access-policy.py"),
     ("NETFLIX_POLICY_HELPER", plugin / "netflix-policy.py"),
-    ("OPENAI_POLICY_HELPER", plugin / "openai-policy.py"),
+    ("BROWSER_POLICY_HELPER", plugin / "browser-policy.py"),
+    ("PUBLIC_ACCESS_POLICY_HELPER", plugin / "public-access-policy.py"),
     ("REPORT_HELPER", plugin / "report.py"),
     ("EXIT_OBSERVER", plugin / "exit-observer.sh"),
     ("DAILY_HELPER", plugin / "daily.py"),
+    ("OFFICIAL_IP_HELPER", plugin / "official-ip.py"),
+    ("EXECUTION_ADMISSION", plugin / "execution-admission.json"),
     ("CURL_SHIM", plugin / "curl-shim.sh"),
     ("CHROOT_SHIM", plugin / "chroot-shim.sh"),
 ):

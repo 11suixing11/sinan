@@ -87,6 +87,12 @@ pub struct QualityDatabase {
     pub available: Option<bool>,
     #[serde(default)]
     pub unavailable_reason: Option<String>,
+    #[serde(default = "panel_execution")]
+    pub execution: String,
+    #[serde(default)]
+    pub observed_ip: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -100,6 +106,10 @@ pub struct QueryFailure {
 
 fn provider_name() -> String {
     "check-place".into()
+}
+
+fn panel_execution() -> String {
+    "panel".into()
 }
 
 #[derive(Clone, Copy)]
@@ -153,6 +163,8 @@ pub struct ServerIpInfoView {
     pub quality: Vec<IpQuality>,
     pub providers: Vec<ProviderDescription>,
     pub node_quality: node::NodeQualityView,
+    pub node_query_ready: bool,
+    pub node_query_reason: Option<String>,
 }
 
 pub async fn view(state: &AppState, server_id: i64) -> ApiResult<ServerIpInfoView> {
@@ -172,18 +184,13 @@ pub async fn view(state: &AppState, server_id: i64) -> ApiResult<ServerIpInfoVie
     quality.retain(|entry| !entry.provider.starts_with(node::PROVIDER_PREFIX));
     quality.extend(node::cached(state, server_id, &mut node_quality).await?);
     quality.sort_by(|a, b| a.ip.cmp(&b.ip).then_with(|| a.provider.cmp(&b.provider)));
-    let mut providers = state.quality_providers.descriptions();
-    if let Some(provider) = providers
-        .iter_mut()
-        .find(|provider| provider.provider == "ipquality-node")
-    {
-        provider.enabled = node_quality.source_ready;
-        provider.reason = node_quality.source_reason.clone();
-    }
+    let mut providers = state.quality_providers.descriptions_for(&quality);
     providers.extend(providers::node_descriptions(
         node_quality.source_ready,
         node_quality.source_reason.as_deref(),
     ));
+    let node_query_reason =
+        crate::diagnostic_plugins::nodequality::node_queries::readiness(state, server_id).await?;
     Ok(ServerIpInfoView {
         server_id,
         quality,
@@ -192,6 +199,8 @@ pub async fn view(state: &AppState, server_id: i64) -> ApiResult<ServerIpInfoVie
         private_ip_addresses,
         providers,
         node_quality,
+        node_query_ready: node_query_reason.is_none(),
+        node_query_reason,
     })
 }
 
@@ -246,6 +255,25 @@ pub async fn cached(state: &AppState, server_id: i64, ips: &[String]) -> ApiResu
     let mut quality = cache::read(&state.pool, server_id, ips).await?;
     state.quality_providers.mark_availability(&mut quality);
     Ok(quality)
+}
+
+pub struct NodeResultIdentity {
+    pub job_id: uuid::Uuid,
+    pub revision: u64,
+    pub text_sha256: String,
+}
+
+pub async fn persist_node_results(
+    state: &AppState,
+    server_id: i64,
+    identity: &NodeResultIdentity,
+    quality: &[IpQuality],
+) -> ApiResult<()> {
+    cache::persist_node(&state.pool, server_id, identity, quality).await
+}
+
+pub fn confirmed_node_fields(database: &str, value: &Value) -> Vec<QualityField> {
+    fields::parse_fields(database, value)
 }
 
 pub async fn refresh(
@@ -371,6 +399,9 @@ fn database_result(
         historical: false,
         available: Some(true),
         unavailable_reason: None,
+        execution: "panel".into(),
+        observed_ip: None,
+        source: None,
     }
 }
 

@@ -53,14 +53,14 @@ async fn exact_preparation_probes_switch_and_recovery_barrier_preserve_entry_cre
     let nodes = subscription_nodes(&output);
     assert_eq!(nodes.len(), 1);
     assert_eq!(nodes[0]["uuid"], credential.to_string());
-    let retained:Value=sqlx::query_scalar("SELECT jsonb_agg(jsonb_build_array(chain_id,generation,position,node_version_id) ORDER BY chain_id,generation,position) FROM singbox_chain_hops").fetch_one(&fixture.panel.state.pool).await?;
+    let retained:Value=sqlx::query_scalar("SELECT jsonb_agg(jsonb_build_array(chain_id,generation,position,node_version_id) ORDER BY chain_id,generation,position) FROM singbox_ordered_chain_hops").fetch_one(&fixture.panel.state.pool).await?;
     let restarted = AppState::new(
         fixture.panel.state.pool.clone(),
         (*fixture.panel.state.config).clone(),
     )
     .await?;
     sinan_panel::plugins::singbox::ordered_paths::reconcile_pending(&restarted).await?;
-    let after:Value=sqlx::query_scalar("SELECT jsonb_agg(jsonb_build_array(chain_id,generation,position,node_version_id) ORDER BY chain_id,generation,position) FROM singbox_chain_hops").fetch_one(&fixture.panel.state.pool).await?;
+    let after:Value=sqlx::query_scalar("SELECT jsonb_agg(jsonb_build_array(chain_id,generation,position,node_version_id) ORDER BY chain_id,generation,position) FROM singbox_ordered_chain_hops").fetch_one(&fixture.panel.state.pool).await?;
     assert_eq!(retained, after);
     assert_eq!(phase(&fixture, chain).await?, "applied");
     Ok(())
@@ -177,7 +177,7 @@ async fn late_committed_barrier_retains_semantic_floor_and_never_republishes_low
     let chain = chain(&create(&fixture, "pinned", false).await?)?;
     let user = authorize(&fixture, chain).await?;
     advance(&fixture, chain, "applied").await?;
-    api(&fixture.panel,&fixture.cookie,Method::PATCH,&format!("/subscription-sources/{}",fixture.source),Some(json!({
+    api(&fixture.panel,&fixture.cookie,Method::PATCH,&format!("/ordered-subscription-sources/{}",fixture.source),Some(json!({
         "request_id":Uuid::new_v4(),"settings_revision":1,"input":{"kind":"inline","content":content("TEST_ONLY new pinned secret"),"identity_action":"update"}
     })),StatusCode::OK).await?;
     sinan_panel::plugins::singbox::subscription_sources::worker::run_once(&fixture.panel.state)
@@ -186,13 +186,13 @@ async fn late_committed_barrier_retains_semantic_floor_and_never_republishes_low
         &fixture.panel,
         &fixture.cookie,
         Method::GET,
-        &format!("/subscription-sources/{}/nodes", fixture.source),
+        &format!("/ordered-subscription-sources/{}/nodes", fixture.source),
         None,
         StatusCode::OK,
     )
     .await?;
     let view = resource(&fixture, chain).await?;
-    api(&fixture.panel,&fixture.cookie,Method::POST,&format!("/proxy-resources/chain/{chain}/apply-node-versions"),Some(json!({
+    api(&fixture.panel,&fixture.cookie,Method::POST,&format!("/ordered-proxy-resources/chain/{chain}/apply-node-versions"),Some(json!({
         "request_id":Uuid::new_v4(),"settings_revision":view["settings_revision"],"generation":1,
         "versions":[{"hop_position":1,"node_version_id":nodes["nodes"][0]["version_id"]}]
     })),StatusCode::OK).await?;
@@ -429,7 +429,7 @@ async fn orphan_barrier_and_later_vector_cannot_retire_old_identities_before_new
     let chain = chain(&create(&fixture, "pinned", true).await?)?;
     let user = authorize(&fixture, chain).await?;
     advance(&fixture, chain, "applied").await?;
-    api(&fixture.panel,&fixture.cookie,Method::PATCH,&format!("/subscription-sources/{}",fixture.source),Some(json!({
+    api(&fixture.panel,&fixture.cookie,Method::PATCH,&format!("/ordered-subscription-sources/{}",fixture.source),Some(json!({
         "request_id":Uuid::new_v4(),"settings_revision":1,"input":{"kind":"inline","content":content("TEST_ONLY changed source secret"),"identity_action":"update"}
     })),StatusCode::OK).await?;
     sinan_panel::plugins::singbox::subscription_sources::worker::run_once(&fixture.panel.state)
@@ -438,13 +438,13 @@ async fn orphan_barrier_and_later_vector_cannot_retire_old_identities_before_new
         &fixture.panel,
         &fixture.cookie,
         Method::GET,
-        &format!("/subscription-sources/{}/nodes", fixture.source),
+        &format!("/ordered-subscription-sources/{}/nodes", fixture.source),
         None,
         StatusCode::OK,
     )
     .await?;
     let view = resource(&fixture, chain).await?;
-    api(&fixture.panel,&fixture.cookie,Method::POST,&format!("/proxy-resources/chain/{chain}/apply-node-versions"),Some(json!({
+    api(&fixture.panel,&fixture.cookie,Method::POST,&format!("/ordered-proxy-resources/chain/{chain}/apply-node-versions"),Some(json!({
         "request_id":Uuid::new_v4(),"settings_revision":view["settings_revision"],"generation":1,
         "versions":[{"hop_position":2,"node_version_id":nodes["nodes"][0]["version_id"]}]
     })),StatusCode::OK).await?;
@@ -571,7 +571,7 @@ async fn an_unknown_orphan_barrier_floor_blocks_rollback_after_a_new_vector_prob
     let chain = chain(&create(&fixture, "pinned", true).await?)?;
     let user = authorize(&fixture, chain).await?;
     advance(&fixture, chain, "applied").await?;
-    api(&fixture.panel,&fixture.cookie,Method::PATCH,&format!("/subscription-sources/{}",fixture.source),Some(json!({
+    api(&fixture.panel,&fixture.cookie,Method::PATCH,&format!("/ordered-subscription-sources/{}",fixture.source),Some(json!({
         "request_id":Uuid::new_v4(),"settings_revision":1,"input":{"kind":"inline","content":content("TEST_ONLY unknown barrier source change"),"identity_action":"update"}
     })),StatusCode::OK).await?;
     sinan_panel::plugins::singbox::subscription_sources::worker::run_once(&fixture.panel.state)
@@ -580,13 +580,13 @@ async fn an_unknown_orphan_barrier_floor_blocks_rollback_after_a_new_vector_prob
         &fixture.panel,
         &fixture.cookie,
         Method::GET,
-        &format!("/subscription-sources/{}/nodes", fixture.source),
+        &format!("/ordered-subscription-sources/{}/nodes", fixture.source),
         None,
         StatusCode::OK,
     )
     .await?;
     let view = resource(&fixture, chain).await?;
-    api(&fixture.panel,&fixture.cookie,Method::POST,&format!("/proxy-resources/chain/{chain}/apply-node-versions"),Some(json!({
+    api(&fixture.panel,&fixture.cookie,Method::POST,&format!("/ordered-proxy-resources/chain/{chain}/apply-node-versions"),Some(json!({
         "request_id":Uuid::new_v4(),"settings_revision":view["settings_revision"],"generation":1,
         "versions":[{"hop_position":2,"node_version_id":nodes["nodes"][0]["version_id"]}]
     })),StatusCode::OK).await?;

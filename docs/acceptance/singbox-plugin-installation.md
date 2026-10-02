@@ -1,6 +1,6 @@
 # sing-box 双端插件与安装流程验收
 
-本次在统一分支 `remediation/all-diagnostics-20261001` 交付。面板插件管理节点、代理用户、链路、授权、订阅和套餐；设备上的普通 Agent/适配器负责签名下载、安装、配置对账及独立运行时健康确认。采用 Sinan 内的面板插件与设备插件，没有对接额外外部面板产品。操作说明见[安装与控制流程](../singbox-installation.md)，业务范围见 [ADR 0044](../adr/0044-singbox-plugin-lifecycle.md)。
+本次在统一分支 `remediation/all-diagnostics-20261001` 交付。面板插件管理节点、代理用户、链路、授权、订阅和套餐；设备上的普通 Agent/适配器负责签名下载、安装、配置对账及独立运行时健康确认。采用 Sinan 内的面板插件与设备插件，没有对接额外外部面板产品。操作说明见[安装与控制流程](../singbox-installation.md)，业务范围见 [ADR 0044](../adr/0059-singbox-plugin-lifecycle.md)。
 
 ## 实现与本地验证
 

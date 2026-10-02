@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 mod business_support;
+#[path = "probe_support.rs"]
 mod probe_support;
 mod release_fixture;
 #[path = "../../protocol/tests/support/release.rs"]
@@ -16,7 +17,7 @@ use uuid::Uuid;
 
 async fn ready(panel: &TestPanel, server: i64) -> Result<()> {
     sqlx::query("UPDATE servers SET static_info=static_info || '{\"os\":\"linux\"}'::jsonb,capabilities=$2,last_seen=$3 WHERE id=$1")
-        .bind(server).bind(json!(["diagnostic:nodequality","diagnostic:nodequality-modes","diagnostic:tcpquality","diagnostic:tcpquality-native-v1",sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY,sinan_protocol::DIAGNOSTIC_SERVICE_CAPABILITY,sinan_protocol::DIAGNOSTIC_CANCEL_CAPABILITY,sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY]))
+        .bind(server).bind(json!(["diagnostic:nodequality","diagnostic:nodequality-modes","diagnostic:tcpquality","diagnostic:tcpquality-native-v1",sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY,sinan_protocol::DIAGNOSTIC_SERVICE_CAPABILITY,sinan_protocol::DIAGNOSTIC_COMPLETION_CAPABILITY,sinan_protocol::DIAGNOSTIC_CANCEL_CAPABILITY,sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY]))
         .bind(sinan_protocol::now_timestamp()).execute(&panel.state.pool).await?;
     let mut artifacts = Vec::new();
     for (name, version, binary_name) in [
@@ -41,7 +42,7 @@ async fn ready(panel: &TestPanel, server: i64) -> Result<()> {
     Ok(())
 }
 async fn probe(panel: &TestPanel, cookie: &str, server: i64, name: &str) -> Result<Value> {
-    Ok(panel.admin(Method::POST,&format!("/api/servers/{server}/probes"),cookie,Some(probe_support::configured(json!({
+    Ok(panel.admin(Method::POST,&format!("/api/servers/{server}/probes"),cookie,Some(probe_support::authorized(json!({
         "id":Uuid::nil(),"name":name,"kind":"tcp","target":"example.test","port":443,"interval_secs":60,"carrier":"fixture","enabled":true
     })))).await?.error_for_status()?.json().await?)
 }
@@ -242,7 +243,6 @@ async fn tcp_parameters_freeze_only_selected_configured_targets(pool: PgPool) ->
     );
     let mut metadata = first.clone();
     metadata["name"] = json!("更新后的名称");
-    metadata["carrier"] = json!("更新后的线路备注");
     metadata["enabled"] = json!(false);
     panel
         .admin(Method::PATCH, &probe_path, &cookie, Some(metadata))

@@ -140,17 +140,20 @@ async fn read_resources(state: &AppState) -> ApiResult<Vec<ProxyResource>> {
         })
         .collect();
     let chains = sqlx::query_as::<_, super::ordered_paths::models::ChainRow>(&format!(
-        "SELECT {CHAIN_COLUMNS} FROM singbox_chains WHERE deleted_at IS NULL ORDER BY id"
+        "SELECT {CHAIN_COLUMNS} FROM singbox_chains WHERE deleted_at IS NULL AND path_kind IN ('legacy','ordered') ORDER BY id"
     ))
     .fetch_all(&mut *tx)
     .await?;
+    // Both API projections share the dedicated entry namespace. In particular,
+    // soft deletion is not device cleanup for an ordered lineage.
+    let reserved_entries: Vec<i64> = sqlx::query_scalar("SELECT entry_node_id FROM singbox_chains WHERE deleted_at IS NULL OR (path_kind='ordered' AND phase<>'retired')")
+        .fetch_all(&mut *tx)
+        .await?;
     let mut resources = Vec::new();
     for endpoint in endpoints.values() {
         if endpoint.node_deleted
             || endpoint.server_deleted
-            || chains
-                .iter()
-                .any(|chain| chain.entry_node_id == endpoint.id)
+            || reserved_entries.contains(&endpoint.id)
         {
             continue;
         }
@@ -358,8 +361,8 @@ async fn project_hops(
         hops.push(match hop{
             FrozenHop::Managed{endpoint,..}=>PublicHop::Managed{position,node_id:endpoint.node.id,endpoint_version_id:endpoint.version_id,endpoint:frozen_endpoint(endpoint,endpoints)?},
             FrozenHop::Subscription{source_id,identity_epoch,external_node_id,node_version_id,source_revision_id,update_mode,outbound,..}=>{
-                let(source_name,archived,deleted,epoch,seen,current):(String,bool,Option<i64>,i64,Option<uuid::Uuid>,Option<uuid::Uuid>)=sqlx::query_as("SELECT s.name,s.archived,s.deleted_at,s.identity_epoch,n.last_seen_revision,s.current_success_revision FROM singbox_subscription_sources s JOIN singbox_external_nodes n ON n.source_id=s.id WHERE s.id=$1 AND n.id=$2").bind(source_id).bind(external_node_id).fetch_one(&mut *connection).await?;
-                let preview:serde_json::Value=sqlx::query_scalar("SELECT public_preview FROM singbox_external_node_versions WHERE id=$1 AND node_id=$2").bind(node_version_id).bind(external_node_id).fetch_one(&mut *connection).await?;
+                let(source_name,archived,deleted,epoch,seen,current):(String,bool,Option<i64>,i64,Option<uuid::Uuid>,Option<uuid::Uuid>)=sqlx::query_as("SELECT s.name,s.archived,s.deleted_at,s.identity_epoch,n.last_seen_revision,s.current_success_revision FROM singbox_ordered_subscription_sources s JOIN singbox_ordered_external_nodes n ON n.source_id=s.id WHERE s.id=$1 AND n.id=$2").bind(source_id).bind(external_node_id).fetch_one(&mut *connection).await?;
+                let preview:serde_json::Value=sqlx::query_scalar("SELECT public_preview FROM singbox_ordered_external_node_versions WHERE id=$1 AND node_id=$2").bind(node_version_id).bind(external_node_id).fetch_one(&mut *connection).await?;
                 let node_present=current.is_some() && seen==current && epoch==*identity_epoch;
                 let source_archived=archived || deleted.is_some();
                 let common=outbound.common();
@@ -420,6 +423,7 @@ pub(super) async fn remove_direct_node(state: &AppState, id: i64) -> ApiResult<(
             .await?
             .ok_or(ApiError::NotFound)?;
     lock_cleanup_servers(&mut tx, &[server]).await?;
+    super::nodes::ensure_unreferenced_on(&mut tx, id).await?;
     ensure_node_unreferenced(&mut tx, id).await?;
     soft_delete_node(&mut tx, id).await?;
     business::mark_dirty(&mut tx, &[server]).await?;
@@ -502,7 +506,7 @@ async fn node_chain_references(
     connection: &mut PgConnection,
     id: i64,
 ) -> ApiResult<Vec<NodeChainReference>> {
-    Ok(sqlx::query_as("SELECT DISTINCT c.id,c.name,CASE WHEN c.entry_node_id=$1 THEN 'entry' ELSE 'exit' END AS role,v.generation,CASE WHEN c.entry_node_id=$1 THEN NULL ELSE h.position END AS hop_position,CASE WHEN v.generation=c.applied_generation THEN 'applied' WHEN v.generation=c.candidate_generation THEN 'candidate' ELSE 'recovery' END AS state FROM singbox_chains c JOIN singbox_chain_versions v ON v.chain_id=c.id AND v.generation=ANY(ARRAY[c.applied_generation,c.candidate_generation,c.recovery_generation]) LEFT JOIN singbox_chain_hops h ON h.chain_id=c.id AND h.generation=v.generation WHERE (c.deleted_at IS NULL OR c.phase<>'retired') AND (c.entry_node_id=$1 OR h.managed_node_id=$1) ORDER BY c.id,v.generation,hop_position").bind(id).fetch_all(connection).await?)
+    Ok(sqlx::query_as("SELECT DISTINCT * FROM (SELECT c.id,c.name,CASE WHEN c.entry_node_id=$1 THEN 'entry' ELSE 'exit' END AS role,COALESCE(c.pending_generation,c.active_generation,1) AS generation,CASE WHEN c.entry_node_id=$1 THEN NULL ELSE h.position+1 END AS hop_position,CASE WHEN c.pending_generation IS NOT NULL THEN 'candidate' ELSE 'applied' END AS state FROM singbox_live_chains c LEFT JOIN singbox_chain_hops h ON h.chain_id=c.id AND h.generation=COALESCE(c.pending_generation,c.active_generation,1) WHERE c.entry_node_id=$1 OR c.exit_node_id=$1 OR h.managed_node_id=$1 UNION ALL SELECT c.id,c.name,CASE WHEN c.entry_node_id=$1 THEN 'entry' ELSE 'exit' END AS role,v.generation,CASE WHEN c.entry_node_id=$1 THEN NULL ELSE h.position END AS hop_position,CASE WHEN v.generation=c.applied_generation THEN 'applied' WHEN v.generation=c.candidate_generation THEN 'candidate' ELSE 'recovery' END AS state FROM singbox_chains c JOIN singbox_ordered_chain_versions v ON v.chain_id=c.id AND v.generation=ANY(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation]) LEFT JOIN singbox_ordered_chain_hops h ON h.chain_id=c.id AND h.generation=v.generation WHERE c.path_kind='ordered' AND (c.deleted_at IS NULL OR c.phase<>'retired') AND (c.entry_node_id=$1 OR h.managed_node_id=$1)) refs ORDER BY id,generation,hop_position").bind(id).fetch_all(connection).await?)
 }
 
 async fn node_policies(

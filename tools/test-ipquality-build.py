@@ -4,6 +4,7 @@
 These fixtures never authenticate a Debian build or certify a live diagnostic.
 """
 import io
+import os
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import ipquality_artifact as artifact
+import release
 
 build = artifact.module('sinan_ipquality_builder_tests', artifact.ROOT / 'tools/build-ipquality.py')
 
@@ -52,6 +54,21 @@ class BuildTests(unittest.TestCase):
         values = {'f_frsize': 4096, 'f_bavail': 4 * 1024 * 1024, 'f_favail': 100000}
         values.update(changes)
         return SimpleNamespace(**values)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo") and hasattr(os, "O_NONBLOCK"),
+                         "requires ordinary-file/FIFO replacement semantics")
+    def test_source_offer_asset_replaced_with_fifo_is_refused_without_blocking(self):
+        source = self.root / "TEST_ONLY-source-asset"
+        source.write_bytes(b"TEST_ONLY ordinary source bytes")
+        original_open = os.open
+        def replaced(path, flags, *args, **kwargs):
+            if Path(path) == source:
+                source.unlink()
+                os.mkfifo(source, 0o600)
+            return original_open(path, flags, *args, **kwargs)
+        with patch.object(release.os, "open", side_effect=replaced):
+            with self.assertRaisesRegex(ValueError, "asset changed before reading"):
+                release.regular_file_proof(source)
 
     def test_capacity_admission_accounts_for_all_copies_and_does_not_approve_inputs(self):
         with patch.object(build.os, 'statvfs', return_value=self.observation()):

@@ -18,7 +18,7 @@ export default function ChainResourceEditor({ resource, snapshot, open, onClose,
   const error = chainMutationError(snapshot, command, replay)
   if (!open) return null
   return <FormDialog wide title="编辑链路公开信息" onClose={onClose} busy={action.busy} error={error || action.error} retry={error ? refresh : undefined} disabled={Boolean(error)} submitDisabled={!Object.keys(fields).length} submitLabel={replay ? '重试原修改' : '保存公开信息'} onSubmit={() => {
-    if (action.busy || error || !Object.keys(fields).length) return
+    if (action.busy || chainMutationError(snapshot, command, replay) || !Object.keys(fields).length) return
     void action.run(async () => {
       for (const key of ['name', 'entry_name'] as const) if (!draft[key].trim() || [...draft[key].trim()].length > 128 || /[\u0000-\u001f\u007f]/.test(draft[key])) throw new Error('名称需为 1–128 个字符，不能含控制字符。')
       if (fields.port !== undefined && (!/^[1-9]\d*$/.test(draft.port.trim()) || !Number.isSafeInteger(fields.port) || Number(fields.port) > 65535 || fields.port === 18085)) throw new Error('监听端口需为 1–65535，18085 为保留端口。')

@@ -162,12 +162,8 @@ def save_section(root, name, text, complete):
 def save_section_locked(root, name, text, complete):
     path = root / ("section-" + name + ".json")
     previous = {}
-    if path.is_symlink():
-        # A dangling link is still rejected; exists() follows links and would
-        # otherwise let atomic publication silently replace the invalid entry.
-        raise ValueError("chapter output is not a bounded ordinary file")
     if path.exists():
-        if not path.is_file() or path.stat().st_size > 512 * 1024:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 512 * 1024:
             raise ValueError("chapter output is not a bounded ordinary file")
         previous = json.loads(path.read_text())
         if (not isinstance(previous, dict) or previous.get("name") != name

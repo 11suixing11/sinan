@@ -24,6 +24,8 @@ import threading
 import time
 import uuid
 
+from managed_paths_support import OwnedProcess
+
 MAX_FILE = 2 * 1024 * 1024
 MAX_OUTPUT = 256 * 1024
 MAX_ROWS = 4096
@@ -170,7 +172,7 @@ class Child:
         self.output, self.overflow = bytearray(), threading.Event()
         self.reader_error = False
         try:
-            self.process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            self.process = OwnedProcess(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                             stderr=subprocess.STDOUT, env=env, start_new_session=True,
                                             pass_fds=pass_fds)
         except BaseException:
@@ -187,8 +189,6 @@ class Child:
                 self.log.write(block[:allowed])
                 if len(block) > allowed:
                     self.overflow.set()
-                    with contextlib.suppress(ProcessLookupError):
-                        os.killpg(self.process.pid, signal.SIGKILL)
                     break
         except Exception:
             self.reader_error = True
@@ -204,33 +204,11 @@ class Child:
         require(self.process.poll() is None, "helper_child_exited")
 
     def stop(self):
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(self.process.pid, signal.SIGTERM)
-        if self.process.poll() is None:
-            try:
-                self.process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                with contextlib.suppress(ProcessLookupError):
-                    os.killpg(self.process.pid, signal.SIGKILL)
-                self.process.wait(timeout=2)
+        self.process.stop_group()
         self.reader.join(timeout=1)
-        if self.reader.is_alive():
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(self.process.pid, signal.SIGKILL)
-            self.reader.join(timeout=1)
         require(not self.reader.is_alive(), "child_reader_cleanup_timeout")
         self.process.stdout.close()
         self.log.close()
-        end = time.monotonic() + 1
-        while True:
-            try:
-                os.killpg(self.process.pid, 0)
-            except ProcessLookupError:
-                break
-            require(time.monotonic() < end, "owned_process_group_cleanup_not_confirmed")
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(self.process.pid, signal.SIGKILL)
-            time.sleep(0.02)
         require(not self.overflow.is_set(), "child_output_budget_exceeded")
         require(not self.reader_error, "child_output_reader_failed")
 

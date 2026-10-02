@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { errorMessage } from '../../api'
 import { ErrorNotice, Field, Modal } from '../../components'
 import { useAction } from '../../hooks'
-import { emptySourceDraft, prepareSourceMutation, sourceCommand, SourceFileReader, sourceMetadataError, sourceMutationReplay, sourceWriteError, submitSourceMutation } from './sourceRequests'
+import { emptySourceDraft, prepareSourceMutation, sourceCommand, SourceFileReader, sourceCommandError, sourceMetadataError, sourceMutationReplay, sourceWriteError, submitSourceMutation } from './sourceRequests'
 import type { PendingSourceMutation, SourceDraft, SourceEditorMode, SourceSnapshot } from './sourceRequests'
-import type { SourceReceipt, SubscriptionSource } from './sourceTypes'
+import type { SourceReceipt, SubscriptionSource } from './orderedSourceTypes'
 
 export type SourceEditorSession = { mode: SourceEditorMode; source?: SubscriptionSource; generation: number }
 const titles: Record<SourceEditorMode, string> = { create: '添加订阅来源', metadata: '修改来源设置', update: '更新同一来源内容', replace: '更换订阅来源', archive: '归档订阅来源', unarchive: '恢复订阅来源' }
@@ -28,7 +28,7 @@ export default function SourceEditor({ session, open, snapshot, refresh, onClose
   let command: ReturnType<typeof sourceCommand> | undefined
   try { command = sourceCommand(mode, draft, source) } catch { /* Input validation is shown on submit. */ }
   const replay = sourceMutationReplay(command, pending.current)
-  const writeError = replay ? sourceMetadataError(snapshot) : sourceWriteError(snapshot, source?.id, source?.settings_revision, mode === 'archive' || mode === 'unarchive')
+  const writeError = command ? sourceCommandError(command, snapshot, replay) : sourceWriteError(snapshot, source?.id, source?.settings_revision, mode === 'archive' || mode === 'unarchive')
   const set = (key: keyof SourceDraft, value: string) => {
     if (action.busy) return
     reader.current.invalidate(); setFileBusy(false); setInputError(''); action.clearError()

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { api } from '../api'
 import { Badge, ErrorNotice } from '../components'
+import { diagnosticCancellable, diagnosticUnconfirmed } from '../diagnostics'
 import { time } from '../format'
 import { useAction } from '../hooks'
 import { nodeIpCancelError, nodeIpStartError, queryErrorLabels } from '../ip-quality'
@@ -8,7 +9,7 @@ import type { DiagnosticRecord, NodeIpQuality as NodeIpQualityData, QualityError
 import DiagnosticSections from './DiagnosticSections'
 
 const statusLabels = { queued: '等待设备领取', running: '设备正在查询', cleaning: '等待设备确认清理', cancel_requested: '等待设备确认取消', cancelled: '设备已确认取消', succeeded: '执行已完成', failed: '执行失败' }
-type Scope = { serverId: number; fresh: boolean; error: string; data?: NodeIpQualityData }
+type Scope = { serverId: number; fresh: boolean; error: string; data?: NodeIpQualityData; isCurrent?: () => boolean; getCurrent?: () => NodeIpQualityData | undefined }
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
@@ -22,16 +23,17 @@ function NodeReport({ record, current, reload }: { record: DiagnosticRecord; cur
   const result = envelope(record)
   const attempts = Array.isArray(result.attempts) ? result.attempts.map(object) : []
   const server = current.current.serverId
-  const cancelable = !record.agent_completed && ['queued', 'running', 'cleaning'].includes(record.status)
+  const cancelable = diagnosticCancellable(record)
   const submitCancel = () => void cancel.run(async () => {
     const error = nodeIpCancelError(current.current, server, record.id)
     if (error) throw new Error(error)
     return api(`/api/servers/${server}/diagnostics/${record.id}/cancel`, 'POST')
   }, reload)
   return <article className="quality-report">
-    <div className="quality-report-heading"><Badge tone={record.status === 'failed' ? 'bad' : record.status === 'succeeded' ? 'neutral' : 'warm'}>{statusLabels[record.status]}</Badge><span className="subtle">{time(record.created_at)} · IPv{record.job.options.ip_version}</span></div>
-    <p className="helper">实际出口：{typeof result.egress_ip === 'string' ? result.egress_ip : '未知'} · 工具版本：{record.job.version ?? '未知'}。</p>
+    <div className="quality-report-heading"><Badge tone={record.status === 'failed' ? 'bad' : record.status === 'succeeded' ? 'neutral' : 'warm'}>{statusLabels[record.status]}</Badge><span className="subtle">{time(record.created_at)} · IPv{record.job?.options?.ip_version ?? '未知'}</span></div>
+    <p className="helper">实际出口：{typeof result.egress_ip === 'string' ? result.egress_ip : '未知'} · 工具版本：{record.job?.version ?? '未知'}。</p>
     <p className="helper">开始于 {typeof result.started_at === 'number' ? time(result.started_at) : '等待设备回报'} · {typeof result.finished_at === 'number' ? `结束于 ${time(result.finished_at)}` : '执行结束时间未知'}。执行完成仅表示查询流程结束，各个来源的可用性分别查看。</p>
+    {['failed', 'succeeded'].includes(record.status) && diagnosticUnconfirmed(record) && <p className="notice">已有结果尚未取得设备停止与清理确认，诊断位置仍被占用；可请求取消，历史结果保留。</p>}
     {record.status === 'cancel_requested' && <p className="notice">等待设备确认取消。进程和挂载清理确认之前，同机诊断保持互斥；已保存结果仍可查看。</p>}
     {record.status === 'cleaning' && <p className="notice">等待设备确认进程、挂载和排队任务均已清理。设备重启或面板断连后继续处理。</p>}
     {cancelable && <button className="button button-secondary" disabled={!current.current.fresh || !current.current.data?.cancel_supported || cancel.busy} onClick={submitCancel}>{cancel.busy ? '请求取消中…' : '请求取消节点自查'}</button>}
@@ -46,11 +48,11 @@ function NodeReport({ record, current, reload }: { record: DiagnosticRecord; cur
   </article>
 }
 
-export default function NodeIpQuality({ serverId, data, fresh, error, reload }: Scope & { reload: () => void }) {
+export default function NodeIpQuality({ serverId, data, fresh, error, reload, isCurrent, getCurrent }: Scope & { reload: () => void }) {
   const run = useAction()
   const [family, setFamily] = useState('4')
-  const current = useRef<Scope>({ serverId, data, fresh, error })
-  current.current = { serverId, data, fresh, error }
+  const current = useRef<Scope>({ serverId, data, fresh, error, isCurrent, getCurrent })
+  current.current = { serverId, data, fresh, error, isCurrent, getCurrent }
   const startError = nodeIpStartError(current.current, serverId)
   const submit = () => void run.run(async () => {
     const error = nodeIpStartError(current.current, serverId)

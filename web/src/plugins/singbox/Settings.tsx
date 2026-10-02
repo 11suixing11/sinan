@@ -1,6 +1,6 @@
 import { api } from '../../api'
 import { Badge, Empty, ErrorNotice, Loading, Refresh } from '../../components'
-import { useAction, useResource } from '../../hooks'
+import { resourceWriteError, useAction, useResource } from '../../hooks'
 import type { PluginServer } from '../../types'
 
 export function sourceLabel(source: PluginServer['source'] | undefined) {
@@ -30,10 +30,18 @@ export default function Settings({ serverId }: { serverId?: number }) {
   const single = useResource<PluginServer>(serverId ? `/api/plugins/sing-box/servers/${serverId}` : null)
   const servers = serverId ? { ...single, data: single.data ? [single.data] : undefined } : collection
   const action = useAction()
+  const state = serverId ? single : collection
+  const writeError = () => resourceWriteError(state)
+  const enable = (id: number) => {
+    if (writeError()) return
+    const current = serverId ? single.getCurrent() : collection.getCurrent()?.find(server => server.id === id)
+    if (!current || current.id !== id || current.read_only || current.enabled) return
+    void action.run(() => api(`/api/plugins/sing-box/servers/${id}/enable`, 'POST', {}), servers.reload)
+  }
   return <section className="panel"><div className="panel-heading"><h2>sing-box 安装与运行状态</h2><Refresh onClick={servers.reload} /></div><div className="panel-body"><p className="helper">选择服务器安装 sing-box。安装成功后，创建节点并为代理用户分配可用节点或链路。</p><ErrorNotice message={servers.error || action.error} retry={servers.reload} /></div>
     {servers.loading && !servers.data ? <Loading /> : !servers.data?.length ? !servers.error && <Empty icon="server" title="还没有服务器" description="先添加并接入服务器，再安装插件。"><a className="button button-primary" href="#/servers">添加服务器</a></Empty> : <div className="table-wrap"><table><thead><tr><th>服务器</th><th>安装与运行状态</th><th>设备支持</th><th>操作</th></tr></thead><tbody>{servers.data.map(server => {
       const installation = installationView(server)
-      return <tr key={server.id}><td><a className="text-button" href={`#/servers/${server.id}`}>{server.name}</a>{server.enabled && <small>{sourceLabel(server.source)}</small>}</td><td><Badge tone={installation.tone}>{installation.label}</Badge><small>{installation.reason}</small></td><td>{server.agent_supported ? '设备支持 sing-box' : '设备尚未声明支持'}{server.read_only && <small>保留已有启用记录</small>}</td><td>{server.enabled ? <a className="button button-secondary button-small" href={`#/plugins/sing-box/nodes?server=${server.id}`}>管理节点</a> : server.read_only ? <span className="subtle">保留已有启用记录</span> : <button className="button button-primary button-small" disabled={action.busy || !!servers.error} onClick={() => void action.run(() => api(`/api/plugins/sing-box/servers/${server.id}/enable`, 'POST', {}), servers.reload)}>启用并安装 sing-box</button>}</td></tr>
+      return <tr key={server.id}><td><a className="text-button" href={`#/servers/${server.id}`}>{server.name}</a>{server.enabled && <small>{sourceLabel(server.source)}</small>}</td><td><Badge tone={installation.tone}>{installation.label}</Badge><small>{installation.reason}</small></td><td>{server.agent_supported ? '设备支持 sing-box' : '设备尚未声明支持'}{server.read_only && <small>保留已有启用记录</small>}</td><td>{server.enabled ? <a className="button button-secondary button-small" href={`#/plugins/sing-box/nodes?server=${server.id}`}>管理节点</a> : <button className="button button-primary button-small" disabled={action.busy || Boolean(writeError()) || server.read_only} onClick={() => enable(server.id)}>启用并安装 sing-box</button>}</td></tr>
     })}</tbody></table></div>}
   </section>
 }

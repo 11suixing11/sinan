@@ -37,6 +37,7 @@ try {
       const respond = (json, status = 200) => route.fulfill({ status, json })
       if (path === '/api/dashboard/access') return respond({ authenticated: true, public_dashboard: false })
       if (path === '/api/servers') return respond(servers)
+      if (path === '/api/probes/overview') return respond([])
       if (method !== 'GET') writes.push({ path, method, body: request.postDataJSON() })
       if (path === '/api/latency-tasks') {
         if (method === 'POST') {
@@ -62,6 +63,9 @@ try {
         }
         return respond(settings)
       }
+      if (path === '/api/notifications/webhook') return respond({enabled:false,preset:'custom',url_configured:false,headers_configured:false,body_configured:false})
+      if (path === '/api/notifications/channels') return respond([])
+      if (path === '/api/telemetry/policy') return respond({history_retention_days:30})
       if (path === '/api/notifications/telegram/test') return respond(testFailure ? { error: '测试：Telegram 暂时不可用' } : { sent: true }, testFailure ? 400 : 200)
       if (path === '/api/alert-rules') {
         if (method === 'POST') { rules.push({ ...request.postDataJSON(), id: 'rule-1', revision: 1 }); return respond(rules[0], 201) }
@@ -84,11 +88,18 @@ try {
     assert.equal(await dialog.getByLabel('目标端口').count(), 0)
     await dialog.getByLabel('目标地址', { exact: false }).fill('probe.example.com')
     await dialog.getByLabel('检测间隔（秒）').fill('45')
-    await dialog.getByLabel('线路备注').fill('回程观测')
-    await dialog.getByLabel('目标地区（可选）').fill('测试地区')
-    await dialog.getByLabel('目标来源', { exact: false }).fill('TEST_ONLY 自有测点清单')
-    await dialog.getByLabel('使用依据').selectOption('owned')
-    await dialog.getByLabel('同意或管理记录', { exact: false }).fill('TEST_ONLY 管理员确认')
+    await dialog.getByLabel('线路备注').fill('telecom')
+    await dialog.getByLabel('目标地区', { exact: false }).fill('华东')
+    await dialog.getByLabel('网络版本').selectOption('ipv4')
+    await dialog.getByLabel('目标授权依据').selectOption('owned')
+    await dialog.getByLabel('授权来源').fill('TEST_ONLY-owned-asset-1')
+    await dialog.getByLabel('授权适用范围').fill('ICMP，每45秒，自有回环夹具')
+    await dialog.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).check()
+    await dialog.getByLabel('目标地址', { exact: false }).fill('other.example.com')
+    assert.equal(await dialog.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).isChecked(), false)
+    await dialog.getByLabel('目标地址', { exact: false }).fill('probe.example.com')
+    assert.equal(await dialog.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).isChecked(), false)
+    await dialog.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).check()
     await dialog.getByLabel('搜索服务器').fill('东京')
     await dialog.getByRole('button', { name: '全选当前结果' }).click()
     await dialog.getByLabel('搜索服务器').fill('香港')
@@ -104,12 +115,13 @@ try {
     await dialog.waitFor({ state: 'detached' })
     const taskWrite = writes.filter(write => write.path === '/api/latency-tasks').at(-1).body
     assert.deepEqual(taskWrite.server_ids, [1, 2]); assert.equal(taskWrite.spec.port, null); assert.equal(taskWrite.spec.interval_secs, 45); assert.equal(taskWrite.default_enabled, true)
-    assert.equal(taskWrite.authorization.scope, 'owned'); assert.equal(taskWrite.authorization.region, '测试地区'); assert.equal(taskWrite.authorization.expires_at, null)
+    assert.equal(taskWrite.spec.monitor.authorization.kind, 'owned'); assert.equal(taskWrite.spec.monitor.region, '华东'); assert.equal(taskWrite.spec.monitor.authorization.expires_at, null)
     assert.equal(Object.hasOwn(taskWrite.spec, 'authorization'), false, 'Spec retains the original eight fields')
     await page.getByRole('button', { name: '编辑', exact: true }).click()
     dialog = page.getByRole('dialog')
     assert.equal(await dialog.getByLabel('目标地址', { exact: false }).isDisabled(), true)
     assert.equal(await dialog.getByLabel('检测方式').isDisabled(), true)
+    assert.equal(await dialog.getByLabel('线路备注').isDisabled(), true)
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: '暂停', exact: true }).click()
     await page.getByRole('button', { name: '启用', exact: true }).waitFor()
@@ -130,7 +142,7 @@ try {
     await page.getByRole('alert').filter({ hasText: '模板变量无效' }).waitFor()
     await page.getByLabel('消息模板', { exact: false }).fill('{{title}}\n{{server}}\n{{message}}\n{{time}}\n{{event}}')
     await page.getByText('查看模板预览', { exact: true }).click()
-    await page.locator('.monitoring-preview').filter({ hasText: '示例服务器' }).waitFor()
+    await page.locator('form.monitoring-settings .monitoring-preview').filter({ hasText: '示例服务器' }).waitFor()
     await page.getByRole('button', { name: '保存设置' }).click()
     await page.getByRole('status').filter({ hasText: '设置已保存' }).waitFor()
     const saved = writes.filter(write => write.path === '/api/settings').at(-1).body

@@ -72,6 +72,7 @@ try {
         return fulfill({ token: 'TEST_ONLY', expires_at: Math.floor(Date.now() / 1000) + (enrollmentMode === 'expired' ? -1 : 86400), installation: enrollmentMode === 'missing' ? null : { version, tag: version === 'latest' ? null : `agent-v${version}`, target, platform }, install_command: enrollmentMode === 'missing' ? null : installCommand(version, platform, target), warning: enrollmentMode === 'missing' ? '测试：请维护者准备兼容的签名发布' : null })
       }
       if (path === '/api/servers/1/agent-settings') return fulfill(settings)
+      if (path === '/api/servers/1/telemetry-settings') return fulfill({ persist_interval_secs: 60 })
       if (path === '/api/servers/1/probes') return fulfill(probes)
       if (path === '/api/servers/1/probe-results' || path === '/api/servers/1/commands') return fulfill([])
       if (path === '/api/plugins/sing-box/servers/1') return fulfill({ id: 1, name: entry.name, enabled: false, online: entry.online, agent_supported: false, read_only: false, source: null })
@@ -105,23 +106,40 @@ try {
     await tcp.getByLabel('目标端口').fill('8443')
     await tcp.getByLabel('拨测间隔（秒）').fill('45')
     await tcp.getByLabel('线路备注').fill('测试线路')
-    await dialog.getByRole('button', { name: '创建并继续' }).click()
+    await dialog.locator('form').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
     await dialog.getByRole('alert').filter({ hasText: '授权' }).waitFor()
-    assert.equal(creates.length, 0, 'A loopback or example hostname cannot substitute for explicit target authorization')
-    assert.equal(await tcp.getByLabel('目标端口').inputValue(), '8443', 'Authorization failure preserves the initial probe draft')
-    await tcp.getByLabel('目标地区（可选）').fill('测试地区')
-    await tcp.getByLabel('目标来源', { exact: false }).fill('TEST_ONLY 自有服务')
-    await tcp.getByLabel('使用依据').selectOption('owned')
-    await tcp.getByLabel('同意或管理记录', { exact: false }).fill('TEST_ONLY 管理记录')
+    assert.equal(creates.length, 0, 'Example and loopback addresses never imply target authority')
+    assert.equal(await tcp.getByLabel('目标端口').inputValue(), '8443', 'The unauthorized enrollment preserves all target fields')
+    await tcp.getByLabel('目标授权依据').selectOption('owned')
+    await tcp.getByLabel('授权来源').fill('TEST_ONLY-owned-server')
+    await tcp.getByLabel('授权适用范围').fill('TCP 8443，每45秒')
+    await tcp.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).check()
+    for (const [label, changed, original, select] of [
+      ['目标地址', 'other.example.com', 'probe.example.com', false],
+      ['目标端口', '9443', '8443', false],
+      ['检测方式', 'icmp', 'tcp', true],
+      ['网络版本', 'ipv6', 'auto', true],
+    ]) {
+      const field = tcp.getByLabel(label)
+      await (select ? field.selectOption(changed) : field.fill(changed))
+      assert.equal(await tcp.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).isChecked(), false, `${label} must invalidate previous consent`)
+      await (select ? field.selectOption(original) : field.fill(original))
+      assert.equal(await tcp.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).isChecked(), false, 'Returning to the original target never silently restores consent')
+      await dialog.getByRole('button', { name: '创建并继续' }).click()
+      assert.equal(creates.length, 0, 'A fresh manual confirmation is required before posting the server')
+      await tcp.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).check()
+    }
     await dialog.getByRole('button', { name: '添加目标' }).click()
     const icmp = dialog.getByRole('group', { name: '拨测目标 2', exact: true })
     await icmp.getByLabel('检测方式').selectOption('icmp')
     assert.equal(await icmp.getByLabel('目标端口').count(), 0)
     await icmp.getByLabel('拨测名称').fill('本地回显')
     await icmp.getByLabel('目标地址').fill('::1')
-    await icmp.getByLabel('目标来源', { exact: false }).fill('TEST_ONLY 本机回环')
-    await icmp.getByLabel('使用依据').selectOption('owned')
-    await icmp.getByLabel('同意或管理记录', { exact: false }).fill('TEST_ONLY 管理记录')
+    await icmp.getByLabel('网络版本').selectOption('ipv6')
+    await icmp.getByLabel('目标授权依据').selectOption('owned')
+    await icmp.getByLabel('授权来源').fill('TEST_ONLY-owned-loopback')
+    await icmp.getByLabel('授权适用范围').fill('ICMP，自有IPv6回环')
+    await icmp.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).check()
     await dialog.getByRole('button', { name: '添加目标' }).click()
     await dialog.getByRole('button', { name: '移除目标 3' }).click()
     assert.equal(await dialog.getByRole('group', { name: /拨测目标/ }).count(), 2)
@@ -139,10 +157,13 @@ try {
     assert.equal(creates.length, 2, 'Repeated submission must not duplicate the successful creation')
     assert.equal(enrollments.length, 1)
     assert.equal(creates[1].name, '东京 · 主节点')
+    assert.deepEqual(creates[1].telemetry_settings, { persist_interval_secs: 60 })
     assert.deepEqual(settings, { sample_interval_secs: 3, upload_interval_secs: 10, auto_update: true, discover_public_ips: false })
     assert.deepEqual(probes.map(({ kind, port, interval_secs }) => ({ kind, port, interval_secs })), [{ kind: 'tcp', port: 8443, interval_secs: 45 }, { kind: 'icmp', port: null, interval_secs: 30 }])
-    assert.deepEqual(probes.map(({ authorization }) => authorization.scope), ['owned', 'owned'])
-    assert.equal(probes[0].authorization.region, '测试地区'); assert.equal(probes[0].authorization.expires_at, null)
+    assert.deepEqual(probes.map(probe => probe.monitor.authorization.identity), [
+      { kind: 'tcp', target: 'probe.example.com', port: 8443, address_family: 'any' },
+      { kind: 'icmp', target: '::1', port: null, address_family: 'ipv6' },
+    ])
     enrollmentMode = 'ok'
     await dialog.getByRole('button', { name: '重新生成命令' }).click()
     await dialog.getByRole('button', { name: '复制安装命令' }).waitFor()

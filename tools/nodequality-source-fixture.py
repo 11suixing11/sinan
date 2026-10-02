@@ -3,36 +3,6 @@ import ast
 import hashlib
 import importlib.util
 from pathlib import Path
-from unittest import mock
-
-
-class PolicyOutputs(dict):
-    """Keep the r15 layer for the older isolated transformation regressions."""
-    before_access = None
-    before_netflix = None
-    before_openai = None
-
-
-def serve_before_access(helper, directory, arguments):
-    # Older policy tests assert the identity of their own fixed layer. The new
-    # access suite and final runner/packaging tests exercise the complete chain.
-    # No production switch permits this bypass.
-    with mock.patch.object(helper, 'authorized_provider_access', side_effect=lambda role, data: data), mock.patch.object(helper, 'validated_netflix', side_effect=lambda role, data: data), mock.patch.object(helper, 'authorized_openai', side_effect=lambda role, data: data):
-        return helper.serve(directory, arguments)
-
-
-def serve_before_netflix(helper, directory, arguments):
-    # Isolated r16 assertions retain their exact source identity. The new
-    # Netflix suite and final signed runner tests exercise the complete chain.
-    with mock.patch.object(helper, 'validated_netflix', side_effect=lambda role, data: data), mock.patch.object(helper, 'authorized_openai', side_effect=lambda role, data: data):
-        return helper.serve(directory, arguments)
-
-
-def serve_before_openai(helper, directory, arguments):
-    # Recover the fixed Netflix layer only in isolated historical assertions.
-    # Final source/runner tests and the OpenAI suite retain the complete chain.
-    with mock.patch.object(helper, 'authorized_openai', side_effect=lambda role, data: data):
-        return helper.serve(directory, arguments)
 
 
 def module(name, path):
@@ -58,49 +28,20 @@ def inert_source(name, policy):
         if name == 'net.sh':
             source += policy.NET_OUTPUT
         source += policy.SOURCES[name]['original_guard'] + b'}\n'
-    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ip_score_anchors(name) + browser_anchors(name) + query_anchors(name) + access_anchors(name) + netflix_anchors(name) + openai_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
+    return source + swap_anchors(name) + dependency_anchors(name) + data_anchors(name) + loader_anchors(name) + ranking_anchors(name) + ip_score_anchors(name) + netflix_anchors(name) + browser_anchors(name) + public_access_anchors(name) + ("printf '%s' '" + name + "' > \"$NQ_SOURCE_EXECUTED\"\n").encode()
 
 
-def openai_anchors(name):
+def public_access_anchors(name):
     if name != 'ip.sh':
         return b''
-    # The access fixture already provides the unique save_json aggregate line.
-    # No upstream authorization bytes are copied into this private fixture.
-    return b'function OpenAITest(){\n: # Synthetic uncalled OpenAI function.\n}\n'
+    policy = module('fixture_public_access_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/public-access-policy.py')
+    return b"fixture_unused_public_access(){\ncat <<'SINAN_FIXTURE_PUBLIC_ACCESS'\n" + b''.join(a for a, _ in policy.REPLACEMENTS) + b'SINAN_FIXTURE_PUBLIC_ACCESS\n}\n'
 
 
-def netflix_anchors(name):
-    if name != 'ip.sh':
-        return b''
-    policy = module('fixture_netflix_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/netflix-policy.py')
-    # The prior query layer already supplies FETCH. Only the original
-    # classifier anchors are needed in the inert packaging source.
-    extra = b''.join(before for before, _ in policy.REPLACEMENTS if before != policy.FETCH)
-    return b"fixture_unused_netflix_classification(){\ncat <<'SINAN_FIXTURE_NETFLIX'\n" + extra + b'SINAN_FIXTURE_NETFLIX\n}\n'
-
-
-def access_anchors(name):
-    if name != 'ip.sh':
-        return b''
-    policy = module('fixture_access_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/access-policy.py')
-    functions = b''.join((key + '(){\n: # Synthetic uncalled provider function.\n}\n').encode()
-                         for key in policy.FUNCTIONS)
-    return functions + b"fixture_unused_access_metadata(){\ncat <<'SINAN_FIXTURE_ACCESS'\n" + policy.JSON_ANCHOR + b'SINAN_FIXTURE_ACCESS\n}\n'
-
-
-def query_anchors(name):
-    if name != 'ip.sh':
-        return b''
-    policy = module('fixture_query_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/query-policy.py')
-    return b"fixture_unused_queries(){\ncat <<'SINAN_FIXTURE_QUERY'\n" + b''.join(a for a, _ in policy.REPLACEMENTS) + b'SINAN_FIXTURE_QUERY\n}\n'
-
-
-def undo_queries(role, patched):
+def undo_access(role, patched):
     if role != 'ip.sh':
         return patched
-    policy = module('fixture_undo_query', Path(__file__).resolve().parents[1] / 'plugins/nodequality/query-policy.py')
-    if policy.HELPERS not in patched:
-        return patched
+    policy = module('fixture_undo_public_access', Path(__file__).resolve().parents[1] / 'plugins/nodequality/public-access-policy.py')
     for before, after in reversed(policy.REPLACEMENTS):
         patched = replace_once(patched, after, before)
     return patched
@@ -113,10 +54,29 @@ def browser_anchors(name):
 
 
 def undo_browser(role, patched):
-    patched = undo_queries(role, patched)
+    if role == 'ip.sh' and b'sinan_provider_access_json(){' in patched:
+        patched = undo_access(role, patched)
     if role not in ('ip.sh', 'net.sh'):
         return patched
     policy = module('fixture_undo_browser', Path(__file__).resolve().parents[1] / 'plugins/nodequality/browser-policy.py')
+    for before, after in reversed(policy.REPLACEMENTS):
+        patched = replace_once(patched, after, before)
+    return patched
+
+
+def netflix_anchors(name):
+    if name != 'ip.sh':
+        return b''
+    policy = module('fixture_netflix_policy', Path(__file__).resolve().parents[1] / 'plugins/nodequality/netflix-policy.py')
+    return b"fixture_unused_netflix(){\ncat <<'SINAN_FIXTURE_NETFLIX'\n" + b''.join(a for a, _ in policy.REPLACEMENTS) + b'SINAN_FIXTURE_NETFLIX\n}\n'
+
+
+def undo_netflix(role, patched):
+    if role in ('ip.sh', 'net.sh') and b'SINAN_NATIVE_CURL=$(type -P curl)' in patched:
+        patched = undo_browser(role, patched)
+    if role != 'ip.sh':
+        return patched
+    policy = module('fixture_undo_netflix', Path(__file__).resolve().parents[1] / 'plugins/nodequality/netflix-policy.py')
     for before, after in reversed(policy.REPLACEMENTS):
         patched = replace_once(patched, after, before)
     return patched
@@ -233,7 +193,7 @@ def prepare_policy(plugin, contents):
     policy = module('synthetic_report_policy_input', path)
     content = path.read_bytes()
     original_helper_hash = hashlib.sha256(content).hexdigest().encode()
-    outputs = PolicyOutputs()
+    outputs = {}
     for role, spec in policy.SOURCES.items():
         canonical = contents[role]
         patched = policy.exact_replace(canonical, b'check_bash(){\n', policy.POLICY + b'check_bash(){\n')
@@ -321,44 +281,6 @@ def prepare_policy(plugin, contents):
         outputs[role] = patched
     score_path.write_bytes(content)
     helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
-    browser_path = Path(plugin) / 'browser-policy.py'
-    browser = module('synthetic_browser_policy_input', browser_path)
-    content = browser_path.read_bytes()
-    original_hash = hashlib.sha256(content).hexdigest().encode()
-    for role, spec in browser.SOURCES.items():
-        canonical = outputs[role]
-        patched = browser.patch(canonical)
-        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
-        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
-        outputs[role] = patched
-    browser_path.write_bytes(content)
-    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
-    query_path = Path(plugin) / 'query-policy.py'
-    query = module('synthetic_query_policy_input', query_path)
-    content = query_path.read_bytes()
-    original_hash = hashlib.sha256(content).hexdigest().encode()
-    for role, spec in query.SOURCES.items():
-        canonical = outputs[role]
-        patched = query.patch(canonical)
-        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
-        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
-        outputs[role] = patched
-    query_path.write_bytes(content)
-    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
-    outputs.before_access = dict(outputs)
-    access_path = Path(plugin) / 'access-policy.py'
-    access = module('synthetic_access_policy_input', access_path)
-    content = access_path.read_bytes()
-    original_hash = hashlib.sha256(content).hexdigest().encode()
-    for role, spec in access.SOURCES.items():
-        canonical = outputs[role]
-        patched = access.patch(canonical)
-        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
-        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
-        outputs[role] = patched
-    access_path.write_bytes(content)
-    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
-    outputs.before_netflix = dict(outputs)
     netflix_path = Path(plugin) / 'netflix-policy.py'
     netflix = module('synthetic_netflix_policy_input', netflix_path)
     content = netflix_path.read_bytes()
@@ -371,18 +293,28 @@ def prepare_policy(plugin, contents):
         outputs[role] = patched
     netflix_path.write_bytes(content)
     helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
-    outputs.before_openai = dict(outputs)
-    openai_path = Path(plugin) / 'openai-policy.py'
-    openai = module('synthetic_openai_policy_input', openai_path)
-    content = openai_path.read_bytes()
-    identities = {}
-    for role in openai.SOURCES:
+    browser_path = Path(plugin) / 'browser-policy.py'
+    browser = module('synthetic_browser_policy_input', browser_path)
+    content = browser_path.read_bytes()
+    original_hash = hashlib.sha256(content).hexdigest().encode()
+    for role, spec in browser.SOURCES.items():
         canonical = outputs[role]
-        patched = openai.patch(canonical)
-        identities[role] = {'source_sha256': hashlib.sha256(canonical).hexdigest(),
-                            'patched_sha256': hashlib.sha256(patched).hexdigest()}
+        patched = browser.patch(canonical)
+        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
+        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
         outputs[role] = patched
-    content = assignment(content, 'SOURCES', identities)
-    openai_path.write_bytes(content)
-    helper.write_bytes(assignment(helper.read_bytes(), 'OPENAI_POLICY_SHA256', hashlib.sha256(content).hexdigest()))
+    browser_path.write_bytes(content)
+    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
+    access_path = Path(plugin) / 'public-access-policy.py'
+    access = module('synthetic_public_access_policy_input', access_path)
+    content = access_path.read_bytes()
+    original_hash = hashlib.sha256(content).hexdigest().encode()
+    for role, spec in access.SOURCES.items():
+        canonical = outputs[role]
+        patched = access.patch(canonical)
+        content = replace_once(content, spec['source_sha256'].encode(), hashlib.sha256(canonical).hexdigest().encode())
+        content = replace_once(content, spec['patched_sha256'].encode(), hashlib.sha256(patched).hexdigest().encode())
+        outputs[role] = patched
+    access_path.write_bytes(content)
+    helper.write_bytes(replace_once(helper.read_bytes(), original_hash, hashlib.sha256(content).hexdigest().encode()))
     return outputs

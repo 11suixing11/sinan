@@ -11,8 +11,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "plugins/nodequality"
-LEGACY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-sinan-native-r1"
-VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1"
+CANONICAL_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19"
+VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20"
 BINARY = "nodequality"
 FILES = {BINARY, "rootfs.tar.gz", "rootfs-manifest.json"}
 MAX_OUTER_STREAM = 256 * 1024 * 1024
@@ -24,7 +24,7 @@ LOAD_ROOTFS = b'''function load_bench_os(){
     rm -rf BenchOs
 
     curl "-L#o" BenchOs.tar.gz $bench_os_url
-    tar -xzf BenchOs.tar.gz     
+    tar -xzf BenchOs.tar.gz\x20\x20\x20\x20\x20
     cd $work_dir/BenchOs
 
     mount -t proc /proc proc/
@@ -52,16 +52,6 @@ LOCAL_ROOTFS = b'''function load_bench_os(){
     cp -- /etc/resolv.conf etc/resolv.conf || return $?
 }
 '''
-ROOTFS_PASSTHROUGH = b'''  # The fixed entrypoint's rootfs download is a separate, still pending chain.
-  # Every first-level source request is served locally; unknown sources fail.
-  if [[ $# == 3 && $1 == '-L#o' && $2 == BenchOs.tar.gz ]]; then
-    case "$3" in
-      https://github.com/LloydAsp/NodeQuality/releases/download/v0.0.2/BenchOs.tar.gz|https://github.com/LloydAsp/NodeQuality/releases/download/v0.0.2/BenchOs-arm.tar.gz)
-        exec "$SINAN_REAL_CURL" --connect-timeout 15 --max-time 900 "$@"
-        ;;
-    esac
-  fi
-'''
 MARKERS = {
     "NODEQUALITY_SOURCE": "SINAN_NODEQUALITY_SOURCE_A92FCA6",
     "NODEQUALITY_LICENSE": "SINAN_NODEQUALITY_LICENSE_A92FCA6",
@@ -72,11 +62,11 @@ HELPERS = {
     "SWAP_POLICY_HELPER": "swap-policy.py", "DEPENDENCY_POLICY_HELPER": "dependency-policy.py",
     "DATA_POLICY_HELPER": "data-policy.py", "LOADER_POLICY_HELPER": "loader-policy.py",
     "RANKING_POLICY_HELPER": "ranking-policy.py", "IP_SCORE_POLICY_HELPER": "ip-score-policy.py",
-    "BROWSER_POLICY_HELPER": "browser-policy.py", "QUERY_POLICY_HELPER": "query-policy.py",
-    "ACCESS_POLICY_HELPER": "access-policy.py", "NETFLIX_POLICY_HELPER": "netflix-policy.py",
-    "OPENAI_POLICY_HELPER": "openai-policy.py",
+    "BROWSER_POLICY_HELPER": "browser-policy.py",
+    "PUBLIC_ACCESS_POLICY_HELPER": "public-access-policy.py", "NETFLIX_POLICY_HELPER": "netflix-policy.py",
     "REPORT_HELPER": "report.py", "EXIT_OBSERVER": "exit-observer.sh", "DAILY_HELPER": "daily.py",
     "CURL_SHIM": "curl-shim.sh", "CHROOT_SHIM": "chroot-shim.sh",
+    "OFFICIAL_IP_HELPER": "official-ip.py", "EXECUTION_ADMISSION": "execution-admission.json",
 }
 
 
@@ -122,7 +112,7 @@ def embedded(content, sentinel):
     return content[start:stop + 1]
 
 
-def legacy_runner(bundle_bytes):
+def canonical_runner(bundle_bytes):
     helper = module("sinan_offline_source_helper", PLUGIN / "source-helper.py")
     bundle = helper.decode(bundle_bytes)
     ensure(isinstance(bundle, dict) and set(bundle) == {"schema", "lock", "files"}
@@ -131,6 +121,8 @@ def legacy_runner(bundle_bytes):
     lock = helper.decode(helper.ordinary(PLUGIN / "source-lock.json", MAX_MANIFEST))
     ensure(bundle.get("lock") == lock, "offline runner requires the canonical source lock")
     rows = helper.validate(lock)
+    helper.execution_admission(PLUGIN / "execution-admission.json")
+    helper.official_ip_identity()
     ensure(isinstance(bundle, dict) and set(bundle) == {"schema", "lock", "files"}
            and type(bundle["schema"]) is int and bundle["schema"] == 1
            and isinstance(bundle["files"], dict) and set(bundle["files"]) == set(rows),
@@ -155,25 +147,20 @@ def legacy_runner(bundle_bytes):
 
 def offline_runner(base):
     ensure(isinstance(base, bytes) and 0 < len(base) <= MAX_RUNNER,
-           "invalid legacy runner size")
+           "invalid canonical runner size")
     bundle = embedded(base, MARKERS["PINNED_CHAIN"])
-    ensure(base == legacy_runner(bundle), "legacy runner differs from canonical packaged source")
+    ensure(base == canonical_runner(bundle), "base runner differs from canonical r19 packaged source")
     entry = embedded(base, MARKERS["NODEQUALITY_SOURCE"])
     patched = replace_once(entry, LOAD_ROOTFS, LOCAL_ROOTFS)
     patched = replace_once(patched, b"    load_bench_os\n",
                            b"    load_bench_os || exit $? # Sinan: no online rootfs fallback.\n")
     result = replace_once(base, entry, patched)
-    result = replace_once(result, b"NodeQuality performs external downloads\nand tests.",
-                          b"This artifact prepares an offline environment; full execution remains disabled.\nRootfs has no online fallback.")
-    result = replace_once(result, ("version=" + LEGACY_VERSION + "\n").encode(),
+    result = replace_once(result, b"New full executions are refused before filesystem changes or upstream tools.",
+                          b"This artifact includes a verified offline rootfs preparation.\n"
+                          b"New full executions are refused before filesystem changes or upstream tools.")
+    result = replace_once(result, ("version=" + CANONICAL_VERSION + "\n").encode(),
                           ("version=" + VERSION + "\n").encode())
-    # The optional artifact prepares a loading contract. It cannot certify legal
-    # tools or the complete fault matrix; reject full before doing any I/O.
-    result = replace_once(result, b'case "$mode" in daily|full) ;; *) die \'invalid diagnostic mode\' ;; esac\n',
-                          b'case "$mode" in daily|full) ;; *) die \'invalid diagnostic mode\' ;; esac\n'
-                          b'[[ $mode != full ]] || die \'Full diagnostics are suspended: licensed tools and complete acceptance are pending\'\n')
-    result = replace_once(result, ROOTFS_PASSTHROUGH,
-                          b"  # Only the pinned local source service is allowed; rootfs is always offline.\n")
+    # Preserve the canonical artifact's complete-execution admission unchanged.
     extractor = runtime().ordinary(PLUGIN / "rootfs.py", 128 * 1024)
     ensure(extractor.endswith(b"\n") and b"\nSINAN_NODEQUALITY_ROOTFS_HELPER\n" not in extractor,
            "invalid embedded rootfs helper")
@@ -254,7 +241,7 @@ def validate_files(files, version, arch):
     ensure(isinstance(sources, dict) and type(sources.get("schema")) is int and sources["schema"] == 1
            and sources.get("arch") == arch, "invalid embedded source inventory identity")
     bundle = embedded(files[BINARY], MARKERS["PINNED_CHAIN"])
-    ensure(files[BINARY] == offline_runner(legacy_runner(bundle)),
+    ensure(files[BINARY] == offline_runner(canonical_runner(bundle)),
            "offline runner differs from its exact controlled derivation")
     return manifest
 

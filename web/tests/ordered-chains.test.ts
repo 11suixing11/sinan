@@ -8,7 +8,7 @@ import type { ChainMutation } from '../src/plugins/singbox/chainRequests'
 import { filterProxyResources, validProxyResource, validatedSnapshot } from '../src/plugins/singbox/groupTypes'
 import type { ProxyResource, PublicHop } from '../src/plugins/singbox/groupTypes'
 import { nodeRoute } from '../src/plugins/singbox/nodeRoute'
-import { validSubscriptionSource } from '../src/plugins/singbox/sourceTypes'
+import { validSubscriptionSource } from '../src/plugins/singbox/orderedSourceTypes'
 import { orderedResourceFixture, pathFixtureUuid, proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
 import { sourceNodeFixture, sourceNodePageFixture, sourceUuid, subscriptionSourceFixture } from './subscription-source-fixtures.mjs'
 
@@ -62,15 +62,27 @@ test('path limits, repeat logical identities and repeated managed servers refuse
     expect(() => prepareChainBatch(value, snapshot(), undefined, () => requestId)).toThrow()
   }
 })
-test('lost-response exact batch replay survives source replacement and source-node deletion while a changed draft cannot bypass qualification', async () => {
-  const current = snapshot(), value = draft(), pending = prepareChainBatch(value, current, undefined, () => requestId), bodies: string[] = []
-  await expect(submitChainBatch(pending, current, async body => { bodies.push(JSON.stringify(body)); throw new Error('response lost') })).rejects.toThrow()
-  current.sources!.data = []; current.sourceNodes = {}
-  const replay = prepareChainBatch(value, current, pending, () => { throw new Error('new key forbidden') })
-  await submitChainBatch(replay, current, async body => bodies.push(JSON.stringify(body)))
+test('exact batch replay requires the original source identity and selected version to remain eligible', async () => {
+  const value = draft(), pending = prepareChainBatch(value, snapshot(), undefined, () => requestId), bodies: string[] = []
+  await expect(submitChainBatch(pending, snapshot(), async body => { bodies.push(JSON.stringify(body)); throw new Error('response lost') })).rejects.toThrow()
+  for (const change of ['deleted', 'archived', 'epoch', 'node', 'version', 'pending'] as const) {
+    const current = snapshot()
+    if (change === 'deleted') current.sources!.data = []
+    if (change === 'archived') current.sources!.data![0].archived = true
+    if (change === 'epoch') current.sources!.data![0].identity_epoch = 2
+    if (change === 'node') current.sourceNodes![1].data!.nodes = []
+    if (change === 'version') current.sourceNodes![1].data!.nodes[0].version_id = sourceUuid(405)
+    if (change === 'pending') current.sourceNodes![1].fresh = false
+    expect(() => prepareChainBatch(value, current, pending, () => { throw new Error('new key forbidden') })).toThrow()
+    await expect(submitChainBatch(pending, current, async body => { bodies.push(JSON.stringify(body)) })).rejects.toThrow()
+    const changed = structuredClone(value); changed.rows[0].name = '修改名称'
+    expect(() => prepareChainBatch(changed, current, pending, () => nextId)).toThrow()
+    expect(pending.source_draft).toBe(JSON.stringify(value)); expect(pending.serialized).toBe(bodies[0])
+  }
+  expect(bodies).toHaveLength(1)
+  const replay = prepareChainBatch(value, snapshot(), pending, () => { throw new Error('new key forbidden') })
+  await submitChainBatch(replay, snapshot(), async body => { bodies.push(JSON.stringify(body)) })
   expect(bodies).toEqual([pending.serialized, pending.serialized])
-  const changed = structuredClone(value); changed.rows[0].name = '修改名称'
-  expect(() => prepareChainBatch(changed, current, pending, () => nextId)).toThrow()
 })
 test('ordered public projection exposes every managed position and independent frozen applied vector, rejecting secrets and missing topology', () => {
   const current = snapshot(), resource = ordered(current)
@@ -123,4 +135,26 @@ test('mutation malformed receipts keep pending replay, and unsafe fields never r
   expect(pending.attempted).toBe(true)
   current.resources.fresh = false
   await expect(submitChainMutation(pending, current.resources, async () => { throw new Error('writer forbidden') })).rejects.toThrow('正在刷新')
+})
+
+
+test('public and version mutation retries keep the original request while current dependencies are unavailable', async () => {
+  const current = snapshot(), target = ordered(current); current.resources.data!.push(target)
+  const command: ChainMutation = { kind: 'chain', id: target.id, settings_revision: 1, operation: 'edit', fields: { name: '保留名称' } }
+  const pending = prepareChainMutation(command, current.resources, undefined, () => requestId), bodies: string[] = []
+  await expect(submitChainMutation(pending, current.resources, async (_path, _method, body) => { bodies.push(JSON.stringify(body)); throw new Error('lost') })).rejects.toThrow('lost')
+  target.settings_revision = 2
+  const original = structuredClone(target)
+  for (const change of ['entry', 'managed', 'source', 'missing', 'availability'] as const) {
+    Object.assign(target, structuredClone(original))
+    if (change === 'entry') target.entry.plugin_enabled = false
+    if (change === 'managed') { const hop = target.hops.find(hop => hop.kind === 'managed')!; if (hop.kind === 'managed') hop.endpoint.node_deleted = true }
+    if (change === 'source') { const hop = target.hops.find(hop => hop.kind === 'subscription')!; if (hop.kind === 'subscription') hop.source_archived = true }
+    if (change === 'missing') { const hop = target.hops.find(hop => hop.kind === 'subscription')!; if (hop.kind === 'subscription') hop.node_present = false }
+    if (change === 'availability') target.available = false
+    expect(() => prepareChainMutation(command, current.resources, pending, () => nextId)).toThrow()
+    await expect(submitChainMutation(pending, current.resources, async (_path, _method, body) => { bodies.push(JSON.stringify(body)); return {} })).rejects.toThrow()
+    expect(pending.serialized).toBe(bodies[0])
+  }
+  expect(bodies).toHaveLength(1)
 })

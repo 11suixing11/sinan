@@ -2578,6 +2578,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "hmac",
+ "httpdate",
  "rand 0.8.8",
  "reqwest",
  "rusqlite",

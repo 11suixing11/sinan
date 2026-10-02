@@ -3,8 +3,8 @@ import { Field } from '../../components'
 import { useResource } from '../../hooks'
 import { validatedSnapshot } from './groupTypes'
 import type { ChainBatchDraft, ChainDraftHop, ProxyWriteSnapshot } from './Chains'
-import { sourceRoot, validSourceNodePage } from './sourceTypes'
-import type { SourceNodePage } from './sourceTypes'
+import { sourceRoot, validSourceNodePage } from './orderedSourceTypes'
+import type { SourceNodePage } from './orderedSourceTypes'
 
 export function expandChainExits(draft: ChainBatchDraft, exits: ChainDraftHop[]): ChainBatchDraft {
   if (!draft.hops?.length || !exits.length || exits.length > 32 || draft.mode === 'existing' && exits.length !== 1) throw new Error('请明确选择 1–32 个出口；已有入口只支持一条链路。')

@@ -31,7 +31,7 @@ pub(super) async fn enqueue(
     let now = now_timestamp();
     sqlx::query("INSERT INTO singbox_subscription_source_jobs(id,source_id,settings_revision,identity_epoch,parser_version,status,stage,created_at) VALUES($1,$2,$3,$4,$5,'queued','queued',$6)")
         .bind(id).bind(source.id).bind(source.settings_revision).bind(source.identity_epoch).bind(PARSER_VERSION).bind(now).execute(&mut *connection).await?;
-    sqlx::query("UPDATE singbox_subscription_sources SET next_refresh_at=$2 WHERE id=$1")
+    sqlx::query("UPDATE singbox_ordered_subscription_sources SET next_refresh_at=$2 WHERE id=$1")
         .bind(source.id)
         .bind((source.kind == "url").then_some(now + source.refresh_interval_secs))
         .execute(connection)
@@ -127,7 +127,7 @@ pub async fn cancel(
             .ok_or(ApiError::NotFound)?;
     let mut tx = state.pool.begin().await?;
     // All writers lock the source before its task, including tombstoned sources.
-    sqlx::query("SELECT id FROM singbox_subscription_sources WHERE id=$1 FOR UPDATE")
+    sqlx::query("SELECT id FROM singbox_ordered_subscription_sources WHERE id=$1 FOR UPDATE")
         .bind(source_id)
         .fetch_one(&mut *tx)
         .await?;

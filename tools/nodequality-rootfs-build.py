@@ -39,6 +39,7 @@ MAX_MEMBERS = 100000
 PREPARE_SECONDS = 600
 BUILD_SECONDS = 3600
 EXPORT_SECONDS = 600
+CHILD_CLEANUP_SECONDS = 5
 SHA256 = re.compile(r'[0-9a-f]{64}')
 NAME = re.compile(r'[a-z0-9][a-z0-9+.-]*')
 VERSION = re.compile(r'[A-Za-z0-9][A-Za-z0-9.+:~_-]*')
@@ -510,7 +511,8 @@ def run_bounded(arguments, deadline, output_limit, stderr=subprocess.STDOUT, ext
         if selector is not None:
             actions.append(selector.close)
         if process is not None:
-            actions.extend((process.stdout.close, lambda: os.killpg(process.pid, signal.SIGKILL), process.wait))
+            actions.extend((process.stdout.close, lambda: os.killpg(process.pid, signal.SIGKILL),
+                            lambda: process.wait(timeout=CHILD_CLEANUP_SECONDS)))
         previous_mask = None
         try:
             previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM, signal.SIGHUP})
@@ -998,24 +1000,27 @@ def record_factory_cleanup(evidence, removed, error):
 
 
 def copy_locked(cache, value, target, limit, deadline):
-    descriptor(value, limit)
-    source = input_path(cache, value['blob'])
-    stream, metadata = open_regular(source, limit)
-    length, checksum = 0, hashlib.sha256()
-    with stream as input_stream:
-        require(metadata.st_size == value['size'], 'locked input size mismatch')
+    source = checked_blob(cache, value, limit, deadline)
+    input_stream, metadata = open_regular(source, limit)
+    length, sha256 = 0, hashlib.sha256()
+    with input_stream:
+        require(metadata.st_size == value['size'], 'locked input changed before copying')
         target.parent.mkdir(parents=True, exist_ok=True)
         with target.open('xb', buffering=0) as output:
             os.fchmod(output.fileno(), 0o644)
-            while chunk := input_stream.read(min(65536, value['size'] - length + 1)):
+            while True:
                 deadline.check()
+                chunk = input_stream.read(min(65536, value['size'] - length + 1))
+                if not chunk:
+                    break
                 length += len(chunk)
-                require(length <= value['size'], 'locked input grew while copying')
+                require(length <= value['size'] and length <= limit, 'copied locked input exceeds byte limit')
                 if deadline.capacity is not None:
                     deadline.capacity.check(additional_bytes=len(chunk) + deadline.capacity.plan['block_size'])
                 require(output.write(chunk) == len(chunk), 'short locked input write')
-                checksum.update(chunk)
-    require(length == value['size'] and checksum.hexdigest() == value['sha256'], 'copied locked input changed')
+                sha256.update(chunk)
+        require(length == value['size'] and sha256.hexdigest() == value['sha256'],
+                'locked input changed while copying')
     require(file_identity(target, limit, deadline) == {key: value[key] for key in ('sha256', 'size')}, 'copied locked input changed')
 
 

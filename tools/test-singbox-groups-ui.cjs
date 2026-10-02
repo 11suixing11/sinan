@@ -8,7 +8,7 @@ const { pathToFileURL } = require('node:url')
 async function main() {
   const dependency = process.env.SINAN_PLAYWRIGHT_MODULE || process.env.PLAYWRIGHT_MODULE || 'playwright'
   const { chromium } = await import(path.isAbsolute(dependency) ? pathToFileURL(dependency).href : dependency)
-  const { proxyResourceFixtures, orderedResourceFixture, pathFixtureUuid } = await import('../web/tests/proxy-resource-fixtures.mjs')
+  const { flatResourceFixtures, proxyResourceFixtures, orderedResourceFixture, pathFixtureUuid } = await import('../web/tests/proxy-resource-fixtures.mjs')
   const screenshots = process.env.SINAN_UI_SCREENSHOT_DIR || process.env.SINAN_GROUPS_SCREENSHOTS
   let server, browser
   try {
@@ -55,8 +55,9 @@ async function main() {
       else if (pathname === '/api/me') data = {}
       else if (pathname === `${root}/nodes`) data = nodes
       else if (method === 'GET' && pathname === `${root}/servers`) data = servers
-      else if (method === 'GET' && pathname === `${root}/subscription-sources`) data = []
-      else if (method === 'GET' && pathname === `${root}/proxy-resources`) {
+      else if (method === 'GET' && [`${root}/subscription-sources`, `${root}/ordered-subscription-sources`].includes(pathname)) data = []
+      else if (method === 'GET' && pathname === `${root}/proxy-resources`) data = flatResourceFixtures(nodes.filter(node => node.id !== 6), servers, chains)
+      else if (method === 'GET' && pathname === `${root}/ordered-proxy-resources`) {
         const resources = proxyResourceFixtures(nodes, servers, chains).map(resource => {
           if (resource.kind !== 'chain' || resource.id === 1) return resource
           const ordered = orderedResourceFixture({ id: resource.id, name: resource.name, entry: resource.entry,
@@ -73,7 +74,7 @@ async function main() {
             { kind: 'managed', position: 2, node_id: 3, endpoint_version_id: pathFixtureUuid(3), endpoint: resources.find(resource => resource.kind === 'direct' && resource.id === 3).entry }],
         })]
       }
-      else if (method === 'POST' && pathname === `${root}/chains/batch`) {
+      else if (method === 'POST' && pathname === `${root}/chains/ordered-batch`) {
         assert.match(payload.request_id, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/)
         assert.deepEqual(payload.items, [{ name: '测试链路', entry: { mode: 'existing', node_id: 4 }, hops: [{ kind: 'managed', node_id: 3 }] }])
         const previous = chainReceipts.get(payload.request_id)
@@ -81,7 +82,7 @@ async function main() {
           assert.deepEqual(payload, previous.body)
           data = previous.receipt
         } else {
-          const chain = { id: Math.max(...chains.map(chain => chain.id)) + 1, name: payload.items[0].name, entry_node_id: 4, exit_node_id: 3, available: true }
+          const chain = { id: Math.max(...chains.map(chain => chain.id)) + 1, name: payload.items[0].name, entry_node_id: 4, exit_node_id: 3, available: true, path_kind: 'ordered' }
           data = { request_id: payload.request_id, chain_ids: [chain.id], entry_node_ids: [4] }
           chains.push(chain)
           chainReceipts.set(payload.request_id, { body: structuredClone(payload), receipt: data })
@@ -152,7 +153,7 @@ async function main() {
     await page.locator('select[name="exit_node_id"]').selectOption('3')
     await page.getByRole('button', { name: '创建未授权链路', exact: true }).click()
     await page.getByText('测试链路', { exact: true }).waitFor()
-    const chainWrites = writes.filter(write => write.pathname === `${root}/chains/batch`)
+    const chainWrites = writes.filter(write => write.pathname === `${root}/chains/ordered-batch`)
     assert.equal(chainWrites.length, 1)
     assert.equal(chainWrites[0].method, 'POST')
     assert.deepEqual(chainWrites[0].payload.items, [{ name: '测试链路', entry: { mode: 'existing', node_id: 4 }, hops: [{ kind: 'managed', node_id: 3 }] }])

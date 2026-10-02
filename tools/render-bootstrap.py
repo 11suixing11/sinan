@@ -11,6 +11,8 @@ from release import ensure, installer_source, load_roots
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = ("tools/bootstrap.py", "tools/legacy_agent_checkpoint.py", "tools/release.py", "tools/tcp_probe_artifact.py",
            "tools/tcp_probe_notices.py", "tools/artifact_manifest.py",
+           "tools/nodequality_rootfs_artifact.py", "tools/nodequality_node_query_artifact.py",
+           "tools/ipquality_artifact.py",
            "deploy/release-public-keys.json")
 
 

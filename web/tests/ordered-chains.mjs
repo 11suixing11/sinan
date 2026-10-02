@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import { mkdir, readFile } from 'node:fs/promises'
 import { resolve, extname, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { orderedResourceFixture, pathFixtureUuid, proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
+import { orderedResourceFixture, pathFixtureUuid, flatResourceFixtures, proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
 import { sourceNodeFixture, sourceNodePageFixture, sourceRevisionFixture, sourceUuid, subscriptionSourceFixture } from './subscription-source-fixtures.mjs'
 
 // Serve the real final dist. Owned public fixtures exercise UI contracts, not live proxy delivery.
@@ -44,15 +44,17 @@ try {
       if (method === 'GET' && path === '/api/dashboard/access') value = { authenticated: true, public_dashboard: false }
       else if (method === 'GET' && path === '/api/me') value = { authenticated: true }
       else if (method === 'GET' && path === `${prefix}/servers`) value = servers
+      else if (method === 'GET' && path === `${prefix}/subscription-sources`) value = []
+      else if (method === 'GET' && path === `${prefix}/proxy-resources`) value = flatResourceFixtures(nodes.filter(node => !ordered.some(resource => resource.entry.id === node.id)), servers, legacy)
       else if (method === 'GET' && path === `${prefix}/nodes`) { if (oldNodesFailure) { await route.fulfill({ status: 500, json: { error: '旧节点配置无法读取' } }); return } value = nodes }
       else if (method === 'GET' && path === `${prefix}/usage`) value = { total: '0', uplink: '0', downlink: '0', by_node: [], by_user: [] }
-      else if (method === 'GET' && path === `${prefix}/proxy-resources`) value = resources()
-      else if (method === 'GET' && /^\/api\/plugins\/sing-box\/proxy-resources\/(direct|chain)\/[1-9]\d*$/.test(path)) { const [, kind, id] = path.match(/\/(direct|chain)\/(\d+)$/); value = resources().find(resource => resource.kind === kind && resource.id === Number(id)); if (!value) { await route.fulfill({ status: 404, json: { error: '资源已删除' } }); return } }
-      else if (method === 'GET' && path === `${prefix}/subscription-sources`) { if (sourceFailure) { await route.fulfill({ status: 503, json: { error: '来源读取失败' } }); return } value = [getSource()] }
-      else if (method === 'GET' && path === `${prefix}/subscription-sources/1`) value = getSource()
-      else if (method === 'GET' && path === `${prefix}/subscription-sources/1/nodes`) value = sourceNodePageFixture({ current_identity_epoch: source.identity_epoch, nodes: sourceNodes })
-      else if (method === 'GET' && path === `${prefix}/subscription-sources/1/revisions`) value = { source_id: 1, revisions: [sourceRevisionFixture()] }
-      else if (method === 'POST' && path === `${prefix}/chains/batch`) {
+      else if (method === 'GET' && path === `${prefix}/ordered-proxy-resources`) value = resources()
+      else if (method === 'GET' && /^\/api\/plugins\/sing-box\/ordered-proxy-resources\/(direct|chain)\/[1-9]\d*$/.test(path)) { const [, kind, id] = path.match(/\/(direct|chain)\/(\d+)$/); value = resources().find(resource => resource.kind === kind && resource.id === Number(id)); if (!value) { await route.fulfill({ status: 404, json: { error: '资源已删除' } }); return } }
+      else if (method === 'GET' && path === `${prefix}/ordered-subscription-sources`) { if (sourceFailure) { await route.fulfill({ status: 503, json: { error: '来源读取失败' } }); return } value = [getSource()] }
+      else if (method === 'GET' && path === `${prefix}/ordered-subscription-sources/1`) value = getSource()
+      else if (method === 'GET' && path === `${prefix}/ordered-subscription-sources/1/nodes`) value = sourceNodePageFixture({ current_identity_epoch: source.identity_epoch, nodes: sourceNodes })
+      else if (method === 'GET' && path === `${prefix}/ordered-subscription-sources/1/revisions`) value = { source_id: 1, revisions: [sourceRevisionFixture()] }
+      else if (method === 'POST' && path === `${prefix}/chains/ordered-batch`) {
         const body = request.postDataJSON(); assert.deepEqual(Object.keys(body).sort(), ['items', 'request_id'])
         if (receipts.has(body.request_id)) { const saved = receipts.get(body.request_id); assert.equal(request.postData(), saved.serialized); await route.fulfill({ status: 200, json: saved.receipt }); return }
         assert.equal(body.items.length, 2)
@@ -67,14 +69,14 @@ try {
         receipts.set(body.request_id, { serialized: request.postData(), receipt })
         if (mode === 'lose-batch') { mode = 'normal'; source = { ...source, identity_epoch: 2, archived: true }; sourceNodes = []; await route.abort('connectionreset'); return }
         await route.fulfill({ status: 201, json: receipt }); return
-      } else if (method === 'POST' && path === `${prefix}/proxy-resources/chain/11/apply-node-versions`) {
+      } else if (method === 'POST' && path === `${prefix}/ordered-proxy-resources/chain/11/apply-node-versions`) {
         const body = request.postDataJSON(), resource = ordered.find(value => value.id === 11)
         assert.equal(body.settings_revision, resource.settings_revision); assert.equal(body.generation, 2); assert.deepEqual(body.versions, [{ hop_position: 2, node_version_id: sourceUuid(406) }])
         assert.equal(resource.path_state.candidate_generation, null)
         const appliedHops = structuredClone(resource.hops), nextHops = structuredClone(resource.hops); nextHops[1].node_version_id = sourceUuid(406)
         resource.hops = nextHops; resource.settings_revision++; resource.path_state = { ...resource.path_state, desired_generation: 3, candidate_generation: 3, applied_generation: 2, recovery_generation: 2, phase: 'preparing_dependencies', generations: [{ state: 'desired', generation: 3, hops: nextHops }, { state: 'candidate', generation: 3, hops: nextHops }, { state: 'applied', generation: 2, hops: appliedHops }, { state: 'recovery', generation: 2, hops: appliedHops }] }
         await route.fulfill({ json: { request_id: body.request_id, kind: 'chain', id: 11, settings_revision: resource.settings_revision, generation: 3 } }); return
-      } else if (method === 'PATCH' && path === `${prefix}/proxy-resources/chain/11`) {
+      } else if (method === 'PATCH' && path === `${prefix}/ordered-proxy-resources/chain/11`) {
         const body = request.postDataJSON(), resource = ordered.find(value => value.id === 11)
         if (mutations.has(body.request_id)) { const saved = mutations.get(body.request_id); assert.equal(request.postData(), saved.serialized); await route.fulfill({ json: saved.receipt }); return }
         assert.deepEqual(Object.keys(body).sort(), ['name', 'request_id', 'settings_revision']); assert.equal(body.settings_revision, resource.settings_revision); assert.equal(body.name, '显示名可独立修改')
@@ -82,7 +84,7 @@ try {
         const receipt = { request_id: body.request_id, kind: 'chain', id: 11, settings_revision: resource.settings_revision, generation: 3 }; mutations.set(body.request_id, { serialized: request.postData(), receipt })
         if (editMode === 'lose-edit') { editMode = 'normal'; await route.abort('connectionreset'); return }
         await route.fulfill({ json: receipt }); return
-      } else if (method === 'DELETE' && path === `${prefix}/proxy-resources/chain/30`) {
+      } else if (method === 'DELETE' && path === `${prefix}/ordered-proxy-resources/chain/30`) {
         assert.equal(oldNodesFailure, true); assert.equal(sourceFailure, true); assert.equal(ordered.find(value => value.id === 30).available, false)
         const entryId = ordered.find(value => value.id === 30).entry.id; ordered = ordered.filter(resource => resource.id !== 30); nodes = nodes.filter(node => node.id !== entryId)
         assert(nodes.some(node => node.id === 2)); assert(nodes.some(node => node.id === 3)); assert(ordered.some(resource => resource.id === 31))
@@ -121,8 +123,18 @@ try {
     await enabled(dialog.getByRole('button', { name: '创建未授权链路', exact: true })); await dialog.getByRole('button', { name: '创建未授权链路', exact: true }).click(); await dialog.getByRole('alert').waitFor()
     await dialog.getByRole('button', { name: '取消', exact: true }).click(); await page.locator('[data-resource-key="chain:11"]').getByRole('button', { name: '创建替代链路', exact: true }).click(); dialog = page.getByRole('dialog')
     await dialog.getByText('先确认已发送批次的结果，原草稿和精确请求已保留。确认后再选择创建替代链路。', { exact: true }).waitFor(); assert.equal(await dialog.locator('[name=name]').inputValue(), '新四段甲')
-    await poll(); await enabled(dialog.getByRole('button', { name: '重试原批次', exact: true })); await dialog.getByRole('button', { name: '重试原批次', exact: true }).click(); await dialog.waitFor({ state: 'hidden' })
-    const batchWrites = writes.filter(write => write.path.endsWith('/chains/batch')); assert.equal(batchWrites.length, 2); assert.equal(batchWrites[0].serialized, batchWrites[1].serialized); assert.equal(receipts.size, 1); assert.equal(ordered.filter(resource => resource.id >= 30).length, 2)
+    await poll()
+    const retry = dialog.getByRole('button', { name: '重试原批次', exact: true }), priorWrites = writes.length
+    await dialog.getByRole('alert').filter({ hasText: '来源或当前节点版本等待确认' }).waitFor()
+    assert.equal(await retry.isDisabled(), true)
+    assert.equal(await dialog.locator('[name=name]').inputValue(), '新四段甲')
+    assert.equal(await dialog.locator('[name=name_1]').inputValue(), '新四段乙')
+    await dialog.locator('form').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await retry.evaluate(button => { const disabled = button.disabled; try { button.disabled = false; button.click() } finally { button.disabled = disabled } })
+    await page.waitForTimeout(50); assert.equal(writes.length, priorWrites)
+    source = subscriptionSourceFixture(); sourceNodes = [sourceNodeFixture({ version_id: sourceUuid(405) })]
+    await poll(); await enabled(retry); await retry.click(); await dialog.waitFor({ state: 'hidden' })
+    const batchWrites = writes.filter(write => write.path.endsWith('/chains/ordered-batch')); assert.equal(batchWrites.length, 2); assert.equal(batchWrites[0].serialized, batchWrites[1].serialized); assert.equal(receipts.size, 1); assert.equal(ordered.filter(resource => resource.id >= 30).length, 2)
     assert.equal(await page.locator('[data-resource-key="direct:20"]').count(), 0); assert.equal(await page.locator('[data-resource-key="chain:31"]').count(), 1)
     source = subscriptionSourceFixture(); sourceNodes = [sourceNodeFixture({ version_id: sourceUuid(406) })]
     const existing = ordered.find(resource => resource.id === 11); existing.path_state = { ...existing.path_state, candidate_generation: null, applied_generation: 2, recovery_generation: null, phase: 'applied', generations: [{ state: 'desired', generation: 2, hops: existing.hops }, { state: 'applied', generation: 2, hops: existing.hops }] }

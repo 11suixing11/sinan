@@ -1,6 +1,6 @@
 import { Badge, Field } from '../../components'
 import type { ChainDraftHop, ProxyWriteSnapshot } from './Chains'
-import { validSourceNodePage, validSubscriptionSources } from './sourceTypes'
+import { validSourceNodePage, validSubscriptionSources } from './orderedSourceTypes'
 
 export function moveChainHop(hops: ChainDraftHop[], from: number, to: number): ChainDraftHop[] {
   if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < 0 || from >= hops.length || to >= hops.length) return hops

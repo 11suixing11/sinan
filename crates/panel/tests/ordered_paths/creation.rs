@@ -1,7 +1,7 @@
 use super::*;
 
 async fn counts(fixture: &Fixture) -> Result<Value> {
-    Ok(sqlx::query_scalar("SELECT jsonb_build_object('nodes',(SELECT count(*) FROM nodes),'chains',(SELECT count(*) FROM singbox_chains),'versions',(SELECT count(*) FROM singbox_chain_versions),'receipts',(SELECT count(*) FROM singbox_chain_creation_requests),'dirty',(SELECT jsonb_agg(jsonb_build_array(id,dirty_at) ORDER BY id) FROM servers))")
+    Ok(sqlx::query_scalar("SELECT jsonb_build_object('nodes',(SELECT count(*) FROM nodes),'chains',(SELECT count(*) FROM singbox_chains),'versions',(SELECT count(*) FROM singbox_ordered_chain_versions),'receipts',(SELECT count(*) FROM singbox_ordered_chain_creation_requests),'dirty',(SELECT jsonb_agg(jsonb_build_array(id,dirty_at) ORDER BY id) FROM servers))")
         .fetch_one(&fixture.panel.state.pool).await?)
 }
 
@@ -35,7 +35,7 @@ async fn full_four_hop_creation_freezes_ordered_identities_without_opening_user_
     .await?;
     assert!(!route && legacy_exit.is_none() && legacy_relay.is_none());
     let frozen: Value = sqlx::query_scalar(
-        "SELECT snapshot FROM singbox_chain_versions WHERE chain_id=$1 AND generation=1",
+        "SELECT snapshot FROM singbox_ordered_chain_versions WHERE chain_id=$1 AND generation=1",
     )
     .bind(chain)
     .fetch_one(&fixture.panel.state.pool)
@@ -45,14 +45,14 @@ async fn full_four_hop_creation_freezes_ordered_identities_without_opening_user_
         "TEST_ONLY external password"
     );
     assert!(
-        sqlx::query("UPDATE singbox_chain_versions SET snapshot='{}' WHERE chain_id=$1")
+        sqlx::query("UPDATE singbox_ordered_chain_versions SET snapshot='{}' WHERE chain_id=$1")
             .bind(chain)
             .execute(&fixture.panel.state.pool)
             .await
             .is_err()
     );
     assert!(
-        sqlx::query("DELETE FROM singbox_chain_hops WHERE chain_id=$1")
+        sqlx::query("DELETE FROM singbox_ordered_chain_hops WHERE chain_id=$1")
             .bind(chain)
             .execute(&fixture.panel.state.pool)
             .await
@@ -73,7 +73,7 @@ async fn atomic_batch_rolls_back_invalid_last_item_and_replay_survives_source_ar
         .panel
         .admin(
             Method::POST,
-            &format!("{ROOT}/chains/batch"),
+            &format!("{ROOT}/chains/ordered-batch"),
             &fixture.cookie,
             Some(
                 json!({"request_id":Uuid::new_v4(),"items":[item(&fixture,"pinned",true),invalid]}),
@@ -87,7 +87,7 @@ async fn atomic_batch_rolls_back_invalid_last_item_and_replay_survives_source_ar
         &fixture.panel,
         &fixture.cookie,
         Method::POST,
-        "/chains/batch",
+        "/chains/ordered-batch",
         Some(body.clone()),
         StatusCode::CREATED,
     )
@@ -96,7 +96,7 @@ async fn atomic_batch_rolls_back_invalid_last_item_and_replay_survives_source_ar
         &fixture.panel,
         &fixture.cookie,
         Method::PATCH,
-        &format!("/subscription-sources/{}", fixture.source),
+        &format!("/ordered-subscription-sources/{}", fixture.source),
         Some(json!({"request_id":Uuid::new_v4(),"settings_revision":1,"archived":true})),
         StatusCode::OK,
     )
@@ -107,7 +107,7 @@ async fn atomic_batch_rolls_back_invalid_last_item_and_replay_survives_source_ar
             &fixture.panel,
             &fixture.cookie,
             Method::POST,
-            "/chains/batch",
+            "/chains/ordered-batch",
             Some(body.clone()),
             StatusCode::OK
         )
@@ -120,7 +120,7 @@ async fn atomic_batch_rolls_back_invalid_last_item_and_replay_survives_source_ar
         &fixture.panel,
         &fixture.cookie,
         Method::POST,
-        "/chains/batch",
+        "/chains/ordered-batch",
         Some(changed),
         StatusCode::CONFLICT,
     )
@@ -146,7 +146,7 @@ async fn loop_duplicate_endpoint_and_unsupported_agent_never_create_partial_reso
             .panel
             .admin(
                 Method::POST,
-                &format!("{ROOT}/chains/batch"),
+                &format!("{ROOT}/chains/ordered-batch"),
                 &fixture.cookie,
                 Some(json!({"request_id":Uuid::new_v4(),"items":[body]})),
             )
@@ -163,7 +163,7 @@ async fn loop_duplicate_endpoint_and_unsupported_agent_never_create_partial_reso
         &fixture.panel,
         &fixture.cookie,
         Method::POST,
-        "/chains/batch",
+        "/chains/ordered-batch",
         Some(json!({"request_id":Uuid::new_v4(),"items":[item(&fixture,"pinned",false)]})),
         StatusCode::CONFLICT,
     )
@@ -182,7 +182,7 @@ async fn candidate_source_and_managed_references_guard_all_delete_and_edit_route
         &fixture.panel,
         &fixture.cookie,
         Method::DELETE,
-        &format!("/subscription-sources/{}", fixture.source),
+        &format!("/ordered-subscription-sources/{}", fixture.source),
         Some(json!({"settings_revision":1})),
         StatusCode::CONFLICT,
     )
@@ -201,7 +201,7 @@ async fn candidate_source_and_managed_references_guard_all_delete_and_edit_route
             &fixture.panel,
             &fixture.cookie,
             Method::DELETE,
-            &format!("/proxy-resources/direct/{node}"),
+            &format!("/ordered-proxy-resources/direct/{node}"),
             None,
             StatusCode::CONFLICT,
         )
@@ -220,7 +220,7 @@ async fn candidate_source_and_managed_references_guard_all_delete_and_edit_route
         &fixture.panel,
         &fixture.cookie,
         Method::GET,
-        &format!("/subscription-sources/{}", fixture.source),
+        &format!("/ordered-subscription-sources/{}", fixture.source),
         None,
         StatusCode::OK,
     )
@@ -236,7 +236,7 @@ async fn resource_mutations_use_revision_cas_and_exact_immutable_receipts(
 ) -> Result<()> {
     let fixture = fixture(pool).await?;
     let chain = chain(&create(&fixture, "pinned", false).await?)?;
-    let route = format!("/proxy-resources/chain/{chain}");
+    let route = format!("/ordered-proxy-resources/chain/{chain}");
     let body = json!({"request_id":Uuid::new_v4(),"settings_revision":1,"name":"Renamed resource"});
     let receipt = api(
         &fixture.panel,

@@ -301,11 +301,7 @@ async fn migration_case(pool: PgPool, binary: Option<std::path::PathBuf>) -> Res
         .bind(server).execute(&pool).await?;
     let mut legacy = migration_recovery::legacy_snapshot(&pool).await?;
     // New columns have explicit legacy defaults; every preexisting value stays identical.
-    for server in legacy.get_mut("servers").unwrap().as_array_mut().unwrap() {
-        server["asset_settings"] = json!({});
-        server["probe_revision"] = serde_json::json!(0);
-        server["probe_fingerprint"] = Value::Null;
-    }
+    migration_recovery::append_expected_server_defaults(&mut legacy)?;
     for node in legacy.get_mut("nodes").unwrap().as_array_mut().unwrap() {
         node["protocol_config"] = json!({"type":"vless-reality"});
         node["enabled"] = json!(true);

@@ -1,6 +1,8 @@
 # 链路中的订阅来源设计
 
-状态：来源管理、四格式解析、刷新任务与不可变版本已完成本地集中验收，见 [ADR 0055](adr/0055-subscription-source-lifecycle.md) 与 [本步验收](acceptance/subscription-sources.md)。有序混合路径、版本跟随发布及真实多跳继续后续实现。日期：2026-10-02。属于 [代理节点与混合链路方案](node-chain-design.md)，总体决策见 [ADR 0040](adr/0040-mixed-chains-and-subscriptions.md)。
+> 本设计的源码与本地隔离验证已完成；当前可用入口、保守的端点编辑限制及运行验证方式见[实施说明](agent-runtime-and-chains.md)与 [ADR 0045](adr/0045-mixed-path-execution.md)。下文保留设计背景与目标验收清单，不能据此认定实机签收完成。
+
+状态：源码实现与本地隔离验证，正式签收另记。日期：2026-10-01。属于 [代理节点与混合链路方案](node-chain-design.md)，决策见 [ADR 0040](adr/0040-mixed-chains-and-subscriptions.md)。
 
 ## 添加来源与选择节点
 
@@ -24,6 +26,8 @@ Mihomo 的节点集合形式见其 [官方 provider 说明](https://wiki.metacub
 格式支持和协议支持分别判断。外部出站模型独立于当前受管服务器的协议枚举，覆盖机场常见 SS/SS2022、VMess、Trojan、VLESS/Reality，以及固定运行时可用的 Hysteria2、TUIC、AnyTLS、SOCKS、HTTP 等具体配置；这不等于新增这些协议的受管公开监听。Naive 等有平台或构建条件的协议按实际目标签名运行时能力判断，缺少能力就显示具体原因。
 
 解析后保留所需的认证、加密、TLS/SNI、transport、network、UoT/mux 等参数，在受限类型中校验。不能静默删掉未知必要参数后宣布兼容。原全局路由及选择组明确不导入；必要的代理插件、依赖或安全语义无法表达时，该节点不可选。SS URI 按官方 [SIP002](https://shadowsocks.org/doc/sip002.html) 区分一般 AEAD 与 AEAD-2022 的编码规则，不能把所有 `ss://` 都用同一种 Base64 拆法。
+
+HTTP/H2 转换还须核对原格式与固定运行时的 TLS 行为。无法等价的 `h2` 无 TLS、`http` 有 TLS 明确不可选，Mihomo 明文 HTTP 缺省方法保留为 `GET`；原生 sing-box JSON 保持原参数。解析器升级为 `sinan-subscriptions-2`，旧条件请求缓存不能免除新正文解析，已有冻结历史不回写。本次补修的固定一手源码与待验证范围见 [转换记录](acceptance/subscription-transport-conversion.md)。
 
 链路位置可用性依据每一段实际配置计算，包含最终用户网络与下层承载需求。导入一个 Hysteria2 节点成功，不表示它能放在仅支持 TCP 的前一段之后。格式解析、协议转换、整条路径承载校验和实际连通分别记录结果。
 
@@ -86,21 +90,23 @@ URL 来源支持手动刷新及可配置周期刷新，默认每日一次；上�
 
 这些限制约束来源获取和解析，不混用 GitHub 制品公钥或把机场内容当成签名制品。订阅的 URL 指向允许的公网来源也不证明其代理配置合法，两个校验步骤独立执行。
 
-## 来源 API 与后续路径 API
+## UUID 有序来源管理 API
+
+此接口与既有 `/subscription-sources` 数字 ID 来源分开保存和返回。旧接口、版本、历史和 mixed 路径保持；新表使用 `singbox_ordered_*` 名称。
 
 管理接口位于 `/api/plugins/sing-box`，沿用管理员会话和写请求保护：
 
 | 接口 | 用途 |
 | --- | --- |
-| `GET /subscription-sources`、`POST /subscription-sources` | 脱敏列表、创建 URL/粘贴/上传来源；写入字段不回显 |
-| `GET /subscription-sources/{id}`、`PATCH /subscription-sources/{id}` | 设置/状态/依赖、替换来源或刷新周期；携带设置 revision 防止覆盖新修改；`archived=true` 可带已有引用归档，停止刷新与新引用 |
-| `POST /subscription-sources/{id}/refresh` | 有界获取与解析任务，返回任务 ID；重复运行返回现有任务或冲突 |
-| `GET /subscription-source-jobs/{id}` | 脱敏任务阶段和结果，禁止回传原始正文 |
-| `POST /subscription-source-jobs/{id}/cancel` | 提交取消意图；运行中的任务先显示等待工作退出，最终状态由后台确认 |
-| `GET /subscription-sources/{id}/nodes` | 节点公开预览、稳定 ID、版本、可选性及拒绝原因 |
-| `GET /subscription-sources/{id}/revisions`、`GET /subscription-sources/{id}/revisions/{revision}/nodes` | 有界成功批次历史及不可变节点预览；历史行不用于新引用 |
-| `DELETE /subscription-sources/{id}` | 当前/待应用/恢复依赖冲突返回 409 和清单；解除依赖后按历史证据保留政策清理，不能级联删除发布证明 |
-| `POST /proxy-resources/chain/{id}/apply-node-versions` | 同节点的版本应用，携带当前路径代数；不得用于换身份或重排路径 |
+| `GET /ordered-subscription-sources`、`POST /ordered-subscription-sources` | 脱敏列表、创建 URL/粘贴/上传来源；写入字段不回显 |
+| `GET /ordered-subscription-sources/{id}`、`PATCH /ordered-subscription-sources/{id}` | 设置/状态/依赖、替换来源或刷新周期；携带设置 revision 防止覆盖新修改；`archived=true` 可带已有引用归档，停止刷新与新引用 |
+| `POST /ordered-subscription-sources/{id}/refresh` | 有界获取与解析任务，返回任务 ID；重复运行返回现有任务或冲突 |
+| `GET /ordered-subscription-source-jobs/{id}` | 脱敏任务阶段和结果，禁止回传原始正文 |
+| `POST /ordered-subscription-source-jobs/{id}/cancel` | 提交取消意图；运行中的任务先显示等待工作退出，最终状态由后台确认 |
+| `GET /ordered-subscription-sources/{id}/nodes` | 节点公开预览、稳定 ID、版本、可选性及拒绝原因 |
+| `GET /ordered-subscription-sources/{id}/revisions`、`GET /ordered-subscription-sources/{id}/revisions/{revision}/nodes` | 有界成功批次历史及不可变节点预览；历史行不用于新引用 |
+| `DELETE /ordered-subscription-sources/{id}` | 当前/待应用/恢复依赖冲突返回 409 和清单；解除依赖后按历史证据保留政策清理，不能级联删除发布证明 |
+| `POST /ordered-proxy-resources/chain/{id}/apply-node-versions` | 同节点的版本应用，携带当前路径代数；不得用于换身份或重排路径 |
 
 来源接口是 ADR 0055 本步范围；最后一行路径版本应用仍待后续实现。当前两跳链路不接受外部节点，界面预览的“可用于选点”只表示来源资格，不能据此认为已有链路创建或发布能力。实际字段及请求收据见 [HTTP API](api.md#订阅来源)。
 
@@ -111,3 +117,5 @@ URL 来源支持手动刷新及可配置周期刷新，默认每日一次；上�
 必须有真实浏览器、隔离 PostgreSQL 和固定运行时的独立证据，覆盖：四种格式等价导入；同名不同节点/多个账号、重排、凭据轮换、源缺失及两种模式；下载、解析和应用失败；HTTP/TCP/UDP 下层兼容；并发/乱序候选及回滚；凭据输出与草稿；SSRF/DNS 重绑定、跳转、压缩、结构深度和 YAML 展开；全部引用删除保护。
 
 路径验收必须实测外部节点位于中间的 `A → X → B` 和 `A → M → X → B`，证明每一跳被经过、最终出口正确、X 停止后不能旁路以及只在 A 扣量。配置 `check`、来源解析成功和设备配置应用成功分别记录，不替代该路径验收。
+
+本轮解析、下载和来源 API 的本地结果见[来源实施记录](subscription-source-implementation-notes.md)，版本发布及失败恢复的面板事务见[状态机验证](acceptance/mixed-path-panel.md)，原生三/四段路径及探测见[隔离网络夹具](acceptance/mixed-path-local-fixtures.md)。完整 Agent 设备发布、真实机场、跨平台常驻服务与实际计量另行验收，不能由本地夹具替代。

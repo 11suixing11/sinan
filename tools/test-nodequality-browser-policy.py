@@ -111,11 +111,7 @@ class BrowserTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name) / 'sources'
             helper.materialize(helper.decode(helper.pack(helper.decode((PLUGIN / 'source-lock.json').read_bytes()), READONLY_SOURCES)), directory)
-            # Preserve this layer's immutable identity by isolating all later
-            # access, Netflix and OpenAI stages through test-only mocks.
-            isolated = sources.fixture.serve_before_access(helper, directory,
-                ['-Ls', {'ip.sh': 'https://IP.Check.Place', 'net.sh': 'https://Net.Check.Place'}[role]])
-            return sources.fixture.undo_queries(role, isolated)
+            return helper.serve(directory, ['-Ls', {'ip.sh': 'https://IP.Check.Place', 'net.sh': 'https://Net.Check.Place'}[role]])
 
     def run_curl(self, arguments, *, wrapped=True, child=False, status=200, delay=False, expression=None):
         self.runtime()
@@ -218,6 +214,8 @@ class BrowserTests(unittest.TestCase):
     def test_production_identity_and_generator_disable_leave_other_bytes_unchanged(self):
         for role in policy.SOURCES:
             new = self.production(role)
+            if role == 'ip.sh':
+                new = sources.fixture.undo_access(role, new)
             prior = sources.fixture.undo_browser(role, new)
             self.assertEqual(hashlib.sha256(prior).hexdigest(), policy.SOURCES[role]['source_sha256'])
             self.assertEqual(policy.transform(role, prior), new)
@@ -264,7 +262,7 @@ class BrowserTests(unittest.TestCase):
                 os.mkfifo(path, 0o600)
                 with self.assertRaisesRegex(ValueError, 'ordinary'):
                     helper.browser_policy()
-        for invalid in (b'changed', 'text', b'x' * (helper.MAX_FILE + 4097)):
+        for invalid in (b'changed', 'text', b'x' * (helper.MAX_FILE + 8193)):
             with mock.patch.object(helper, 'browser_policy', return_value={
                     'SOURCES': policy.SOURCES, 'transform': lambda role, content: invalid}):
                 with self.assertRaisesRegex(ValueError, 'served browser policy output'):

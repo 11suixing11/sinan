@@ -5,8 +5,8 @@ import { resourceWriteError, useAction, useResource } from '../../hooks'
 import type { Node, PluginServer } from '../../types'
 import { assignmentRequestId, proxyResourceKey, validatedSnapshot, validProxyResources } from './groupTypes'
 import type { Chain, ProxyResource, ResourceSnapshot } from './groupTypes'
-import { sourceRoot, validSourceNodePage, validSubscriptionSources } from './sourceTypes'
-import type { SourceNode, SourceNodePage, SubscriptionSource } from './sourceTypes'
+import { sourceRoot, validSourceNodePage, validSubscriptionSources } from './orderedSourceTypes'
+import type { SourceNode, SourceNodePage, SubscriptionSource } from './orderedSourceTypes'
 import ChainPathEditor from './ChainPathEditor'
 import ChainExitExpansion from './ChainExitExpansion'
 
@@ -167,8 +167,9 @@ export function chainBatchSelectionError(draft: ChainBatchDraft, snapshot: Proxy
         if (resourceWriteError(snapshot.sources ?? { fresh: false, error: '' }) || !validSubscriptionSources(snapshot.sources?.data)) return `${prefix}来源列表等待最新确认；草稿已保留。`
         const source = snapshot.sources!.data!.find(source => source.id === hop.source_id)
         const page = snapshot.sourceNodes?.[hop.source_id]
-        if (!source || source.archived || !page?.fresh || page.error || !validSourceNodePage(page.data) || page.data.source_id !== source.id || page.data.current_identity_epoch !== source.identity_epoch) return `${prefix}来源或当前节点版本等待确认，归档及历史节点不能用于新引用。`
-        const selected = hop.node && page.data.nodes.find(node => node.id === hop.node!.id && node.version_id === hop.node!.version_id)
+        const currentPage = page?.getCurrent ? page.getCurrent() : page?.data
+        if (!source || source.archived || !page || resourceWriteError(page) || !validSourceNodePage(currentPage) || currentPage.source_id !== source.id || currentPage.current_identity_epoch !== source.identity_epoch) return `${prefix}来源或当前节点版本等待确认，归档及历史节点不能用于新引用。`
+        const selected = hop.node && currentPage.nodes.find(node => node.id === hop.node!.id && node.version_id === hop.node!.version_id)
         if (!selected?.selectable || selected.identity_epoch !== source.identity_epoch || !hop.node || hop.node.identity_epoch !== selected.identity_epoch) return `${prefix}所选节点已缺失、更换代次或产生新版本；请明确重新选点，草稿不会自动替换。`
         if (!['follow_node', 'pinned'].includes(hop.update_mode)) return `${prefix}请选择跟随节点或固定版本。`
       }
@@ -183,12 +184,12 @@ function publicHost(value: string) { return value.length <= 253 && !/[\s/?#@\\]/
 export function prepareChainBatch(draft: ChainBatchDraft, snapshot: ProxyWriteSnapshot, previous?: PendingChainBatch, requestId: () => string = assignmentRequestId): PendingChainBatch {
   const writeError = proxyWriteError(snapshot)
   if (writeError) throw new Error(writeError)
+  const error = chainBatchSelectionError(draft, snapshot)
+  if (error) throw new Error(error)
   if (previous?.attempted && previous.source_draft === JSON.stringify(draft)) {
     savedBatchRequest(previous)
     return previous
   }
-  const error = chainBatchSelectionError(draft, snapshot)
-  if (error) throw new Error(error)
   if (!['new', 'existing'].includes(draft.mode) || draft.rows.length < 1 || draft.rows.length > 32 || draft.mode === 'existing' && draft.rows.length !== 1) throw new Error('新入口批次支持 1–32 条链路；现有入口只能创建一条。')
   const entry = nodeId(draft.entry_node_id), serverId = nodeId(draft.server_id)
   if (draft.mode === 'existing' && entry === null || draft.mode === 'new' && serverId === null) throw new Error('请选择入口服务器或节点；草稿已保留。')
@@ -223,7 +224,7 @@ function savedBatchRequest(pending: PendingChainBatch): ChainBatchRequest {
 async function requestChainBatch(body: ChainBatchRequest) {
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), 30000)
-  try { return await api(`${root}/chains/batch`, 'POST', body, controller.signal) }
+  try { return await api(`${root}/chains/ordered-batch`, 'POST', body, controller.signal) }
   catch (error) { if (controller.signal.aborted) throw new Error('提交超时，批次可能已完成；请刷新确认或重试原批次，原请求已保留。'); throw error }
   finally { window.clearTimeout(timer) }
 }
@@ -231,16 +232,14 @@ export async function submitChainBatch(pending: PendingChainBatch, snapshot: Pro
   const error = proxyWriteError(snapshot)
   if (error) throw new Error(error)
   const request = savedBatchRequest(pending)
-  if (!pending.attempted) for (const item of request.items) {
+  for (const item of request.items) {
     const entry = item.entry
     const selection = managedSelectionError(snapshot, entry.mode === 'existing' ? entry.node_id : null, null, entry.mode === 'new' ? entry.server_id : undefined)
     if (selection) throw new Error(selection)
     if (entry.mode === 'new' && !snapshot.servers.data?.some(server => server.id === entry.server_id && server.enabled)) throw new Error('已选入口服务器已不可用或尚未启用；草稿已保留。')
   }
-  if (!pending.attempted) {
-    const selection = chainBatchSelectionError(JSON.parse(pending.source_draft) as ChainBatchDraft, snapshot)
-    if (selection) throw new Error(selection)
-  }
+  const selection = chainBatchSelectionError(JSON.parse(pending.source_draft) as ChainBatchDraft, snapshot)
+  if (selection) throw new Error(selection)
   pending.attempted = true
   return write(request)
 }
@@ -253,10 +252,10 @@ export function proxyDeleteError(resources: ResourceSnapshot<ProxyResource[]>, r
 export async function deleteProxyResource(resource: Pick<ProxyResource, 'kind' | 'id'>, snapshot: ProxyWriteSnapshot, write: (path: string) => Promise<unknown> = path => api(path, 'DELETE')) {
   const error = proxyDeleteError(snapshot.resources, resource)
   if (error) throw new Error(error)
-  return write(`${root}/proxy-resources/${resource.kind}/${resource.id}`)
+  return write(`${root}/ordered-proxy-resources/${resource.kind}/${resource.id}`)
 }
 
-export default function Chains({ snapshot, serverId, refresh, onCreated, onAddSource, replacement }: { snapshot: ProxyWriteSnapshot; serverId?: number; refresh: () => void; onCreated: (result: ChainBatchResult) => void; onAddSource?: () => void; replacement?: { generation: number; resource: ProxyResource } }) {
+export default function Chains({ snapshot, serverId, getServerId, refresh, onCreated, onAddSource, replacement }: { snapshot: ProxyWriteSnapshot; serverId?: number; getServerId?: () => number | undefined; refresh: () => void; onCreated: (result: ChainBatchResult) => void; onAddSource?: () => void; replacement?: { generation: number; resource: ProxyResource } }) {
   const action = useAction()
   const [creating, setCreating] = useState(false)
   const [draft, setDraft] = useState<ChainBatchDraft>({ mode: 'new', server_id: '', public_host: '', sni: '', entry_node_id: '', exit_node_id: '', rows: [{ name: '', port: '' }] })
@@ -286,21 +285,28 @@ export default function Chains({ snapshot, serverId, refresh, onCreated, onAddSo
   const enabledServers = snapshot.servers.data?.filter(server => server.enabled) ?? []
   const choices = snapshot.nodes.data?.filter(node => node.protocol === 'vless-reality' && node.enabled !== false && enabledServers.some(server => server.id === node.server_id)
     && snapshot.resources.data?.some(resource => resource.kind === 'direct' && resource.id === node.id && resource.available)) ?? []
-  const writeError = proxyWriteError(snapshot)
+  const filterError = () => {
+    const selected = getServerId ? getServerId() : serverId
+    if (selected === undefined) return ''
+    if (!snapshot.servers.data?.some(server => server.id === selected && server.enabled)) return '当前筛选的入口服务器已不存在或未启用，原草稿已保留。'
+    const entryServer = draft.mode === 'new' ? Number(draft.server_id) : snapshot.nodes.data?.find(node => node.id === Number(draft.entry_node_id))?.server_id
+    return (draft.mode === 'new' ? Boolean(draft.server_id) : Boolean(draft.entry_node_id)) && entryServer !== selected ? '原入口不属于当前服务器筛选，请明确重新选择；草稿已保留。' : ''
+  }
+  const writeError = proxyWriteError(snapshot) || filterError()
   const unchanged = submittedDraft === JSON.stringify(draft)
-  const replay = unchanged && pending.current?.attempted === true
-  const selectionError = writeError || replay ? '' : chainBatchSelectionError(draft, writeSnapshot)
+  const selectionError = writeError || chainBatchSelectionError(draft, writeSnapshot)
   const update = (value: Partial<ChainBatchDraft>) => { action.clearError(); setDraft(current => ({ ...current, ...value })) }
   const rowUpdate = (index: number, value: Partial<ChainBatchDraft['rows'][number]>) => update({ rows: draft.rows.map((row, i) => i === index ? { ...row, ...value } : row) })
   const open = () => {
-    if (action.busy || proxyWriteError(snapshot)) return
+    if (action.busy || proxyWriteError(snapshot) || filterError()) return
     action.clearError()
-    if (!draft.server_id) setDraft(current => ({ ...current, server_id: enabledServers.find(server => server.id === serverId)?.id.toString() ?? enabledServers[0]?.id.toString() ?? '' }))
+    if (!draft.server_id) { const selected = getServerId ? getServerId() : serverId; setDraft(current => ({ ...current, server_id: (selected === undefined ? enabledServers[0] : enabledServers.find(server => server.id === selected))?.id.toString() ?? '' })) }
     setCreating(true)
   }
   const submit = () => {
-    if (!creating || action.busy || proxyWriteError(snapshot) || !replay && chainBatchSelectionError(draft, writeSnapshot)) return
+    if (!creating || action.busy || proxyWriteError(snapshot) || filterError() || chainBatchSelectionError(draft, writeSnapshot)) return
     void action.run(async () => {
+      const filter = filterError(); if (filter) throw new Error(filter)
       const submission = prepareChainBatch(draft, writeSnapshot, pending.current)
       pending.current = submission
       setSubmittedDraft(JSON.stringify(draft)); setLastRequestId(submission.request_id)
@@ -330,7 +336,7 @@ export default function Chains({ snapshot, serverId, refresh, onCreated, onAddSo
       {draft.hops && draft.rows.map((row, index) => <section key={index} className="chain-row-path"><h4>第 {index + 1} 条路径</h4>{row.hops ? <><ChainPathEditor label={`第 ${index + 1} 条独立路径`} hops={row.hops} onChange={hops => rowUpdate(index, { hops })} snapshot={writeSnapshot} /><button className="text-button" type="button" onClick={() => rowUpdate(index, { hops: undefined })}>恢复使用共享路径</button></> : <button className="text-button" type="button" onClick={() => rowUpdate(index, { hops: draft.hops!.map(hop => ({ ...hop })) })}>单独编辑第 {index + 1} 条路径</button>}</section>)}
       {draft.mode === 'new' && <button type="button" className="button button-secondary button-small" disabled={draft.rows.length >= 32} onClick={() => update({ rows: [...draft.rows, { name: '', port: '' }] })}>添加一条链路</button>}
       <div className="chain-preview" aria-label="批次预览"><h3>批次预览</h3><p>{draft.rows.length} 条链路，共享入口服务器；{draft.mode === 'new' ? '每条新建独立入口监听，自动端口由面板分别分配。' : '所选现有监听将成为专用入口，不能再单独授权。'}</p><ol>{draft.rows.map((row, index) => <li key={index}><strong>{row.name.trim() || `链路 ${index + 1}`}</strong><span>客户端 → {draft.mode === 'new' ? `${draft.public_host || '待填写地址'}:${row.port || '提交时自动分配'}` : `入口节点 #${draft.entry_node_id || '待选择'}`} → {(row.hops ?? draft.hops ?? [{ kind: 'managed' as const, node_id: draft.exit_node_id }]).map(hop => hop.kind === 'managed' ? `受管 #${hop.node_id || '待选择'}` : `${sources.data?.find(source => source.id === hop.source_id)?.name ?? `来源 #${hop.source_id}`} / ${hop.node?.name ?? '待选择'}（${hop.update_mode === 'pinned' ? '固定版本' : '跟随所选节点'} · ${hop.node?.version_id ?? '无版本'}）`).join(' → ')} → 互联网</span></li>)}</ol></div>
-      {lastRequestId && <p className="helper" role="status">批次编号：<code>{lastRequestId}</code>。{unchanged ? '请求内容已保留；失败或超时后重试会复用同一编号和内容。' : '草稿已修改，下次提交会使用新批次编号；可先刷新列表确认原批次结果。'}关闭窗口后仍可重新打开继续，离开此页面前请先确认提交结果。</p>}
+      {lastRequestId && <p className="helper" role="status">批次编号：<code>{lastRequestId}</code>。{unchanged ? '请求内容已保留；失败或超时后，目标与依赖仍符合当前资格时可复用同一编号和内容。依赖已消失或身份变化时请先确认原结果，草稿不会自动替换。' : '草稿已修改，下次提交会使用新批次编号；可先刷新列表确认原批次结果。'}关闭窗口后仍可重新打开继续，离开此页面前请先确认提交结果。</p>}
       <p className="helper">创建成功不会自动授权给用户。有序路径先准备全部受管依赖，并验证指定出站后才切用户入口；配置应用、路径探测和第三方持续健康分别记录，失败不会跳过任何一段或改直连。</p>
     </FormDialog>}
   </>
@@ -341,6 +347,6 @@ function SourceObservation({ id, observe }: { id: number; observe: (id: number, 
   const previous = useRef<SourceNodePage | undefined>(undefined)
   const value = validatedSnapshot(query, validSourceNodePage, previous.current)
   if (value.fresh && value.data?.source_id === id) previous.current = value.data
-  useEffect(() => { observe(id, { ...value, fresh: value.fresh && value.data?.source_id === id }) }, [id, observe, value.data, value.fresh, value.error])
+  useEffect(() => { observe(id, { ...value, isCurrent: () => value.isCurrent?.() === true && value.getCurrent?.()?.source_id === id, getCurrent: () => value.getCurrent?.()?.source_id === id ? value.getCurrent() : undefined, fresh: value.fresh && value.data?.source_id === id }) }, [id, observe, value.data, value.fresh, value.error])
   return null
 }

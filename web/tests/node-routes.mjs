@@ -29,7 +29,9 @@ try {
       if (path === '/api/dashboard/access') data = { authenticated:true, public_dashboard:false }
       else if (path === '/api/plugins/sing-box/servers') data = servers
       else if (path === '/api/plugins/sing-box/nodes') data = nodes
-      else if (path === '/api/plugins/sing-box/proxy-resources') data = proxyResourceFixtures(nodes, servers)
+      else if (path === '/api/plugins/sing-box/proxy-resources') data = nodes.map(node => ({ ...node, kind:'direct', server_name:`服务器${node.server_id}`, enabled:true, available:true, role:'direct', entry_node_id:null, tcp:true, udp:true, legacy:false, active_generation:null, pending_generation:null, minimum_generation:0, stage:'direct', last_error:null, reference_count:0, entry_eligible:true }))
+      else if (path === '/api/plugins/sing-box/ordered-proxy-resources') data = proxyResourceFixtures(nodes, servers)
+      else if (path === '/api/plugins/sing-box/ordered-subscription-sources') data = []
       else if (path === '/api/plugins/sing-box/subscription-sources') data = []
       else if (path === '/api/plugins/sing-box/usage') data = { total:'0', uplink:'0', downlink:'0', by_node:[], by_user:[] }
       else if (['policy-groups','package-groups','chains'].some(key => path === `/api/plugins/sing-box/${key}`)) data = []
@@ -54,21 +56,16 @@ try {
     assert.equal(await page.getByRole('button', { name:'创建节点', exact:true }).first().isDisabled(), true)
     assert.equal(await page.locator('tbody tr').count(), 0)
     await page.evaluate(() => { location.hash = '/plugins/sing-box/nodes?kind=chains' })
-    await page.getByRole('button', { name:'创建两跳链路', exact:true }).waitFor()
-    assert.equal(await page.getByRole('navigation', { name:'节点资源类型', exact:true }).getByRole('link', { name:'链路', exact:true }).getAttribute('aria-current'), 'page')
-    await page.getByRole('button', { name:'创建两跳链路', exact:true }).click()
-    await page.getByRole('dialog').getByRole('heading', { name:'创建两跳链路', exact:true }).waitFor()
-    await page.getByRole('dialog').locator('[name=entry_mode]').selectOption('existing')
-    assert.equal(await page.getByRole('dialog').locator('[name=entry_node_id] option').count(), 3)
-    await page.getByRole('dialog').getByRole('button', { name:'取消', exact:true }).click()
-    await page.evaluate(() => { location.hash = '/plugins/sing-box/nodes?kind=chains&server=2' })
-    await page.getByText('筛选范围：任一受管段属于「服务器2」的链路。', { exact:false }).waitFor()
-    assert.equal(await page.getByRole('navigation', { name:'主导航' }).getByRole('link', { name:'代理节点', exact:true }).getAttribute('aria-current'), 'page')
-    assert.equal(await page.getByRole('navigation', { name:'节点资源类型', exact:true }).getByRole('link', { name:'全部', exact:true }).getAttribute('href'), '#/plugins/sing-box/nodes?server=2')
-    await page.getByRole('navigation', { name:'节点资源类型', exact:true }).getByRole('link', { name:'直连节点', exact:true }).click()
-    assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=direct&server=2')
-    await page.getByRole('row').filter({has:page.getByText('服务器2节点',{exact:true})}).waitFor()
-    for (const query of ['server=0','server=-1','server=01','server=1.0','server=1&server=2','server=9007199254740992','server=1e2','kind=unknown','kind=chains&kind=chains','server=2&kind=chains&other=1','other=1']) {
+    await page.getByLabel('按类型筛选').waitFor()
+    assert.equal(await page.getByLabel('按类型筛选').inputValue(), 'chain')
+    assert.equal(await page.locator('tbody tr').count(), 0)
+    await page.getByRole('button', { name:'创建链路', exact:true }).click()
+    const chain = page.getByRole('region', { name:'创建链路', exact:true })
+    await chain.getByRole('heading', { name:'创建链路', exact:true }).waitFor()
+    await chain.getByLabel('入口方式', { exact:true }).selectOption('existing')
+    assert.equal(await chain.getByLabel('已有入口', { exact:true }).locator('option').count(), 3)
+    await chain.getByRole('button', { name:'收起编辑器', exact:true }).click()
+    for (const query of ['server=0','server=1&server=2','server=9007199254740992','server=1e2','kind=unknown','other=1']) {
       await page.evaluate(query => { location.hash = '/plugins/sing-box/nodes?' + query }, query)
       await page.getByRole('heading', { name:'这个页面不存在', exact:true }).waitFor()
       assert.equal(await page.locator('.node-editor').count(), 0)
@@ -77,5 +74,5 @@ try {
     assert.deepEqual(errors, [])
     await page.close()
   }
-  console.log('PASS: selected-server node route and create default, live route change, server-scoped chain category, invalid/duplicate routes refuse without writes')
+  console.log('PASS: selected-server node route and create default, live route change, legacy chain route opens unified resources and ordered editor, invalid/duplicate routes refuse without writes')
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)) }

@@ -29,14 +29,21 @@ export type PathState = { desired_generation: number; candidate_generation: numb
   recovery_generation: number | null; minimum_generation: number; phase: PathPhase; capabilities: { tcp: boolean; udp: boolean };
   last_error: string | null; dependencies: PathDependency[]; probe: PathProbe | null;
   generations: { generation: number; state: 'desired' | 'applied' | 'candidate' | 'recovery'; hops: PublicHop[] }[] }
-export type ResourceSnapshot<T> = { data?: T; fresh: boolean; error: string }
+export type ResourceSnapshot<T> = { data?: T; fresh: boolean; error: string; isCurrent?: () => boolean; getCurrent?: () => T | undefined }
 export function validatedSnapshot<T>(resource: ResourceSnapshot<unknown>, valid: (value: unknown) => value is T, previous?: T): ResourceSnapshot<T> {
-  let data = previous
-  let accepted = false
-  if (valid(resource.data)) { data = resource.data; accepted = true }
-  return { data, fresh: accepted && resource.fresh && !resource.error,
-    error: resource.error || (resource.data !== undefined && !accepted ? '面板返回的资源信息格式不完整，请刷新确认。' : '') }
+  const accepted = valid(resource.data)
+  const historical = accepted ? resource.data as T : previous
+  const current = () => resource.getCurrent ? resource.getCurrent() : resource.data
+  const fresh = () => (resource.isCurrent ? resource.isCurrent() : resource.fresh) && valid(current()) && !resource.error
+  return {
+    get data() { const value = current(); return valid(value) ? value : historical },
+    get fresh() { return fresh() },
+    get error() { const value = current(); return resource.error || (value !== undefined && !valid(value) || !accepted && resource.data !== undefined ? '面板返回的资源信息格式不完整，请刷新确认。' : '') },
+    isCurrent: fresh,
+    getCurrent: () => { const value = current(); return fresh() && valid(value) ? value : undefined },
+  }
 }
+
 const object = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const integer = (value: unknown, minimum = 0): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum
 const nullableInteger = (value: unknown) => value === null || integer(value)

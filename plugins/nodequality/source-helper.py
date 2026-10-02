@@ -12,11 +12,10 @@ import sys
 
 MAX_FILE = 2 * 1024 * 1024
 MAX_BUNDLE = 8 * 1024 * 1024
-OPENAI_POLICY_SHA256 = '1def74828e5414ad41f184f45e821fb686ed9898b3ed665663acc978ed191928'
-NETFLIX_POLICY_SHA256 = 'b928c6d4ac92b26f72207914d269b5154f09441bad3ca9eb5f036654f20f5eb7'
-ACCESS_POLICY_SHA256 = '83db5e84f2c2c793eb4eff0d43ba0e439b196ab7a940a2a293d9b513860985b9'
-QUERY_POLICY_SHA256 = 'e4ec8e34c9264b25b64d5ec6252f419762493be9b928d96beaba7addffe3aa00'
-BROWSER_POLICY_SHA256 = '04de9983ccbe2a7651011e3b05b1092cd0a25af950ff3a97f583536f4c693ef1'
+OFFICIAL_IP_SHA256 = '59f3e49dd9e736db0cadb573c4c9c3a590ae745f95c9b8d7f7b89a952603dd43'
+PUBLIC_ACCESS_POLICY_SHA256 = 'f53a16603bb070a13f67b056ae8124b31a62a00e411a41b1934135a937cb25db'
+BROWSER_POLICY_SHA256 = 'bda6f986d0f1dc1680989cb148dfd4214f7018bebb4413acf8474d11605fc771'
+NETFLIX_POLICY_SHA256 = '4c1f7c584ac3e0bc71f2aa37b2b739ec1383e60a0e554eb645db6bec95f89751'
 IP_SCORE_POLICY_SHA256 = 'f5ae90c823d6b6d993c9254369220f6128ac7169f41b557c603ab00f184f245f'
 RANKING_POLICY_SHA256 = '6f46038c22267108b4572b1f1382a5deb779ecd51d90b0910c2a90f3ef122d59'
 LOADER_POLICY_SHA256 = '189fda7f90cd91df37ddfecf206c15137d823128a75e7b22c850abb2e2a2fe92'
@@ -51,6 +50,16 @@ ALIASES = {
     'https://IP.Check.Place': 'ip.sh',
     'https://Net.Check.Place': 'net.sh',
 }
+FULL_EXECUTION_UNRESOLVED = [
+    'complete-rootfs-and-secondary-tool-provenance',
+    'version-specific-redistribution-and-unattended-execution-rights',
+    'third-party-tool-upload-control',
+    'complete-host-side-effect-and-cancellation-acceptance',
+]
+OBSERVED_ROOTFS = {
+    'amd64': (312475959, '5f844e73941c3623175c5cdc16b01db34c155d0d1bd9b0cf71f3d72e8b1148e1'),
+    'arm64': (359657375, 'a4dd4e55b129157a02dab437b78e41b5797a7a79a0f0b7febdecab8eb2a312c7'),
+}
 
 
 def ordinary(path, limit):
@@ -76,6 +85,36 @@ def unique_object(pairs):
 
 def decode(content):
     return json.loads(content, object_pairs_hook=unique_object)
+
+
+def execution_admission(path):
+    # These observations are identities, never permission or runtime approval.
+    record = decode(ordinary(path, 16384))
+    expected = dict(
+        schema=1, profile='daily-and-historical-recovery-only',
+        full_start_allowed=False, runtime_dependency_downloads_allowed=False,
+        first_level_source_files=len(FILES), unresolved=FULL_EXECUTION_UNRESOLVED,
+        rootfs_observations={
+            arch: dict(version='v0.0.2', size=size, sha256=digest,
+                       upstream_signature_verified=False,
+                       reproducible_recipe_verified=False,
+                       redistribution_rights_verified=False)
+            for arch, (size, digest) in OBSERVED_ROOTFS.items()},
+        proprietary_tool_rights={
+            'ookla-speedtest-1.2.0.84': 'not_verified',
+            'geekbench-5.5.1': 'not_verified'})
+    # JSON bool/int equality must not accept false=0 or schema=true.
+    canonical = lambda value: json.dumps(value, sort_keys=True, separators=(',', ':'))
+    if canonical(record) != canonical(expected):
+        raise ValueError('execution admission must retain the unverified complete-toolchain gate')
+    return record
+
+
+def official_ip_identity():
+    path = Path(__file__).with_name('official-ip.py')
+    content = ordinary(path, 65536)
+    if hashlib.sha256(content).hexdigest() != OFFICIAL_IP_SHA256:
+        raise ValueError('signed official IP helper SHA256 mismatch')
 
 
 def validate(lock):
@@ -225,69 +264,6 @@ def ranking_policy():
     return namespace
 
 
-def query_policy():
-    path = Path(__file__).with_name('query-policy.py')
-    content = ordinary(path, 65536)
-    if hashlib.sha256(content).hexdigest() != QUERY_POLICY_SHA256:
-        raise ValueError('signed query policy helper SHA256 mismatch')
-    namespace = {'__name__': 'sinan_query_policy', '__file__': str(path)}
-    exec(compile(content, str(path), 'exec'), namespace)
-    return namespace
-
-
-def access_policy():
-    path = Path(__file__).with_name('access-policy.py')
-    content = ordinary(path, 65536)
-    if hashlib.sha256(content).hexdigest() != ACCESS_POLICY_SHA256:
-        raise ValueError('signed provider access policy helper SHA256 mismatch')
-    namespace = {'__name__': 'sinan_access_policy', '__file__': str(path)}
-    exec(compile(content, str(path), 'exec'), namespace)
-    return namespace
-
-
-def authorized_provider_access(name, content):
-    if name != 'ip.sh':
-        return content
-    policy = access_policy()
-    result = policy['transform'](name, content)
-    if (not isinstance(result, bytes) or len(result) > MAX_FILE + 8192
-            or hashlib.sha256(result).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
-        raise ValueError('served provider access policy output SHA256 or byte limit mismatch')
-    return result
-
-
-def validated_query_results(name, content):
-    if name != 'ip.sh':
-        return content
-    policy = query_policy()
-    result = policy['transform'](name, content)
-    if (not isinstance(result, bytes) or len(result) > MAX_FILE + 4096
-            or hashlib.sha256(result).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
-        raise ValueError('served query policy output SHA256 or byte limit mismatch')
-    return result
-
-
-def browser_policy():
-    path = Path(__file__).with_name('browser-policy.py')
-    content = ordinary(path, 65536)
-    if hashlib.sha256(content).hexdigest() != BROWSER_POLICY_SHA256:
-        raise ValueError('signed browser policy helper SHA256 mismatch')
-    namespace = {'__name__': 'sinan_browser_policy', '__file__': str(path)}
-    exec(compile(content, str(path), 'exec'), namespace)
-    return namespace
-
-
-def native_curl_identity(name, content):
-    if name not in ('ip.sh', 'net.sh'):
-        return content
-    policy = browser_policy()
-    result = policy['transform'](name, content)
-    if (not isinstance(result, bytes) or len(result) > MAX_FILE + 4096
-            or hashlib.sha256(result).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
-        raise ValueError('served browser policy output SHA256 or byte limit mismatch')
-    return result
-
-
 def ip_score_policy():
     path = Path(__file__).with_name('ip-score-policy.py')
     content = ordinary(path, 65536)
@@ -330,24 +306,45 @@ def validated_netflix(name, content):
     return result
 
 
-def openai_policy():
-    path = Path(__file__).with_name('openai-policy.py')
+def browser_policy():
+    path = Path(__file__).with_name('browser-policy.py')
     content = ordinary(path, 65536)
-    if hashlib.sha256(content).hexdigest() != OPENAI_POLICY_SHA256:
-        raise ValueError('signed OpenAI policy helper SHA256 mismatch')
-    namespace = {'__name__': 'sinan_openai_policy', '__file__': str(path)}
+    if hashlib.sha256(content).hexdigest() != BROWSER_POLICY_SHA256:
+        raise ValueError('signed browser policy helper SHA256 mismatch')
+    namespace = {'__name__': 'sinan_browser_policy', '__file__': str(path)}
     exec(compile(content, str(path), 'exec'), namespace)
     return namespace
 
 
-def authorized_openai(name, content):
+def native_curl_identity(name, content):
+    if name not in ('ip.sh', 'net.sh'):
+        return content
+    policy = browser_policy()
+    result = policy['transform'](name, content)
+    if (not isinstance(result, bytes) or len(result) > MAX_FILE + 8192
+            or hashlib.sha256(result).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
+        raise ValueError('served browser policy output SHA256 or byte limit mismatch')
+    return result
+
+
+def public_access_policy():
+    path = Path(__file__).with_name('public-access-policy.py')
+    content = ordinary(path, 65536)
+    if hashlib.sha256(content).hexdigest() != PUBLIC_ACCESS_POLICY_SHA256:
+        raise ValueError('signed public access policy helper SHA256 mismatch')
+    namespace = {'__name__': 'sinan_public_access_policy', '__file__': str(path)}
+    exec(compile(content, str(path), 'exec'), namespace)
+    return namespace
+
+
+def authorized_access(name, content):
     if name != 'ip.sh':
         return content
-    policy = openai_policy()
+    policy = public_access_policy()
     result = policy['transform'](name, content)
-    if (not isinstance(result, bytes) or len(result) > MAX_FILE + 4096
+    if (not isinstance(result, bytes) or len(result) > MAX_FILE + 16384
             or hashlib.sha256(result).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
-        raise ValueError('served OpenAI policy output SHA256 or byte limit mismatch')
+        raise ValueError('served public access policy output SHA256 or byte limit mismatch')
     return result
 
 
@@ -377,6 +374,8 @@ def static_references(name, content, directory, rows):
 
 def pack(lock, directory):
     rows = validate(lock)
+    execution_admission(Path(__file__).with_name('execution-admission.json'))
+    official_ip_identity()
     report_policy()
     swap_policy()
     dependency_policy()
@@ -384,11 +383,9 @@ def pack(lock, directory):
     loader_policy()
     ranking_policy()
     ip_score_policy()
-    browser_policy()
-    query_policy()
-    access_policy()
     netflix_policy()
-    openai_policy()
+    browser_policy()
+    public_access_policy()
     files = {name: base64.b64encode(verified(ordinary(directory / name, MAX_FILE), row)).decode()
              for name, row in rows.items()}
     result = (json.dumps(dict(schema=1, lock=lock, files=files), sort_keys=True, separators=(',', ':')) + '\n').encode()
@@ -432,16 +429,21 @@ def serve(directory, arguments):
             or hashlib.sha256(patched).hexdigest() != policy['SOURCES'][name]['patched_sha256']):
         raise ValueError('served report policy output SHA256 or byte limit mismatch')
     prior = without_swap(name, patched) if name == 'hardware.sh' else patched
-    guarded = authorized_provider_access(name, validated_query_results(name, native_curl_identity(name, validated_ip_scores(name, percentile_policy(name, static_references(name, offline_dependencies(name, prior), directory, rows))))))
-    return authorized_openai(name, validated_netflix(name, guarded))
+    scored = validated_ip_scores(name, percentile_policy(name, static_references(name, offline_dependencies(name, prior), directory, rows)))
+    return authorized_access(name, native_curl_identity(name, validated_netflix(name, scored)))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=['downloads', 'receive', 'pack', 'materialize', 'serve', 'entrypoint'])
+    parser.add_argument('operation', choices=['downloads', 'receive', 'pack', 'materialize', 'serve', 'entrypoint', 'admission'])
     parser.add_argument('input', type=Path)
     parser.add_argument('remaining', nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.operation == 'admission':
+        if args.remaining:
+            raise ValueError('admission accepts only an execution record')
+        print(json.dumps(execution_admission(args.input), sort_keys=True, separators=(',', ':')))
+        return
     if args.operation == 'entrypoint':
         if args.remaining:
             raise ValueError('entrypoint accepts only a pinned bundle')

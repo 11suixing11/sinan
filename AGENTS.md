@@ -23,18 +23,6 @@
 - `agent-core` 目录内任何文件不得出现 `singbox` 或 `sing-box` 字样；使用模块标识、能力和统一接口。
 - core 管服务器；sing-box 插件管代理用户、授权、订阅、用户流量、配额和周期，详见 [ADR 0023](docs/adr/0023-proxy-business-boundary.md) 与 [搬迁及启用兼容 ADR 0030](docs/adr/0030-singbox-plugin-business.md)。core 不得引用代理业务的 `user`、`subscription`、`quota`，含复数、蛇形和驼峰形式；CI 使用 `tools/check-core-boundary.py` 检查。系统账户与 SQLite 原生 API 仅允许检查器列出的具体表达式，不允许文件或整行豁免。
 - sing-box 面板业务实现物理位于根 `plugins/singbox/panel/`；面板只保留薄的 Rust path 嵌入桥，不得移回 `crates/panel/src/plugins/`。
-- 设备声明插件能力只表示支持，不自动启用新服务器的代理业务；管理员启用必须安排签名运行时安装，安装状态和设备应用确认分开，见 [ADR 0044](docs/adr/0044-singbox-plugin-lifecycle.md)。链路管理归代理节点，策略页面引用已有资源。
-- 代理资源与原子链路创建按 [ADR 0054](docs/adr/0054-proxy-resource-batch-lifecycle.md) 使用 `kind` 与 ID 一起标识，专用入口不重复展示；批量入口／链路同事务创建，删除不清除幂等收据。旧、新节点删除共用策略及链路引用保护，完整链路资源删除清理入口并保留共享出口；旧链路解除关系接口语义保持。有序混合路径进一步按 ADR 0056 实施并单独记录最终验收，不能沿用原两跳证据。
-- 订阅来源按 [ADR 0055](docs/adr/0055-subscription-source-lifecycle.md) 在插件内有界获取、解析及保存不可变版本；来源设置 revision、身份 epoch、解析器版本与 claim 同时限制迟到结果。失败保留成功批次，归档／删除保留历史及幂等收据；完整地址、认证、原文、配置和摘要不进入公开输出。只导入节点，不执行来源内全局配置或嵌套下载；来源预览不能冒称网络在线、完整混合路径或引用保护已验收。
-- 精确运行确认与持久恢复屏障按 [ADR 0047](docs/adr/0047-runtime-checkpoints-and-recovery-barriers.md) 实现：实际配置/受控实例与稳定 activation 共同核对，结果先持久化再发送，未 ACK 不按 TTL 删除；屏障后禁止低于已承诺 revision 的 apply/rollback/recovery。旧 revision 心跳不替代新能力的精确收据，检查请求不得隐式重启旧业务；这些通用基础能力不代表混合路径或端到端探测已实现。
-- 有序路径和通用具体出站验证按 [ADR 0056](docs/adr/0056-ordered-path-publication-and-native-probe.md) 实施：链路、来源、代数、订阅与计量属于 sing-box 插件／compiler；core 仅执行已签计划中的 probe UUID，前后核对精确运行实例并持久回执。私有回环控制凭据不进入普通输出，不用临时 SOCKS 入口模拟原生凭据过期。旧链路捕获不补造探测成功；native check、HTTPS 验证、实际出口／逐跳／UDP 流量验收分别记录。
-- 私有面板 CA 按 [ADR 0057](docs/adr/0057-private-panel-certificate-authorities.md) 由设备操作者通过本地配置选择：注册、面板下载、WSS 和退役确认共享正常证书验证；独立 GitHub/公网客户端不增加该信任。真实托管路径工具须使用预置独立设备命名空间、冻结 native 二进制和 TEST_ONLY 签名，仅经实际 API、设备回执与只读账本验收；工具合同或 native 编译夹具不等于整组实机通过。
-- 诊断自然结束、保护停止、取消及退役按 [ADR 0049](docs/adr/0049-confirmed-diagnostic-completion.md) 保留活动所有权，确认进程、挂载与排队 job 已清理后才提交终态；原始结果先固定，重启只重试清理。`cleaning` 为非终态，不因期限释放互斥；旧面板不能单独配新 Agent。
-- 周期拨测按 [ADR 0050](docs/adr/0050-authorized-probe-leases.md) 明确记录来源、地区和自有/第三方同意依据；新设备只凭绑定身份、配置版本和单调期限的短租约执行，不恢复旧一天缓存。旧八字段 `ProbeSpec` 及已有历史保持，旧 Agent 的离线窗口不能冒称已修复；授权证据不得进入匿名看板。
-- 节点出口 IPQuality 按 [ADR 0051](docs/adr/0051-independent-node-ipquality.md) 使用独立固定源和最小离线 rootfs，不依赖商业硬件工具；章节认证、版本和真实归档身份核对后同事务投影逐来源缓存，单调任务序号阻止旧回报倒灌。NAT 出口与网卡地址分别展示，部分结果、失败和取消不抹掉最近成功。外层签名的 notice 必须绑定完整配套对应源资产，不能用库存或 URLs 代替真实源包；源码准备不等于实机签收、许可审批或正式发布。
-- 最小 IPQuality 输入按 [ADR 0052](docs/adr/0052-ipquality-derived-debian-inputs.md) 从重新认证的完整 Debian 缓存显式派生：只读借用原缓存、隔离离线求解精确子闭包，记录父收据、profile、正文身份及新增空间；不改旧 collection kind、不把候选或哈希相等当 builder 审批。签名索引的有界展开预算不能由旧采样替代，资源拒绝不降低管理预留。
-- IPQuality 最小 profile 按 [ADR 0053](docs/adr/0053-ipquality-minimal-profile-chain.md) 贯穿 prepare、build、export 和制品核对：重新认证派生与绑定，精确包／源库存保持一致；只含必需包或工具集合匹配不能证明最小。公开证明与私有父身份上下文分开，共用工厂扩展默认关闭，不降低 NodeQuality 或 builder 审批门禁。
-- 离线诊断工厂按 [ADR 0048](docs/adr/0048-nodequality-factory-capacity.md) 对 prepare/build/export 分阶段核算副本、树、临时文件和收据，准入与动态守卫均保留管理空间和 inode。容量计划不是来源认证或镜像审批，动态轮询不是内核硬配额；失败原日志与清理结果分别留存，不为取证重跑构建，也不删除旧材料来腾空间。
 - 系统管理员与代理用户分别命名；服务器网卡总流量留在 core。计量 `epoch` 只标记计数器重置，不得用作套餐周期。业务搬迁保留用户 ID、令牌、旧订阅路径、节点凭据、授权和历史流量，数据库表先不改名。
 - 诊断任务生命周期、资源预算、持久化、取消及历史由共用服务管理；插件只转换参数、执行和解析报告，见 [ADR 0028](docs/adr/0028-shared-diagnostic-job-service.md)。后续插件登记代码可以经独立审查和相称验证后合入准备；NodeQuality 迁移及前置阶段的实机验收通过后，才能签收、正式发布或部署后续新增诊断能力。
 - 特权操作必须经过 `Privileged` trait，服务管理经过 `ServiceManager` trait；外部运行时是独立的系统服务（Linux systemd/OpenRC、macOS launchd、FreeBSD rc.d、Windows 计划任务）。
@@ -58,7 +46,7 @@
 
 不得实现链路、转发、链式代理、外部出口、出口池、用户分组、配额强制执行、计费、DDNS、WebSSH、frp、Shadowsocks、SSM API、VLESS + Reality 之外的协议、xray、多个运行时实例、独立特权 helper 进程、防火墙或 nftables、Clash 订阅、多管理员、权限体系、多语言界面或面板高可用。OpenRC 服务支持已按用户要求增加，详见 [ADR 0021](docs/adr/0021-openrc-services.md)。用户进一步确认补齐 Agent 高频监控、任务、自动更新及非 Linux 常驻部署，详见 [ADR 0022](docs/adr/0022-agent-capability-alignment.md)，覆盖原排除项。特权 helper 仅保留 trait 边界；保留重复安装升级。制品签名与编译时发布信任根按 [ADR 0017](docs/adr/0017-signed-release-artifacts.md) 执行。
 
-当前整改额外授权服务器成本、续费到期、按账单日计算的网卡配额、可配置轻量周期拨测，以及 sing-box 插件的代理用户配额、重置周期和到期；按 [ADR 0023](docs/adr/0023-proxy-business-boundary.md) 分层，覆盖上述相关排除项。整改清单在同一集成分支整体交付，每项保留验收证据，专用测试机验证资源场景，不在生产机器上反复运行完整验机。
+当前整改额外授权服务器成本、续费到期、按账单日计算的网卡配额、可配置轻量周期拨测，以及 sing-box 插件的代理用户配额、重置周期和到期；按 [ADR 0023](docs/adr/0023-proxy-business-boundary.md) 分层，覆盖上述相关排除项。整改清单每一项独立 PR、独立验收，专用测试机验证资源场景，不在生产机器上反复运行完整验机。
 
 当前整改按 P0 保护服务器 → P0 IP 查询 → P1 sing-box 业务归位 → P1 共用诊断框架 → P2 TCP 接入的顺序签收实机能力。源码审查、源码合入、实机能力签收和正式发布/部署分别记录；前置阶段未通过时，后续实现可经独立审查及相称验证后合入作为准备，但不能签收、正式发布或部署新增诊断能力，不以其 CI 结果宣称前置阶段完成。逐项记录故障场景、证据对应的源码和未验证范围；NodeQuality 历史报告可读与完整执行能力须分别验收。执行条件和当前缺口见 [整改顺序与验收状态](docs/acceptance/ordered-remediation.md)。续费、配额和周期监控仍属于之后的独立工作。
 
@@ -68,6 +56,14 @@
 
 2026-10-01 用户进一步确认统一延迟检测任务，以及资源超限、服务器到期、网卡流量和 Telegram 完整通知配置，见 [ADR 0039](docs/adr/0039-latency-tasks-and-notification-rules.md)。仍复用现有 Agent 拨测协议；通知仅提醒，不执行付款、停用或远程命令，诊断实机门禁和 CI 暂停安排不变。
 
-2026-10-01 用户明确链路在代理节点页统一创建/管理，且中间段可来自机场等订阅配置。按 [ADR 0040](docs/adr/0040-mixed-chains-and-subscriptions.md) 规划有序混合链路，覆盖此前仅两台受管服务器及外部出口的对应排除项；中间/最终段可为受管节点或订阅中的具体节点。保持单运行时、独立公开入口、线性无环路径、入口单次计量及内部秘密不进入用户订阅；不扩展自动出口池。当前源码分别按 ADR 0054／0055 提供统一资源与订阅来源版本管理；完整有序路径编译、版本化发布及真实混合运行按 ADR 0056 实施／验收，不以来源解析成功替代。
+2026-10-01 用户明确链路在代理节点页统一创建/管理，且中间段可来自机场等订阅配置。按 [ADR 0040](docs/adr/0040-mixed-chains-and-subscriptions.md) 规划有序混合链路，覆盖此前仅两台受管服务器及外部出口的对应排除项；中间/最终段可为受管节点或订阅中的具体节点。保持单运行时、独立公开入口、线性无环路径、入口单次计量及内部秘密不进入用户订阅；不扩展自动出口池。用户已进一步授权源码实施，并要求补齐 sing-box 运维入口、命令状态及取消。按 ADR 0043–0045 实施；源码、本地隔离验证、正式发布与真实设备签收分别记录，CI 暂停安排及诊断实机门禁不变。
+
+2026-10-02 用户授权进一步对齐 NodeFlare 的服务器展示刷新、数据上报、历史保存粒度、每日汇率与通知。按 [ADR 0047](docs/adr/0047-monitoring-refresh-history-and-channels.md) 实施：实时样本与持久化确认分开，历史聚合不改变网卡或代理业务账本；汇率使用可追溯来源、不编造缺失币种，匿名看板不公开成本；Telegram 与 Webhook 分渠道投递，测试不发送真实通知。CI 暂停及实机签收门禁保持。
+
+2026-10-02 用户授权 DDNS，首个提供方为 Cloudflare，覆盖上述 DDNS 排除项。用户进一步明确做成插件，实际实现位于 `plugins/ddns/panel/`，按服务器在 `server_plugins` 显式启用。按 [ADR 0048](docs/adr/0048-cloudflare-ddns.md) 实施：复用 Agent 已上报的 IP，面板持有 API Token 并执行有限 DNS 对账，凭据不发给 Agent 或公开界面；无有效地址或设备离线时保留解析。CI 暂停与实机门禁保持，真实 DNS 写入不属于开发测试。
+
+2026-10-02 用户授权 DDNS 增加腾讯云、阿里云、华为云，以及阿里云 CDT 管理，包含 ECS 固定公网 IP 与独立 EIP 的公网带宽/计费管理和自动流量控制，按 ADR 0056–0057 实施。凭据留在面板插件，真实开通、计费和带宽操作不属于开发验证，CI 继续暂停。
 
 详细架构约束见 `docs/adr/0001-declarative-snapshots.md` 至 `docs/adr/0011-loopback-local-api.md`。
+
+2026-10-02 用户进一步授权参考 CDT-Monitor 补齐 ECS 手动/自动启停、KeepCharging/StopCharging、流量阈值、每日计划、抢占式保活与账单/余额缓存，按 ADR 0058 实施。仅开发模拟验证，不操作真实云资源或发送真实通知，CI 继续暂停。

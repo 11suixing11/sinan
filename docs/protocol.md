@@ -56,7 +56,7 @@ Linux 宿主 ABI 与 Agent 编译 ABI 不同时，运行时先保留旧的编译
 
 ## 已签运行计划中的具体出站验证
 
-路径验证需设备声明 `runtime:path-probe-v1`，并具有精确 checkpoint 能力。请求不携带目标 URL、代理凭据或命令，只选择已签 `runtime-probes.json` 中的 UUID；`expected` 是完整健康 checkpoint。正常请求 60 秒，剩余期限不得超过 120 秒；Agent 与 apply/recovery 共用 gate，前后确认实例、配置和无未完成 intent，SDK 请求上限 5 秒。成功须包含同一 checkpoint 与 1 至 5000 毫秒结果；失败不含测量值，错误固定脱敏。结果先持久再发送，重复消息不换内容、不续期，ACK 后保留去重身份。该消息不推进恢复 floor，不允许把迟到或不同 activation 的结果用于新路径切换；具体原生方法及证明范围见 [ADR 0056](adr/0056-ordered-path-publication-and-native-probe.md)。
+路径验证需设备声明 `runtime:path-probe-v1`，并具有精确 checkpoint 能力。请求不携带目标 URL、代理凭据或命令，只选择已签 `runtime-probes.json` 中的 UUID；`expected` 是完整健康 checkpoint。正常请求 60 秒，剩余期限不得超过 120 秒；Agent 与 apply/recovery 共用 gate，前后确认实例、配置和无未完成 intent，SDK 请求上限 5 秒。成功须包含同一 checkpoint 与 1 至 5000 毫秒结果；失败不含测量值，错误固定脱敏。结果先持久再发送，重复消息不换内容、不续期，ACK 后保留去重身份。该消息不推进恢复 floor，不允许把迟到或不同 activation 的结果用于新路径切换；具体原生方法及证明范围见 [ADR 0056](adr/0071-ordered-path-publication-and-native-probe.md)。
 
 ## HTTP 期望状态
 
@@ -73,6 +73,12 @@ Linux 宿主 ABI 与 Agent 编译 ABI 不同时，运行时先保留旧的编译
 清单 rev 单调增加，模块 config_rev 表示配置包版本。无部署时清单可以是 rev 0、空 modules。Agent 每 60 秒拉取全量清单，并响应变更通知；心跳版本不一致时面板补发通知。多个通知可合并，以最终读取的全量状态为准。
 
 ## 应用与计量语义
+
+监控上报另有兼容的 HTTP 扩展：旧 `AgentSettings` 的字段保持不变，新 Agent 声明 `telemetry:live:v1` 能力，独立读取 `GET /api/agent/v1/telemetry-settings` 获得 `persist_interval_secs`（默认 60，范围 15–3600）。接口不存在或不可用时继续原持久化上传节奏。采样默认 1 秒，`upload_interval_secs` 默认 3 秒并用于新版实时上报；新旧面板与设备无需同时升级。配置提前保存不等于旧设备已经支持，后台按设备声明提示升级。
+
+`POST /api/agent/v1/telemetry/live` 接受单个 `TelemetrySample`，返回仅表示实时缓存收到请求，不是历史 ACK；Agent 不能据此删除 SQLite outbox。原 `POST /api/agent/v1/telemetry` 仍提交最多 64 条的 `TelemetryBatch`，面板将去重收据、历史汇总、最新持久化样本和服务器网卡增量事务提交后才返回 `TelemetryAck`。时间戳始终为真实采样的毫秒值，实时重试或心跳不得将旧指标改为新采样。
+
+实时缓存丢失不影响已有历史和账本；历史压缩不删除七天重放窗口内的去重身份，不将聚合速率反推为流量。每个设备只访问自身的配置与上报端点。详见 [ADR 0047](adr/0047-monitoring-refresh-history-and-channels.md)。
 
 `apply.result` 中 op_id 对应本地意图。只有校验、原子切换、服务动作、健康检查都成功后才能报告 applied；失败应回滚并提供错误。面板只接受已经为该服务器发布的版本，不接受未来版本，旧回报不能覆盖较新已应用状态。
 

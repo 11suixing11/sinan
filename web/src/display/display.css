@@ -247,3 +247,50 @@ body.has-server-display { min-width: 320px; }
 .d-probe-select { display: flex; min-width: 0; align-items: center; gap: 12px; color: var(--d-muted-text); font-size: 12px; }
 .server-display .d-probe-select select { min-width: 0; width: min(400px, 75%); min-height: 36px; border: 1px solid var(--d-border); border-radius: 7px; padding: 6px 10px; background: var(--d-card-solid); color: var(--d-foreground); font: inherit; }
 .server-display select:focus-visible { outline: 2px solid var(--d-primary); outline-offset: 3px; }
+
+.d-cost-summary { border-radius: 9px; padding: 16px 20px; }
+.d-cost-heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px; }
+.d-cost-heading h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.d-cost-heading p, .d-cost-coverage { margin: 4px 0 0; color: var(--d-muted-text); font-size: 11px; }
+.d-currency-controls { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 11px; }
+.d-currency-controls > label { display: flex; align-items: center; gap: 8px; color: var(--d-muted-text); }
+.server-display .d-currency-controls select { width: 82px; min-height: 32px; border: 1px solid var(--d-border); border-radius: 6px; padding: 4px 7px; color: var(--d-foreground); background: var(--d-card-solid); font: inherit; }
+.d-exchange-status { display: grid; min-width: 0; gap: 2px; color: var(--d-muted-text); overflow-wrap: anywhere; }
+.d-exchange-status small { font-size: 10px; }
+.d-exchange-status a, .d-exchange-error button { text-decoration: underline; text-underline-offset: 2px; }
+.d-exchange-error { flex: 1 1 100%; color: var(--d-warning); overflow-wrap: anywhere; }
+.d-exchange-error button { margin-left: 8px; }
+.d-cost-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 18px 0 4px; }
+.d-cost-values > div { display: grid; min-width: 0; gap: 4px; }
+.d-cost-values > div + div { border-left: 1px solid var(--d-border); padding-left: 20px; }
+.d-cost-values span { color: var(--d-muted-text); font-size: 11px; }
+.d-cost-values strong { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.d-cost-values small { color: var(--d-muted-text); font-size: 10px; }
+.d-cost-coverage { margin-top: 12px; }
+.d-asset-conversion { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; color: var(--d-muted-text); }
+.d-asset-conversion small { flex-basis: 100%; font-size: 10px; }
+.d-history-resolution { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; color: var(--d-muted-text); font-size: 11px; }
+.d-chart-details { min-height: 72px; border-top: 1px solid var(--d-border); margin-top: 4px; padding-top: 8px; color: var(--d-muted-text); font-size: 10px; overflow-wrap: anywhere; }
+.d-chart-details > div { display: grid; gap: 3px; }
+.d-chart-details > div + div { margin-top: 6px; }
+.d-chart-details strong { color: var(--d-foreground); font-size: 11px; font-weight: 500; }
+.d-chart-details small { font-size: 10px; }
+@media (max-width: 767px) {
+  .d-cost-heading { flex-direction: column; }
+  .d-currency-controls { width: 100%; }
+  .d-cost-values { gap: 12px; }
+  .d-cost-values > div + div { padding-left: 12px; }
+  .d-cost-values strong { font-size: 20px; }
+}
+@media (max-width: 479px) {
+  .d-cost-summary { padding: 14px; }
+  .d-cost-values { grid-template-columns: 1fr; gap: 12px; margin-top: 16px; }
+  .d-cost-values > div + div { border-left: 0; border-top: 1px solid var(--d-border); padding: 10px 0 0; }
+  .d-cost-values > div { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .d-cost-values small { grid-column: 1 / -1; }
+  .d-cost-values strong { max-width: 180px; font-size: 20px; }
+  .d-exchange-status { flex: 1 1 100%; order: 3; }
+  .d-asset-detail { padding: 14px; }
+  .d-resource-charts .d-section-heading .d-segmented { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .d-resource-charts .d-section-heading .d-segmented button { min-width: 0; padding-inline: 4px; }
+}

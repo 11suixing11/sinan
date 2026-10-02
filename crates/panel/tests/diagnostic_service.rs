@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 async fn ready(panel: &TestPanel, server: i64) -> Result<()> {
     sqlx::query("UPDATE servers SET static_info=static_info || '{\"os\":\"linux\"}'::jsonb,capabilities=$2,last_seen=$3 WHERE id=$1")
-        .bind(server).bind(json!(["diagnostic:nodequality","diagnostic:nodequality-modes",sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY,sinan_protocol::DIAGNOSTIC_SERVICE_CAPABILITY,sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY]))
+        .bind(server).bind(json!(["diagnostic:nodequality","diagnostic:nodequality-modes",sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY,sinan_protocol::DIAGNOSTIC_SERVICE_CAPABILITY,sinan_protocol::DIAGNOSTIC_COMPLETION_CAPABILITY,sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY]))
         .bind(sinan_protocol::now_timestamp()).execute(&panel.state.pool).await?;
     let binary = b"TEST_ONLY fixed diagnostic service fixture";
     let archive = release_fixture::archive("nodequality", binary)?;
@@ -25,6 +25,63 @@ async fn ready(panel: &TestPanel, server: i64) -> Result<()> {
         binary,
         "tar.gz",
     )?;
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn queued_jobs_wait_for_completion_capability_without_erasing_history(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, ack) = panel
+        .authenticated_device(&cookie, "等待清理能力设备")
+        .await?;
+    ready(&panel, server).await?;
+    let created: Value = panel
+        .admin(
+            Method::POST,
+            &format!("/api/servers/{server}/diagnostics/nodequality"),
+            &cookie,
+            Some(json!({"mode":"daily"})),
+        )
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    sqlx::query("UPDATE servers SET capabilities=capabilities-$2 WHERE id=$1")
+        .bind(server)
+        .bind(sinan_protocol::DIAGNOSTIC_COMPLETION_CAPABILITY)
+        .execute(&panel.state.pool)
+        .await?;
+    let pending: Value = panel
+        .client
+        .get(format!("{}/api/agent/v1/diagnostics", panel.base))
+        .bearer_auth(&ack.session_token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(pending, json!([]));
+    let saved: Value = sqlx::query_scalar("SELECT to_jsonb(j) FROM diagnostic_jobs j WHERE id=$1")
+        .bind(Uuid::parse_str(created["id"].as_str().unwrap())?)
+        .fetch_one(&panel.state.pool)
+        .await?;
+    assert_eq!(saved["status"], "queued");
+    assert_eq!(saved["job"], created["job"]);
+    ready(&panel, server).await?;
+    let pending: Value = panel
+        .client
+        .get(format!("{}/api/agent/v1/diagnostics", panel.base))
+        .bearer_auth(&ack.session_token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(pending.as_array().unwrap().len(), 1);
+    assert_eq!(pending[0]["id"], created["id"]);
     Ok(())
 }
 
@@ -183,6 +240,19 @@ async fn registered_plugins_use_one_server_mutex_and_require_budget_aware_agents
     sqlx::query("UPDATE servers SET capabilities=capabilities-$2 WHERE id=$1")
         .bind(server)
         .bind(sinan_protocol::DIAGNOSTIC_SERVICE_CAPABILITY)
+        .execute(&panel.state.pool)
+        .await?;
+    assert_eq!(
+        panel
+            .admin(Method::POST, &path, &cookie, Some(json!({"mode":"daily"})))
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    ready(&panel, server).await?;
+    sqlx::query("UPDATE servers SET capabilities=capabilities-$2 WHERE id=$1")
+        .bind(server)
+        .bind(sinan_protocol::DIAGNOSTIC_COMPLETION_CAPABILITY)
         .execute(&panel.state.pool)
         .await?;
     assert_eq!(

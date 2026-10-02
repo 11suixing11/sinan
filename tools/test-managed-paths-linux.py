@@ -27,6 +27,8 @@ import urllib.parse
 import urllib.request
 import uuid
 
+from managed_paths_support import OwnedProcess, write_pipe
+
 
 PLUGIN = "/api/plugins/sing-box"
 MAX_BYTES = 2 * 1024 * 1024
@@ -91,7 +93,7 @@ def secure_read(value, maximum=MAX_BYTES, private=False):
             next_directory = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
             os.close(directory)
             directory = next_directory
-        descriptor = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
+        descriptor = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
         try:
             metadata = os.fstat(descriptor)
             require(stat.S_ISREG(metadata.st_mode) and metadata.st_size <= maximum, "input_file_invalid")
@@ -287,7 +289,7 @@ class Process:
         self.overflow = threading.Event()
         self.log = directory / (label + ".stderr")
         self.threads = []
-        self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        self.process = OwnedProcess(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE, start_new_session=True, bufsize=0)
         try:
             for index, stream in enumerate((self.process.stdout, self.process.stderr)):
@@ -295,7 +297,7 @@ class Process:
                 thread.start()
                 self.threads.append(thread)
             if payload is not None:
-                self.process.stdin.write(canonical(payload) + b"\n")
+                write_pipe(self.process.stdin, canonical(payload) + b"\n")
             self.process.stdin.close()
         except BaseException:
             self.stop()
@@ -312,19 +314,11 @@ class Process:
             self.buffers[index].extend(block)
 
     def stop(self):
-        # An exited parent can leave group members holding inherited pipes.
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(self.process.pid, signal.SIGTERM)
-        if self.process.poll() is None:
-            try:
-                self.process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                pass
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(self.process.pid, signal.SIGKILL)
-        self.process.wait(timeout=3)
+        self.process.stop_group()
         for thread in self.threads:
             thread.join(timeout=1)
+        for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
+            stream.close()
         write_bytes(self.log, bytes(self.buffers[1]))
 
     def result(self, timeout):
@@ -496,7 +490,7 @@ class Lines:
         self.log = directory / (label + ".stderr")
         self.reader = None
         self.selector = selectors.DefaultSelector()
-        self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        self.process = OwnedProcess(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE, start_new_session=True, bufsize=0)
         try:
             self.reader = threading.Thread(target=self._stderr, daemon=True)
@@ -518,8 +512,7 @@ class Lines:
 
     def send(self, value):
         require(self.process.poll() is None, "fixture_peer_exited")
-        self.process.stdin.write(canonical(value) + b"\n")
-        self.process.stdin.flush()
+        write_pipe(self.process.stdin, canonical(value) + b"\n")
 
     def receive(self, timeout):
         ends = time.monotonic() + timeout
@@ -541,19 +534,12 @@ class Lines:
         return value
 
     def stop(self):
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(self.process.pid, signal.SIGTERM)
-        if self.process.poll() is None:
-            try:
-                self.process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                pass
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(self.process.pid, signal.SIGKILL)
-        self.process.wait(timeout=3)
+        self.process.stop_group()
         if self.reader is not None:
             self.reader.join(timeout=1)
         self.selector.close()
+        for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
+            stream.close()
         write_bytes(self.log, bytes(self.stderr))
 
 

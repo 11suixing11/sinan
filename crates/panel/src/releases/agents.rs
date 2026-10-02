@@ -90,7 +90,10 @@ fn valid_agent(release: &StoredRelease, artifact: &VerifiedArtifact) -> bool {
         && entry.format == "raw"
         && entry.binary_name == binary_name
         && entry.archive_size <= 128 * 1024 * 1024
-        && version_key(&entry.version).is_some()
+        // Pre-0.3 historical binaries lack the current installation/service CLI.
+        // This policy is not proof of arbitrary newer bytes: signature, payload
+        // and the Agent's independent installation/cache checks still apply.
+        && version_key(&entry.version).is_some_and(|version| version >= (0, 3, 0))
         && (linux_target(&entry.arch) || sinan_protocol::release_version(&entry.version).is_some())
         && metadata.tag == format!("agent-v{}", entry.version)
         && metadata.protocol_min <= PROTOCOL_MAX
@@ -178,7 +181,7 @@ async fn versions(
         .collect())
 }
 
-/// Lists protocol-compatible signed identities, including targets not yet cached.
+/// Lists signed identities in the supported installation line and protocol range.
 pub async fn agent_versions(
     state: &AppState,
     target: Option<&str>,
@@ -215,6 +218,8 @@ pub(crate) async fn selection_error(
         metadata.protocol_min > PROTOCOL_MAX || metadata.protocol_max < PROTOCOL_MIN
     }) {
         "所选 Agent 版本与当前面板协议不兼容，请选择兼容的已签名版本"
+    } else if version_key(version).is_some_and(|version| version < (0, 3, 0)) {
+        "所选历史 Agent 不支持当前标准安装与服务合同：0.1/0.2 原制品缺少所需的验签、缓存预检或 supervisor；补签元数据不能补齐这些命令。历史制品与身份保留，请选择 0.3.0 或更新的兼容已签版本"
     } else {
         "所选 Agent 版本不包含该平台可安装的制品，请核对平台、架构及稳定版本要求"
     };

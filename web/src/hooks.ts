@@ -1,22 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError, errorMessage } from './api'
 
-export function resourceWriteError(...resources: { fresh: boolean; error: string }[]) {
-  const failure = resources.find(resource => resource.error)
-  if (failure) return `最新信息读取失败，暂不能修改；草稿已保留。${failure.error}`
-  return resources.some(resource => !resource.fresh) ? '正在刷新相关信息，暂不能修改；草稿已保留。' : ''
-}
-
 export function useResource<T>(path: string | null, poll = 5000) {
   const [data, setData] = useState<T>()
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(true)
   const [revision, setRevision] = useState(0)
+  const [ready, setReady] = useState(false)
   const previousPath = useRef<string | null>(null)
-  const reload = useCallback(() => { setRefreshing(true); setRevision(value => value + 1) }, [])
+  const currentPath = useRef(path)
+  currentPath.current = path
+  const generation = useRef(0)
+  const snapshot = useRef<{ path: string | null; valid: boolean; value?: T }>({ path: null, valid: false })
+  const reload = useCallback(() => {
+    ++generation.current
+    snapshot.current.valid = false
+    setReady(false); setLoading(true)
+    setRevision(value => value + 1)
+  }, [])
+  const isCurrent = useCallback(() => currentPath.current === path && snapshot.current.valid && snapshot.current.path === path, [path])
+  const getCurrent = useCallback(() => isCurrent() ? snapshot.current.value : undefined, [isCurrent])
   useEffect(() => {
-    if (!path) { setData(undefined); setLoading(false); setRefreshing(false); return }
+    if (!path) { snapshot.current = { path: null, valid: false }; setData(undefined); setReady(false); setLoading(false); return }
     if (previousPath.current !== path) { setData(undefined); setLoading(true); setError('') }
     previousPath.current = path
     const controller = new AbortController()
@@ -26,24 +31,39 @@ export function useResource<T>(path: string | null, poll = 5000) {
     const load = async () => {
       if (pending) return
       pending = true
-      setRefreshing(true)
-      const current = ++sequence
+      const current = ++sequence, epoch = ++generation.current
+      snapshot.current.valid = false
+      setReady(false); setLoading(true)
       try {
         const result = await api<T>(path, 'GET', undefined, controller.signal)
-        if (active && current === sequence) { setData(result); setError('') }
+        if (active && current === sequence && epoch === generation.current) {
+          snapshot.current = { path, valid: true, value: result }
+          setData(result); setError(''); setReady(true)
+        }
       } catch (error) {
-        if (active && current === sequence) {
+        if (active && current === sequence && epoch === generation.current) {
           setError(errorMessage(error))
           if (path.startsWith('/api/dashboard/') && error instanceof ApiError && [401, 403, 404].includes(error.status)) setData(undefined)
         }
-      } finally { pending = false; if (active && current === sequence) { setLoading(false); setRefreshing(false) } }
+      } finally { pending = false; if (active && current === sequence && epoch === generation.current) setLoading(false) }
     }
     void load()
     const timer = poll ? window.setInterval(() => { if (document.visibilityState === 'visible') void load() }, poll) : undefined
-    return () => { active = false; controller.abort(); window.clearInterval(timer) }
+    return () => { active = false; snapshot.current.valid = false; ++generation.current; controller.abort(); window.clearInterval(timer) }
   }, [path, poll, revision])
   const currentData = previousPath.current === path ? data : undefined
-  return { data: currentData, error, loading, refreshing, fresh: currentData !== undefined && currentData !== null && !error && !refreshing, reload }
+  return { data: currentData, error, loading, ready: previousPath.current === path && ready,
+    refreshing: loading || !isCurrent(), fresh: currentData !== undefined && currentData !== null && !error && isCurrent(),
+    reload, isCurrent, getCurrent }
+}
+
+export type ResourceState<T> = ReturnType<typeof useResource<T>>
+
+export function resourceWriteError(...resources: { isCurrent?: () => boolean; fresh?: boolean; error?: string }[]): string {
+  const failure = resources.find(resource => resource.error)
+  if (failure) return `最新信息读取失败，暂不能修改；草稿已保留。${failure.error}`
+  return resources.every(resource => resource.isCurrent ? resource.isCurrent() : resource.fresh === true)
+    ? '' : '相关信息正在刷新或刷新失败，请成功刷新后再提交；当前草稿已保留。'
 }
 
 export function useAction() {

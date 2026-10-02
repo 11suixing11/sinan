@@ -66,7 +66,7 @@ pub(super) async fn fixture(pool: PgPool) -> Result<Fixture> {
         nodes.push(node);
         servers.push(server);
     }
-    let receipt = api(&panel, &cookie, Method::POST, "/subscription-sources", Some(json!({
+    let receipt = api(&panel, &cookie, Method::POST, "/ordered-subscription-sources", Some(json!({
         "request_id":Uuid::new_v4(),"name":"Controlled X","input":{"kind":"inline","content":content("TEST_ONLY external password")}
     })), StatusCode::ACCEPTED).await?;
     let source = receipt["source_id"].as_i64().context("source ID")?;
@@ -75,7 +75,7 @@ pub(super) async fn fixture(pool: PgPool) -> Result<Fixture> {
         &panel,
         &cookie,
         Method::GET,
-        &format!("/subscription-sources/{source}/nodes"),
+        &format!("/ordered-subscription-sources/{source}/nodes"),
         None,
         StatusCode::OK,
     )
@@ -116,7 +116,7 @@ pub(super) async fn create(fixture: &Fixture, mode: &str, four_hops: bool) -> Re
         &fixture.panel,
         &fixture.cookie,
         Method::POST,
-        "/chains/batch",
+        "/chains/ordered-batch",
         Some(json!({"request_id":Uuid::new_v4(),
         "items":[item(fixture,mode,four_hops)]})),
         StatusCode::CREATED,
@@ -139,7 +139,7 @@ pub(super) async fn resource(fixture: &Fixture, chain: i64) -> Result<Value> {
         &fixture.panel,
         &fixture.cookie,
         Method::GET,
-        &format!("/proxy-resources/chain/{chain}"),
+        &format!("/ordered-proxy-resources/chain/{chain}"),
         None,
         StatusCode::OK,
     )

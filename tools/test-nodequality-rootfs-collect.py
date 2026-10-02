@@ -2,6 +2,7 @@
 """Owned collection fixtures; mocks do not certify a Debian signature or image."""
 
 import contextlib
+import email.message
 import hashlib
 import http.server
 import importlib.util
@@ -160,6 +161,121 @@ class CollectionContracts(unittest.TestCase):
                 COLLECT.publish(output, b'x' * 11, 10)
             self.assertFalse(output.exists())
 
+    def test_success_retains_selected_headers_and_redacted_urls(self):
+        with tempfile.TemporaryDirectory() as name, mock.patch.object(COLLECT, 'free_disk'):
+            root = Path(name)
+            headers = email.message.Message()
+            headers['Content-Length'] = '5'
+            headers['Set-Cookie'] = 'owned-secret'
+            headers['Authorization'] = 'Bearer owned-secret'
+            headers['Location'] = 'https://user:owned-secret@snapshot.debian.org/file/fixture?token=owned-secret'
+            response = mock.MagicMock()
+            response.__enter__.return_value = response
+            response.status, response.headers = 200, headers
+            response.geturl.return_value = 'https://snapshot.debian.org/file/fixture?token=owned-secret'
+            response.read.side_effect = [b'owned', b'']
+            opener = mock.Mock()
+            opener.open.return_value = response
+            with mock.patch.object(COLLECT.urllib.request, 'build_opener', return_value=opener):
+                report = COLLECT.fetch_worker('https://snapshot.debian.org/file/fixture?token=owned-secret',
+                    root / 'body', 16, root / 'headers')
+            retained = (root / 'headers').read_bytes()
+            self.assertNotIn(b'owned-secret', retained)
+            self.assertNotIn('owned-secret', json.dumps(report))
+            self.assertEqual(report['header_representation'], 'selected-parsed-headers')
+            self.assertEqual(json.loads(retained)['headers']['Content-Length'], ['5'])
+            self.assertEqual((root / 'body').read_bytes(), b'owned')
+
+    def test_ambiguous_content_length_rejects_before_body_write(self):
+        for transfer in (False, True):
+            with self.subTest(transfer=transfer), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                headers = email.message.Message()
+                headers['Content-Length'] = '5'
+                headers['Transfer-Encoding' if transfer else 'Content-Length'] = 'chunked' if transfer else '7'
+                response = mock.MagicMock()
+                response.__enter__.return_value = response
+                response.status, response.headers = 200, headers
+                response.geturl.return_value = 'https://snapshot.debian.org/file/fixture'
+                opener = mock.Mock()
+                opener.open.return_value = response
+                context = {}
+                with mock.patch.object(COLLECT.urllib.request, 'build_opener', return_value=opener):
+                    with self.assertRaisesRegex(ValueError, 'ambiguous'):
+                        COLLECT.fetch_worker(response.geturl(), root / 'body', 16, root / 'headers', context=context)
+                response.read.assert_not_called()
+                self.assertFalse((root / 'body').exists())
+                self.assertEqual(context['http_status'], 200)
+                self.assertEqual(context['content_length_validation_issue'], 'ambiguous_framing')
+
+    def test_selected_header_record_is_filtered_again_when_retained(self):
+        headers = COLLECT.retained_headers(encoded({'representation': 'selected-parsed-headers',
+            'headers': {'Content-Length': ['5'], 'Set-Cookie': ['owned-secret'],
+                        'Location': ['https://user:owned-secret@snapshot.debian.org/file/fixture?token=owned-secret']}}))
+        self.assertNotIn('Set-Cookie', headers)
+        self.assertNotIn('owned-secret', json.dumps(headers))
+
+    def test_failure_receipt_respects_budget_after_original_deadline_expires(self):
+        with tempfile.TemporaryDirectory() as name, mock.patch.object(COLLECT, 'free_disk'):
+            root = Path(name)
+            output = root / 'output'
+            output.mkdir(mode=0o700)
+            collector = COLLECT.Collector(output, 128, BUILD.Deadline(1))
+            collector.deadline.end = time.monotonic() - 1
+            (output / 'owned').write_bytes(b'x' * 120)
+            with self.assertRaisesRegex(ValueError, 'byte budget'):
+                collector.failure_budget(b'oversized failure', BUILD.Deadline(1))
+            collector.failure_budget(b'failure', BUILD.Deadline(1))
+            replacement = root / 'replacement'
+            output.rename(root / 'retained-original')
+            replacement.mkdir(mode=0o700)
+            replacement.rename(output)
+            with self.assertRaisesRegex(ValueError, 'identity changed'):
+                collector.failure_budget(b'failure', BUILD.Deadline(1))
+
+    def test_success_publication_registers_partial_fsync_failure_for_rollback(self):
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name) / 'collection.json'
+            owned = []
+            with mock.patch.object(os, 'fsync', side_effect=OSError('owned fsync failure')):
+                with self.assertRaisesRegex(OSError, 'owned fsync failure'):
+                    COLLECT.publish_success(path, b'owned partial publication', 64, owned)
+            self.assertTrue(path.exists())
+            self.assertEqual(len(owned), 1)
+            cleanup = COLLECT.rollback_success(owned)
+            self.assertEqual(cleanup, [{'path': 'collection.json', 'removed': True}])
+            self.assertFalse(path.exists())
+
+    def test_success_publication_never_overwrites_or_registers_existing_file(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            original = root / 'original'
+            original.write_bytes(b'preexisting data')
+            link = root / 'linked'
+            link.symlink_to(original)
+            for path in (original, link):
+                with self.subTest(path=path.name):
+                    owned = []
+                    with self.assertRaises(FileExistsError):
+                        COLLECT.publish_success(path, b'replacement', 64, owned)
+                    self.assertEqual(owned, [])
+                    self.assertEqual(COLLECT.rollback_success(owned), [])
+                    self.assertEqual(original.read_bytes(), b'preexisting data')
+                    self.assertTrue(link.is_symlink())
+
+    def test_success_rollback_refuses_replaced_file_identity(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            path, replacement = root / 'materials.json', root / 'replacement'
+            owned = []
+            COLLECT.publish_success(path, b'owned publication', 64, owned)
+            replacement.write_bytes(b'foreign replacement')
+            os.replace(replacement, path)
+            cleanup = COLLECT.rollback_success(owned)
+            self.assertFalse(cleanup[0]['removed'])
+            self.assertIn('identity changed', cleanup[0]['error'])
+            self.assertEqual(path.read_bytes(), b'foreign replacement')
+
     def test_capacity_plan_records_exact_references_unique_storage_and_phase_observations(self):
         with tempfile.TemporaryDirectory() as name, mock.patch.object(COLLECT, 'free_disk'):
             root = Path(name)
@@ -309,6 +425,74 @@ class CollectionContracts(unittest.TestCase):
                 else:
                     self.assertIsNone(evidence['worker_receipt'])
                 self.assertFalse((output / evidence['directory'] / 'body').exists())
+
+    def test_expired_request_deadline_still_retains_metadata_after_discarding_body(self):
+        with tempfile.TemporaryDirectory() as name, mock.patch.object(COLLECT, 'free_disk'):
+            output = Path(name) / 'output'
+            output.mkdir(mode=0o700)
+            collector = COLLECT.Collector(output, 4096, BUILD.Deadline(1))
+            work = output / 'download-owned'
+            work.mkdir(mode=0o700)
+            worker = COLLECT.fetch_error(TimeoutError('owned read timed out'),
+                'https://snapshot.debian.org/archive/debian/fixture', time.monotonic(),
+                {'response_received': True, 'http_status': 200, 'failure_stage': 'body_read'})
+            original = encoded(worker)
+            (work / 'receipt.json').write_bytes(original)
+            (work / 'headers').write_bytes(b'Content-Length: 8192\r\nSet-Cookie: owned-secret\r\n\r\n')
+            (work / 'body').write_bytes(b'x' * 8192)
+            collector.deadline.end = time.monotonic() - 1
+            report = collector.failed_download(work, worker['url'],
+                ValueError('overall operation deadline exceeded'), 'producer_exit')
+            self.assertEqual(report['category'], 'timeout')
+            self.assertEqual(report['http_status'], 200)
+            self.assertEqual(report['parent_failure']['category'], 'timeout')
+            self.assertTrue(report['failure_evidence']['complete'])
+            self.assertFalse((work / 'body').exists())
+            receipt = output / report['failure_evidence']['worker_receipt']['path']
+            self.assertEqual(receipt.read_bytes(), original)
+            headers = (output / report['failure_evidence']['response_headers']['path']).read_bytes()
+            self.assertNotIn(b'owned-secret', headers)
+            self.assertLessEqual(COLLECT.owned_size(output, BUILD.Deadline(1)), collector.max_total)
+            self.assertLess(collector.deadline.end, time.monotonic())
+
+    def test_failure_metadata_keeps_its_original_byte_and_disk_reserve_guards(self):
+        for guard in ('bytes', 'disk'):
+            with self.subTest(guard=guard), tempfile.TemporaryDirectory() as name:
+                output = Path(name) / 'output'
+                output.mkdir(mode=0o700)
+                collector = COLLECT.Collector(output, 1 if guard == 'bytes' else 4096, BUILD.Deadline(1))
+                work = output / 'download-owned'
+                work.mkdir(mode=0o700)
+                (work / 'headers').write_bytes(b'Content-Length: 12\r\n\r\n')
+                (work / 'body').write_bytes(b'untrusted-body')
+                with mock.patch.object(COLLECT, 'free_disk', side_effect=ValueError('owned reserve refusal')) as reserve:
+                    report = collector.failed_download(work, 'https://snapshot.debian.org/archive/debian/fixture',
+                        ValueError('overall operation deadline exceeded'), 'producer_exit')
+                self.assertEqual(report['category'], 'timeout')
+                self.assertIsNone(report['http_status'])
+                self.assertFalse(report['failure_evidence']['complete'])
+                self.assertIn('error', report['failure_evidence'])
+                self.assertFalse((work / 'body').exists())
+                self.assertEqual(list(output.glob('failed-download-*')), [])
+                if guard == 'disk':
+                    reserve.assert_called_once()
+
+    def test_parent_diagnostics_are_bounded_and_never_copy_command_or_environment(self):
+        error = ValueError('trusted build/verification command failed https://user:owned-secret@snapshot.debian.org/file/fixture?token=owned-secret ' + 'x' * 4096)
+        error.factory_command = {'argv': ['owned-secret'], 'output': b'owned-secret',
+            'returncode': 1, 'cleanup_returncode': 1, 'output_truncated': True}
+        result = COLLECT.parent_failure(error)
+        self.assertEqual(result['returncode'], 1)
+        self.assertEqual(result['cleanup_returncode'], 1)
+        self.assertTrue(result['output_truncated'])
+        self.assertLessEqual(len(result['error_message']), 1024)
+        self.assertNotIn('owned-secret', json.dumps(result))
+        self.assertNotIn('argv', result)
+        self.assertNotIn('output', result)
+        for cancelled in (KeyboardInterrupt(), SystemExit(143)):
+            self.assertEqual(COLLECT.parent_failure(cancelled)['category'], 'cancelled')
+            self.assertEqual(COLLECT.fetch_error(cancelled, 'https://snapshot.debian.org/file/fixture',
+                time.monotonic())['category'], 'cancelled')
 
     def test_apt_configuration_detaches_all_host_state_and_hooks(self):
         with tempfile.TemporaryDirectory() as name:
@@ -576,7 +760,9 @@ class CollectionContracts(unittest.TestCase):
                 oversized = COLLECT.source_closure([{'source_name': 'fixture', 'source_version': '1'}], [MAIN, SECURITY], parsed)
                 oversized[0]['files'][0].update(size=4 * 1024**2, sha256=identity(b'owned oversized source declaration')['sha256'])
                 payload_attempts.clear()
-                with mock.patch.object(COLLECT, 'source_closure', return_value=oversized):
+                sufficient_capacity = types.SimpleNamespace(f_bavail=(4 * 1024**3) // 4096, f_frsize=4096)
+                with mock.patch.object(COLLECT, 'source_closure', return_value=oversized), \
+                     mock.patch.object(os, 'statvfs', return_value=sufficient_capacity):
                     with self.assertRaisesRegex(ValueError, 'factory byte budget exceeded'):
                         COLLECT.collect(request, keyring, provenance, None, root / 'refused', 4 * 1024**2, 30)
                 self.assertEqual(payload_attempts, [])
@@ -615,6 +801,65 @@ class CollectionContracts(unittest.TestCase):
                 self.assertEqual(failed['failure_stage'], 'binary_and_source_payload_download')
                 self.assertFalse((root / 'worker-failed/materials.json').exists())
                 self.assertFalse((root / 'worker-failed/collection.json').exists())
+                candidate = {'image_sha256': identity(b'owned image fixture, not an approval')['sha256'], 'arch': 'amd64',
+                             'tools': [dict(identity(b'owned tool'), name=key, path=value, version='owned fixture')
+                                       for key, value in sorted(BUILD.TOOL_PATHS.items())]}
+                candidate_path = root / 'publication-candidate.json'
+                candidate_path.write_bytes(encoded(candidate))
+                original_success, original_publish = COLLECT.publish_success, COLLECT.publish
+                for bound in (False, True):
+                    for fault in ('tools', 'marker', 'collection', 'failure_receipt', 'existing_collection'):
+                        with self.subTest(bound=bound, fault=fault), contextlib.ExitStack() as stack:
+                            target = root / ('publication-' + str(bound) + '-' + fault)
+                            if bound:
+                                stack.enter_context(mock.patch.object(COLLECT, 'verify_candidate', return_value=candidate))
+
+                            def failed_tools(deadline):
+                                if fault == 'existing_collection':
+                                    (target / 'collection.json').write_bytes(b'preexisting publication must remain')
+                                    return {'fixture': True}
+                                raise ValueError('owned final collection failure')
+
+                            if fault in ('tools', 'failure_receipt', 'existing_collection'):
+                                stack.enter_context(mock.patch.object(COLLECT, 'record_collection_tools', side_effect=failed_tools))
+                            else:
+                                marker = 'inputs-lock.json' if bound else 'unbound-inputs.json'
+
+                                def failed_publication(path, content, limit, owned):
+                                    original_success(path, content, limit, owned)
+                                    if path.name == (marker if fault == 'marker' else 'collection.json'):
+                                        raise ValueError('owned final collection failure')
+
+                                stack.enter_context(mock.patch.object(COLLECT, 'publish_success', side_effect=failed_publication))
+                            if fault == 'failure_receipt':
+                                def failed_receipt(path, content, limit):
+                                    if path.name == 'failure.json':
+                                        raise OSError('owned failure receipt write refusal')
+                                    return original_publish(path, content, limit)
+
+                                stack.enter_context(mock.patch.object(COLLECT, 'publish', side_effect=failed_receipt))
+                            expected_error = FileExistsError if fault == 'existing_collection' else ValueError
+                            with self.assertRaises(expected_error) as caught:
+                                COLLECT.collect(request, keyring, provenance, candidate_path if bound else None,
+                                                target, 4 * 1024**2, 30)
+                            self.assertTrue(target.exists())
+                            self.assertTrue(any((target / 'input-cache').iterdir()))
+                            for filename in ('materials.json', 'inputs-lock.json', 'unbound-inputs.json'):
+                                self.assertFalse((target / filename).exists())
+                            if fault == 'existing_collection':
+                                self.assertEqual((target / 'collection.json').read_bytes(), b'preexisting publication must remain')
+                            else:
+                                self.assertFalse((target / 'collection.json').exists())
+                            if fault == 'failure_receipt':
+                                self.assertFalse((target / 'failure.json').exists())
+                                self.assertTrue(any('directory retained' in note for note in caught.exception.__notes__))
+                            else:
+                                failure = json.loads((target / 'failure.json').read_bytes())
+                                self.assertFalse(failure['complete'])
+                                self.assertTrue(failure['success_publication_cleanup'])
+                                self.assertTrue(all(row['removed'] for row in failure['success_publication_cleanup']))
+                                with self.assertRaisesRegex(ValueError, 'incomplete collection'):
+                                    COLLECT.bind(target, candidate_path, root / ('unexpected-bind-' + target.name), 30)
             output = root / 'result'
             self.assertTrue((output / 'materials.json').is_file())
             self.assertTrue((output / 'unbound-inputs.json').is_file())
@@ -646,6 +891,41 @@ class CollectionContracts(unittest.TestCase):
             self.assertFalse(binding['full_ready'])
             approve.assert_not_called()
             prepare.assert_not_called()
+            replaced = root / 'replaced-binding'
+            preserved = root / 'retained-owned-binding'
+
+            def replace_binding_output(path, content, limit):
+                original_publish(path, content, limit)
+                if path.name == 'binding.json':
+                    replaced.rename(preserved)
+                    replaced.mkdir(mode=0o700)
+                    (replaced / 'foreign').write_bytes(b'foreign replacement must remain')
+                    raise ValueError('owned binding publication failure')
+
+            with mock.patch.object(COLLECT, 'native_arch', return_value='amd64'), \
+                 mock.patch.object(COLLECT, 'verify_candidate', return_value=candidate), \
+                 mock.patch.object(BUILD, 'verify_authenticated_sources', return_value=({}, [])), \
+                 mock.patch.object(COLLECT, 'publish', side_effect=replace_binding_output):
+                with self.assertRaisesRegex(ValueError, 'owned binding publication failure') as caught:
+                    COLLECT.bind(output, candidate_path, replaced, 30)
+            self.assertEqual((replaced / 'foreign').read_bytes(), b'foreign replacement must remain')
+            self.assertTrue((preserved / 'binding.json').exists())
+            self.assertTrue(any('cleanup failed' in note for note in caught.exception.__notes__))
+
+            def cancel_binding_output(path, content, limit):
+                original_publish(path, content, limit)
+                if path.name == 'binding.json':
+                    raise SystemExit(143)
+
+            cancelled = root / 'cancelled-binding'
+            with mock.patch.object(COLLECT, 'native_arch', return_value='amd64'), \
+                 mock.patch.object(COLLECT, 'verify_candidate', return_value=candidate), \
+                 mock.patch.object(BUILD, 'verify_authenticated_sources', return_value=({}, [])), \
+                 mock.patch.object(COLLECT, 'publish', side_effect=cancel_binding_output):
+                with self.assertRaises(SystemExit) as caught:
+                    COLLECT.bind(output, candidate_path, cancelled, 30)
+            self.assertEqual(caught.exception.code, 143)
+            self.assertFalse(cancelled.exists())
 
 
 @unittest.skipUnless(sys.platform == 'linux' and hasattr(os, 'waitid'), 'owned worker lifecycle requires Linux waitid')
@@ -786,7 +1066,7 @@ class OwnedWorkers(unittest.TestCase):
         for route, advertised, phase, message in scenarios:
             with self.subTest(route=route):
                 result = self.run_owned(route)
-                self.assertEqual(result['category'], 'response_too_large' if route == '/invalid-length' else 'response_invalid')
+                self.assertEqual(result['category'], 'response_invalid')
                 self.assertEqual(result['http_status'], 200)
                 self.assertTrue(result['response_received'])
                 self.assertEqual(result['response_content_length'], advertised)
@@ -825,8 +1105,13 @@ class OwnedWorkers(unittest.TestCase):
     def test_real_paused_body_hits_deadline_and_reaps_producer(self):
         result = self.run_owned('/pause', seconds=1)
         self.assertTrue(self.arrived.is_set())
-        self.assertEqual(result['category'], 'producer_failed_or_deadline')
+        self.assertEqual(result['category'], 'timeout')
         self.assertIsNone(result['http_status'])
+        self.assertEqual(result['parent_failure']['error_type'], 'ValueError')
+        self.assertEqual(result['parent_failure']['error_message'], 'overall operation deadline exceeded')
+        self.assertTrue(result['failure_evidence']['complete'])
+        self.assertIsNone(result['failure_evidence']['worker_receipt'])
+        self.assertIsNotNone(result['failure_evidence']['response_headers'])
 
     def test_parent_term_and_hup_reap_only_the_owned_download_worker(self):
         for number in (signal.SIGTERM, signal.SIGHUP):
@@ -851,6 +1136,8 @@ class OwnedWorkers(unittest.TestCase):
                     + '        c=m.Collector(Path(' + repr(str(attempt)) + '),16*1024**2,m.BUILD.Deadline(10))\n'
                     + '        c.obtain(' + repr(self.url + '/pause') + ',1024)\n'
                     + 'finally:\n'
+                    + '    if "c" in locals() and c.downloads:\n'
+                    + '        Path(' + repr(str(attempt / 'parent-failure.json')) + ').write_bytes(m.BUILD.canonical(c.downloads[-1]))\n'
                     + '    Path(' + repr(str(finished)) + ').write_text("parent finally reached")\n')
                 parent = subprocess.Popen([sys.executable, str(script)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 try:
@@ -863,6 +1150,11 @@ class OwnedWorkers(unittest.TestCase):
                     with self.assertRaises(ProcessLookupError):
                         os.kill(worker_pid, 0)
                     self.assertEqual(list(attempt.glob('download-*')), [])
+                    report = json.loads((attempt / 'parent-failure.json').read_bytes())
+                    self.assertEqual(report['category'], 'cancelled')
+                    self.assertEqual(report['parent_failure']['error_type'], 'SystemExit')
+                    self.assertTrue(report['failure_evidence']['complete'])
+                    self.assertFalse(report['failure_evidence']['body_retained'])
                 finally:
                     self.release.set()
                     if parent.poll() is None:

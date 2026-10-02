@@ -165,6 +165,8 @@ impl Retirement {
             }
         }
         self.stop_services().await?;
+        crate::tasks::cleanup_commands_for_retirement(&self.state, self.privileged.as_ref())
+            .await?;
         record.phase = Phase::Stopped;
         self.save(&record)
     }
@@ -231,6 +233,8 @@ impl Retirement {
             record.phase == Phase::Stopped,
             "runtime shutdown is not confirmed"
         );
+        crate::tasks::cleanup_commands_for_retirement(&self.state, self.privileged.as_ref())
+            .await?;
         ensure!(
             self.state
                 .lock()
@@ -261,6 +265,8 @@ impl Retirement {
 
     async fn clear_credentials(&self, record: &mut Record) -> Result<()> {
         self.stop_services().await?;
+        crate::tasks::cleanup_commands_for_retirement(&self.state, self.privileged.as_ref())
+            .await?;
         for adapter in &self.adapters {
             let directory = self
                 .config
@@ -306,6 +312,8 @@ impl Retirement {
         }
         if record.phase == Phase::Stopped {
             self.stop_services().await?;
+            crate::tasks::cleanup_commands_for_retirement(&self.state, self.privileged.as_ref())
+                .await?;
             return Ok(false);
         }
         if record.phase != Phase::Completed {

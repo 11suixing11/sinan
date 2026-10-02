@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod business_support;
+#[path = "probe_support.rs"]
 mod probe_support;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
@@ -15,7 +16,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 fn probe() -> Value {
-    probe_support::configured(json!({
+    probe_support::authorized(json!({
         "id": Uuid::nil(), "name": "连通性", "kind": "tcp", "target": "probe.example.com",
         "port": 443, "interval_secs": 30, "carrier": "测试线路", "enabled": true
     }))
@@ -58,6 +59,7 @@ async fn creation_preserves_defaults_and_persists_initial_monitoring(pool: PgPoo
     icmp["kind"] = json!("icmp");
     icmp["port"] = Value::Null;
     icmp["target"] = json!("::1");
+    icmp = probe_support::authorized(icmp);
     let request =
         json!({"name":"  测试服务器  ","agent_settings":settings,"probes":[probe(),icmp]});
     let unauthorized = panel
@@ -103,6 +105,7 @@ async fn creation_preserves_defaults_and_persists_initial_monitoring(pool: PgPoo
     assert_eq!(probes.len(), 2);
     assert_ne!(probes[0].id, probes[1].id);
     assert!(probes.iter().all(|p| p.id != Uuid::nil() && p.valid()));
+    assert!(probes.iter().all(|p| p.revision == Some(1)));
     assert!(probes.iter().any(|p| p.target == "::1" && p.port.is_none()));
     panel
         .admin(

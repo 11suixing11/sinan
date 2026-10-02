@@ -1,26 +1,28 @@
-# 离线 rootfs 准备与加载契约
+# 离线 NodeQuality 工具链准备与当前验收边界
 
-本记录主体保留de54084步骤的原始r17/r18身份与验收；最新整合采用[独立制品命名](../adr/0045-nodequality-artifact-lineages.md)，当前默认为 `sinan-native-r1`、离线准备为 `offline-rootfs-r1`，新组合须独立验收。
+主线 PR #137 的默认版本 r19 保持原字节。r20 是显式离线准备制品，由完整 canonical r19 严格派生，包含 `nodequality`、`rootfs.tar.gz`、`rootfs-manifest.json`。r21 是另一个显式选择的正式节点 API 查询制品，不使用 rootfs。旧 r2–r19 的版本、签名文件及历史结果不改写。
 
-本项属于统一分支中的一个完整修改步骤，按用户最新要求，所有实现与测试代码先集中完成，之后冻结输入、统一验收并提交。编辑期间没有运行测试、构建或完整验机。本记录确认代码契约与小型夹具验收；真实环境构建、许可和完整联合负载仍待验收。
+本轮窄整合了原未合入分支 `de54084` 中的离线准备代码；其旧 r18 身份与主线不同，因此使用新 r20，保持主线 r19 的完整执行准入、正式日常 IP helper 和来源策略。原分支的测试统计不视为当前主线通过；组合编辑期间没有运行测试，冻结后的当前输入检查与统一执行收据见 [集成验收](remaining-issues-20261002.md)。
 
-当前日常检查默认保持 r17，原 runner、首次来源锁、完整许可证和各层策略保持原身份。r18 是显式选择的离线准备版本，制品必须精确包含 `nodequality`、`rootfs.tar.gz`、`rootfs-manifest.json` 三个普通文件。SDK 按任务版本选择签名辅助文件清单；r2–r17 继续使用原空清单。旧报告和已开始任务的恢复不重新执行诊断。
+设备侧按 signed job 的版本决定辅助文件集合，流式下载并逐一核验签名长度、SHA256、成员数和完整总量。rootfs 只接受有界 gzip/USTAR、完整目录清单、逐文件摘要与合法相对链接，拒绝设备、FIFO、扩展头、路径穿越及额外成员。验证、展开和发布均在本次私有目录内，失败或取消只回收自己创建的资源。
 
-准备流程分别负责来源材料和环境导出、受控打包、设备本地加载：
+工厂准备工具要求真实 Debian 12 签名链、全部固定二进制包及对应源码、独立审阅的 keyring/builder 身份；不下载、不自动信任镜像、不执行在线脚本。原生构建只使用固定本地包镜像和隔离 namespace，保留包状态及许可库存。发现残留挂载时保留失败目录，禁止递归删除挂载内容。打包重新认证 prepared/export 绑定，并要求整个外层制品不超过原 256 MiB 边界。
 
-1. `tools/nodequality-rootfs-build.py` 准备固定 Debian 12 snapshot 的官方签名索引、两个架构各自的包与对应源码、已审核 keyring 身份及固定构建工具身份。缺少实际值的锁不产生准备证明；不使用旧来源不完整的 BenchOS 包。构建与导出必须保留来源和许可库存，真实构建、许可审核和复建分别记账。
-2. `tools/build-nodequality-offline.py` 从本 checkout 的精确 r17 包派生 r18。入口仍对应原 canonical 源码和已有策略，只将 rootfs 初始化改为本地验证与展开，并移除旧 rootfs 网络直通。双辅助文件参与原 Release 的摘要、签名、下载和每次安装确认；外层 TAR 的总展开流保持 256 MiB，不能拆分旧大包规避边界。
-3. `plugins/nodequality/rootfs.py` 不下载、不执行归档内容。普通文件、gzip 与 USTAR 流、完整目录清单、逐文件摘要、压缩/展开字节数、成员数量、路径、模式及链接目标都有独立界限。硬链接、设备、FIFO、稀疏和扩展头不进入环境；合法相对符号链接须落在清单内。先检查工作区磁盘，再在私有暂存目录验证、展开，全部成功后原子发布；失败或中断清理本次目录。
+签名表示维护者绑定了相应字节及准备记录，不能代替实际来源、许可、构建器身份或复建证据。小型 TEST_ONLY 夹具也不代表真实 Debian 签名或完整验机通过。当前没有收到适用的 Geekbench/Ookla 再分发、自动运行和禁上传授权证明，未执行这些工具；nexttrace/GPU 等剩余工具闭包仍须补齐。原完整功能记录保留，full 在面板、Agent 和 r19/r20/r21 wrapper 继续拒绝启动。
 
-签名只绑定制品及维护者记录的准备材料。来源索引签名、二进制身份、适用许可、复建和完整负载验收分别需要证据；不能从 `source_authenticated` 自述或单次打包推出它们都完成。准备版本的 provenance 明确 `full_ready=false`、许可库存未完成审核、未证实复建，并保留剩余工具能力。r18 包装器也在任何完整执行 I/O 前拒绝 full；现有面板和 Agent 的完整门禁继续保留。
+#28、#65、#66、#82 只有实际双架构合法工具链、完整故障矩阵及专用 Debian 服务器保护/取消/心跳/持续代理联合验收满足后才能关闭。本准备层不开放 full，不发布正式 Release，不部署生产。具体来源契约见 [ADR 0049](../adr/0049-nodequality-offline-rootfs.md)。
 
-本轮没有 Pro 许可，因此不执行 Geekbench，不借用公共授权，不默认为用户同意删除原 CPU/GPU 或网络能力。Ookla、NextTrace、设备 GPU 运行库及其依赖仍需实际版本、来源和适用授权；Debian 基础包准备不能替代完整工具链。具体条件见[完整工具条件](nodequality-full-tool-prerequisites.md)与[ADR 0043](../adr/0043-nodequality-offline-rootfs.md)。
+## PR #151 的独立 native 准备入口
 
-设备侧下载、辅助文件复验和内层扫描使用流式长度与摘要校验。构建工厂中的打包与 Release 检查仍有有界整包缓冲，须在独立且有足够内存的工厂执行；它们不在 Agent 任务路径中，也不能描述为同样的低内存执行。来源缓存与派生镜像另占工厂磁盘，本记录原受验步骤没有跨文件的总磁盘预算，256 MiB 是最终制品边界。构建中断须回收子进程与本次输出；发现残留挂载时保留失败目录，禁止递归删除挂载内容。完整制品的工厂峰值、真实双架构合法环境与专用节点联合负载尚无证据，不能据此签收“小内存机器上的完整验机安装/运行安全”。最终验收只认证实际执行的边界与场景，CI继续暂停，未签署正式 Release、发布或生产部署。
+默认 `tools/build-nodequality.sh`、`source-helper.py`、`runner.sh.tmpl` 与 r19 保持主线原身份；r20 离线派生与 r21 typedQuery 同样不重命名。作者新增策略组合使用显式 `tools/build-nodequality-native.sh`、`native-source-helper.py`、`native-runner.sh.tmpl`，身份为 `sinan-native-r1`。`tools/build-nodequality-native-offline.py` 只从该精确组合派生 `offline-rootfs-r1`，并使用独立的 `nodequality_native_rootfs_artifact.py` 核验。两条离线身份均精确包含三个普通文件，r19/r21/native runner-only 身份不能携带离线辅助文件。
 
-后续[工厂容量步骤](../adr/0048-nodequality-factory-capacity.md)集中补充 plan 和 prepare/build/export 的阶段准入、动态字节/inode 保留量，以及 mmdebstrap 失败原输出留存。其 `capacity-plan.json`/`factory-capacity.json` 与旧收据独立，默认当前阶段输出 4 GiB、剩余保留 512 MiB/1,024 inode，明确 `hard_quota=false`；失败/log/cleanup 尽力写入也保留管理空间，清理成功后只保存异常内的原捕获字节，不重跑构建。仍不足或有残挂时保持未知。独立 builder 审批与 full 门禁不降低。该后续步骤的[独立容量验收](nodequality-factory-capacity.md)已完成，原构建与完整工具条件仍待；不借下文旧通过数认证新逻辑。命令和失败记录边界见[操作说明](../nodequality-rootfs-factory.md)。
+新增 IPQuality 最小闭包的公开 proof 必须逐字绑定 prepare、build、export、嵌入 rootfs 的 provenance/runtime manifest 以及最终制品；父材料复验和离线重放仍是独立工厂门禁。公开 proof 不包含私有重放位置，不审批 builder、许可、复建或 full。新增受控托管工具只接受专用 Linux 的私有 TEST_ONLY namespace、固定 panel HTTPS origin 和普通 enroll `--token=` 参数；工具契约不能冒称 Agent/代理实机验收。
 
-## 本步骤统一验收结果
+本次合并阶段尚未执行新的测试、构建、下载、原生 controller 或完整验机。最终当前源码验证由整合任务另行冻结并记录。下面保留作者旧步骤的原始统计及输入边界，旧 r17/r18 身份属于该历史分支，不属于当前 main 的 r17/r18，不能用于认证新增组合。
+
+## 作者旧离线步骤归档
+
+### 原步骤统一验收结果
 
 输入为 `e809395676ef1f4436d4448c3a72600eb6de990f` 加本步骤冻结修改，完整摘要和原始收据摘要见[机器记录](evidence/nodequality-offline-rootfs-r18.json)。最终 Rust 的 374 个输入前后相同；原 r17 的 23 份来源/策略/模板与默认构建脚本逐字保持基线。
 

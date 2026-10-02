@@ -101,6 +101,7 @@ pub fn ready(
         sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY,
         sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY,
         DIAGNOSTIC_SERVICE_CAPABILITY,
+        sinan_protocol::DIAGNOSTIC_COMPLETION_CAPABILITY,
     ]
     .into_iter()
     .chain(plugin.required_capabilities().iter().copied())
@@ -275,8 +276,11 @@ pub(crate) async fn create_job(
     let now = now_timestamp();
     sqlx::query("UPDATE diagnostic_jobs SET status='failed',error='任务超时或设备未及时回报',updated_at=$2 WHERE server_id=$1 AND status IN ('queued','running') AND expires_at<=$2")
         .bind(id).bind(now).execute(&mut *tx).await?;
-    let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM diagnostic_jobs WHERE server_id=$1 AND status IN ('queued','running','cleaning','cancel_requested'))")
-        .bind(id).fetch_one(&mut *tx).await?;
+    let active: bool = sqlx::query_scalar(UNRESOLVED_QUERY)
+        .bind(id)
+        .bind(None::<Uuid>)
+        .fetch_one(&mut *tx)
+        .await?;
     if active {
         return Err(ApiError::Conflict(
             "此服务器已有诊断任务或正在等待清理、取消确认，请等待设备完成".into(),
@@ -345,8 +349,7 @@ pub(super) fn validate_plugin_report(job: &Value, report: &DiagnosticReport) -> 
         return Ok(());
     };
     // Before registration, every diagnostic belonged to the original plugin.
-    let id = job["plugin"].as_str().unwrap_or("nodequality");
-    let plugin = diagnostic_plugins::find(id)
+    let plugin = diagnostic_plugins::for_job(job)
         .ok_or_else(|| ApiError::Conflict("任务的诊断插件已不可用".into()))?;
     if !plugin.report_url_allowed(url) {
         return Err(ApiError::BadRequest(

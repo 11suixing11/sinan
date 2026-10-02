@@ -115,6 +115,17 @@ async fn foreign_device_plugin_and_corrupt_saved_unit_cannot_cancel_an_arbitrary
     let mut foreign = request(id);
     foreign.job.plugin = "not-registered".into();
     assert!(control.request(foreign).is_err());
+    for version in ["../outside", "/outside", ""] {
+        let mut unsafe_target = request(id);
+        unsafe_target.job.version = version.into();
+        assert!(control.request(unsafe_target).is_err());
+    }
+    assert!(control.request(request(Uuid::nil())).is_err());
+    assert!(
+        worker
+            .read::<Vec<DiagnosticCancelRequest>>(REQUESTS)?
+            .is_none()
+    );
     let mut saved = checkpoint(&worker.config, id);
     if let Checkpoint::Started { service, .. } = &mut saved {
         service.unit = "sshd.service".into();

@@ -6,6 +6,7 @@ mod obfuscation;
 mod path_probe;
 mod sentinel;
 mod stats;
+mod validation;
 mod version;
 
 use anyhow::{Context, Result, bail};
@@ -56,6 +57,18 @@ impl Adapter for SingboxAdapter {
         probe_id: &'a str,
     ) -> BoxFuture<'a, RuntimeProbeMeasurement> {
         Box::pin(path_probe::execute(runtime, probe_id))
+    }
+
+    fn supports_dependency_validation(&self) -> bool {
+        true
+    }
+    fn validate_dependency<'a>(
+        &'a self,
+        runtime: &'a Prepared,
+        scope: &'a str,
+        generation: u64,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(validation::probe(runtime, scope, generation))
     }
     fn health_timeout(&self, target: &Prepared) -> Duration {
         health::budget(target) + Duration::from_secs(5)
@@ -124,6 +137,10 @@ impl Adapter for SingboxAdapter {
             }
             version::validate_output(&output.stdout, &runtime.kernel_version)?;
             path_probe::validate_build(&runtime, &output.stdout)?;
+            version::validate_features(
+                &output.stdout,
+                runtime.files.get("path-features.json").map(String::as_str),
+            )?;
             let check_args = [
                 "check".into(),
                 "-c".into(),

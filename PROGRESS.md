@@ -1,5 +1,30 @@
 # 执行进度
 
+## PR151 主线整合检查点
+
+基线为主线 `666b79c` 与作者 `10f5f3c`。本聊天正在集中合并实现，尚未执行此输入的统一验证。保留数字 ID 订阅来源及 mixed 路径历史，新 UUID 节点／ordered 路径使用独立接口和追加迁移；既有正式制品版本、full 门禁、CI 暂停及实机待验范围保持。下面的作者旧验证只认证其各自冻结输入。
+
+使用入口见[文档导航](docs/README.md)，修改代码前可查[目录与维护约定](docs/repository.md)；设计和验收历史分别从 [ADR 索引](docs/adr/README.md)与[验收索引](docs/acceptance/README.md)进入。
+
+## 2026-10-02：PR #148 多云功能与保护补修
+
+- 审查作者 `366f2f5 → 478043a → 403da459`，保存本聊天补修后正常整合作者推进。作者同期合入上游 `1f4ea0b` 后，通过后续 [PR #150](https://github.com/theLucius7/sinan/pull/150) 普通交付已验证保护补修；原 main `3e99ce9` 与作者祖先全部保留，不 force，不改其他任务工作树。
+- 补云/DNS 实际提交当前快照、账号/资源修订与预览意图保护；未知回执期间不换凭据，人工结束未知变配同时暂停降速与启停，恢复/移除修订校验，保活从实际失败响应起冷却。账单控制要求明确后付 GB 项目与身份、完整分页及不重复计费维度，退款/调整/缺字段只保留展示；供应商签名和异常分页/权重/锁状态拒绝边界保持。
+- 运行输入冻结 `1a00e5a`，实现全部完成后统一最终验证：Rust/PostgreSQL 同默认 workspace/lock 分 73 批覆盖 89 metadata 目标，788/0/20；首 19 批与续跑 54 批认证，原工具误认共享夹具的未认证 diagnostics 23 项不叠加。fmt/core/全 targets Clippy、macOS umask077、另列回环 ICMP 通过。自己的 PostgreSQL 已停。
+- Bun69/1429、双强制 TS/Vite、23 dist 逐字复现；八组受影响 Chromium 为首六通过加两份旧预期夹具修正后通过，外部演练不叠加，全部私有 API。实际编译 debug-embed 逐资产 GET/HEAD 与当前 23 dist 及根 index 一致。后续 `830b3dd` 只改两份浏览器夹具，整合最新 main 的 `6243ae6` 整树相同；全部运行输入保持原验证边界。
+- 旧 35 SQL、作者新 36–38、lock/workflow、固定来源/许可/helper、NQ full 门禁与旧正式接入守卫保留。605 本地链接及 actionlint/core 通过，收尾文档另核对。CI 继续暂停；未执行真实云/DNS/计费/通知、原生设备验收或正式签署发布部署。完整来源与首轮失败见[整合记录](docs/acceptance/pr148-cloud-guards-integration.md)。
+
+## 2026-10-02：项目入口与文档整理
+
+- 作者在其 fork 的 `main`（功能基线 `478043a`，整理提交 `403da459`）整理；本聊天上游整合基线为 `3e99ce9`。面板共享状态迁入 `state.rs`，HTTP 路由按系统、服务器、诊断、Agent 和制品分组，crate 根保留原公共导出。逐条比较 85 个直接注册路由，HTTP 方法、处理函数和路由级限制一致；插件处理与通用鉴权不搬迁。
+- 前端拆出路径解析、侧栏导航、后台页面选择、布局与登录表单，顶层 `App` 保留会话及公开看板控制。保留旧看板/制品/链路入口、严格服务器 ID、节点筛选与组件重挂载边界；样式产物与基线一致，JavaScript 产物已重建。浏览器回归补上真实表单流程的登录失败、TOTP 请求字段、退出和原页重新登录。
+- README 改为安装入口和功能导航；补目录归属及脚本用途说明，按主题索引现有 58 份 ADR、76 份验收记录。开发检查顺序明确先生成前端再编译嵌入面板，补 Bun 测试和核心边界检查。保留历史文件、迁移编号、安装脚本及发布工具路径，不新增依赖或改变安装要求。
+- 作者报告其整理输入通过 fmt、全 targets Clippy（拒绝警告）、核心边界检查、Bun 61 项/1331 断言、TypeScript/Vite 构建、文档 243 个本地链接核对；六组构建页面回归（服务器操作、节点路由、插件目录、看板、DDNS、阿里云）在桌面与移动宽度通过。这些作者结果不认证本聊天后续补修或最终整合输入。
+- 作者报告其 Rust/PostgreSQL 全工作区最终完整复跑 772 通过、0 失败、20 项既有条件测试忽略，涵盖协议、编译、账本、对账、迁移与嵌入前端；忽略项仍未验证。作者首轮既有 Agent 用例 `acceptance_deducts_request_latency_and_never_restarts_the_lease_clock` 在约一秒许可窗口出现结果队列断言失败；未改 Agent 代码，原样单独复跑及完整复跑均通过。作者保留首轮失败记录，标记时序用例偶发风险，不宣称已修复其根因。
+- 当前 Vite 仍提示主 JavaScript 包超过 500 kB，本轮未把结构整理扩大为性能拆包。CI 继续暂停；未进行生产迁移、真实云操作、发布或实机能力签收。下一步按整理后的目录推进后续功能，真实环境验证仍遵循原验收门禁。
+
+<!-- 以下保留 PR151 作者分支的历史进度及其冻结验证边界；不计作本聊天整合验证。 -->
+
 ## 2026-10-02：托管启动前闭包集中验收与用户要求收尾
 
 - 按上一整步的实际磁盘拒绝继续准备单独 VM，旧 P0 root、附加盘、缓存和失败材料保持；新环境预算及初次离线 Agent／正常签名证明、真实 runtime 安装、独立 systemd／PG／TLS 的预置顺序见 [环境准备](docs/acceptance/managed-agent-environment.md)。镜像缓存 SHA512 重新核对，只读借用工具链／registry，不复用旧 target 或旧解包源。
@@ -13,20 +38,20 @@
 - 同步完成冻结 native 构建/TEST_ONLY 重新签名准备、仅固定注册与服务操作的隔离设备控制器、真实管理员 API 驱动和自有 X/订阅客户端/有界逐跳观察。没有 SQL 业务写入、直接 publisher 或伪造设备成功回执；每项输出区分 prepared、合同验证、选定场景和完整实机矩阵。
 - 修改期间未测试、构建、格式检查或 SSH；只在实施前读取专用环境容量。整步完成后集中验收，首次锁版本不符及 macOS 孤儿进程组清理问题收齐后暂停测试，集中修复并仅补受影响范围。最终冻结 782 份输入，SHA256 `05d5131356cb2aed5489639ba29dee7aebaf7b00cb717f85d947634b415c9768`；Agent-core 7 targets 265 通过、0 失败、8 既有条件忽略，含真实 HTTPS/WSS 与退役 TLS 回归；Python 工具合同有效去重 47 通过。已过的 helper 21／驱动 15 输入逐字保持，未重跑。全工作区 all-targets Clippy、fmt、core 分层与差异检查通过；前端未改，未重复其测试与构建。
 - 专用 Debian12 用新私有目录复制全部冻结源，真实准备入口核对身份后因磁盘不足拒绝；目标盘可用 1431252992 字节、可用内存 1296416768 字节，均低于初始准入。没有创建 target、二进制或成功收据，构建单元 MainPID=0／not-found；原 runtime 摘要保持，旧缓存、失败日志与新材料保留。没有隐式扩大旧虚拟机或删除材料重试；新的 native 构建、TEST_ONLY 包与原样订阅三设备托管／实际计量闭环仍未执行。
-- 见 [ADR0057](docs/adr/0057-private-panel-certificate-authorities.md)、[托管验收入口](docs/acceptance/managed-agent-paths.md) 和 [机器收据](docs/acceptance/managed-agent-paths-local.json)。整步一次提交／推送，不新增单项 PR。既有 native PASS 不升级为真实 Agent/账本证明；自然过期重放和实发信号取消另待验，CI 暂停、完整 NodeQuality/Geekbench/Ookla/工厂输入与正式发布/生产边界保持，整体目标仍在进行。
+- 见 [ADR0057](docs/adr/0072-private-panel-certificate-authorities.md)、[托管验收入口](docs/acceptance/managed-agent-paths.md) 和 [机器收据](docs/acceptance/managed-agent-paths-local.json)。整步一次提交／推送，不新增单项 PR。既有 native PASS 不升级为真实 Agent/账本证明；自然过期重放和实发信号取消另待验，CI 暂停、完整 NodeQuality/Geekbench/Ookla/工厂输入与正式发布/生产边界保持，整体目标仍在进行。
 
 ## 2026-10-02：有序混合链路、版本发布与具体出站验证（整步实现与集中验收）
 
 - 本步接入有序受管／外部节点向量、不可变路径与依赖、候选准备／切换／恢复屏障／旧身份清理、完整授权与订阅资格、来源跟随和管理员固定版本。core 仅执行签名计划内 probe UUID，链路与计量保持在插件和 compiler；具体回环控制有界且不暴露秘密。策略组和代理用户统一读取资源，节点页展示当前／候选／恢复向量、引用保护及 CAS 重放。
 - 修改期间未运行测试、构建、格式检查或 SSH；整步完成后冻结，集中验收失败收齐后暂停测试集中修复，仅补失败或受影响范围。最终 751 份功能输入 SHA256 `4e7eb49b2098c7089528b0badc1a638e91d552e0ac5bb5c029bb919d0705ba2e`；Rust 工作区按实际测试去重 736 通过、0 失败、19 条件忽略，Bun 93/1421 断言、TS/Vite 成功构建一次、10 个实际 dist 浏览器通过。全工作区 all-targets Clippy、修复后受影响 Clippy、fmt、core 分层及差异检查通过；真实 PostgreSQL 与所属 socket 已清理。
-- 专用 Debian12 ARM64 的当前 compiler 三／四跳输出通过 native check、TCP/UDP、具体出站 HTTPS HEAD、逐跳及 B 出口、X 停止无旁路、入口单次计数；640 MiB/零 swap/96 tasks，峰值约 101 MiB、54 tasks，无 OOM且自有进程/端口释放。统计及客户端端口显式变换，不能写成未经变换的生产 bundle、真实 Agent 发布或面板账本整链通过。实际出口、逐跳、UDP、原生 check 与 HTTPS HEAD 分开记录，见 [ADR 0056](docs/adr/0056-ordered-path-publication-and-native-probe.md)、[本步验收](docs/acceptance/ordered-paths.md) 和 [机器收据](docs/acceptance/ordered-paths-local.json)。
+- 专用 Debian12 ARM64 的当前 compiler 三／四跳输出通过 native check、TCP/UDP、具体出站 HTTPS HEAD、逐跳及 B 出口、X 停止无旁路、入口单次计数；640 MiB/零 swap/96 tasks，峰值约 101 MiB、54 tasks，无 OOM且自有进程/端口释放。统计及客户端端口显式变换，不能写成未经变换的生产 bundle、真实 Agent 发布或面板账本整链通过。实际出口、逐跳、UDP、原生 check 与 HTTPS HEAD 分开记录，见 [ADR 0056](docs/adr/0071-ordered-path-publication-and-native-probe.md)、[本步验收](docs/acceptance/ordered-paths.md) 和 [机器收据](docs/acceptance/ordered-paths-local.json)。
 - 集中修复发布 RR 并发旧快照、policy SQL、普通节点 ABI 兼容和共享服务器证明失效误判；保留未知屏障、完整向量、历史回执、失败和过期的安全门槛。首轮 28 项失败、后续失败和夹具修正均保留日志；仅最后一例重跑，未重复已过 Web/native。整步一次提交／推送，不新增单项 PR。
 - CI 继续暂停，无正式制品签署、生产迁移或部署；原完整 NodeQuality 许可、builder 和持续业务联合负载门禁保持，整体目标仍在进行。
 
 ## 2026-10-02：订阅来源与不可变节点版本（整步实现与集中验收）
 
 - 本步集中完成 HTTPS／粘贴／文件输入、四格式有界解析、来源任务与取消、身份 epoch、不可变批次／节点版本及节点页管理。失败保留旧成功，来源更换与迟到结果核对 revision／epoch／parser／claim；普通输出不回显完整 URL、认证、原文、配置或摘要。来源支持受保护更新／替换、归档／恢复、精确幂等收据及保历史软删除，未知／不支持／身份不唯一／当前缺失分别展示。
-- 修改期间未运行测试或构建；全部实现、测试代码及文档完成后冻结统一验收。依赖锁仅增加固定 saphyr-parser 0.1.0 与 arraydeque 0.5.1，旧依赖版本保持；必要性和许可证见 [ADR 0055](docs/adr/0055-subscription-source-lifecycle.md)。最终 712 份功能输入 SHA256 `d990f0ee99d354a15e9732bcac465565a19c4382664cb71744a37f1182e60669`，面板 10 targets 166 通过、0 失败、1 既有实机条件忽略；新增 parser 12／fetch 13／Worker 5／来源 API 8 均通过。Bun 83 项／1346 断言、单次 TS/Vite 构建、7 组实际 dist 浏览器通过，来源流程覆盖 1440／390／320 宽度。
+- 修改期间未运行测试或构建；全部实现、测试代码及文档完成后冻结统一验收。依赖锁仅增加固定 saphyr-parser 0.1.0 与 arraydeque 0.5.1，旧依赖版本保持；必要性和许可证见 [ADR 0055](docs/adr/0070-subscription-source-lifecycle.md)。最终 712 份功能输入 SHA256 `d990f0ee99d354a15e9732bcac465565a19c4382664cb71744a37f1182e60669`，面板 10 targets 166 通过、0 失败、1 既有实机条件忽略；新增 parser 12／fetch 13／Worker 5／来源 API 8 均通过。Bun 83 项／1346 断言、单次 TS/Vite 构建、7 组实际 dist 浏览器通过，来源流程覆盖 1440／390／320 宽度。
 - 最终验收的 Rc 类型错误、Worker 宏内 if 排版和三个 Clippy 告警集中修正；原日志保留。截图夹具因测试时钟影响淡入动画，修夹具后只补来源浏览器及 12 张最终截图，已过构建／Bun／其它六浏览器保留。fmt、面板全 targets Clippy、core 分层与 diff 通过；所属 PostgreSQL／socket 已清理。179 份 Agent／core／SDK／协议／编译器和三个诊断适配器输入逐字不变，未重复验收。具体范围见 [本步验收](docs/acceptance/subscription-sources.md) 和 [机器收据](docs/acceptance/subscription-sources-local.json)。
 - 整步一次提交／推送，不新增单项 PR。当前来源解析不表示节点网络在线，旧两跳仍不能使用外部节点；完整有序混合路径、版本化发布、真实三／四跳与不旁路继续后续完成。公网订阅、原诊断／builder／许可／持续代理联合负载等实机条件保持；CI 继续暂停，无生产部署、正式签署或发布，整体目标仍在进行。
 
@@ -34,12 +59,12 @@
 
 - 核对已有 sing-box 安装、用户／授权、节点、两跳编译和套餐实现，完成统一资源列表／详情、一次原子创建独立入口与链路、不可变幂等收据及完整资源删除。旧、新节点删除共用策略和链路引用保护；链路入口不重复展示，共享出口和旧订阅／流量保持。原删除缺口已创建 [Issue #147](https://github.com/theLucius7/sinan/issues/147) 并归入现有 milestone。
 - 后端、前端、迁移、回归代码和文档集中修改结束后统一验收，最终冻结 684 份功能输入，SHA256 `fa2b73ce38817a2f030b55b1c9d70ec1a02eb901532a8cfaba244e4071e26fb8`。面板 9 targets 有效去重 128 通过、1 既有真实 sing-box 条件忽略；Bun 69 项／1255 断言、单次 TS/Vite 构建与 6 组实际 dist 浏览器通过。新资源页覆盖 1440／390／320 宽度、失响应后角色变化的原批次重放、30 秒提交期限及旧节点读取失败仍可清理。
-- 初轮业务浏览器筛选前提与 PostgreSQL 损坏夹具违反既有类型约束分别修正，只补验失败组／方法和尚未执行范围；已过构建、Bun、其它浏览器、面板库和 7 个新集成方法保留，原失败日志保持。最终 fmt、面板 all-targets Clippy、core 分层和 diff 通过；自有数据库和所属 socket 已清理，250 份 Agent／SDK／协议／编译／诊断输入逐字不变而未重测。设计、具体通过和未验边界见 [ADR 0054](docs/adr/0054-proxy-resource-batch-lifecycle.md)、[验收记录](docs/acceptance/proxy-resources.md) 与 [机器收据](docs/acceptance/proxy-resources-local.json)。
+- 初轮业务浏览器筛选前提与 PostgreSQL 损坏夹具违反既有类型约束分别修正，只补验失败组／方法和尚未执行范围；已过构建、Bun、其它浏览器、面板库和 7 个新集成方法保留，原失败日志保持。最终 fmt、面板 all-targets Clippy、core 分层和 diff 通过；自有数据库和所属 socket 已清理，250 份 Agent／SDK／协议／编译／诊断输入逐字不变而未重测。设计、具体通过和未验边界见 [ADR 0054](docs/adr/0069-proxy-resource-batch-lifecycle.md)、[验收记录](docs/acceptance/proxy-resources.md) 与 [机器收据](docs/acceptance/proxy-resources-local.json)。
 - 本步仍为既有受管 Reality 两跳。订阅来源、外部节点、完整有序混合路径及实际候选探测继续后续实施，原 builder、许可、完整验机、联合负载及新增诊断签收条件不缩小；CI 继续暂停，无签署、发布或生产部署。
 
 ## 2026-10-02：IPQuality 最小闭包贯穿工厂（整步实现与集中验收）
 
-- 静态检查确认原工厂只要求十一种直接包存在，完整 NodeQuality 库存也可满足；已创建 [Issue #146](https://github.com/theLucius7/sinan/issues/146) 并加入现有 milestone。现已补齐真实派生重验证、隔离求解、精确包／源公开证明及 prepare/build/export/制品的同一摘要链；私有父身份保存在准备上下文，共用扩展默认关闭。设计及结果见 [ADR 0053](docs/adr/0053-ipquality-minimal-profile-chain.md) 和 [本步验收](docs/acceptance/ipquality-minimal-profile.md)。
+- 静态检查确认原工厂只要求十一种直接包存在，完整 NodeQuality 库存也可满足；已创建 [Issue #146](https://github.com/theLucius7/sinan/issues/146) 并加入现有 milestone。现已补齐真实派生重验证、隔离求解、精确包／源公开证明及 prepare/build/export/制品的同一摘要链；私有父身份保存在准备上下文，共用扩展默认关闭。设计及结果见 [ADR 0053](docs/adr/0068-ipquality-minimal-profile-chain.md) 和 [本步验收](docs/acceptance/ipquality-minimal-profile.md)。
 - 集中实现后冻结 678 份功能输入，SHA256 `34303534adf539eac2d91a45b4d8793c7f56dd35a3d56e7ce9701b100b520053`。八组工具合同有效去重 230 通过、0 跳过／失败／错误；首轮新增夹具模块替换范围错误修复后，只补验受影响的 15 项，产品及其它受验输入保持。两个未改容量算法的 600 MiB loop 场景提前具名排除，不计通过，初始日志保留。
 - 专用 Debian 12 ARM64 增加独立 1536 MiB 输出盘，正常停机／启动两次，关闭自动格式化后 UUID 保持，原根盘和父缓存不变。首次空 slice 识别拒绝发生在存储动作前，原记录保留；仅修明确无进程、无活跃子服务的稳定观察，未知仍拒绝。
 - 仅一次真实离线派生成功，约 14.33 秒，从旧只读缓存选出 130 包、91 对应源版本、289 源文件，无新增下载或正文复制。新输出峰值约 58.53 MiB，结束可用约 1.34 GiB；256 MiB 单元内有回收压力、OOM 为 0，管理预留保持，所属进程／挂载／cgroup 清理确认，存储变更后 SSH／启动基线保持。实际 prepare/build/export 尚未执行，不能将派生成功当作工厂或 Agent／持续代理联合运行通过。
@@ -51,7 +76,7 @@
 - 集中补齐旧认证缓存的显式派生入口、严格父/子库存与只读身份、隔离 APT 最小选择、签名索引展开及资源预算、新派生收据与绑定。旧完整 collection 不改 kind，不重复生成 HTTP 收集历史；prepare/build/export 与完整验机门禁保持。
 - 修改期间未运行测试、构建、收集、源码转换或安装；整步冻结后统一验收，失败仅修具体原因并补验受影响范围。最终 676 份功能输入 SHA256 `58a5fce9d1cf6db5acdb11627d4db19bb53ab72a71eae5f3d895f676d93b732f`，五组工具合同去重 117 通过、0 跳过/失败/错误；夹具 Essential/等长变更问题与真实 Linux 小归档 2 GiB 预分配 MemoryError 均修复，初始证据保留。gzip/tar 单次读取有界，完整尾部与累计限制保持。
 - 独立 Debian 12 ARM64 虚拟机仅尝试一次真实派生，父缓存内核只读；进入 APT 前因磁盘管理预留不足拒绝，9.84 秒、退出 1，无派生成功收据。保持 512 MiB 磁盘/1024 inode 预留、256 MiB 内存/零 swap，回收压力实际记录，OOM 为 0；失败证据保留，所属输出/进程/挂载/cgroup 已清理，旧父记录与 SSH 基线保持。没有降低准入、隐式扩容或删除旧材料重试；正向选择与派生仍待容量充足环境。
-- 501 份既有 Rust/前端输入与 19 份 dist 相对 `c6ffbdb` 逐字不变，沿用其证据而未重复测试/构建。分层与 diff 通过；执行约束见 [ADR 0052](docs/adr/0052-ipquality-derived-debian-inputs.md) 与 [验收记录](docs/acceptance/ipquality-derived-inputs.md)。实际最小 builder/image、许可证/对应源签名制品、联合负载、aws-jp0、完整验机及混合订阅链路等整体剩余事项保持待验；CI 继续暂停，未签署、发布或部署。
+- 501 份既有 Rust/前端输入与 19 份 dist 相对 `c6ffbdb` 逐字不变，沿用其证据而未重复测试/构建。分层与 diff 通过；执行约束见 [ADR 0052](docs/adr/0067-ipquality-derived-debian-inputs.md) 与 [验收记录](docs/acceptance/ipquality-derived-inputs.md)。实际最小 builder/image、许可证/对应源签名制品、联合负载、aws-jp0、完整验机及混合订阅链路等整体剩余事项保持待验；CI 继续暂停，未签署、发布或部署。
 
 ## 2026-10-02：独立节点出口 IPQuality（整步实现与本地验收）
 
@@ -59,7 +84,7 @@
 - 新节点 JSON 使用已有认证章节接口，以任务、工具、源码、签名归档、IP 版本和执行窗口核对，面板缓存投影与章节保存共用 server→job 事务。迁移 0027 增加单调任务序号，按实际来源和出口保存最近尝试/成功/错误，晚到旧任务不能覆盖新观察；NAT 出口、历史出口与网卡地址分开。
 - IP 信息页接入独立节点自查、逐源请求记录、部分章节、等待设备确认取消，以及读取失败/跨服务器回调守卫。能力和匹配制品缺失时显示未知并拒绝创建，代理业务或另一项同机诊断仍受共用互斥保护。
 - 遵照“中途不要测试，修改完一个大步骤提交”，集中修改完成并冻结后才执行本地统一验收；发现失败后仅修复并补验受影响范围，保留其它未变输入的通过证据。最终 672 份功能输入 SHA256 `8dae808a159fe3b4636c230316ac63c17cfc5680da7f19546110d2949822672e`：Rust 11 crates/72 targets 去重 646 通过、18 条件忽略；Python 11 suites 去重 237 通过、19 既有平台条件跳过，新 policy 27/27；Bun 58/1154 断言、单次 TS/Vite 构建和 8 组桌面/手机实际 dist 浏览器通过。fmt、warnings-deny Clippy、core 分层与 diff 通过；自有 PostgreSQL 已停止并确认清理，未执行第三方查询或生产负载。
-- 尚未签署、发布或部署新制品。原生最小 builder 审核、完整实际对应源制品、专用 Linux/systemd/挂载/持续代理流量矩阵继续待验；aws-jp0、完整验机许可、混合订阅链路等整体整改剩余事项不缩小。CI 继续暂停，相关 Issue 保持开放。执行合同见 [ADR 0051](docs/adr/0051-independent-node-ipquality.md) 与 [验收清单](docs/acceptance/node-ipquality.md)。
+- 尚未签署、发布或部署新制品。原生最小 builder 审核、完整实际对应源制品、专用 Linux/systemd/挂载/持续代理流量矩阵继续待验；aws-jp0、完整验机许可、混合订阅链路等整体整改剩余事项不缩小。CI 继续暂停，相关 Issue 保持开放。执行合同见 [ADR 0051](docs/adr/0066-independent-node-ipquality.md) 与 [验收清单](docs/acceptance/node-ipquality.md)。
 
 ## 2026-10-01：开放 issue 第一批（#3、#4、#6、#14、#15）
 
@@ -1651,6 +1676,168 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 再保留作者 `5c6d31b`/`d02f677` 的新增 IP 矩阵、其关闭状态收据与全部进度；独立审查并在本聊天私有回环实际执行原字节夹具：1440/390 共62场景通过，204 HTTP/8刷新POST，浏览器错误/外部请求/未知API为0。它验证规范化面板API输出和明确标注的旧缓存防御；12个raw标签共用归一化失败输出，不冒称重复上游解析或新增负分/超范围矩阵。证据 `pr133-author-ip-confirmation-local` 对应当前 `230af345` 的79源码/19dist及新fixture SHA，未改产品。
 - 全部运行输入仍对应504/0/17及组合Python/前端受验源。前述18套组合加新增IP专项合计19套活跃浏览器已覆盖，其中合并改变的授权草稿另在3d输入补跑；未重复其他字节未变的用例。作者17项issue关闭记录只读保留，本聊天未重复关闭/评论、也未恢复CI；剩余实机、权利、正式认证适配和full门禁边界保持。
 
+## 2026-10-02：NodeFlare 服务器展示、上报与通知对齐
+
+- 在 `main` 的 `4b4ee6e` 基线上完成本轮功能，参考本地 NodeFlare `7a7fc0ffe29dddaa21ef11c86e2990d84f3a6cc8`，保留 MIT 来源说明；决策见 [ADR 0047](docs/adr/0047-monitoring-refresh-history-and-channels.md)。没有新增运行依赖、修改工作流、执行生产迁移或扩大诊断实机范围。
+- 服务器看板分离轻量状态与静态资料，分别每 3 秒、30 秒读取；旧接口继续 5 秒兼容。加入六档资源历史窗口、实际均值/极值/有效样本数和采样范围，保留无指标与完整缺桶的断线。隐藏页取消请求，恢复后先将过期状态标为待确认；切换节点、窗口、公开范围或撤权时丢弃旧响应，隐藏设备不能被旧请求恢复。费用支持统一币种、周期成本及已知周期/到期日的剩余参考值，缺失价格和汇率保持未知，匿名看板不显示财务数据。详见[展示数据说明](docs/server-display-data.md)。
+- 新 Agent 独立执行默认 1 秒采样、3 秒实时上报与 60 秒历史批量写入；新接口协商与能力声明兼容旧严格消息和旧设备。实时接收不删除本地待确认样本，历史与去重收据、精确网卡账本提交后才 ACK；追补批次间释放退役读锁。后台支持每台服务器 15–3600 秒历史写入间隔及全局 1–3650 天保留期，缩短期限需确认；默认 30 天，近两小时原始、七天内分钟、三十天内五分钟、更早小时。聚合采用各指标有效计数、加权均值和极值，旧分钟末值标记局限；独立维护有时间和批次预算，未回填的数据来源不提前删除。详见[遥测验收](docs/acceptance/telemetry-history.md)。
+- 新增固定 Frankfurter v2/v1 HTTPS 来源的每日汇率缓存：成功后 24 小时刷新，失败保留真实旧值并一小时重试，管理员手动刷新有 30 秒冷却。数据库租约协调并发和重启，展示来源、数据日期、抓取时间及过期状态；普通读取不请求外网，不使用硬编码外币估值。
+- 通知增加通用 JSON、Bark、Discord、Slack、企业微信、钉钉、飞书、ntfy、Gotify 九类 Webhook 预设，与 Telegram 独立排序、重试、取消、测试和记录结果。地址、头部及模板只写不回显，错误脱敏；资源告警采用真实加权窗口和持续最低值，缺测、网卡范围改变或持久水位不足保持未知。钉钉/飞书不生成动态签名，外部接收仍为至少一次投递。详见[通知验收](docs/acceptance/notification-alignment.md)。
+- 修复基线合并带入的节点页/统一资源页混用，保留服务器筛选、严格查询参数、统一链路创建和详情；去除构建带回的过期无引用前端产物。原 `0023_runtime_operations.sql` 与已合入安装迁移重号，仅把其原字节追加为 `0031_runtime_operations.sql`，其余既有迁移不重编号；31 个迁移版本唯一。曾手工应用旧分支 0023 运维迁移的环境仍须先备份并核对历史，不能直接改写校验摘要，见 ADR 0043。
+- 最终完整 `cargo test --workspace --no-fail-fast`：88 个目标（含文档测试），**599 通过、0 失败、20 条件忽略**；`cargo clippy --workspace --all-targets -- -D warnings`、`cargo fmt --all -- --check`、core 边界与差异检查通过。专用回环 PostgreSQL 18.6 验证迁移、并发、恢复、权限、历史聚合、汇率缓存和通知；HTTP 仅使用私有替身。前两轮原失败保留：旧迁移快照遗漏新列默认值、运维夹具未显式启用插件；分别补准确默认预期和管理员启用调用，保留完整旧字段/凭据/授权/账本相等与所有能力门禁断言后，最终整轮通过。日志为本机 `/tmp/sinan-monitoring-rust-verified.log`、`/tmp/sinan-monitoring-clippy-verified.log`。
+- 前端 Bun **49 项通过、987 个断言**；TypeScript/Vite 125 模块通过，19 份 dist 重建逐字相同。15 套相关 Chromium 夹具通过：展示四套、通知三套，以及遥测设置、节点路由、混合链路、新建接入、命令状态、确认取消、NodeQuality 门禁和代理业务；覆盖桌面、390 像素及展示/通知的 320 像素。NodeQuality 夹具原先误把独立 IP 查询完成当作任务列表已读回，现等待实际排队记录，未删除门禁断言。浏览器均为私有回环 API，不代替设备实机；截图位于 `/tmp/sinan-monitoring-screenshots` 和 `/tmp/sinan-operations-screenshots`。最终 Vite 仍提示主后台块约 502.64 kB（gzip 151.23 kB），服务器展示异步块为 60.20 kB（gzip 20.41 kB）；后续按需要单独优化后台拆包。
+- 20 项忽略仍需专用 root/systemd、ICMP、固定正式运行时及 ACME 等环境；长期多设备高频负载、真实长断连、多平台常驻、生产历史升级和真实通知渠道送达未验收。独立实时上报需升级 Agent 后生效，旧版继续兼容。本轮仅本地源码提交，不推送、签署、发布或部署；CI 继续暂停且记为未验证。下一步在独立授权的测试环境验证升级、长期采样与实际渠道，不以此次本地结果签收诊断实机能力。
+- 本次启动的专用回环 PostgreSQL 已停止；153 个相关本地文档链接检查通过。
+
+
+## 2026-10-02：开放 issues 与同期 PR 的统一补修
+
+- 用户要求修复开放 issues、检查 PR、完成后一次 PR，中途不测试。本轮实现只阅读与修改源码、编写回归；没有逐项运行测试、构建、fmt、Clippy 或检查器。全部源码整合后才统一验证，结果随后回填。
+- 新增精确目标授权的轻量周期拨测：线路/地区/地址家族与实际采样家族，旧配置无授权不执行，目标身份冻结，改向必须重新人工确认；匿名输出剥离授权来源/范围，旧 Agent 收禁用旧格式。断连撤销仅能在同步后获知，已知到期由本地严格执行；不把 24 小时缓存当作即时撤销。
+- NodeQuality r19 制品自身在写工作目录/调用上游前拒绝新 full，禁旧 rootfs/nexttrace 在线回退，嵌入严格未准入说明；静态执行库存工具有界只读、不展开或执行，身份匹配不等于许可。新增节点私有正式 Ipregistry/DB-IP self 适配，缺正式授权的媒体仍未尝试/未知，旧报告与 r2–r18 精确历史回收保持。
+- Reality 白名单补本地 DNS/预传输/观察进度，不重试或加预算；原地升级驱动校验双端真实版本/新 Agent PID、旧配置版本/独立运行时不变；安装失败直接保存私有证据，不把待发布当健康。公网根因、真实签名升级/安装、完整诊断权利与实机联合负载仍独立待验。
+- 同期作者正常合入 PR #136（main 4b4ee6e），本分支普通保存全部作者祖先及运维/命令取消/机场订阅/混合链路。保留原迁移0001–0023原字节，新五项迁移顺延0024–0028；补旧schema真实PG升级/重复执行及历史保留回归。命令退役补已登记进程清理屏障，失败不清身份，Requested/Stopped/Clearing恢复只清理不重执行；源补修239f072普通合入。订阅传输等价与解析器缓存补修一并收尾。
+- 四个源码工作流继续 disabled_manually，未恢复/触发 CI，不作正式签署、发布或部署，不以源码合入关闭缺外部证明的 issue。详细范围与最终证据见 [统一验收](docs/acceptance/issues-integration-20261001.md)。
+
+- 统一最终验证已完成：冻结d50ca445完整Rust/PostgreSQL599通过/0失败/20明确条件忽略，80结果组；umask077专项1、全targetsClippy/fmt/core通过。自己PG55432已停止，未动其他实例。首次runtime运维两例因夹具仅声明能力却未显式启用被正确409拒绝，补真实管理员启用和拒绝负例后完整复验通过，未放宽产品门禁。
+- 最终web2cdb7ce的45Bun/970断言、两次TypeScript/Vite115模块、19dist逐字复现及22套实际Chromium全过；修正同期主线App/Nodes资源路由/统一直连链路页和概况运维入口。脚本去重308唯一方法中299通过/9方法skip，另1class skip；实际PS7 15/15和正式IP helper12/12包含其中，TLS/API仍为替身。真实双Bash166执行含150完整方法通过/15方法skip/1含10子例skip，不叠加唯一总数，Bash5 90/90；canonical17原文件687969B保持。
+- 原失败证据与补验分目录保存：新库存元组/driver循环快照为fixture补正，Unixbootstrap内嵌r18已按r19重生；PS字节保持且actionlint过。耐久证据issues-final-rust-repair1-20261002、issues-final-web-20261002、issues-final-python-summary-20261002按源SHA映射。本轮只创建一个组合PR；仍缺正式API/权利/公网Reality根因/跨平台与实机安装升级/新TCP整链证明的11个issue保持开放，不以本地通过代替签收或恢复CI。
+
+## 2026-10-02 剩余 11 项整改与统一验收准备
+
+- 从实际主线 `4b4ee6e` 新建剩余整改分支，随后普通合并同期 PR #137 的 `c82fe1e`，保持上轮已关闭 17 项及作者命令清理、运维、订阅转换修复和主线 0024–0028 迁移原字节；当前开放 #3、#6、#24、#28、#58、#63、#65、#66、#82、#122、#130。按每五项的范围保存进度，再统一执行最终验证；准备和源码修改不等于独立验收通过。
+- #28/#65/#66/#82：窄整合尚未合入的 `de54084` 离线准备代码，保留主线原 r19 身份、原生访问策略和 full 门禁。新 r20 要求严格 rootfs 清单和两份 signed aux，SDK/Agent 按版本选择并流式复验；工厂认证固定 Debian 索引、完整二进制/源码缓存、builder 输入，私有 namespace 原生构建与安全导出。真实工具闭包、适用授权、双架构复建及完整负载矩阵仍缺，不能关闭这四项。
+- #24/#122：新 r21 正式节点 Ipregistry / DB-IP typed API，自查询确认出口后匹配冻结公网 IP，凭证只从节点 root 私有文件读取并经 curl stdin 传入。专用任务复用公共签名、资源预算、队列、取消、章节与历史缓存；缺配置/拒绝/错误保持逐源未知，上次成功不丢，同章节重放修复 postcommit 缓存失败。七种聚合响应仍是一个 provider；正式 IP 不能代替 #24 的实际节点流媒体验收。
+- #63：沿用主线绑定精确目标 identity 的授权来源/范围，并补三网、地区及 IP 版本、空缺配置默认不发请求，120 秒配置租期和一秒取消检查，旧接口投影暂停且保持 wire 兼容；实际失败/未知和历史身份分别展示。真实 ENOSPC 专用验收准备发现共用 worker 的存储失败风险，补充可恢复 SQLite 写入错误隔离，保留未确认队列和旧耐久设置，结构/协议错误仍返回失败。
+- #3/#6/#58/#130：冻结源码、旧已审 lifecycle harness 与新 private namespace 的验收准备接口；旧 0.1→0.2 五项身份/配置/PID 连续性确实存在，但旧首装 workaround 与缺现代签名不能冒作标准首装。公网 Reality 原间歇超时根因尚未定位。当前原生 TCP 完整工具测试与新的固定源码 musl 制品、normal Agent 真实空配置安装生命周期需要本轮新收据。
+- CI 继续暂停，未签署正式 Release、发布或生产部署。最终本地、专用 Debian 和隔离 native 构建执行结束后追加实际输入、失败修正、通过及未验证范围，再据各 issue 正文决定关闭。
+
+## 2026-10-02 剩余 issues 最终修复与实机验收
+
+- 实时核对新增 #139 后共 12 个开放 issue；本轮 #58/#63/#122/#130/#139 已完成对应修复及独立验证，具备关闭条件。其余 #3/#6/#24/#28/#65/#66/#82 保持开放：历史标准首装合同、公网 Reality 原失败根因、实际授权节点流媒体矩阵，以及专有工具适用许可/双架构完整离线链验收仍缺实际证据。源码准备和 full 拒绝门禁不能替代这些条件。
+- 最后统一验证：Rust/真实 PostgreSQL 625 通过、0 失败、20 条件忽略，fmt/Clippy 通过；Python 30 套 testsRun=503、0 失败/错误、20 单项与 1 类初始化跳过。固定来源原生 TCP 的真实 Debian 12 amd64 musl 验收 39 独立用例通过，保留实际 a2 源码/制品身份；macOS 真实双栈及 15 用例增量通过。所有忽略/跳过的原生与平台边界单独记录。
+- 最终 Web `e891716`：46 Bun 用例/1196 断言、TypeScript/Vite、25 套真实 Chromium 全部通过，70 份截图；#139 在 1440/390 共 60 场景，144 次刷新/错误/陈旧快照强制写尝试均零请求，56 次恢复后预期写入，保留草稿及消失选项并明确要求处理。实际宿主重新编译带此 dist 的 Panel 通过；回环 API 不作第三方查询或生产验收。
+- #130 用冻结 fc4 的新 r5 GNU 制品在专用 Debian r7 重跑六阶段全生命周期，207.374 秒，真实新 TEST_ONLY 签名下载/展开/installed proof 后 ready/target_rev=applied_rev=1；能力不自动启用，缺制品拒绝、重复启用幂等、Agent 重启和面板断连恢复全部满足，最终清理/OOM/资源与输入基线核对通过。没有独立注入 ACK 丢失，相关路径另由真实 PG/认证 WS 回归覆盖。
+- #63 独立 r3 五阶段完整实机 447.82 秒通过，415 次真实回环代理往返零失败；四慢连接与 128 MiB Agent/96 MiB 独立运行时、重启补报去重、135.296 秒断连租期、真实 16 MiB tmpfs FULL 45 秒及 42 秒恢复、撤销/暂停/删除迟到结果均满足，普通 umount 和完整清理通过。再用独立 namespace 实测 Linux ICMP IPv4/IPv6 各四个结果、每个四次探测、零丢包、真实 ACK/PG 唯一行及 20 秒心跳，完整清理通过。
+- 初次编译、macOS ping6 参数、私有安装配方、资源中止/宿主 ENOSPC、carrier PG 就绪竞争与连接未关闭导致的卸载失败均保留原失败，新 attempt 独立验收，不拼接成成功；冷 PostgreSQL 原始字节完整归档校验后迁移保留。carrier 受验 PG 就绪/WAL 快照/显式 SQLite 关闭功能已同步公开脚本，仅去掉私有收据赋值，普通 CLI 与原源码门禁正常。详细来源与摘要见 [最终集成验收](docs/acceptance/remaining-issues-20261002.md)。
+- 默认 r19、原 17 份上游来源、历史 r2–r18、旧 TCP 制品和主线 0001–0028 迁移保留原字节；新增 r20/r21 明确派生、新迁移 0029 只暂停无授权监控。四个源码工作流仍 disabled_manually；提交使用 skip ci，没有正式签名、Release 或生产部署。GitHub PR 与 issue 关闭以实际远端状态为准。
+
+
+## 2026-10-02 PR #138 当前主线整合与统一验证
+
+- 普通保存作者 `8e6c543` 与主线 `c82fe1e`，源码实现阶段未运行测试、构建或格式检查；全部源码冻结后统一验证。保留主线全部授权拨测、命令退役、订阅转换、旧接入保护和 NQ r19 full 门禁。既有 0001–0028 迁移原字节保留，新汇率/遥测/通知顺延 0029–0031；监控 ADR 顺延 0047，作者旧分支迁移及旧验收收据不冒称当前主线验证。
+- 补实时容量字段的 uint/null 验证与匿名旧字段白名单，避免嵌套私有内容泄漏；历史初始化跳过忙服务器，不让前八个锁阻挡后续健康服务器。保留真实零值、未知、加权统计及独立持久确认/流量账本。
+- Webhook 预设按各渠道实际确认判断成功，Discord 强制等待消息确认；Retry-After 支持 HTTP 日期、向上取整及完成后计时，各次领取/完成读取真实时钟。汇率未来证据保持过期与旧成功；仅直接声明锁内已有 httpdate 1.0.3，无新增包版本，必要性见 ADR 0047。测试只使用私有接口，不发送真实通知。
+- 前端保留主线有限服务器路由、统一节点/混合链路、授权草稿和运维入口，同时整合历史窗口、每日汇率及九渠道通知。旧 dist 只作合并占位，统一验证阶段从最终源码重新生成后再编译内嵌面板。
+- 该阶段的统一验证随后完成；作者 599/20 与之前 #137 的 599/20 都保持各自冻结边界，不能算本轮结果。后续作者新增 DDNS 后重新普通整合和完整验证，最终范围见[PR #138 组合验收](docs/acceptance/pr138-monitoring-ddns-validation.md)。CI 持续暂停，取消/未执行不算通过；多平台升级、长期高频负载、真实通知、正式制品/部署和诊断实机签收仍未验。
+## 2026-10-02：同步上游后继续 Cloudflare DDNS
+
+- 在 main 普通合并上游 `c82fe1e` 的 9 个新提交，保留本地 `8e6c543` 的展示、遥测、汇率和通知功能；未推送或触发 CI。合并覆盖命令退役清理、周期拨测授权、订阅转换及 NodeQuality 源码门禁，双方原验证收据保留来源。
+- 上游 0001–0028 迁移逐字保留：运维为 0024，命令/订阅/链路/验证顺延到 0028；本分支新增汇率、遥测历史、通知分别改为 0029、0030、0031，SQL 原字节不变。监控 ADR 改为 0047，保留上游 0046 授权拨测。曾部署本地 `8e6c543` 的非上游编号，或旧分支 0023 运维迁移的数据库，必须先备份并单独核对/协调迁移历史；不能直接启动、改摘要或据此宣称已验证生产升级。
+- 合并后独立完整 Rust/PostgreSQL：625 通过、0 失败、20 条件忽略；全 targets Clippy、fmt、core 边界与差异检查通过。测试日志 `/tmp/sinan-monitoring-ddns-upstream-test.log`，Clippy 日志 `/tmp/sinan-monitoring-ddns-upstream-clippy.log`。运行输入不含随后开发中的 DDNS；后续增量必须独立验证。
+- 前端 Bun 51 通过、1018 断言；TypeScript/Vite 构建通过，产物从合并源码重生。实际 Chromium 回归节点路由、混合链路、服务器接入、监控配置、命令生命周期 5 套通过，含手机布局，接口均为私有替身。上游其他 Python/实机收据仅保留，没有声称本次重跑。
+- 下一步按照用户授权接入 Cloudflare DDNS，继续使用已有 Agent IP 上报。CI 保持暂停，真实 Cloudflare 写入、生产迁移与诊断实机能力均未执行或签收。
+
+
+## 2026-10-02：Cloudflare DDNS 面板插件
+
+- 在上游同步提交 `dc65301` 后实现用户授权的 DDNS，并按进一步要求做成独立插件。后端位于 `plugins/ddns/panel/`，经既有 plugins 桥注册路由与后台任务；前端位于 `web/src/plugins/ddns/`，提供插件目录、服务器插件页、全局与单服务器入口。复用 `server_plugins` 按服务器显式启停，默认未启用，不要求额外 Agent 制品，不改变 sing-box 插件或诊断准入。
+- 复用 Agent 已有静态 IP 消息，只在面板增加通用接收时间；不把旧数据库缓存当作新报告，不给 Agent 下发 Cloudflare 凭据。支持 A/AAAA、泛域名/IDN、TTL、Cloudflare 代理、周期及手动同步；自动选择对应家族有效公网地址，优先保持仍在本轮上报中的上次成功地址。离线、过期、无地址、删除或退役时保留解析。
+- 每条规则保存写入后不回显的 API Token；固定 Cloudflare HTTPS，禁代理/重定向，响应限 256 KiB，单轮 20 秒，租约 60 秒，最多 32 规则及两项并发。唯一同名记录需明确接管，重复或 CNAME/NS 冲突停止；PATCH 保留其他字段，创建带规则标记用于丢失回执恢复；无变化不写 DNS，失败退避并保留上次成功。暂停、停用及删除规则不删除远端记录，进行中编辑/停用拒绝。
+- 新增 0032 迁移；同步完成后的 0001–0031 字节保持不变，旧业务迁移断言补新接收时间为 NULL，仍完整核对原字段、凭据、授权与账本。参考 IPFlare `19bcf463a3dfdc3d13a9e61dd22bbf1a6fc68c80` 的行为思路并核对官方接口，实现独立编写，不复制参考项目 GPL 源码，无新增依赖。决策、边界及用法见 [ADR 0048](docs/adr/0048-cloudflare-ddns.md) 与 [DDNS 使用说明](docs/ddns.md)。
+- 前端 Bun 53 通过、1036 断言；TypeScript/Vite 129 模块通过，21 份 dist 两次重建逐字一致。DDNS、插件目录、节点路由、服务器接入 4 套 Chromium 通过；DDNS 覆盖 1440/390/320 像素、按服务器启用/停用、目录跳转、限定服务器、失败保留草稿、空 Token 编辑、手动同步、暂停及删除，目录含匿名保护。修正表单带提示的标签定位及 320 像素下继承 340 像素最小宽度导致的溢出，没有移除原语义断言；截图在 `/tmp/sinan-monitoring-screenshots`，已目视复核。
+- 首次最终插件整轮 Rust 为 637 通过、1 失败、20 条件忽略：既有 `diagnostic_end_to_end::chain_gate` 在等待拒绝回执时超时。保持源码、预算和全部门禁断言原样，独立复查该目标 3/3 通过；不将该超时归因为已确认的产品问题或冒称已修复。原失败日志 `/tmp/sinan-monitoring-ddns-plugin-final.log` 与复查 `/tmp/sinan-monitoring-ddns-diagnostic-recheck.log` 保留，最终完整复验另行记录。
+- 第二轮整体验证的该诊断用例通过，但既有订阅来源用例等待任务完成超时，总计仍为 637 通过、1 失败、20 条件忽略；订阅目标独立复查 3/3 通过。检查发现该 HTTP 测试夹具没有启动生产 publisher 的每秒任务调度，只依赖繁忙时可能跳过的 API 唤醒；在 `settled` 中补同频率调度，保留 20 秒截止与全部身份、凭据和历史断言，不改产品调度器。原日志 `/tmp/sinan-monitoring-ddns-plugin-verified.log` 与 `/tmp/sinan-monitoring-ddns-subscription-recheck.log` 保留；夹具缺口是源码确认的条件差异，不据此将两次超时全部归为同一原因。
+- 补齐夹具调度后，订阅专项 3/3 通过，最终完整 Rust/PostgreSQL 工作区 638 通过、0 失败、20 条件忽略（93 个结果组）。包含 11 个 DDNS 单元/数据库/提供方替身用例及 2 个 DDNS HTTP 集成用例；先前两项超时用例也在整轮通过。最终日志 `/tmp/sinan-monitoring-ddns-plugin-complete.log`，前端受测产物与 `/tmp/sinan-ddns-dist-manifest.json` 的 21 个摘要全部一致。
+- 本轮新增依赖为零，Agent 协议与设备端代码未改。Vite 的主后台块仍有大于 500 kB 的提示（509.50 kB，gzip 153.48 kB），DDNS 为异步独立块（12.67 kB，gzip 4.93 kB），不把该提示记为构建失败。66 个相关本地文档链接检查通过，最终全工作区、全 targets、warnings-deny Clippy 通过（`/tmp/sinan-monitoring-ddns-plugin-complete-clippy.log`），fmt、core 边界与差异检查通过；原有 31 条迁移再次逐字核对不变。
+- 本次专用回环 PostgreSQL 55439 已停止，没有操作其他实例。20 项条件忽略仍需 root/systemd、ICMP、正式代理运行时及 ACME 等环境；真实 Cloudflare 凭据、DNS 写入和传播、长期动态 IP 变化及生产历史迁移均未验证。下一步是在单独授权的测试域名验证实际变更与恢复；本轮仅本地 main 源码提交，不推送、发布或部署。CI 继续暂停，未执行部分记为未验证，不据此签收诊断实机能力。
+
+
+- 旧监控整合冻结 `057384014780c9f39ab618edf5401df6fa88532b` 的完整 Rust/PostgreSQL 84 结果组为 631 通过、0 失败、20 条件忽略，另 macOS umask077 1 项及 workspace 全 targets Clippy/fmt/core 通过；自己的 PG 已停。首次环境 ENOSPC 原日志、失败说明与清理收据保持独立，未计通过；仅回收本任务旧 #137 已验证且 mtime/UID/lsof 证明未使用的 49 个可再生测试可执行文件，未清其他工作或依赖缓存。
+- 同一冻结 web 的 Bun 51/1018 断言、两次 TypeScript/Vite 126 模块、19 dist 逐字复现，25 套当前 Chromium 有通过证据。首次 runtime 替身缺少实际 telemetry-settings GET，原失败保留，补一行准确响应后该项及相邻遥测复验通过；产品/产物未变。部署/插件/Python/PowerShell/工具/脚本/CI 与已验主线 c82 原字节相同，未重复旧 299 项脚本，不把旧或重复执行叠加。证据 `pr138-final-rust-repair1-20261002`、`pr138-final-web-20261002`、`pr138-final-integrity-20261002`。
+- 合并前实时读取发现作者继续普通推进到 `014631bb`，包含 `dc65301` 主线同步和新的 Cloudflare DDNS 插件。立即停止旧 head 推送，在新隔离树普通保留全部作者和自身祖先；既有 1–31 迁移保留，只追加 0032，监控 ADR 0047/新 DDNS ADR 0048 各自对应。上述 631/20 和 25 浏览器只对应旧冻结输入，不能证明 DDNS 新功能或新产物；当前实现审查与补修仍未进行中途测试，全部源码冻结后再统一最终验证。
+
+- DDNS 源码补修已冻结：提供方读取后、每次写前在同一有界操作中检查规则 lease/revision、插件启用及服务器/退役/最新地址；先取得服务器锁，再用新语句快照读取退役状态，写期间保留锁。完成成功/失败按旧 revision 匹配，编辑清除旧租约，迟到完成不覆盖新配置。Cloudflare PATCH 发送已经核对的不变 name/type/ttl，保留 comment/tags；创建确认精确检查 UUID 标记，非空 errors 不当成功。只在 DDNS 窄排 IANA 专用地址，未修改共享 IP 质量 helper。
+- DDNS 前端读取未知时禁写且计数显示未知，编辑草稿暂停两项轮询，禁用插件不能启用规则；当前候选与上次成功/离线历史分明，秘密不回显，保留主线有限路由、授权、链路与运维功能。四组新增私有数据库/提供方竞态回归与浏览器回归仅编写，未中途执行；现在统一生成新产物并最终验证，不请求真实 Cloudflare Token/DNS，也不把源码五分钟静态报告链当成正式二进制实机验收。
+
+
+## 2026-10-02 PR #138：监控与 DDNS 最终组合交付
+
+- 验证期间发现作者由 `8e6c543` 正常推进至 `014631bb`，停止旧 head 推送并保留全部作者和主线 `c82fe1e` 祖先；完成 DDNS 整合后再统一验证，没有 force push。原主线 0001–0028 和监控 0001–0031 SQL 原字节保持，仅新增 0032 DDNS，插件物理目录/薄桥、默认关闭及所有旧诊断/接入/退役/授权/账本保护保持。
+- 完整 Rust/PostgreSQL 冻结 `ffdb6fe1`：651 通过、0 失败、20 条件忽略，85 结果组；DDNS 私有提供方/真实数据库 20 项含在其中。macOS umask077 专项 1、全 targets Clippy/fmt/core 通过。20 忽略需要专用 Linux/root/systemd、ICMP、正式固定运行时或 Pebble 等，不计通过。
+- 后续只补桌面侧栏滚动、两份浏览器夹具及构建引用；最终产品 Rust/插件/Cargo/锁仍等于完整冻结输入。前端 `84d3038e` 的 Bun53/1039、两次 TS/Vite129模块与21dist逐字复现；`34fb4f07` 的五套相关 Chromium 实跑通过。26 套当前覆盖为21套保留首轮通过证据加5套最终补跑，未冒称最终全26重新执行或把重复次数相加。
+- 在最终 `34fb4f07` 启用 rust-embed/debug-embed，以本次精确 Cargo rlib 的临时真实 HTTP 验收器读取全部21编译嵌入文件，GET字节/SHA及HEAD/MIME/cache/nosniff与Git相同，根index一致；frontend专项1与最终全targetsClippy/fmt/core通过。并非正式发布构建，不将旧651说成最终head全量重跑。自己的PG55432和临时HTTP已停止。
+- 首磁盘不足、浏览器匿名reload/底部导航和临时取证器Tokio选图失败均保留原日志，补正后复验，不记首失败为通过。最终只追加验收文档，证据与范围详见[组合验收](docs/acceptance/pr138-monitoring-ddns-validation.md)。
+- 真实Cloudflare写入/权限/传播、真实通知、长期采样、多平台生产迁移与实机诊断/TCP签收仍未验；四源码workflow继续暂停，CI未执行不算通过，不作签名/发布/部署或issue关闭。
+
+
+## 2026-10-02 PR #140：保留最新监控主线的整合
+
+- 正常整合作者 `70bb8416` 与 PR #138 已合主线 `10dc9727`，保留作者全部推进和双方进度。实现阶段未运行测试、构建或格式检查；全部补修和新产物冻结后再统一验证。
+- 主线 0001–0032 SQL 原字节保持；新增授权收敛迁移由作者分支 0029 按原字节顺延 0033。旧schema重复迁移回归保留授权、历史样本和凭据断言并扩到33，不改旧迁移摘要。新offline/node-query/carrier ADR顺延0049–0051，已有0047监控和0048DDNS保留。
+- 遥测冲突保留1秒采样、独立3秒live/60秒持久确认、旧面板fallback及全部确认屏障，同时整合可恢复SQLite错误。旧NQr19生产者及精确历史/Started/full门禁、17固定来源和所有既有插件/业务/安装保护保持。
+- 作者625/20、503 testsRun、25浏览器及私有Debian/native制品收据保留各自来源，本聊天没有重演、累计或将其当成新的主线组合通过。当前最终验证待完成；CI继续暂停，不签署正式制品、发布或部署，不代作者评论/关闭issue。
+
+## 2026-10-02 PR #140：当前主线最终验证
+
+- 最终冻结 `557cccf` 完整 Rust/PostgreSQL 680 通过、0 失败、20 条件忽略，86 结果组；umask077 1、全 targets Clippy/fmt/core 通过，真实 macOS IPv4/IPv6 回环 ICMP 1 另计。首 `8aa207b` 的 679/1/20 失败原日志保留，只补既有恢复夹具 watch/计数器竞态的明确 Notify，同样2秒等待与产品5秒预算，完整复验通过。
+- Bun54/1265、双强制 TS/Vite129模块、21dist逐字复现；当前30 Chromium覆盖为29首轮通过+display-data精确线路备注断言补修后1通过。全部私有API，新资源快照22场景、40次陈旧强制写零请求与20次恢复单写，不宣称首轮全绿、31项或作者全部真实设备矩阵复演。`557cccf` 实际编译内嵌 handler 的21文件 HTTP GET/HEAD字节/SHA/长度/MIME/cache/nosniff及根index相同，frontend1通过。
+- 9相关Python132完整方法通过/19方法skip/1 classskip/0子例skip/0失败；17固定来源687969B逐锁SHA、两个FIFO负例、20 Python AST/bootstrap/actionlint/88links通过。首actionlint PATH环境失败保留，只补静态；旧canonical/PS按blob/mode保持，不重复旧299或声称新Windows验收。
+- 旧32条SQL原字节保留，新唯一0033与作者原授权SQL一致，ADR0047/0048保留、新49–51唯一；全部作者/main祖先普通保留。收尾只有文档追加，精确输入映射与失败修正见[当前主线验收](docs/acceptance/pr140-current-main-validation.md)。PG55432及临时HTTP已停；CI继续暂停，20忽略及正式提供商/rootfs/生产迁移/设备/TCP整链仍单列待验，没有正式签名发布部署或代其他任务关闭issue。
+
+
+## 2026-10-02：剩余 issue 第二轮整合（#141–#144）
+
+- 基于已合入前轮修复的 main `ed79ff9`，窄整合准备分支的下载证据、诊断清理和拨测租约；保留主线混合代理资源、官方 IP 查询、0001–0033 迁移及暂停的四个 workflow，不整分支覆盖或改写历史。
+- #141：材料下载明确保留 worker 失败分类、异常类型、阶段、HTTP 状态或未知及受限响应头；超时/取消后有界保存证据，仍按硬容量与预留保护宿主。失败撤回仅本次创建且身份仍一致的成功清单/输入锁，不清掉已经取得的材料或覆盖既有文件。主线 FIFO/符号链接及复制摘要守卫保持。见 ADR 0055。
+- #142：当前链路入口已有同步 pending/failed 门禁，本轮补读取恢复后的原实体、服务器启用与筛选核验，保留原选择及编辑草稿；受管段按当前节点服务器检查重复。见 ADR 0054。
+- #143：冻结原终态和报告，停止/清理未确认保持 cleaning 及互斥；SQLite 串行 owner/done/取消意图，取消后的旧观察不能复活；已有任务能力失效仍尝试停止。新任务创建及领取要求确认完成能力，失去能力保留原队列。迁移0034追加，历史不替换。见 ADR 0052。
+- #144：主线明确来源与身份授权保留，新增最多90秒、设备/配置/会话绑定租约、实际签发摘要及有界收据；冷启动不恢复权限，单调期限、GET预算、会话变化和配置撤销取消在途测量；持久周期和三管理入口修订号比较。新无证明结果全部ACK丢弃，既有同ID/摘要历史幂等保持；匿名不暴露执行授权。迁移0035追加。见 ADR 0053。
+- 用户要求仅最后统一测试：本批源码完成后再运行完整 Rust/真实 PostgreSQL、相关 Linux 下载回归、Bun/构建与受影响桌面手机浏览器。实际结果随后追加，不转记准备分支或前轮测试为当前通过。专用 Linux90秒联测与诊断实机/完整 NodeQuality 联合验收分别记证据。
+- #3 原0.2 ELF有摘要但未取得其精确源码或CI绑定；#6原两个15秒失败未保留故障瞬间双端传输日志。#24真实获准查询以及#28/#65/#66/#82完整双架构工具链与授权门禁继续保持，不把新增工厂/收据或源码用例当作完整签收。
+
+
+## 2026-10-02：#141–#144 组合交付的最终结果
+
+- 当前主线 `ed79ff9` 与原 33 份迁移、四个暂停 workflow、Cargo.lock 原字节保持；新增0034/0035。Web 源与21份dist逐字对应实际受验摘要，收尾仅文档。具体输入、失败与未完成条件见[本轮组合验收](docs/acceptance/open-issues-20261002.md)。
+- Rust/真实 PostgreSQL 冻结 `cb00c6a` 整轮88组为722通过/5失败/20条件忽略；修正真实签发样本、两个旧schema新列默认预期、当前配置DTO及已领取签名任务夹具。失败PG确认升级用例已ACK但错误为下载409，补其应有的旧验签能力，仍保留20秒与所有full拒绝断言。产品源码不变，`d18e51f` 四受影响目标17/0/0，全部targets Clippy/fmt/core通过；按目标/方法替换后727不同方法通过、20忽略，未冒称最终全量重跑或叠加重复次数。
+- Linux工厂35与收集器39通过，六文件SHA桥接当前输入；首/tmp不足预留失败与改私有TMPDIR后的补验分别保留。Bun56/1278断言、TS/Vite、17实际dist浏览器通过，55截图；新链路68场景144次禁止写与58次恢复，新拨测管理修订冲突回归通过。
+- 所有本任务Linux测试容器已停止并移除，无OOM；未清其他工作、改生产空间/时间门槛或恢复CI。新原生拨测控制器仅准备及AST通过，没有执行。原VM约643MiB可用空间，低于1.5GiB构建条件，全部自有可再生输出也不足补齐。
+- #141/#142 达到本轮关闭条件；#143/#144 新源码已交付但专用Linux重启/断连/ICMP/systemd和完整NodeQuality/持续代理联测仍待，保持开放。旧#3/#6/#24/#28/#65/#66/#82缺历史/真实提供方/完整工具来源及双架构证明，保持开放。推送与PR后只关闭达到条件的两项；没有PR合并、正式签署、Release或生产部署。
+
+## 2026-10-02 PR #145：最终审查与整合验证
+
+- 保留作者 `aab3241` 和主线 `ed79ff9` 全部祖先，集中完成实现后再统一验证。补面板超时/门禁拒绝仍保留未确认任务占用和有界 `cleanup_pending` 历史、损坏身份拒绝操作、同会话 GET 失败恢复不能延长单调许可、同事务入口资格及当前资源/能力/修订拒绝陈旧业务写入；原 JSON、历史和生产预算保持。
+- 最终运行冻结 `050e53b282f7f170a61a96ed5532d4472a06b8f7`，88 metadata 目标、72 批次按 18+20+34 分段全部覆盖：731 通过、0 失败、20 条件忽略。fmt/core/全 targets Clippy 通过，umask077 1 和真实 macOS 双栈回环 ICMP 1 另列。编译 ENOSPC、取证器误认 support 源和第二次磁盘中断保留原日志；原未认证诊断 23 项及零执行编译均未重复计入。仅核对原成功证明后回收本任务旧测试缓存，自己的 PG55432 最终停止。
+- Bun58/1301、双强制 TS/Vite 与21dist逐字复现；当前33 Chromium 覆盖为32首轮通过加诊断夹具补修后1通过，原失败保留，全私有API。能力恢复后仍待清理的禁写断言保持，新诊断四场景52拒写8恢复通过。实际编译内嵌 handler 的21资产 GET/HEAD 字节/摘要/长度/MIME/cache/nosniff及根index一致，frontend专项1不重复计入总数。
+- Python76完整方法通过、2方法条件跳过、1类跳过覆盖7方法，106子例通过；控制器仅6合成回归，不执行 native main。容量子例只mock测试余量，不放宽生产预留。809非Markdown输入、旧33SQL/新0034–35作者字节、Cargo.lock/四workflow/17来源687969B/许可/helper/PS均核对，收尾仅文档。具体冻结、原失败和耐久证据见[PR #145 整合验收](docs/acceptance/pr145-integration-20261002.md)。
+- #143/#144 新 Linux/systemd 联合故障验收仍待；20条件忽略、正式提供方、完整工具权利/双架构、其他平台安装和 TCP 整链均不记通过。四源码 CI 继续暂停，未正式签名、发布、部署或代其他任务评论/关闭 issue。
+
+## 2026-10-02：多云 DDNS 与阿里云 CDT 管理插件
+
+- 开始时本地、origin/main、upstream/main 均为 `3e99ce9`；已 fetch 核对上游，不重复合并，不创建新分支。保留主线 DDNS 租约、写入前服务器/退役/IP 复核、迟到完成和公开访问保护。
+- DDNS 增加腾讯 DNSPod、阿里云云解析、华为云公网 DNS：四种签名/提供方共用调度；支持根域名、线路（含腾讯 `10=1` 形式）、A/AAAA、TTL、成对轮换访问密钥。凭据只写不读，旧 Cloudflare 配置缺省兼容；精确核对记录与归属，不覆盖重复、多值、委派或冲突记录。华为异步回执只记已提交，不提前覆盖上次成功地址；腾讯/阿里丢失创建回执后须人工核对接管。
+- 新增按云账号管理的阿里云面板插件，物理实现位于 `plugins/alicloud/panel/`，共享签名与有限 HTTP 在 `plugins/cloud_api/panel/`。参考 ddns-go `7aad574de4ba1e4646f07648a38235d34bab6648` 和用户指定 CDT-Monitor `148fd7823367a9618ec185e0f46559c491465470`，独立实现；未增加 Cargo 依赖、Python、Agent 协议或设备代码。
+- CDT 兼容只读接口展示国内/海外与地域用量，中国站/国际站 BSS 展示当月完整分页账单及原币种/单位。兼容接口未公开完整契约、缺乏可信账期，因此不用于自动授权；不臆造免费余额、开通状态或私有开通接口。ECS 固定公网 IP 支持带宽和公网计费方式调整；独立 EIP 只调整带宽，计费转换引导至官方控制台；不操作共享带宽包、包年包月 EIP、IP 绑定/释放或启停机。
+- 变配采用五分钟预览、明确费用确认、持久化意图、资源串行和状态读回；重复确认不重复写入，超时或重启只核对不盲重发。自动策略默认关闭，仅完整、新鲜、当月 GB 单位账单达到配置阈值时降低指定按流量计费资源的带宽，不换计费、不恢复高带宽。账号/资源编辑取消未开始操作；人工结束不确定跟踪会暂停资源策略。手动刷新不能绕过提供方限流。
+- 仅追加 0036/0037 两条迁移；原 0001–0035 与基线逐字一致。升级回归保留 Cloudflare 凭据、配置、记录 ID、历史地址/时间和旧迁移摘要。补充 ADR 0056–0057、DDNS/阿里云使用说明与插件目录说明。
+- 完整工作区 Rust/PostgreSQL：752 通过、0 失败、20 条件忽略，97 个结果组（`/tmp/sinan-multicloud-all-test.log`）。之后仅补自动控制成功/账单失败用例、手动限流保护及腾讯线路格式；最终插件 74/74、云管理 HTTP 3/3 通过（`/tmp/sinan-multicloud-final-lib.log`、`/tmp/sinan-multicloud-alicloud-http-final.log`）。不把重复专项计入完整工作区数量；20 忽略需真实运行时、root/服务管理或专用环境，不计通过。
+- 最终全 targets warnings-deny Clippy、fmt、core 边界与 diff 检查通过；Bun 61/61、1331 断言、TypeScript/Vite 134 模块构建通过。Vite 保留主块大于 500 kB 的体积提示，非构建失败。最终 23 份 dist 摘要在 `/tmp/sinan-multicloud-dist-manifest.json`。
+- 浏览器回环替身：DDNS 1440/390/320 px、CDT 1440/390/340 px 以及插件目录桌面/手机流程通过，覆盖密钥不回显、草稿暂停轮询、失败禁写、变配确认/冲突/人工结束和原服务器插件导航；截图在 `/tmp/sinan-multicloud-screenshots` 并已目视复核。CDT 初次 320 px 断言发现项目原有 body 最小宽度为 340 px，按既有最小宽度复验，未宣称支持更窄布局。DDNS 初次删除提示断言更新为多云通用文案后通过。
+- 未使用真实凭据，未写真实 DNS、未执行云资源变配/扣费/通知或发布部署。CDT 兼容接口可用性、实际账单延迟、RAM 权限与订单限制、DNS 传播仍需专用测试资源另行授权验收；具体步骤见 `docs/alicloud.md`、`docs/ddns.md`。GitHub CI 持续暂停，未触发/重跑，不据本地结果宣称 main 远端全绿。
+## 2026-10-02：CDT-Monitor ECS 启停、自动策略与费用缓存
+
+- 在 `366f2f5` 之上沿现有 main 实现用户补充的全部启停范围，未创建分支。参考 CDT-Monitor `148fd7823367a9618ec185e0f46559c491465470` 的策略、去重和缓存，核对阿里云 StartInstance/StopInstance/DescribeInstances 及 BSS 官方元数据；独立实现，未增加依赖、Python 或 Agent 云凭据。
+- 阿里云插件增加 ECS 手动开/停机、KeepCharging/StopCharging、预览与确认、持久任务、取消和人工结束跟踪。正常关机且不初始化磁盘，逐实例身份核验，启停与带宽变配互斥；异步回执需读回状态和实际停机模式，停机模式降级不会标成预期成功，固定公网 IP 消失/变化不阻止启停核对。未知写回执及崩溃后不重发。
+- 每资源自动策略默认关闭：额度 GB × 百分比，支持仅通知或停机并通知；阈值保护、手动暂停、每日计划、抢占式保活有明确顺序。继续采用完整当月 CDT 账单，兼容接口无可信账期只展示；数据失效不解除保护。每日固定 UTC 偏移默认北京时间，支持跨午夜、十分钟补偿和数据库去重；相邻时段切换取消过时动作。保活只启动仍存在的已停止抢占实例，库存等明确拒绝至少十五分钟冷却，不购买/重建实例。
+- 账号可用额度、实例月账单分别持久缓存六小时，跨月账单刷新，完整游标分页/身份/币种核对；失败保留旧值及时间并独立退避。控制用 CDT 账单仍每五分钟查询。启停任务占用不会回滚新账单或误排带宽变更。插件站内事件和外部通知队列独立持久化，复用现有 Telegram/Webhook 模板与发送实现、按渠道重试，测试均替身发送。
+- 新增迁移 0038，原 0001–0037 逐字保留；新增 ADR 0058，更新使用说明和边界选择。页面加入余额/账单、启停策略/手动入口、任务及通知；提交后到最新快照读回期间禁写，共用确认组件支持准确的恢复/结束文案。
+- 完整 Rust/隔离 PostgreSQL：770 通过、0 失败、20 条件忽略，97 个结果组，日志 `/tmp/sinan-multicloud-power-all.log`。整轮之后只补相邻日程边界及带宽/启停互斥的缓存保存，最终阿里云专项 27/27（`/tmp/sinan-multicloud-power-final-guards.log`）；不把专项重复计入整轮数。全 targets warnings-deny Clippy、fmt、core 边界与 diff 检查通过；20 忽略所需真实运行时/特权/专用环境仍未验证。
+- Bun 61/61、1331 断言、TypeScript/Vite 135 模块及最终内嵌前端测试 1/1 通过。23 个 dist 摘要在 `/tmp/sinan-alicloud-power-dist.json`，保留既有主块超过 500 kB 的体积提示。浏览器 1440/390/340 px 各 13 次模拟写全部通过，覆盖策略配置、明确确认、冲突保留、任务互斥、结束跟踪、恢复和失败禁写；截图 `/tmp/sinan-multicloud-screenshots/alicloud*.png` 已目视复核。首轮定位错误、复用删除文案和刷新就绪竞态已分别修正后重跑，不记首轮通过。
+- 未使用真实云凭据、启停真实实例、发送真实通知或做发布部署；StopCharging 实际降级/收费、RAM 限制、公网 IP 变化、库存、抢占释放、中国/国际站实际账单与余额仍待专用云资源授权验收。CI 保持暂停，未触发/重跑；不据本地通过宣称 main 远端全绿。源码提交后下一步为审查及独立真实云验收。
+
+<!-- 以下保留 PR151 作者分支的历史进度及其冻结验证边界；不计作本聊天整合验证。 -->
+
 ## 2026-10-01 统一分支最新主线整合（修改中，待整步验收）
 
 - 正常整合 main `74b403c`，保留作者提交、节点设置/部署/统计/订阅、旧接入保护及实际尝试缓存语义；不复用任一父分支测试收据证明新组合。按用户要求，集中修改期间不运行测试或构建，全部改完后冻结、统一验收、提交。
@@ -1672,7 +1859,7 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - sing-box 策略组、代理用户直接授权与套餐分配使用相关读取的新鲜状态保护全部按钮及表单处理器；失败或 pending 保留旧数据与草稿并关闭写入，恢复后检查失效实体和资源。已打开的窗口同样受控，关闭与重试可用；不把界面保护当作权限绕过修复或并发事务锁。
 - 按用户节奏先集中完成代码，再冻结统一验收并记录实际失败；之后只补受修复影响的范围。当前 Linux 不同方法 92 通过/0 失败/0 跳过，macOS 重叠范围 53 通过/6 Linux 条件跳过且保留两个 ResourceWarning。一次前端构建、Bun 40/922、四套受影响实际 dist 浏览器通过；五次浏览器夹具失败及修复保留。最终 550 功能输入及 19 dist 与收据一致，342 Rust/Cargo/面板插件输入保持基线；未重复 Rust 全量测试。
 - 真实专用 Debian12 ARM64 收集的三次失败分别是完整 GPG 多签名 keyring、APT 可选展示校验和兼容及 900 MiB 总材料预算拒绝。最后一次 8 个元数据对象、签名索引及独立 APT 求解已通过，选择 237 个二进制包/168 个源码版本；正文下载前拒绝，源码总字节未知，无完整输入锁或 rootfs。每次独立单元均无 OOM/所属进程/挂载/cgroup 残留；宿主 ENOSPC 及尝试间未知 guest boot 变化分别保留，不伪称全程同一启动。
-- 详见[验收记录](docs/acceptance/debian-inputs-and-singbox-snapshots.md)、[机器证据](docs/acceptance/evidence/debian-inputs-and-singbox-snapshots.json)与 [ADR0046](docs/adr/0046-nodequality-input-collection.md)。#139 保留开放，aws-jp0 SSH 仍超时。下一步安排完整闭包的独立工厂容量、候选镜像身份和原生复建；Geekbench/Ookla 条件、完整联合负载及混合机场链路仍待。没有正式签署、发布、生产部署或恢复 CI，整体目标继续进行。
+- 详见[验收记录](docs/acceptance/debian-inputs-and-singbox-snapshots.md)、[机器证据](docs/acceptance/evidence/debian-inputs-and-singbox-snapshots.json)与 [ADR0046](docs/adr/0061-nodequality-input-collection.md)。#139 保留开放，aws-jp0 SSH 仍超时。下一步安排完整闭包的独立工厂容量、候选镜像身份和原生复建；Geekbench/Ookla 条件、完整联合负载及混合机场链路仍待。没有正式签署、发布、生产部署或恢复 CI，整体目标继续进行。
 
 ## 2026-10-02：完整 Debian 输入闭包与失败证据
 
@@ -1690,7 +1877,7 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 原子持久化单调恢复revision下限，apply/rollback/recovery均守约；阻止回退时保留intent和管理连接，不吞全局DB/身份/信任错误。检查及屏障不隐式恢复或重启；旧记录缺失或实例失效由管理员明确更高版本受控重部署认证，同版本拒绝且无动作。日志有总ID、未ACK、单行与单轮预算，未ACK不TTL删除。
 - 链路相关GET失败/pending保护已开窗口及真实创建/删除回调，保留旧列表/草稿/关闭/重试；恢复后检查失效节点/服务器/角色/链路ID。原两跳、共享出口、不可用旧链路明确清理及授权/套餐流程保持，不加online/安装就绪创建门禁，不重写凭据/订阅路径/历史账本。
 - 完整r4十包/69目标566通过、0失败、18条件忽略，最终恢复缺口仅两文件修复并r5对账21项补验；20项重复不累加，最终567不同用例通过。格式、Clippy、分层和diff均过，自有PG清理完成。一次前端构建取得19dist，Bun48/1024零跳过、四套受影响活跃Chromium及旧groups入口均通过；未重复15套未受影响浏览器或已验Python材料流程。
-- 预检旧dist清单、字段可见性和collapsible_if失败各自保留，最终审查的实际实例失效/明确新部署恢复路径集中修复后只补受影响范围；621功能输入及19dist与最后收据一致。见 [本步验收](docs/acceptance/runtime-checkpoints-and-chain-guards.md)、[机器证据](docs/acceptance/evidence/runtime-checkpoints-and-chain-guards.json)和 [ADR0047](docs/adr/0047-runtime-checkpoints-and-recovery-barriers.md)。
+- 预检旧dist清单、字段可见性和collapsible_if失败各自保留，最终审查的实际实例失效/明确新部署恢复路径集中修复后只补受影响范围；621功能输入及19dist与最后收据一致。见 [本步验收](docs/acceptance/runtime-checkpoints-and-chain-guards.md)、[机器证据](docs/acceptance/evidence/runtime-checkpoints-and-chain-guards.json)和 [ADR0047](docs/adr/0062-runtime-checkpoints-and-recovery-barriers.md)。
 - 实际Linux systemd确认、真实持续Agent/sing-box联合负载、完整NodeQuality许可/工厂身份/双架构复建与混合机场路径仍待；基础收据不冒称端到端探测或完整签收。四源码CI只读核对仍disabled_manually，无新PR、正式签署、发布、生产迁移/部署或恢复CI，整体目标继续进行。
 
 
@@ -1701,7 +1888,7 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 最终622功能输入与冻结一致；Linux110个不同方法最终通过、0未覆盖/条件跳过，macOS110通过/12平台条件跳过，跨平台去重122方法通过。fmt、全workspace/all-targets Clippy、core及diff检查通过，未重复未变Rust完整测试/前端构建/浏览器；四源码CI继续暂停。
 - 两个真实600 MiB ext4场景分别触发磁盘512 MiB与inode1024预留，停止并回收自有生产者，旧sentinel保持；PID、挂载、loop backing、镜像、临时目录/单元/cgroup读回清理，SSH/启动身份保持，无OOM，最高峰值235,753,472B与6个进程。目标余量跌过阈值的超调如实保留，backing仍守管理预留；不是实际完整mmdebstrap或诊断联合负载。
 - 实际ARM64材料metadata实时plan只读保持原摘要，prepare副本正文1,069,414,018B、含块与临时余量新增1,143,840,768B；guest观测675,377,152B，prepare/build/export加预留均拒绝。未删除旧材料、扩VM或换生产节点，未伪造builder绑定/审批，也未启动完整构建。
-- 冻结驱动字段/cargo PATH预检、r1旧synthetic closure的5方法/7子场景错误、r2错误的detached loop空数组断言及后续inode条件跳过均保留；夹具修正后只补受影响/未执行范围。收尾审阅补日志EOF后仍运行的容量检查，Linux4项（3重复）及mac新增1项通过。见[本步验收](docs/acceptance/nodequality-factory-capacity.md)、[机器证据](docs/acceptance/evidence/nodequality-factory-capacity.json)、[ADR0048](docs/adr/0048-nodequality-factory-capacity.md)。
+- 冻结驱动字段/cargo PATH预检、r1旧synthetic closure的5方法/7子场景错误、r2错误的detached loop空数组断言及后续inode条件跳过均保留；夹具修正后只补受影响/未执行范围。收尾审阅补日志EOF后仍运行的容量检查，Linux4项（3重复）及mac新增1项通过。见[本步验收](docs/acceptance/nodequality-factory-capacity.md)、[机器证据](docs/acceptance/evidence/nodequality-factory-capacity.json)、[ADR0048](docs/adr/0063-nodequality-factory-capacity.md)。
 - 完整builder镜像/provisioning身份、原生双架构构建/复建、Geekbench/Ookla等许可与全部工具、Agent/常驻代理完整联合负载和混合订阅路径仍待；没有正式签署、发布、生产部署或恢复CI，整体目标继续进行。
 
 
@@ -1711,7 +1898,7 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 精确绑定保存的 UUID/单元/程序/工作目录后才特权查询和停止；服务非 Running 不等于已清理。原子核对所有权/done/取消意图及固定结果，取消确认后丢弃旧观察，不能复活 ACTIVE 或覆盖取消；历史任务取消延后处理以保当前保护时效，证明能力失效仍尝试停止已有任务但不误报完成。冻结为空报告也不重采集；退役两次确认清理后才移除凭据。
 - 最终646功能输入与冻结逐字保持，工作区十包/69不同目标共593不同方法通过、0仍失败、18条件忽略。首次七个未变包与其余 core 方法保留，最终诊断56/退役17及此前未执行的六个 core 集成目标、Agent、面板补验通过；重复73项不累加。fmt、全workspace/all-targets warnings-deny Clippy、core分层和diff通过，自有PG停止/PID/端口/socket清理核实。
 - 一次前端构建取得19dist，Bun48/1024零失败/跳过，三套受影响实际dist Chromium（TcpQuality、NodeQuality门禁、确认取消）通过，涵盖手机/等待清理/报告/重复提交/取消接管/恢复。原旧dist预检、枚举Clippy、core首轮3失败及展开报告夹具失败均保留；集中修复后只补受影响/未执行范围，未重复未变Python/其余浏览器。
-- 见[本步验收](docs/acceptance/confirmed-diagnostic-completion.md)、[机器证据](docs/acceptance/evidence/confirmed-diagnostic-completion.json)、[ADR0049](docs/adr/0049-confirmed-diagnostic-completion.md)及原milestone下的[#143](https://github.com/theLucius7/sinan/issues/143)。四源码CI继续disabled_manually，未新建单项PR、正式签署、发布或生产部署；新Agent与面板需同版切换，旧设备未因源码验证而获得保护。
+- 见[本步验收](docs/acceptance/confirmed-diagnostic-completion.md)、[机器证据](docs/acceptance/evidence/confirmed-diagnostic-completion.json)、[ADR0049](docs/adr/0064-confirmed-diagnostic-completion.md)及原milestone下的[#143](https://github.com/theLucius7/sinan/issues/143)。四源码CI继续disabled_manually，未新建单项PR、正式签署、发布或生产部署；新Agent与面板需同版切换，旧设备未因源码验证而获得保护。
 - 当前源码的专用Linux/systemd确认、完整NodeQuality与持续代理流量/心跳/故障矩阵，以及builder身份/双架构复建/Geekbench和Ookla条件仍待；混合订阅链路亦未签收。本步骤不是P0总验收或整体目标完成，后续继续按完整大步骤集中修改和提交。
 
 
@@ -1722,4 +1909,4 @@ r2–r7精确历史回收、r4–r8 daily及全部full门禁保持。只移除�
 - 三入口与实际提交回调保护读失败/pending/过时版本/变化的服务器及目标，保留草稿和离线配置；匿名图表消费安全授权状态，历史不当作当前仍获授权。旧 Agent 的离线窗口需要升级才能修复，保存成功仍不表示设备已停止。
 - 最终659功能输入及19dist与接受的收据一致；十包/71不同目标共618不同方法通过、0仍失败、18条件忽略。九包及未变面板方法保留，失败和受影响/未执行范围按目标补验，重复不累加；格式、Clippy、core与diff通过，各自有PG收尾核实。一次前端构建，Bun56/1133零失败/跳过，八套受影响实际dist浏览器通过，33截图留存。
 - 编译/lint/旧入口、磁盘预检与512MiB动态保护、SQL保留关键字、响应DTO和旧迁移快照失败记录保留；面板改逐目标编译运行并回收本次无占用测试缓存，保持管理空间，没有删除开发材料。既有工厂失败说明同步对齐，未复测未变工厂；私有保留方法标签纠正不替代实际日志索引。
-- 见[本步验收](docs/acceptance/authorized-probe-leases.md)、[机器证据](docs/acceptance/evidence/authorized-probe-leases.json)、[ADR0050](docs/adr/0050-authorized-probe-leases.md)及[#144](https://github.com/theLucius7/sinan/issues/144)。专用Linux真实Agent重启/断连/标准ICMP与持续代理联测、完整NodeQuality许可/工厂身份/双架构及负载、混合订阅路径仍待；未正式发布、生产迁移/部署或恢复四源码CI。本步不是整体目标完成，后续继续以完整大步骤推进。
+- 见[本步验收](docs/acceptance/authorized-probe-leases.md)、[机器证据](docs/acceptance/evidence/authorized-probe-leases.json)、[ADR0050](docs/adr/0065-authorized-probe-leases.md)及[#144](https://github.com/theLucius7/sinan/issues/144)。专用Linux真实Agent重启/断连/标准ICMP与持续代理联测、完整NodeQuality许可/工厂身份/双架构及负载、混合订阅路径仍待；未正式发布、生产迁移/部署或恢复四源码CI。本步不是整体目标完成，后续继续以完整大步骤推进。

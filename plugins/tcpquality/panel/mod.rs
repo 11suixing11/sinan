@@ -110,16 +110,27 @@ async fn targets(connection: &mut sqlx::PgConnection, server: i64) -> ApiResult<
                     "已配置的 TCP 拨测目标无效，请先修正配置".into(),
                 ));
             }
-            Ok(Target {
+            if !spec.runnable_at(now_timestamp())
+                || spec.address_family() != sinan_protocol::ProbeAddressFamily::Any
+                || spec
+                    .monitor
+                    .as_ref()
+                    .and_then(|monitor| monitor.authorization.as_ref())
+                    .is_none_or(|authorization| authorization.expires_at.is_some())
+            {
+                return Ok(None);
+            }
+            Ok(Some(Target {
                 id,
                 name: spec.name,
                 target: spec.target,
                 port: spec.port.unwrap(),
                 carrier: spec.carrier,
                 region,
-            })
+            }))
         })
-        .collect()
+        .collect::<ApiResult<Vec<_>>>()
+        .map(|targets| targets.into_iter().flatten().collect())
 }
 
 pub struct TcpQualityPlugin;

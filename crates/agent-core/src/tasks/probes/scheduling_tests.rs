@@ -1,6 +1,9 @@
 use super::*;
 use sinan_adapter_sdk::{BoxFuture, CommandOutput};
-use sinan_protocol::{AuthorizedProbe, ProbeAuthorization, ProbeLease, ProbeScope};
+use sinan_protocol::{
+    AuthorizedProbe, ProbeAddressFamily, ProbeAuthorization, ProbeAuthorizationKind, ProbeLease,
+    ProbeMonitor, ProbeNetwork,
+};
 use std::{
     path::Path,
     sync::{
@@ -79,6 +82,26 @@ pub(super) async fn until(condition: impl Fn() -> bool) -> Result<()> {
     .context("probe scheduler did not make progress")
 }
 
+pub(super) fn authorize(mut spec: ProbeSpec) -> ProbeSpec {
+    if spec.monitor.is_none() {
+        let identity = spec.identity();
+        spec.monitor = Some(ProbeMonitor {
+            network: ProbeNetwork::Other,
+            region: "local fixture".into(),
+            address_family: ProbeAddressFamily::Any,
+            authorization: Some(ProbeAuthorization {
+                kind: ProbeAuthorizationKind::Owned,
+                source: "operator-owned loopback".into(),
+                scope: "controlled test fixture".into(),
+                enabled: true,
+                expires_at: None,
+                identity,
+            }),
+        });
+    }
+    spec
+}
+
 pub(super) fn accepted(
     session: &Arc<PanelClient>,
     specs: &[ProbeSpec],
@@ -98,14 +121,14 @@ pub(super) fn accepted(
                 .iter()
                 .cloned()
                 .map(|spec| AuthorizedProbe {
+                    authorization: spec
+                        .monitor
+                        .as_ref()
+                        .unwrap()
+                        .authorization
+                        .clone()
+                        .unwrap(),
                     spec,
-                    authorization: ProbeAuthorization {
-                        region: "local fixture".into(),
-                        source: "operator-owned loopback".into(),
-                        scope: ProbeScope::Owned,
-                        evidence: "controlled test fixture".into(),
-                        expires_at: None,
-                    },
                 })
                 .collect(),
         },
@@ -136,7 +159,10 @@ async fn slow_probes_do_not_delay_results_and_configuration_changes_cancel_work(
             interval_secs: 3600,
             carrier: String::new(),
             enabled: true,
+            monitor: None,
+            execution_authorized: None,
         })
+        .map(authorize)
         .collect();
     let client = Arc::new(PanelClient::new("http://127.0.0.1:1", "fixture-session")?);
     let (_clients, clients) = watch::channel(Some(client.clone()));

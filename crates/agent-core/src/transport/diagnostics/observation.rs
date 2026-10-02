@@ -78,12 +78,17 @@ impl DiagnosticWorker {
             {
                 *protection_stop_reason = Some(reason.clone());
             }
-            if let Err(error) = self.save(&stopping) {
-                // Storage failure must not prevent the memory protection action.
-                let stopped = self.bounded(self.services.stop(&service.unit)).await;
-                tracing::warn!(%id, result=?stopped, "diagnostic stopped despite protection checkpoint storage failure");
-                return Err(error)
-                    .context("cannot persist diagnostic protection reason; ownership retained");
+            match self.save_if_owned(&stopping) {
+                Ok(true) => {}
+                Ok(false) => return Ok(()),
+                Err(error) => {
+                    // Storage failure must not prevent the memory protection action.
+                    let stopped = self.bounded(self.services.stop(&service.unit)).await;
+                    tracing::warn!(%id, result=?stopped, "diagnostic stopped despite protection checkpoint storage failure");
+                    return Err(error).context(
+                        "cannot persist diagnostic protection reason; ownership retained",
+                    );
+                }
             }
         }
         if status == Some(JobStatus::Running) && stop_reason.is_none() {

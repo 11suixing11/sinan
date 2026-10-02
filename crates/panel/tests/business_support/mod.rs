@@ -36,7 +36,6 @@ impl TestPanel {
         Self::start_with_public_url(pool, None).await
     }
 
-    /// Keep the HTTP fixture local while signing an explicit TEST_ONLY public origin.
     pub async fn start_with_public_url(pool: PgPool, public_url: Option<&str>) -> Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let listen = listener.local_addr()?;
@@ -49,7 +48,9 @@ impl TestPanel {
             Config {
                 database_url: String::new(),
                 listen,
-                public_url: public_url.unwrap_or(&base).into(),
+                public_url: public_url
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| base.clone()),
                 data_dir: directory.clone(),
                 admin_password: Some(PASSWORD.into()),
             },
@@ -144,7 +145,7 @@ impl TestPanel {
         Ok(response.json().await?)
     }
 
-    /// Explicit TEST_ONLY import of a pre-0030 chain. Product creation always uses ordered paths.
+    /// Explicit TEST_ONLY import preserving both numeric and rich legacy projections.
     pub async fn import_legacy_chain(
         &self,
         cookie: &str,
@@ -173,10 +174,19 @@ impl TestPanel {
         let exit_server = endpoints[1]["server_id"]
             .as_i64()
             .context("legacy fixture exit server")?;
-        sqlx::query("INSERT INTO singbox_chain_versions(chain_id,generation,legacy,entry_endpoint_version,semantic_sha256,capabilities,snapshot,created_at) VALUES($1,1,TRUE,$2,encode(sha256(convert_to($3::jsonb::text,'UTF8')),'hex'),'{\"tcp\":true,\"udp\":true}'::jsonb,$3,$4)")
+        sqlx::query("INSERT INTO singbox_ordered_chain_versions(chain_id,generation,legacy,entry_endpoint_version,semantic_sha256,capabilities,snapshot,created_at) VALUES($1,1,TRUE,$2,encode(sha256(convert_to($3::jsonb::text,'UTF8')),'hex'),'{\"tcp\":true,\"udp\":true}'::jsonb,$3,$4)")
             .bind(chain).bind(entry_version).bind(frozen).bind(sinan_protocol::now_timestamp()).execute(&mut *tx).await?;
-        sqlx::query("INSERT INTO singbox_chain_hops(chain_id,generation,position,kind,endpoint_version_id,managed_node_id,managed_server_id,relay_uuid) VALUES($1,1,1,'managed',$2,$3,$4,$5)")
+        sqlx::query("INSERT INTO singbox_ordered_chain_hops(chain_id,generation,position,kind,endpoint_version_id,managed_node_id,managed_server_id,relay_uuid) VALUES($1,1,1,'managed',$2,$3,$4,$5)")
             .bind(chain).bind(exit_version).bind(exit).bind(exit_server).bind(relay).execute(&mut *tx).await?;
+        let main_path = json!({"chain_id":chain,"generation":1,"entry_server_id":endpoints[0]["server_id"],"entry_node_id":entry,"active":true,"hops":[{"kind":"managed","server_id":exit_server,"identity":relay,"endpoint":endpoints[1]["node"]}]});
+        sqlx::query("INSERT INTO singbox_chain_versions(chain_id,generation,legacy,path_json,semantic_hash,networks,stage,created_at,updated_at) VALUES($1,1,TRUE,$2,'legacy-preserved','{\"tcp\":true,\"udp\":true}','active',0,0)")
+            .bind(chain).bind(&main_path).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO singbox_chain_hops(chain_id,generation,position,kind,managed_node_id,managed_server_id,endpoint_json,relay_uuid) VALUES($1,1,0,'managed',$2,$3,$4,$5)")
+            .bind(chain).bind(exit).bind(exit_server).bind(&endpoints[1]["node"]).bind(relay).execute(&mut *tx).await?;
+        sqlx::query("UPDATE singbox_chains SET active_generation=1 WHERE id=$1")
+            .bind(chain)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("UPDATE servers SET dirty_at=$2 WHERE id IN (SELECT server_id FROM nodes WHERE id=ANY($1))")
             .bind(vec![entry,exit]).bind(sinan_protocol::now_timestamp()).execute(&mut *tx).await?;
         tx.commit().await?;

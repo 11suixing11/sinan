@@ -486,3 +486,148 @@ fn all_normalized_protocols_round_trip_and_versions_do_not_change_tags() {
         );
     }
 }
+
+#[test]
+fn numeric_and_uuid_paths_share_one_configuration_without_losing_routes_or_dns() {
+    use sinan_compiler::{compile_server_with_paths_on_config, paths as numeric};
+    let ordered_entry = node(1, true);
+    let mut numeric_entry = node(5, true);
+    numeric_entry.port = 8443;
+    let nodes = vec![ordered_entry, numeric_entry];
+    let old = numeric::Path {
+        chain_id: 22,
+        generation: 3,
+        entry_server_id: 1,
+        entry_node_id: 5,
+        active: true,
+        hops: vec![numeric::Hop::External {
+            node_id: 51,
+            version_id: 52,
+            outbound: sinan_compiler::external::ExternalOutbound(
+                json!({"type":"http","server":"numeric.example.com","server_port":8080}),
+            ),
+        }],
+    };
+    let old_control = numeric::Control {
+        secret: control().secret,
+        test_url: "https://panel.example.com/health".into(),
+    };
+    let base = numeric::compile(
+        1,
+        &nodes,
+        &[],
+        &[old],
+        &[],
+        Default::default(),
+        Some(&old_control),
+    )
+    .unwrap();
+    let constraints = serde_json::to_value(&base.constraints).unwrap();
+    let checks = serde_json::to_value(&base.checks).unwrap();
+    let ordered = path(vec![http(31)]);
+    let merged: Value = serde_json::from_str(
+        &compile_server_with_paths_on_config(&nodes, &[], &[ordered], &[], Some(&control()), &base)
+            .unwrap(),
+    )
+    .unwrap();
+    let outbounds = merged["outbounds"].as_array().unwrap();
+    assert!(
+        outbounds
+            .iter()
+            .any(|outbound| outbound["tag"] == "path-22-g3-h0")
+    );
+    assert!(
+        outbounds
+            .iter()
+            .any(|outbound| outbound["tag"] == "chain-11-g1-h1")
+    );
+    let rules = merged["route"]["rules"].as_array().unwrap();
+    assert!(rules.iter().any(|rule| rule["inbound"] == json!(["node-5"]) && rule["outbound"] == "path-22-g3-h0"));
+    assert!(
+        rules.iter().any(
+            |rule| rule["inbound"] == json!(["node-1"]) && rule["outbound"] == "chain-11-g1-h1"
+        )
+    );
+    let dns = merged["dns"]["servers"].as_array().unwrap();
+    assert!(dns.iter().any(|server| server["tag"] == "path-bootstrap"));
+    assert!(dns.iter().any(|server| server["tag"] == "chain-bootstrap"));
+    assert_eq!(
+        merged["experimental"]["clash_api"]["secret"],
+        control().secret
+    );
+    assert_eq!(
+        serde_json::to_value(&base.constraints).unwrap(),
+        constraints
+    );
+    assert_eq!(serde_json::to_value(&base.checks).unwrap(), checks);
+    assert_eq!(
+        compile_server_with_paths_on_config(&nodes, &[], &[], &[], None, &base).unwrap(),
+        base.config
+    );
+    let mut wrong = control();
+    wrong.secret = "b".repeat(64);
+    assert!(
+        compile_server_with_paths_on_config(
+            &nodes,
+            &[],
+            &[path(vec![http(31)])],
+            &[],
+            Some(&wrong),
+            &base
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn combined_pipelines_reject_competing_public_entry_and_frozen_listener_parameters() {
+    use sinan_compiler::{compile_server_with_paths_on_config, paths as numeric};
+    let entry = node(1, true);
+    let old = numeric::Path {
+        chain_id: 22,
+        generation: 3,
+        entry_server_id: 1,
+        entry_node_id: 1,
+        active: true,
+        hops: vec![numeric::Hop::External {
+            node_id: 51,
+            version_id: 52,
+            outbound: sinan_compiler::external::ExternalOutbound(
+                json!({"type":"http","server":"numeric.example.com","server_port":8080}),
+            ),
+        }],
+    };
+    let old_control = numeric::Control {
+        secret: control().secret,
+        test_url: "https://panel.example.com/health".into(),
+    };
+    let base = numeric::compile(
+        1,
+        std::slice::from_ref(&entry),
+        &[],
+        &[old],
+        &[],
+        Default::default(),
+        Some(&old_control),
+    )
+    .unwrap();
+    assert!(
+        compile_server_with_paths_on_config(
+            &[entry],
+            &[],
+            &[path(vec![http(31)])],
+            &[],
+            Some(&control()),
+            &base
+        )
+        .is_err()
+    );
+
+    let accept = acceptance(1);
+    let nodes = vec![node(2, true)];
+    let mut base = numeric::compile(2, &nodes, &[], &[], &[], Default::default(), None).unwrap();
+    let mut native: Value = serde_json::from_str(&base.config).unwrap();
+    native["inbounds"][0]["tls"]["server_name"] = json!("changed.example.com");
+    base.config = serde_json::to_string(&native).unwrap();
+    assert!(compile_server_with_paths_on_config(&nodes, &[], &[], &[accept], None, &base).is_err());
+}

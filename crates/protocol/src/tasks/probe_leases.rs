@@ -1,46 +1,10 @@
-use super::ProbeSpec;
+use super::{ProbeAuthorization, ProbeSpec};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use uuid::Uuid;
 
 pub const PROBE_LEASE_CAPABILITY: &str = "probe:authorized-lease";
 pub const MAX_PROBE_LEASE_SECS: i64 = 90;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProbeScope {
-    Owned,
-    ThirdParty,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProbeAuthorization {
-    #[serde(default)]
-    pub region: String,
-    pub source: String,
-    pub scope: ProbeScope,
-    pub evidence: String,
-    pub expires_at: Option<i64>,
-}
-
-impl ProbeAuthorization {
-    pub fn valid(&self) -> bool {
-        fn bounded(value: &str, maximum: usize, required: bool) -> bool {
-            (!required || !value.trim().is_empty())
-                && value.len() <= maximum
-                && !value.chars().any(char::is_control)
-        }
-        bounded(&self.region, 64, false)
-            && bounded(&self.source, 256, true)
-            && bounded(&self.evidence, 512, true)
-            && self.expires_at.is_none_or(|expires| expires > 0)
-    }
-
-    pub fn allows(&self, at: i64) -> bool {
-        self.valid() && self.expires_at.is_none_or(|expires| expires > at)
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -74,8 +38,14 @@ impl ProbeLease {
                 !probe.spec.id.is_nil()
                     && ids.insert(probe.spec.id)
                     && probe.spec.valid()
-                    && probe.spec.enabled
-                    && probe.authorization.allows(self.issued_at)
+                    && probe.spec.runnable_at(self.issued_at)
+                    && probe.spec.execution_authorized.is_none()
+                    && probe
+                        .spec
+                        .monitor
+                        .as_ref()
+                        .and_then(|monitor| monitor.authorization.as_ref())
+                        == Some(&probe.authorization)
                     && probe
                         .authorization
                         .expires_at

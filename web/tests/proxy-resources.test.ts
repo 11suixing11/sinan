@@ -99,19 +99,26 @@ test('unchanged failed requests retain exact serialized body and changed drafts 
   expect(prepareChainBatch(changed, snapshot(), pending, () => nextId).request_id).toBe(nextId)
   expect(pending.serialized).toBe(sent[0])
 })
-test('lost-response existing-entry replay survives refreshed role, deletion or retirement changes', async () => {
-  const value = draft('existing'), current = snapshot(), pending = prepareChainBatch(value, current, undefined, () => requestId), sent: string[] = []
-  await expect(submitChainBatch(pending, current, async body => { sent.push(JSON.stringify(body)); throw new Error('response disappeared') })).rejects.toThrow()
-  current.resources.data = current.resources.data!.filter(resource => proxyResourceKey(resource) !== 'direct:1')
-  current.resources.data.push(resource('chain', 10, endpoint(1), endpoint(2)))
-  current.nodes.data = current.nodes.data!.filter(node => node.id !== 1)
-  current.servers.data![0].enabled = false
-  const retry = prepareChainBatch(value, current, pending, () => { throw new Error('duplicate allocation') })
-  await submitChainBatch(retry, current, async body => { sent.push(JSON.stringify(body)); return { request_id: requestId, chain_ids: [10], entry_node_ids: [1] } })
+test('lost-response existing-entry replay retains its body but rechecks current prerequisite eligibility', async () => {
+  const value = draft('existing'), pending = prepareChainBatch(value, snapshot(), undefined, () => requestId), sent: string[] = []
+  await expect(submitChainBatch(pending, snapshot(), async body => { sent.push(JSON.stringify(body)); throw new Error('response disappeared') })).rejects.toThrow()
+  for (const change of ['role', 'node', 'server', 'disabled', 'unavailable', 'grant', 'policy'] as const) {
+    const current = snapshot()
+    if (change === 'role') { current.resources.data = current.resources.data!.filter(item => proxyResourceKey(item) !== 'direct:1'); current.resources.data.push(resource('chain', 10, endpoint(1), endpoint(2))) }
+    if (change === 'node') current.nodes.data = current.nodes.data!.filter(node => node.id !== 1)
+    if (change === 'server') current.servers.data = current.servers.data!.filter(server => server.id !== 1)
+    if (change === 'disabled') current.servers.data![0].enabled = false
+    if (change === 'unavailable') current.resources.data![0].available = false
+    if (change === 'grant') current.resources.data![0].user_count = 1
+    if (change === 'policy') current.resources.data![0].policy_group_ids = [9]
+    expect(() => prepareChainBatch(value, current, pending, () => { throw new Error('duplicate allocation') })).toThrow()
+    await expect(submitChainBatch(pending, current, async body => { sent.push(JSON.stringify(body)) })).rejects.toThrow()
+    expect(pending.serialized).toBe(sent[0]); expect(pending.source_draft).toBe(JSON.stringify(value))
+  }
+  expect(sent).toHaveLength(1)
+  const retry = prepareChainBatch(value, snapshot(), pending, () => { throw new Error('duplicate allocation') })
+  await submitChainBatch(retry, snapshot(), async body => { sent.push(JSON.stringify(body)) })
   expect(sent).toEqual([pending.serialized, pending.serialized])
-  expect(() => prepareChainBatch({ ...value, rows: [{ name: '修改后', port: '' }] }, current, pending, () => nextId)).toThrow()
-  current.resources.fresh = false
-  await expect(submitChainBatch(retry, current, async () => { throw new Error('writer must not run') })).rejects.toThrow('正在刷新')
 })
 test('new existing-entry selection rejects users, policies and shared-exit roles while exits may be shared', () => {
   for (const change of ['users', 'policies', 'refs'] as const) {
@@ -128,10 +135,25 @@ test('delete uses typed current resource identity and can clean broken configura
   chain.available = false; chain.unavailable_reasons = ['入口公开端口参数无法确认，暂显示监听端口']
   current.nodes.fresh = false; current.nodes.error = '旧节点设置无法解析'; current.servers.fresh = false
   await deleteProxyResource(chain, current, async path => { writes.push(path) })
-  expect(writes).toEqual(['/api/plugins/sing-box/proxy-resources/chain/1'])
+  expect(writes).toEqual(['/api/plugins/sing-box/ordered-proxy-resources/chain/1'])
   current.resources.fresh = false
   await expect(deleteProxyResource(chain, current, async path => { writes.push(path) })).rejects.toThrow('正在刷新')
   current.resources.fresh = true; current.resources.data = current.resources.data!.filter(resource => resource.kind !== 'chain')
   await expect(deleteProxyResource(chain, current, async path => { writes.push(path) })).rejects.toThrow('此资源已不可用')
   expect(writes).toHaveLength(1)
+})
+
+
+test('a validated current getter prevents a cached fresh render from authorizing batch replay', async () => {
+  const current = snapshot(), value = draft(), pending = prepareChainBatch(value, current, undefined, () => requestId)
+  let fresh = true, live = current.resources.data
+  const rendered = validatedSnapshot({ data: live, fresh: true, error: '', isCurrent: () => fresh, getCurrent: () => fresh ? live : undefined }, validProxyResources)
+  current.resources = rendered
+  let writes = 0
+  await expect(submitChainBatch(pending, current, async () => { writes++; throw new Error('lost') })).rejects.toThrow('lost')
+  fresh = false
+  await expect(submitChainBatch(pending, current, async () => { writes++ })).rejects.toThrow()
+  fresh = true; live = live!.filter(resource => resource.kind !== 'direct' || resource.id !== 2)
+  await expect(submitChainBatch(pending, current, async () => { writes++ })).rejects.toThrow()
+  expect(writes).toBe(1); expect(pending.source_draft).toBe(JSON.stringify(value))
 })

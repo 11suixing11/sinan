@@ -1,5 +1,7 @@
 import type { Server } from '../types'
 import { assetDate, assetPrice, defaultAssets, expiryState, trafficModes, trafficSize } from '../server-assets'
+import { CurrencyControls, useCurrency } from './CurrencyContext'
+import { convert, money, price, quoteDate, remainingCost } from './currency'
 
 export function AssetChips({ server }: { server: Server }) {
   const asset = { ...defaultAssets, ...server.asset_settings }
@@ -8,12 +10,18 @@ export function AssetChips({ server }: { server: Server }) {
 
 export default function AssetInfo({ server, now, detail = false }: { server: Server; now: number; detail?: boolean }) {
   const asset = { ...defaultAssets, ...server.asset_settings }, traffic = server.traffic
+  const { currency, quote } = useCurrency()
+  const converted = convert(price(asset.price), asset.currency, currency, quote)
+  const remainder = convert(remainingCost(asset, now), asset.currency, currency, quote)
+  const date = quoteDate(quote, asset.currency, currency)
   const expiry = expiryState(asset, now)
   const configured = asset.price !== null || asset.expires_at !== null || asset.traffic_limit !== '0'
   if (!configured && !detail) return null
   return <section className={`d-asset-info ${detail ? 'd-glass d-asset-detail' : ''}`} aria-label="资产与流量额度">
     {detail && <h2>资产与流量额度</h2>}
     {!server.public_view && <div className="d-asset-row"><span>{assetPrice(asset)}</span><span className={expiry.tone === 'bad' ? 'd-danger' : expiry.tone === 'warm' ? 'd-warning' : ''} title={`到期日期（UTC）：${assetDate(asset.expires_at)}`}>{expiry.label}{asset.auto_renewal ? ' · 自动顺延' : ''}</span></div>}
+    {!server.public_view && asset.price !== null && (asset.currency !== currency || detail) && <div className="d-asset-conversion"><span>{converted === null ? `缺少 ${asset.currency} → ${currency} 汇率` : `折算 ${money(converted, currency)} / ${asset.billing_cycle ? `${asset.billing_cycle} 天` : '一次性'}`}</span>{remainder !== null && <span>本周期剩余约 {money(remainder, currency)}</span>}{date && <small>{date} 参考汇率{quote?.stale ? ' · 使用上次数据' : ''}</small>}</div>}
+    {detail && !server.public_view && <CurrencyControls />}
     {detail && !server.public_view && <><AssetChips server={server} /><p>到期日期（UTC）：{assetDate(asset.expires_at)}。{asset.auto_renewal ? '自动顺延仅更新日期记录。' : ''}</p></>}
     <div className="d-asset-row"><span>{trafficModes[asset.traffic_limit_type]} · 本期观测</span><strong className={traffic?.exceeded ? 'd-danger' : ''}>{(traffic?.observed_from != null || traffic?.corrected) ? trafficSize(traffic.used) : '等待采样'} / {asset.traffic_limit === '0' ? '未设额度' : trafficSize(asset.traffic_limit)}</strong></div>
     {traffic?.percent != null && <span className="d-track" aria-label={`流量额度已使用 ${traffic.percent.toFixed(1)}%`}><span className={`d-fill d-bg-${traffic.exceeded ? 'danger' : traffic.percent >= 80 ? 'warning' : 'good'}`} style={{ width: `${Math.min(100, Math.max(0, traffic.percent))}%` }} /></span>}

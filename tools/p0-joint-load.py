@@ -109,7 +109,7 @@ class Handler(SMOKE['Handler']):
         if not self.server.accepting:
             self.close_connection = True
             return self.reply({'error': 'bounded fixture outage'}, 503)
-        if self.path in ('/api/agent/v1/commands', '/api/agent/v1/probes'):
+        if self.path in ('/api/agent/v1/commands', '/api/agent/v1/probes', '/api/agent/v1/probes?authorization=1'):
             if self.authorized():
                 self.reply([])
             return

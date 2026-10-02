@@ -335,7 +335,8 @@ def dispatch(manifest, identities, request):
             require(path.stat().st_mode & 0o077 == 0, "private_enrollment_descriptor_required")
             descriptor = load(path)
             require(descriptor.get("run_id") == manifest["run_id"] and descriptor.get("role") == role and
-                    isinstance(descriptor.get("token"), str) and 0 < len(descriptor["token"]) <= 512,
+                    isinstance(descriptor.get("token"), str) and 0 < len(descriptor["token"]) <= 512
+                    and all(33 <= ord(character) <= 126 for character in descriptor["token"]),
                     "enrollment_descriptor_identity_invalid")
             role_capture(row, [row["agent_binary"], "--config", row["agent_config"],
                                "enroll", "--panel=" + manifest["panel"]["origin"],

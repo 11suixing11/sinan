@@ -1,19 +1,23 @@
-import { Field } from '../components'
-import { probeLeaseNotice } from '../probes'
-import type { ProbeAuthorizationDraft } from '../probes'
+import type { Probe, ProbeAuthorization, ProbeMonitor } from '../probes'
+import { authorizationMatches, changeProbe, probeIdentity } from '../probes'
 
-export default function ProbeAuthorizationFields({ value, onChange }: { value: ProbeAuthorizationDraft; onChange: (value: ProbeAuthorizationDraft) => void }) {
-  const change = (part: Partial<ProbeAuthorizationDraft>) => onChange({ ...value, ...part })
-  return <section aria-label="目标使用授权">
-    <h3>目标使用授权</h3>
-    <p className="helper">只检测自有目标或已取得同意的第三方目标。请明确登记，主机名、地区和历史测量不会自动证明授权。记录仅供管理员查看。</p>
+export default function ProbeAuthorizationFields({ probe, onChange, editing = false }: { probe: Probe; onChange: (probe: Probe) => void; editing?: boolean }) {
+  const monitor: ProbeMonitor = probe.monitor ?? { region: '', address_family: 'any', authorization: null }
+  const authorization: ProbeAuthorization = monitor.authorization ?? { kind: 'owned', source: '', scope: '', enabled: false, expires_at: null,
+    identity: { kind: probe.kind, target: probe.target, port: probe.port, address_family: monitor.address_family } }
+  const update = (part: Partial<ProbeMonitor>) => onChange(changeProbe(probe, { monitor: { ...monitor, ...part } }))
+  const authorize = (part: Partial<ProbeAuthorization>) => onChange({ ...probe, ...(part.enabled === false ? { enabled: false } : {}), monitor: { ...monitor, authorization: { ...authorization, ...part, ...(part.enabled === true ? { identity: probeIdentity(probe) } : {}) } } })
+  const expiry = authorization.expires_at == null ? null : new Date(authorization.expires_at * 1000)
+  return <>
     <div className="form-grid">
-      <Field label="目标地区（可选）" hint="最多 64 个 UTF-8 字节。"><input maxLength={64} value={value.region} onChange={event => change({ region: event.target.value })} placeholder="例如：日本 / 华东" /></Field>
-      <Field label="目标来源" hint="例如自有服务清单或对方公布的测点说明，最多 256 个 UTF-8 字节。"><input maxLength={256} value={value.source} onChange={event => change({ source: event.target.value })} placeholder="请填写真实来源" /></Field>
-      <Field label="使用依据"><select value={value.scope} onChange={event => change({ scope: event.target.value as ProbeAuthorizationDraft['scope'] })}><option value="">请选择使用依据</option><option value="owned">自有目标</option><option value="third_party">第三方已获同意</option></select></Field>
-      <Field label="同意或管理记录" hint="记录负责人、批准时间或可核对的管理依据，最多 512 个 UTF-8 字节。"><input maxLength={512} value={value.evidence} onChange={event => change({ evidence: event.target.value })} placeholder="请填写可核对的记录" /></Field>
-      <Field label="授权截止时间（可选）" hint="使用本地时间；留空表示没有设置授权截止，但设备仍需刷新短期许可。"><input type="datetime-local" step={1} value={value.expires} onChange={event => change({ expires: event.target.value })} /></Field>
+      <label>地区<input maxLength={64} disabled={editing} value={monitor.region} onChange={event => update({ region: event.target.value })} placeholder="留空表示未知" /></label>
+      <label>地址家族<select disabled={editing} value={monitor.address_family} onChange={event => update({ address_family: event.target.value as ProbeMonitor['address_family'] })}><option value="any">自动选择</option><option value="ipv4">IPv4</option><option value="ipv6">IPv6</option></select></label>
+      <label>目标授权类型<select value={authorization.kind} onChange={event => authorize({ kind: event.target.value as ProbeAuthorization['kind'] })}><option value="owned">自有目标</option><option value="consent">已取得目标所有者同意</option></select></label>
+      <label>授权来源<input required={probe.enabled} maxLength={256} value={authorization.source} onChange={event => authorize({ source: event.target.value })} placeholder="资产登记或授权记录编号，不含密钥" /></label>
+      <label>授权范围<input required={probe.enabled} maxLength={512} value={authorization.scope} onChange={event => authorize({ scope: event.target.value })} placeholder="允许的方式、频率和用途" /></label>
+      <label>授权到期（UTC）<input type="datetime-local" min="1970-01-01T00:00" max="9999-12-31T23:59" value={expiry && Number.isFinite(expiry.getTime()) ? expiry.toISOString().slice(0, 16) : ''} onChange={event => authorize({ expires_at: event.target.value ? Math.floor(Date.parse(event.target.value + 'Z') / 1000) : null })} /><small>留空表示授权未设到期，请按实际记录填写。</small></label>
     </div>
-    <p className="helper">{probeLeaseNotice}</p>
-  </section>
+    <label><input required={probe.enabled} type="checkbox" checked={authorization.enabled && authorizationMatches(probe)} onChange={event => authorize({ enabled: event.target.checked })} />确认有权按上述范围检测此目标</label>
+    <p className="helper">不预置公共测速服务器。改变目标、端口、方式或地址家族后须重新勾选确认。执行许可最长 90 秒；断连、授权撤销或许可到期会取消在途检测，冷启动须重新取得许可，历史保留。填写记录不等于系统代为取得授权。旧 Agent 需先升级到支持短期拨测许可的版本。</p>
+  </>
 }

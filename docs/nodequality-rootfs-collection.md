@@ -1,6 +1,6 @@
 # 取得 NodeQuality 的 Debian 输入
 
-`tools/nodequality-rootfs-collect.py` 为 [离线 rootfs 构建器](adr/0043-nodequality-offline-rootfs.md) 收集真正的 Debian 输入。它不安装包、不运行诊断、不创建 rootfs，也不批准 builder；收集取得的开源基础库存不能替代 Geekbench、Ookla 等工具的许可和完整能力。决定及审批边界见 [ADR 0046](adr/0046-nodequality-input-collection.md)。
+`tools/nodequality-rootfs-collect.py` 为 [离线 rootfs 构建器](adr/0043-nodequality-offline-rootfs.md) 收集真正的 Debian 输入。它不安装包、不运行诊断、不创建 rootfs，也不批准 builder；收集取得的开源基础库存不能替代 Geekbench、Ookla 等工具的许可和完整能力。决定及审批边界见 [ADR 0046](adr/0061-nodequality-input-collection.md)。
 
 ## 环境与信任材料
 

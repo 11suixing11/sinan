@@ -37,6 +37,7 @@ try {
     else if (path === '/api/plugins/sing-box/servers/1') value = { id: 1, name: '取消验收夹具', enabled: true, source: 'administrator', read_only: false, online: true, agent_supported: true }
     else if (path === '/api/plugins/sing-box/servers/1/deployments') value = { status: null, history: [] }
     else if (path === '/api/servers/1/agent-settings') value = { sample_interval_secs: 1, upload_interval_secs: 5, discover_public_ips: false, auto_update: false }
+    else if (path === '/api/servers/1/telemetry-settings') value = { persist_interval_secs: 60 }
     else if (path === '/api/servers/1/node-quality/reports') value = { plugin_ready: true, plugin_reason: null, full_ready: false, daily_ready: true, cancel_supported: supported, reports: [record] }
     else if (path === `/api/servers/1/diagnostics/${id}/cancel`) {
       assert.equal(route.request().method(), 'POST')

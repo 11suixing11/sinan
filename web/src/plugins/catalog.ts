@@ -6,11 +6,23 @@ export type CatalogDefinition = {
   description: string
   usage: string
   icon: string
-  serverSection: '/plugins' | '/node-quality' | '/tcp-quality'
+  serverSection?: '/plugins' | '/node-quality' | '/tcp-quality' | '/ddns'
+  execution?: 'panel'
+  panelPath?: string
 }
 
 // Product identities are independent of release versions and platform packages.
 export const pluginDefinitions: readonly CatalogDefinition[] = [
+  {
+    id: 'alicloud', title: '阿里云 CDT 与带宽', icon: 'activity', execution: 'panel', panelPath: '/plugins/alicloud',
+    description: '查看阿里云 CDT 国内、海外用量与账单，调整 ECS 固定公网 IP 和独立 EIP 的带宽。',
+    usage: '按云账号登记资源，预览并确认后提交变配。自动降速默认关闭，需要同时启用账号与资源策略；无需 Agent 安装。',
+  },
+  {
+    id: 'ddns', title: '动态域名解析', icon: 'nodes', serverSection: '/ddns', execution: 'panel',
+    description: '使用服务器 Agent 上报的公网 IP，自动更新 Cloudflare、腾讯云、阿里云和华为云的 A / AAAA 记录。',
+    usage: '按服务器启用后配置域名与云服务凭据。DNS 同步由面板插件执行，无需额外设备安装包；停用时保留现有解析。',
+  },
   {
     id: 'sing-box', title: 'sing-box', icon: 'nodes', serverSection: '/plugins',
     description: '在服务器上提供代理节点，管理代理用户、订阅、策略组、套餐和用量周期。',
@@ -64,6 +76,6 @@ export function pluginCatalog(artifacts: readonly Artifact[]) {
 export function isCatalogPath(path: string) { return path === '/plugins/catalog' || path === '/artifacts' }
 
 export function pluginServerPath(plugin: CatalogDefinition, serverId: number): string | null {
-  if (!Number.isSafeInteger(serverId) || serverId <= 0) return null
+  if (!plugin.serverSection || !Number.isSafeInteger(serverId) || serverId <= 0) return null
   return `/servers/${serverId}${plugin.serverSection}`
 }

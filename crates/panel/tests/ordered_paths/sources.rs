@@ -1,7 +1,7 @@
 use super::*;
 
 async fn replace(fixture: &Fixture, revision: i64, content: &str, action: &str) -> Result<()> {
-    api(&fixture.panel,&fixture.cookie,Method::PATCH,&format!("/subscription-sources/{}",fixture.source),Some(json!({
+    api(&fixture.panel,&fixture.cookie,Method::PATCH,&format!("/ordered-subscription-sources/{}",fixture.source),Some(json!({
         "request_id":Uuid::new_v4(),"settings_revision":revision,"input":{"kind":"inline","content":content,"identity_action":action}
     })),StatusCode::OK).await?;
     sinan_panel::plugins::singbox::subscription_sources::worker::run_once(&fixture.panel.state)
@@ -21,7 +21,7 @@ async fn source_refresh_stages_only_same_identity_followed_node_while_pinned_kee
     advance(&fixture, followed, "applied").await?;
     advance(&fixture, pinned, "applied").await?;
     let original: Value = sqlx::query_scalar(
-        "SELECT snapshot FROM singbox_chain_versions WHERE chain_id=$1 AND generation=1",
+        "SELECT snapshot FROM singbox_ordered_chain_versions WHERE chain_id=$1 AND generation=1",
     )
     .bind(followed)
     .fetch_one(&fixture.panel.state.pool)
@@ -47,7 +47,7 @@ async fn source_refresh_stages_only_same_identity_followed_node_while_pinned_kee
         fixture.external["version_id"]
     );
     let retained: Value = sqlx::query_scalar(
-        "SELECT snapshot FROM singbox_chain_versions WHERE chain_id=$1 AND generation=1",
+        "SELECT snapshot FROM singbox_ordered_chain_versions WHERE chain_id=$1 AND generation=1",
     )
     .bind(followed)
     .fetch_one(&fixture.panel.state.pool)
@@ -70,7 +70,7 @@ async fn failed_or_archived_source_preserves_applied_frozen_identity_and_no_fall
     let nodes = subscription_nodes(&output);
     assert_eq!(nodes.len(), 1);
     let frozen: Value = sqlx::query_scalar(
-        "SELECT snapshot FROM singbox_chain_versions WHERE chain_id=$1 AND generation=1",
+        "SELECT snapshot FROM singbox_ordered_chain_versions WHERE chain_id=$1 AND generation=1",
     )
     .bind(chain)
     .fetch_one(&fixture.panel.state.pool)
@@ -85,7 +85,7 @@ async fn failed_or_archived_source_preserves_applied_frozen_identity_and_no_fall
         &fixture.panel,
         &fixture.cookie,
         Method::PATCH,
-        &format!("/subscription-sources/{}", fixture.source),
+        &format!("/ordered-subscription-sources/{}", fixture.source),
         Some(json!({"request_id":Uuid::new_v4(),"settings_revision":2,"archived":true})),
         StatusCode::OK,
     )
@@ -96,7 +96,7 @@ async fn failed_or_archived_source_preserves_applied_frozen_identity_and_no_fall
         true
     );
     let retained: Value = sqlx::query_scalar(
-        "SELECT snapshot FROM singbox_chain_versions WHERE chain_id=$1 AND generation=1",
+        "SELECT snapshot FROM singbox_ordered_chain_versions WHERE chain_id=$1 AND generation=1",
     )
     .bind(chain)
     .fetch_one(&fixture.panel.state.pool)
@@ -151,7 +151,7 @@ async fn replacing_source_identity_cannot_rebind_an_applied_following_path(
         &fixture.panel,
         &fixture.cookie,
         Method::POST,
-        "/chains/batch",
+        "/chains/ordered-batch",
         Some(json!({"request_id":Uuid::new_v4(),"items":[invalid]})),
         StatusCode::CONFLICT,
     )
@@ -179,7 +179,7 @@ async fn explicit_pinned_version_update_is_same_node_cas_and_exact_receipt_repla
         &fixture.panel,
         &fixture.cookie,
         Method::GET,
-        &format!("/subscription-sources/{}/nodes", fixture.source),
+        &format!("/ordered-subscription-sources/{}/nodes", fixture.source),
         None,
         StatusCode::OK,
     )
@@ -190,7 +190,7 @@ async fn explicit_pinned_version_update_is_same_node_cas_and_exact_receipt_repla
     let view = resource(&fixture, chain).await?;
     let body = json!({"request_id":Uuid::new_v4(),"settings_revision":view["settings_revision"],"generation":1,
         "versions":[{"hop_position":1,"node_version_id":version}]});
-    let route = format!("/proxy-resources/chain/{chain}/apply-node-versions");
+    let route = format!("/ordered-proxy-resources/chain/{chain}/apply-node-versions");
     let receipt = api(
         &fixture.panel,
         &fixture.cookie,

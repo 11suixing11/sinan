@@ -13,6 +13,9 @@ pub mod runtime_control;
 
 pub type SharedState = Arc<Mutex<State>>;
 
+mod storage;
+pub(crate) use storage::StorageRetry;
+
 pub struct State {
     pub(crate) connection: Connection,
 }
@@ -51,6 +54,7 @@ impl State {
         connection.execute_batch(include_str!("state/migrations/0003.sql"))?;
         connection.execute_batch(include_str!("state/migrations/0004_bounded_usage.sql"))?;
         connection.execute_batch(include_str!("state/migrations/0005_runtime_control.sql"))?;
+        connection.execute_batch(include_str!("state/migrations/0005_command_lifecycle.sql"))?;
         Ok(Self { connection })
     }
 

@@ -3,53 +3,45 @@ import { api } from '../../api'
 import { Badge, ErrorNotice, Field, FormDialog, Loading } from '../../components'
 import { bytes } from '../../format'
 import { resourceWriteError, useAction, useResource } from '../../hooks'
+import type { ResourceState } from '../../hooks'
 import { assignmentRequestId, dateText, scheduleText, statusText } from './groupTypes'
 import type { Entitlement, PackageGroup, PolicyGroup, UserPolicies } from './groupTypes'
 
 const root = '/api/plugins/sing-box'
-export default function UserEntitlements({ id, onChange, userWriteError = '' }: { id: number; onChange: () => void; userWriteError?: string }) {
+export default function UserEntitlements({ id, entitlement, userError, refreshRevision, onChange }: { id: number; entitlement: ResourceState<Entitlement>; userError: () => string; refreshRevision: number; onChange: () => void }) {
   const policies = useResource<PolicyGroup[]>(`${root}/policy-groups`)
   const packages = useResource<PackageGroup[]>(`${root}/package-groups`)
   const assigned = useResource<UserPolicies>(`${root}/users/${id}/policy-groups`, 0)
-  const entitlement = useResource<Entitlement>(`${root}/users/${id}/entitlement`)
   const [selected, setSelected] = useState<number[]>([])
+  const dirty = useRef(false)
   const [assignment, setAssignment] = useState<string | null>(null)
+  const [packageChoice, setPackageChoice] = useState('')
   const [notice, setNotice] = useState('')
-  const [selectedPackage, setSelectedPackage] = useState('')
-  const policyDirty = useRef(false)
-  const policyWriteError = userWriteError || resourceWriteError(policies, assigned)
-  const missingPolicies = policies.data ? selected.filter(id => !policies.data?.some(p => p.id === id)) : []
-  const policySelectionError = missingPolicies.length ? '已选策略组已不可用，请取消这些选择后再保存。其余草稿已保留。' : ''
-  const packageWriteError = userWriteError || resourceWriteError(packages, entitlement)
-  const packageSelectionError = selectedPackage && !packages.data?.some(p => p.id === Number(selectedPackage)) ? '所选套餐已不可用，请重新选择；其他草稿已保留。' : ''
   const action = useAction()
-  useEffect(() => { if (assigned.data && !policyDirty.current) setSelected(assigned.data.group_ids) }, [assigned.data])
+  useEffect(() => { if (assigned.data && !dirty.current) setSelected([...assigned.data.group_ids]) }, [assigned.data])
   useEffect(() => { const timer = window.setInterval(entitlement.reload, 15000); return () => window.clearInterval(timer) }, [entitlement.reload])
   const refresh = () => { policies.reload(); packages.reload(); assigned.reload(); entitlement.reload() }
+  useEffect(() => { if (refreshRevision) { policies.reload(); packages.reload(); assigned.reload() } }, [refreshRevision, policies.reload, packages.reload, assigned.reload])
   const e = entitlement.data
+  const writeError = () => userError() || resourceWriteError(policies, packages, assigned, entitlement)
+  const policyError = () => writeError() || (selected.some(id => !policies.getCurrent()?.some(value => value.id === id)) ? '已选策略组已不存在。原选择仍保留，请刷新确认，或明确取消这些选择后再保存。' : '')
+  const packageError = () => writeError() || (packageChoice && !packages.getCurrent()?.some(value => String(value.id) === packageChoice) ? '已选套餐组已不存在，请重新选择；当前分配草稿已保留。' : '')
   const savePolicies = () => {
-    if (policyWriteError || policySelectionError) return
-    void action.run(() => api(`${root}/users/${id}/policy-groups`, 'PUT', { group_ids: selected }), () => { policyDirty.current = false; assigned.reload(); onChange(); setNotice('策略组分配已保存。单独授权仍保留，设备应用配置后更新可用节点。') })
+    if (policyError()) return
+    void action.run(() => api(`${root}/users/${id}/policy-groups`, 'PUT', { group_ids: selected }), () => { dirty.current = false; assigned.reload(); onChange(); setNotice('策略组分配已保存。单独授权仍保留，设备应用配置后更新可用节点。') })
   }
-  const assign = (form: FormData) => {
-    if (packageWriteError || packageSelectionError || !assignment) return
-    void action.run(() => api(`${root}/users/${id}/package`, 'POST', { package_group_id: Number(form.get('package_group_id')), request_id: assignment }), () => { setAssignment(null); entitlement.reload(); onChange(); setNotice('套餐已分配，按分配时刻计算有效期。本期历史用量没有清空。') })
+  const assign = () => {
+    if (!assignment || !packageChoice || packageError()) return
+    void action.run(() => api(`${root}/users/${id}/package`, 'POST', { package_group_id: Number(packageChoice), request_id: assignment }), () => { setAssignment(null); entitlement.reload(); onChange(); setNotice('套餐已分配，按分配时刻计算有效期。本期历史用量没有清空。') })
   }
   return <section className="panel">
     <div className="panel-heading"><h2>可用范围与套餐</h2><a className="text-button" href="#/plugins/sing-box/groups">管理策略与套餐</a></div>
     <div className="panel-body">
-      <ErrorNotice message={policies.error || packages.error || assigned.error || entitlement.error || (!assignment ? action.error : '')} retry={refresh} />
+      <ErrorNotice message={policies.error || packages.error || assigned.error || entitlement.error || policyError() || (!assignment ? action.error : '')} retry={refresh} />
       {notice && <p className="notice notice-success" role="status">{notice}</p>}
       <h3>策略组</h3>
-      {policyWriteError && <p className="helper" role="status">{policyWriteError}</p>}
-      {!policyWriteError && policySelectionError && <p className="helper" role="status">{policySelectionError}</p>}
-      {missingPolicies.map(id => <label className="group-choice" key={`unavailable-${id}`}><input type="checkbox" checked disabled={action.busy || Boolean(policyWriteError)} onChange={() => { if (policyWriteError) return; policyDirty.current = true; setSelected(previous => previous.filter(value => value !== id)) }} /><span>策略组 #{id}<small>当前不可用，请取消选择。</small></span></label>)}
-      {!assigned.data ? <Loading /> : <>
-        {policies.data?.length ? <div className="group-choices">{policies.data.map(p => <label className="group-choice" key={p.id}><input type="checkbox" checked={selected.includes(p.id)} disabled={action.busy || Boolean(policyWriteError)} onChange={event => { if (policyWriteError) return; policyDirty.current = true; setSelected(previous => event.target.checked ? [...previous, p.id] : previous.filter(value => value !== p.id)) }} /><span>{p.name}<small>{p.node_ids.length} 个节点，{p.chain_ids.length} 条链路</small></span></label>)}</div> : <p className="helper">尚未创建策略组，仍可使用下方的单独节点授权。</p>}
-        <button className="button button-secondary button-small" disabled={action.busy || Boolean(policyWriteError || policySelectionError)} onClick={savePolicies}>{action.busy ? '正在保存…' : '保存策略组分配'}</button>
-      </>}
-      <div className="group-entitlement-heading"><h3>当前套餐</h3><button className="button button-secondary button-small" disabled={action.busy || Boolean(packageWriteError) || !packages.data?.length} onClick={() => { if (packageWriteError) return; action.clearError(); setSelectedPackage(''); setAssignment(assignmentRequestId()) }}>分配或更换套餐</button></div>
-      {packageWriteError && <p className="helper" role="status">{packageWriteError}</p>}
+      {!assigned.data ? <Loading /> : policies.data?.length || selected.length ? <><div className="group-choices">{policies.data?.map(p => <label className="group-choice" key={p.id}><input type="checkbox" checked={selected.includes(p.id)} disabled={action.busy} onChange={event => { dirty.current = true; setSelected(previous => event.target.checked ? [...previous, p.id] : previous.filter(value => value !== p.id)) }} /><span>{p.name}<small>{p.node_ids.length} 个节点，{p.chain_ids.length} 条链路</small></span></label>)}{selected.filter(id => !policies.data?.some(value => value.id === id)).map(id => <label className="group-choice" key={id}><input type="checkbox" checked disabled={action.busy} onChange={() => { dirty.current = true; setSelected(previous => previous.filter(value => value !== id)) }} /><span>策略组 #{id}（已不存在，原选择保留）</span></label>)}</div><button className="button button-secondary button-small" disabled={action.busy || Boolean(policyError())} onClick={savePolicies}>{action.busy ? '正在保存…' : '保存策略组分配'}</button></> : <p className="helper">尚未创建策略组，仍可使用下方的单独节点授权。</p>}
+      <div className="group-entitlement-heading"><h3>当前套餐</h3><button className="button button-secondary button-small" disabled={action.busy || Boolean(writeError()) || !packages.data?.length} onClick={() => { if (writeError()) return; action.clearError(); setPackageChoice(''); setAssignment(assignmentRequestId()) }}>分配或更换套餐</button></div>
       {!e ? <Loading /> : <>
         <div className="group-entitlement-heading"><strong>{e.package_name ?? '未设置流量与到期限制'}</strong><Badge tone={e.allowed ? 'good' : 'bad'}>{statusText[e.status]}</Badge></div>
         {e.package_group_id !== null && <>
@@ -59,8 +51,8 @@ export default function UserEntitlements({ id, onChange, userWriteError = '' }: 
         <p className="helper">{e.package_group_id === null ? '未分配套餐时保留兼容模式，不限制流量或有效期。分配套餐后，所有策略组与单独授权共享此用户的套餐额度。' : '到期或用完流量后立即停止提供可用订阅，设备应用新配置后停止服务。设备离线或流量尚未上报时，限制不会瞬间生效。'}</p>
       </>}
     </div>
-    {assignment && <FormDialog title="分配套餐" onClose={() => setAssignment(null)} onSubmit={assign} busy={action.busy} disabled={Boolean(packageWriteError)} submitDisabled={Boolean(packageSelectionError)} error={packageWriteError || packageSelectionError || action.error} retry={packageWriteError ? refresh : undefined} submitLabel="确认分配">
-      <Field label="套餐组"><select name="package_group_id" required value={selectedPackage} onChange={event => setSelectedPackage(event.target.value)}><option value="" disabled>选择套餐</option>{packageSelectionError && <option value={selectedPackage}>套餐 #{selectedPackage}（已不可用，请重新选择）</option>}{packages.data?.map(p => <option key={p.id} value={p.id}>{p.name} · {p.monthly_bytes === null ? '不限量' : bytes(p.monthly_bytes)} / 月 · {p.duration_days} 天</option>)}</select></Field>
+    {assignment && <FormDialog title="分配套餐" onClose={() => setAssignment(null)} onSubmit={assign} busy={action.busy} submitDisabled={Boolean(packageError())} error={packageError() || action.error} submitLabel="确认分配">
+      <Field label="套餐组"><select name="package_group_id" required value={packageChoice} onChange={event => setPackageChoice(event.target.value)}><option value="" disabled>选择套餐</option>{packageChoice && !packages.data?.some(value => String(value.id) === packageChoice) && <option value={packageChoice}>套餐组 #{packageChoice}（已不存在，原选择保留）</option>}{packages.data?.map(p => <option key={p.id} value={p.id}>{p.name} · {p.monthly_bytes === null ? '不限量' : bytes(p.monthly_bytes)} / 月 · {p.duration_days} 天</option>)}</select></Field>
       {packages.data?.map(p => <p className="helper" key={p.id}>{p.name}：{scheduleText(p)}</p>)}
       <p>此操作替换当前套餐，使用期限从现在重新计算，不是在原到期日上续加。本月已记录的流量不会清空。变更月度重置规则会重新按新规则统计当前周期。</p>
       <p className="helper">套餐与节点权限分别分配；仅分配套餐不会自动授予节点。</p>

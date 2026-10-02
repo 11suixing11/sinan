@@ -102,7 +102,7 @@ async fn batch(panel: &TestPanel, cookie: &str, body: Value) -> Result<(StatusCo
     let response = panel
         .admin(
             Method::POST,
-            &format!("{ROOT}/chains/batch"),
+            &format!("{ROOT}/chains/ordered-batch"),
             cookie,
             Some(body),
         )
@@ -186,7 +186,7 @@ async fn clean_servers(pool: &PgPool) -> Result<()> {
 
 async fn state(pool: &PgPool) -> Result<Value> {
     Ok(sqlx::query_scalar(
-        "SELECT jsonb_build_object('nodes',(SELECT COUNT(*) FROM nodes),'chains',(SELECT COUNT(*) FROM singbox_chains),'active_nodes',(SELECT COUNT(*) FROM nodes WHERE deleted_at IS NULL),'grants',(SELECT COUNT(*) FROM accesses),'versions',(SELECT COUNT(*) FROM singbox_chain_versions),'hops',(SELECT COUNT(*) FROM singbox_chain_hops),'endpoint_versions',(SELECT COUNT(*) FROM singbox_managed_endpoint_versions),'runtime_requirements',(SELECT COUNT(*) FROM singbox_chain_runtime_requirements),'receipts',(SELECT COUNT(*) FROM singbox_chain_creation_requests),'servers',(SELECT jsonb_agg(jsonb_build_array(id,dirty_at) ORDER BY id) FROM servers))",
+        "SELECT jsonb_build_object('nodes',(SELECT COUNT(*) FROM nodes),'chains',(SELECT COUNT(*) FROM singbox_chains),'active_nodes',(SELECT COUNT(*) FROM nodes WHERE deleted_at IS NULL),'grants',(SELECT COUNT(*) FROM accesses),'versions',(SELECT COUNT(*) FROM singbox_ordered_chain_versions),'hops',(SELECT COUNT(*) FROM singbox_ordered_chain_hops),'endpoint_versions',(SELECT COUNT(*) FROM singbox_managed_endpoint_versions),'runtime_requirements',(SELECT COUNT(*) FROM singbox_chain_runtime_requirements),'receipts',(SELECT COUNT(*) FROM singbox_ordered_chain_creation_requests),'servers',(SELECT jsonb_agg(jsonb_build_array(id,dirty_at) ORDER BY id) FROM servers))",
     )
     .fetch_one(pool)
     .await?)
@@ -310,7 +310,10 @@ async fn catalog_has_typed_ids_distinct_grant_counts_and_preserves_existing_subs
                     .client
                     .request(
                         method,
-                        format!("{}{ROOT}/proxy-resources/{kind}/{identity}", panel.base)
+                        format!(
+                            "{}{ROOT}/ordered-proxy-resources/{kind}/{identity}",
+                            panel.base
+                        )
                     )
                     .send()
                     .await?
@@ -342,13 +345,20 @@ async fn catalog_has_typed_ids_distinct_grant_counts_and_preserves_existing_subs
     assert_eq!(
         panel
             .client
-            .get(format!("{}{ROOT}/proxy-resources", panel.base))
+            .get(format!("{}{ROOT}/ordered-proxy-resources", panel.base))
             .send()
             .await?
             .status(),
         StatusCode::UNAUTHORIZED
     );
-    let list = call(&panel, &cookie, Method::GET, "/proxy-resources", None).await?;
+    let list = call(
+        &panel,
+        &cookie,
+        Method::GET,
+        "/ordered-proxy-resources",
+        None,
+    )
+    .await?;
     assert_eq!(list.as_array().context("list")?.len(), 2);
     let direct = resource(&list, "direct", exit)?;
     let route = resource(&list, "chain", chain)?;
@@ -382,7 +392,7 @@ async fn catalog_has_typed_ids_distinct_grant_counts_and_preserves_existing_subs
             &panel,
             &cookie,
             Method::GET,
-            &format!("/proxy-resources/direct/{exit}"),
+            &format!("/ordered-proxy-resources/direct/{exit}"),
             None
         )
         .await?,
@@ -393,7 +403,7 @@ async fn catalog_has_typed_ids_distinct_grant_counts_and_preserves_existing_subs
             &panel,
             &cookie,
             Method::GET,
-            &format!("/proxy-resources/chain/{chain}"),
+            &format!("/ordered-proxy-resources/chain/{chain}"),
             None
         )
         .await?,
@@ -403,7 +413,7 @@ async fn catalog_has_typed_ids_distinct_grant_counts_and_preserves_existing_subs
         panel
             .admin(
                 Method::GET,
-                &format!("{ROOT}/proxy-resources/direct/{entry}"),
+                &format!("{ROOT}/ordered-proxy-resources/direct/{entry}"),
                 &cookie,
                 None
             )
@@ -412,7 +422,7 @@ async fn catalog_has_typed_ids_distinct_grant_counts_and_preserves_existing_subs
         StatusCode::NOT_FOUND
     );
     no_private_fields(&list);
-    let relay: Uuid = sqlx::query_scalar("SELECT relay_uuid FROM singbox_chain_hops WHERE chain_id=$1 AND generation=1 AND position=1")
+    let relay: Uuid = sqlx::query_scalar("SELECT relay_uuid FROM singbox_ordered_chain_hops WHERE chain_id=$1 AND generation=1 AND position=1")
         .bind(chain)
         .fetch_one(&pool)
         .await?;
@@ -849,7 +859,7 @@ async fn batch_limits_and_unsupported_paths_fail_before_mutating_existing_busine
     assert_eq!(
         panel
             .client
-            .post(format!("{}{ROOT}/chains/batch", panel.base))
+            .post(format!("{}{ROOT}/chains/ordered-batch", panel.base))
             .json(&valid)
             .send()
             .await?
@@ -923,7 +933,7 @@ async fn resource_delete_preserves_shared_exit_history_and_deleted_request_repla
     let blocked = panel
         .admin(
             Method::DELETE,
-            &format!("{ROOT}/proxy-resources/chain/{first}"),
+            &format!("{ROOT}/ordered-proxy-resources/chain/{first}"),
             &cookie,
             None,
         )
@@ -939,7 +949,7 @@ async fn resource_delete_preserves_shared_exit_history_and_deleted_request_repla
     assert_eq!(state(&pool).await?, before);
     for path in [
         format!("/nodes/{exit}"),
-        format!("/proxy-resources/direct/{exit}"),
+        format!("/ordered-proxy-resources/direct/{exit}"),
         format!("/nodes/{}", entries[0]),
     ] {
         let blocked = panel
@@ -982,7 +992,7 @@ async fn resource_delete_preserves_shared_exit_history_and_deleted_request_repla
         &panel,
         &cookie,
         Method::DELETE,
-        &format!("/proxy-resources/chain/{first}"),
+        &format!("/ordered-proxy-resources/chain/{first}"),
         None,
     )
     .await?;
@@ -994,7 +1004,7 @@ async fn resource_delete_preserves_shared_exit_history_and_deleted_request_repla
     let protected = panel
         .admin(
             Method::DELETE,
-            &format!("{ROOT}/proxy-resources/direct/{exit}"),
+            &format!("{ROOT}/ordered-proxy-resources/direct/{exit}"),
             &cookie,
             None,
         )
@@ -1056,7 +1066,7 @@ async fn resource_delete_preserves_shared_exit_history_and_deleted_request_repla
         panel
             .admin(
                 Method::GET,
-                &format!("{ROOT}/proxy-resources/chain/{first}"),
+                &format!("{ROOT}/ordered-proxy-resources/chain/{first}"),
                 &cookie,
                 None
             )
@@ -1068,7 +1078,7 @@ async fn resource_delete_preserves_shared_exit_history_and_deleted_request_repla
         &panel,
         &cookie,
         Method::GET,
-        &format!("/proxy-resources/chain/{}", chains[1]),
+        &format!("/ordered-proxy-resources/chain/{}", chains[1]),
         None,
     )
     .await?;
@@ -1093,7 +1103,7 @@ async fn resource_delete_preserves_shared_exit_history_and_deleted_request_repla
         &panel,
         &cookie,
         Method::DELETE,
-        &format!("/proxy-resources/chain/{}", chains[1]),
+        &format!("/ordered-proxy-resources/chain/{}", chains[1]),
         None,
     )
     .await?;
@@ -1132,7 +1142,7 @@ async fn resource_delete_preserves_shared_exit_history_and_deleted_request_repla
         &panel,
         &cookie,
         Method::GET,
-        &format!("/proxy-resources/direct/{compatibility_entry}"),
+        &format!("/ordered-proxy-resources/direct/{compatibility_entry}"),
         None,
     )
     .await?;
@@ -1147,7 +1157,7 @@ async fn resource_delete_preserves_shared_exit_history_and_deleted_request_repla
     let policy = policy(&panel, &cookie, "Direct protected", &[exit], &[]).await?;
     for path in [
         format!("/nodes/{exit}"),
-        format!("/proxy-resources/direct/{exit}"),
+        format!("/ordered-proxy-resources/direct/{exit}"),
     ] {
         let blocked = panel
             .admin(Method::DELETE, &format!("{ROOT}{path}"), &cookie, None)
@@ -1187,7 +1197,7 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
             &panel,
             &cookie,
             Method::GET,
-            &format!("/proxy-resources/chain/{chain}"),
+            &format!("/ordered-proxy-resources/chain/{chain}"),
             None
         )
         .await?["path_kind"],
@@ -1225,7 +1235,7 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
             &panel,
             &cookie,
             Method::GET,
-            &format!("/proxy-resources/chain/{chain}"),
+            &format!("/ordered-proxy-resources/chain/{chain}"),
             None
         )
         .await?["available"],
@@ -1242,7 +1252,7 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
             &panel,
             &cookie,
             Method::GET,
-            &format!("/proxy-resources/direct/{exit}"),
+            &format!("/ordered-proxy-resources/direct/{exit}"),
             None
         )
         .await?["available"],
@@ -1258,7 +1268,14 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
             .bind(config)
             .execute(&pool)
             .await?;
-        let list = call(&panel, &cookie, Method::GET, "/proxy-resources", None).await?;
+        let list = call(
+            &panel,
+            &cookie,
+            Method::GET,
+            "/ordered-proxy-resources",
+            None,
+        )
+        .await?;
         let route = resource(&list, "chain", chain)?;
         assert_eq!(route["available"], false);
         // Desired immutable input stays Reality while live metadata reports damage.
@@ -1278,7 +1295,7 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
             &panel,
             &cookie,
             Method::GET,
-            &format!("/proxy-resources/chain/{chain}"),
+            &format!("/ordered-proxy-resources/chain/{chain}"),
             None,
         )
         .await?;
@@ -1296,7 +1313,7 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
             &panel,
             &cookie,
             Method::GET,
-            &format!("/proxy-resources/chain/{chain}"),
+            &format!("/ordered-proxy-resources/chain/{chain}"),
             None
         )
         .await?["available"],
@@ -1312,7 +1329,7 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
         &panel,
         &cookie,
         Method::GET,
-        &format!("/proxy-resources/chain/{chain}"),
+        &format!("/ordered-proxy-resources/chain/{chain}"),
         None,
     )
     .await?;
@@ -1336,7 +1353,7 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
             &panel,
             &cookie,
             Method::GET,
-            &format!("/proxy-resources/chain/{chain}"),
+            &format!("/ordered-proxy-resources/chain/{chain}"),
             None
         )
         .await?["available"],
@@ -1355,7 +1372,14 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
         .bind(b)
         .execute(&pool)
         .await?;
-    let list = call(&panel, &cookie, Method::GET, "/proxy-resources", None).await?;
+    let list = call(
+        &panel,
+        &cookie,
+        Method::GET,
+        "/ordered-proxy-resources",
+        None,
+    )
+    .await?;
     let route = resource(&list, "chain", chain)?;
     assert_eq!(route["available"], false);
     assert_eq!(route["exit"]["id"], exit);
@@ -1383,7 +1407,7 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
             &panel,
             &cookie,
             Method::GET,
-            &format!("/proxy-resources/chain/{chain}"),
+            &format!("/ordered-proxy-resources/chain/{chain}"),
             None
         )
         .await?,
@@ -1394,7 +1418,7 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
         &panel,
         &cookie,
         Method::DELETE,
-        &format!("/proxy-resources/chain/{chain}"),
+        &format!("/ordered-proxy-resources/chain/{chain}"),
         None,
     )
     .await?;
@@ -1407,7 +1431,7 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
         panel
             .admin(
                 Method::GET,
-                &format!("{ROOT}/proxy-resources/chain/{chain}"),
+                &format!("{ROOT}/ordered-proxy-resources/chain/{chain}"),
                 &cookie,
                 None
             )
@@ -1421,13 +1445,16 @@ async fn damaged_chains_stay_readable_and_cleanable_without_exposing_private_con
         .await?;
     for (node, path) in [
         (orphan_old, format!("/nodes/{orphan_old}")),
-        (orphan_new, format!("/proxy-resources/direct/{orphan_new}")),
+        (
+            orphan_new,
+            format!("/ordered-proxy-resources/direct/{orphan_new}"),
+        ),
     ] {
         assert_eq!(
             panel
                 .admin(
                     Method::GET,
-                    &format!("{ROOT}/proxy-resources/direct/{node}"),
+                    &format!("{ROOT}/ordered-proxy-resources/direct/{node}"),
                     &cookie,
                     None
                 )

@@ -1,5 +1,8 @@
 use super::Runtime;
-use crate::{Config, artifacts::PanelClient, config::validate_panel_url, identity::Identity};
+use crate::{
+    Config, artifacts::PanelClient, config::validate_panel_url, identity::Identity,
+    state::StorageRetry,
+};
 use anyhow::{Context, Result};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::Signer;
@@ -54,17 +57,24 @@ pub(super) async fn run(
         &ack.session_token,
     )?)));
     runtime.connected.store(true, Ordering::Relaxed);
-    runtime
-        .state
-        .lock()
-        .map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-        .set_json(
-            "clock_offset_ms",
-            &(ack
-                .server_time
-                .saturating_mul(1000)
-                .saturating_sub(sinan_protocol::telemetry::now_millis())),
-        )?;
+    let mut clock_storage = StorageRetry::default();
+    let mut acknowledgment_storage = StorageRetry::default();
+    let clock_offset = ack
+        .server_time
+        .saturating_mul(1000)
+        .saturating_sub(sinan_protocol::telemetry::now_millis());
+    let mut clock_pending = {
+        let mut state = runtime
+            .state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+        clock_storage
+            .finish(
+                "persist authenticated clock offset",
+                state.set_json("clock_offset_ms", &clock_offset),
+            )?
+            .is_none()
+    };
     let _ = trigger.try_send(());
     let renew_after = ack
         .session_expires_at
@@ -150,8 +160,8 @@ pub(super) async fn run(
                             }
                             Message::ManifestChanged(_) => { let _ = trigger.try_send(()); }
                             Message::UsageAck(ack) => {
-                                runtime.state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                                    .acknowledge_usage(ack.epoch, ack.seq)?;
+                                let mut state = runtime.state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+                                acknowledgment_storage.finish("persist usage acknowledgment", state.acknowledge_usage(ack.epoch, ack.seq))?;
                             }
                             Message::Unknown { message_type, .. } => tracing::debug!(%message_type, "ignoring unknown panel message"),
                             _ => tracing::debug!("ignoring unsupported panel message direction"),
@@ -200,6 +210,10 @@ pub(super) async fn run(
                 send(&mut socket, message.context("runtime result channel closed")?).await?;
             }
             _ = heartbeat.tick() => {
+                if clock_pending {
+                    let mut state = runtime.state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+                    clock_pending = clock_storage.finish("persist authenticated clock offset", state.set_json("clock_offset_ms", &clock_offset))?.is_none();
+                }
                 let uptime = telemetry.borrow().sample.as_ref().and_then(|sample| sample.metrics.uptime_secs).unwrap_or(0);
                 send(&mut socket, Envelope::new("heartbeat", Heartbeat {
                     applied: runtime.applied()?,

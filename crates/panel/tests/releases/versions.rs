@@ -107,6 +107,60 @@ async fn explicit_installation_distinguishes_missing_protocol_and_platform_failu
 }
 
 #[tokio::test]
+async fn signed_legacy_identity_is_preserved_but_not_offered_as_standard_installation() -> Result<()>
+{
+    let fixture = Fixture::new()?;
+    let downloads = Mutex::new(Vec::new());
+    for version in ["0.1.0", "0.2.0", "0.4.0"] {
+        let bundle = platform_bundle(version, (1, 1), &["linux-musl-amd64"])?;
+        targets::import_target(&fixture.state, &bundle, "linux-musl-amd64", &downloads).await?;
+    }
+    for version in ["0.1.0", "0.2.0"] {
+        let result = releases::select_agent_for_target(
+            &fixture.state,
+            Some(version),
+            Some("linux-musl-amd64"),
+        )
+        .await;
+        match result {
+            Err(ApiError::Conflict(message)) => {
+                assert!(message.contains("历史 Agent 不支持当前标准安装与服务合同"));
+                assert!(!message.contains("尚未导入"));
+                assert!(!message.contains("协议不兼容"));
+            }
+            other => panic!("unsupported legacy installation was offered: {other:?}"),
+        }
+        assert!(
+            releases::agent_versions(&fixture.state, None, Some(version))
+                .await?
+                .is_empty()
+        );
+        // The verified original release inventory remains readable; filtering
+        // installation choices never deletes or rewrites a historical payload.
+        let (bytes, _, _) =
+            releases::artifact(&fixture.state, "agent", version, "linux-musl-amd64").await?;
+        assert_eq!(
+            bytes,
+            format!("fixture Agent {version} linux-musl-amd64").as_bytes()
+        );
+    }
+    let selected = sinan_panel::installation::select_with_mirror(
+        &fixture.state,
+        Some("0.4.0"),
+        "TEST_ONLY fixture token",
+        Some("unix"),
+        Some("linux-musl-amd64"),
+        "",
+    )
+    .await?;
+    assert_eq!(selected.version, "0.4.0");
+    assert_ne!(selected.version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(selected.tag.as_deref(), Some("agent-v0.4.0"));
+    assert!(selected.install_command.contains("'0.4.0'"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn versions_are_numeric_platform_compatible_and_include_signed_uncached_targets() -> Result<()>
 {
     let fixture = Fixture::new()?;

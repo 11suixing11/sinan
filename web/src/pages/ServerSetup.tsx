@@ -2,16 +2,16 @@ import { useRef, useState } from 'react'
 import { api } from '../api'
 import { ErrorNotice, Field, Icon, Modal } from '../components'
 import { useAction } from '../hooks'
-import { authorizationDraft, initialProbePayloads } from '../probes'
-import type { ProbeAuthorizationDraft, ProbeSpec } from '../probes'
+import { emptyMonitoring, withMonitoring, initialProbePayloads } from '../probes'
+import type { Probe, ProbeMonitoring } from '../probes'
+import ProbeMonitoringFields from './ProbeMonitoringFields'
 import type { AgentSettings, Server } from '../types'
 import './server-setup.css'
 import ServerOperationsFields from './ServerOperationsFields'
 import { assetDraft, assetPayload } from '../server-assets'
 import ServerAssetFields, { SetupNavigation } from './ServerAssetFields'
-import ProbeAuthorizationFields from './ProbeAuthorizationFields'
 
-type ProbeDraft = Pick<ProbeSpec, 'name' | 'kind' | 'target' | 'carrier'> & { key: number; port: string; interval: string; authorization: ProbeAuthorizationDraft }
+type ProbeDraft = Omit<Probe, 'id' | 'enabled' | 'port' | 'interval_secs'> & { key: number; port: string; interval: string; monitoring: ProbeMonitoring }
 const frequencies = [
   { label: '实时', sample: '1', upload: '3', note: '及时观察变化' },
   { label: '均衡', sample: '3', upload: '10', note: '兼顾频率与开销' },
@@ -30,21 +30,24 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
   const [name, setName] = useState('')
   const [asset, setAsset] = useState(() => assetDraft())
   const [sample, setSample] = useState('1'), [upload, setUpload] = useState('3')
+  const [persist, setPersist] = useState('60')
   const [autoUpdate, setAutoUpdate] = useState(false), [discover, setDiscover] = useState(true)
   const [probes, setProbes] = useState<ProbeDraft[]>([])
   const nextKey = useRef(0)
-  const updateProbe = (key: number, change: Partial<ProbeDraft>) => setProbes(current => current.map(probe => probe.key === key ? { ...probe, ...change } : probe))
+  const updateProbe = (key: number, change: Partial<ProbeDraft>) => setProbes(current => current.map(probe => {
+    if (probe.key !== key) return probe
+    const changed = { ...probe, ...change }
+    const identityChanged = changed.target !== probe.target || changed.kind !== probe.kind || changed.port !== probe.port || changed.monitoring.ip_version !== probe.monitoring.ip_version
+    return identityChanged ? { ...changed, monitoring: { ...changed.monitoring, authorization: { ...changed.monitoring.authorization, confirmed: false } } } : changed
+  }))
   const addProbe = () => {
     const key = nextKey.current++
-    setProbes(current => current.length >= 32 ? current : [...current, { key, name: '', kind: 'tcp', target: '', port: '443', interval: '30', carrier: '', authorization: authorizationDraft() }])
+    setProbes(current => current.length >= 32 ? current : [...current, { key, name: '', kind: 'tcp', target: '', port: '443', interval: '30', carrier: '', monitoring: emptyMonitoring() }])
   }
   const submit = () => {
     const agent_settings: AgentSettings = { sample_interval_secs: Number(sample), upload_interval_secs: Number(upload), auto_update: autoUpdate, discover_public_ips: discover }
-    void action.run(() => {
-      if (!name.trim() || !Number.isSafeInteger(agent_settings.sample_interval_secs) || agent_settings.sample_interval_secs < 1 || agent_settings.sample_interval_secs > 60 || !Number.isSafeInteger(agent_settings.upload_interval_secs) || agent_settings.upload_interval_secs < agent_settings.sample_interval_secs || agent_settings.upload_interval_secs > 60) throw new Error('请检查服务器名称与采集间隔。')
-      const initialProbes = initialProbePayloads(probes.map(probe => ({ spec: { id: '00000000-0000-0000-0000-000000000000', name: probe.name, kind: probe.kind, target: probe.target, port: probe.kind === 'tcp' ? Number(probe.port) : null, interval_secs: Number(probe.interval), carrier: probe.carrier, enabled: true }, authorization: probe.authorization })))
-      return api<Server>('/api/servers', 'POST', { name: name.trim(), agent_settings, probes: initialProbes, asset_settings: assetPayload(asset) })
-    }, onCreated)
+    const initialProbes: Probe[] = probes.map(probe => withMonitoring({ id: '00000000-0000-0000-0000-000000000000', name: probe.name.trim(), kind: probe.kind, target: probe.target.trim(), port: probe.kind === 'tcp' ? Number(probe.port) : null, interval_secs: Number(probe.interval), carrier: probe.carrier.trim(), enabled: true, monitor: null }, probe.monitoring))
+    void action.run(() => api<Server>('/api/servers', 'POST', { name: name.trim(), agent_settings, telemetry_settings: { persist_interval_secs: Number(persist) }, probes: initialProbePayloads(initialProbes), asset_settings: assetPayload(asset) }), onCreated)
   }
 
   return <Modal title="添加服务器" onClose={onClose} busy={action.busy} className="server-setup-modal">
@@ -61,11 +64,12 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
           <ServerAssetFields value={asset} onChange={setAsset} />
       <ServerOperationsFields asset={asset} onChange={setAsset} />
           <section className="server-setup-section" aria-labelledby="setup-monitoring">
-            <div className="server-setup-heading"><div><h3 id="setup-monitoring">监控与采集</h3><p>采样决定数据精度，批量上传决定展示更新频率。</p></div><Icon name="activity" size={20} /></div>
+            <div className="server-setup-heading"><div><h3 id="setup-monitoring">监控与采集</h3><p>采样、实时上报和历史写入分别设置，兼顾展示速度与数据库开销。</p></div><Icon name="activity" size={20} /></div>
             <div className="server-setup-presets" role="group" aria-label="监控频率预设">{frequencies.map(frequency => <button key={frequency.label} type="button" aria-pressed={sample === frequency.sample && upload === frequency.upload} onClick={() => { setSample(frequency.sample); setUpload(frequency.upload) }}><strong>{frequency.label}</strong><span>{frequency.sample} 秒采样 · {frequency.upload} 秒上传</span><small>{frequency.note}</small></button>)}</div>
             <div className="server-setup-grid">
               <Field label="采样间隔（秒）" hint="每次采集系统指标的间隔，1–60 秒。"><input name="sample_interval_secs" type="number" min={1} max={60} step={1} required value={sample} onChange={event => setSample(event.target.value)} /></Field>
-              <Field label="批量上传间隔（秒）" hint="应大于或等于采样间隔，最多 60 秒。"><input name="upload_interval_secs" type="number" min={Number(sample) || 1} max={60} step={1} required value={upload} onChange={event => setUpload(event.target.value)} /></Field>
+              <Field label="实时上报间隔（秒）" hint="应大于或等于采样间隔，最多 60 秒；不决定历史保存粒度。"><input name="upload_interval_secs" type="number" min={Number(sample) || 1} max={60} step={1} required value={upload} onChange={event => setUpload(event.target.value)} /></Field>
+              <Field label="历史批量写入间隔（秒）" hint="15–3600 秒，默认 60 秒。新版 Agent 收到持久化确认后再清除本地缓存；旧 Agent 继续按原上传间隔写入。"><input name="persist_interval_secs" type="number" min={15} max={3600} step={1} required value={persist} onChange={event => setPersist(event.target.value)} /></Field>
             </div>
             <div className="server-setup-toggles">
               <label className="server-setup-toggle"><span><strong>自动识别公网地址</strong><small>识别 IPv4 / IPv6；设备本地关闭时，以本地设置为准。</small></span><input type="checkbox" role="switch" name="discover_public_ips" checked={discover} onChange={event => setDiscover(event.target.checked)} /><span className="server-setup-switch" aria-hidden="true" /></label>
@@ -73,22 +77,22 @@ export default function ServerSetup({ onClose, onCreated }: { onClose: () => voi
             </div>
           </section>
           <section className="server-setup-section" aria-labelledby="setup-probes">
-            <div className="server-setup-heading"><div><h3 id="setup-probes">初始网络拨测 <span className="server-setup-tag">可选</span></h3><p>登记目标来源与使用依据，接入后仅对授权有效的目标领取短期许可。默认统一目标也必须具有有效授权。</p></div><button type="button" className="button button-secondary button-small" onClick={addProbe} disabled={probes.length >= 32}><Icon name="plus" size={15} />添加目标</button></div>
+            <div className="server-setup-heading"><div><h3 id="setup-probes">初始网络拨测 <span className="server-setup-tag">可选</span></h3><p>接入后持续检测指定目标，结果显示在服务器展示页。统一延迟任务中的默认目标也会自动分配。</p></div><button type="button" className="button button-secondary button-small" onClick={addProbe} disabled={probes.length >= 32}><Icon name="plus" size={15} />添加目标</button></div>
             {!probes.length && <div className="server-setup-probe-empty"><Icon name="nodes" size={23} /><div><strong>关心的线路，从接入时开始观察</strong><p>添加 TCP 目标查看延迟与连接失败率，或通过 ICMP 检测延迟与丢包。也可以稍后配置。</p></div></div>}
             {probes.map((probe, index) => <div key={probe.key} className="server-setup-probe" role="group" aria-label={`拨测目标 ${index + 1}`}>
               <div className="server-setup-probe-heading"><strong>目标 {String(index + 1).padStart(2, '0')}</strong><button type="button" className="text-button danger-text" onClick={() => setProbes(current => current.filter(item => item.key !== probe.key))} aria-label={`移除目标 ${index + 1}`}>移除</button></div>
               <div className="server-setup-grid server-setup-probe-grid">
                 <Field label="拨测名称"><input required pattern=".*\S.*" maxLength={128} value={probe.name} onChange={event => updateProbe(probe.key, { name: event.target.value })} placeholder="例如：主站连通性" /></Field>
-                <Field label="检测方式"><select value={probe.kind} onChange={event => updateProbe(probe.key, { kind: event.target.value as ProbeSpec['kind'] })}><option value="tcp">TCP 连接</option><option value="icmp">ICMP 回显</option></select></Field>
+                <Field label="检测方式"><select value={probe.kind} onChange={event => updateProbe(probe.key, { kind: event.target.value as Probe['kind'] })}><option value="tcp">TCP 连接</option><option value="icmp">ICMP 回显</option></select></Field>
                 <Field label="线路备注"><input maxLength={64} value={probe.carrier} onChange={event => updateProbe(probe.key, { carrier: event.target.value })} placeholder="例如：电信 / 联通 / 移动" /></Field>
                 <Field label="目标地址"><input required maxLength={253} value={probe.target} onChange={event => updateProbe(probe.key, { target: event.target.value })} placeholder="主机名或 IP，不含协议和路径" autoCapitalize="none" spellCheck={false} /></Field>
                 {probe.kind === 'tcp' && <Field label="目标端口"><input type="number" min={1} max={65535} step={1} required value={probe.port} onChange={event => updateProbe(probe.key, { port: event.target.value })} /></Field>}
                 <Field label="拨测间隔（秒）"><input type="number" min={10} max={3600} step={1} required value={probe.interval} onChange={event => updateProbe(probe.key, { interval: event.target.value })} /></Field>
               </div>
-              <ProbeAuthorizationFields value={probe.authorization} onChange={authorization => updateProbe(probe.key, { authorization })} />
+              <ProbeMonitoringFields value={probe.monitoring} onChange={monitoring => updateProbe(probe.key, { monitoring })} />
               <p className="server-setup-help">{probe.kind === 'icmp' ? '设备需具备 ICMP 检测权限；工具或权限不可用时会显示检测错误。' : 'TCP 通过建立连接测量可达性，连接失败率与 ICMP 丢包率分别展示。'}</p>
             </div>)}
-            {probes.length > 0 && <p className="server-setup-help">已配置 {probes.length} / 32 个目标。创建成功只保存配置，须等设备接入和有效许可；没有设备采样不能显示为检测成功。</p>}
+            {probes.length > 0 && <p className="server-setup-help">已配置 {probes.length} / 32 个目标。已确认目标授权且新版 Agent 取得最长 90 秒执行许可后才开始调度。断连和冷启动不沿用许可，可在服务器详情中编辑、撤销授权或暂停。</p>}
           </section>
         </fieldset>
         <ErrorNotice message={action.error} />

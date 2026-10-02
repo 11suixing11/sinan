@@ -1030,3 +1030,79 @@ async fn lost_ack_replays_identical_checkpoint_after_reopen_without_reinspection
         vec![original]
     );
 }
+
+#[tokio::test]
+async fn explicit_runtime_restart_rotates_activation_and_obeys_the_recovery_revision_floor() {
+    let fixture = Fixture::new();
+    let first = fixture.target(1, "{}");
+    fixture.apply(first.clone()).await;
+    let binding = Fixture::binding(&first);
+    let original = fixture.checkpoint(binding.clone()).await.observed.unwrap();
+    assert!(fixture.barrier(original.clone(), 1).await.success);
+
+    fixture.reconciler.restart_applied(1).await.unwrap();
+    let restarted = fixture.checkpoint(binding).await.observed.unwrap();
+    assert_ne!(restarted.activation_id, original.activation_id);
+    assert_ne!(restarted.instance_id, original.instance_id);
+    assert_eq!(restarted.binding, original.binding);
+    assert!(!fixture.barrier(original, 1).await.success);
+    assert!(fixture.barrier(restarted, 1).await.success);
+
+    let second = fixture.target(2, "{\"next\":true}");
+    fixture.apply(second.clone()).await;
+    let observed = fixture
+        .checkpoint(Fixture::binding(&second))
+        .await
+        .observed
+        .unwrap();
+    assert!(fixture.barrier(observed, 2).await.success);
+    let actions = fixture.services.inner.actions.lock().unwrap().clone();
+    // Model a restored older applied ledger beside the durable newer floor.
+    fixture
+        .state
+        .lock()
+        .unwrap()
+        .set_json("applied:demo", &first)
+        .unwrap();
+    assert!(fixture.reconciler.restart_applied(1).await.is_err());
+    assert_eq!(
+        fixture.reconciler.runtime_snapshot().await.unwrap().healthy,
+        Some(false)
+    );
+    assert_eq!(*fixture.services.inner.actions.lock().unwrap(), actions);
+    assert!(
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .pending_intents()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .runtime_revision_floor("demo")
+            .unwrap(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn runtime_inspection_reports_an_externally_restarted_certified_instance_as_unhealthy() {
+    let fixture = Fixture::new();
+    fixture.apply(fixture.target(1, "{}")).await;
+    assert_eq!(
+        fixture.reconciler.runtime_snapshot().await.unwrap().healthy,
+        Some(true)
+    );
+    let actions = fixture.services.inner.actions.lock().unwrap().clone();
+    fixture.services.generation.fetch_add(1, Ordering::SeqCst);
+    assert_eq!(
+        fixture.reconciler.runtime_snapshot().await.unwrap().healthy,
+        Some(false)
+    );
+    assert_eq!(*fixture.services.inner.actions.lock().unwrap(), actions);
+}

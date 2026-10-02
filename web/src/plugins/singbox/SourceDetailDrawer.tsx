@@ -4,8 +4,8 @@ import { useAction, useResource } from '../../hooks'
 import { dateText, validatedSnapshot } from './groupTypes'
 import { cancelSourceJob, sourceMetadataError } from './sourceRequests'
 import type { SourceEditorMode, SourceSnapshot } from './sourceRequests'
-import { sourceFormatText, sourceJobActive, sourceJobRoot, sourceRoot, sourceStageText, sourceStatusText, validSourceHistory, validSourceJob, validSourceNodePage, validSubscriptionSource } from './sourceTypes'
-import type { SourceHistory, SourceJob, SourceNode, SourceNodePage, SubscriptionSource } from './sourceTypes'
+import { sourceFormatText, sourceJobActive, sourceJobRoot, sourceRoot, sourceStageText, sourceStatusText, validSourceHistory, validSourceJob, validSourceNodePage, validSubscriptionSource } from './orderedSourceTypes'
+import type { SourceHistory, SourceJob, SourceNode, SourceNodePage, SubscriptionSource } from './orderedSourceTypes'
 
 function nodeAddress(node: SourceNode) {
   if (!node.server || node.server_port === null) return '端点未知'

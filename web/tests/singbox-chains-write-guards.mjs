@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolve, extname, sep } from 'node:path'
-import { proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
+import { flatResourceFixtures, proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
 
 // Exercise the actual dist; every API request is intercepted by an owned fixture.
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
@@ -29,7 +29,7 @@ try {
     await page.clock.install()
     const errors = [], writes = [], failures = new Set(), heldReads = new Map()
     const prefix = '/api/plugins/sing-box'
-    const paths = ['proxy-resources', 'nodes', 'servers'].map(name => `${prefix}/${name}`)
+    const paths = ['ordered-proxy-resources', 'nodes', 'servers'].map(name => `${prefix}/${name}`)
     const baseNodes = [1, 2, 3].map(id => ({ id, server_id: id, name: `节点 ${id}`, enabled: true, protocol: 'vless-reality', public_host: 'proxy.example.com', port: 443, sni: 'www.example.com', public_key: 'TEST_ONLY', short_id: '0123abcd' }))
     let nodes = baseNodes.map(value => ({ ...value }))
     const servers = [1, 2, 3].map(id => ({ id, name: `服务器 ${id}`, enabled: true, online: false, agent_supported: true, read_only: false, source: 'administrator' }))
@@ -52,16 +52,17 @@ try {
       else if (method === 'GET' && pathname === `${prefix}/nodes`) value = nodes
       else if (method === 'GET' && pathname === `${prefix}/servers`) value = servers
       else if (method === 'GET' && pathname === `${prefix}/usage`) value = {total:'0',uplink:'0',downlink:'0',by_node:[],by_user:[]}
-      else if (method === 'GET' && pathname === `${prefix}/subscription-sources`) value = []
-      else if (method === 'GET' && pathname === `${prefix}/proxy-resources`) value = proxyResourceFixtures(nodes, [...servers,...baseServers.filter(base => !servers.some(server => server.id === base.id))], chains)
+      else if (method === 'GET' && [ `${prefix}/subscription-sources`, `${prefix}/ordered-subscription-sources` ].includes(pathname)) value = []
+      else if (method === 'GET' && pathname === `${prefix}/proxy-resources`) value = flatResourceFixtures(nodes, [...servers,...baseServers.filter(base => !servers.some(server => server.id === base.id))], chains)
+      else if (method === 'GET' && pathname === `${prefix}/ordered-proxy-resources`) value = proxyResourceFixtures(nodes, [...servers,...baseServers.filter(base => !servers.some(server => server.id === base.id))], chains)
       else if (method === 'GET' && pathname === `${prefix}/chains`) value = chains
-      else if (method === 'POST' && pathname === `${prefix}/chains/batch`) {
+      else if (method === 'POST' && pathname === `${prefix}/chains/ordered-batch`) {
         const payload = request.postDataJSON()
         assert.match(payload.request_id,/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
         assert.deepEqual(payload.items,[{name:'完整保留的创建草稿',entry:{mode:'existing',node_id:1},hops:[{kind:'managed',node_id:2}]}])
-        const chain = {name:payload.items[0].name,entry_node_id:1,exit_node_id:2,id:nextId++,available:true}; chains.push(chain)
+        const chain = {name:payload.items[0].name,entry_node_id:1,exit_node_id:2,id:nextId++,available:true,path_kind:'ordered'}; chains.push(chain)
         value = {request_id:payload.request_id,chain_ids:[chain.id],entry_node_ids:[1]}
-      } else if (method === 'DELETE' && pathname === `${prefix}/proxy-resources/chain/100`) {
+      } else if (method === 'DELETE' && pathname === `${prefix}/ordered-proxy-resources/chain/100`) {
         assert(chains.some(chain => chain.id === 100), 'deletion must never use a disappeared ID')
         chains = chains.filter(chain => chain.id !== 100)
         await route.fulfill({ status: 204, body: '' }); return
@@ -196,15 +197,15 @@ try {
     for (const pathname of paths) {
       await failedRead(pathname)
       assert.equal(await createButton.isDisabled(), true)
-      assert.equal(await oldRow.getByRole('button', { name: '删除', exact: true }).isDisabled(), pathname === `${prefix}/proxy-resources`)
-      if (pathname === `${prefix}/proxy-resources`) await oldRow.getByText('资源状态待确认', { exact: true }).waitFor()
-      await noWrites(() => forceOpeners(pathname === `${prefix}/proxy-resources`), 'failed opening callbacks must send zero business writes')
+      assert.equal(await oldRow.getByRole('button', { name: '删除', exact: true }).isDisabled(), pathname === `${prefix}/ordered-proxy-resources`)
+      if (pathname === `${prefix}/ordered-proxy-resources`) await oldRow.getByText('资源状态待确认', { exact: true }).waitFor()
+      await noWrites(() => forceOpeners(pathname === `${prefix}/ordered-proxy-resources`), 'failed opening callbacks must send zero business writes')
       assert.equal(await page.getByRole('dialog').count(), 0)
       await recover(pathname, null, async () => {
         assert.equal(await createButton.isDisabled(), true)
-        if (pathname === `${prefix}/proxy-resources`) assert.equal(await oldRow.getByRole('button', { name: '删除', exact: true }).isDisabled(),true)
+        if (pathname === `${prefix}/ordered-proxy-resources`) assert.equal(await oldRow.getByRole('button', { name: '删除', exact: true }).isDisabled(),true)
         else await enabled(oldRow.getByRole('button', { name: '删除', exact: true }))
-        await noWrites(() => forceOpeners(pathname === `${prefix}/proxy-resources`), 'pending opening callbacks must send zero business writes')
+        await noWrites(() => forceOpeners(pathname === `${prefix}/ordered-proxy-resources`), 'pending opening callbacks must send zero business writes')
         assert.equal(await page.getByRole('dialog').count(), 0)
         assert.equal(writes.length, 0)
       })
@@ -230,7 +231,7 @@ try {
       if (change === 'missing-server') servers[0].id = 99
       if (change === 'disabled-server') servers[0].enabled = false
       if (change === 'chain-role') chains.push({ id: 102, name: '并发创建的链路', entry_node_id: 1, exit_node_id: 2, available: true })
-      const pathname = change.includes('server') ? `${prefix}/servers` : change === 'chain-role' ? `${prefix}/proxy-resources` : `${prefix}/nodes`
+      const pathname = change.includes('server') ? `${prefix}/servers` : change === 'chain-role' ? `${prefix}/ordered-proxy-resources` : `${prefix}/nodes`
       const response = page.waitForResponse(response => new URL(response.url()).pathname === pathname && response.request().method() === 'GET' && response.status() === 200)
       await refreshLists(); await response
       await creating.getByRole('alert').filter({ hasText: change === 'chain-role' ? '链路身份已变更' : '已选节点已不可用' }).waitFor()
@@ -246,11 +247,11 @@ try {
     await page.getByRole('dialog').waitFor({ state: 'hidden' })
     await page.getByText('完整保留的创建草稿', { exact: true }).waitFor()
     assert.equal(writes.length,1)
-    assert.deepEqual(writes[0], { pathname: `${prefix}/chains/batch`, method: 'POST', payload: { request_id:writes[0].payload.request_id,items:[{name:'完整保留的创建草稿',entry:{mode:'existing',node_id:1},hops:[{kind:'managed',node_id:2}]}] } })
+    assert.deepEqual(writes[0], { pathname: `${prefix}/chains/ordered-batch`, method: 'POST', payload: { request_id:writes[0].payload.request_id,items:[{name:'完整保留的创建草稿',entry:{mode:'existing',node_id:1},hops:[{kind:'managed',node_id:2}]}] } })
     await enabled(oldRow.getByRole('button', { name: '删除', exact: true }))
     await oldRow.getByRole('button', { name: '删除', exact: true }).click()
     const deleting = page.getByRole('dialog')
-    for (const pathname of [`${prefix}/proxy-resources`]) {
+    for (const pathname of [`${prefix}/ordered-proxy-resources`]) {
       await failedRead(pathname); await blockedDelete(deleting)
       await recover(pathname, deleting, () => blockedDelete(deleting))
       await enabled(deleting.getByRole('button', { name: '确认删除', exact: true }))
@@ -258,7 +259,7 @@ try {
       await enabled(deleting.getByRole('button', { name: '确认删除', exact: true }))
     }
     chains = chains.filter(chain => chain.id !== 100)
-    const disappeared = page.waitForResponse(response => new URL(response.url()).pathname === `${prefix}/proxy-resources` && response.request().method() === 'GET' && response.status() === 200)
+    const disappeared = page.waitForResponse(response => new URL(response.url()).pathname === `${prefix}/ordered-proxy-resources` && response.request().method() === 'GET' && response.status() === 200)
     await refreshLists(); await disappeared
     await deleting.getByRole('alert').filter({ hasText: '此资源已不可用' }).waitFor()
     await blockedDelete(deleting)
@@ -269,7 +270,7 @@ try {
     await deleting.getByRole('button', { name: '确认删除', exact: true }).click()
     await page.getByRole('dialog').waitFor({ state: 'hidden' })
     await oldRow.waitFor({ state: 'hidden' })
-    assert.deepEqual(writes.at(-1), { pathname: `${prefix}/proxy-resources/chain/100`, method: 'DELETE', payload: null })
+    assert.deepEqual(writes.at(-1), { pathname: `${prefix}/ordered-proxy-resources/chain/100`, method: 'DELETE', payload: null })
     assert.equal(writes.length, 2)
 
     // A blocked editor remains closable, and a failed filtered read keeps the last list.

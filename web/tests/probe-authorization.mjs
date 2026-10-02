@@ -17,13 +17,14 @@ await new Promise(resolve => http.listen(0, '127.0.0.1', resolve))
 const origin = `http://127.0.0.1:${http.address().port}`
 const browser = await chromium.launch({ headless: true, ...(process.env.SINAN_CHROME_PATH ? { executablePath: process.env.SINAN_CHROME_PATH } : {}) })
 const results = []
-const permission = { region: '测试地区', source: 'TEST_ONLY 自有清单', scope: 'owned', evidence: 'TEST_ONLY 管理记录', expires_at: null }
+const permission = { kind: 'owned', source: 'TEST_ONLY 自有清单', scope: 'TEST_ONLY 管理记录', enabled: true, expires_at: null, identity: { kind: 'tcp', target: 'probe.example.com', port: 443, address_family: 'any' } }
 
 async function fillAuthorization(scope) {
-  await scope.getByLabel('目标地区（可选）').fill('测试地区')
-  await scope.getByLabel('目标来源', { exact: false }).fill('TEST_ONLY 自有清单')
-  await scope.getByLabel('使用依据').selectOption('owned')
-  await scope.getByLabel('同意或管理记录', { exact: false }).fill('TEST_ONLY 管理记录')
+  await scope.getByLabel('目标地区').fill('测试地区')
+  await scope.getByLabel('授权来源', { exact: false }).fill('TEST_ONLY 自有清单')
+  await scope.getByLabel('目标授权依据').selectOption('owned')
+  await scope.getByLabel('授权适用范围', { exact: false }).fill('TEST_ONLY 管理记录')
+  await scope.getByRole('switch', { name: /^确认该范围内允许周期探测/ }).check()
 }
 
 try {
@@ -33,11 +34,12 @@ try {
     page.on('pageerror', error => errors.push(error.message))
     await page.clock.install()
     const servers = [{ id: 1, name: '测试离线服务器', online: false, asset_settings: { region: 'TEST', group_name: '' } }]
-    const legacy = { id: 'legacy-task', spec: { id: 'legacy-task', name: '旧未登记目标', kind: 'tcp', target: '127.0.0.1', port: 443, interval_secs: 30, carrier: '', enabled: true }, authorization: null, default_enabled: false, server_ids: [1], revision: 1 }
+    const legacy = { id: 'legacy-task', spec: { id: 'legacy-task', name: '旧未登记目标', kind: 'tcp', target: '127.0.0.1', port: 443, interval_secs: 30, carrier: '', enabled: true }, default_enabled: false, server_ids: [1], revision: 1 }
     let tasks = [legacy], taskMode = 'ready', serverMode = 'ready', releasePending, targetPending = null
     await page.route('**/api/**', async route => {
       const request = route.request(), path = new URL(request.url()).pathname, method = request.method()
       const respond = (json, status = 200) => route.fulfill({ status, json })
+      if (path === '/api/probes/overview') return respond([])
       if (path === '/api/dashboard/access') return respond({ authenticated: true, public_dashboard: false })
       if (method !== 'GET') writes.push({ method, path, body: request.postDataJSON() })
       if (method === 'GET' && ['/api/servers', '/api/latency-tasks'].includes(path)) {
@@ -66,13 +68,13 @@ try {
       unexpected.push(`${method} ${path}`); return respond({ error: 'Unexpected request' }, 500)
     })
     await page.goto(`${origin}/#/latency`)
-    await page.getByText('目标授权待确认', { exact: true }).waitFor()
+    await page.getByText('未取得执行授权', { exact: true }).waitFor()
     await page.getByRole('button', { name: '添加任务', exact: true }).click()
     let dialog = page.getByRole('dialog')
     await dialog.getByLabel('任务名称').fill('保留的目标草稿')
     await dialog.getByLabel('目标地址', { exact: false }).fill('probe.example.com')
     await dialog.getByRole('checkbox', { name: /测试离线服务器/ }).check()
-    await dialog.getByRole('button', { name: '保存任务', exact: true }).click()
+    await dialog.locator('form').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
     await dialog.getByRole('alert').filter({ hasText: '授权' }).waitFor()
     assert.equal(writes.length, 0, 'Missing authorization cannot reach the POST callback')
     await fillAuthorization(dialog)
@@ -101,7 +103,7 @@ try {
     }
     servers.splice(0, 1)
     await page.clock.runFor(5001)
-    await dialog.getByRole('alert').filter({ hasText: '不可用' }).waitFor()
+    await dialog.getByRole('alert').filter({ hasText: '已不存在' }).waitFor()
     await dialog.locator('form').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
     assert.equal(writes.length, 0, 'A removed selected server is rejected after a successful refresh')
     assert.equal(await dialog.getByLabel('任务名称').inputValue(), '保留的目标草稿')
@@ -109,8 +111,8 @@ try {
     await dialog.getByRole('button', { name: '保存任务', exact: true }).click()
     await dialog.waitFor({ state: 'detached' })
     assert.equal(writes.length, 1)
-    assert.deepEqual(writes[0].body.authorization, permission)
-    assert.equal(Object.keys(writes[0].body.spec).length, 8)
+    assert.deepEqual(writes[0].body.spec.monitor.authorization, permission)
+    assert.equal(Object.keys(writes[0].body.spec).length, 9)
     assert.deepEqual(writes[0].body.server_ids, [])
     await page.getByRole('row').filter({ hasText: '保留的目标草稿' }).getByRole('button', { name: '编辑', exact: true }).click()
     dialog = page.getByRole('dialog')
@@ -126,7 +128,9 @@ try {
     dialog = page.getByRole('dialog')
     tasks[1] = { ...tasks[1], revision: 3 }
     await page.clock.runFor(5001)
-    await dialog.getByRole('button', { name: '确认删除', exact: true }).click()
+    const remove = dialog.getByRole('button', { name: '确认删除', exact: true })
+    assert.equal(await remove.isDisabled(), true)
+    await remove.evaluate(button => { const disabled = button.disabled; try { button.disabled = false; button.click() } finally { button.disabled = disabled } })
     await dialog.getByRole('alert').filter({ hasText: '版本已变化' }).waitFor()
     assert.equal(writes.length, 1, 'A stale delete confirmation sends no DELETE')
     assert.equal(await dialog.evaluate(element => element.scrollWidth > element.clientWidth + 1), false)

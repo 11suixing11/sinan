@@ -45,7 +45,7 @@ async fn expire(connection: &mut PgConnection, local: &[Uuid]) -> ApiResult<()> 
     let ids: Vec<i64> = sqlx::query_scalar("SELECT DISTINCT source_id FROM singbox_subscription_source_jobs WHERE status IN ('running','cancelling') AND deadline_at<=$1 AND NOT(id=ANY($2)) ORDER BY source_id")
         .bind(now_timestamp()).bind(local).fetch_all(&mut *connection).await?;
     for source in ids {
-        sqlx::query("SELECT id FROM singbox_subscription_sources WHERE id=$1 FOR UPDATE")
+        sqlx::query("SELECT id FROM singbox_ordered_subscription_sources WHERE id=$1 FOR UPDATE")
             .bind(source)
             .fetch_one(&mut *connection)
             .await?;
@@ -74,7 +74,7 @@ async fn expire(connection: &mut PgConnection, local: &[Uuid]) -> ApiResult<()> 
             sqlx::query("UPDATE singbox_subscription_source_jobs SET status=$2,stage='done',claim_token=NULL,finished_at=$3,error=$4 WHERE id=$1")
                 .bind(id).bind(&terminal).bind(now_timestamp()).bind(serde_json::json!(error)).execute(&mut *connection).await?;
             if terminal == "failed" {
-                sqlx::query("UPDATE singbox_subscription_sources SET last_error=$4 WHERE id=$1 AND settings_revision=$2 AND identity_epoch=$3 AND deleted_at IS NULL AND NOT archived")
+                sqlx::query("UPDATE singbox_ordered_subscription_sources SET last_error=$4 WHERE id=$1 AND settings_revision=$2 AND identity_epoch=$3 AND deleted_at IS NULL AND NOT archived")
                     .bind(source).bind(revision).bind(epoch).bind(serde_json::json!(error)).execute(&mut *connection).await?;
             }
         }
@@ -90,7 +90,7 @@ async fn claim_due(state: &AppState, local: &BTreeSet<Uuid>) -> ApiResult<Vec<Cl
         .execute(&mut *tx)
         .await?;
     expire(&mut tx, &local.iter().copied().collect::<Vec<_>>()).await?;
-    let due = sqlx::query_as::<_, SourceRow>(&format!("SELECT {SOURCE_COLUMNS} FROM singbox_subscription_sources WHERE deleted_at IS NULL AND NOT archived AND next_refresh_at<=$1 ORDER BY next_refresh_at,id LIMIT 16 FOR UPDATE SKIP LOCKED"))
+    let due = sqlx::query_as::<_, SourceRow>(&format!("SELECT {SOURCE_COLUMNS} FROM singbox_ordered_subscription_sources WHERE deleted_at IS NULL AND NOT archived AND next_refresh_at<=$1 ORDER BY next_refresh_at,id LIMIT 16 FOR UPDATE SKIP LOCKED"))
         .bind(now_timestamp()).fetch_all(&mut *tx).await?;
     for source in due {
         jobs::enqueue(&mut tx, &source).await?;
@@ -104,7 +104,7 @@ async fn claim_due(state: &AppState, local: &BTreeSet<Uuid>) -> ApiResult<Vec<Cl
         .bind(capacity).fetch_all(&mut *tx).await?;
     let mut claims = Vec::with_capacity(queue.len());
     for job in queue {
-        let source = sqlx::query_as::<_, SourceRow>(&format!("SELECT {SOURCE_COLUMNS} FROM singbox_subscription_sources WHERE id=$1 FOR UPDATE SKIP LOCKED"))
+        let source = sqlx::query_as::<_, SourceRow>(&format!("SELECT {SOURCE_COLUMNS} FROM singbox_ordered_subscription_sources WHERE id=$1 FOR UPDATE SKIP LOCKED"))
             .bind(job.source_id).fetch_optional(&mut *tx).await?;
         let Some(source) = source else { continue };
         let status: String = sqlx::query_scalar(
@@ -126,7 +126,7 @@ async fn claim_due(state: &AppState, local: &BTreeSet<Uuid>) -> ApiResult<Vec<Cl
                 .bind(job.id).bind(now_timestamp()).bind(serde_json::json!(SourceFailure::new("done","superseded","任务输入已过期，未更新当前来源"))).execute(&mut *tx).await?;
             if source.deleted_at.is_none() && !source.archived {
                 sqlx::query(
-                    "UPDATE singbox_subscription_sources SET next_refresh_at=$2 WHERE id=$1",
+                    "UPDATE singbox_ordered_subscription_sources SET next_refresh_at=$2 WHERE id=$1",
                 )
                 .bind(source.id)
                 .bind(now_timestamp())
@@ -147,11 +147,13 @@ async fn claim_due(state: &AppState, local: &BTreeSet<Uuid>) -> ApiResult<Vec<Cl
         let now = now_timestamp();
         sqlx::query("UPDATE singbox_subscription_source_jobs SET status='running',stage=$2,claim_token=$3,started_at=$4,deadline_at=$5 WHERE id=$1")
             .bind(job.id).bind(if source.kind == "url" { "fetch" } else { "parse" }).bind(token).bind(now).bind(now+45).execute(&mut *tx).await?;
-        sqlx::query("UPDATE singbox_subscription_sources SET last_attempt_at=$2 WHERE id=$1")
-            .bind(source.id)
-            .bind(now)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "UPDATE singbox_ordered_subscription_sources SET last_attempt_at=$2 WHERE id=$1",
+        )
+        .bind(source.id)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
         claims.push(Claim {
             job_id: job.id,
             source_id: source.id,

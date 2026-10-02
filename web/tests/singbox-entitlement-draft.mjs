@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolve, extname, sep } from 'node:path'
-import { proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
+import { flatResourceFixtures, proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
 
 // Serve the actual built dist; all business requests use private API fixtures.
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
@@ -42,7 +42,7 @@ try {
     const proxyResources = () => {
       const missingIds = [...new Set(chainEntries.flatMap(chain => [chain.entry_node_id, chain.exit_node_id]))].filter(id => !nodes.some(node => node.id === id))
       const retired = missingIds.map((id, index) => ({ id, name: `已删除历史节点 ${id}`, server_id: index % 2 + 1, protocol: 'vless-reality', public_host: 'retired.example.com', port: 20000 + id, sni: 'www.example.com', node_deleted: true }))
-      return proxyResourceFixtures([...nodes, ...retired], servers, chainEntries)
+      return flatResourceFixtures([...nodes, ...retired], servers, chainEntries)
     }
     const user = { id: 1, name: '测试代理用户', subscription_token: 'TEST_ONLY', subscription_url: 'https://panel.example.com/s/TEST_ONLY' }
     const usage = { uplink: '10', downlink: '20', total: '30', by_user: [{ user_id: 1, name: user.name, deleted: false, uplink: '10', downlink: '20' }], by_node: [] }
@@ -101,6 +101,9 @@ try {
         userWrites.push(payload); Object.assign(user, payload); value = user
       }
       else if (pathname === `${prefix}/proxy-resources` && method === 'GET') value = proxyResources()
+      else if (pathname === `${prefix}/ordered-proxy-resources` && method === 'GET') value = []
+      else if (pathname === `${prefix}/nodes` && method === 'GET') value = nodes
+      else if (pathname === `${prefix}/chains` && method === 'GET') value = chainEntries
       else if (pathname === `${prefix}/policy-groups` && method === 'GET') value = policies
       else if (pathname === `${prefix}/policy-groups` && method === 'POST') {
         const payload = request.postDataJSON()

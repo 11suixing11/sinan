@@ -21,6 +21,7 @@ pub struct Settings {
     pub telegram_token: String,
     pub telegram_thread_id: Option<i32>,
     pub telegram_template: String,
+    pub webhook: Option<crate::notifications::webhook::Config>,
 }
 
 impl Default for Settings {
@@ -39,6 +40,7 @@ impl Default for Settings {
             telegram_template:
                 "司南 · {{title}}\n服务器：{{server}}\n{{message}}\n时间：{{time}}\n事件：{{event}}"
                     .into(),
+            webhook: None,
         }
     }
 }
@@ -56,6 +58,9 @@ impl Settings {
             && self.telegram_enabled
             && !self.telegram_token.is_empty()
             && !self.telegram_chat_id.is_empty()
+    }
+    pub fn webhook_ready(&self) -> bool {
+        self.notification_enabled && self.webhook.as_ref().is_some_and(|config| config.enabled)
     }
 }
 
@@ -124,6 +129,7 @@ pub async fn update(
         telegram_template: update
             .telegram_template
             .unwrap_or_else(|| old.telegram_template.clone()),
+        webhook: old.webhook.clone(),
     };
     let valid_token = settings.telegram_token.is_empty()
         || settings
@@ -168,7 +174,22 @@ pub async fn update(
         || old.telegram_chat_id != settings.telegram_chat_id
         || old.telegram_token != settings.telegram_token
         || old.telegram_thread_id != settings.telegram_thread_id
+        || old.telegram_template != settings.telegram_template
     {
+        sqlx::query("UPDATE notification_outbox SET status='cancelled' WHERE channel='telegram' AND status='pending'")
+            .execute(&mut *tx)
+            .await?;
+    }
+    if old.telegram_chat_id != settings.telegram_chat_id
+        || old.telegram_token != settings.telegram_token
+        || old.telegram_thread_id != settings.telegram_thread_id
+        || old.telegram_template != settings.telegram_template
+    {
+        sqlx::query("DELETE FROM notification_channel_tests WHERE channel='telegram'")
+            .execute(&mut *tx)
+            .await?;
+    }
+    if !settings.notification_enabled {
         sqlx::query("UPDATE notification_outbox SET status='cancelled' WHERE status='pending'")
             .execute(&mut *tx)
             .await?;

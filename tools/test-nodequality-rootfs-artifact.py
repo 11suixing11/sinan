@@ -69,7 +69,7 @@ class DerivationTests(unittest.TestCase):
         specification.loader.exec_module(helper)
         lock = helper.decode(helper.ordinary(artifact.PLUGIN / "source-lock.json", 65536))
         cls.bundle = helper.pack(lock, Path(path))
-        cls.legacy = artifact.legacy_runner(cls.bundle)
+        cls.legacy = artifact.canonical_runner(cls.bundle)
         cls.runner = artifact.offline_runner(cls.legacy)
 
     def test_exact_canonical_sources_and_full_licenses_are_retained(self):
@@ -78,9 +78,13 @@ class DerivationTests(unittest.TestCase):
                          artifact.embedded(self.legacy, artifact.MARKERS["NODEQUALITY_LICENSE"]))
         entry = artifact.embedded(self.legacy, artifact.MARKERS["NODEQUALITY_SOURCE"])
         self.assertEqual(hashlib.sha256(entry).hexdigest(), artifact.ENTRY_SHA256)
+        self.assertEqual(artifact.embedded(self.runner, "SINAN_NODEQUALITY_EXECUTION_ADMISSION"),
+                         artifact.embedded(self.legacy, "SINAN_NODEQUALITY_EXECUTION_ADMISSION"))
+        self.assertEqual(artifact.embedded(self.runner, "SINAN_OFFICIAL_IP_HELPER"),
+                         artifact.embedded(self.legacy, "SINAN_OFFICIAL_IP_HELPER"))
         self.assertIn(artifact.LOCAL_ROOTFS, self.runner)
         self.assertNotIn(artifact.LOAD_ROOTFS, self.runner)
-        self.assertNotIn(artifact.ROOTFS_PASSTHROUGH, self.runner)
+        self.assertNotIn(b'exec "$SINAN_REAL_CURL" --connect-timeout 15 --max-time 900', self.runner)
 
     def test_version_is_distinct_and_full_is_refused_before_any_prerequisite_or_io(self):
         with tempfile.TemporaryDirectory(prefix="sinan-rootfs-wrapper-") as temporary:
@@ -96,7 +100,7 @@ class DerivationTests(unittest.TestCase):
             full = subprocess.run([bash, str(script), "--workspace", str(nonexistent), "--mode", "full"],
                                   env=environment, capture_output=True, timeout=3)
             self.assertNotEqual(full.returncode, 0)
-            self.assertIn(b"licensed tools and complete acceptance are pending", full.stderr)
+            self.assertIn(b"new full diagnostics are paused", full.stderr)
             self.assertFalse(nonexistent.exists())
 
     def test_changed_legacy_wrapper_entry_bundle_and_license_cannot_be_derived(self):
@@ -121,7 +125,7 @@ class DerivationTests(unittest.TestCase):
                 artifact.offline_runner(content)
         for content in (b"null", b"[]", b'"string"'):
             with self.assertRaises(ValueError):
-                artifact.legacy_runner(content)
+                artifact.canonical_runner(content)
 
     def test_preparation_artifact_roundtrip_and_inner_manifest_are_both_validated(self):
         for arch in ("amd64", "arm64"):
@@ -304,7 +308,7 @@ class DerivationTests(unittest.TestCase):
                 if entry["name"] == "nodequality":
                     self.assertEqual(set(entry["auxiliary_files"]), artifact.FILES - {artifact.BINARY})
             # A newly signed but wrong identity must still fail the explicit
-            # namespaced offline file-set contract, independent of a valid test signature.
+            # offline r20 file-set contract, independent of a valid test signature.
             for entry in metadata["artifacts"]:
                 if entry["name"] == "nodequality":
                     entry["auxiliary_files"].pop("rootfs-manifest.json")

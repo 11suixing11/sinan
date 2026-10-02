@@ -81,6 +81,8 @@ impl DiagnosticAdapter for TestAdapter {
     }
 }
 
+type SuspendedStatus = (Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>);
+
 struct Services {
     status: Mutex<JobStatus>,
     starts: AtomicUsize,
@@ -102,6 +104,7 @@ struct Services {
     fail_start: AtomicBool,
     read_only_on_start: Mutex<Option<SharedState>>,
     stopped_units: Mutex<Vec<String>>,
+    suspended_status: Mutex<Option<SuspendedStatus>>,
 }
 impl Services {
     fn new(status: JobStatus) -> Self {
@@ -126,6 +129,7 @@ impl Services {
             fail_start: AtomicBool::new(false),
             read_only_on_start: Mutex::new(None),
             stopped_units: Mutex::new(Vec::new()),
+            suspended_status: Mutex::new(None),
         }
     }
 }
@@ -206,6 +210,13 @@ impl ServiceManager for Services {
     fn job_status<'a>(&'a self, _unit: &'a str) -> BoxFuture<'a, JobStatus> {
         Box::pin(async move {
             self.status_queries.fetch_add(1, Ordering::Relaxed);
+            let suspended = self.suspended_status.lock().unwrap().take();
+            if let Some((started, release)) = suspended {
+                let old_status = self.status.lock().unwrap().clone();
+                started.notify_one();
+                release.notified().await;
+                return Ok(old_status);
+            }
             if self.hang.load(Ordering::Relaxed) {
                 return std::future::pending().await;
             }

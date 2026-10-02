@@ -5,8 +5,8 @@
 .source-section-actions { justify-content: flex-end; }
 .source-archive-filter { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; font-size: 13px; color: var(--muted); }
 .source-archive-filter input { width: auto; }
-.source-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
-.source-list > li { border: 1px solid var(--border); border-radius: 12px; padding: 16px; min-width: 0; }
+.sources-panel .source-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.sources-panel .source-list > li { border: 1px solid var(--border); border-radius: 12px; padding: 16px; min-width: 0; }
 .source-card-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .source-card-heading strong { display: block; overflow-wrap: anywhere; }
 .source-card-heading small { display: block; margin-top: 6px; color: var(--muted); overflow-wrap: anywhere; }
@@ -27,3 +27,37 @@
 .source-auth { padding: 4px 0; }
 .source-detail-actions { margin-top: 12px; }
 @media (max-width: 640px) { .sources-panel .panel-heading, .source-card-heading { flex-direction: column; }.source-section-actions { justify-content: flex-start; }.source-facts { grid-template-columns: 1fr; }.source-preview-heading { align-items: flex-start; }.source-pagination { gap: 8px; }.source-section-actions .button { font-size: 12px; }.source-detail-actions .button { font-size: 12px; } }
+
+.subscription-sources { margin-top: 24px; }
+.subscription-sources .panel-heading > div:first-child { min-width: 0; }
+.subscription-sources .panel-heading p { margin: 7px 0 0; }
+.subscription-sources .panel-body:has(> :empty) { display: none; }
+.subscription-sources .source-list { padding: 0 22px 20px; display: grid; gap: 12px; }
+.source-card { border: 1px solid var(--border); border-radius: 12px; padding: 17px 18px; }
+.source-card-selected { border-color: var(--green); background: var(--soft-green); }
+.source-card-main { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; }
+.source-title { font-weight: 650; font-size: 15px; text-align: left; overflow-wrap: anywhere; }
+.source-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 10px 0 13px; color: var(--muted); font-size: 12px; }
+.source-card .row-actions { flex-wrap: wrap; gap: 16px; }
+.source-warning { color: var(--warning, #986025); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.source-preview { border-top: 1px solid var(--border); padding: 22px; }
+.source-preview-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 18px; }
+.source-preview-heading h3 { margin: 0; font-size: 16px; }
+.source-preview .field { max-width: 400px; }
+.source-preview .table-wrap { margin: 12px 0; }
+.source-preview th { white-space: nowrap; }
+.source-preview td { min-width: 125px; }
+.source-preview td small { display: block; margin-top: 5px; color: var(--muted); }
+.source-endpoint { overflow-wrap: anywhere; max-width: 220px; }
+.source-job { display: flex; align-items: center; gap: 10px; font-size: 13px; margin-bottom: 16px; }
+.source-checkbox { display: flex; gap: 10px; align-items: center; font-size: 13px; margin: 0 0 18px; }
+.source-checkbox input { width: auto; }
+@media (max-width: 700px) {
+  .subscription-sources .panel-heading { align-items: flex-start; flex-direction: column; gap: 14px; }
+  .subscription-sources .source-list { padding: 0 14px 16px; }
+  .source-card { padding: 14px; }
+  .source-card-main { align-items: flex-start; flex-direction: column; }
+  .source-meta { flex-direction: column; gap: 5px; }
+  .source-preview { padding: 16px 14px; }
+  .source-preview .table-wrap { margin-right: -14px; padding-right: 14px; }
+}

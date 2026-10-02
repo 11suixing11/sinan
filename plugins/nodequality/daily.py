@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Bounded TCP checks against configured targets, without external programs."""
+"""Bounded configured TCP checks and optional official node-IP self queries."""
 import json
+import importlib.util
 import ipaddress
 import multiprocessing
 import os
@@ -123,8 +124,14 @@ def run(workspace, targets_path, ip_version):
         parts.append("尚未配置启用的 TCP 拨测目标，网络质量未知。请在拨测中配置自有或已获同意的目标。\n")
     for target in targets:
         parts.append("\n" + measure(target, ip_version))
-    parts.append("\nIP 信息使用面板逐源查询缓存；不是节点流媒体解锁验证。\n")
+    helper_path = pathlib.Path(__file__).with_name('official-ip.py')
+    helper_spec = importlib.util.spec_from_file_location('sinan_official_node_ip', helper_path)
+    helper = importlib.util.module_from_spec(helper_spec)
+    helper_spec.loader.exec_module(helper)
+    node_sources = helper.collect(ip_version)
+    parts.append(helper.render(node_sources))
     text = "".join(parts)
+    write_atomic(workspace / "node-ip-sources.json", json.dumps(node_sources, ensure_ascii=False))
     write_atomic(workspace / "result.txt", text)
     write_atomic(workspace / "section-net_quality.json", json.dumps({
         "name": "net_quality", "text": text, "complete": True,

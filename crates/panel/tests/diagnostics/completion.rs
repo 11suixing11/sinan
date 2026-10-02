@@ -173,6 +173,13 @@ async fn late_cleaning_restores_panel_timeout_without_requiring_new_capability_f
     let expired = stored(&panel, id).await?;
     assert_eq!(expired["status"], "failed");
     assert_eq!(expired["agent_completed"], false);
+    // Create with the current mandatory capability, then explicitly model a
+    // historical device that no longer advertises it when reporting this job.
+    sqlx::query("UPDATE servers SET capabilities=capabilities-$2 WHERE id=$1")
+        .bind(server)
+        .bind(sinan_protocol::DIAGNOSTIC_COMPLETION_CAPABILITY)
+        .execute(&panel.state.pool)
+        .await?;
     let capabilities: Value = sqlx::query_scalar("SELECT capabilities FROM servers WHERE id=$1")
         .bind(server)
         .fetch_one(&panel.state.pool)
@@ -235,9 +242,36 @@ async fn late_cleaning_conflict_preserves_evidence_without_replacing_new_task(
         .execute(&panel.state.pool)
         .await?;
     diagnostics::expire(&panel.state).await?;
-    let second = create_daily(&panel, &cookie, server).await?;
-    let second_id = Uuid::parse_str(second["id"].as_str().unwrap())?;
+    assert_eq!(
+        panel
+            .admin(
+                Method::POST,
+                &format!("/api/servers/{server}/diagnostics/nodequality"),
+                &cookie,
+                Some(json!({"mode":"daily"}))
+            )
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    // Preserve recovery for a second queue admitted by the older timeout code.
+    let second_id = Uuid::new_v4();
+    let mut second_job = first["job"].clone();
+    second_job["id"] = json!(second_id);
+    sqlx::query("INSERT INTO diagnostic_jobs(id,server_id,job,created_at,updated_at,expires_at,expected_sections) VALUES($1,$2,$3,$4,$4,$4+3600,ARRAY['header_info'])")
+        .bind(second_id).bind(server).bind(second_job).bind(sinan_protocol::now_timestamp())
+        .execute(&panel.state.pool).await?;
     let second_before = stored(&panel, second_id).await?;
+    let queue: Value = panel
+        .client
+        .get(format!("{}/api/agent/v1/diagnostics", panel.base))
+        .bearer_auth(&ack.session_token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(queue, json!([]));
     let payload = json!({"id":first_id,"status":"cleaning","error":"原任务仍有挂载，继续保护同机业务","report":{"text":"断连期间固定的原任务报告"}});
     assert_eq!(
         update(&panel, &ack, &first_id.to_string(), payload)
@@ -469,20 +503,230 @@ async fn concurrent_late_cleaning_and_creation_share_server_serialization(
         let cleaning = cleaning?;
         let creation = creation?;
         let saved = stored(&panel, id).await?;
-        if creation.status() == StatusCode::CREATED {
-            assert_eq!(cleaning.status(), StatusCode::CONFLICT);
-            assert_eq!(saved["status"], "failed");
-            assert_eq!(saved["agent_completed"], false);
-        } else {
-            assert_eq!(creation.status(), StatusCode::CONFLICT);
-            assert_eq!(cleaning.status(), StatusCode::NO_CONTENT);
-            assert_eq!(saved["status"], "cleaning");
-            assert_eq!(saved["agent_completed"], false);
-        }
+        assert_eq!(creation.status(), StatusCode::CONFLICT);
+        assert_eq!(cleaning.status(), StatusCode::NO_CONTENT);
+        assert_eq!(saved["status"], "cleaning");
+        assert_eq!(saved["agent_completed"], false);
         assert_eq!(saved["report"]["text"], "原任务保留的报告");
         let active: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM diagnostic_jobs WHERE server_id=$1 AND status IN ('queued','running','cleaning','cancel_requested')").bind(server).fetch_one(&panel.state.pool).await?;
         assert_eq!(active, 1);
     }
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn panel_timeout_retains_ownership_until_legacy_shaped_task_is_confirmed_cancelled(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, device) = panel
+        .authenticated_device(&cookie, "超时未启动任务清理")
+        .await?;
+    capable(&panel, server).await?;
+    fixture(&panel).await?;
+    let record = create_daily(&panel, &cookie, server).await?;
+    let id = Uuid::parse_str(record["id"].as_str().unwrap())?;
+    // Before plugin registration, a fully shaped device task omitted plugin.
+    // Its queued panel state cannot establish whether a device had started it.
+    sqlx::query("UPDATE diagnostic_jobs SET job=job-'plugin',expires_at=0 WHERE id=$1")
+        .bind(id)
+        .execute(&panel.state.pool)
+        .await?;
+    diagnostics::expire(&panel.state).await?;
+    let expired = stored(&panel, id).await?;
+    assert_eq!(expired["status"], "failed");
+    assert_eq!(expired["agent_completed"], false);
+    let view: Value = panel
+        .admin(
+            Method::GET,
+            &format!("/api/servers/{server}/diagnostics"),
+            &cookie,
+            None,
+        )
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(view["reports"][0]["cleanup_pending"], true);
+    for route in [
+        format!("/api/servers/{server}/diagnostics/nodequality"),
+        format!("/api/servers/{server}/node-quality/reports"),
+    ] {
+        assert_eq!(
+            panel
+                .admin(Method::POST, &route, &cookie, Some(json!({"mode":"daily"})))
+                .await?
+                .status(),
+            StatusCode::CONFLICT
+        );
+    }
+    sqlx::query("UPDATE servers SET capabilities=capabilities || $2 WHERE id=$1")
+        .bind(server)
+        .bind(json!([sinan_protocol::DIAGNOSTIC_CANCEL_CAPABILITY]))
+        .execute(&panel.state.pool)
+        .await?;
+    assert_eq!(
+        panel
+            .admin(
+                Method::POST,
+                &format!("/api/servers/{server}/diagnostics/{id}/cancel"),
+                &cookie,
+                None
+            )
+            .await?
+            .status(),
+        StatusCode::ACCEPTED
+    );
+    let pending: Value = panel
+        .client
+        .get(format!(
+            "{}/api/agent/v1/diagnostics/cancellations",
+            panel.base
+        ))
+        .bearer_auth(&device.session_token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(pending[0]["job"]["plugin"], "nodequality");
+    assert_eq!(pending[0]["job"]["id"], json!(id));
+    assert_eq!(stored(&panel, id).await?["job"], expired["job"]);
+    let endpoint = format!(
+        "{}/api/agent/v1/diagnostics/{id}/cancel-confirmation",
+        panel.base
+    );
+    for confirmed in [false, true] {
+        assert_eq!(panel.client.post(&endpoint).bearer_auth(&device.session_token)
+            .json(&json!({"id":id,"server_id":server,"plugin":"nodequality","confirmed":confirmed}))
+            .send().await?.status(), StatusCode::NO_CONTENT);
+        let saved = stored(&panel, id).await?;
+        assert_eq!(saved["agent_completed"], confirmed);
+        assert_eq!(saved["job"], expired["job"]);
+        if !confirmed {
+            assert_eq!(
+                panel
+                    .admin(
+                        Method::POST,
+                        &format!("/api/servers/{server}/diagnostics/nodequality"),
+                        &cookie,
+                        Some(json!({"mode":"daily"}))
+                    )
+                    .await?
+                    .status(),
+                StatusCode::CONFLICT
+            );
+        }
+    }
+    assert_ne!(
+        create_daily(&panel, &cookie, server).await?["id"],
+        record["id"]
+    );
+    Ok(())
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn unresolved_corrupt_tasks_remain_visible_and_block_starts_beyond_latest_history(
+    pool: PgPool,
+) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    let (server, _socket, device) = panel
+        .authenticated_device(&cookie, "历史之外的未确认任务")
+        .await?;
+    capable(&panel, server).await?;
+    fixture(&panel).await?;
+    let first = create_daily(&panel, &cookie, server).await?;
+    let id = Uuid::parse_str(first["id"].as_str().unwrap())?;
+    sqlx::query("UPDATE diagnostic_jobs SET status='failed',error='TEST_ONLY old panel timeout',created_at=1,expires_at=0 WHERE id=$1")
+        .bind(id).execute(&panel.state.pool).await?;
+    for sequence in 0..12_i64 {
+        sqlx::query("INSERT INTO diagnostic_jobs(id,server_id,job,status,report,created_at,updated_at,expires_at,agent_completed) VALUES($1,$2,'{\"legacy_note\":\"preserved\"}','succeeded','{\"text\":\"newer historical report\"}',$3,$3,$3,TRUE)")
+            .bind(Uuid::new_v4()).bind(server).bind(sequence+2).execute(&panel.state.pool).await?;
+    }
+    sqlx::query("UPDATE servers SET capabilities=capabilities || $2 WHERE id=$1")
+        .bind(server)
+        .bind(json!([sinan_protocol::DIAGNOSTIC_CANCEL_CAPABILITY]))
+        .execute(&panel.state.pool)
+        .await?;
+    for damaged in [
+        Value::Null,
+        json!(Uuid::new_v4()),
+        json!("damaged-task-identity"),
+        json!(id.to_string().to_uppercase()),
+    ] {
+        sqlx::query("UPDATE diagnostic_jobs SET job=jsonb_set(job,'{id}',$2) WHERE id=$1")
+            .bind(id)
+            .bind(&damaged)
+            .execute(&panel.state.pool)
+            .await?;
+        let view: Value = panel
+            .admin(
+                Method::GET,
+                &format!("/api/servers/{server}/diagnostics"),
+                &cookie,
+                None,
+            )
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        assert_eq!(view["reports"].as_array().unwrap().len(), 10);
+        assert_eq!(view["reports"][0]["id"], json!(id));
+        assert_eq!(view["reports"][0]["cleanup_pending"], true);
+        assert_eq!(
+            panel
+                .admin(
+                    Method::POST,
+                    &format!("/api/servers/{server}/diagnostics/nodequality"),
+                    &cookie,
+                    Some(json!({"mode":"daily"}))
+                )
+                .await?
+                .status(),
+            StatusCode::CONFLICT
+        );
+        let queue: Value = panel
+            .client
+            .get(format!("{}/api/agent/v1/diagnostics", panel.base))
+            .bearer_auth(&device.session_token)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        assert_eq!(queue, json!([]));
+        if damaged != json!(id.to_string().to_uppercase()) {
+            assert_eq!(
+                panel
+                    .admin(
+                        Method::POST,
+                        &format!("/api/servers/{server}/diagnostics/{id}/cancel"),
+                        &cookie,
+                        None
+                    )
+                    .await?
+                    .status(),
+                StatusCode::CONFLICT
+            );
+        }
+        assert_eq!(stored(&panel, id).await?["job"]["id"], damaged);
+    }
+    let (historical, _other_socket, _other_device) = panel
+        .authenticated_device(&cookie, "纯文本历史设备")
+        .await?;
+    capable(&panel, historical).await?;
+    sqlx::query("INSERT INTO diagnostic_jobs(id,server_id,job,status,report,created_at,updated_at,expires_at) VALUES($1,$2,'{\"options\":{\"network_mode\":\"low\"}}','failed','{\"text\":\"plain legacy text without a device task\"}',1,1,1)")
+        .bind(Uuid::new_v4()).bind(historical).execute(&panel.state.pool).await?;
+    assert!(create_daily(&panel, &cookie, historical).await?["id"].is_string());
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM diagnostic_jobs WHERE server_id=$1")
+            .bind(server)
+            .fetch_one(&panel.state.pool)
+            .await?,
+        13
+    );
     Ok(())
 }
 
@@ -502,9 +746,9 @@ async fn completion_migration_after_published_schema_preserves_history_and_adds_
     let before = stored(&panel, historical_id).await?;
     let running = Uuid::new_v4();
     sqlx::query("INSERT INTO diagnostic_jobs(id,server_id,job,status,created_at,updated_at,expires_at) VALUES($1,$2,'{}','running',1,1,9999999999)").bind(running).bind(server).execute(&pool).await?;
-    // Recreate the published 0024 diagnostic schema, then apply only the new
+    // Recreate the published 0033 diagnostic schema, then apply only the new
     // migration while retaining the exact history row and section contents.
-    sqlx::raw_sql("ALTER TABLE diagnostic_jobs DROP CONSTRAINT diagnostic_jobs_status_check; ALTER TABLE diagnostic_jobs ADD CONSTRAINT diagnostic_jobs_status_check CHECK(status IN ('queued','running','cancel_requested','cancelled','succeeded','failed')); DROP INDEX diagnostic_active_server_idx; CREATE UNIQUE INDEX diagnostic_active_server_idx ON diagnostic_jobs(server_id) WHERE status IN ('queued','running'); DELETE FROM _sqlx_migrations WHERE version=25;").execute(&pool).await?;
+    sqlx::raw_sql("ALTER TABLE diagnostic_jobs DROP CONSTRAINT diagnostic_jobs_status_check; ALTER TABLE diagnostic_jobs ADD CONSTRAINT diagnostic_jobs_status_check CHECK(status IN ('queued','running','cancel_requested','cancelled','succeeded','failed')); DROP INDEX diagnostic_active_server_idx; CREATE UNIQUE INDEX diagnostic_active_server_idx ON diagnostic_jobs(server_id) WHERE status IN ('queued','running'); DELETE FROM _sqlx_migrations WHERE version=34;").execute(&pool).await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
     assert_eq!(stored(&panel, historical_id).await?, before);
     let chapter: (String, bool, i64, i64, i64) = sqlx::query_as("SELECT text,complete,revision,collected_at,received_at FROM diagnostic_report_sections WHERE job_id=$1").bind(historical_id).fetch_one(&pool).await?;
@@ -523,7 +767,7 @@ async fn completion_migration_after_published_schema_preserves_history_and_adds_
     );
     let index: String = sqlx::query_scalar("SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND indexname='diagnostic_active_server_idx'").fetch_one(&pool).await?;
     assert!(index.contains("cleaning"));
-    let applied: Vec<i64> = sqlx::query_scalar("SELECT version FROM _sqlx_migrations WHERE version IN (24,25) AND success ORDER BY version").fetch_all(&pool).await?;
-    assert_eq!(applied, vec![24, 25]);
+    let applied: Vec<i64> = sqlx::query_scalar("SELECT version FROM _sqlx_migrations WHERE version IN (33,34) AND success ORDER BY version").fetch_all(&pool).await?;
+    assert_eq!(applied, vec![33, 34]);
     Ok(())
 }

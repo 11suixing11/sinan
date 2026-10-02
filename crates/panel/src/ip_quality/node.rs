@@ -40,8 +40,11 @@ pub(crate) async fn view(state: &AppState, server_id: i64) -> ApiResult<NodeQual
     let source_ready = readiness.ready;
     let source_reason = readiness.reason.clone();
     let reports = service::history(state, server_id, Some("ipquality")).await?;
-    let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM diagnostic_jobs WHERE server_id=$1 AND status IN ('queued','running','cleaning','cancel_requested'))")
-        .bind(server_id).fetch_one(&state.pool).await?;
+    let active: bool = sqlx::query_scalar(crate::diagnostics::UNRESOLVED_QUERY)
+        .bind(server_id)
+        .bind(None::<uuid::Uuid>)
+        .fetch_one(&state.pool)
+        .await?;
     if active {
         readiness.ready = false;
         readiness.reason =

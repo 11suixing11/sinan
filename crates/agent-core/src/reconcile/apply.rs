@@ -113,6 +113,29 @@ impl Reconciler {
         target: Prepared,
         op_id: Uuid,
     ) -> Result<()> {
+        self.require_revision_floor(target.spec.revision)?;
+        self.verify_runtime(&target).await?;
+        if let Some(previous) = &previous {
+            self.verify_applied_runtime(previous).await?;
+            anyhow::ensure!(
+                previous.spec.revision != target.spec.revision
+                    || previous.spec.config_hash == target.spec.config_hash,
+                "same revision changed content"
+            );
+        }
+        let plan = self
+            .bounded(self.adapter.plan(previous.as_ref(), &target))
+            .await?;
+        self.apply_plan_locked(previous, target, plan, op_id).await
+    }
+
+    pub(super) async fn apply_plan_locked(
+        &self,
+        previous: Option<Prepared>,
+        target: Prepared,
+        mut plan: Plan,
+        op_id: Uuid,
+    ) -> Result<()> {
         let descriptor = self.adapter.describe();
         self.require_revision_floor(target.spec.revision)?;
         self.verify_runtime(&target).await?;
@@ -124,9 +147,6 @@ impl Reconciler {
                 "same revision changed content"
             );
         }
-        let mut plan = self
-            .bounded(self.adapter.plan(previous.as_ref(), &target))
-            .await?;
         let preserved_activation = if self.services.supports_runtime_checkpoint()
             && plan == Plan::Noop
         {

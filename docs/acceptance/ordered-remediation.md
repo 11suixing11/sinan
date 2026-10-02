@@ -4,7 +4,7 @@
 
 用户随后要求“中途不要再进行测试，修改完了一个大步骤提交”：整步实现、测试代码及文档先集中修改，完成并冻结后统一验收、记录与提交。旧验收证据保留；编辑中的新实现不记为已验证。后续离线制品准备见[离线 rootfs 契约](nodequality-offline-rootfs.md)，默认日常版本和完整执行门禁保持。
 
-当前工作：独立 IPQuality 的真实最小派生与跨工厂证明已完成[整步验收](ipquality-minimal-profile.md)，实际 builder／rootfs 和发布仍待验。代理节点统一资源与原子批量受管两跳已完成[本地集中验收](proxy-resources.md)，见 [ADR 0054](../adr/0054-proxy-resource-batch-lifecycle.md)；订阅来源、四格式解析与不可变版本已完成[本地统一验收](subscription-sources.md)。完整有序混合路径及版本发布已完成[整步源码与集中验收](ordered-paths.md)，当前 compiler 的三／四跳真实 TCP/UDP、逐跳、出口与无旁路通过；显式搬移端口的编译图不能认证新 Agent 托管整链或实际面板账本。下文旧“之后独立任务”是原排序，服务器成本／到期／账单日网卡配额、轻量周期拨测、代理套餐已有代码及各自固定输入证据，不能据此说这些全部未实现，也不能把旧证据当作当前部署已签收。
+当前工作：独立 IPQuality 的真实最小派生与跨工厂证明已完成[整步验收](ipquality-minimal-profile.md)，实际 builder／rootfs 和发布仍待验。代理节点统一资源与原子批量受管两跳已完成[本地集中验收](proxy-resources.md)，见 [ADR 0054](../adr/0069-proxy-resource-batch-lifecycle.md)；订阅来源、四格式解析与不可变版本已完成[本地统一验收](subscription-sources.md)。完整有序混合路径及版本发布已完成[整步源码与集中验收](ordered-paths.md)，当前 compiler 的三／四跳真实 TCP/UDP、逐跳、出口与无旁路通过；显式搬移端口的编译图不能认证新 Agent 托管整链或实际面板账本。下文旧“之后独立任务”是原排序，服务器成本／到期／账单日网卡配额、轻量周期拨测、代理套餐已有代码及各自固定输入证据，不能据此说这些全部未实现，也不能把旧证据当作当前部署已签收。
 
 后续[私有面板 CA 与真实 Agent 托管入口](managed-agent-paths.md)已整步实现并集中验收：Agent-core 265 通过／8 条件忽略，工具合同 47 通过，全工作区 Clippy 与分层门禁通过。专用 Debian12 的冻结新源经真实准备入口因磁盘不足拒绝，没有构建、签名或三设备联测；原样托管包、设备回执与实际账本矩阵保持未验，既有 native 结果不升级，前置完整 NodeQuality 和 CI／发布条件保持。
 

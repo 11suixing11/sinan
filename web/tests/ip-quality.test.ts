@@ -29,3 +29,15 @@ test('node IP cancellation cannot use removed, changed, confirmed or cross-serve
   }
   expect(nodeIpCancelError({ ...active, data: { ...active.data, cancel_supported: false } }, 1, record.id)).not.toBe('')
 })
+
+
+test('unconfirmed terminal IP reports retain cleanup ownership and support capability-based cancellation', () => {
+  for (const status of ['failed', 'succeeded'] as const) {
+    const pending = { ...record, status, cleanup_pending: true, job: { ...record.job, id: record.id } }
+    const current = { ...scope, data: { ...ready, ready: false, reports: [pending] } }
+    expect(nodeIpStartError(current, 1)).not.toBe('')
+    expect(nodeIpCancelError(current, 1, record.id)).toBe('')
+    expect(nodeIpCancelError({ ...current, data: { ...current.data, cancel_supported: false } }, 1, record.id)).not.toBe('')
+    expect(nodeIpStartError({ ...scope, data: { ...ready, reports: [{ ...pending, agent_completed: true, cleanup_pending: false }] } }, 1)).toBe('')
+  }
+})

@@ -2,35 +2,40 @@
 
 use serde_json::json;
 use sinan_protocol::{
-    AuthorizedProbe, ProbeAuthorization, ProbeExecution, ProbeKind, ProbeLease, ProbeResult,
-    ProbeScope, ProbeSpec,
+    AuthorizedProbe, ProbeAddressFamily, ProbeAuthorization, ProbeAuthorizationKind,
+    ProbeExecution, ProbeLease, ProbeMonitor, ProbeNetwork, ProbeResult, ProbeSpec,
 };
 use uuid::Uuid;
 
 const LEGACY_SPEC: &str = r#"{"id":"00000000-0000-0000-0000-000000000003","name":"fixture","kind":"tcp","target":"127.0.0.1","port":443,"interval_secs":10,"carrier":"","enabled":true}"#;
 const LEGACY_RESULT: &str = r#"{"id":"00000000-0000-0000-0000-000000000004","probe_id":"00000000-0000-0000-0000-000000000003","sampled_at":1790000000000,"latency_ms":0.0,"loss_percent":0.0,"error":null}"#;
 
-fn authorized() -> AuthorizedProbe {
-    AuthorizedProbe {
-        spec: serde_json::from_str(LEGACY_SPEC).unwrap(),
-        authorization: ProbeAuthorization {
-            region: "fixture-region".into(),
-            source: "operator-owned fixture".into(),
-            scope: ProbeScope::Owned,
-            evidence: "operator controls the local fixture".into(),
-            expires_at: None,
-        },
-    }
-}
-
 fn lease() -> ProbeLease {
+    let mut spec: ProbeSpec = serde_json::from_str(LEGACY_SPEC).unwrap();
+    let authorization = ProbeAuthorization {
+        kind: ProbeAuthorizationKind::Owned,
+        source: "TEST_ONLY operator-owned loopback".into(),
+        scope: "Only this fixture endpoint and method".into(),
+        enabled: true,
+        expires_at: None,
+        identity: spec.identity(),
+    };
+    spec.monitor = Some(ProbeMonitor {
+        network: ProbeNetwork::Other,
+        region: "fixture region".into(),
+        address_family: ProbeAddressFamily::Any,
+        authorization: Some(authorization.clone()),
+    });
     ProbeLease {
         id: Uuid::from_u128(5),
         server_id: 7,
         revision: 1,
         issued_at: 1_790_000_000,
         expires_at: 1_790_000_090,
-        probes: vec![authorized()],
+        probes: vec![AuthorizedProbe {
+            spec,
+            authorization,
+        }],
     }
 }
 
@@ -38,6 +43,7 @@ fn lease() -> ProbeLease {
 fn legacy_probe_vector_and_results_keep_their_exact_wire_bytes() {
     let spec: ProbeSpec = serde_json::from_str(LEGACY_SPEC).unwrap();
     assert!(spec.valid());
+    assert!(!spec.authorized_at(1_790_000_000));
     assert_eq!(
         serde_json::to_string(&vec![spec]).unwrap(),
         format!("[{LEGACY_SPEC}]")
@@ -45,199 +51,159 @@ fn legacy_probe_vector_and_results_keep_their_exact_wire_bytes() {
     let result: ProbeResult = serde_json::from_str(LEGACY_RESULT).unwrap();
     assert!(result.execution.is_none());
     assert_eq!(serde_json::to_string(&result).unwrap(), LEGACY_RESULT);
-    let mut unknown = serde_json::from_str::<serde_json::Value>(LEGACY_SPEC).unwrap();
-    unknown["authorization"] = json!(authorized().authorization);
-    assert!(serde_json::from_value::<ProbeSpec>(unknown).is_err());
 }
 
 #[test]
-fn authorization_scopes_require_bounded_evidence_and_explicit_expiry() {
-    for scope in [ProbeScope::Owned, ProbeScope::ThirdParty] {
-        let mut permission = authorized().authorization;
-        permission.scope = scope;
-        permission.expires_at = Some(200);
-        assert!(permission.allows(199));
-        assert!(!permission.allows(200));
-        assert!(!permission.allows(201));
-        let wire = serde_json::to_value(&permission).unwrap();
-        assert_eq!(
-            wire["scope"],
-            if scope == ProbeScope::Owned {
-                "owned"
-            } else {
-                "third_party"
-            }
-        );
-        assert_eq!(
-            serde_json::from_value::<ProbeAuthorization>(wire).unwrap(),
-            permission
-        );
-        for field in ["source", "evidence"] {
-            let mut wire = serde_json::to_value(&permission).unwrap();
-            wire[field] = json!("   ");
-            assert!(
-                !serde_json::from_value::<ProbeAuthorization>(wire)
-                    .unwrap()
-                    .valid()
-            );
-        }
+fn lease_lifetime_device_identity_and_revision_limits_are_checked() {
+    let original = lease();
+    assert!(original.valid());
+    assert_eq!(sinan_protocol::MAX_PROBE_LEASE_SECS, 90);
+    for seconds in [1, 90] {
+        let mut changed = original.clone();
+        changed.expires_at = changed.issued_at + seconds;
+        assert!(changed.valid());
+    }
+    for seconds in [-1, 0, 91] {
+        let mut changed = original.clone();
+        changed.expires_at = changed.issued_at + seconds;
+        assert!(!changed.valid());
     }
     for (field, value) in [
-        ("region", json!("r".repeat(65))),
-        ("source", json!("s".repeat(257))),
-        ("evidence", json!("e".repeat(513))),
-        ("source", json!("source\ncontrol")),
-        ("evidence", json!("evidence\0control")),
-        ("expires_at", json!(0)),
-        ("expires_at", json!(-1)),
+        ("id", json!(Uuid::nil())),
+        ("server_id", json!(0)),
+        ("revision", json!(u64::MAX)),
+        ("issued_at", json!(0)),
     ] {
-        let mut wire = serde_json::to_value(authorized().authorization).unwrap();
-        wire[field] = value;
+        let mut changed = json!(original);
+        changed[field] = value;
         assert!(
-            !serde_json::from_value::<ProbeAuthorization>(wire)
+            !serde_json::from_value::<ProbeLease>(changed)
                 .unwrap()
                 .valid(),
             "{field}"
         );
     }
-    let mut wire = serde_json::to_value(authorized().authorization).unwrap();
-    wire.as_object_mut().unwrap().remove("region");
-    assert!(
-        serde_json::from_value::<ProbeAuthorization>(wire)
-            .unwrap()
-            .region
-            .is_empty()
-    );
 }
 
 #[test]
-fn lease_lifetime_server_identity_and_revision_limits_are_checked() {
+fn exact_main_monitor_authorization_is_required_and_cannot_be_retargeted() {
+    for property in ["source", "scope", "enabled", "target", "expiry", "monitor"] {
+        let mut changed = lease();
+        let probe = &mut changed.probes[0];
+        match property {
+            "source" => probe.authorization.source = "other source".into(),
+            "scope" => probe.authorization.scope = "other scope".into(),
+            "enabled" => probe.spec.enabled = false,
+            "target" => probe.spec.target = "127.0.0.2".into(),
+            "expiry" => probe.authorization.expires_at = Some(changed.expires_at - 1),
+            _ => probe.spec.monitor = None,
+        }
+        assert!(!changed.valid(), "{property}");
+    }
+    let mut changed = lease();
+    changed.probes[0].authorization.expires_at = Some(changed.expires_at);
+    changed.probes[0]
+        .spec
+        .monitor
+        .as_mut()
+        .unwrap()
+        .authorization = Some(changed.probes[0].authorization.clone());
+    assert!(changed.valid());
+    changed.expires_at += 1;
+    assert!(!changed.valid());
+}
+
+#[test]
+fn duplicate_targets_bounds_unknown_fields_and_execution_context_are_checked() {
+    let mut changed = lease();
+    changed.probes.push(changed.probes[0].clone());
+    assert!(!changed.valid());
+    changed.probes.clear();
+    assert!(changed.valid());
     let original = lease();
-    assert!(original.valid());
-    assert_eq!(sinan_protocol::MAX_PROBE_LEASE_SECS, 90);
-    assert_eq!(
-        sinan_protocol::PROBE_LEASE_CAPABILITY,
-        "probe:authorized-lease"
-    );
-    for lifetime in [1, 90] {
-        let mut changed = original.clone();
-        changed.expires_at = changed.issued_at + lifetime;
-        assert!(changed.valid());
-    }
-    for lifetime in [-1, 0, 91] {
-        let mut changed = original.clone();
-        changed.expires_at = changed.issued_at + lifetime;
-        assert!(!changed.valid());
-    }
-    for case in 0..5 {
-        let mut changed = original.clone();
-        match case {
-            0 => changed.id = Uuid::nil(),
-            1 => changed.server_id = 0,
-            2 => changed.issued_at = 0,
-            3 => changed.revision = i64::MAX as u64 + 1,
-            4 => {
-                changed.issued_at = i64::MIN;
-                changed.expires_at = i64::MAX;
-            }
-            _ => unreachable!(),
-        }
-        assert!(!changed.valid(), "case {case}");
-    }
-    let mut maximum = original;
-    maximum.revision = i64::MAX as u64;
-    assert!(maximum.valid());
-}
-
-#[test]
-fn leases_reject_duplicate_targets_disabled_targets_and_permissions_ending_too_soon() {
-    let mut value = lease();
-    value.probes.clear();
-    assert!(
-        value.valid(),
-        "an empty replacement must be able to stop all work"
-    );
-    for id in 1..=32 {
-        let mut target = authorized();
-        target.spec.id = Uuid::from_u128(id);
-        value.probes.push(target);
-    }
-    assert!(value.valid());
-    let mut too_many = value.clone();
-    let mut additional = authorized();
-    additional.spec.id = Uuid::from_u128(33);
-    too_many.probes.push(additional);
-    assert!(!too_many.valid());
-    for case in 0..6 {
-        let mut changed = value.clone();
-        match case {
-            0 => changed.probes[1].spec.id = changed.probes[0].spec.id,
-            1 => changed.probes[0].spec.id = Uuid::nil(),
-            2 => changed.probes[0].spec.enabled = false,
-            3 => changed.probes[0].spec.port = Some(0),
-            4 => changed.probes[0].authorization.expires_at = Some(changed.issued_at),
-            5 => changed.probes[0].authorization.expires_at = Some(changed.expires_at - 1),
-            _ => unreachable!(),
-        }
-        assert!(!changed.valid(), "case {case}");
-    }
-    value.probes[0].authorization.expires_at = Some(value.expires_at);
-    assert!(value.valid());
-}
-
-#[test]
-fn execution_records_preserve_the_authorized_target_without_changing_legacy_results() {
-    let snapshot = lease();
     let execution = ProbeExecution {
-        lease_id: snapshot.id,
-        revision: snapshot.revision,
-        issued_at: snapshot.issued_at,
-        expires_at: snapshot.expires_at,
-        probe: snapshot.probes[0].clone(),
+        lease_id: original.id,
+        revision: original.revision,
+        issued_at: original.issued_at,
+        expires_at: original.expires_at,
+        probe: original.probes[0].clone(),
     };
     assert!(execution.valid());
-    let mut result: ProbeResult = serde_json::from_str(LEGACY_RESULT).unwrap();
-    result.execution = Some(execution.clone());
-    let wire = serde_json::to_value(&result).unwrap();
-    assert_eq!(wire["execution"]["probe"]["spec"]["kind"], "tcp");
-    assert_eq!(
-        wire["execution"]["probe"]["authorization"]["scope"],
-        "owned"
-    );
-    assert_eq!(serde_json::from_value::<ProbeResult>(wire).unwrap(), result);
-    let mut changed = execution;
-    changed.probe.spec.kind = ProbeKind::Icmp;
-    assert!(
-        !changed.valid(),
-        "the exact TCP port must not be accepted as ICMP"
-    );
+    for field in ["lease", "probe", "authorization", "execution"] {
+        let mut wire = json!(original);
+        match field {
+            "lease" => wire["unexpected"] = json!(true),
+            "probe" => wire["probes"][0]["unexpected"] = json!(true),
+            "authorization" => wire["probes"][0]["authorization"]["unexpected"] = json!(true),
+            _ => {
+                let mut wire = json!(execution);
+                wire["unexpected"] = json!(true);
+                assert!(serde_json::from_value::<ProbeExecution>(wire).is_err());
+                continue;
+            }
+        }
+        assert!(
+            serde_json::from_value::<ProbeLease>(wire).is_err(),
+            "{field}"
+        );
+    }
+    changed = original.clone();
+    changed.probes = (1..=33)
+        .map(|id| {
+            let mut probe = original.probes[0].clone();
+            probe.spec.id = Uuid::from_u128(id);
+            probe
+        })
+        .collect();
+    assert!(!changed.valid());
+}
+
+// Keep the author's boundary cases on the established monitor authorization wire.
+#[test]
+fn authorization_bounds_and_expiry_apply_to_the_exact_monitor_identity() {
+    for kind in [
+        ProbeAuthorizationKind::Owned,
+        ProbeAuthorizationKind::Consent,
+    ] {
+        let mut spec = lease().probes.remove(0).spec;
+        let permission = spec
+            .monitor
+            .as_mut()
+            .unwrap()
+            .authorization
+            .as_mut()
+            .unwrap();
+        permission.kind = kind;
+        permission.expires_at = Some(200);
+        assert!(spec.authorized_at(199));
+        assert!(!spec.authorized_at(200));
+        assert!(!spec.authorized_at(201));
+        for (field, value) in [
+            ("source", json!("   ")),
+            ("scope", json!("   ")),
+            ("source", json!("s".repeat(257))),
+            ("scope", json!("e".repeat(513))),
+            ("source", json!("source\ncontrol")),
+            ("scope", json!("scope\0control")),
+            ("expires_at", json!(0)),
+            ("expires_at", json!(-1)),
+        ] {
+            let mut wire = json!(spec);
+            wire["monitor"]["authorization"][field] = value;
+            assert!(
+                !serde_json::from_value::<ProbeSpec>(wire).unwrap().valid(),
+                "{field}"
+            );
+        }
+    }
+    let mut wire: serde_json::Value = serde_json::from_str(LEGACY_SPEC).unwrap();
+    wire["authorization"] = json!(lease().probes[0].authorization);
+    assert!(serde_json::from_value::<ProbeSpec>(wire).is_err());
 }
 
 #[test]
-fn lease_and_authorization_records_reject_unknown_or_missing_control_fields() {
-    for level in ["lease", "probe", "authorization", "execution"] {
-        let mut value = serde_json::to_value(lease()).unwrap();
-        match level {
-            "lease" => {
-                value["unexpected"] = json!(true);
-                assert!(serde_json::from_value::<ProbeLease>(value).is_err());
-            }
-            "probe" => {
-                value["probes"][0]["unexpected"] = json!(true);
-                assert!(serde_json::from_value::<ProbeLease>(value).is_err());
-            }
-            "authorization" => {
-                value["probes"][0]["authorization"]["unexpected"] = json!(true);
-                assert!(serde_json::from_value::<ProbeLease>(value).is_err());
-            }
-            "execution" => {
-                let mut execution = json!({"lease_id":value["id"],"revision":1,"issued_at":value["issued_at"],"expires_at":value["expires_at"],"probe":value["probes"][0]});
-                execution["unexpected"] = json!(true);
-                assert!(serde_json::from_value::<ProbeExecution>(execution).is_err());
-            }
-            _ => unreachable!(),
-        }
-    }
+fn all_lease_control_fields_are_required_and_empty_replacement_remains_valid() {
+    let original = lease();
     for field in [
         "id",
         "server_id",
@@ -246,11 +212,54 @@ fn lease_and_authorization_records_reject_unknown_or_missing_control_fields() {
         "expires_at",
         "probes",
     ] {
-        let mut value = serde_json::to_value(lease()).unwrap();
-        value.as_object_mut().unwrap().remove(field);
+        let mut wire = json!(original);
+        wire.as_object_mut().unwrap().remove(field);
         assert!(
-            serde_json::from_value::<ProbeLease>(value).is_err(),
+            serde_json::from_value::<ProbeLease>(wire).is_err(),
             "{field}"
         );
     }
+    let mut changed = original.clone();
+    changed.revision = i64::MAX as u64;
+    assert!(changed.valid());
+    changed.issued_at = i64::MIN;
+    changed.expires_at = i64::MAX;
+    assert!(!changed.valid());
+    changed = original.clone();
+    changed.probes = (1..=32)
+        .map(|id| {
+            let mut probe = original.probes[0].clone();
+            probe.spec.id = Uuid::from_u128(id);
+            probe
+        })
+        .collect();
+    assert!(changed.valid());
+    changed.probes.clear();
+    assert!(
+        changed.valid(),
+        "an empty replacement must stop all leased work"
+    );
+}
+
+#[test]
+fn execution_records_round_trip_the_exact_bound_authorization_and_measurement_method() {
+    let snapshot = lease();
+    let execution = ProbeExecution {
+        lease_id: snapshot.id,
+        revision: snapshot.revision,
+        issued_at: snapshot.issued_at,
+        expires_at: snapshot.expires_at,
+        probe: snapshot.probes[0].clone(),
+    };
+    let mut result: ProbeResult = serde_json::from_str(LEGACY_RESULT).unwrap();
+    result.execution = Some(execution.clone());
+    let wire = json!(result);
+    assert_eq!(wire["execution"]["probe"]["authorization"]["kind"], "owned");
+    assert_eq!(serde_json::from_value::<ProbeResult>(wire).unwrap(), result);
+    let mut changed = execution;
+    changed.probe.spec.kind = sinan_protocol::ProbeKind::Icmp;
+    assert!(
+        !changed.valid(),
+        "a TCP port and identity must never authorize ICMP"
+    );
 }

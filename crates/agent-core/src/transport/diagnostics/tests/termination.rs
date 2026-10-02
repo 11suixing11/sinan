@@ -1059,3 +1059,77 @@ async fn a_stale_observation_cannot_restore_a_checkpoint_after_cancellation_comm
     assert_eq!(services.starts.load(Ordering::Relaxed), 0);
     Ok(())
 }
+
+#[tokio::test]
+async fn late_running_status_cannot_restore_cancelled_ownership_under_memory_pressure() -> Result<()>
+{
+    let directory = Directory::new();
+    let services = Arc::new(Services::new(JobStatus::Running));
+    let report = Arc::new(CollectedReport::new());
+    let resources = Arc::new(FakeResourceOps::new(Arc::new(SystemOps)));
+    let first = reporting_worker(
+        &directory,
+        services.clone(),
+        report.clone(),
+        resources.clone(),
+    )?;
+    let control = Arc::new(CancellationControl::new(
+        first.state.clone(),
+        7,
+        vec!["diagnostic-fixture".into()],
+    ));
+    let first = first.with_cancellations(control.clone());
+    let id = Uuid::new_v4();
+    let saved = checkpoint(&first.config, id);
+    first.save(&saved)?;
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    *services.suspended_status.lock().unwrap() = Some((started.clone(), release.clone()));
+    let observing = first.observe(&saved);
+    tokio::pin!(observing);
+    tokio::select! {
+        _ = started.notified() => {}
+        result = &mut observing => panic!("observation returned before suspended status: {result:?}"),
+    }
+    control.request(DiagnosticCancelRequest {
+        server_id: 7,
+        job: job(id),
+    })?;
+    first.process_cancellations().await?;
+    assert!(first.active()?.is_none());
+    let receipts = first
+        .read::<Vec<DiagnosticCancelResult>>("diagnostics:cancellation-results")?
+        .unwrap();
+    assert!(receipts[0].confirmed);
+    resources
+        .resources
+        .lock()
+        .unwrap()
+        .as_mut()
+        .unwrap()
+        .memory
+        .host_available_bytes = 127 * 1024 * 1024;
+    release.notify_one();
+    tokio::time::timeout(Duration::from_secs(2), &mut observing).await??;
+    assert!(first.active()?.is_none());
+    assert!(
+        first
+            .read::<Vec<DiagnosticUpdate>>(OUTBOX)?
+            .unwrap_or_default()
+            .is_empty()
+    );
+    assert_eq!(
+        first
+            .read::<Vec<DiagnosticCancelResult>>("diagnostics:cancellation-results")?
+            .unwrap(),
+        receipts
+    );
+    assert!(
+        first
+            .read::<bool>(&format!("diagnostics:done:{id}"))?
+            .unwrap()
+    );
+    assert_eq!(services.stops.load(Ordering::Relaxed), 1);
+    assert_eq!(report.calls.load(Ordering::Relaxed), 1);
+    Ok(())
+}

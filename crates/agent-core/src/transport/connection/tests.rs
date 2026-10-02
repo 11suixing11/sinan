@@ -11,6 +11,7 @@ use uuid::Uuid;
 mod panel_ca;
 mod readiness;
 mod runtime_control;
+mod storage;
 
 type Peer = WebSocketStream<TcpStream>;
 

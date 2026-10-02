@@ -23,7 +23,7 @@ fn parsed(password: &str) -> subscription_parser::ParsedSubscription {
 }
 
 async fn seed(state: &AppState) -> i64 {
-    let id:i64=sqlx::query_scalar("INSERT INTO singbox_subscription_sources(name,kind,host,input_config,refresh_interval_secs,created_at,updated_at) VALUES('Worker fixture','url','feeds.example.com',$1,86400,$2,$2) RETURNING id")
+    let id:i64=sqlx::query_scalar("INSERT INTO singbox_ordered_subscription_sources(name,kind,host,input_config,refresh_interval_secs,created_at,updated_at) VALUES('Worker fixture','url','feeds.example.com',$1,86400,$2,$2) RETURNING id")
         .bind(json!({"kind":"url","url":"https://feeds.example.com/TEST_ONLY-token","auth_headers":{}})).bind(now_timestamp()).fetch_one(&state.pool).await.expect("source fixture");
     enqueue(state, id).await;
     id
@@ -61,7 +61,7 @@ async fn success(state: &AppState) -> (i64, Uuid) {
     .await
     .expect("first success");
     let revision: Uuid = sqlx::query_scalar(
-        "SELECT current_success_revision FROM singbox_subscription_sources WHERE id=$1",
+        "SELECT current_success_revision FROM singbox_ordered_subscription_sources WHERE id=$1",
     )
     .bind(source)
     .fetch_one(&state.pool)
@@ -79,12 +79,14 @@ async fn late_parse_results_cannot_cross_settings_epoch_archive_or_cancel(pool: 
         let claim = one_claim(&state).await;
         let query = match change {
             "settings" => {
-                "UPDATE singbox_subscription_sources SET settings_revision=settings_revision+1 WHERE id=$1"
+                "UPDATE singbox_ordered_subscription_sources SET settings_revision=settings_revision+1 WHERE id=$1"
             }
             "epoch" => {
-                "UPDATE singbox_subscription_sources SET identity_epoch=identity_epoch+1 WHERE id=$1"
+                "UPDATE singbox_ordered_subscription_sources SET identity_epoch=identity_epoch+1 WHERE id=$1"
             }
-            "archive" => "UPDATE singbox_subscription_sources SET archived=TRUE WHERE id=$1",
+            "archive" => {
+                "UPDATE singbox_ordered_subscription_sources SET archived=TRUE WHERE id=$1"
+            }
             _ => {
                 "UPDATE singbox_subscription_source_jobs SET status='cancelling',error='{\"stage\":\"done\",\"kind\":\"cancelled\",\"message\":\"测试取消\",\"http_status\":null}'::jsonb WHERE source_id=$1 AND status='running'"
             }
@@ -104,7 +106,7 @@ async fn late_parse_results_cannot_cross_settings_epoch_archive_or_cancel(pool: 
         .await
         .expect("fenced result");
         let current: Uuid = sqlx::query_scalar(
-            "SELECT current_success_revision FROM singbox_subscription_sources WHERE id=$1",
+            "SELECT current_success_revision FROM singbox_ordered_subscription_sources WHERE id=$1",
         )
         .bind(source)
         .fetch_one(&state.pool)
@@ -160,10 +162,10 @@ async fn source_failure_categories_preserve_last_success_and_immutable_credentia
         snapshots::failure(&state, &claim, error.clone())
             .await
             .expect("failure");
-        let(current,last_error):(Uuid,Value)=sqlx::query_as("SELECT current_success_revision,last_error FROM singbox_subscription_sources WHERE id=$1").bind(source).fetch_one(&state.pool).await.expect("source");
+        let(current,last_error):(Uuid,Value)=sqlx::query_as("SELECT current_success_revision,last_error FROM singbox_ordered_subscription_sources WHERE id=$1").bind(source).fetch_one(&state.pool).await.expect("source");
         assert_eq!(current, previous);
         assert_eq!(last_error, json!(error));
-        let stored:Value=sqlx::query_scalar("SELECT normalized_config FROM singbox_external_node_versions WHERE source_revision_id=$1").bind(previous).fetch_one(&state.pool).await.expect("original credentials");
+        let stored:Value=sqlx::query_scalar("SELECT normalized_config FROM singbox_ordered_external_node_versions WHERE source_revision_id=$1").bind(previous).fetch_one(&state.pool).await.expect("original credentials");
         assert_eq!(stored["password"], "TEST_ONLY-password-original");
     }
 }
@@ -190,7 +192,7 @@ async fn conditional_304_reuses_only_matching_epoch_and_does_not_create_new_vers
         "unchanged"
     );
     assert_eq!(
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM singbox_external_node_versions")
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM singbox_ordered_external_node_versions")
             .fetch_one(&state.pool)
             .await
             .expect("versions"),
@@ -198,11 +200,11 @@ async fn conditional_304_reuses_only_matching_epoch_and_does_not_create_new_vers
     );
     enqueue(&state, source).await;
     let late = one_claim(&state).await;
-    sqlx::query("UPDATE singbox_subscription_sources SET identity_epoch=2,settings_revision=2,last_success_at=1,conditional_etag=NULL,conditional_settings_revision=NULL,conditional_identity_epoch=NULL WHERE id=$1").bind(source).execute(&state.pool).await.expect("replace source");
+    sqlx::query("UPDATE singbox_ordered_subscription_sources SET identity_epoch=2,settings_revision=2,last_success_at=1,conditional_etag=NULL,conditional_settings_revision=NULL,conditional_identity_epoch=NULL WHERE id=$1").bind(source).execute(&state.pool).await.expect("replace source");
     snapshots::unchanged(&state, &late, Some("TEST_ONLY-late-etag".into()), None)
         .await
         .expect("late 304");
-    let(current,time,etag):(Uuid,i64,Option<String>)=sqlx::query_as("SELECT current_success_revision,last_success_at,conditional_etag FROM singbox_subscription_sources WHERE id=$1").bind(source).fetch_one(&state.pool).await.expect("source");
+    let(current,time,etag):(Uuid,i64,Option<String>)=sqlx::query_as("SELECT current_success_revision,last_success_at,conditional_etag FROM singbox_ordered_subscription_sources WHERE id=$1").bind(source).fetch_one(&state.pool).await.expect("source");
     assert_eq!(current, previous);
     assert_eq!(time, 1);
     assert!(etag.is_none());
@@ -306,7 +308,7 @@ async fn restart_expired_claim_and_monotonic_deadline_fence_old_success(pool: Pg
         .expect("old result");
     assert_eq!(
         sqlx::query_scalar::<_, Uuid>(
-            "SELECT current_success_revision FROM singbox_subscription_sources WHERE id=$1"
+            "SELECT current_success_revision FROM singbox_ordered_subscription_sources WHERE id=$1"
         )
         .bind(source)
         .fetch_one(&state.pool)
@@ -361,7 +363,7 @@ async fn restart_expired_claim_and_monotonic_deadline_fence_old_success(pool: Pg
         .expect("persist bounded interruption");
     assert_eq!(
         sqlx::query_scalar::<_, Uuid>(
-            "SELECT current_success_revision FROM singbox_subscription_sources WHERE id=$1"
+            "SELECT current_success_revision FROM singbox_ordered_subscription_sources WHERE id=$1"
         )
         .bind(source)
         .fetch_one(&state.pool)

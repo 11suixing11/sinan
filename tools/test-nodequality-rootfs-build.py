@@ -376,6 +376,35 @@ class RootfsBuildTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             BUILD.read_regular(fifo, 64)
 
+    def test_copy_locked_refuses_fifo_replacement_after_identity_check(self):
+        script = '''
+import importlib.util, json, os, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('copy_fifo_build', sys.argv[1])
+build = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(build)
+cache, target = Path(sys.argv[2]), Path(sys.argv[3])
+value = json.loads(sys.argv[4])
+original = build.checked_blob
+def replace(cache, value, limit, deadline):
+    path = original(cache, value, limit, deadline)
+    path.unlink()
+    os.mkfifo(path, mode=0o600)
+    return path
+build.checked_blob = replace
+try:
+    build.copy_locked(cache, value, target, 8192, build.Deadline(2))
+except ValueError:
+    assert not target.exists(), 'FIFO was copied or output opened before input validation'
+else:
+    raise AssertionError('FIFO input was accepted')
+'''
+        result = subprocess.run([sys.executable, '-c', script,
+                                 str(REPO / 'tools/nodequality-rootfs-build.py'), str(self.cache),
+                                 str(self.root / 'copy.bin'), json.dumps(self.lock['keyring'])],
+                                capture_output=True, text=True, timeout=3)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_known_primary_signatures_and_error_states(self):
         for archive in BUILD.SIGNERS:
             self.assertTrue(BUILD.valid_signers(self.status(archive), archive, '20231115T000000Z'))
@@ -622,6 +651,27 @@ class RootfsBuildTests(unittest.TestCase):
         self.assertTrue(children[0].stdout.closed)
         with self.assertRaises(ProcessLookupError):
             os.kill(children[0].pid, 0)
+
+    def test_unresponsive_child_cleanup_has_a_finite_wait_and_preserves_original(self):
+        process, selector = mock.Mock(), mock.Mock()
+        process.pid, process.returncode = 123456, None
+        original = OSError('owned registration failure')
+        selector.register.side_effect = original
+        process.wait.side_effect = subprocess.TimeoutExpired(['owned fixture'], BUILD.CHILD_CLEANUP_SECONDS)
+        with mock.patch.object(BUILD.os, 'waitid', return_value=None, create=True), \
+                mock.patch.object(BUILD.os, 'WNOWAIT', 0, create=True), \
+                mock.patch.object(BUILD.os, 'P_PID', 0, create=True), \
+                mock.patch.object(BUILD.os, 'WEXITED', 0, create=True), \
+                mock.patch.object(BUILD.os, 'WNOHANG', 0, create=True), \
+                mock.patch.object(BUILD.subprocess, 'Popen', return_value=process), \
+                mock.patch.object(BUILD.selectors, 'DefaultSelector', return_value=selector), \
+                mock.patch.object(BUILD.os, 'killpg') as kill:
+            with self.assertRaises(OSError) as result:
+                BUILD.run_bounded(['owned fixture'], BUILD.Deadline(5), 64)
+        self.assertIs(result.exception, original)
+        process.wait.assert_called_once_with(timeout=BUILD.CHILD_CLEANUP_SECONDS)
+        kill.assert_called_once_with(process.pid, signal.SIGKILL)
+        self.assertTrue(any('Child cleanup also failed: TimeoutExpired' in note for note in result.exception.__notes__))
 
     @unittest.skipUnless(sys.platform == 'linux' and hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'),
                          'Linux owned child-group signal acceptance required')

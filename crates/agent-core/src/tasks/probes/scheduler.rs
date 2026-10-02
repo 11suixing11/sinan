@@ -8,6 +8,7 @@ pub(super) async fn sample_loop(
     mut leases: watch::Receiver<Option<AcceptedLease>>,
     retirement: Arc<crate::retirement::Retirement>,
 ) -> Result<()> {
+    let mut storage = crate::state::StorageRetry::default();
     let mut due = HashMap::<Uuid, Instant>::new();
     let mut configured = HashMap::<Uuid, AuthorizedProbe>::new();
     let mut running = HashMap::<Uuid, (AuthorizedProbe, Uuid, AcceptedLease, AbortHandle)>::new();
@@ -44,9 +45,9 @@ pub(super) async fn sample_loop(
                         let current = leases.borrow().clone().filter(|lease| !retirement.requested()
                             && lease.current(clients.borrow().as_ref()));
                         if initial.current(clients.borrow().as_ref())
-                            && current.as_ref().is_some_and(|lease| lease.snapshot.probes.contains(&probe)) {
-                            state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?
-                                .save_probe_result(&result)?;
+                            && current.as_ref().is_some_and(|lease| lease.snapshot.revision == initial.snapshot.revision && lease.snapshot.probes.contains(&probe)) {
+                            let mut state = state.lock().map_err(|_| anyhow::anyhow!("state lock poisoned"))?;
+                            storage.finish("persist probe sample", state.save_probe_result(&result))?;
                         }
                     }
                     Ok((run_id, probe, None)) => {
@@ -69,7 +70,11 @@ pub(super) async fn sample_loop(
             .map(|lease| lease.snapshot.probes.as_slice())
             .unwrap_or_default();
         running.retain(|_, (probe, _, initial, task)| {
-            let keep = initial.current(clients.borrow().as_ref()) && probes.contains(probe);
+            let keep = initial.current(clients.borrow().as_ref())
+                && lease
+                    .as_ref()
+                    .is_some_and(|lease| lease.snapshot.revision == initial.snapshot.revision)
+                && probes.contains(probe);
             if !keep {
                 task.abort();
             }
@@ -171,12 +176,12 @@ pub(super) async fn sample_loop(
                 let _guard = retirement.gate.read().await;
                 if retirement.requested() || !initial.current(connection.borrow().as_ref()) { return (run_id, probe, None); }
                 let measured_spec = probe.spec.clone();
-                let measure = sample(&measured_spec, ops.as_ref());
+                let measure = sample(&measured_spec, ops.as_ref(), initial.panel_millis().saturating_sub(now_millis()));
                 tokio::pin!(measure);
                 let result = loop {
                     let current = authority.borrow().clone().filter(|lease| !retirement.requested()
                         && initial.current(connection.borrow().as_ref())
-                        && lease.current(connection.borrow().as_ref()) && lease.snapshot.probes.contains(&probe));
+                        && lease.current(connection.borrow().as_ref()) && lease.snapshot.revision == initial.snapshot.revision && lease.snapshot.probes.contains(&probe));
                     let Some(current) = current else { break None };
                     tokio::select! {
                         biased;
@@ -187,7 +192,7 @@ pub(super) async fn sample_loop(
                             let current = authority.borrow().clone();
                             let allowed = !retirement.requested() && initial.current(connection.borrow().as_ref())
                                 && current.as_ref().is_some_and(|lease| lease.current(connection.borrow().as_ref())
-                                    && lease.snapshot.probes.contains(&probe));
+                                    && lease.snapshot.revision == initial.snapshot.revision && lease.snapshot.probes.contains(&probe));
                             break allowed.then_some(result);
                         }
                     }

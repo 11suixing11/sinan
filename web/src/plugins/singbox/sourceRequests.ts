@@ -2,13 +2,13 @@ import { api } from '../../api'
 import { resourceWriteError } from '../../hooks'
 import { assignmentRequestId } from './groupTypes'
 import type { ResourceSnapshot } from './groupTypes'
-import { MAX_SOURCE_BYTES, sourceJobRoot, sourceRoot, sourceUuid, validSourceJob, validSourceReceipt, validSubscriptionSources } from './sourceTypes'
-import type { SourceJob, SourceReceipt, SubscriptionSource } from './sourceTypes'
+import { MAX_SOURCE_BYTES, sourceJobRoot, sourceRoot, sourceUuid, validSourceJob, validSourceReceipt, validSubscriptionSources } from './orderedSourceTypes'
+import type { SourceJob, SourceReceipt, SubscriptionSource } from './orderedSourceTypes'
 
 export type SourceEditorMode = 'create' | 'metadata' | 'update' | 'replace' | 'archive' | 'unarchive'
 export type SourceDraft = { name: string; kind: 'url' | 'inline'; url: string; content: string; interval: string; authorization: string; cookie: string; apiKey: string; authAction: 'preserve' | 'replace' | 'clear' }
 export const emptySourceDraft = (): SourceDraft => ({ name: '', kind: 'url', url: '', content: '', interval: '86400', authorization: '', cookie: '', apiKey: '', authAction: 'preserve' })
-export type SourceCommand = { mode: SourceEditorMode; source_id?: number; settings_revision?: number; fields: Record<string, unknown> }
+export type SourceCommand = { mode: SourceEditorMode; source_id?: number; settings_revision?: number; expected_identity_epoch?: number; fields: Record<string, unknown> }
 export type PendingSourceMutation = { command: string; path: string; method: 'POST' | 'PATCH'; request_id: string; serialized: string; attempted: boolean }
 export type SourceSnapshot = ResourceSnapshot<SubscriptionSource[]>
 const encoder = new TextEncoder()
@@ -46,9 +46,9 @@ function urlText(value: string) {
   if (url.protocol !== 'https:' || !url.hostname || url.username || url.password || url.hash || /[\r\n\u0000]/.test(text)) throw new Error('订阅地址必须为 HTTPS，不能包含用户凭据、片段或换行。')
   return text
 }
-export function sourceCommand(mode: SourceEditorMode, draft: SourceDraft, source?: Pick<SubscriptionSource, 'id' | 'settings_revision' | 'kind'>): SourceCommand {
+export function sourceCommand(mode: SourceEditorMode, draft: SourceDraft, source?: Pick<SubscriptionSource, 'id' | 'settings_revision' | 'identity_epoch' | 'kind'>): SourceCommand {
   if (mode !== 'create' && !source) throw new Error('未指定来源。')
-  const base = mode === 'create' ? {} : { source_id: source!.id, settings_revision: source!.settings_revision }
+  const base = mode === 'create' ? {} : { source_id: source!.id, settings_revision: source!.settings_revision, expected_identity_epoch: source!.identity_epoch }
   if (mode === 'archive' || mode === 'unarchive') return { mode, ...base, fields: { archived: mode === 'archive' } }
   const name = draft.name.trim()
   if (!name || [...name].length > 128 || name.includes('://') || /[\u0000-\u001f\u007f-\u009f]/.test(name)) throw new Error('来源名称需为 1–128 个字符，不能包含链接或控制字符。')
@@ -74,13 +74,19 @@ export function sourceCommand(mode: SourceEditorMode, draft: SourceDraft, source
   }
   return { mode, ...base, fields }
 }
-function newCommandError(command: SourceCommand, snapshot: SourceSnapshot) {
-  return sourceWriteError(snapshot, command.source_id, command.settings_revision, ['archive', 'unarchive'].includes(command.mode))
+export function sourceCommandError(command: SourceCommand, snapshot: SourceSnapshot, replay = false) {
+  if (command.mode !== 'create' && (!Number.isSafeInteger(command.source_id) || Number(command.source_id) < 1
+    || !Number.isSafeInteger(command.settings_revision) || Number(command.settings_revision) < 1
+    || !Number.isSafeInteger(command.expected_identity_epoch) || Number(command.expected_identity_epoch) < 1)) return '来源身份或设置版本无效，原草稿已保留。'
+  const error = sourceWriteError(snapshot, command.source_id, replay ? undefined : command.settings_revision, ['archive', 'unarchive'].includes(command.mode))
+  if (error || command.mode === 'create') return error
+  const source = snapshot.data!.find(item => item.id === command.source_id)!
+  return source.identity_epoch !== command.expected_identity_epoch ? '来源身份代次已变化；原请求和草稿已保留，请先确认上次保存结果。' : ''
 }
 export function prepareSourceMutation(command: SourceCommand, snapshot: SourceSnapshot, previous?: PendingSourceMutation, id = assignmentRequestId): PendingSourceMutation {
   const fingerprint = JSON.stringify(command)
   const replay = previous?.attempted && previous.command === fingerprint
-  const error = replay ? sourceMetadataError(snapshot) : newCommandError(command, snapshot)
+  const error = sourceCommandError(command, snapshot, Boolean(replay))
   if (error) throw new Error(error)
   if (replay) return previous!
   const request_id = id()
@@ -103,7 +109,7 @@ export async function submitSourceMutation(pending: PendingSourceMutation, snaps
   try { command = JSON.parse(pending.command); body = JSON.parse(pending.serialized) } catch { throw new Error('原请求已损坏，请重新填写。') }
   const expected = { request_id: pending.request_id, ...(command.mode === 'create' ? {} : { settings_revision: command.settings_revision }), ...command.fields }
   if (!sourceUuid(pending.request_id) || JSON.stringify(expected) !== pending.serialized || pending.path !== (command.mode === 'create' ? sourceRoot : `${sourceRoot}/${command.source_id}`) || pending.method !== (command.mode === 'create' ? 'POST' : 'PATCH')) throw new Error('原请求与草稿不一致，请重新填写。')
-  const error = pending.attempted ? sourceMetadataError(snapshot) : newCommandError(command, snapshot)
+  const error = sourceCommandError(command, snapshot, pending.attempted)
   if (error) throw new Error(error)
   pending.attempted = true
   const receipt = await writer(pending.path, pending.method, body)

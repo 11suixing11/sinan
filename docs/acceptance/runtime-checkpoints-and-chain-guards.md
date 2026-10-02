@@ -1,6 +1,6 @@
 # 精确运行确认、恢复屏障与链路编辑保护验收
 
-日期：2026-10-02。本步骤源码及本地验收完成；实际 Linux 服务、完整联合负载与整体整改签收仍待验。机器证据见 [冻结输入与逐用例结果](evidence/runtime-checkpoints-and-chain-guards.json)，架构见 [ADR0047](../adr/0047-runtime-checkpoints-and-recovery-barriers.md)。
+日期：2026-10-02。本步骤源码及本地验收完成；实际 Linux 服务、完整联合负载与整体整改签收仍待验。机器证据见 [冻结输入与逐用例结果](evidence/runtime-checkpoints-and-chain-guards.json)，架构见 [ADR0047](../adr/0062-runtime-checkpoints-and-recovery-barriers.md)。
 
 ## 本步实现
 

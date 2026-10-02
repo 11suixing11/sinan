@@ -13,10 +13,11 @@ import sys
 import tarfile
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from managed_paths_support import capture, identity, regular, within
+from managed_paths_support import OwnedProcess, capture, identity, regular, within, write_pipe
 
 TOOLS = Path(__file__).resolve().parent
 
@@ -50,6 +51,8 @@ class PrivateInputs(unittest.TestCase):
                 within(root, root / "directory/ordinary")
             self.assertEqual(identity(source), {"sha256": hashlib.sha256(b"TEST_ONLY").hexdigest(), "size": 9})
 
+    @unittest.skipUnless(hasattr(os, "waitid") and hasattr(os, "WNOWAIT"),
+                         "requires nonreaping waitid child ownership (Linux)")
     def test_deadline_kills_child_that_outlives_parent_without_touching_sentinel(self):
         sentinel = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(30)"], start_new_session=True)
         try:
@@ -71,6 +74,8 @@ class PrivateInputs(unittest.TestCase):
             os.killpg(sentinel.pid, signal.SIGKILL)
             sentinel.wait(timeout=3)
 
+    @unittest.skipUnless(hasattr(os, "waitid") and hasattr(os, "WNOWAIT"),
+                         "requires nonreaping waitid child ownership (Linux)")
     def test_output_overflow_is_bounded_and_original_failure_is_preserved(self):
         with tempfile.TemporaryDirectory() as temporary:
             log = Path(temporary).resolve() / "failed-command.json"
@@ -82,11 +87,13 @@ class PrivateInputs(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 capture([sys.executable, "-c", "print('second')"], log=log)
 
+    @unittest.skipUnless(hasattr(os, "waitid") and hasattr(os, "WNOWAIT"),
+                         "requires nonreaping waitid child ownership (Linux)")
     def test_cleanup_observation_failure_preserves_original_command_log(self):
         with tempfile.TemporaryDirectory() as temporary:
             log = Path(temporary).resolve() / "failed-cleanup.json"
             with patch("managed_paths_support.group_has_live_members",
-                       side_effect=[False, False, ValueError("cleanup_observation_failed")]):
+                       side_effect=[False, False, False, ValueError("cleanup_observation_failed")]):
                 with self.assertRaisesRegex(ValueError, "cleanup_observation_failed"):
                     capture([sys.executable, "-c", "print('original failure');raise SystemExit(1)"], log=log)
             saved = json.loads(log.read_text())
@@ -94,6 +101,55 @@ class PrivateInputs(unittest.TestCase):
             self.assertEqual(saved["failure_type"], "ValueError")
             self.assertEqual(saved["cleanup_failure_type"], "ValueError")
             self.assertEqual(saved["stdout"], "original failure\n")
+
+
+    def test_missing_nonreaping_primitive_refuses_before_spawn(self):
+        with patch("managed_paths_support.hasattr", return_value=False, create=True), \
+                patch("managed_paths_support.subprocess.Popen") as spawn:
+            with self.assertRaisesRegex(ValueError, "nonreaping_child_observation_required"):
+                capture([sys.executable, "-c", "raise SystemExit(0)"])
+        spawn.assert_not_called()
+
+
+    def test_group_signals_precede_reap_and_repeated_cleanup_never_signals(self):
+        owner = SimpleNamespace(pid=9876, _owned_reaped=False, returncode=0)
+        stages = []
+        def observe(timeout):
+            stages.append("observe")
+            self.assertFalse(owner._owned_reaped)
+            return 0
+        def reap(timeout):
+            stages.append("reap")
+            owner._owned_reaped = True
+        def signal_owned(pid, number):
+            self.assertEqual(pid, owner.pid)
+            self.assertFalse(owner._owned_reaped)
+            stages.append(number)
+        owner.wait, owner.reap = observe, reap
+        with patch("managed_paths_support.os.killpg", side_effect=signal_owned) as signals, \
+                patch("managed_paths_support.group_has_live_members", return_value=False):
+            OwnedProcess.stop_group(owner)
+            OwnedProcess.stop_group(owner)
+        self.assertEqual(stages, [signal.SIGTERM, "observe", signal.SIGKILL, "reap"])
+        self.assertEqual(signals.call_count, 2)
+
+    def test_stuck_pipe_has_a_finite_input_deadline_and_owned_fd_cleanup(self):
+        reader, writer = os.pipe()
+        try:
+            os.set_blocking(writer, False)
+            while True:
+                try:
+                    os.write(writer, b"x" * 4096)
+                except BlockingIOError:
+                    break
+            with os.fdopen(writer, "wb", closefd=False) as stream:
+                started = time.monotonic()
+                with self.assertRaisesRegex(ValueError, "owned_process_input_timeout"):
+                    write_pipe(stream, b"TEST_ONLY finite input", seconds=0.05)
+                self.assertLess(time.monotonic() - started, 1)
+        finally:
+            os.close(reader)
+            os.close(writer)
 
 
 class NativePreparation(unittest.TestCase):
@@ -182,7 +238,8 @@ class ControllerContracts(unittest.TestCase):
                 self.assertEqual(result, {"role": "A", "ordinary_enrollment_completed": True})
             invalid_fields = (("run_id", "48a7f5bc-e160-43c2-9001-03e2f73f5493"), ("role", "B"),
                               ("token", None), ("token", True), ("token", 1), ("token", [token]),
-                              ("token", {"value": token}), ("token", ""), ("token", "x" * 513))
+                              ("token", {"value": token}), ("token", ""), ("token", "x" * 513), ("token", "TEST_ONLY\x00private"),
+                              ("token", "TEST_ONLY\nprivate"))
             for field, value in invalid_fields:
                 with self.subTest(field=field, value_type=type(value).__name__):
                     path.write_text(json.dumps({**descriptor, field: value}))

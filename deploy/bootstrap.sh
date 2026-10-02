@@ -146,7 +146,7 @@ for tool in $TOOLS; do
   command -v "$tool" >/dev/null || { echo "系统软件源未提供所需工具: $tool" >&2; exit 1; }
 done
 fi
-cat > "$STAGING/bootstrap.py" <<'SINAN_BOOTSTRAP_0225530EE492EC59DF55A1A0E8C0D92B4A60164E1E46E4D901A4A6A794C98631'
+cat > "$STAGING/bootstrap.py" <<'SINAN_BOOTSTRAP_F69BB64E472FA6B6EA39BB927AA05B240DAEFF065A67225A7A4B424697BE7F08'
 #!/usr/bin/env python3
 """Trusted, operator-provisioned bootstrap; never fetched from the panel and executed."""
 
@@ -431,6 +431,12 @@ def select_artifact(metadata, version, actual, requested="auto"):
     ensure(metadata["tag"] == "agent-v" + version, "签名发布版本与所选版本不匹配")
     if not metadata["protocol_min"] <= PROTOCOL_VERSION <= metadata["protocol_max"]:
         raise IncompatibleRelease("签名 Agent 发布不支持此接入入口的协议版本")
+    # This minimum is the registered installation line, not evidence that an
+    # arbitrary newer executable implements it. All signed payload and native
+    # verify-installed/verify-cache checks remain mandatory after selection.
+    core = version.split("-")[0].split("+")[0]
+    if tuple(int(part) for part in core.split(".")) < (0, 3, 0):
+        raise IncompatibleRelease("历史 Agent 不支持当前标准安装与服务合同：0.1/0.2 原制品缺少所需的验签、缓存预检或 supervisor；补签元数据不能补齐命令，原身份和状态未修改")
     for target in compatible_targets(actual, requested):
         matches = [item for item in metadata["artifacts"] if
                    (item["name"], item["version"], item["arch"]) == ("agent", version, target)]
@@ -702,7 +708,7 @@ if __name__ == "__main__":
         main()
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise SystemExit(f"Bootstrap refused: {error}") from error
-SINAN_BOOTSTRAP_0225530EE492EC59DF55A1A0E8C0D92B4A60164E1E46E4D901A4A6A794C98631
+SINAN_BOOTSTRAP_F69BB64E472FA6B6EA39BB927AA05B240DAEFF065A67225A7A4B424697BE7F08
 
 cat > "$STAGING/legacy_agent_checkpoint.py" <<'SINAN_BOOTSTRAP_3787069DD3526732BC6A95C780003451986974D878DB9DFA33BDE240E46770DB'
 #!/usr/bin/env python3
@@ -983,18 +989,21 @@ if __name__ == "__main__":
         raise SystemExit("Legacy Agent refused: 旧状态路径无法安全读取，安装未切换") from None
 SINAN_BOOTSTRAP_3787069DD3526732BC6A95C780003451986974D878DB9DFA33BDE240E46770DB
 
-cat > "$STAGING/release.py" <<'SINAN_BOOTSTRAP_5797F8B58CE4C51D56C7132F262F1789C5D2A25365B327604AC0C68D9D3900C7'
+cat > "$STAGING/release.py" <<'SINAN_BOOTSTRAP_B472BC956528FDA1A3754F36CD85815FC6357D7525390560D2F888CDE2552C8E'
 #!/usr/bin/env python3
 """Build canonical release manifests and verify complete offline-signed bundles."""
 
 import argparse
 import base64
+import contextlib
 import hashlib
 import gzip
 import io
 import json
+import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import tarfile
 
@@ -1004,7 +1013,7 @@ TEST_ONLY_PUBLIC_KEY = "RWS3NbDikg3VqWRlxJMUyaB1dTvErk0ptJ695xQ50Kyb+MmtynMhN/lq
 TEST_ONLY_ROTATION_PUBLIC_KEY = "RWRURVNUUk9UMjMuvo0ny3Mjs6QBwcE7XdZLzMDhDs2hwrXRGgN3moXl"
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 TEST_PUBLIC_KEY_DIRS = (SOURCE_ROOT / "fixtures", SOURCE_ROOT / "crates/protocol/tests/fixtures")
-NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-sinan-native-r1"
+NODEQUALITY_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19"
 SEGMENT = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}\Z")
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?\Z")
 MAX_BINARY = 256 * 1024 * 1024
@@ -1025,8 +1034,60 @@ def read_regular(path, limit=MAX_BINARY):
     return path.read_bytes()
 
 
+def regular_file_proof(path, limit=MAX_BINARY, destination=None):
+    """Hash or copy a bounded ordinary asset without loading the asset into memory."""
+    path = Path(path)
+    ensure(path.is_file() and not path.is_symlink(), "asset must be an ordinary file")
+    before = path.lstat()
+    ensure(stat.S_ISREG(before.st_mode) and before.st_nlink == 1
+           and 0 < before.st_size <= limit, "asset size or identity outside permitted range")
+
+    def identity(value):
+        return (value.st_dev, value.st_ino, value.st_mode, value.st_nlink, value.st_size,
+                value.st_mtime_ns, value.st_ctime_ns)
+
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+                         | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0))
+    value, consumed = hashlib.sha256(), 0
+    with os.fdopen(descriptor, "rb") as source:
+        ensure(identity(os.fstat(source.fileno())) == identity(before), "asset changed before reading")
+        target = Path(destination).open("xb") if destination is not None else contextlib.nullcontext()
+        with target as output:
+            while True:
+                content = source.read(1024 * 1024)
+                if not content:
+                    break
+                consumed += len(content)
+                ensure(consumed <= before.st_size and consumed <= limit, "asset grew while reading")
+                value.update(content)
+                if output is not None:
+                    output.write(content)
+        ensure(consumed == before.st_size and identity(os.fstat(source.fileno())) == identity(before)
+               and identity(path.lstat()) == identity(before), "asset changed while reading")
+    return {"sha256": value.hexdigest(), "size": consumed}
+
+
+def source_offer_asset_limit(name):
+    """Only the fixed paired IPQuality source assets may exceed the binary bound."""
+    if not isinstance(name, str) or not re.fullmatch(
+            r"ipquality-[0-9A-Za-z.+_-]+-linux-(?:amd64|arm64)-sources\.tar\.gz", name):
+        return MAX_BINARY
+    from ipquality_artifact import MAX_SOURCE_OFFER, VERSION as IPQUALITY_VERSION
+    if name in {f"ipquality-{IPQUALITY_VERSION}-linux-{arch}-sources.tar.gz"
+                for arch in ("amd64", "arm64")}:
+        return MAX_SOURCE_OFFER
+    return MAX_BINARY
+
+
+def source_offer_url(tag, asset):
+    ensure(isinstance(tag, str) and tag.startswith("agent-v") and VERSION.fullmatch(tag[7:]),
+           "invalid source-offer release tag")
+    ensure(source_offer_asset_limit(asset) != MAX_BINARY, "invalid source-offer asset identity")
+    return f"https://github.com/{REPOSITORY}/releases/download/{tag}/{asset}"
+
+
 def canonical_path(entry):
-    ensure(entry["name"] in ("agent", "sing-box", "nodequality", "tcpquality"), "unsupported module")
+    ensure(entry["name"] in ("agent", "sing-box", "nodequality", "tcpquality", "ipquality"), "unsupported module")
     ensure(SEGMENT.fullmatch(entry["version"]), "invalid version segment")
     ensure(entry["arch"] in ("amd64", "arm64", "linux-gnu-amd64", "linux-gnu-arm64", "linux-musl-amd64", "linux-musl-arm64", "macos-arm64", "freebsd-amd64", "freebsd-arm64", "windows-amd64", "windows-arm64"), "unsupported architecture")
     return "/".join(entry[k] for k in ("name", "version", "arch"))
@@ -1123,6 +1184,8 @@ def assemble(args):
     ]
     if getattr(args, "tcp_probe_version", None) is not None:
         modules.append(("tcpquality", args.tcp_probe_version, "tar.gz", "sinan-tcp-probe"))
+    if getattr(args, "ipquality_version", None) is not None:
+        modules.append(("ipquality", args.ipquality_version, "tar.gz", "ipquality"))
     for name, version, archive_format, binary_name in modules:
         for arch in architectures:
             entry = {"name": name, "version": version, "arch": arch,
@@ -1137,13 +1200,33 @@ def assemble(args):
                 auxiliary = {name: {"sha256": digest(content), "size": len(content)}
                              for name, content in files.items() if name != binary_name}
                 entry["auxiliary_files"] = auxiliary
-            if name == "nodequality" and version == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1":
-                from nodequality_rootfs_artifact import archive_files, validate_files
+            if name == "ipquality":
+                from ipquality_artifact import (MAX_SOURCE_OFFER, archive_files, source_offer,
+                                               validate_files, validate_source_offer)
+                files = archive_files(data)
+                validate_files(files, version, arch)
+                offer = source_offer(files, version, arch)
+                paired = source / name / version / (arch + ".sources.tar.gz")
+                validate_source_offer(paired, files, version, arch)
+                proof = regular_file_proof(paired, MAX_SOURCE_OFFER, output / offer["asset"])
+                ensure(proof == {key: offer[key] for key in ("sha256", "size")},
+                       "paired source archive differs from the signed declaration")
+                auxiliary = {name: {"sha256": digest(content), "size": len(content)}
+                             for name, content in files.items() if name != binary_name}
+                entry["auxiliary_files"] = auxiliary
+            if name == "nodequality" and version in {"a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20", "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1"}:
+                if version.endswith("-offline-rootfs-r1"):
+                    from nodequality_native_rootfs_artifact import archive_files, validate_files
+                else:
+                    from nodequality_rootfs_artifact import archive_files, validate_files
                 files = archive_files(data)
                 validate_files(files, version, arch)
                 auxiliary = {name: {"sha256": digest(content), "size": len(content)}
                              for name, content in files.items() if name != binary_name}
                 entry["auxiliary_files"] = auxiliary
+            if name == "nodequality" and version == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21":
+                from nodequality_node_query_artifact import archive_files, validate_files
+                validate_files(archive_files(data), version, arch)
             binary = binary_bytes(data, archive_format, binary_name, auxiliary)
             entry.update(archive_size=len(data), binary_sha256=digest(binary),
                          binary_size=len(binary), asset_name=asset_name(entry))
@@ -1317,15 +1400,28 @@ def validate_manifest(bundle, expected_tag=None, protocol_version=1):
                    and re.fullmatch(re.escape(TOOL_VERSION) + r"-[0-9a-f]{40}-r1", entry["version"])
                    and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
                    "wrong or incomplete native TCP artifact identity")
-        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1":
+        if entry["name"] == "ipquality":
+            from ipquality_artifact import BINARY, FILES, VERSION as IPQUALITY_VERSION
+            ensure(entry["format"] == "tar.gz" and entry["binary_name"] == BINARY
+                   and entry["arch"] in ("amd64", "arm64")
+                   and entry["version"] == IPQUALITY_VERSION
+                   and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
+                   "wrong or incomplete offline IPQuality artifact identity")
+        if entry["name"] == "nodequality" and entry["version"] in {"a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20", "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1"}:
             from nodequality_rootfs_artifact import BINARY, FILES
             ensure(entry["format"] == "tar.gz" and entry["binary_name"] == BINARY
                    and entry["arch"] in ("amd64", "arm64")
                    and set(entry.get("auxiliary_files", {})) == FILES - {BINARY},
                    "wrong or incomplete offline NodeQuality artifact identity")
-        if entry["name"] == "nodequality" and entry["version"] != "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1":
+        if entry["name"] == "nodequality" and entry["version"] not in {"a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20", "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1"}:
             ensure(not entry.get("auxiliary_files"),
                    "runner-only NodeQuality identity cannot claim offline auxiliary files")
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21":
+            from nodequality_node_query_artifact import BINARY
+            ensure(entry["format"] == "tar.gz" and entry["binary_name"] == BINARY
+                   and entry["arch"] in ("amd64", "arm64")
+                   and not entry.get("auxiliary_files", {}),
+                   "wrong official node-query artifact identity")
         if entry["name"] == "agent":
             binary_name = "sinan-agent.exe" if entry["arch"].startswith("windows-") else "sinan-agent"
             ensure(metadata["tag"] == "agent-v" + entry["version"] and entry["format"] == "raw"
@@ -1352,8 +1448,26 @@ def verify_bundle(bundle, roots, minisign, expected_tag=None, exact_assets=True)
         if entry["name"] == "tcpquality":
             from tcp_probe_artifact import archive_files, validate_files
             validate_files(archive_files(data), entry["version"], entry["arch"])
+        if entry["name"] == "ipquality":
+            from ipquality_artifact import (MAX_SOURCE_OFFER, archive_files, source_offer,
+                                           validate_files, validate_source_offer)
+            files = archive_files(data)
+            validate_files(files, entry["version"], entry["arch"])
+            offer = source_offer(files, entry["version"], entry["arch"])
+            expected_files.add(offer["asset"])
+            paired = bundle / offer["asset"]
+            ensure(regular_file_proof(paired, MAX_SOURCE_OFFER)
+                   == {key: offer[key] for key in ("sha256", "size")},
+                   "paired source archive differs from the signed declaration")
+            validate_source_offer(paired, files, entry["version"], entry["arch"])
         if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-offline-rootfs-r1":
+            from nodequality_native_rootfs_artifact import archive_files, validate_files
+            validate_files(archive_files(data), entry["version"], entry["arch"])
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20":
             from nodequality_rootfs_artifact import archive_files, validate_files
+            validate_files(archive_files(data), entry["version"], entry["arch"])
+        if entry["name"] == "nodequality" and entry["version"] == "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21":
+            from nodequality_node_query_artifact import archive_files, validate_files
             validate_files(archive_files(data), entry["version"], entry["arch"])
     if exact_assets:
         ensure({p.name for p in bundle.iterdir()} == expected_files, "missing or extra release assets")
@@ -1368,6 +1482,7 @@ def main():
         build.add_argument("--" + argument, required=True)
     build.add_argument("--nodequality-version", default=NODEQUALITY_VERSION)
     build.add_argument("--tcp-probe-version", help="opt-in native TCP version with its full source SHA")
+    build.add_argument("--ipquality-version", help="opt-in fixed standalone IPQuality version with its complete signed offline profile")
     build.add_argument("--arch", action="append", choices=("amd64", "arm64"),
                        help="CI test bundle architectures; production requires both")
     render = commands.add_parser("render-installer")
@@ -1395,7 +1510,7 @@ if __name__ == "__main__":
         main()
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise SystemExit(f"Release verification failed: {error}") from error
-SINAN_BOOTSTRAP_5797F8B58CE4C51D56C7132F262F1789C5D2A25365B327604AC0C68D9D3900C7
+SINAN_BOOTSTRAP_B472BC956528FDA1A3754F36CD85815FC6357D7525390560D2F888CDE2552C8E
 
 cat > "$STAGING/tcp_probe_artifact.py" <<'SINAN_BOOTSTRAP_7C9C790035F22EC0554D1B922A5B960571792B991659DDFBF9C0A8E337C0BD0A'
 """Validate the complete, pinned native TCP artifact without executing it."""
@@ -1785,6 +1900,796 @@ def publish(directory, name, payload):
         manifest_temporary.unlink(missing_ok=True)
     return target
 SINAN_BOOTSTRAP_8B75C06855E5CA6222579D9DD5B14185451D81B0CB68219B1B2540F92415324D
+
+cat > "$STAGING/nodequality_rootfs_artifact.py" <<'SINAN_BOOTSTRAP_6F57EAAD4AC5E08E1CA758DDF09B09705A7B73D59250241AA608DA3D21502F2C'
+"""Prepare the explicit offline NodeQuality artifact without running diagnostics."""
+import base64
+import gzip
+import hashlib
+import importlib.util
+import io
+import json
+from pathlib import Path
+import tarfile
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+PLUGIN = ROOT / "plugins/nodequality"
+CANONICAL_VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19"
+VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20"
+BINARY = "nodequality"
+FILES = {BINARY, "rootfs.tar.gz", "rootfs-manifest.json"}
+MAX_OUTER_STREAM = 256 * 1024 * 1024
+MAX_RUNNER = 4 * 1024 * 1024
+MAX_MANIFEST = 8 * 1024 * 1024
+ENTRY_SHA256 = "728d15d923ae030b9caf83cfe38b9bdb690800c9e11feb57c75ce99a7623a182"
+LOAD_ROOTFS = b'''function load_bench_os(){
+    cd $work_dir
+    rm -rf BenchOs
+
+    curl "-L#o" BenchOs.tar.gz $bench_os_url
+    tar -xzf BenchOs.tar.gz\x20\x20\x20\x20\x20
+    cd $work_dir/BenchOs
+
+    mount -t proc /proc proc/
+    mount --bind /sys sys/
+    mount --rbind /dev dev/
+    mount --make-rslave dev
+
+    rm etc/resolv.conf 2>/dev/null
+    cp /etc/resolv.conf etc/resolv.conf
+}
+'''
+LOCAL_ROOTFS = b'''function load_bench_os(){
+    python3 "$SINAN_ROOTFS_HELPER" extract \\
+        --archive "$SINAN_ROOTFS_DIRECTORY/rootfs.tar.gz" \\
+        --manifest "$SINAN_ROOTFS_DIRECTORY/rootfs-manifest.json" \\
+        --workspace "$work_dir" --arch "$SINAN_ROOTFS_ARCH" \\
+        --destination BenchOs || return $?
+    cd "$work_dir/BenchOs" || return $?
+    mount -t proc /proc proc/ || return $?
+    mount --bind /sys sys/ || return $?
+    mount -o remount,bind,ro sys/ || return $?
+    mount --rbind /dev dev/ || return $?
+    mount --make-rslave dev || return $?
+    [[ ! -L etc/resolv.conf && -f etc/resolv.conf ]] || return 70
+    cp -- /etc/resolv.conf etc/resolv.conf || return $?
+}
+'''
+MARKERS = {
+    "NODEQUALITY_SOURCE": "SINAN_NODEQUALITY_SOURCE_A92FCA6",
+    "NODEQUALITY_LICENSE": "SINAN_NODEQUALITY_LICENSE_A92FCA6",
+    "PINNED_CHAIN": "SINAN_NODEQUALITY_PINNED_CHAIN",
+}
+HELPERS = {
+    "SOURCE_HELPER": "source-helper.py", "REPORT_POLICY_HELPER": "report-policy.py",
+    "SWAP_POLICY_HELPER": "swap-policy.py", "DEPENDENCY_POLICY_HELPER": "dependency-policy.py",
+    "DATA_POLICY_HELPER": "data-policy.py", "LOADER_POLICY_HELPER": "loader-policy.py",
+    "RANKING_POLICY_HELPER": "ranking-policy.py", "IP_SCORE_POLICY_HELPER": "ip-score-policy.py",
+    "BROWSER_POLICY_HELPER": "browser-policy.py",
+    "PUBLIC_ACCESS_POLICY_HELPER": "public-access-policy.py", "NETFLIX_POLICY_HELPER": "netflix-policy.py",
+    "REPORT_HELPER": "report.py", "EXIT_OBSERVER": "exit-observer.sh", "DAILY_HELPER": "daily.py",
+    "CURL_SHIM": "curl-shim.sh", "CHROOT_SHIM": "chroot-shim.sh",
+    "OFFICIAL_IP_HELPER": "official-ip.py", "EXECUTION_ADMISSION": "execution-admission.json",
+}
+
+
+def ensure(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def module(name, path):
+    specification = importlib.util.spec_from_file_location(name, path)
+    result = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(result)
+    return result
+
+
+def runtime():
+    return module("sinan_offline_rootfs", PLUGIN / "rootfs.py")
+
+
+def digest(content):
+    return hashlib.sha256(content).hexdigest()
+
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        ensure(key not in result, "duplicate offline provenance key")
+        result[key] = value
+    return result
+
+
+def replace_once(content, before, after):
+    ensure(content.count(before) == 1, "offline runner requires a unique fixed anchor")
+    return content.replace(before, after, 1)
+
+
+def embedded(content, sentinel):
+    begin, end = ("<<'" + sentinel + "'\n").encode(), ("\n" + sentinel + "\n").encode()
+    ensure(content.count(begin) == 1 and content.count(end) == 1,
+           "missing or duplicate embedded source boundary")
+    start = content.index(begin) + len(begin)
+    stop = content.index(end, start)
+    return content[start:stop + 1]
+
+
+def canonical_runner(bundle_bytes):
+    helper = module("sinan_offline_source_helper", PLUGIN / "source-helper.py")
+    bundle = helper.decode(bundle_bytes)
+    ensure(isinstance(bundle, dict) and set(bundle) == {"schema", "lock", "files"}
+           and type(bundle["schema"]) is int and bundle["schema"] == 1,
+           "offline runner requires the complete canonical source bundle")
+    lock = helper.decode(helper.ordinary(PLUGIN / "source-lock.json", MAX_MANIFEST))
+    ensure(bundle.get("lock") == lock, "offline runner requires the canonical source lock")
+    rows = helper.validate(lock)
+    helper.execution_admission(PLUGIN / "execution-admission.json")
+    helper.official_ip_identity()
+    ensure(isinstance(bundle, dict) and set(bundle) == {"schema", "lock", "files"}
+           and type(bundle["schema"]) is int and bundle["schema"] == 1
+           and isinstance(bundle["files"], dict) and set(bundle["files"]) == set(rows),
+           "offline runner requires the complete canonical source bundle")
+    for name, row in rows.items():
+        helper.verified(base64.b64decode(bundle["files"][name], validate=True), row)
+    entry = helper.entrypoint(bundle)
+    ensure(digest(entry) == ENTRY_SHA256, "offline entrypoint input SHA256 mismatch")
+    license_bytes = helper.verified(base64.b64decode(bundle["files"]["LICENSE.nodequality"], validate=True),
+                                    rows["LICENSE.nodequality"])
+    payloads = {"NODEQUALITY_SOURCE": entry, "NODEQUALITY_LICENSE": license_bytes,
+                "PINNED_CHAIN": bundle_bytes}
+    payloads.update({name: helper.ordinary(PLUGIN / filename, MAX_RUNNER)
+                     for name, filename in HELPERS.items()})
+    template = helper.ordinary(PLUGIN / "runner.sh.tmpl", MAX_RUNNER)
+    for marker, payload in payloads.items():
+        ensure(payload.endswith(b"\n"), "embedded offline payload must end with newline")
+        template = replace_once(template, ("@" + marker + "@\n").encode(), payload)
+    ensure(len(template) <= MAX_RUNNER, "runner exceeds byte limit")
+    return template
+
+
+def offline_runner(base):
+    ensure(isinstance(base, bytes) and 0 < len(base) <= MAX_RUNNER,
+           "invalid canonical runner size")
+    bundle = embedded(base, MARKERS["PINNED_CHAIN"])
+    ensure(base == canonical_runner(bundle), "base runner differs from canonical r19 packaged source")
+    entry = embedded(base, MARKERS["NODEQUALITY_SOURCE"])
+    patched = replace_once(entry, LOAD_ROOTFS, LOCAL_ROOTFS)
+    patched = replace_once(patched, b"    load_bench_os\n",
+                           b"    load_bench_os || exit $? # Sinan: no online rootfs fallback.\n")
+    result = replace_once(base, entry, patched)
+    result = replace_once(result, b"New full executions are refused before filesystem changes or upstream tools.",
+                          b"This artifact includes a verified offline rootfs preparation.\n"
+                          b"New full executions are refused before filesystem changes or upstream tools.")
+    result = replace_once(result, ("version=" + CANONICAL_VERSION + "\n").encode(),
+                          ("version=" + VERSION + "\n").encode())
+    # Preserve the canonical artifact's complete-execution admission unchanged.
+    extractor = runtime().ordinary(PLUGIN / "rootfs.py", 128 * 1024)
+    ensure(extractor.endswith(b"\n") and b"\nSINAN_NODEQUALITY_ROOTFS_HELPER\n" not in extractor,
+           "invalid embedded rootfs helper")
+    injection = b'''cat > "$runtime/rootfs.py" <<'SINAN_NODEQUALITY_ROOTFS_HELPER'
+''' + extractor + b'''SINAN_NODEQUALITY_ROOTFS_HELPER
+export SINAN_ROOTFS_HELPER=$runtime/rootfs.py
+SINAN_ROOTFS_DIRECTORY=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+export SINAN_ROOTFS_DIRECTORY
+case "$(uname -m)" in
+  x86_64) SINAN_ROOTFS_ARCH=amd64 ;;
+  aarch64|arm64) SINAN_ROOTFS_ARCH=arm64 ;;
+  *) die 'unsupported offline rootfs architecture' ;;
+esac
+export SINAN_ROOTFS_ARCH
+'''
+    result = replace_once(result, b"cat > \"$runtime/NodeQuality.sh\" <<'SINAN_NODEQUALITY_SOURCE_A92FCA6'\n",
+                          injection + b"cat > \"$runtime/NodeQuality.sh\" <<'SINAN_NODEQUALITY_SOURCE_A92FCA6'\n")
+    ensure(len(result) <= MAX_RUNNER, "offline runner exceeds byte limit")
+    return result
+
+
+def validate_files(files, version, arch):
+    ensure(version == VERSION and arch in ("amd64", "arm64"), "unsupported offline artifact identity")
+    ensure(set(files) == FILES, "offline artifact requires its exact binary and two auxiliary files")
+    ensure(0 < len(files[BINARY]) <= MAX_RUNNER and 0 < len(files["rootfs-manifest.json"]) <= MAX_MANIFEST,
+           "offline artifact metadata exceeds byte limits")
+    ensure(0 < len(files["rootfs.tar.gz"]) < MAX_OUTER_STREAM
+           and sum(len(value) for value in files.values()) + 10240 <= MAX_OUTER_STREAM,
+           "offline artifact exceeds total outer tar budget")
+    helper = runtime()
+    manifest = helper.load_manifest(files["rootfs-manifest.json"], arch)
+    # Build/release validation may use temporary disk. The Agent runtime reads
+    # the signed ordinary archive in place and never copies it into a variable.
+    with tempfile.TemporaryDirectory(prefix="sinan-rootfs-intake-") as temporary:
+        archive = Path(temporary).resolve(strict=True) / "rootfs.tar.gz"
+        with archive.open("xb") as output:
+            output.write(files["rootfs.tar.gz"])
+        helper.verify_archive(archive, manifest)
+        names = ["usr/share/sinan-rootfs/" + name for name in
+                 ("provenance.json", "inputs-lock.json", "source-inventory.json", "license-inventory.json")]
+        metadata = helper.read_metadata(archive, manifest, names)
+    provenance = json.loads(metadata[names[0]], object_pairs_hook=unique_object)
+    expected = {"schema", "kind", "arch", "full_ready", "source_authenticated",
+                "reproducibility_verified", "source_epoch", "builder", "inputs_lock_sha256",
+                "source_inventory_sha256", "license_inventory_sha256", "build_tool_sha256",
+                "pending_capabilities"}
+    ensure(isinstance(provenance, dict) and set(provenance) == expected
+           and type(provenance["schema"]) is int and provenance["schema"] == 1
+           and provenance["kind"] == "sinan-nodequality-debian12-preparation"
+           and provenance["arch"] == arch and provenance["full_ready"] is False
+           and provenance["source_authenticated"] is True
+           and provenance["reproducibility_verified"] is False,
+           "offline provenance must identify preparation with full mode unavailable")
+    ensure(type(provenance["source_epoch"]) is int and 0 < provenance["source_epoch"] < 2**32
+           and isinstance(provenance["build_tool_sha256"], str)
+           and len(provenance["build_tool_sha256"]) == 64
+           and all(value in "0123456789abcdef" for value in provenance["build_tool_sha256"]),
+           "offline provenance has an invalid epoch or build-tool digest")
+    builder = provenance["builder"]
+    ensure(isinstance(builder, dict) and set(builder) == {"image_sha256", "arch", "tools"}
+           and builder["arch"] == arch and isinstance(builder["image_sha256"], str)
+           and len(builder["image_sha256"]) == 64
+           and all(value in "0123456789abcdef" for value in builder["image_sha256"])
+           and isinstance(builder["tools"], list), "invalid offline builder declaration")
+    for name, field in zip(names[1:], ("inputs_lock_sha256", "source_inventory_sha256", "license_inventory_sha256")):
+        ensure(provenance[field] == digest(metadata[name]), "embedded inventory differs from offline provenance")
+    ensure(isinstance(provenance["pending_capabilities"], list) and provenance["pending_capabilities"]
+           and all(isinstance(value, str) and 0 < len(value) <= 256 for value in provenance["pending_capabilities"]),
+           "offline preparation must retain pending capabilities")
+    licenses = json.loads(metadata[names[3]], object_pairs_hook=unique_object)
+    ensure(isinstance(licenses, dict) and licenses.get("reviewed") is False,
+           "offline preparation is not a complete license review")
+    inputs = json.loads(metadata[names[1]], object_pairs_hook=unique_object)
+    sources = json.loads(metadata[names[2]], object_pairs_hook=unique_object)
+    ensure(isinstance(inputs, dict) and type(inputs.get("schema")) is int and inputs["schema"] == 1
+           and inputs.get("arch") == arch and inputs.get("source_epoch") == provenance["source_epoch"]
+           and inputs.get("builder") == builder, "embedded input declaration differs from provenance")
+    ensure(isinstance(sources, dict) and type(sources.get("schema")) is int and sources["schema"] == 1
+           and sources.get("arch") == arch, "invalid embedded source inventory identity")
+    bundle = embedded(files[BINARY], MARKERS["PINNED_CHAIN"])
+    ensure(files[BINARY] == offline_runner(canonical_runner(bundle)),
+           "offline runner differs from its exact controlled derivation")
+    return manifest
+
+
+def archive_files(data):
+    ensure(isinstance(data, bytes) and 0 < len(data) <= MAX_OUTER_STREAM,
+           "offline outer archive size outside permitted range")
+    with gzip.GzipFile(fileobj=io.BytesIO(data)) as compressed:
+        unpacked = compressed.read(MAX_OUTER_STREAM + 1)
+    ensure(len(unpacked) <= MAX_OUTER_STREAM, "offline outer archive exceeds decompressed stream limit")
+    files = {}
+    with tarfile.open(fileobj=io.BytesIO(unpacked), mode="r:") as archive:
+        for member in archive:
+            ensure(member.name in FILES and member.name not in files and member.isfile()
+                   and not member.pax_headers and 0 < member.size <= MAX_OUTER_STREAM,
+                   "unsafe offline outer archive member")
+            files[member.name] = archive.extractfile(member).read(member.size + 1)
+            ensure(len(files[member.name]) == member.size, "offline archive member truncated")
+    ensure(set(files) == FILES, "offline artifact file set is incomplete")
+    return files
+
+
+def pack(files):
+    ensure(set(files) == FILES and sum(len(value) for value in files.values()) + 10240 <= MAX_OUTER_STREAM,
+           "offline artifact exceeds total outer stream budget")
+    output = io.BytesIO()
+    with gzip.GzipFile(filename="", fileobj=output, mode="wb", mtime=0, compresslevel=9) as compressed:
+        with tarfile.open(fileobj=compressed, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+            for name in sorted(files):
+                member = tarfile.TarInfo(name)
+                member.size = len(files[name])
+                member.mode = 0o755 if name == BINARY else 0o644
+                archive.addfile(member, io.BytesIO(files[name]))
+    data = output.getvalue()
+    ensure(len(data) <= MAX_OUTER_STREAM, "offline compressed artifact exceeds total archive byte budget")
+    return data
+SINAN_BOOTSTRAP_6F57EAAD4AC5E08E1CA758DDF09B09705A7B73D59250241AA608DA3D21502F2C
+
+cat > "$STAGING/nodequality_node_query_artifact.py" <<'SINAN_BOOTSTRAP_3231A8D202F8A9A546C4AABABEE398070D56C7B8E84FDBCC699233A198EAA8D6'
+"""Strict derivation and inventory for the explicit official node-query runner."""
+import gzip
+import io
+import tarfile
+
+import nodequality_rootfs_artifact as canonical
+
+ROOT = canonical.ROOT
+PLUGIN = canonical.PLUGIN
+VERSION = "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21"
+BINARY = "nodequality"
+FILES = {BINARY}
+MAX_RUNNER = canonical.MAX_RUNNER
+MAX_ARCHIVE = MAX_RUNNER + 10240
+ensure = canonical.ensure
+digest = canonical.digest
+replace_once = canonical.replace_once
+
+
+def runner(base):
+    ensure(isinstance(base, bytes) and 0 < len(base) <= MAX_RUNNER,
+           "invalid canonical runner size")
+    bundle = canonical.embedded(base, canonical.MARKERS["PINNED_CHAIN"])
+    ensure(base == canonical.canonical_runner(bundle),
+           "node query requires the unchanged canonical r19 runner")
+    helper = canonical.runtime().ordinary(PLUGIN / "node-query.py", 128 * 1024)
+    ensure(helper.endswith(b"\n") and b"\nSINAN_OFFICIAL_NODE_QUERY\n" not in helper,
+           "invalid official node-query payload")
+    result = replace_once(base, ("version=" + canonical.CANONICAL_VERSION + "\n").encode(),
+                          ("version=" + VERSION + "\n").encode())
+    result = replace_once(result, b"--mode daily|full", b"--mode daily|ip|full")
+    result = replace_once(result, b"       nodequality --version\n",
+                          b"       IP mode requires --ips-file <WORKSPACE/node-ips.json> --job-id <UUID>.\n"
+                          b"       Official private credentials stay in /etc/sinan/nodequality-providers.json.\n"
+                          b"       nodequality --version\n")
+    result = replace_once(result, b"targets_file=\n", b"targets_file=\nips_file=\njob_id=\n")
+    result = replace_once(result, b"    --targets-file) targets_file=$2 ;;\n",
+                          b"    --targets-file) targets_file=$2 ;;\n"
+                          b"    --ips-file) [[ -z $ips_file ]] || die 'duplicate IP input'; ips_file=$2 ;;\n"
+                          b"    --job-id) [[ -z $job_id ]] || die 'duplicate job identity'; job_id=$2 ;;\n")
+    result = replace_once(result,
+        b'case "$mode" in daily|full) ;; *) die \'invalid diagnostic mode\' ;; esac\n',
+        b'case "$mode" in daily|ip|full) ;; *) die \'invalid diagnostic mode\' ;; esac\n'
+        b'if [[ $mode == ip ]]; then\n'
+        b'  [[ $network_mode == low && $upload_report == false && -z $targets_file ]] || die \'IP queries require a bounded private job\'\n'
+        b'  [[ $ips_file == "$workspace/node-ips.json" && -n $job_id ]] || die \'IP input and job identity are required\'\n'
+        b'else\n'
+        b'  [[ -z $ips_file && -z $job_id ]] || die \'IP options require IP mode\'\n'
+        b'fi\n')
+    injection = b'''if [[ $mode == ip ]]; then
+  cat > "$runtime/node-query.py" <<'SINAN_OFFICIAL_NODE_QUERY'
+''' + helper + b'''SINAN_OFFICIAL_NODE_QUERY
+  python3 "$runtime/node-query.py" --workspace "$workspace" --ips-file "$ips_file" \\
+    --ip-version "$ip_version" --job-id "$job_id"
+  exit 0
+fi
+'''
+    result = replace_once(result, b'if [[ $mode == daily ]]; then\n  cat > "$runtime/official-ip.py"',
+                          injection + b'if [[ $mode == daily ]]; then\n  cat > "$runtime/official-ip.py"')
+    ensure(len(result) <= MAX_RUNNER, "official query runner exceeds byte budget")
+    return result
+
+
+def validate_files(files, version, arch):
+    ensure(version == VERSION and arch in ("amd64", "arm64") and set(files) == FILES,
+           "wrong official node-query artifact identity or inventory")
+    content = files[BINARY]
+    ensure(isinstance(content, bytes) and 0 < len(content) <= MAX_RUNNER,
+           "official node-query runner exceeds byte budget")
+    bundle = canonical.embedded(content, canonical.MARKERS["PINNED_CHAIN"])
+    ensure(content == runner(canonical.canonical_runner(bundle)),
+           "official node-query runner differs from its controlled derivation")
+
+
+def archive_files(data):
+    ensure(isinstance(data, bytes) and 0 < len(data) <= MAX_ARCHIVE,
+           "official node-query archive exceeds byte budget")
+    with gzip.GzipFile(fileobj=io.BytesIO(data)) as compressed:
+        unpacked = compressed.read(MAX_ARCHIVE + 1)
+    ensure(len(unpacked) <= MAX_ARCHIVE, "official query decompression exceeds byte budget")
+    files = {}
+    with tarfile.open(fileobj=io.BytesIO(unpacked), mode="r:") as archive:
+        for member in archive:
+            ensure(member.name in FILES and member.name not in files and member.isfile()
+                   and not member.pax_headers and 0 < member.size <= MAX_RUNNER,
+                   "unsafe official node-query archive member")
+            files[member.name] = archive.extractfile(member).read(member.size + 1)
+            ensure(len(files[member.name]) == member.size, "official query archive is truncated")
+    ensure(set(files) == FILES, "official query artifact inventory is incomplete")
+    return files
+
+
+def pack(files):
+    ensure(set(files) == FILES and 0 < len(files[BINARY]) <= MAX_RUNNER,
+           "invalid official query package inventory")
+    output = io.BytesIO()
+    with gzip.GzipFile(filename="", fileobj=output, mode="wb", mtime=0, compresslevel=9) as compressed:
+        with tarfile.open(fileobj=compressed, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+            member = tarfile.TarInfo(BINARY)
+            member.size, member.mode = len(files[BINARY]), 0o755
+            archive.addfile(member, io.BytesIO(files[BINARY]))
+    data = output.getvalue()
+    ensure(len(data) <= MAX_ARCHIVE, "compressed official query archive exceeds byte budget")
+    return data
+SINAN_BOOTSTRAP_3231A8D202F8A9A546C4AABABEE398070D56C7B8E84FDBCC699233A198EAA8D6
+
+cat > "$STAGING/ipquality_artifact.py" <<'SINAN_BOOTSTRAP_C0BC78A27E43E4FE55ADEF9A842D3B75B1F4594E23AA31678941A447F06EAC2A'
+"""Validate the complete independently pinned IPQuality artifact before signing."""
+import gzip
+import contextlib
+import hashlib
+import importlib.util
+import io
+import json
+from pathlib import Path
+import re
+import tarfile
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+PLUGIN = ROOT / 'plugins/ipquality'
+BINARY = 'ipquality'
+VERSION = '87397e2c3196ec796f5477c83343c2354df601ea-node-r1'
+SOURCE_COMMIT = '87397e2c3196ec796f5477c83343c2354df601ea'
+SOURCE_SHA256 = 'b30df5a3c2204276c54e99dcc5080b46f8a627667730aee7de63b109b8ecaecf'
+AUXILIARY = {'rootfs.tar.gz', 'rootfs-manifest.json', 'build-info.json', 'LICENSE',
+             'source.tar.gz', 'THIRD_PARTY_NOTICES.txt'}
+FILES = AUXILIARY | {BINARY}
+MAX_ARCHIVE = 256 * 1024 * 1024
+MAX_SOURCE = 8 * 1024 * 1024
+MAX_RUNNER = 128 * 1024
+MAX_SOURCE_OFFER = 2 * 1024 * 1024 * 1024
+READ_CHUNK = 1024 * 1024
+LIB = 'usr/local/lib/sinan-ipquality/'
+
+
+def ensure(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    result = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(result)
+    return result
+
+
+def runtime():
+    return module('sinan_ipquality_rootfs_runtime', ROOT / 'plugins/nodequality/rootfs.py')
+
+
+def factory():
+    return module('sinan_ipquality_profile', ROOT / 'tools/ipquality-rootfs.py').factory()
+
+
+def digest(content):
+    return hashlib.sha256(content).hexdigest()
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(',', ':'),
+                      allow_nan=False).encode() + b'\n'
+
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        ensure(key not in result, 'duplicate IPQuality JSON key')
+        result[key] = value
+    return result
+
+
+def decode(content):
+    return json.loads(content, object_pairs_hook=unique_object,
+                      parse_constant=lambda _: ensure(False, 'non-finite IPQuality JSON number'))
+
+
+def runner():
+    source = runtime().ordinary(PLUGIN / 'runner.py', MAX_RUNNER)
+    verifier = runtime().ordinary(ROOT / 'plugins/nodequality/rootfs.py', MAX_RUNNER)
+    anchor = b"ROOTFS_SOURCE = '@ROOTFS_HELPER@'"
+    ensure(source.count(anchor) == 1, 'runner verifier marker differs')
+    result = source.replace(anchor, b'ROOTFS_SOURCE = ' + repr(verifier.decode()).encode(), 1)
+    ensure(len(result) <= MAX_RUNNER, 'IPQuality runner exceeds bound')
+    return result
+
+
+def unpack(data, names=None, maximum=MAX_ARCHIVE):
+    ensure(type(maximum) is int and maximum > 0, 'invalid archive expansion limit')
+    ensure(isinstance(data, bytes) and 0 < len(data) <= maximum, 'archive size exceeds limit')
+    files = {}
+    with io.BytesIO() as stream:
+        expanded = 0
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as source:
+            while content := source.read(min(READ_CHUNK, maximum - expanded + 1)):
+                ensure(len(content) <= maximum - expanded, 'archive expansion exceeds limit')
+                stream.write(content)
+                expanded += len(content)
+        # Reading through EOF also verifies gzip CRC and the complete trailer.
+        stream.seek(0)
+        with tarfile.open(fileobj=stream, mode='r:') as archive:
+            for item in archive:
+                ensure(item.isfile() and not item.pax_headers and item.name not in files
+                       and (names is None or item.name in names) and 0 < item.size <= maximum
+                       and item.name.isascii() and not item.name.startswith('/')
+                       and all(part not in ('', '.', '..') for part in item.name.split('/')),
+                       'unsafe or unexpected IPQuality archive member')
+                length = 0
+                with archive.extractfile(item) as source, io.BytesIO() as member:
+                    while content := source.read(min(READ_CHUNK, item.size - length + 1)):
+                        ensure(len(content) <= item.size - length,
+                               'IPQuality archive member exceeds declared size')
+                        member.write(content)
+                        length += len(content)
+                    ensure(length == item.size, 'truncated IPQuality archive member')
+                    files[item.name] = member.getvalue()
+    ensure(names is None or set(files) == names, 'IPQuality archive inventory differs')
+    return files
+
+
+def pack(files):
+    ensure(sum(len(content) for content in files.values()) + 10240 <= MAX_ARCHIVE,
+           'IPQuality outer stream exceeds limit')
+    output = io.BytesIO()
+    with gzip.GzipFile(filename='', mode='wb', fileobj=output, mtime=0, compresslevel=9) as compressed:
+        with tarfile.open(fileobj=compressed, mode='w', format=tarfile.USTAR_FORMAT) as archive:
+            for name, content in sorted(files.items()):
+                item = tarfile.TarInfo(name)
+                item.size, item.mode = len(content), 0o755 if name == BINARY else 0o644
+                archive.addfile(item, io.BytesIO(content))
+    data = output.getvalue()
+    ensure(len(data) <= MAX_ARCHIVE, 'IPQuality compressed archive exceeds limit')
+    return data
+
+
+def archive_files(data):
+    return unpack(data, FILES)
+
+
+def source_offer(files, version, arch):
+    ensure(version == VERSION and arch in ('amd64', 'arm64'), 'invalid IPQuality source-offer identity')
+    prefix = b'Sinan IPQuality node self-query\n'
+    content = files['THIRD_PARTY_NOTICES.txt']
+    ensure(content.startswith(prefix) and len(content) <= 16 * 1024, 'source-offer notice is absent or oversized')
+    notice = decode(content[len(prefix):])
+    ensure(isinstance(notice, dict) and set(notice) == {'source_offer', 'notice', 'license'}
+           and notice['license'] == 'AGPL-3.0-only'
+           and isinstance(notice['notice'], str) and 0 < len(notice['notice']) <= 4096,
+           'source-offer notice fields differ')
+    offer = notice['source_offer']
+    ensure(isinstance(offer, dict) and set(offer) == {'asset', 'sha256', 'size'}
+           and offer['asset'] == f'ipquality-{VERSION}-linux-{arch}-sources.tar.gz'
+           and isinstance(offer['sha256'], str) and re.fullmatch(r'[0-9a-f]{64}', offer['sha256'])
+           and type(offer['size']) is int and 0 < offer['size'] <= MAX_SOURCE_OFFER,
+           'signed source-offer descriptor differs')
+    return offer
+
+
+@contextlib.contextmanager
+def source_stream(value):
+    if isinstance(value, bytes):
+        ensure(0 < len(value) <= MAX_SOURCE_OFFER, 'paired source size exceeds bound')
+        yield io.BytesIO(value)
+    else:
+        with runtime()._ordinary(Path(value).absolute(), MAX_SOURCE_OFFER) as (source, _):
+            yield source
+
+
+class LimitedReader:
+    def __init__(self, source, maximum):
+        self.source, self.maximum, self.total = source, maximum, 0
+
+    def read(self, size=-1):
+        maximum = self.maximum - self.total + 1
+        content = self.source.read(min(1024 * 1024, maximum) if size < 0 else min(size, maximum))
+        self.total += len(content)
+        ensure(self.total <= self.maximum, 'paired source decompressed stream exceeds bound')
+        return content
+
+
+def source_inventory(files):
+    sources = unpack(files['source.tar.gz'], maximum=MAX_SOURCE)
+    lock = decode(sources['debian/inputs-lock.json'])
+    factory().validate_lock(lock)
+    expected = {'sinan-source.tar.gz': {'size': len(files['source.tar.gz']), 'sha256': digest(files['source.tar.gz'])}}
+    for row in lock['sources']:
+        for item in row['files']:
+            name = 'debian-sources/' + item['blob']
+            identity = {key: item[key] for key in ('size', 'sha256')}
+            ensure(name not in expected or expected[name] == identity, 'ambiguous corresponding-source blob')
+            expected[name] = identity
+    ensure(len(expected) <= 16384 and sum(item['size'] for item in expected.values()) <= MAX_SOURCE_OFFER - 16 * 1024 * 1024,
+           'complete source offer exceeds its explicit bound')
+    return expected
+
+
+def validate_source_offer(value, files, version, arch, progress=None):
+    """Verify the paired published source bytes without retaining archives in memory."""
+    offer = source_offer(files, version, arch)
+    expected = source_inventory(files)
+    def check_progress():
+        if progress is not None:
+            progress()
+    with source_stream(value) as source:
+        measured, length = hashlib.sha256(), 0
+        while content := source.read(1024 * 1024):
+            check_progress()
+            measured.update(content)
+            length += len(content)
+            ensure(length <= offer['size'], 'source offer grew beyond signed length')
+        ensure(length == offer['size'] and measured.hexdigest() == offer['sha256'], 'paired source differs from signed declaration')
+        source.seek(0)
+        seen = set()
+        with gzip.GzipFile(fileobj=source) as compressed:
+            stream = LimitedReader(compressed, MAX_SOURCE_OFFER)
+            with tarfile.open(fileobj=stream, mode='r|') as archive:
+                for member in archive:
+                    check_progress()
+                    ensure(member.name in expected and member.name not in seen and member.isfile()
+                           and not member.pax_headers and member.size == expected[member.name]['size']
+                           and member.uid == 0 and member.gid == 0, 'paired source has unsafe, duplicate or unexpected members')
+                    reader = archive.extractfile(member)
+                    measured, length = hashlib.sha256(), 0
+                    while content := reader.read(1024 * 1024):
+                        check_progress()
+                        length += len(content)
+                        measured.update(content)
+                        ensure(length <= member.size, 'paired source member grew beyond inventory')
+                    ensure(length == member.size and measured.hexdigest() == expected[member.name]['sha256'],
+                           'complete corresponding source bytes differ from authenticated inventory')
+                    seen.add(member.name)
+                # Streamed tar reads may have buffered bytes after the first end
+                # marker. Validate them before the wrapper discards that buffer.
+                ensure(not getattr(archive.fileobj, 'buf', b'').strip(b'\0'),
+                       'paired source has unlisted buffered tar content')
+            while content := stream.read(1024 * 1024):
+                check_progress()
+                ensure(not content.strip(b'\0'), 'paired source has unlisted trailing tar content')
+        ensure(seen == set(expected), 'paired source offer is incomplete')
+    check_progress()
+
+
+def check_license_review(review, metadata, manifest):
+    check_minimal_profile(metadata, manifest)
+    licenses = decode(metadata['usr/share/sinan-rootfs/license-inventory.json'])
+    sources = decode(metadata['usr/share/sinan-rootfs/source-inventory.json'])
+    inputs = decode(metadata['usr/share/sinan-rootfs/inputs-lock.json'])
+    ensure(isinstance(review, dict) and set(review) == {'schema', 'profile', 'reviewer', 'evidence',
+           'source_commit', 'source_sha256', 'license_inventory_sha256', 'source_inventory_sha256',
+           'inputs_lock_sha256', 'packages', 'upstream_license'}, 'invalid IPQuality license review')
+    ensure(type(review['schema']) is int and review['schema'] == 1
+           and review['profile'] == 'ipquality-node-v1'
+           and review['source_commit'] == SOURCE_COMMIT and review['source_sha256'] == SOURCE_SHA256
+           and review['upstream_license'] == 'AGPL-3.0-only', 'IPQuality license review identity differs')
+    for key in ('reviewer', 'evidence'):
+        ensure(isinstance(review[key], str) and 0 < len(review[key]) <= 2048
+               and not any(ord(value) < 32 for value in review[key]), 'license review evidence is absent')
+    for key in ('license_inventory', 'source_inventory', 'inputs_lock'):
+        ensure(review[key + '_sha256'] == digest(metadata['usr/share/sinan-rootfs/' + key.replace('_', '-') + '.json']),
+               'license review differs from the actual complete inventory')
+    build = factory()
+    build.validate_lock(inputs)
+    ensure(sources.get('packages') == inputs['packages'], 'source inventory package identity differs')
+    ensure(licenses.get('packages') == review['packages'] and isinstance(review['packages'], list)
+           and {(row['name'], row['version'], row['architecture']) for row in review['packages']}
+           == {(row['name'], row['version'], row['architecture']) for row in inputs['packages']},
+           'license review does not cover every installed package')
+    paths = {entry['path']: entry for entry in manifest['entries']}
+    ensure(isinstance(licenses.get('files'), list) and licenses['files'], 'license text inventory is empty')
+    for license_file in licenses['files']:
+        entry = paths.get(license_file['path'], {})
+        ensure(entry.get('type') == 'file' and entry.get('sha256') == license_file['sha256']
+               and entry.get('size') == license_file['size'], 'preserved license text differs')
+    profile = module('sinan_ipquality_tools', ROOT / 'tools/ipquality-rootfs.py')
+    ensure({item['command'] for item in licenses.get('tools', [])} == set(profile.TOOLS),
+           'rootfs contains another diagnostic tool profile')
+
+
+def check_minimal_profile(metadata, manifest):
+    """Require the signed exact selection; host replay remains a factory gate."""
+    build = factory()
+    prefix = 'usr/share/sinan-rootfs/'
+    name = prefix + 'ipquality-profile.json'
+    ensure(name in metadata, 'minimal IPQuality profile proof is absent')
+    content = metadata[name]
+    proof = decode(content)
+    lock = decode(metadata[prefix + 'inputs-lock.json'])
+    build.INPUT_PROFILE.validate_public(proof, lock)
+    ensure(content == build.canonical(proof) + b'\n', 'minimal profile proof bytes are not canonical')
+    provenance = decode(metadata[prefix + 'provenance.json'])
+    ensure(provenance.get('profile_proof_sha256') == digest(content),
+           'factory provenance does not bind the minimal profile')
+    paths = {entry['path']: entry for entry in manifest['entries']}
+    ensure(paths.get(name, {}).get('type') == 'file'
+           and paths[name].get('sha256') == digest(content)
+           and paths[name].get('size') == len(content), 'runtime manifest does not bind the minimal profile')
+    permitted = {prefix + item for item in ('provenance.json', 'inputs-lock.json', 'source-inventory.json',
+                                           'license-inventory.json', 'ipquality-profile.json')}
+    ensure(all(path == prefix.rstrip('/') or path in permitted for path in paths if path.startswith(prefix)),
+           'runtime provenance contains unreviewed or private factory evidence')
+    return proof
+
+
+def validate_files(files, version, arch, intake_parent=None, progress=None):
+    ensure(version == VERSION and arch in ('amd64', 'arm64') and set(files) == FILES,
+           'IPQuality version, architecture or signed inventory differs')
+    ensure(files[BINARY] == runner(), 'IPQuality executable differs from controlled runner source')
+    info = decode(files['build-info.json'])
+    fields = {'schema', 'plugin', 'version', 'arch', 'profile', 'source_commit', 'source_sha256',
+              'source_lock_sha256', 'policy_sha256', 'transport_sha256', 'rootfs_sha256',
+              'rootfs_manifest_sha256', 'license_review_sha256', 'source_archive_sha256',
+              'factory_provenance_sha256'}
+    ensure(isinstance(info, dict) and set(info) == fields and type(info.get('schema')) is int
+           and info.get('schema') == 1 and info.get('plugin') == BINARY
+           and info.get('version') == VERSION and info.get('arch') == arch
+           and info.get('profile') == 'ipquality-node-v1' and info.get('source_commit') == SOURCE_COMMIT
+           and info.get('source_sha256') == SOURCE_SHA256, 'IPQuality build identity differs')
+    ensure(all(isinstance(info[key], str) and re.fullmatch(r'[0-9a-f]{64}', info[key])
+               for key in fields if key.endswith('_sha256')), 'invalid IPQuality build input digest')
+    ensure(info.get('rootfs_sha256') == digest(files['rootfs.tar.gz'])
+           and info.get('rootfs_manifest_sha256') == digest(files['rootfs-manifest.json'])
+           and info.get('source_archive_sha256') == digest(files['source.tar.gz']),
+           'IPQuality build metadata does not bind its inputs')
+    helper = runtime()
+    if progress is not None:
+        original_deadline = helper._deadline
+        def checked_deadline(end):
+            progress()
+            original_deadline(end)
+        helper._deadline = checked_deadline
+    manifest = helper.load_manifest(files['rootfs-manifest.json'], arch)
+    with tempfile.TemporaryDirectory(prefix='sinan-ipquality-intake-', dir=intake_parent) as temporary:
+        path = Path(temporary).resolve() / 'rootfs.tar.gz'
+        with path.open('xb') as destination:
+            content = files['rootfs.tar.gz']
+            for offset in range(0, len(content), 1024 * 1024):
+                if progress is not None:
+                    progress()
+                destination.write(content[offset:offset + 1024 * 1024])
+        helper.verify_archive(path, manifest)
+        names = ['usr/share/sinan-rootfs/' + name for name in
+                 ('provenance.json', 'inputs-lock.json', 'source-inventory.json', 'license-inventory.json',
+                  'ipquality-profile.json')]
+        metadata = helper.read_metadata(path, manifest, names)
+    provenance = decode(metadata['usr/share/sinan-rootfs/provenance.json'])
+    ensure(provenance.get('kind') == 'sinan-ipquality-debian12-preparation'
+           and provenance.get('arch') == arch and provenance.get('source_authenticated') is True
+           and provenance.get('full_ready') is False and provenance.get('reproducibility_verified') is False
+           and info.get('factory_provenance_sha256') == digest(metadata['usr/share/sinan-rootfs/provenance.json']),
+           'rootfs does not identify independent authenticated IPQuality preparation')
+    for key in ('inputs_lock', 'source_inventory', 'license_inventory'):
+        ensure(provenance.get(key + '_sha256') == digest(metadata['usr/share/sinan-rootfs/' + key.replace('_', '-') + '.json']),
+               'factory provenance does not bind its complete inventories')
+    check_minimal_profile(metadata, manifest)
+    sources = unpack(files['source.tar.gz'], maximum=MAX_SOURCE)
+    ensure('license-review.json' in sources and info.get('license_review_sha256') == digest(sources['license-review.json']),
+           'actual license review is absent from corresponding source')
+    check_license_review(decode(sources['license-review.json']), metadata, manifest)
+    ensure(sources.get('plugins/ipquality/runner.py') == runtime().ordinary(PLUGIN / 'runner.py', MAX_RUNNER)
+           and sources.get('plugins/nodequality/rootfs.py') == runtime().ordinary(ROOT / 'plugins/nodequality/rootfs.py', MAX_RUNNER),
+           'corresponding runner and rootfs-verifier source differs')
+    for name in ('plugins/ipquality/source-helper.py', 'plugins/ipquality/SOURCE.md',
+                 'tools/build-ipquality.py', 'tools/ipquality_artifact.py', 'tools/ipquality-rootfs.py',
+                 'tools/nodequality-rootfs-build.py', 'tools/nodequality-rootfs-collect.py',
+                 'tools/ipquality-inputs.py', 'tools/ipquality-inputs-capacity.py',
+                 'tools/ipquality-profile.py', 'LICENSE'):
+        ensure(sources.get(name) == runtime().ordinary(ROOT / name, MAX_SOURCE),
+               'complete corresponding Sinan source differs or is absent: ' + name)
+    for name in ('inputs-lock.json', 'source-inventory.json', 'license-inventory.json', 'ipquality-profile.json'):
+        ensure(sources.get('debian/' + name) == metadata['usr/share/sinan-rootfs/' + name],
+               'corresponding Debian source-offer metadata differs')
+    ensure('debian/ipquality-profile-private.json' not in sources
+           and not any(name.startswith(('debian/input-ledger', 'debian/tool-evidence',
+                                        'debian/ipquality-profile-replay-')) for name in sources),
+           'corresponding source contains private factory evidence')
+    lock = runtime().ordinary(PLUGIN / 'source-lock.json', MAX_SOURCE)
+    ensure(sources.get('plugins/ipquality/source-lock.json') == lock and info.get('source_lock_sha256') == digest(lock),
+           'fixed upstream source lock differs')
+    source_helper = module('sinan_ipquality_sources', PLUGIN / 'source-helper.py')
+    for name, content in source_helper.policy_bytes().items():
+        ensure(sources.get('plugins/ipquality/policies/' + name + '-policy.py') == content,
+               'corresponding controlled policy source is incomplete')
+    source_directory = {Path(name).name: content for name, content in sources.items() if name.startswith('upstream/')}
+    # Source helper rechecks the original four bodies and all controlled policy inputs.
+    transformed = source_helper.transform_files(source_directory)
+    paths = {entry['path']: entry for entry in manifest['entries']}
+    for name, content in transformed.items():
+        if name not in ('patched-ip.sh', 'transport.py', 'ip-iso3166.json', 'ip-dnsbl.list'):
+            continue
+        entry = paths.get(LIB + name, {})
+        ensure(entry.get('type') == 'file' and entry.get('sha256') == digest(content)
+               and entry.get('size') == len(content), 'rootfs script differs from the controlled fixed source')
+    shim = b'#!/bin/sh\nexec /usr/bin/python3 /usr/local/lib/sinan-ipquality/transport.py "$@"\n'
+    ensure(paths.get('usr/local/bin/curl', {}).get('sha256') == digest(shim),
+           'rootfs transport wrapper differs from its controlled derivation')
+    for key, name in (('policy_sha256', 'source-policy.py'), ('transport_sha256', 'transport.py')):
+        content = runtime().ordinary(PLUGIN / name, MAX_SOURCE)
+        ensure(info.get(key) == digest(content) and sources.get('plugins/ipquality/' + name) == content,
+               'controlled IPQuality policy source differs')
+    ensure(files['LICENSE'] == source_directory['LICENSE.ip'], 'fixed upstream license text differs')
+    source_offer(files, version, arch)
+    source_inventory(files)
+    return manifest
+SINAN_BOOTSTRAP_C0BC78A27E43E4FE55ADEF9A842D3B75B1F4594E23AA31678941A447F06EAC2A
 
 cat > "$STAGING/public-keys.json" <<'SINAN_BOOTSTRAP_51121348A57E37D3396225828114D19A3F62EDB0AAD0F6157E7FBCBEBF56B576'
 ["RWS4aZYmyBmwROpGKjfADJqNedYCNRhlg0+UoIBjQHxXZxYL7XMlkGJN"]

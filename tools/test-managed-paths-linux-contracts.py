@@ -350,9 +350,11 @@ class DriverContracts(unittest.TestCase):
         process.threads = []
         process.log = Path("/owned/private.stderr")
         process.buffers = [bytearray(), bytearray()]
-        with mock.patch.object(DRIVER.os, "killpg") as kill, mock.patch.object(DRIVER, "write_bytes"):
+        with mock.patch.object(DRIVER, "write_bytes"):
             process.stop()
-        self.assertEqual(kill.call_args_list, [mock.call(9876, signal.SIGTERM), mock.call(9876, signal.SIGKILL)])
+        process.process.stop_group.assert_called_once_with()
+        process.process.stdout.close.assert_called_once_with()
+        process.process.stderr.close.assert_called_once_with()
 
     def test_symlink_parent_and_unbounded_controller_source_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:

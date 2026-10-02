@@ -4,8 +4,8 @@ import hashlib
 MAX_SOURCE = 2 * 1024 * 1024
 SOURCES = {
     'ip.sh': {
-        'source_sha256': 'f434c87f920cc9594aca3978b58e28dcaf786c074d70d64475f567068d093c4d',
-        'patched_sha256': '00d6b1a19c74bcfd720796b56985db10175fc99860447ffc38b301e10246e1cb',
+        'source_sha256': '1ef0b1174230d3497f6bc880263356f0481427bc5b4e1e6b9fea818e81903d83',
+        'patched_sha256': 'ef1640451ffb5ef8f2a0b2059d2e4998eab85388ca8adc5177576ba9c6799e95',
     },
     'net.sh': {
         'source_sha256': '99f8a26dabdc09163a165edbb9e200f675011d4f7bef5cfe8b0b729b726e861f',

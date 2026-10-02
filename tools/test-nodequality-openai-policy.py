@@ -29,7 +29,7 @@ def module(name, path):
 
 
 policy = module('openai_policy_test', PLUGIN / 'openai-policy.py')
-helper = module('openai_source_helper_test', PLUGIN / 'source-helper.py')
+helper = module('openai_source_helper_test', PLUGIN / 'native-source-helper.py')
 
 PRELUDE = r'''
 declare -A chatgpt smedia
@@ -240,7 +240,7 @@ printf '%s\n' "$ipjson"|jq -c
         with tempfile.TemporaryDirectory(prefix='sinan-openai-helper-') as temporary:
             path = Path(temporary) / 'openai-policy.py'
             original = (PLUGIN / path.name).read_bytes()
-            with mock.patch.object(helper, '__file__', str(path.with_name('source-helper.py'))):
+            with mock.patch.object(helper, '__file__', str(path.with_name('native-source-helper.py'))):
                 path.write_bytes(original)
                 self.assertIn('transform', helper.openai_policy())
                 for value in (original + b'!', b'x' * 65537):

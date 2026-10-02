@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import { mkdir, readFile } from 'node:fs/promises'
 import { resolve, extname, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
+import { flatResourceFixtures, proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
 
 // Exercise the shipped UI with owned API fixtures, including a committed request whose response is lost.
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
@@ -45,19 +45,20 @@ try {
       if (method === 'GET' && path === '/api/dashboard/access') value={authenticated:true,public_dashboard:false}
       else if (method === 'GET' && path === '/api/me') value={authenticated:true}
       else if (method === 'GET' && path === `${prefix}/servers`) value=servers
-      else if (method === 'GET' && path === `${prefix}/subscription-sources`) value=[]
+      else if (method === 'GET' && [ `${prefix}/subscription-sources`, `${prefix}/ordered-subscription-sources` ].includes(path)) value=[]
+      else if (method === 'GET' && path === `${prefix}/proxy-resources`) value=flatResourceFixtures(nodes,servers,chains)
       else if (method === 'GET' && path === `${prefix}/nodes`) {
         if (nodesFailure) {await route.fulfill({status:500,json:{error:'旧节点设置无法解析'}});return}
         value=nodes
       } else if (method === 'GET' && path === `${prefix}/usage`) value={total:'0',uplink:'0',downlink:'0',by_node:[],by_user:[]}
-      else if (method === 'GET' && path === `${prefix}/proxy-resources`) {
+      else if (method === 'GET' && path === `${prefix}/ordered-proxy-resources`) {
         if (resourceFailure) {await route.fulfill({status:403,json:{error:'资源快照读取被拒绝'}});return}
         value=malformed ? [{id:1,name:'旧版不完整元数据'}] : resources()
-      } else if (method === 'GET' && /^\/api\/plugins\/sing-box\/proxy-resources\/(direct|chain)\/[1-9]\d*$/.test(path)) {
+      } else if (method === 'GET' && /^\/api\/plugins\/sing-box\/ordered-proxy-resources\/(direct|chain)\/[1-9]\d*$/.test(path)) {
         const [,kind,id] = path.match(/\/(direct|chain)\/(\d+)$/)
         value=resources().find(value => value.kind === kind && value.id === Number(id))
         if (!value) {await route.fulfill({status:404,json:{error:'所选资源已删除'}});return}
-      } else if (method === 'POST' && path === `${prefix}/chains/batch`) {
+      } else if (method === 'POST' && path === `${prefix}/chains/ordered-batch`) {
         const body = request.postDataJSON()
         assert.match(body.request_id,/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
         assert.deepEqual(Object.keys(body).sort(),['items','request_id'])
@@ -83,7 +84,7 @@ try {
             entry={id:nextNode++,name:`${item.name} · 入口`,server_id:1,protocol:'vless-reality',enabled:true,port:item.entry.port ?? 21000+allocations,public_host:item.entry.public_host,sni:item.entry.sni,public_key:'TEST_ONLY',short_id:'abcd'}
             nodes.push(entry);allocations++
           } else {assert.equal(item.entry.mode,'existing');entry=nodes.find(node => node.id === item.entry.node_id);assert(entry);assert(!chains.some(chain => chain.entry_node_id === entry.id))}
-          const chain={id:nextChain++,name:item.name,entry_node_id:entry.id,exit_node_id:2,available:true}
+          const chain={id:nextChain++,name:item.name,entry_node_id:entry.id,exit_node_id:2,available:true,path_kind:'ordered'}
           chains.push(chain);result.chain_ids.push(chain.id);result.entry_node_ids.push(entry.id)
         }
         receipts.set(body.request_id,{serialized:request.postData(),result})
@@ -95,9 +96,9 @@ try {
           return
         }
         await route.fulfill({status:201,json:result});return
-      } else if (method === 'DELETE' && path === `${prefix}/proxy-resources/direct/2`) {
+      } else if (method === 'DELETE' && path === `${prefix}/ordered-proxy-resources/direct/2`) {
         await route.fulfill({status:409,json:{error:'出口被链路引用：既有链路 #1；请先解除引用。',references:{policies:[],chains:[{id:1,name:'既有链路',role:'exit'}]}}});return
-      } else if (method === 'DELETE' && path === `${prefix}/proxy-resources/chain/1`) {
+      } else if (method === 'DELETE' && path === `${prefix}/ordered-proxy-resources/chain/1`) {
         assert(broken && nodesFailure,'broken resources must remain cleanable when the old nodes API fails')
         chains=chains.filter(chain => chain.id !== 1);nodes=nodes.filter(node => node.id !== 3)
         assert(nodes.some(node => node.id === 2),'shared exit must remain')
@@ -116,10 +117,10 @@ try {
     assert.equal(await page.locator('[data-resource-key="direct:1"]').count(),1)
     assert.equal(await page.locator('[data-resource-key="chain:1"]').count(),1)
     assert.equal(await page.locator('[data-resource-key="direct:3"]').count(),0)
-    assert.equal(await page.locator('.stat').filter({hasText:'代理资源数'}).locator('strong').innerText(),'4')
+    assert.equal(await page.locator('.stat').filter({hasText:'代理资源'}).locator('strong').innerText(),'4')
     assert.equal(await page.locator('.stat').filter({hasText:'物理监听数'}).locator('strong').innerText(),'4')
     await screenshot('resources')
-    await page.locator('[data-resource-key="chain:1"]').getByRole('button',{name:'详情',exact:true}).click()
+    await page.locator('[data-resource-key="chain:1"]').getByRole('button',{name:'路径与引用',exact:true}).click()
     let dialog = page.getByRole('dialog')
     await dialog.getByText('entry.example.com:8443',{exact:true}).waitFor()
     await dialog.getByText('受管两跳链路',{exact:true}).waitFor()
@@ -138,6 +139,7 @@ try {
     await filterTabs.getByRole('link',{name:'全部',exact:true}).click()
     await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 2)
     assert.equal(await page.locator('tbody tr').count(),2)
+    await page.getByRole('combobox',{name:'按服务器筛选',exact:true}).selectOption('')
     await enabled(create);await create.click();dialog=page.getByRole('dialog')
     await dialog.locator('[name=server_id]').selectOption('1')
     await dialog.locator('[name=public_host]').fill('entry.example.com')
@@ -171,13 +173,22 @@ try {
     await dialog.getByRole('button',{name:'创建未授权链路',exact:true}).click()
     await dialog.getByRole('alert').filter({hasText:'无法连接面板'}).waitFor()
     const committed = chains.length, beforeAllocations = allocations, original=writes.at(-1)
-    await poll();await enabled(dialog.getByRole('button',{name:'重试原批次',exact:true}))
+    await poll()
+    const blockedRetry = dialog.getByRole('button',{name:'重试原批次',exact:true}), writeCount = writes.length
+    await dialog.getByRole('alert').filter({hasText:'链路身份已变更'}).waitFor()
+    assert.equal(await blockedRetry.isDisabled(),true)
     assert.equal(await page.locator('[data-resource-key="direct:1"]').count(),0)
     assert.equal(await dialog.locator('[name=entry_node_id]').inputValue(),'1')
-    await dialog.getByRole('button',{name:'重试原批次',exact:true}).click()
-    await dialog.waitFor({state:'hidden'})
-    assert.equal(writes.at(-1).serialized,original.serialized)
+    assert.equal(await dialog.locator('[name=name]').inputValue(),'失响应链路')
+    await dialog.locator('form').evaluate(form => form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
+    await blockedRetry.evaluate(button => {const disabled=button.disabled;try {button.disabled=false;button.click()} finally {button.disabled=disabled}})
+    await page.waitForTimeout(50)
+    assert.equal(writes.length,writeCount);assert.equal(writes.at(-1).serialized,original.serialized)
     assert.equal(chains.length,committed);assert.equal(allocations,beforeAllocations)
+    // An explicit page departure discards the unresolved local editor after its committed resource is confirmed.
+    await dialog.getByRole('button',{name:'取消',exact:true}).click()
+    await page.locator('[data-resource-key="chain:102"]').getByText('失响应链路',{exact:true}).waitFor()
+    await page.reload()
     // Changing a rejected draft gets a new request key; it never mutates the old request body.
     mode='reject-draft';await enabled(create);await create.click();dialog=page.getByRole('dialog')
     await dialog.locator('[name=server_id]').selectOption('1')
@@ -237,7 +248,7 @@ try {
     await dialog.getByRole('button',{name:'确认删除',exact:true}).click();await dialog.waitFor({state:'hidden'})
     await brokenRow.waitFor({state:'hidden'})
     assert(!nodes.some(node => node.id === 3));assert(nodes.some(node => node.id === 2))
-    assert.equal(writes.at(-1).path,`${prefix}/proxy-resources/chain/1`)
+    assert.equal(writes.at(-1).path,`${prefix}/ordered-proxy-resources/chain/1`)
     nodesFailure=false;broken=false;await poll();await enabled(create)
     // Bad metadata and a failed GET keep the last good public list readable but block writes.
     malformed=true;await page.getByRole('button',{name:'刷新',exact:true}).click()

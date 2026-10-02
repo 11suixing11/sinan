@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use super::scheduling_tests::{ControlledOps, accepted, until};
+use super::scheduling_tests::{ControlledOps, accepted, authorize, until};
 use super::*;
 use std::{
     collections::VecDeque,
@@ -61,7 +61,7 @@ impl Fixture {
 }
 
 fn spec(id: u128, fast: bool) -> ProbeSpec {
-    ProbeSpec {
+    authorize(ProbeSpec {
         id: Uuid::from_u128(id),
         name: format!("fixture-{id}"),
         kind: ProbeKind::Icmp,
@@ -70,7 +70,9 @@ fn spec(id: u128, fast: bool) -> ProbeSpec {
         interval_secs: 3600,
         carrier: String::new(),
         enabled: true,
-    }
+        monitor: None,
+        execution_authorized: None,
+    })
 }
 
 fn local_client() -> Result<Arc<PanelClient>> {
@@ -92,17 +94,45 @@ async fn stop<T>(worker: JoinHandle<T>) {
 async fn cold_start_does_not_execute_cached_configuration_without_a_fresh_lease() -> Result<()> {
     let fixture = Fixture::new()?;
     let probe = spec(1, true);
+    let mut legacy = probe.clone();
+    legacy.monitor = None;
+    legacy.execution_authorized = Some(true);
+    let mut invalid = probe.clone();
+    invalid
+        .monitor
+        .as_mut()
+        .unwrap()
+        .authorization
+        .as_mut()
+        .unwrap()
+        .scope
+        .clear();
     fixture.state.lock().unwrap().set_json(
         "probes:configuration",
-        &(now_timestamp() + 86_400, vec![probe.clone()]),
+        &(now_timestamp(), vec![probe.clone()]),
     )?;
     let client = local_client()?;
     let (_clients, clients) = watch::channel(Some(client.clone()));
     let (leases, lease_receiver) = watch::channel(None);
     let worker = fixture.sample(clients, lease_receiver);
-    tokio::time::sleep(Duration::from_millis(1100)).await;
-    assert_eq!(fixture.ops.starts.load(Ordering::SeqCst), 0);
-    assert!(fixture.state.lock().unwrap().probe_results()?.is_empty());
+    for cached in [
+        serde_json::json!([now_timestamp(), [probe.clone()]]),
+        serde_json::json!([now_timestamp() - 86_400, [probe.clone()]]),
+        serde_json::json!([now_timestamp() + 86_400, [probe.clone()]]),
+        serde_json::json!([now_timestamp(), [legacy]]),
+        serde_json::json!([now_timestamp(), [invalid]]),
+        serde_json::json!("TEST_ONLY malformed legacy permission cache"),
+    ] {
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .set_json("probes:configuration", &cached)?;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(fixture.ops.starts.load(Ordering::SeqCst), 0);
+        assert!(fixture.state.lock().unwrap().probe_results()?.is_empty());
+        assert!(!worker.is_finished());
+    }
 
     let fresh = accepted(
         &client,
@@ -121,6 +151,67 @@ async fn cold_start_does_not_execute_cached_configuration_without_a_fresh_lease(
     assert_eq!(execution.lease_id, lease_id);
     assert_eq!(execution.probe.spec, probe);
     assert_eq!(execution.revision, 1);
+    stop(worker).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn expired_work_and_full_probe_outbox_do_not_stop_the_scheduler() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let client = local_client()?;
+    let (_clients, clients) = watch::channel(Some(client.clone()));
+    let (leases, receiver) = watch::channel(Some(accepted(
+        &client,
+        &[spec(1, false)],
+        1,
+        Duration::from_secs(1),
+    )));
+    let worker = fixture.sample(clients, receiver);
+    until(|| fixture.ops.active.load(Ordering::SeqCst) == 1).await?;
+    until(|| fixture.ops.active.load(Ordering::SeqCst) == 0).await?;
+    assert!(!worker.is_finished());
+    {
+        let state = fixture.state.lock().unwrap();
+        state.connection.execute_batch("CREATE TABLE TEST_ONLY_storage_fill(payload BLOB); CREATE TRIGGER TEST_ONLY_probe_storage_full BEFORE INSERT ON probe_outbox BEGIN INSERT INTO TEST_ONLY_storage_fill VALUES(zeroblob(65536)); END;")?;
+        let pages: i64 = state
+            .connection
+            .query_row("PRAGMA page_count", [], |row| row.get(0))?;
+        state
+            .connection
+            .execute_batch(&format!("PRAGMA max_page_count={pages}"))?;
+    }
+    leases.send_replace(Some(accepted(
+        &client,
+        &[spec(2, true), spec(3, true)],
+        2,
+        Duration::from_secs(90),
+    )));
+    until(|| fixture.ops.starts.load(Ordering::SeqCst) >= 3).await?;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!worker.is_finished());
+    assert!(fixture.state.lock().unwrap().probe_results()?.is_empty());
+    fixture
+        .state
+        .lock()
+        .unwrap()
+        .connection
+        .execute_batch("DROP TRIGGER TEST_ONLY_probe_storage_full")?;
+    leases.send_replace(Some(accepted(
+        &client,
+        &[spec(4, true)],
+        3,
+        Duration::from_secs(90),
+    )));
+    until(|| {
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .probe_results()
+            .unwrap()
+            .is_empty()
+    })
+    .await?;
     stop(worker).await;
     Ok(())
 }
@@ -163,7 +254,13 @@ async fn expired_disconnected_replaced_and_revoked_leases_abort_inflight_samples
             }
             "permission" => {
                 let mut changed = accepted(&client, &[probe], 2, Duration::from_secs(90));
-                changed.snapshot.probes[0].authorization.evidence = "replacement permission".into();
+                changed.snapshot.probes[0].authorization.scope = "replacement permission".into();
+                changed.snapshot.probes[0]
+                    .spec
+                    .monitor
+                    .as_mut()
+                    .unwrap()
+                    .authorization = Some(changed.snapshot.probes[0].authorization.clone());
                 leases.send_replace(Some(changed));
             }
             "removed" => {
@@ -318,34 +415,130 @@ async fn acceptance_persists_revision_and_definition_barriers_across_reopen() ->
     let original = accepted(&client, &[spec(1, false)], 4, Duration::from_secs(90)).snapshot;
     {
         let state = Arc::new(Mutex::new(crate::State::open(&path)?));
-        leases::accept_lease(original.clone(), 7, &state, client.clone(), Instant::now())?;
+        leases::accept_lease(
+            original.clone(),
+            7,
+            &state,
+            client.clone(),
+            Instant::now(),
+            None,
+        )?;
     }
     {
         let state = Arc::new(Mutex::new(crate::State::open(&path)?));
         let mut rollback = original.clone();
         rollback.revision = 3;
-        assert!(leases::accept_lease(rollback, 7, &state, client.clone(), Instant::now()).is_err());
-        let mut rewritten = original.clone();
-        rewritten.probes[0].authorization.evidence = "different permission".into();
         assert!(
-            leases::accept_lease(rewritten, 7, &state, client.clone(), Instant::now()).is_err()
+            leases::accept_lease(rollback, 7, &state, client.clone(), Instant::now(), None)
+                .is_err()
+        );
+        let mut rewritten = original.clone();
+        rewritten.probes[0].authorization.scope = "different permission".into();
+        rewritten.probes[0]
+            .spec
+            .monitor
+            .as_mut()
+            .unwrap()
+            .authorization = Some(rewritten.probes[0].authorization.clone());
+        assert!(rewritten.valid());
+        assert!(
+            leases::accept_lease(rewritten, 7, &state, client.clone(), Instant::now(), None)
+                .is_err()
         );
         let mut older_time = original.clone();
         older_time.revision = 5;
         older_time.issued_at -= 1;
         older_time.expires_at -= 1;
         assert!(
-            leases::accept_lease(older_time, 7, &state, client.clone(), Instant::now()).is_err()
+            leases::accept_lease(older_time, 7, &state, client.clone(), Instant::now(), None)
+                .is_err()
         );
         let mut renewed = original.clone();
         renewed.id = Uuid::new_v4();
-        leases::accept_lease(renewed, 7, &state, client.clone(), Instant::now())?;
+        leases::accept_lease(renewed, 7, &state, client.clone(), Instant::now(), None)?;
         let mut changed = original;
         changed.revision = 5;
-        changed.probes[0].authorization.evidence = "replacement permission".into();
-        leases::accept_lease(changed, 7, &state, client, Instant::now())?;
+        changed.probes[0].authorization.scope = "replacement permission".into();
+        changed.probes[0]
+            .spec
+            .monitor
+            .as_mut()
+            .unwrap()
+            .authorization = Some(changed.probes[0].authorization.clone());
+        leases::accept_lease(changed, 7, &state, client, Instant::now(), None)?;
     }
     std::fs::remove_dir_all(directory)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn expired_future_and_invalid_authorization_leases_never_persist_permission() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let client = local_client()?;
+    let original = accepted(&client, &[spec(1, false)], 1, Duration::from_secs(90)).snapshot;
+    for reason in [
+        "expired",
+        "future",
+        "missing-authorization",
+        "invalid-scope",
+    ] {
+        let mut rejected = original.clone();
+        match reason {
+            "expired" => {
+                rejected.issued_at -= 91;
+                rejected.expires_at -= 91;
+                assert!(rejected.valid());
+            }
+            "future" => {
+                rejected.issued_at += 3600;
+                rejected.expires_at += 3600;
+                assert!(rejected.valid());
+            }
+            "missing-authorization" => {
+                rejected.probes[0]
+                    .spec
+                    .monitor
+                    .as_mut()
+                    .unwrap()
+                    .authorization = None;
+                assert!(!rejected.valid());
+            }
+            "invalid-scope" => {
+                rejected.probes[0].authorization.scope.clear();
+                rejected.probes[0]
+                    .spec
+                    .monitor
+                    .as_mut()
+                    .unwrap()
+                    .authorization = Some(rejected.probes[0].authorization.clone());
+                assert!(!rejected.valid());
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            leases::accept_lease(
+                rejected,
+                7,
+                &fixture.state,
+                client.clone(),
+                Instant::now(),
+                None
+            )
+            .is_err(),
+            "{reason}"
+        );
+        assert!(
+            fixture
+                .state
+                .lock()
+                .unwrap()
+                .get_json::<serde_json::Value>("probes:lease-high-water:7")?
+                .is_none(),
+            "{reason} persisted execution permission"
+        );
+    }
+    assert!(fixture.state.lock().unwrap().probe_results()?.is_empty());
+    assert_eq!(fixture.ops.starts.load(Ordering::SeqCst), 0);
     Ok(())
 }
 
@@ -356,6 +549,12 @@ async fn acceptance_deducts_request_latency_and_never_restarts_the_lease_clock()
     let mut snapshot = accepted(&client, &[spec(1, false)], 1, Duration::from_secs(90)).snapshot;
     snapshot.expires_at = snapshot.issued_at + 3;
     snapshot.probes[0].authorization.expires_at = Some(snapshot.expires_at);
+    snapshot.probes[0]
+        .spec
+        .monitor
+        .as_mut()
+        .unwrap()
+        .authorization = Some(snapshot.probes[0].authorization.clone());
     let before = Instant::now();
     let request_started = before - Duration::from_secs(2);
     let accepted = leases::accept_lease(
@@ -364,6 +563,7 @@ async fn acceptance_deducts_request_latency_and_never_restarts_the_lease_clock()
         &fixture.state,
         client.clone(),
         request_started,
+        None,
     )?;
     assert!(accepted.deadline <= request_started + Duration::from_secs(3));
     assert!(accepted.deadline > before);
@@ -381,7 +581,69 @@ async fn acceptance_deducts_request_latency_and_never_restarts_the_lease_clock()
 
     let elapsed = Instant::now() - Duration::from_secs(4);
     snapshot.id = Uuid::new_v4();
-    assert!(leases::accept_lease(snapshot, 7, &fixture.state, client, elapsed).is_err());
+    assert!(leases::accept_lease(snapshot, 7, &fixture.state, client, elapsed, None).is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn reusing_a_lease_never_extends_its_monotonic_deadline_after_clock_recalibration()
+-> Result<()> {
+    let fixture = Fixture::new()?;
+    let client = local_client()?;
+    let mut snapshot = accepted(&client, &[spec(1, false)], 1, Duration::from_secs(90)).snapshot;
+    snapshot.issued_at -= 60;
+    snapshot.expires_at -= 60;
+    let first = leases::accept_lease(
+        snapshot.clone(),
+        7,
+        &fixture.state,
+        client.clone(),
+        Instant::now(),
+        None,
+    )?;
+    fixture
+        .state
+        .lock()
+        .unwrap()
+        .set_json("clock_offset_ms", &-60_000_i64)?;
+    let renewed = leases::accept_lease(
+        snapshot.clone(),
+        7,
+        &fixture.state,
+        client.clone(),
+        Instant::now(),
+        Some(&first),
+    )?;
+    assert_eq!(renewed.deadline, first.deadline);
+    assert!(renewed.panel_millis() >= first.panel_millis().saturating_sub(10));
+
+    let mut rewritten = snapshot.clone();
+    rewritten.expires_at -= 1;
+    assert!(rewritten.valid());
+    assert!(
+        leases::accept_lease(
+            rewritten,
+            7,
+            &fixture.state,
+            client.clone(),
+            Instant::now(),
+            Some(&first),
+        )
+        .is_err()
+    );
+    let mut expired = first;
+    expired.deadline = Instant::now() - Duration::from_secs(1);
+    assert!(
+        leases::accept_lease(
+            snapshot,
+            7,
+            &fixture.state,
+            client,
+            Instant::now(),
+            Some(&expired),
+        )
+        .is_err()
+    );
     Ok(())
 }
 
@@ -486,6 +748,63 @@ impl Drop for HttpFixture {
     fn drop(&mut self) {
         self.worker.abort();
     }
+}
+
+#[tokio::test]
+async fn failed_refresh_revokes_execution_without_forgetting_the_receipt_deadline() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let prototype = local_client()?;
+    let mut snapshot = accepted(&prototype, &[spec(1, false)], 1, Duration::from_secs(90)).snapshot;
+    snapshot.issued_at -= 60;
+    snapshot.expires_at -= 60;
+    let (failed_entered, failed_request) = oneshot::channel();
+    let release = Arc::new(Notify::new());
+    let http = HttpFixture::new(vec![
+        Reply::lease(&snapshot)?,
+        Reply {
+            status: 503,
+            body: "{}".into(),
+            entered: Some(failed_entered),
+            release: Some(release.clone()),
+        },
+        Reply::lease(&snapshot)?,
+    ])
+    .await?;
+    let client = http.client("fixture-session")?;
+    let (_clients, clients) = watch::channel(Some(client));
+    let (leases, mut authority) = watch::channel(None);
+    let synchronizer = tokio::spawn(synchronize_with_cadence(
+        7,
+        fixture.state.clone(),
+        clients,
+        leases,
+        fixture.retirement.clone(),
+        (Duration::from_millis(25), Duration::from_millis(150)),
+    ));
+    timeout(Duration::from_secs(2), authority.changed()).await??;
+    let initial = authority
+        .borrow_and_update()
+        .clone()
+        .context("first lease was not accepted")?;
+    timeout(Duration::from_secs(2), failed_request).await??;
+    fixture
+        .state
+        .lock()
+        .unwrap()
+        .set_json("clock_offset_ms", &-60_000_i64)?;
+    release.notify_one();
+    timeout(Duration::from_secs(2), authority.changed()).await??;
+    assert!(authority.borrow_and_update().is_none());
+    timeout(Duration::from_secs(2), authority.changed()).await??;
+    let reused = authority
+        .borrow_and_update()
+        .clone()
+        .context("same receipt was not recovered")?;
+    assert_eq!(reused.snapshot, snapshot);
+    assert_eq!(reused.deadline, initial.deadline);
+    http.assert_lease_request();
+    stop(synchronizer).await;
+    Ok(())
 }
 
 #[tokio::test]

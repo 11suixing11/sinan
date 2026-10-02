@@ -1,3 +1,9 @@
+#[path = "../../../../plugins/alicloud/panel/mod.rs"]
+pub mod alicloud;
+#[path = "../../../../plugins/cloud_api/panel/mod.rs"]
+pub(crate) mod cloud_api;
+#[path = "../../../../plugins/ddns/panel/mod.rs"]
+pub mod ddns;
 #[path = "../../../../plugins/singbox/panel/mod.rs"]
 pub mod singbox;
 
@@ -20,10 +26,16 @@ pub async fn runtime_activity_on(
 
 pub fn router() -> Router<AppState> {
     singbox::router()
+        .merge(ddns::routes())
+        .merge(alicloud::routes())
 }
 
 pub async fn run(state: AppState) {
-    singbox::run(state).await
+    tokio::join!(
+        singbox::run(state.clone()),
+        ddns::run(state.pool.clone()),
+        alicloud::run(state.pool.clone())
+    );
 }
 
 pub async fn ingest_usage(

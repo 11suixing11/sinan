@@ -1,4 +1,5 @@
 mod archive;
+mod command_process;
 mod execution;
 mod openrc_jobs;
 pub use openrc_jobs::run_job;
@@ -110,6 +111,25 @@ impl Privileged for SystemOps {
         control_group: &'a str,
     ) -> BoxFuture<'a, sinan_adapter_sdk::RuntimeInstance> {
         Box::pin(runtime_process::inspect(pid, control_group))
+    }
+
+    fn execute_controlled<'a>(
+        &'a self,
+        program: &'a Path,
+        args: &'a [String],
+        seconds: u32,
+        maximum: usize,
+        observer: &'a dyn sinan_adapter_sdk::CommandObserver,
+    ) -> BoxFuture<'a, sinan_adapter_sdk::ControlledExecution> {
+        Box::pin(command_process::execute(
+            program, args, seconds, maximum, observer,
+        ))
+    }
+    fn recover_command<'a>(
+        &'a self,
+        process: &'a sinan_adapter_sdk::CommandProcessIdentity,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(command_process::recover(process))
     }
     fn diagnostic_memory(&self) -> BoxFuture<'_, sinan_adapter_sdk::DiagnosticMemory> {
         Box::pin(resources::memory())

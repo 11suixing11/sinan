@@ -46,6 +46,27 @@ impl AgentSettings {
     }
 }
 
+/// Separate from AgentSettings so older strict decoders remain compatible.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TelemetrySettings {
+    pub persist_interval_secs: u64,
+}
+
+impl Default for TelemetrySettings {
+    fn default() -> Self {
+        Self {
+            persist_interval_secs: 60,
+        }
+    }
+}
+
+impl TelemetrySettings {
+    pub fn valid(&self) -> bool {
+        (15..=3600).contains(&self.persist_interval_secs)
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DiskMetrics {
     pub name: String,
@@ -73,4 +94,33 @@ pub fn now_millis() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|value| value.as_millis().min(i64::MAX as u128) as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn persistence_settings_do_not_expand_the_legacy_agent_settings_message() {
+        let legacy = serde_json::to_value(AgentSettings::default()).unwrap();
+        assert!(legacy.get("persist_interval_secs").is_none());
+        assert!(serde_json::from_value::<AgentSettings>(legacy).is_ok());
+        assert_eq!(TelemetrySettings::default().persist_interval_secs, 60);
+        for interval in [0, 14, 3601, u64::MAX] {
+            assert!(
+                !TelemetrySettings {
+                    persist_interval_secs: interval
+                }
+                .valid()
+            );
+        }
+        for interval in [15, 60, 3600] {
+            assert!(
+                TelemetrySettings {
+                    persist_interval_secs: interval
+                }
+                .valid()
+            );
+        }
+    }
 }

@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test'
 import { validatedSnapshot } from '../src/plugins/singbox/groupTypes'
 import { cancelSourceJob, deleteSource, emptySourceDraft, prepareSourceMutation, refreshSource, SourceFileReader, sourceAuthHeaders, sourceCommand, sourceMetadataError, sourceMutationReplay, sourceWriteError, submitSourceMutation } from '../src/plugins/singbox/sourceRequests'
 import type { SourceSnapshot } from '../src/plugins/singbox/sourceRequests'
-import { MAX_SOURCE_BYTES, sourceJobActive, sourceStatusText, validSourceCounts, validSourceHistory, validSourceJob, validSourceNodePage, validSubscriptionSource, validSubscriptionSources } from '../src/plugins/singbox/sourceTypes'
-import type { SourceJob, SourceNodePage, SubscriptionSource } from '../src/plugins/singbox/sourceTypes'
+import { MAX_SOURCE_BYTES, sourceJobActive, sourceStatusText, validSourceCounts, validSourceHistory, validSourceJob, validSourceNodePage, validSubscriptionSource, validSubscriptionSources } from '../src/plugins/singbox/orderedSourceTypes'
+import type { SourceJob, SourceNodePage, SubscriptionSource } from '../src/plugins/singbox/orderedSourceTypes'
 import { sourceJobFixture, sourceNodeFixture, sourceNodePageFixture, sourceRevisionFixture, sourceUuid, subscriptionSourceFixture } from './subscription-source-fixtures.mjs'
 const source = () => subscriptionSourceFixture() as SubscriptionSource
 const snapshot = (): SourceSnapshot => ({ data: [source()], fresh: true, error: '' })
@@ -68,15 +68,25 @@ test('lost create response replays the same exact body and key after the source 
   const changed = { ...create(), fields: { ...create().fields, name: 'new draft' } }
   expect(prepareSourceMutation(changed, current, pending, () => sourceUuid(901)).request_id).not.toBe(id)
 })
-test('lost PATCH response can replay after CAS advances or archival; changed drafts recheck current generation', async () => {
-  const current = snapshot(), command = sourceCommand('metadata', { ...emptySourceDraft(), name: 'changed' }, source()), pending = prepareSourceMutation(command, current, undefined, () => id)
-  await expect(submitSourceMutation(pending, current, async () => { throw new Error('lost') })).rejects.toThrow()
-  current.data = [{ ...source(), settings_revision: 2, archived: true }]
-  expect(prepareSourceMutation(command, current, pending, () => id)).toBe(pending)
-  await expect(submitSourceMutation(pending, current, async () => ({ ...receipt, settings_revision: 2, job_id: null }))).resolves.toMatchObject({ settings_revision: 2 })
+test('lost PATCH response permits same-identity CAS advancement but blocks archive, deletion and replacement', async () => {
+  const command = sourceCommand('metadata', { ...emptySourceDraft(), name: 'changed' }, source()), pending = prepareSourceMutation(command, snapshot(), undefined, () => id), sent: string[] = []
+  await expect(submitSourceMutation(pending, snapshot(), async (_path, _method, body) => { sent.push(JSON.stringify(body)); throw new Error('lost') })).rejects.toThrow()
+  for (const change of ['archived', 'deleted', 'epoch', 'pending'] as const) {
+    const current = snapshot(); current.data![0].settings_revision = 2
+    if (change === 'archived') current.data![0].archived = true
+    if (change === 'deleted') current.data = []
+    if (change === 'epoch') current.data![0].identity_epoch = 2
+    if (change === 'pending') current.fresh = false
+    expect(() => prepareSourceMutation(command, current, pending, () => id)).toThrow()
+    await expect(submitSourceMutation(pending, current, async (_path, _method, body) => { sent.push(JSON.stringify(body)); return receipt })).rejects.toThrow()
+    expect(pending.serialized).toBe(sent[0]); expect(pending.command).toBe(JSON.stringify(command))
+  }
+  expect(sent).toHaveLength(1)
+  const current = snapshot(); current.data![0].settings_revision = 2
+  expect(prepareSourceMutation(command, current, pending, () => { throw new Error('new key forbidden') })).toBe(pending)
+  await submitSourceMutation(pending, current, async (_path, _method, body) => { sent.push(JSON.stringify(body)); return { ...receipt, settings_revision: 2, job_id: null } })
+  expect(sent).toEqual([pending.serialized, pending.serialized]); expect(sent[0]).not.toContain('expected_identity_epoch')
   expect(() => prepareSourceMutation({ ...command, fields: { name: 'another' } }, current, pending, () => sourceUuid(902))).toThrow('设置已变化')
-  current.fresh = false
-  await expect(submitSourceMutation(pending, current, async () => receipt)).rejects.toThrow('正在刷新')
 })
 test('request integrity and receipt source identity are checked before clearing unknown outcomes', async () => {
   const current = snapshot(), pending = prepareSourceMutation(create(), current, undefined, () => id), writes: unknown[] = []

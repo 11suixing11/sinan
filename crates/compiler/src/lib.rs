@@ -3,11 +3,14 @@
 mod relays;
 pub use relays::{Relay, compile_server_with_relays};
 pub mod external;
-mod paths;
-pub use paths::{
+#[path = "paths/mod.rs"]
+mod ordered_paths;
+#[path = "paths.rs"]
+pub mod paths;
+pub use ordered_paths::{
     ManagedAcceptance, ManagedEndpointSnapshot, OrderedPath, PathCapabilities, PathHop,
-    ProbeControl, compile_server_with_paths, path_capabilities, path_outbound_tag,
-    required_build_tags, validate_path,
+    ProbeControl, compile_server_with_paths, compile_server_with_paths_on_config,
+    path_capabilities, path_outbound_tag, required_build_tags, validate_path,
 };
 
 use base64::{

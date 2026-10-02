@@ -153,7 +153,7 @@ pub async fn create_batch(
     let mut tx = state.pool.begin().await?;
     super::super::entitlements::lock(&mut tx).await?;
     let existing: Option<(String, Value)> = sqlx::query_as(
-        "SELECT request_sha256,receipt FROM singbox_chain_creation_requests WHERE request_id=$1",
+        "SELECT request_sha256,receipt FROM singbox_ordered_chain_creation_requests WHERE request_id=$1",
     )
     .bind(request.request_id)
     .fetch_optional(&mut *tx)
@@ -199,13 +199,13 @@ pub async fn create_batch(
         }
     }
     for source in source_ids {
-        let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_subscription_sources WHERE id=$1 AND deleted_at IS NULL)").bind(source).fetch_one(&mut *tx).await?;
+        let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_ordered_subscription_sources WHERE id=$1 AND deleted_at IS NULL)").bind(source).fetch_one(&mut *tx).await?;
         if !exists {
             return Err(ApiError::BadRequest(format!(
                 "订阅来源 #{source} 不存在或已删除"
             )));
         }
-        sqlx::query("SELECT id FROM singbox_subscription_sources WHERE id=$1 FOR UPDATE")
+        sqlx::query("SELECT id FROM singbox_ordered_subscription_sources WHERE id=$1 FOR UPDATE")
             .bind(source)
             .fetch_one(&mut *tx)
             .await?;
@@ -276,7 +276,7 @@ pub async fn create_batch(
                 index + 1
             )));
         }
-        let conflict:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_chains WHERE entry_node_id=$1 AND (deleted_at IS NULL OR phase<>'retired')) OR EXISTS(SELECT 1 FROM singbox_chain_hops h JOIN singbox_chains c ON c.id=h.chain_id WHERE h.managed_node_id=$1 AND (c.deleted_at IS NULL OR c.phase<>'retired') AND h.generation=ANY(ARRAY[c.applied_generation,c.candidate_generation,c.recovery_generation])) OR EXISTS(SELECT 1 FROM accesses WHERE node_id=$1) OR EXISTS(SELECT 1 FROM singbox_policy_nodes WHERE node_id=$1)").bind(entry).fetch_one(&mut *tx).await?;
+        let conflict:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_chains WHERE (entry_node_id=$1 OR exit_node_id=$1) AND (deleted_at IS NULL OR (path_kind='ordered' AND phase<>'retired'))) OR EXISTS(SELECT 1 FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.managed_node_id=$1) OR EXISTS(SELECT 1 FROM singbox_ordered_chain_hops h JOIN singbox_chains c ON c.id=h.chain_id WHERE h.managed_node_id=$1 AND (c.deleted_at IS NULL OR c.phase<>'retired') AND h.generation=ANY(ARRAY[c.applied_generation,c.candidate_generation,c.recovery_generation])) OR EXISTS(SELECT 1 FROM accesses WHERE node_id=$1) OR EXISTS(SELECT 1 FROM singbox_policy_nodes WHERE node_id=$1)").bind(entry).fetch_one(&mut *tx).await?;
         if conflict {
             return Err(ApiError::Conflict(format!(
                 "第 {} 条：入口需要尚未授权且未被其他路径引用的独立节点",
@@ -297,7 +297,7 @@ pub async fn create_batch(
             for (position, hop) in hops.into_iter().enumerate() {
                 let hop = match hop {
                     HopInput::Managed { node_id } => {
-                        let nested:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_chains WHERE entry_node_id=$1 AND (deleted_at IS NULL OR phase<>'retired'))").bind(node_id).fetch_one(&mut *tx).await?;
+                        let nested:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_chains WHERE entry_node_id=$1 AND (deleted_at IS NULL OR (path_kind='ordered' AND phase<>'retired')))").bind(node_id).fetch_one(&mut *tx).await?;
                         if nested {
                             return Err(ApiError::Conflict(format!(
                                 "第 {} 条第 {} 跳：不能引用其他链路的专用入口",
@@ -386,7 +386,7 @@ pub async fn create_batch(
         receipt.entry_node_ids.push(entry);
     }
     business::mark_dirty(&mut tx, &servers.into_iter().collect::<Vec<_>>()).await?;
-    sqlx::query("INSERT INTO singbox_chain_creation_requests(request_id,request_sha256,receipt,created_at) VALUES($1,$2,$3,$4)").bind(receipt.request_id).bind(hash).bind(json!(receipt)).bind(now_timestamp()).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO singbox_ordered_chain_creation_requests(request_id,request_sha256,receipt,created_at) VALUES($1,$2,$3,$4)").bind(receipt.request_id).bind(hash).bind(json!(receipt)).bind(now_timestamp()).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, Json(receipt)))
 }

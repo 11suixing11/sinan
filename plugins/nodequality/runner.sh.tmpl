@@ -2,26 +2,35 @@
 # Sinan runner for the original pinned NodeQuality script.
 set -euo pipefail
 umask 077
-version=a92fca6c0067df29ddd03fdc2fee6f3000f64545-sinan-native-r1
+version=a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19
 usage() {
   cat <<'USAGE'
 Usage: nodequality --workspace <ABSOLUTE_DIRECTORY> --mode daily|full --ip-version both|ipv4|ipv6 --network-mode low|normal [--upload-report true|false]
        Daily mode requires --targets-file <WORKSPACE/daily-targets.json>.
        nodequality --version
+       nodequality --execution-admission
 
-Requires Linux, root, Bash >= 4, Python 3, curl and systemd private mount isolation.
-Daily mode requires only Python 3 and performs bounded TCP checks; no rootfs,
-hardware benchmark, bandwidth test, upstream script or public upload runs.
-Hardware, IP, network and return-route diagnostics run only when this command is
-explicitly started. Local output: result.txt, report.zip, log.txt and an optional
-report-url.txt and atomic section-*.json chapters in the private workspace. NodeQuality performs external downloads
-and tests. The entrypoint and three script report POSTs are disabled unless
---upload-report true is set. Other requests and tool uploads remain separate.
+Daily execution requires Linux, root, Bash >= 4 and Python 3.
+Daily mode requires only Python 3 and performs bounded TCP checks and optional
+explicitly configured official node-IP queries. No rootfs, hardware benchmark,
+bandwidth test, upstream script or public upload runs. Without the private
+provider configuration, authenticated IP sources remain unconfigured.
+New full executions are refused before filesystem changes or upstream tools.
+The retained upstream source supports auditing and historical recovery only.
+Daily output and atomic section-*.json chapters stay in the private workspace.
+Historical full reports remain collected through the Agent's original saved
+version; this runner cannot resume or start their upstream benchmark program.
 USAGE
 }
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 if [[ ${1:-} == --version && $# == 1 ]]; then printf 'nodequality %s\n' "$version"; exit 0; fi
 if [[ ${1:-} == --help && $# == 1 ]]; then usage; exit 0; fi
+if [[ ${1:-} == --execution-admission && $# == 1 ]]; then
+  cat <<'SINAN_NODEQUALITY_EXECUTION_ADMISSION'
+@EXECUTION_ADMISSION@
+SINAN_NODEQUALITY_EXECUTION_ADMISSION
+  exit 0
+fi
 workspace=
 mode=full
 targets_file=
@@ -49,6 +58,7 @@ case "$ip_version" in both|ipv4|ipv6) ;; *) die 'invalid IP version' ;; esac
 case "$network_mode" in low|normal) ;; *) die 'invalid network mode' ;; esac
 case "$upload_report" in true|false) ;; *) die 'invalid report upload option' ;; esac
 case "$mode" in daily|full) ;; *) die 'invalid diagnostic mode' ;; esac
+[[ $mode != full ]] || die 'new full diagnostics are paused: complete tool provenance, redistribution rights, upload control and host side effects remain unverified'
 if [[ $mode == daily ]]; then
   [[ $network_mode == low && $upload_report == false ]] || die 'daily checks cannot run speed tests or upload reports'
   [[ $targets_file == "$workspace/daily-targets.json" ]] || die 'daily targets must be in the private workspace'
@@ -95,6 +105,9 @@ for output in result.txt report.zip report-url.txt log.txt upload.base64 upload-
   [[ ! -e $workspace/$output && ! -L $workspace/$output ]] || die 'workspace already contains diagnostic output'
 done
 if [[ $mode == daily ]]; then
+  cat > "$runtime/official-ip.py" <<'SINAN_OFFICIAL_IP_HELPER'
+@OFFICIAL_IP_HELPER@
+SINAN_OFFICIAL_IP_HELPER
   cat > "$runtime/daily.py" <<'SINAN_DAILY_HELPER'
 @DAILY_HELPER@
 SINAN_DAILY_HELPER
@@ -140,21 +153,15 @@ SINAN_NODEQUALITY_RANKING_POLICY
 cat > "$runtime/ip-score-policy.py" <<'SINAN_NODEQUALITY_IP_SCORE_POLICY'
 @IP_SCORE_POLICY_HELPER@
 SINAN_NODEQUALITY_IP_SCORE_POLICY
-cat > "$runtime/browser-policy.py" <<'SINAN_NODEQUALITY_BROWSER_POLICY'
-@BROWSER_POLICY_HELPER@
-SINAN_NODEQUALITY_BROWSER_POLICY
-cat > "$runtime/query-policy.py" <<'SINAN_NODEQUALITY_QUERY_POLICY'
-@QUERY_POLICY_HELPER@
-SINAN_NODEQUALITY_QUERY_POLICY
-cat > "$runtime/access-policy.py" <<'SINAN_NODEQUALITY_ACCESS_POLICY'
-@ACCESS_POLICY_HELPER@
-SINAN_NODEQUALITY_ACCESS_POLICY
 cat > "$runtime/netflix-policy.py" <<'SINAN_NODEQUALITY_NETFLIX_POLICY'
 @NETFLIX_POLICY_HELPER@
 SINAN_NODEQUALITY_NETFLIX_POLICY
-cat > "$runtime/openai-policy.py" <<'SINAN_NODEQUALITY_OPENAI_POLICY'
-@OPENAI_POLICY_HELPER@
-SINAN_NODEQUALITY_OPENAI_POLICY
+cat > "$runtime/browser-policy.py" <<'SINAN_NODEQUALITY_BROWSER_POLICY'
+@BROWSER_POLICY_HELPER@
+SINAN_NODEQUALITY_BROWSER_POLICY
+cat > "$runtime/public-access-policy.py" <<'SINAN_NODEQUALITY_PUBLIC_ACCESS_POLICY'
+@PUBLIC_ACCESS_POLICY_HELPER@
+SINAN_NODEQUALITY_PUBLIC_ACCESS_POLICY
 cat > "$runtime/pinned-chain.json" <<'SINAN_NODEQUALITY_PINNED_CHAIN'
 @PINNED_CHAIN@
 SINAN_NODEQUALITY_PINNED_CHAIN

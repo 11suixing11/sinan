@@ -34,7 +34,7 @@ async fn guard<'a>(
 ) -> ApiResult<Option<Transaction<'a, Postgres>>> {
     let mut tx = state.pool.begin().await?;
     let source = sqlx::query_as::<_, SourceRow>(&format!(
-        "SELECT {SOURCE_COLUMNS} FROM singbox_subscription_sources WHERE id=$1 FOR UPDATE"
+        "SELECT {SOURCE_COLUMNS} FROM singbox_ordered_subscription_sources WHERE id=$1 FOR UPDATE"
     ))
     .bind(claim.source_id)
     .fetch_one(&mut *tx)
@@ -86,11 +86,13 @@ async fn guard<'a>(
     if let Some(status) = status {
         finish(&mut tx, claim, status, error.as_ref(), None).await?;
         if status == "failed" {
-            sqlx::query("UPDATE singbox_subscription_sources SET last_error=$2 WHERE id=$1")
-                .bind(claim.source_id)
-                .bind(error.map(|error| json!(error)))
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                "UPDATE singbox_ordered_subscription_sources SET last_error=$2 WHERE id=$1",
+            )
+            .bind(claim.source_id)
+            .bind(error.map(|error| json!(error)))
+            .execute(&mut *tx)
+            .await?;
         }
         tx.commit().await?;
         return Ok(None);
@@ -120,7 +122,7 @@ pub(super) async fn failure(
     };
     finish(&mut tx, claim, status, Some(&error), None).await?;
     if status == "failed" {
-        sqlx::query("UPDATE singbox_subscription_sources SET last_error=$2 WHERE id=$1")
+        sqlx::query("UPDATE singbox_ordered_subscription_sources SET last_error=$2 WHERE id=$1")
             .bind(claim.source_id)
             .bind(json!(error))
             .execute(&mut *tx)
@@ -163,7 +165,7 @@ pub(super) async fn unchanged(
     let Some(mut tx) = guard(state, claim).await? else {
         return Ok(());
     };
-    let same:bool=sqlx::query_scalar("SELECT COALESCE(current_success_revision=$2 AND conditional_settings_revision=$3 AND conditional_identity_epoch=$4,FALSE) FROM singbox_subscription_sources WHERE id=$1")
+    let same:bool=sqlx::query_scalar("SELECT COALESCE(current_success_revision=$2 AND conditional_settings_revision=$3 AND conditional_identity_epoch=$4,FALSE) FROM singbox_ordered_subscription_sources WHERE id=$1")
         .bind(claim.source_id).bind(previous).bind(claim.settings_revision).bind(claim.identity_epoch).fetch_one(&mut *tx).await?;
     if !same {
         tx.rollback().await?;
@@ -178,7 +180,7 @@ pub(super) async fn unchanged(
         )
         .await;
     }
-    sqlx::query("UPDATE singbox_subscription_sources SET last_success_at=$2,last_error=NULL,conditional_etag=COALESCE($3,conditional_etag),conditional_last_modified=COALESCE($4,conditional_last_modified),updated_at=$2 WHERE id=$1")
+    sqlx::query("UPDATE singbox_ordered_subscription_sources SET last_success_at=$2,last_error=NULL,conditional_etag=COALESCE($3,conditional_etag),conditional_last_modified=COALESCE($4,conditional_last_modified),updated_at=$2 WHERE id=$1")
         .bind(claim.source_id).bind(now_timestamp()).bind(etag).bind(last_modified).execute(&mut *tx).await?;
     finish(&mut tx, claim, "unchanged", None, Some(previous)).await?;
     tx.commit().await?;
@@ -246,7 +248,7 @@ pub(super) async fn save(
     let Some(mut tx) = guard(state, claim).await? else {
         return Ok(());
     };
-    let existing:Vec<(Uuid,String)>=sqlx::query_as("SELECT id,identity_key FROM singbox_external_nodes WHERE source_id=$1 AND identity_epoch=$2 AND identity_state='unique' AND identity_key=ANY($3)")
+    let existing:Vec<(Uuid,String)>=sqlx::query_as("SELECT id,identity_key FROM singbox_ordered_external_nodes WHERE source_id=$1 AND identity_epoch=$2 AND identity_state='unique' AND identity_key=ANY($3)")
         .bind(claim.source_id).bind(claim.identity_epoch).bind(&lookup).fetch_all(&mut *tx).await?;
     let existing: BTreeMap<String, Uuid> =
         existing.into_iter().map(|(id, key)| (key, id)).collect();
@@ -300,7 +302,7 @@ pub(super) async fn save(
         });
     }
     let ids: Vec<Uuid> = prepared.iter().map(|node| node.id).collect();
-    counts.missing=sqlx::query_scalar("SELECT COUNT(*) FROM singbox_external_nodes WHERE source_id=$1 AND identity_epoch=$2 AND identity_state='unique' AND NOT(id=ANY($3))")
+    counts.missing=sqlx::query_scalar("SELECT COUNT(*) FROM singbox_ordered_external_nodes WHERE source_id=$1 AND identity_epoch=$2 AND identity_state='unique' AND NOT(id=ANY($3))")
         .bind(claim.source_id).bind(claim.identity_epoch).bind(&ids).fetch_one(&mut *tx).await?;
     let revision = Uuid::new_v4();
     let now = now_timestamp();
@@ -313,7 +315,7 @@ pub(super) async fn save(
         .bind(revision).bind(claim.source_id).bind(claim.job_id).bind(claim.settings_revision).bind(claim.identity_epoch).bind(&claim.parser_version).bind(format).bind(parsed.raw_digest).bind(now).bind(json!(counts)).bind(json!(parsed.warnings)).execute(&mut *tx).await?;
     if !prepared.is_empty() {
         let mut nodes = QueryBuilder::<Postgres>::new(
-            "INSERT INTO singbox_external_nodes(id,source_id,identity_epoch,identity_key,identity_state,created_at) ",
+            "INSERT INTO singbox_ordered_external_nodes(id,source_id,identity_epoch,identity_key,identity_state,created_at) ",
         );
         nodes.push_values(&prepared, |mut row, node| {
             row.push_bind(node.id)
@@ -329,7 +331,7 @@ pub(super) async fn save(
             .execute(&mut *tx)
             .await?;
         let mut versions = QueryBuilder::<Postgres>::new(
-            "INSERT INTO singbox_external_node_versions(id,node_id,source_revision_id,normalized_config,content_digest,public_preview,capabilities,supported,reasons) ",
+            "INSERT INTO singbox_ordered_external_node_versions(id,node_id,source_revision_id,normalized_config,content_digest,public_preview,capabilities,supported,reasons) ",
         );
         versions.push_values(&prepared, |mut row, node| {
             row.push_bind(node.version)
@@ -356,7 +358,7 @@ pub(super) async fn save(
         });
         membership.build().execute(&mut *tx).await?;
         let mut latest = QueryBuilder::<Postgres>::new(
-            "UPDATE singbox_external_nodes n SET latest_version=v.version_id,last_seen_revision=",
+            "UPDATE singbox_ordered_external_nodes n SET latest_version=v.version_id,last_seen_revision=",
         );
         latest.push_bind(revision).push(" FROM (");
         latest.push_values(&prepared, |mut row, node| {
@@ -373,7 +375,7 @@ pub(super) async fn save(
             "来源结果保存超过期限，未提交批次".into(),
         ));
     }
-    sqlx::query("UPDATE singbox_subscription_sources SET current_success_revision=$2,last_success_at=$3,last_error=NULL,conditional_etag=$4,conditional_last_modified=$5,conditional_settings_revision=$6,conditional_identity_epoch=$7,updated_at=$3 WHERE id=$1")
+    sqlx::query("UPDATE singbox_ordered_subscription_sources SET current_success_revision=$2,last_success_at=$3,last_error=NULL,conditional_etag=$4,conditional_last_modified=$5,conditional_settings_revision=$6,conditional_identity_epoch=$7,updated_at=$3 WHERE id=$1")
         .bind(claim.source_id).bind(revision).bind(now).bind(etag).bind(last_modified).bind(claim.settings_revision).bind(claim.identity_epoch).execute(&mut *tx).await?;
     finish(&mut tx, claim, "succeeded", None, Some(revision)).await?;
     tx.commit().await?;

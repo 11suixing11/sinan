@@ -129,103 +129,89 @@ Those provider-access audits and the full-toolchain license/provenance work
 remain open. All full-start gates remain closed; this is not a full run or a
 formal signed release.
 
-Sinan r14 modifications (2026-10-01): browser-policy.py injects a curl function
-inside the fixed IPQuality and NetQuality shells and exports it to child Bash.
-It resolves the native executable before shadowing curl, rejects a missing
-binary, and disables calls to the random browser identity generator. The
-wrapper removes explicit User-Agent, Sec-CH-UA and Sec-Fetch headers/options,
-then calls native curl with -q first so a curlrc cannot reintroduce them.
-Missing option values, header files and additional curl configuration fail
-before a request. Supported fixed-source option forms and child inheritance
-are independently tested; this is not a general sandbox for arbitrary scripts.
+Sinan r19 modifications (2026-10-01): the packaged runner now refuses explicit
+and default new full executions before external prerequisites or workspace
+changes. It exposes a signed execution-admission record that retains unknown
+rootfs/tool provenance and rights; packaging refuses changed approval claims.
+The host curl shim no longer downloads either historical v0.0.2 rootfs, and the
+chroot shim rejects both historical nexttrace online installation commands.
+Canonical 17-source bytes/licenses remain unchanged. Daily checks and exact
+historical collect/parse/cancel compatibility remain; no runtime gate override
+exists. The source retention does not restore complete benchmark execution.
 
-Request methods, bodies, other headers, stdout/stderr and exit codes remain.
-The wrapper adds no retry. Existing provider loops, cookies, credentials and
-response interpretations are outside this change. In particular the pinned
-Netflix parser can misread curl error text as unlocked; this separate defect
-remains gated and tracked. The original generator definition and request
-expressions are retained, but generated/explicit browser identity cannot reach
-the native curl calls covered here. Original sources/licenses remain embedded.
-The helper and transformed input/output identities are fixed. Other binaries,
-rootfs provenance/licenses and full execution remain unresolved; full-start
-stays closed and no formal release or complete-toolchain approval is implied.
+The independent static inventory tool does not extract or execute archives,
+follow links or read private configuration. Matching executable declarations
+prove only observed identities, never distribution rights or safe full runs.
+Both architectures have historical static observations, but complete source,
+reproducible recipes, tool permissions, tool uploads and host side-effect
+acceptance remain unresolved. No proprietary license is accepted or inferred.
 
-Sinan integrated query guard (2026-10-01, runner r15):
-- query-policy.py applies only to the fixed IP source after r14 browser policy.
-- Netflix keeps stdout, curl exit code and HTTP status separate. DNS, connection,
-  TLS, timeout, HTTP403/429, other failures and empty/unrecognized pages stay
-  unknown; a failed first title stops before a second request, with no retry.
-- Valid transport plus matching known country fields retains the existing two-title
-  heuristic. This is not proof of playback or current provider schema validity.
-- Text explains failure; Media.Netflix.Error and Attempts preserve category,
-  target IP, attempted time, curl elapsed time/status and per-title request data.
-- Other providers, public cookies and borrowed credentials are unchanged and
-  still block full acceptance. All full-start gates and license checks remain.
+Sinan r16 modifications (2026-10-01): report.py independently attempts every
+available chapter publication before reporting damaged saved metadata or a
+chapter-specific filesystem failure. Invalid sidecars remain untouched; valid
+chapter snapshots and the original local ZIP remain readable and can retry.
+The panel/adapter/package identity is new and r14 history remains supported.
+No upstream source, license, Netflix policy or complete-toolchain gate changes.
 
-Sinan integrated provider access guard (2026-10-01, runner r16):
-- access-policy.py transforms only the exact r15 IP source, with fixed input,
-  output and helper SHA256 identities. The canonical sources and licenses remain.
-- read_ref no longer downloads public cookies or retries that download. The
-  webpage-derived keys, fallback key and embedded Disney authorization requests
-  are absent from the served functions. No credential literal is duplicated in
-  the policy or its tests.
-- ipregistry, DB-IP and Disney retain their report locations with an explicit
-  unknown/not_attempted reason until an authorized provider adapter is configured.
-  They perform no request. Checked time is separate from last_attempt_at=null;
-  Attempted=false, empty Attempts and null elapsed time record that distinction.
-  Missing DB-IP scores and affected factors remain unknown, not zero or false.
-- YouTube retains one anonymous native-curl request without cookies, browser
-  identity or retry. Raw output is capped before entering Bash variables at
-  2 MiB plus 128 footer bytes, independently of curl's Content-Length handling.
-  The pipeline waits for the producer, with the existing ten-second deadline;
-  truncated transfers do not invent an exit code, HTTP status or elapsed time.
-  It has a 2 MiB response ceiling and records transport/HTTP,
-  timeout, empty/oversize or schema failures as unknown. Only a recognized public
-  Premium page with consistent country and availability markers enters the
-  existing page heuristic; that does not prove playback or current public schema.
-- Added metadata preserves existing report fields and unaffected source functions.
-  Formal credentials belong in dedicated authorized provider adapters; none are
-  accepted through general diagnostic arguments, snapshots or report fields here.
+Sinan r17 modifications (2026-10-01): browser-policy.py runs after the existing
+main r14 Netflix transformation. Inside each fixed IP/Net Bash shell it resolves
+native curl once, removes browser User-Agent and Sec-CH-UA/Sec-Fetch identity
+headers/options, disables the random browser generator call and exports the
+wrapper to child Bash. Native curl receives -q first so curlrc cannot inject
+browser headers. Missing option values, header files and extra configuration
+fail before any request. Request method/body, other headers and native result
+remain unchanged; this policy adds no retry. Original sources and licenses
+remain verbatim. Helper/input/output identities are fixed. r17 is a new artifact
+identity; historical r14/r15 artifacts must never be rebuilt or overwritten.
 
-This is a guard for these borrowed-access paths, not acceptance of every provider
-or completion of node-self integration. Other provider interpretation, rootfs,
-third-party tool licensing/traffic and the complete load matrix remain pending.
-All full-start gates stay closed; no formal release or production deployment is
-approved by this change.
+The script-level report and swap safeguards already exist in main. They do not
+prove zero uploads or side effects from third-party binaries. Complete source,
+rootfs/tool provenance, redistribution approval, Geekbench upload permissions
+and controlled full-run acceptance remain unresolved for issues 28/65/66/82.
+Daily checks and old report recovery remain; full-start remains closed. The
+operator must supply auditable tool rights and the missing execution evidence
+before the complete toolchain can be restored. Source preparation is not that
+approval or acceptance.
 
-Sinan unified query chain (2026-10-01, runner r17):
-- The independently merged Netflix r14 work and the r15/r16 guards are composed
-  as one fixed chain. netflix-policy.py consumes only the exact r16 IP output;
-  it retains Error/Attempts, target, timing and first-failure stop behavior.
-- Netflix title requests use the same bounded raw-output model as the r16
-  YouTube guard. Truncated streams cannot claim completed transfer metadata.
-- Recognized pages require the Netflix HTML/title and a matching title URL and
-  movie schema, or the pinned unavailable-title shape. URL suffixes such as
-  an appended letter remain unknown. Local fixtures do not prove playback.
-- The original marker classifier handles grep's no-match status explicitly so
-  valid pages remain readable under errexit and pipefail. Canonical sources,
-  original test/report capabilities and full licenses remain in the bundle.
-- Signed packaging covers every policy layer. r2-r16 saved reports remain
-  readable; daily modes remain compatible and every full-start gate stays shut.
+Sinan r18 modifications (2026-10-01): public-access-policy.py adds explicit
+unconfigured-access returns to the fixed IP source after r17 native curl.
+read_ref clears inherited Cookie data and returns before downloading/retrying
+public cookies. ipregistry/DB-IP and Disney+/YouTube Premium/ChatGPT keep their
+entrypoints and original source but return before borrowed keys/cookies are
+read or sent. Current arrays are reset; text and per-source ProviderAccess JSON
+record not_attempted/credential_not_configured, node_self execution, false
+Attempted and concrete reasons. Unavailable media region/type and ipregistry
+usage/company serialize as null. Other sources, the existing Netflix policy,
+original source/license bundle and panel's configured AbuseIPDB API remain.
 
-The main-line migrations and UI are integrated without repurposing historical
-acceptance receipts. Full runtime, rootfs, licensed tools and the complete load
-matrix still require their own frozen-node evidence.
+This is the unconfigured path, not a new licensed provider integration. Each
+of those node sources still requires an explicit authorized official adapter
+and independent acceptance to restore its authenticated capability. No panel
+credential is forwarded to nodes, no public access material is treated as
+operator permission, and no full-chain/license approval is claimed. Helper,
+input and output hashes are fixed; this new identity never replaces a signed
+historical artifact. Full starts remain gated; old report collection, cancel
+and daily modes retain compatibility with the supported r14/r15/r16/r17 jobs.
 
-Sinan native policy lineage (2026-10-01, sinan-native-r1):
-- Main-line numeric r14-r18 and this branch's numeric policy history identify
-  different wrapper bytes. Historical receipts are retained with their actual
-  inputs; numeric identity alone cannot certify a particular helper chain.
-- The new default uses a92fca6c0067df29ddd03fdc2fee6f3000f64545-sinan-native-r1.
-  Its fixed IP chain composes the native browser/query/access/Netflix guards and
-  an OpenAI guard. The previous r17 still retained the upstream OpenAITest;
-  this new guard stops that borrowed-cookie request without duplicating it.
-- OpenAI is unknown, credential_not_configured/not_attempted. Checked time is
-  separate from actual attempt time; Attempted=false, Attempts=[], null elapsed.
-  No request, retry, cookie, browser identity or public authorization is used.
-- The explicit offline preparation now uses the distinct suffix
-  offline-rootfs-r1 and requires both signed rootfs auxiliary files. Normal
-  historic r2-r18 identities retain runner-only inventory, saved reports and
-  daily recovery; no newly built bytes reuse historical artifact identities.
-- Source/report helper identities are updated for this exact new composition.
-  All original sources and licenses remain; full starts remain rejected.
+Sinan r19 daily node-IP helper: optional operator-owned credentials are read
+from a root-owned private local file only. Ipregistry and DB-IP use their fixed
+official HTTPS self endpoints, family validation, bounded requests and explicit
+source/error records. No public cookies, temporary web keys or panel credential
+forwarding is used; missing configured media adapters remain NotAttempted.
+Local fixture acceptance is not official-account, billing or media permission.
+
+Independent native policy preparation (PR #151 integration):
+The default build-nodequality.sh, source-helper.py, runner.sh.tmpl and numeric
+r2-r21 historical identities retain their main-line bytes and meanings. The
+explicit build-nodequality-native.sh binds native-source-helper.py,
+native-runner.sh.tmpl and native browser/Netflix/report helpers to the distinct
+sinan-native-r1 identity. The explicit build-nodequality-native-offline.py binds
+its independently validated runtime archive to offline-rootfs-r1. These new
+bytes never reuse main-line r14-r21 labels or certify their historical receipts.
+The native policy chain retains the original 17 sources and licenses, composes
+its bounded browser/query/access/Netflix policies, and suppresses the borrowed
+OpenAI-cookie request. OpenAI remains unknown, NotAttempted, with no request,
+credential or public authorization. All new full starts are still rejected
+before external prerequisites or workspace changes. Canonical source retention,
+synthetic fixtures, signed preparation and native device acceptance are separate
+records; neither toolchain rights nor a formal release is granted here.

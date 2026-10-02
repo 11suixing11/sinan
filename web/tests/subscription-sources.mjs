@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import { mkdir, readFile } from 'node:fs/promises'
 import { resolve, extname, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
+import { flatResourceFixtures, proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
 import { sourceJobFixture, sourceNodeFixture, sourceNodePageFixture, sourceRevisionFixture, sourceUuid, subscriptionSourceFixture } from './subscription-source-fixtures.mjs'
 
 // Exercise the built UI, with strict owned fixtures. No upstream requests or parser execution.
@@ -20,7 +20,7 @@ let browser
 try {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   browser = await chromium.launch({ headless: true, ...(process.env.SINAN_CHROME_PATH ? { executablePath: process.env.SINAN_CHROME_PATH } : {}) })
-  const origin = `http://127.0.0.1:${server.address().port}`, prefix = '/api/plugins/sing-box', sourceRoot = `${prefix}/subscription-sources`, jobRoot = `${prefix}/subscription-source-jobs`
+  const origin = `http://127.0.0.1:${server.address().port}`, prefix = '/api/plugins/sing-box', sourceRoot = `${prefix}/ordered-subscription-sources`, jobRoot = `${prefix}/ordered-subscription-source-jobs`
   for (const width of [1440, 390, 320]) {
     const page = await browser.newPage({ viewport: { width, height: 1000 } })
     page.setDefaultTimeout(8000)
@@ -47,19 +47,21 @@ try {
       else if (method === 'GET' && path === `${prefix}/nodes`) {
         if (oldNodesFailure) { await route.fulfill({ status: 500, json: { error: '旧节点元数据损坏' } }); return }
         value = nodes
-      } else if (method === 'GET' && path === `${prefix}/proxy-resources`) value = proxyResourceFixtures(nodes, servers)
+      } else if (method === 'GET' && path === `${prefix}/proxy-resources`) value = flatResourceFixtures(nodes, servers)
+      else if (method === 'GET' && path === `${prefix}/ordered-proxy-resources`) value = proxyResourceFixtures(nodes, servers)
+      else if (method === 'GET' && path === `${prefix}/subscription-sources`) value = []
       else if (method === 'GET' && path === `${prefix}/usage`) value = { total: '0', uplink: '0', downlink: '0', by_node: [], by_user: [] }
       else if (method === 'GET' && path === sourceRoot) {
         if (listMode === 'failed') { await route.fulfill({ status: 403, json: { error: '来源夹具读取被拒绝' } }); return }
         if (listMode === 'held') { heldEntered(); await heldDone }
         value = listMode === 'malformed' ? [{ id: 1, name: '旧版残缺元数据' }] : sources
-      } else if (method === 'GET' && /^\/api\/plugins\/sing-box\/subscription-sources\/[1-9]\d*$/.test(path)) {
+      } else if (method === 'GET' && /^\/api\/plugins\/sing-box\/ordered-subscription-sources\/[1-9]\d*$/.test(path)) {
         value = sources.find(source => source.id === Number(path.split('/').at(-1)))
         if (!value) { await route.fulfill({ status: 404, json: { error: '来源已删除' } }); return }
-      } else if (method === 'GET' && /^\/api\/plugins\/sing-box\/subscription-sources\/[1-9]\d*\/revisions$/.test(path)) {
+      } else if (method === 'GET' && /^\/api\/plugins\/sing-box\/ordered-subscription-sources\/[1-9]\d*\/revisions$/.test(path)) {
         const sourceId = Number(path.split('/').at(-2)), item = sources.find(source => source.id === sourceId)
         assert(item); value = { source_id: sourceId, revisions: item.latest_success ? sourceId === 1 ? [revision, olderRevision] : [item.latest_success] : [] }
-      } else if (method === 'GET' && /^\/api\/plugins\/sing-box\/subscription-sources\/[1-9]\d*(\/revisions\/[0-9a-f-]+)?\/nodes$/.test(path)) {
+      } else if (method === 'GET' && /^\/api\/plugins\/sing-box\/ordered-subscription-sources\/[1-9]\d*(\/revisions\/[0-9a-f-]+)?\/nodes$/.test(path)) {
         const segments = path.split('/'), sourceId = Number(segments[5]), item = sources.find(source => source.id === sourceId), historical = segments.includes('revisions')
         assert(item)
         const success = historical ? [revision, olderRevision].find(value => value.id === segments[7]) : item.latest_success
@@ -68,7 +70,7 @@ try {
         value = sourceNodePageFixture({ source_id: sourceId, current_settings_revision: item.settings_revision, current_identity_epoch: item.identity_epoch, success_revision: success, nodes: sourceId === 1 && (historical || item.identity_epoch === 1) ? rows.map(node => ({ ...node, selectable: !historical && !item.archived && node.selectable, ...(historical ? { present_in_latest: true, reasons: [...node.reasons, '历史批次仅供查看'] } : {}) })) : [] })
       } else if (method === 'GET' && path.startsWith(`${jobRoot}/`)) {
         value = jobs.get(path.split('/').at(-1)); assert(value)
-      } else if ((method === 'POST' && path === sourceRoot) || (method === 'PATCH' && /^\/api\/plugins\/sing-box\/subscription-sources\/[1-9]\d*$/.test(path))) {
+      } else if ((method === 'POST' && path === sourceRoot) || (method === 'PATCH' && /^\/api\/plugins\/sing-box\/ordered-subscription-sources\/[1-9]\d*$/.test(path))) {
         const body = request.postDataJSON()
         assert.match(body.request_id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
         if (receipts.has(body.request_id)) { const previous = receipts.get(body.request_id); assert.equal(request.postData(), previous.serialized); await route.fulfill({ json: previous.receipt }); return }
@@ -101,12 +103,12 @@ try {
         if (method === 'POST' && createMode === 'timeout') { createMode = 'normal'; timeoutEntered(); await timeoutDone; await route.abort('timedout').catch(error => { if (!/handled|closed|cancel|abort/i.test(error.message)) throw error }); return }
         if (method === 'PATCH' && patchMode === 'lose') { patchMode = 'normal'; await route.abort('connectionreset'); return }
         await route.fulfill({ status: method === 'POST' ? 202 : 200, json: result }); return
-      } else if (method === 'POST' && /^\/api\/plugins\/sing-box\/subscription-sources\/[1-9]\d*\/refresh$/.test(path)) {
+      } else if (method === 'POST' && /^\/api\/plugins\/sing-box\/ordered-subscription-sources\/[1-9]\d*\/refresh$/.test(path)) {
         const item = sources.find(source => source.id === Number(path.split('/').at(-2))); assert(item)
         assert.deepEqual(request.postDataJSON(), { settings_revision: item.settings_revision })
         const job = item.active_job ?? sourceJobFixture(item.id, { id: sourceUuid(800 + item.id), settings_revision: item.settings_revision, identity_epoch: item.identity_epoch, status: 'running', stage: 'fetch', started_at: 1790860801 })
         item.active_job = job; jobs.set(job.id, job); await route.fulfill({ status: 202, json: job }); return
-      } else if (method === 'POST' && /^\/api\/plugins\/sing-box\/subscription-source-jobs\/[0-9a-f-]+\/cancel$/.test(path)) {
+      } else if (method === 'POST' && /^\/api\/plugins\/sing-box\/ordered-subscription-source-jobs\/[0-9a-f-]+\/cancel$/.test(path)) {
         const job = jobs.get(path.split('/').at(-2)); assert(job); assert.equal(request.postData(), null)
         job.status = 'cancelling'; value = job
       } else if (method === 'DELETE' && path === `${sourceRoot}/1`) {
@@ -145,7 +147,7 @@ try {
     await page.goto(`${origin}/#/plugins/sing-box/nodes`)
     await enable(manager.getByRole('button', { name: '添加订阅来源', exact: true }))
     assert.equal(await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '订阅来源', exact: true }).count(), 0)
-    assert.equal(await page.locator('.stat').filter({ hasText: '代理资源数' }).locator('strong').innerText(), '2')
+    assert.equal(await page.locator('.stat').filter({ hasText: '代理资源' }).locator('strong').innerText(), '2')
     await page.getByRole('button', { name: '创建两跳链路', exact: true }).click(); await dialog.locator('[name=name]').fill('必须保留的两跳草稿'); await dialog.getByRole('button', { name: '取消', exact: true }).click()
     await manager.locator('[data-source-id="1"]').getByRole('button', { name: '查看来源', exact: true }).click()
     await dialog.getByText('外部示例节点', { exact: true }).waitFor()
@@ -164,7 +166,7 @@ try {
     for (const mode of ['failed', 'malformed']) {
       listMode = mode; await reloadList(); await manager.getByText('来源修改暂不可用，已读取的历史信息仍可查看。', { exact: true }).waitFor()
       const before = writes.length; await force('添加订阅来源'); await force('抓取并解析'); await force('删除来源'); assert.equal(writes.length, before)
-      assert.equal(await page.getByRole('button', { name: '创建节点', exact: true }).isDisabled(), false)
+      assert.equal(await page.getByRole('button', { name: '创建节点', exact: true }).first().isDisabled(), false)
       assert.equal(await manager.getByText('示例订阅', { exact: true }).count(), 1)
       listMode = 'ok'; await reloadList(); await enable(manager.getByRole('button', { name: '添加订阅来源', exact: true }))
     }
@@ -211,7 +213,16 @@ try {
     patchMode = 'lose'
     await manager.locator('[data-source-id="1"]').getByRole('button', { name: '查看来源', exact: true }).click(); await enable(dialog.getByRole('button', { name: '修改名称与周期', exact: true })); await dialog.getByRole('button', { name: '修改名称与周期', exact: true }).click()
     await dialog.locator('[name=source_name]').fill('新名称'); await dialog.getByRole('button', { name: '保存来源', exact: true }).click(); await dialog.getByRole('alert').filter({ hasText: '无法连接面板' }).waitFor()
-    await dialog.getByRole('button', { name: '重试', exact: true }).click(); await enable(dialog.getByRole('button', { name: '重试原请求', exact: true })); await dialog.getByRole('button', { name: '重试原请求', exact: true }).click(); await dialog.waitFor({ state: 'hidden' })
+    sources[0].identity_epoch = 2
+    await dialog.getByRole('button', { name: '重试', exact: true }).click()
+    await dialog.getByRole('alert').filter({ hasText: '来源身份代次已变化' }).waitFor()
+    const retryPatch = dialog.getByRole('button', { name: '重试原请求', exact: true }), beforeRetry = writes.length
+    assert.equal(await retryPatch.isDisabled(), true); assert.equal(await dialog.locator('[name=source_name]').inputValue(), '新名称')
+    await dialog.locator('form').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await retryPatch.evaluate(button => { const disabled = button.disabled; try { button.disabled = false; button.click() } finally { button.disabled = disabled } })
+    await page.waitForTimeout(50); assert.equal(writes.length, beforeRetry)
+    sources[0].identity_epoch = 1
+    await dialog.getByRole('button', { name: '重试', exact: true }).click(); await enable(retryPatch); await retryPatch.click(); await dialog.waitFor({ state: 'hidden' })
     const patchWrites = writes.filter(write => write.path === `${sourceRoot}/1` && write.method === 'PATCH'); assert.equal(patchWrites.length, 2); assert.equal(patchWrites[0].serialized, patchWrites[1].serialized)
     await manager.getByText('新名称', { exact: true }).waitFor()
     await manager.locator('[data-source-id="1"]').getByRole('button', { name: '抓取并解析', exact: true }).click()
@@ -243,7 +254,7 @@ try {
     assert.equal(await dialog.locator('[name=name]').inputValue(), '必须保留的两跳草稿')
     assert.equal(await dialog.locator('[name=exit_node_id] option').filter({ hasText: '外部示例节点' }).count(), 0)
     await dialog.getByRole('button', { name: '取消', exact: true }).click()
-    assert.equal(await page.locator('.stat').filter({ hasText: '代理资源数' }).locator('strong').innerText(), '2')
+    assert.equal(await page.locator('.stat').filter({ hasText: '代理资源' }).locator('strong').innerText(), '2')
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true)
     assert.deepEqual(errors, [])
     await page.close()

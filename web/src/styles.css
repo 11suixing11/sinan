@@ -50,6 +50,6 @@
 .plugin-business-links { display: flex; flex-wrap: wrap; gap: .75rem; }
 
 @media (min-width: 801px) {
-  .sidebar nav { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+  .sidebar nav { flex: 1 1 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
   .sidebar nav > .nav-entry, .sidebar > .brand-link, .sidebar > .nav-caption, .sidebar-bottom { flex-shrink: 0; }
 }

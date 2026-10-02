@@ -232,6 +232,18 @@ pub async fn update(
     business::validate_node(&node)?;
     validate_server_config(&mut transaction, &node).await?;
     super::ordered_paths::ensure_node_edit_safe(&mut transaction, &node, &previous_node).await?;
+    let path_references:Vec<i64>=sqlx::query_scalar("SELECT DISTINCT c.id FROM singbox_live_chains c LEFT JOIN singbox_chain_hops h ON h.chain_id=c.id WHERE c.path_kind='mixed' AND (c.entry_node_id=$1 OR h.managed_node_id=$1) ORDER BY c.id LIMIT 32").bind(id).fetch_all(&mut *transaction).await?;
+    if !path_references.is_empty()
+        && (previous.1 != node.settings
+            || previous.3 != node.public_host
+            || previous.4 != node.sni
+            || previous.5 != node.port
+            || previous.6 != node.protocol_config)
+    {
+        return Err(ApiError::Conflict(String::from(
+            "节点正在被混合链路引用，只能修改名称或启用状态；更换端点请创建新节点与链路",
+        )));
+    }
     sqlx::query(
         "UPDATE nodes SET name=$2,public_host=$3,sni=$4,port=$5,protocol_config=$6,enabled=$7,settings=$8,resource_revision=resource_revision+1 WHERE id=$1",
     )
@@ -269,7 +281,30 @@ pub async fn remove(
     Path(id): Path<i64>,
 ) -> ApiResult<StatusCode> {
     require_admin(&state, &headers).await?;
-    super::proxy_resources::remove_direct_node(&state, id).await?;
+    let mut transaction = state.pool.begin().await?;
+    super::entitlements::lock(&mut transaction).await?;
+    let server_id: i64 =
+        sqlx::query_scalar("SELECT server_id FROM nodes WHERE id=$1 AND deleted_at IS NULL")
+            .bind(id)
+            .fetch_optional(&mut *transaction)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+    business::lock_server(&mut transaction, server_id).await?;
+    ensure_unreferenced_on(&mut transaction, id).await?;
+    let result = sqlx::query("UPDATE nodes SET deleted_at=$2 WHERE id=$1 AND deleted_at IS NULL")
+        .bind(id)
+        .bind(sinan_protocol::now_timestamp())
+        .execute(&mut *transaction)
+        .await?;
+    if result.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+    sqlx::query("DELETE FROM accesses WHERE node_id=$1")
+        .bind(id)
+        .execute(&mut *transaction)
+        .await?;
+    business::mark_dirty(&mut transaction, &[server_id]).await?;
+    transaction.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -279,9 +314,9 @@ pub(super) fn validate_port(port: i64) -> ApiResult<i32> {
             "节点端口必须为 1 至 65535 的整数".into(),
         ));
     }
-    if port == 18085 {
+    if matches!(port, 18085 | 18086) {
         return Err(ApiError::BadRequest(
-            "端口 18085 已保留给本地流量统计接口".into(),
+            "端口 18085 和 18086 已保留给本地统计与路径验证接口".into(),
         ));
     }
     Ok(port as i32)
@@ -315,7 +350,7 @@ fn port_database_error(error: sqlx::Error) -> ApiError {
     }
 }
 
-pub(super) async fn validate_server_config(
+pub(crate) async fn validate_server_config(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     node: &NodeRow,
 ) -> ApiResult<()> {
@@ -344,3 +379,6 @@ pub(super) async fn validate_server_config(
         .map_err(|error| ApiError::BadRequest(format!("服务器节点配置冲突：{error}")))?;
     Ok(())
 }
+
+mod removal;
+pub(crate) use removal::ensure_unreferenced_on;

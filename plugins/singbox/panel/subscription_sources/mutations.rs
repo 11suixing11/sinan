@@ -132,7 +132,7 @@ pub async fn create(
         .execute(&mut *tx)
         .await?;
     let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM singbox_subscription_sources WHERE deleted_at IS NULL",
+        "SELECT COUNT(*) FROM singbox_ordered_subscription_sources WHERE deleted_at IS NULL",
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -145,7 +145,7 @@ pub async fn create(
         SourceInput::Url { .. } => "url",
         SourceInput::Inline { .. } => "inline",
     };
-    let id: i64 = sqlx::query_scalar("INSERT INTO singbox_subscription_sources(name,kind,host,input_config,refresh_interval_secs,next_refresh_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$6,$6) RETURNING id")
+    let id: i64 = sqlx::query_scalar("INSERT INTO singbox_ordered_subscription_sources(name,kind,host,input_config,refresh_interval_secs,next_refresh_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$6,$6) RETURNING id")
         .bind(&input.name).bind(kind).bind(host).bind(json!(input.input)).bind(refresh_interval_secs).bind(now_timestamp()).fetch_one(&mut *tx).await?;
     let source = service::load_source(&mut tx, id, true).await?;
     let job_id = jobs::enqueue(&mut tx, &source).await?;
@@ -295,7 +295,7 @@ pub async fn update(
         } else {
             old.next_refresh_at
         };
-        sqlx::query("UPDATE singbox_subscription_sources SET name=$2,kind=$3,host=$4,input_config=$5,settings_revision=$6,last_error=CASE WHEN identity_epoch<>$7 THEN NULL ELSE last_error END,last_attempt_at=CASE WHEN identity_epoch<>$7 THEN NULL ELSE last_attempt_at END,identity_epoch=$7,archived=$8,refresh_interval_secs=$9,next_refresh_at=$10,conditional_etag=NULL,conditional_last_modified=NULL,conditional_settings_revision=NULL,conditional_identity_epoch=NULL,updated_at=$11 WHERE id=$1")
+        sqlx::query("UPDATE singbox_ordered_subscription_sources SET name=$2,kind=$3,host=$4,input_config=$5,settings_revision=$6,last_error=CASE WHEN identity_epoch<>$7 THEN NULL ELSE last_error END,last_attempt_at=CASE WHEN identity_epoch<>$7 THEN NULL ELSE last_attempt_at END,identity_epoch=$7,archived=$8,refresh_interval_secs=$9,next_refresh_at=$10,conditional_etag=NULL,conditional_last_modified=NULL,conditional_settings_revision=NULL,conditional_identity_epoch=NULL,updated_at=$11 WHERE id=$1")
             .bind(id).bind(name).bind(kind).bind(host).bind(json!(replacement)).bind(result.settings_revision).bind(result.identity_epoch).bind(archived).bind(period).bind(due).bind(now_timestamp()).execute(&mut *tx).await?;
         if !archived && (import_content || old.archived || had_active) {
             let source = service::load_source(&mut tx, id, false).await?;
@@ -341,7 +341,7 @@ pub async fn remove(
         });
     }
     jobs::supersede(&mut tx, id).await?;
-    sqlx::query("UPDATE singbox_subscription_sources SET deleted_at=$2,archived=TRUE,input_config='{}'::jsonb,host=NULL,next_refresh_at=NULL,conditional_etag=NULL,conditional_last_modified=NULL,conditional_settings_revision=NULL,conditional_identity_epoch=NULL,updated_at=$2 WHERE id=$1")
+    sqlx::query("UPDATE singbox_ordered_subscription_sources SET deleted_at=$2,archived=TRUE,input_config='{}'::jsonb,host=NULL,next_refresh_at=NULL,conditional_etag=NULL,conditional_last_modified=NULL,conditional_settings_revision=NULL,conditional_identity_epoch=NULL,updated_at=$2 WHERE id=$1")
         .bind(id).bind(now_timestamp()).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)

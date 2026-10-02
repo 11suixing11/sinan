@@ -7,6 +7,7 @@ use std::{
 };
 use tokio::time::timeout;
 
+mod logs;
 #[path = "services/runtime.rs"]
 mod runtime;
 
@@ -225,6 +226,10 @@ impl ServiceManager for SystemServiceManager {
         unit: &'a str,
     ) -> BoxFuture<'a, sinan_adapter_sdk::RuntimeInstance> {
         Box::pin(runtime::inspect(self, unit))
+    }
+
+    fn recent_logs<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, sinan_adapter_sdk::ServiceLogs> {
+        Box::pin(self.read_recent_logs(unit))
     }
     #[cfg(unix)]
     fn supports_confirmed_cancellation(&self) -> bool {

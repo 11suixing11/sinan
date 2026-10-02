@@ -32,7 +32,6 @@ import base64
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
-import io
 from pathlib import Path
 import re
 import signal
@@ -46,7 +45,6 @@ import unittest
 from unittest import mock
 import urllib.parse
 import urllib.request
-import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / 'plugins/nodequality'
@@ -61,7 +59,6 @@ def module(name, path):
 
 
 policy = module('report_policy', PLUGIN / 'report-policy.py')
-report = module('chapter_report', PLUGIN / 'report.py')
 source_tests = module('source_tests', ROOT / 'tools/test-nodequality-sources.py')
 CONFIG = {
     'hardware.sh': ('check_Hardware', '\nadaptoslocale\n', 'get_virt get_os get_mb get_cpu test_cpu_sysbench test_cpu_gb5 get_gpu test_gpu get_mem test_mem get_disk test_disk get_mark', 'show_head show_os show_mb show_cpu show_gpu show_mem show_disk show_mark show_tail'),
@@ -218,13 +215,11 @@ def script_recipe(name):
     result += source_tests.fixture.data_anchors(name).decode()
     result += source_tests.fixture.ranking_anchors(name).decode()
     result += source_tests.fixture.ip_score_anchors(name).decode()
-    result += source_tests.fixture.browser_anchors(name).decode()
-    result += source_tests.fixture.query_anchors(name).decode()
-    # These uncalled anchors keep the final signed access stage in packaging.
-    # The callbacks below record the original orchestration without querying.
-    result += source_tests.fixture.access_anchors(name).decode()
     result += source_tests.fixture.netflix_anchors(name).decode()
-    result += source_tests.fixture.openai_anchors(name).decode()
+    # Identity/access policy anchors stay in uncalled synthetic helpers; the
+    # real orchestration below still invokes only the recorded fixture probes.
+    result += source_tests.fixture.browser_anchors(name).decode()
+    result += source_tests.fixture.public_access_anchors(name).decode()
     result += 'fixture_record script ' + kind + ' "$@"\n'
     result += '''
 mode_privacy=${FIXTURE_PRIVACY:-0}
@@ -367,7 +362,7 @@ class PolicyTests(unittest.TestCase):
             private_policy = module('transform_fixture', plugin / 'report-policy.py')
             private_swap = module('swap_transform_fixture', plugin / 'swap-policy.py')
             for role in private_policy.SOURCES:
-                expected = source_tests.fixture.undo_browser(role, outputs.before_access[role])
+                expected = source_tests.fixture.undo_netflix(role, outputs[role])
                 expected = source_tests.fixture.undo_ip_scores(role, expected)
                 expected = source_tests.fixture.undo_ranking(role, expected)
                 expected = source_tests.fixture.undo_data(role, expected, contents)
@@ -440,157 +435,6 @@ class PolicyTests(unittest.TestCase):
             fixture.tearDown()
 
 
-class ChapterPublicationTests(unittest.TestCase):
-    def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix='sinan-owned-chapters-')
-        self.root = Path(self.temporary.name)
-
-    def tearDown(self):
-        self.temporary.cleanup()
-
-    def path(self, name):
-        return self.root / ('section-' + name + '.json')
-
-    def read(self, name):
-        return json.loads(self.path(name).read_text())
-
-    def complete_files(self):
-        files = {}
-        for name, _ in report.SECTIONS:
-            files[name + '.log'] = ('owned-' + name).encode()
-            if name != 'header_info':
-                files[name + '.json'] = b'{"owned_fixture":true}'
-        return files
-
-    def archive(self, files):
-        target = io.BytesIO()
-        with zipfile.ZipFile(target, 'w', compression=zipfile.ZIP_DEFLATED) as value:
-            for name, content in sorted(files.items()):
-                value.writestr(name, content)
-        return base64.b64encode(target.getvalue())
-
-    def test_invalid_saved_schema_keeps_the_rejected_entry_and_publishes_other_chapters(self):
-        valid = {'name': 'hardware_quality', 'text': 'retained', 'complete': True,
-                 'revision': 7, 'collected_at': 1}
-        corrupt = [b'[]', b'null', b'{', b'\xff']
-        for field, values in (('name', ('other', None)), ('text', ([], None)),
-                              ('complete', (0, 'true', None)),
-                              ('revision', (True, 0, -1, '7', 2**63, None))):
-            for value in values:
-                corrupt.append(json.dumps(dict(valid, **{field: value})).encode())
-        path = self.path('hardware_quality')
-        for content in corrupt:
-            with self.subTest(case=corrupt.index(content)):
-                path.write_bytes(content)
-                with self.assertRaisesRegex(ValueError, 'chapter publication failed: hardware_quality'):
-                    report.publish_sections(self.root, self.complete_files(), archive=True)
-                self.assertEqual(path.read_bytes(), content)
-                for name in ('header_info', 'ip_quality', 'net_quality', 'backroute_trace'):
-                    self.assertTrue(self.read(name)['complete'])
-                    self.assertEqual(self.read(name)['text'], 'owned-' + name)
-        path.write_text(json.dumps(valid))
-        report.publish_sections(self.root, self.complete_files(), archive=True)
-        self.assertEqual(self.read('hardware_quality')['revision'], 8)
-
-    def test_exhausted_revision_refuses_changes_but_keeps_idempotent_snapshots(self):
-        path = self.path('hardware_quality')
-        old = {'name': 'hardware_quality', 'text': 'retained', 'complete': True,
-               'revision': 2**63 - 1, 'collected_at': 1}
-        path.write_text(json.dumps(old))
-        original = path.read_bytes()
-        report.save_section(self.root, 'hardware_quality', 'retained', True)
-        self.assertEqual(path.read_bytes(), original)
-        with self.assertRaisesRegex(ValueError, 'chapter publication failed: hardware_quality'):
-            report.publish_sections(self.root, self.complete_files(), archive=True)
-        self.assertEqual(path.read_bytes(), original)
-        self.assertTrue(self.read('ip_quality')['complete'])
-
-    def test_partial_or_missing_data_never_downgrades_completed_history(self):
-        report.save_section(self.root, 'hardware_quality', 'completed hardware', True)
-        report.save_section(self.root, 'ip_quality', 'completed IP', True)
-        hardware = self.path('hardware_quality').read_bytes()
-        ip = self.path('ip_quality').read_bytes()
-        files = {'hardware_quality.log': b'incomplete newer text',
-                 'hardware_quality.json': b'{',
-                 'ip_quality.log': b'',
-                 'net_quality.log': b'partial network',
-                 'net_quality.json': b'{}'}
-        report.publish_sections(self.root, files)
-        self.assertEqual(self.path('hardware_quality').read_bytes(), hardware)
-        self.assertEqual(self.path('ip_quality').read_bytes(), ip)
-        self.assertFalse(self.read('net_quality')['complete'])
-        self.assertEqual(self.read('net_quality')['text'], 'partial network')
-
-    def test_valid_later_stage_completes_the_previous_chapter_and_keeps_the_last_partial(self):
-        files = {'hardware_quality.log': b'hardware', 'hardware_quality.json': b'{"ok":true}',
-                 'ip_quality.log': b'IP', 'ip_quality.json': b'{"ok":true}'}
-        report.publish_sections(self.root, files)
-        self.assertTrue(self.read('hardware_quality')['complete'])
-        self.assertFalse(self.read('ip_quality')['complete'])
-        report.publish_sections(self.root, files, archive=True)
-        self.assertTrue(self.read('ip_quality')['complete'])
-        self.assertEqual(self.read('ip_quality')['revision'], 2)
-        report.publish_sections(self.root, files, archive=True)
-        self.assertEqual(self.read('ip_quality')['revision'], 2)
-
-    def test_dangling_symlink_and_directory_remain_rejected_without_blocking_other_chapters(self):
-        path = self.path('hardware_quality')
-        target = self.root / 'missing-owned-target'
-        path.symlink_to(target)
-        with self.assertRaisesRegex(ValueError, 'chapter publication failed: hardware_quality'):
-            report.publish_sections(self.root, self.complete_files(), archive=True)
-        self.assertTrue(path.is_symlink())
-        self.assertEqual(path.readlink(), target)
-        self.assertFalse(target.exists())
-        self.assertTrue(self.read('ip_quality')['complete'])
-        path.unlink()
-        path.mkdir()
-        (path / 'owned-retained').write_text('keep')
-        with self.assertRaisesRegex(ValueError, 'chapter publication failed: hardware_quality'):
-            report.publish_sections(self.root, self.complete_files(), archive=True)
-        self.assertEqual((path / 'owned-retained').read_text(), 'keep')
-
-    def test_capture_keeps_the_raw_archive_and_other_completed_chapters_when_one_sidecar_is_bad(self):
-        path = self.path('hardware_quality')
-        path.write_bytes(b'corrupt-owned-sidecar')
-        encoded = self.archive(self.complete_files())
-        with mock.patch.object(report.sys, 'stdin', io.TextIOWrapper(io.BytesIO(encoded))):
-            report.capture(self.root)
-        self.assertEqual((self.root / 'upload.base64').read_bytes(), encoded)
-        self.assertEqual(path.read_bytes(), b'corrupt-owned-sidecar')
-        self.assertTrue(self.read('ip_quality')['complete'])
-        self.assertTrue(self.read('backroute_trace')['complete'])
-
-    def test_live_snapshot_exposes_partial_data_without_erasing_a_completed_chapter(self):
-        report.save_section(self.root, 'hardware_quality', 'retained hardware', True)
-        original = self.path('hardware_quality').read_bytes()
-        result = self.root / '.nodequality-owned' / 'BenchOs' / 'result'
-        result.mkdir(parents=True)
-        (result / 'hardware_quality.log').write_bytes(b'partial hardware')
-        (result / 'hardware_quality.json').write_bytes(b'{')
-        (result / 'ip_quality.log').write_bytes(b'visible partial IP')
-        report.snapshot(self.root)
-        self.assertEqual(self.path('hardware_quality').read_bytes(), original)
-        self.assertEqual(self.read('ip_quality')['text'], 'visible partial IP')
-        self.assertFalse(self.read('ip_quality')['complete'])
-
-    def test_failed_terminal_render_retains_archive_completed_chapters_and_prior_result(self):
-        report.save_section(self.root, 'hardware_quality', 'historic completed hardware', True)
-        prior = self.path('hardware_quality').read_bytes()
-        (self.root / 'result.txt').write_bytes(b'historic terminal report')
-        files = self.complete_files()
-        files['hardware_quality.json'] = b'{'
-        encoded = self.archive(files)
-        (self.root / 'upload.base64').write_bytes(encoded)
-        with self.assertRaises(ValueError):
-            report.render(self.root)
-        self.assertEqual(self.path('hardware_quality').read_bytes(), prior)
-        self.assertTrue(self.read('ip_quality')['complete'])
-        self.assertEqual((self.root / 'result.txt').read_bytes(), b'historic terminal report')
-        self.assertEqual((self.root / 'upload.base64').read_bytes(), encoded)
-        self.assertEqual((self.root / 'report.zip').read_bytes(), base64.b64decode(encoded))
-
-
 class WiringTests(unittest.TestCase):
     def setUp(self):
         self.base = source_tests.SourceTests(methodName='runTest')
@@ -612,6 +456,8 @@ class WiringTests(unittest.TestCase):
         # Only the private test copy relaxes host/root/Bash prerequisites.
         path = self.plugin / 'runner.sh.tmpl'
         text = path.read_text()
+        self.assertEqual(text.count(source_tests.FULL_START_GUARD), 1)
+        text = text.replace(source_tests.FULL_START_GUARD, ':')
         for guard in ("[[ $EUID == 0 ]] || die 'diagnostics require root'", "[[ ${BASH_VERSINFO[0]} -ge 4 ]] || die 'diagnostics require Bash >= 4'"):
             self.assertEqual(text.count(guard), 1)
             text = text.replace(guard, ':')

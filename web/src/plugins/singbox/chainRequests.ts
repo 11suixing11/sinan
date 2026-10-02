@@ -2,7 +2,7 @@ import { resourceWriteError } from '../../hooks'
 import { assignmentRequestId, proxyResourceKey, validProxyResources } from './groupTypes'
 import type { ProxyResource, ResourceSnapshot } from './groupTypes'
 import { sourceRequest } from './sourceRequests'
-import { sourceUuid } from './sourceTypes'
+import { sourceUuid } from './orderedSourceTypes'
 
 export type ChainMutation = { kind: 'chain'; id: number; settings_revision: number; operation: 'edit' | 'versions'; fields: Record<string, unknown> }
 export type PendingChainMutation = { command: string; serialized: string; request_id: string; attempted: boolean; path: string }
@@ -27,9 +27,12 @@ function validateCommand(command: ChainMutation) {
 export function chainMutationError(snapshot: ResourceSnapshot<ProxyResource[]>, command?: ChainMutation, replay = false) {
   const error = resourceWriteError(snapshot)
   if (error || !validProxyResources(snapshot.data)) return error || '资源列表格式尚未确认，草稿已保留。'
-  if (!command || replay) return ''
+  if (!command) return ''
   const resource = snapshot.data.find(resource => proxyResourceKey(resource) === `${command.kind}:${command.id}`)
-  if (!resource) return '所选链路已不可用，请刷新确认。'
+  if (!resource) return '所选链路已不可用，请刷新确认；原请求和草稿已保留。'
+  const endpointEligible = (endpoint: ProxyResource['entry']) => endpoint.enabled && endpoint.plugin_enabled && !endpoint.node_deleted && !endpoint.server_deleted
+  if (!resource.available || !endpointEligible(resource.entry) || resource.hops.some(hop => hop.kind === 'managed' ? !endpointEligible(hop.endpoint) : hop.source_archived || !hop.node_present)) return '链路目标或依赖已不可用，暂不能发送修改或重试；原请求和草稿已保留。'
+  if (replay) return ''
   if (resource.settings_revision !== command.settings_revision) return '链路设置已变化；请确认原操作后重新打开编辑。草稿已保留。'
   if (command.operation === 'versions' && resource.path_state?.desired_generation !== command.fields.generation) return '路径代数已变化，请先确认候选与已应用版本；原请求已保留。'
   return ''
@@ -44,14 +47,14 @@ export function prepareChainMutation(command: ChainMutation, snapshot: ResourceS
   if (!Number.isSafeInteger(command.id) || command.id <= 0 || !Number.isSafeInteger(command.settings_revision) || command.settings_revision < 1) throw new Error('链路标识或设置版本无效。')
   const request_id = id()
   if (!sourceUuid(request_id)) throw new Error('请求标识无效。')
-  const path = `/api/plugins/sing-box/proxy-resources/chain/${command.id}${command.operation === 'versions' ? '/apply-node-versions' : ''}`
+  const path = `/api/plugins/sing-box/ordered-proxy-resources/chain/${command.id}${command.operation === 'versions' ? '/apply-node-versions' : ''}`
   return { command: fingerprint, serialized: JSON.stringify({ request_id, settings_revision: command.settings_revision, ...command.fields }), request_id, attempted: false, path }
 }
 export async function submitChainMutation(pending: PendingChainMutation, snapshot: ResourceSnapshot<ProxyResource[]>, writer: (path: string, method: string, body: unknown) => Promise<unknown> = sourceRequest): Promise<ChainMutationReceipt> {
   const command = JSON.parse(pending.command) as ChainMutation
   validateCommand(command)
   const expected = JSON.stringify({ request_id: pending.request_id, settings_revision: command.settings_revision, ...command.fields })
-  const path = `/api/plugins/sing-box/proxy-resources/chain/${command.id}${command.operation === 'versions' ? '/apply-node-versions' : ''}`
+  const path = `/api/plugins/sing-box/ordered-proxy-resources/chain/${command.id}${command.operation === 'versions' ? '/apply-node-versions' : ''}`
   if (!sourceUuid(pending.request_id) || pending.serialized !== expected || pending.path !== path || command.kind !== 'chain' || !['edit', 'versions'].includes(command.operation)) throw new Error('原请求不完整，不能重试。')
   const error = chainMutationError(snapshot, command, pending.attempted)
   if (error) throw new Error(error)

@@ -1,6 +1,8 @@
 mod apply;
 mod checkpoint;
+mod constraints;
 mod inspection;
+mod operations;
 mod path_probe;
 
 use crate::{artifacts::PanelClient, config::Config, state::SharedState};
@@ -79,6 +81,7 @@ impl Reconciler {
     async fn verify_runtime(&self, runtime: &Prepared) -> Result<()> {
         let descriptor = self.adapter.describe();
         let result: Result<()> = async {
+            self.enforce_generation_floor(runtime)?;
             anyhow::ensure!(
                 runtime.spec.binary_path
                     == self

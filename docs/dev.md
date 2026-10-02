@@ -1,6 +1,8 @@
 # 开发、构建与验证
 
-所有命令在仓库根目录运行。
+除明确写出 `cd web` 的前端开发步骤外，命令在仓库根目录运行。代码位置见[目录与维护约定](repository.md)，文档入口见[导航](README.md)，脚本用途见 [scripts](../scripts/README.md) 与 [tools](../tools/README.md)。
+
+当前 GitHub Actions 按 [AGENTS.md](../AGENTS.md#临时-ci-暂停2026-10-01-用户要求) 暂停。以下 CI 小节描述保留的工作流设计；暂停期间只做本地验证，不触发、重跑或恢复工作流，不把未运行/取消的 CI 记为通过。
 
 ## 本地开发与测试
 
@@ -56,12 +58,18 @@ bun run build
 # DATABASE_URL must allow creating isolated test databases on PostgreSQL 16.
 # This public TEST_ONLY root is for tests, never production.
 export SINAN_RELEASE_PUBLIC_KEYS="$(cat crates/protocol/tests/fixtures/public-keys.json)"
+python3 tools/check-core-boundary.py
 cargo fmt --check
+(cd web && bun install --frozen-lockfile && bun test && bun run build)
 cargo clippy --all-targets -- -D warnings
 cargo test
-(cd web && bun install --frozen-lockfile && bun run build)
-git diff --exit-code -- web/dist
+git diff --check
+git diff --stat -- web/dist
 ```
+
+前端构建放在 Rust 检查之前，因为面板嵌入 `web/dist`。前端有修改时，检查并一并提交生成产物；已提交产物的重建一致性可用 `git diff --exit-code -- web/dist` 检查，不把本次正常生成的差异误判为失败。
+
+`bun test` 运行 `web/tests/*.test.ts` 的数据与协议逻辑回归；`web/tests/*.mjs` 是使用本地 API 夹具的浏览器回归。修改登录/导航/路由时可选择已有的 `dashboard.mjs`、`server-operations.mjs`、`plugin-catalog.mjs` 和 `node-routes.mjs`，修改插件时再加对应插件场景。它们读取构建后的 `web/dist`，需要本地 Playwright/Chromium；可通过 `SINAN_PLAYWRIGHT_MODULE` 与 `SINAN_CHROME_PATH` 指定已安装位置，然后用 `bun web/tests/<场景>.mjs` 执行。浏览器测试不需要连接生产面板。
 
 依赖真实上游二进制的测试默认标记为 ignored，设置 `SINAN_TEST_SINGBOX` 后显式执行，不能把默认 `cargo test` 当作这些专项检查已经通过：
 

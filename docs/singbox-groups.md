@@ -1,6 +1,6 @@
 # sing-box 策略与套餐使用说明
 
-策略组与套餐组位于 **sing-box 插件 → 策略与套餐**；直连和两跳链路在 **代理节点** 的统一资源列表管理，不属于服务器的通用监控配置。代理用户详情分别分配策略组和套餐。实现约束见 [ADR 0035](adr/0035-singbox-policy-package-groups.md) 与 [资源生命周期 ADR 0054](adr/0054-proxy-resource-batch-lifecycle.md)。
+策略组与套餐组位于 **sing-box 插件 → 策略与套餐**；直连和两跳链路在 **代理节点** 的统一资源列表管理，不属于服务器的通用监控配置。代理用户详情分别分配策略组和套餐。实现约束见 [ADR 0035](adr/0035-singbox-policy-package-groups.md) 与 [资源生命周期 ADR 0054](adr/0069-proxy-resource-batch-lifecycle.md)。
 
 用户要求将多条链路的创建与管理放到代理节点中，并允许机场订阅节点作为中间段或出口。[混合链路设计](node-chain-design.md) 与 [订阅来源规则](chain-subscription-sources.md) 的订阅来源和多段路径尚未实现；当前资源管理阶段只承接受管两跳，集中验收状态见 [本步记录](acceptance/proxy-resources.md)。
 

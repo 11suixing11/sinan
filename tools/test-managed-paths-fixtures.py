@@ -371,7 +371,8 @@ class HelperContractTests(unittest.TestCase):
         with mock.patch.object(HELPER.socket, "create_connection", return_value=FakeSocket(oversized)):
             self.assertRejected("grpc_frame_budget_exceeded", HELPER.grpc_stats)
 
-    @unittest.skipUnless(os.name == "posix", "process-group cleanup requires POSIX")
+    @unittest.skipUnless(hasattr(os, "waitid") and hasattr(os, "WNOWAIT"),
+                         "requires nonreaping waitid child ownership (Linux)")
     def test_child_output_overflow_is_bounded_and_does_not_stop_foreign_process(self):
         sentinel = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(20)"], start_new_session=True)
         child = None
@@ -429,17 +430,11 @@ class HelperContractTests(unittest.TestCase):
         child.process = mock.Mock(pid=123)
         child.process.poll.return_value = 0
         child.reader = mock.Mock()
-        child.reader.is_alive.side_effect = [True, False]
+        child.reader.is_alive.return_value = False
         child.log = mock.Mock()
         child.overflow, child.reader_error = threading.Event(), False
-        def group(pid, signum):
-            self.assertEqual(pid, 123)
-            if signum == 0:
-                raise ProcessLookupError
-        with mock.patch.object(HELPER.os, "killpg", side_effect=group) as stopped:
-            child.stop()
-        self.assertIn(mock.call(123, signal.SIGTERM), stopped.call_args_list)
-        self.assertIn(mock.call(123, signal.SIGKILL), stopped.call_args_list)
+        child.stop()
+        child.process.stop_group.assert_called_once_with()
         child.process.stdout.close.assert_called_once_with()
         child.log.close.assert_called_once_with()
 

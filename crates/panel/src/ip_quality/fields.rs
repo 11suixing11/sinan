@@ -16,6 +16,46 @@ pub enum QualityFieldKind {
 
 fn definitions(database: &str) -> &'static [(&'static str, &'static str, QualityFieldKind)] {
     match database {
+        "ipregistry-v1" => &[
+            ("/connection/asn", "ASN", QualityFieldKind::Asn),
+            (
+                "/connection/organization",
+                "网络组织",
+                QualityFieldKind::Text,
+            ),
+            ("/connection/type", "连接类型", QualityFieldKind::Text),
+            (
+                "/location/country/code",
+                "国家代码",
+                QualityFieldKind::CountryCode,
+            ),
+            ("/security/is_proxy", "代理", QualityFieldKind::Boolean),
+            ("/security/is_tor", "Tor", QualityFieldKind::Boolean),
+            ("/security/is_vpn", "VPN", QualityFieldKind::Boolean),
+            ("/security/is_abuser", "滥用", QualityFieldKind::Boolean),
+            (
+                "/security/is_attacker",
+                "攻击来源",
+                QualityFieldKind::Boolean,
+            ),
+            (
+                "/security/is_cloud_provider",
+                "云服务商",
+                QualityFieldKind::Boolean,
+            ),
+        ],
+        "dbip-v2" => &[
+            ("/countryCode", "国家代码", QualityFieldKind::CountryCode),
+            ("/countryName", "国家或地区", QualityFieldKind::Text),
+            ("/asNumber", "ASN", QualityFieldKind::Asn),
+            ("/asName", "网络组织", QualityFieldKind::Text),
+            ("/isp", "ISP", QualityFieldKind::Text),
+            ("/usageType", "用途类型", QualityFieldKind::Text),
+            ("/isProxy", "代理", QualityFieldKind::Boolean),
+            ("/isCrawler", "爬虫", QualityFieldKind::Boolean),
+            ("/latitude", "纬度", QualityFieldKind::Latitude),
+            ("/longitude", "经度", QualityFieldKind::Longitude),
+        ],
         "maxmind" => &[
             ("/ASN/AutonomousSystemNumber", "ASN", QualityFieldKind::Asn),
             (

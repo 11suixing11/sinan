@@ -7,6 +7,8 @@ mod chain_gate;
 mod completion;
 #[path = "diagnostics/modes.rs"]
 mod modes;
+#[path = "probe_support.rs"]
+mod probe_support;
 mod release_fixture;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
@@ -39,6 +41,7 @@ async fn capable(panel: &TestPanel, server_id: i64) -> Result<()> {
                 "diagnostic:nodequality-modes".into(),
                 sinan_protocol::DIAGNOSTIC_SECTIONS_CAPABILITY.into(),
                 sinan_protocol::DIAGNOSTIC_SERVICE_CAPABILITY.into(),
+                sinan_protocol::DIAGNOSTIC_COMPLETION_CAPABILITY.into(),
                 sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY.into(),
             ],
             applied: BTreeMap::new(),

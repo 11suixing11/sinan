@@ -27,14 +27,56 @@ pub fn compile_server_with_paths(
             reason: "local node or legacy relay configuration is invalid",
         }
     })?;
-    let mut config: Value = serde_json::from_str(&original)?;
+    overlay(
+        nodes,
+        legacy_relays,
+        paths,
+        internal_accepts,
+        probe_control,
+        &original,
+    )
+}
+
+/// Compose ordered generations with the established numeric-path compiler result.
+/// The caller records both evidence ledgers against this one resulting bundle.
+pub fn compile_server_with_paths_on_config(
+    nodes: &[Node],
+    legacy_relays: &[Relay],
+    paths: &[OrderedPath],
+    internal_accepts: &[ManagedAcceptance],
+    probe_control: Option<&ProbeControl>,
+    base: &crate::paths::Compiled,
+) -> Result<String, CompileError> {
+    if paths.is_empty() && internal_accepts.is_empty() && probe_control.is_none() {
+        return Ok(base.config.clone());
+    }
+    super::context::validate(nodes, legacy_relays, paths, internal_accepts, probe_control)?;
+    overlay(
+        nodes,
+        legacy_relays,
+        paths,
+        internal_accepts,
+        probe_control,
+        &base.config,
+    )
+}
+
+fn overlay(
+    _nodes: &[Node],
+    legacy_relays: &[Relay],
+    paths: &[OrderedPath],
+    internal_accepts: &[ManagedAcceptance],
+    probe_control: Option<&ProbeControl>,
+    original: &str,
+) -> Result<String, CompileError> {
+    let mut config: Value = serde_json::from_str(original)?;
     let mut paths: Vec<_> = paths.iter().collect();
     paths.sort_by_key(|path| (path.chain_id, path.generation));
     let mut accepts: Vec<_> = internal_accepts.iter().collect();
     accepts.sort_by_key(|accept| (accept.chain_id, accept.generation, accept.position));
     let mut rules = Vec::new();
     for accept in accepts {
-        add_acceptance(&mut config, accept);
+        add_acceptance(&mut config, accept)?;
         // Transit identities have no public-node route and never enter stats.
         rules.push(json!({"inbound":[format!("node-{}",accept.endpoint.node.id)],"auth_user":[acceptance_name(accept)],"action":"route","outbound":"direct"}));
     }
@@ -45,10 +87,30 @@ pub fn compile_server_with_paths(
         .chain(
             legacy_relays
                 .iter()
-                .filter(|relay| nodes.iter().any(|node| node.id == relay.entry_node_id))
+                .filter(|relay| _nodes.iter().any(|node| node.id == relay.entry_node_id))
                 .map(|relay| relay.entry_node_id),
         )
         .collect();
+    for path in &paths {
+        let tag = format!("node-{}", path.entry_node_id);
+        if config["route"]["rules"].as_array().is_some_and(|rules| {
+            rules.iter().any(|rule| {
+                rule["inbound"]
+                    .as_array()
+                    .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(&tag)))
+            })
+        }) && !legacy_relays.iter().any(|relay| {
+            relay.entry_node_id == path.entry_node_id
+                && relay.chain_id == path.chain_id
+                && !path.active
+        }) {
+            return Err(super::validate::error(
+                path,
+                None,
+                "public entry is selected by incompatible path pipelines",
+            ));
+        }
+    }
     let mut blocked_entries = BTreeSet::new();
     for path in &paths {
         for (index, hop) in path.hops.iter().enumerate() {
@@ -115,16 +177,41 @@ pub fn compile_server_with_paths(
         config["route"]["rules"] = Value::Array(rules);
     }
     if !paths.is_empty() {
-        config["dns"] =
-            json!({"servers":[{"type":"local","tag":"chain-bootstrap"}],"final":"chain-bootstrap"});
+        if config["dns"].is_null() {
+            config["dns"] = json!({"servers":[]});
+        }
+        config["dns"]["servers"]
+            .as_array_mut()
+            .ok_or_else(|| CompileError::InvalidPath {
+                chain_id: paths[0].chain_id,
+                position: None,
+                reason: "compiled DNS inventory is invalid",
+            })?
+            .push(json!({"type":"local","tag":"chain-bootstrap"}));
+        config["dns"]["final"] = json!("chain-bootstrap");
     }
     if let Some(probe) = probe_control {
-        config["experimental"]["clash_api"] = json!({"external_controller":format!("127.0.0.1:{}",probe.listen_port),"secret":probe.secret});
+        let expected = format!("127.0.0.1:{}", probe.listen_port);
+        let existing = &config["experimental"]["clash_api"];
+        if !existing.is_null()
+            && (existing["external_controller"].as_str() != Some(&expected)
+                || existing["secret"].as_str() != Some(probe.secret.as_str()))
+        {
+            return Err(CompileError::InvalidPath {
+                chain_id: paths.first().map(|path| path.chain_id).unwrap_or(0),
+                position: None,
+                reason: "private control configuration differs between path pipelines",
+            });
+        }
+        if existing.is_null() {
+            config["experimental"]["clash_api"] =
+                json!({"external_controller":expected,"secret":probe.secret});
+        }
     }
     crate::pretty(config)
 }
 
-fn add_acceptance(config: &mut Value, accept: &ManagedAcceptance) {
+fn add_acceptance(config: &mut Value, accept: &ManagedAcceptance) -> Result<(), CompileError> {
     let node = &accept.endpoint.node;
     let tag = format!("node-{}", node.id);
     let identity =
@@ -133,6 +220,34 @@ fn add_acceptance(config: &mut Value, accept: &ManagedAcceptance) {
         .as_array_mut()
         .expect("compiled inbounds");
     if let Some(inbound) = inbounds.iter_mut().find(|inbound| inbound["tag"] == tag) {
+        let mut expected = crate::protocols::server(node, &[]);
+        let mut actual = inbound.clone();
+        expected
+            .as_object_mut()
+            .expect("compiled inbound")
+            .remove("users");
+        actual
+            .as_object_mut()
+            .expect("compiled inbound")
+            .remove("users");
+        if expected != actual {
+            return Err(CompileError::InvalidPath {
+                chain_id: accept.chain_id,
+                position: Some(accept.position as usize),
+                reason: "managed listener differs between frozen path snapshots",
+            });
+        }
+        if inbound["users"].as_array().is_some_and(|users| {
+            users
+                .iter()
+                .any(|user| user["uuid"] == identity["uuid"] || user["name"] == identity["name"])
+        }) {
+            return Err(CompileError::InvalidPath {
+                chain_id: accept.chain_id,
+                position: Some(accept.position as usize),
+                reason: "internal relay identity repeats another path identity",
+            });
+        }
         inbound["users"]
             .as_array_mut()
             .expect("compiled identities")
@@ -142,4 +257,5 @@ fn add_acceptance(config: &mut Value, accept: &ManagedAcceptance) {
         inbound["users"] = json!([identity]);
         inbounds.push(inbound);
     }
+    Ok(())
 }

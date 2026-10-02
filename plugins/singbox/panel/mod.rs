@@ -5,6 +5,7 @@ pub mod business;
 pub mod chains;
 pub mod deployments;
 pub mod entitlements;
+pub mod mixed_paths;
 mod node_protocol;
 mod node_settings;
 pub mod nodes;
@@ -14,7 +15,9 @@ pub mod policies;
 pub mod proxy_resources;
 pub mod proxy_users;
 pub mod publisher;
+pub mod runtime_operations;
 pub mod settings;
+pub mod sources;
 pub mod statistics;
 pub mod subscription_parser;
 pub mod subscription_sources;
@@ -53,17 +56,17 @@ pub fn router() -> Router<AppState> {
             axum::routing::put(packages::update).delete(packages::remove),
         )
         .route("/chains", get(chains::list).post(chains::create))
-        .route("/chains/batch", post(ordered_paths::create_batch))
+        .route("/chains/ordered-batch", post(ordered_paths::create_batch))
         .route("/chains/{id}", delete(chains::remove))
-        .route("/proxy-resources", get(proxy_resources::list))
+        .route("/ordered-proxy-resources", get(proxy_resources::list))
         .route(
-            "/proxy-resources/{kind}/{id}",
+            "/ordered-proxy-resources/{kind}/{id}",
             get(proxy_resources::get)
                 .patch(ordered_paths::update_resource)
                 .delete(proxy_resources::remove),
         )
         .route(
-            "/proxy-resources/chain/{id}/apply-node-versions",
+            "/ordered-proxy-resources/chain/{id}/apply-node-versions",
             post(ordered_paths::apply_node_versions),
         )
         .route(
@@ -77,6 +80,10 @@ pub fn router() -> Router<AppState> {
         .route("/servers/{id}/enable", post(settings::enable))
         .route("/servers/{id}/deployments", get(deployments::get))
         .route("/servers/{id}/deployments/check", post(deployments::check))
+        .route(
+            "/servers/{id}/runtime-operations",
+            get(runtime_operations::list).post(runtime_operations::create),
+        )
         .route("/nodes", get(nodes::list).post(nodes::create))
         .route(
             "/nodes/{id}",
@@ -102,7 +109,9 @@ pub fn router() -> Router<AppState> {
             "/users/{user_id}/accesses/{node_id}",
             delete(accesses::revoke),
         )
-        .route("/usage", get(usage::summary));
+        .route("/usage", get(usage::summary))
+        .merge(sources::router())
+        .merge(mixed_paths::router());
     Router::new()
         .nest(
             "/api/plugins/sing-box",

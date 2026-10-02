@@ -278,7 +278,7 @@ async fn follow_updates(
         if update_mode != "follow_node" {
             continue;
         }
-        let latest:Option<FollowNodeFact>=sqlx::query_as("SELECT s.identity_epoch,s.archived,s.deleted_at,n.identity_state,n.latest_version,n.last_seen_revision,s.current_success_revision FROM singbox_subscription_sources s JOIN singbox_external_nodes n ON n.source_id=s.id WHERE s.id=$1 AND n.id=$2 FOR UPDATE OF s").bind(*source_id).bind(*external_node_id).fetch_optional(&mut **tx).await?;
+        let latest:Option<FollowNodeFact>=sqlx::query_as("SELECT s.identity_epoch,s.archived,s.deleted_at,n.identity_state,n.latest_version,n.last_seen_revision,s.current_success_revision FROM singbox_ordered_subscription_sources s JOIN singbox_ordered_external_nodes n ON n.source_id=s.id WHERE s.id=$1 AND n.id=$2 FOR UPDATE OF s").bind(*source_id).bind(*external_node_id).fetch_optional(&mut **tx).await?;
         let Some((epoch, archived, deleted, identity, version, seen, current)) = latest else {
             continue;
         };

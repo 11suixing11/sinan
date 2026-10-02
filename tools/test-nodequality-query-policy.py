@@ -28,9 +28,9 @@ def module(name, path):
 
 
 policy = module('query_policy', PLUGIN / 'query-policy.py')
-helper = module('query_helper', PLUGIN / 'source-helper.py')
-sources = module('query_sources', ROOT / 'tools/test-nodequality-sources.py')
-browser = module('query_browser', ROOT / 'tools/test-nodequality-browser-policy.py')
+helper = module('query_helper', PLUGIN / 'native-source-helper.py')
+sources = module('query_sources', ROOT / 'tools/test-nodequality-native-sources.py')
+browser = module('query_browser', ROOT / 'tools/test-nodequality-native-browser-policy.py')
 
 PRELUDE = r'''
 declare -A netflix sinfo smedia
@@ -224,7 +224,7 @@ class QueryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as name:
             path = Path(name) / 'query-policy.py'
             content = (PLUGIN / path.name).read_bytes()
-            with mock.patch.object(helper, '__file__', str(path.with_name('source-helper.py'))):
+            with mock.patch.object(helper, '__file__', str(path.with_name('native-source-helper.py'))):
                 path.write_bytes(content)
                 self.assertIn('transform', helper.query_policy())
                 for data in (content + b'!', b'x' * 65537):

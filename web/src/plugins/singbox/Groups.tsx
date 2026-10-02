@@ -5,7 +5,8 @@ import { bytes } from '../../format'
 import { resourceWriteError, useAction, useResource } from '../../hooks'
 import { quotaBytes, scheduleText, validatedSnapshot, validProxyResources } from './groupTypes'
 import type { ProxyResource, PackageGroup, PolicyGroup } from './groupTypes'
-import { publicPathText } from './ChainLifecycle'
+import { mergeResourceInventory, validFlatInventory } from './resourceInventory'
+import type { ProxyResource as FlatResource } from './resourceTypes'
 
 const root = '/api/plugins/sing-box'
 type Tab = 'policy-groups' | 'package-groups'
@@ -16,38 +17,45 @@ const labels: Record<Tab, string> = { 'policy-groups': '策略组', 'package-gro
 export default function Groups({ initialTab = 'policy-groups' }: { initialTab?: Tab } = {}) {
   const policies = useResource<PolicyGroup[]>(`${root}/policy-groups`)
   const packages = useResource<PackageGroup[]>(`${root}/package-groups`)
-  const resourceQuery = useResource<unknown>(`${root}/proxy-resources`)
+  const resourceQuery = useResource<unknown>(`${root}/ordered-proxy-resources`)
+  const flatQuery = useResource<unknown>(`${root}/proxy-resources`)
+  const flatHistory = useRef<FlatResource[] | undefined>(undefined)
+  const flat = validatedSnapshot(flatQuery, validFlatInventory, flatHistory.current)
+  if (flat.fresh) flatHistory.current = flat.data
   const resourceHistory = useRef<ProxyResource[] | undefined>(undefined)
   const resources = validatedSnapshot(resourceQuery, validProxyResources, resourceHistory.current)
   if (resources.fresh) resourceHistory.current = resources.data
-  const nodes = resources.data?.filter(resource => resource.kind === 'direct') ?? []
-  const chains = resources.data?.filter(resource => resource.kind === 'chain') ?? []
+  const inventory = mergeResourceInventory(flat.data ?? [], resources.data ?? [])
+  const nodes = inventory.filter(resource => resource.kind === 'direct')
+  const chains = inventory.filter(resource => resource.kind === 'chain')
+  const currentInventory = () => mergeResourceInventory(flat.getCurrent?.() ?? [], resources.getCurrent?.() ?? [])
   const action = useAction()
   const [tab, setTab] = useState<Tab>(initialTab)
   const [editor, setEditor] = useState<Editor | null>(null)
   const [deleting, setDeleting] = useState<{ kind: Tab; id: number; name: string } | null>(null)
-  const policyWriteError = resourceWriteError(policies, resources)
+  const policyWriteError = resourceWriteError(policies, flat, resources)
   const packageWriteError = resourceWriteError(packages)
   const writeError = (kind: Tab, id?: number) => {
-    const dependencyError = kind === 'policy-groups' ? policyWriteError : packageWriteError
+    const dependencyError = kind === 'policy-groups' ? resourceWriteError(policies, flat, resources) : resourceWriteError(packages)
     if (dependencyError) return dependencyError
-    const data = kind === 'policy-groups' ? policies.data : packages.data
+    const data = kind === 'policy-groups' ? policies.getCurrent() : packages.getCurrent()
     return id !== undefined && !data?.some(value => value.id === id) ? '此资源已不可用，暂不能提交。草稿已保留，可关闭窗口后重新选择。' : ''
   }
   const invalidNodes = editor?.kind === 'policy-groups' ? editor.nodeIds.filter(id => !nodes.some(node => node.id === id && node.available)) : []
   const invalidChains = editor?.kind === 'policy-groups' ? editor.chainIds.filter(id => !chains.some(chain => chain.id === id && chain.available)) : []
+  const currentSelectionError = () => editor?.kind === 'policy-groups' && [...editor.nodeIds.map(id => ({ kind: 'direct', id })), ...editor.chainIds.map(id => ({ kind: 'chain', id }))].some(selected => !currentInventory().some(value => value.kind === selected.kind && value.id === selected.id && value.available)) ? '已选资源已不可用或身份已变更，请取消这些选择后再保存；其余草稿已保留。' : ''
   const selectionError = invalidNodes.length || invalidChains.length ? '已选资源已不可用或身份已变更，请取消这些选择后再保存。其余草稿已保留。' : ''
-  const refresh = () => { policies.reload(); packages.reload(); resourceQuery.reload() }
+  const refresh = () => { policies.reload(); packages.reload(); resourceQuery.reload(); flatQuery.reload() }
   const nodeName = (id: number) => nodes.find(n => n.id === id)?.name ?? `节点 #${id}（已不可用）`
   const open = (value: EditorInput) => {
     if (writeError(value.kind, value.value?.id)) return
     action.clearError()
     setEditor(value.kind === 'policy-groups' ? { ...value, nodeIds: [...(value.value?.node_ids ?? [])], chainIds: [...(value.value?.chain_ids ?? [])] } : value)
   }
-  const choose = (kind: 'nodeIds' | 'chainIds', id: number, checked: boolean) => { if (policyWriteError) return; setEditor(previous => previous?.kind === 'policy-groups' ? { ...previous, [kind]: checked ? [...previous[kind], id] : previous[kind].filter(value => value !== id) } : previous) }
+  const choose = (kind: 'nodeIds' | 'chainIds', id: number, checked: boolean) => { if (resourceWriteError(policies, flat, resources)) return; setEditor(previous => previous?.kind === 'policy-groups' ? { ...previous, [kind]: checked ? [...previous[kind], id] : previous[kind].filter(value => value !== id) } : previous) }
   const remove = (kind: Tab, value: { id: number; name: string }) => { if (writeError(kind, value.id)) return; action.clearError(); setDeleting({ kind, ...value }) }
   const submit = (form: FormData) => {
-    if (!editor || writeError(editor.kind, editor.value?.id) || selectionError) return
+    if (!editor || writeError(editor.kind, editor.value?.id) || currentSelectionError()) return
     void action.run(async () => {
       const name = String(form.get('name') ?? '').trim()
       const value = 'value' in editor ? editor.value : undefined
@@ -59,7 +67,7 @@ export default function Groups({ initialTab = 'policy-groups' }: { initialTab?: 
   return <>
     <PageHeader eyebrow="sing-box 插件" title="策略与套餐" description="把节点与链路整理成策略组，用套餐设定流量与有效期，在代理用户页面分别分配。"><Refresh onClick={refresh} /><a className="button button-secondary" href="#/plugins/sing-box/nodes">管理代理节点</a><a className="button button-secondary" href="#/plugins/sing-box/users">分配给代理用户</a></PageHeader>
     <div className="group-tabs" aria-label="管理内容">{(Object.keys(labels) as Tab[]).map(key => <button key={key} className={`button ${tab === key ? 'button-primary' : 'button-secondary'}`} aria-pressed={tab === key} onClick={() => setTab(key)}>{labels[key]}</button>)}</div>
-    <ErrorNotice message={policies.error || packages.error || resources.error} retry={refresh} />
+    <ErrorNotice message={policies.error || packages.error || flat.error || resources.error} retry={refresh} />
     <section className="panel">
       {writeError(tab) && <p className="helper" role="status">{writeError(tab)}</p>}
       <div className="panel-heading"><h2>{labels[tab]}</h2><button className="button button-primary button-small" onClick={() => open({ kind: tab })} disabled={action.busy || Boolean(writeError(tab))}>创建{labels[tab]}</button></div>
@@ -70,8 +78,8 @@ export default function Groups({ initialTab = 'policy-groups' }: { initialTab?: 
     {editor && <FormDialog title={`${'value' in editor && editor.value ? '编辑' : '创建'}${labels[editor.kind]}`} onClose={() => setEditor(null)} onSubmit={submit} busy={action.busy} disabled={Boolean(writeError(editor.kind, editor.value?.id))} submitDisabled={Boolean(selectionError)} error={writeError(editor.kind, editor.value?.id) || selectionError || action.error} retry={writeError(editor.kind, editor.value?.id) ? refresh : undefined}>
       <Field label="名称"><input name="name" required maxLength={128} defaultValue={'value' in editor ? editor.value?.name ?? '' : ''} autoComplete="off" /></Field>
       {editor.kind === 'policy-groups' && <>
-        <fieldset className="group-choices"><legend>直接连接的节点</legend>{nodes.map(n => <label className="group-choice" key={`direct:${n.id}`}><input name="node_ids" type="checkbox" value={n.id} checked={editor.nodeIds.includes(n.id)} disabled={!n.available && !editor.nodeIds.includes(n.id)} onChange={event => choose('nodeIds', n.id, event.target.checked)} /><span>{n.name}<small>服务器 #{n.entry.server_id} · {n.entry.public_host}:{n.entry.public_port}{!n.available && '（已不可用，请取消选择）'}</small></span></label>)}{invalidNodes.filter(id => !nodes.some(node => node.id === id)).map(id => <label className="group-choice" key={`unavailable-${id}`}><input name="node_ids" type="checkbox" value={id} checked onChange={event => choose('nodeIds', id, event.target.checked)} /><span>{nodeName(id)}<small>当前不能作为普通节点授权，请取消选择。</small></span></label>)}{!nodes.length && <p>请先创建代理节点。</p>}</fieldset>
-        <fieldset className="group-choices"><legend>通过入口连接的链路</legend>{chains.map(c => <label className="group-choice" key={`chain:${c.id}`}><input name="chain_ids" type="checkbox" value={c.id} checked={editor.chainIds.includes(c.id)} onChange={event => choose('chainIds', c.id, event.target.checked)} disabled={!c.available && !editor.chainIds.includes(c.id)} /><span>{c.name}<small>{c.entry.name} → {publicPathText(c.hops)}{!c.available && '（已不可用，请取消选择）'}</small></span></label>)}{invalidChains.filter(id => !chains.some(chain => chain.id === id)).map(id => <label className="group-choice" key={`unavailable-${id}`}><input name="chain_ids" type="checkbox" value={id} checked onChange={event => choose('chainIds', id, event.target.checked)} /><span>链路 #{id}<small>当前不可用，请取消选择。</small></span></label>)}{!chains.length && <p>尚未创建链路，可先只选择节点，或<a className="text-button" href="#/plugins/sing-box/nodes?kind=chains">创建链路</a>。</p>}</fieldset>
+        <fieldset className="group-choices"><legend>直接连接的节点</legend>{nodes.map(n => <label className="group-choice" key={`direct:${n.id}`}><input name="node_ids" type="checkbox" value={n.id} checked={editor.nodeIds.includes(n.id)} disabled={!n.available && !editor.nodeIds.includes(n.id)} onChange={event => choose('nodeIds', n.id, event.target.checked)} /><span>{n.name}<small>{n.description}{!n.available && '（已不可用，请取消选择）'}</small></span></label>)}{invalidNodes.filter(id => !nodes.some(node => node.id === id)).map(id => <label className="group-choice" key={`unavailable-${id}`}><input name="node_ids" type="checkbox" value={id} checked onChange={event => choose('nodeIds', id, event.target.checked)} /><span>{nodeName(id)}<small>当前不能作为普通节点授权，请取消选择。</small></span></label>)}{!nodes.length && <p>请先创建代理节点。</p>}</fieldset>
+        <fieldset className="group-choices"><legend>通过入口连接的链路</legend>{chains.map(c => <label className="group-choice" key={`chain:${c.id}`}><input name="chain_ids" type="checkbox" value={c.id} checked={editor.chainIds.includes(c.id)} onChange={event => choose('chainIds', c.id, event.target.checked)} disabled={!c.available && !editor.chainIds.includes(c.id)} /><span>{c.name}<small>{c.description}{!c.available && '（已不可用，请取消选择）'}</small></span></label>)}{invalidChains.filter(id => !chains.some(chain => chain.id === id)).map(id => <label className="group-choice" key={`unavailable-${id}`}><input name="chain_ids" type="checkbox" value={id} checked onChange={event => choose('chainIds', id, event.target.checked)} /><span>链路 #{id}<small>当前不可用，请取消选择。</small></span></label>)}{!chains.length && <p>尚未创建链路，可先只选择节点，或<a className="text-button" href="#/plugins/sing-box/nodes?kind=chains">创建链路</a>。</p>}</fieldset>
         {editor.value && <p className="helper">保存后会更新此组的 {editor.value.member_count} 位用户。新增授权等待设备应用，撤销授权同时移出订阅。</p>}
       </>}
       {editor.kind === 'package-groups' && <PackageFields value={editor.value} />}

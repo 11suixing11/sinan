@@ -32,8 +32,8 @@ def module(name, path):
 
 
 policy = module('access_policy_test', PLUGIN / 'access-policy.py')
-helper = module('access_helper_test', PLUGIN / 'source-helper.py')
-browser = module('access_browser_test', ROOT / 'tools/test-nodequality-browser-policy.py')
+helper = module('access_helper_test', PLUGIN / 'native-source-helper.py')
+browser = module('access_browser_test', ROOT / 'tools/test-nodequality-native-browser-policy.py')
 
 PRELUDE = r'''
 declare -A ipregistry dbip disney youtube smedia
@@ -535,7 +535,7 @@ class AccessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as name:
             path = Path(name) / 'access-policy.py'
             content = (PLUGIN / path.name).read_bytes()
-            with mock.patch.object(helper, '__file__', str(path.with_name('source-helper.py'))):
+            with mock.patch.object(helper, '__file__', str(path.with_name('native-source-helper.py'))):
                 path.write_bytes(content)
                 self.assertIn('transform', helper.access_policy())
                 for invalid in (content + b'!', b'x' * 65537):

@@ -34,6 +34,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from managed_paths_support import OwnedProcess
+
 MAX_FILE = 2 * 1024 * 1024
 MAX_OUTPUT = 256 * 1024
 MAX_ROWS = 4096
@@ -87,7 +89,7 @@ def load_json(path):
 
 
 def capture(command, timeout=10, private_log=None):
-    process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    process = OwnedProcess(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     buffers, overflow, total, lock = [bytearray(), bytearray()], threading.Event(), [0], threading.Lock()
     def drain(stream, index):
         for block in iter(lambda: stream.read(4096), b""):
@@ -97,8 +99,6 @@ def capture(command, timeout=10, private_log=None):
                 total[0] += len(block)
                 if total[0] > MAX_OUTPUT:
                     overflow.set()
-                    with contextlib.suppress(ProcessLookupError):
-                        os.killpg(process.pid, signal.SIGKILL)
                     break
     readers = [threading.Thread(target=drain, args=(stream, index), daemon=True) for index, stream in enumerate((process.stdout, process.stderr))]
     for reader in readers:
@@ -114,10 +114,7 @@ def capture(command, timeout=10, private_log=None):
         require(process.returncode == 0, "controlled_command_failed")
         return bytes(buffers[0])
     finally:
-        if process.poll() is None:
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGKILL)
-            process.wait(timeout=3)
+        process.stop_group()
         for reader in readers:
             reader.join(timeout=1)
         for stream in (process.stdout, process.stderr):
@@ -287,7 +284,7 @@ class NativeProcess:
         self.overflow = False
         self.log = open(log_path, "xb")
         try:
-            self.process = subprocess.Popen([str(binary), "run", "-c", str(config)], env=env, stdin=subprocess.DEVNULL,
+            self.process = OwnedProcess([str(binary), "run", "-c", str(config)], env=env, stdin=subprocess.DEVNULL,
                                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True)
         except Exception:
             self.log.close()
@@ -306,32 +303,12 @@ class NativeProcess:
         self.log.flush()
 
     def stop(self):
-        # The process group was created exclusively by this child. Terminate
-        # it even if its leader exited, so inherited pipes cannot leave an
-        # owned descendant behind. Never enumerate or terminate other groups.
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(self.process.pid, signal.SIGTERM)
-        if self.process.poll() is None:
-            try:
-                self.process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                with contextlib.suppress(ProcessLookupError):
-                    os.killpg(self.process.pid, signal.SIGKILL)
-                self.process.wait(timeout=2)
+        self.process.stop_group()
         self.reader.join(timeout=1)
-        if self.reader.is_alive():
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(self.process.pid, signal.SIGKILL)
-            self.reader.join(timeout=1)
         require(not self.reader.is_alive(), "native_log_reader_cleanup_timeout")
         self.process.stderr.close()
         if not self.log.closed:
             self.log.close()
-        try:
-            os.killpg(self.process.pid, 0)
-        except ProcessLookupError:
-            return
-        raise Rejected("native_process_group_cleanup_not_confirmed")
 
 
 def wait_port(port, process):
