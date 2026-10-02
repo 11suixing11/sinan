@@ -8,11 +8,13 @@ from pathlib import Path
 import select
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,32 +24,94 @@ WAIT_SECONDS = 6
 
 
 def private_json(path, value):
-    with path.open("x", encoding="utf-8") as stream:
-        os.chmod(path, 0o600)
-        json.dump(value, stream)
-        stream.flush()
-        os.fsync(stream.fileno())
+    descriptor, temporary = tempfile.mkstemp(prefix="." + path.name + ".", dir=path.parent)
+    temporary = Path(temporary)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(value, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Publish complete readiness/evidence bytes without replacing old evidence.
+        os.link(temporary, path)
+    finally:
+        temporary.unlink()
 
 
-def pid_identity(pid):
-    """Bind an orphan's start time, unique fixture argv, group and session."""
-    result = subprocess.run(["/bin/ps", "-ww", "-o", "stat=,lstart=,command=", "-p", str(pid)],
+def pid_observation(pid):
+    """Observe the owned child's parent and exact command before binding it."""
+    result = subprocess.run(["/bin/ps", "-ww", "-o", "ppid=,stat=,lstart=,command=", "-p", str(pid)],
                             stdin=subprocess.DEVNULL, capture_output=True, timeout=2,
                             env={"PATH": "/usr/bin:/bin", "LANG": "C"})
     if len(result.stdout) + len(result.stderr) > 16384:
         raise RuntimeError("owned PID observation exceeded its output budget")
     if result.returncode not in (0, 1):
         raise RuntimeError("owned PID observation failed")
-    fields = result.stdout.decode("utf-8", errors="strict").split(None, 6)
+    fields = result.stdout.decode("utf-8", errors="strict").split(None, 7)
     # An orphan zombie has exited; this test cannot reap another PID's child.
-    if not fields or fields[0].startswith("Z"):
+    if not fields or len(fields) >= 2 and fields[1].startswith("Z"):
         return None
-    if len(fields) != 7:
+    if len(fields) != 8 or not fields[0].isdigit():
         raise RuntimeError("owned PID observation has an invalid shape")
     try:
-        return (" ".join(fields[1:6]), fields[6].strip(), os.getpgid(pid), os.getsid(pid))
+        return {"parent_pid": int(fields[0]), "state": fields[1],
+                "identity": (" ".join(fields[2:7]), fields[7].strip(), os.getpgid(pid), os.getsid(pid))}
     except ProcessLookupError:
         return None
+
+
+def pid_identity(pid):
+    """Orphan liveness keeps start/argv/group identity as its parent changes."""
+    observed = pid_observation(pid)
+    return None if observed is None else observed["identity"]
+
+
+def directory_identity(path):
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode):
+        raise RuntimeError("owned readiness directory is not ordinary")
+    return info.st_dev, info.st_ino
+
+
+def readiness_probe(row, expected_command, workspace, directory_ids):
+    samples = row["readiness_samples"]
+    if len(samples) >= 64:
+        raise RuntimeError("owned readiness identity sample limit exceeded")
+    observed = pid_observation(row["watcher_pid"])
+    sample = {"elapsed_monotonic": time.monotonic() - row["readiness_started"],
+              "observation": observed, "reason": "pending"}
+    samples.append(sample)
+    try:
+        if row["process"].poll() is not None:
+            raise RuntimeError("actual direct owner exited before watcher readiness")
+        if observed is None or (row["directory"] / "watcher-exit.json").exists():
+            raise RuntimeError("owned watcher exited before readiness")
+        if (observed["parent_pid"] != row["process"].pid
+                or observed["identity"][2:] != (row["process"].pid, row["process"].pid)):
+            raise RuntimeError("owned watcher parent, group or session differs")
+        if tuple(directory_identity(path) for path in (workspace, workspace / ".runner")) != directory_ids:
+            raise RuntimeError("private watcher readiness directory identity changed")
+        if observed["identity"][1] != expected_command:
+            sample["reason"] = "awaiting_exact_report_exec"
+            return False
+        snapshot = workspace / "section-header_info.json"
+        if not snapshot.exists():
+            sample["reason"] = "awaiting_this_run_snapshot"
+            return False
+        info = snapshot.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_LOG:
+            raise RuntimeError("fresh watcher snapshot is not a bounded ordinary file")
+        value = json.loads(snapshot.read_bytes())
+        if (not isinstance(value, dict) or value.get("name") != "header_info" or value.get("text") != "TEST_ONLY header snapshot"
+                or type(value.get("revision")) is not int or value["revision"] != 1
+                or value.get("complete") is not True):
+            raise RuntimeError("fresh watcher startup snapshot differs from this run")
+        sample["snapshot"] = value
+        sample["reason"] = "exact_report_exec_parent_and_fresh_snapshot"
+        row["watcher_identity"] = observed["identity"]
+        return True
+    except BaseException as error:
+        sample["reason"] = str(error)
+        raise
 
 
 def pid_live(pid):
@@ -217,6 +281,9 @@ class WatcherLifecycle(unittest.TestCase):
         return workspace, results
 
     def start_owner(self, workspace, ignored_signals=False):
+        snapshot = workspace / "section-header_info.json"
+        self.assertFalse(snapshot.exists() or snapshot.is_symlink(), self.diagnostics())
+        directory_ids = tuple(directory_identity(path) for path in (workspace, workspace / ".runner"))
         directory = self.evidence / ("owner-" + str(len(self.groups)))
         directory.mkdir(mode=0o700)
         stdout, stderr = directory / "owner.stdout", directory / "owner.stderr"
@@ -228,18 +295,24 @@ class WatcherLifecycle(unittest.TestCase):
         process = subprocess.Popen([sys.executable, "-B", str(Path(__file__).resolve()), "--owner",
             str(workspace), str(directory), "ignore" if ignored_signals else "normal"],
             stdin=subprocess.PIPE, stdout=self.handles[-2], stderr=self.handles[-1], start_new_session=True)
-        row = {"process": process, "watcher_pid": None, "watcher_identity": None, "directory": directory}
+        row = {"process": process, "watcher_pid": None, "watcher_identity": None, "directory": directory,
+               "readiness_samples": [], "readiness_started": time.monotonic()}
         self.groups.append(row)
         ready = directory / "owner-ready.json"
         self.wait_for(lambda: ready.exists(), "actual direct owner did not start")
         identity = json.loads(ready.read_bytes())
         self.assertEqual(identity["owner_pid"], process.pid)
         row["watcher_pid"] = identity["watcher_pid"]
-        row["watcher_identity"] = pid_identity(row["watcher_pid"])
-        self.assertIsNotNone(row["watcher_identity"], self.diagnostics())
-        self.assertEqual(row["watcher_identity"][2:], (process.pid, process.pid))
         self.logs.extend((directory / "watcher.stdout", directory / "watcher.stderr"))
-        self.wait_for(lambda: (workspace / "section-header_info.json").exists(), "watcher did not publish a real snapshot")
+        expected = " ".join((sys.executable, "-B", str(REPORT), "watch-sections", str(workspace), str(process.pid)))
+        try:
+            self.wait_for(lambda: readiness_probe(row, expected, workspace, directory_ids),
+                          "watcher did not complete exact exec and fresh snapshot readiness")
+        finally:
+            private_json(directory / "readiness-observations.json", {"expected_command": expected,
+                "owner_pid": process.pid, "watcher_pid": row["watcher_pid"],
+                "directory_identities": directory_ids, "samples": row["readiness_samples"],
+                "bound_identity": row["watcher_identity"]})
         self.assertIsNone(process.poll(), self.diagnostics())
         self.assertTrue(watcher_live(row), self.diagnostics())
         self.assert_sentinel()
@@ -368,6 +441,77 @@ class WatcherLifecycle(unittest.TestCase):
         row["process"].wait(timeout=2)
         self.assert_watcher_exits(row)
         self.assertEqual((workspace / "section-hardware_quality.json").read_bytes(), historical)
+
+
+class ReadinessContracts(unittest.TestCase):
+    def fixture(self, root):
+        workspace, evidence = root / 'workspace', root / 'evidence'
+        workspace.mkdir()
+        (workspace / '.runner').mkdir()
+        evidence.mkdir()
+        process = mock.Mock(pid=1234)
+        process.poll.return_value = None
+        row = {'process': process, 'watcher_pid': 1235, 'watcher_identity': None,
+               'directory': evidence, 'readiness_samples': [], 'readiness_started': time.monotonic()}
+        identities = tuple(directory_identity(path) for path in (workspace, workspace / '.runner'))
+        command = ' '.join((sys.executable, '-B', str(REPORT), 'watch-sections', str(workspace), '1234'))
+        observed = {'parent_pid': 1234, 'state': 'S', 'identity': ('TEST_ONLY start', command, 1234, 1234)}
+        return workspace, row, identities, command, observed
+
+    def snapshot(self, workspace, revision=1):
+        private_json(workspace / 'section-header_info.json', {'name': 'header_info',
+            'text': 'TEST_ONLY header snapshot', 'complete': True, 'revision': revision, 'collected_at': 1})
+
+    def test_preexec_identity_is_not_bound_until_exact_exec_and_fresh_snapshot(self):
+        with tempfile.TemporaryDirectory(prefix='sinan-watcher-ready-contract-') as name:
+            workspace, row, ids, command, observed = self.fixture(Path(name))
+            preexec = dict(observed, identity=('TEST_ONLY start', 'TEST_ONLY inherited owner argv', 1234, 1234))
+            with mock.patch(__name__ + '.pid_observation', side_effect=(preexec, observed, observed)):
+                self.assertFalse(readiness_probe(row, command, workspace, ids))
+                self.assertIsNone(row['watcher_identity'])
+                self.assertFalse(readiness_probe(row, command, workspace, ids))
+                self.assertIsNone(row['watcher_identity'])
+                self.snapshot(workspace)
+                self.assertTrue(readiness_probe(row, command, workspace, ids))
+            self.assertEqual(row['watcher_identity'], observed['identity'])
+            self.assertEqual([sample['reason'] for sample in row['readiness_samples']],
+                ['awaiting_exact_report_exec', 'awaiting_this_run_snapshot', 'exact_report_exec_parent_and_fresh_snapshot'])
+
+    def test_exited_child_foreign_parent_and_changed_private_runtime_never_become_ready(self):
+        for case in ('owner_exit', 'watcher_exit', 'exit_receipt', 'foreign_parent', 'foreign_group', 'changed_runtime'):
+            with self.subTest(case=case), tempfile.TemporaryDirectory(prefix='sinan-watcher-ready-refusal-') as name:
+                workspace, row, ids, command, observed = self.fixture(Path(name))
+                self.snapshot(workspace)
+                if case == 'owner_exit':
+                    row['process'].poll.return_value = 7
+                elif case == 'watcher_exit':
+                    observed = None
+                elif case == 'exit_receipt':
+                    private_json(row['directory'] / 'watcher-exit.json', {'returncode': 0})
+                elif case == 'foreign_parent':
+                    observed = dict(observed, parent_pid=5678)
+                elif case == 'foreign_group':
+                    observed = dict(observed, identity=('TEST_ONLY start', command, 5678, 5678))
+                else:
+                    (workspace / '.runner').rename(workspace / '.runner-retained')
+                    (workspace / '.runner').mkdir()
+                with mock.patch(__name__ + '.pid_observation', return_value=observed), self.assertRaises(RuntimeError):
+                    readiness_probe(row, command, workspace, ids)
+                self.assertIsNone(row['watcher_identity'])
+                self.assertNotEqual(row['readiness_samples'][-1]['reason'], 'pending')
+
+    def test_historical_snapshot_and_sample_overflow_are_refused(self):
+        with tempfile.TemporaryDirectory(prefix='sinan-watcher-ready-bounds-') as name:
+            workspace, row, ids, command, observed = self.fixture(Path(name))
+            self.snapshot(workspace, revision=9)
+            with mock.patch(__name__ + '.pid_observation', return_value=observed):
+                with self.assertRaisesRegex(RuntimeError, 'snapshot differs'):
+                    readiness_probe(row, command, workspace, ids)
+            row['readiness_samples'] = [{}] * 64
+            with mock.patch(__name__ + '.pid_observation') as observe, self.assertRaisesRegex(RuntimeError, 'sample limit'):
+                readiness_probe(row, command, workspace, ids)
+            observe.assert_not_called()
+            self.assertIsNone(row['watcher_identity'])
 
 
 if __name__ == "__main__":
