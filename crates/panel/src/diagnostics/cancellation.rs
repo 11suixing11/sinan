@@ -45,7 +45,7 @@ pub async fn request(
             "任务已由设备完成，不能再请求取消".into(),
         ));
     }
-    let job: DiagnosticJob = serde_json::from_value(row.get("job")).map_err(anyhow::Error::from)?;
+    let job = saved_job(row.get("job"), id)?;
     if job.id != id {
         return Err(ApiError::Conflict("任务记录编号不一致，拒绝取消".into()));
     }
@@ -75,15 +75,12 @@ pub async fn pending(
     headers: HeaderMap,
 ) -> ApiResult<Json<Vec<DiagnosticCancelRequest>>> {
     let server_id = auth::require_agent(&state, &headers).await?;
-    let jobs: Vec<Value> = sqlx::query_scalar("SELECT job FROM diagnostic_jobs WHERE server_id=$1 AND status='cancel_requested' ORDER BY cancel_requested_at,id LIMIT 64")
+    let jobs: Vec<(Uuid, Value)> = sqlx::query_as("SELECT id,job FROM diagnostic_jobs WHERE server_id=$1 AND status='cancel_requested' ORDER BY cancel_requested_at,id LIMIT 64")
         .bind(server_id).fetch_all(&state.pool).await?;
     let requests = jobs
         .into_iter()
-        .map(|job| {
-            serde_json::from_value(job).map(|job| DiagnosticCancelRequest { server_id, job })
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(anyhow::Error::from)?;
+        .map(|(id, job)| saved_job(job, id).map(|job| DiagnosticCancelRequest { server_id, job }))
+        .collect::<ApiResult<Vec<_>>>()?;
     Ok(Json(requests))
 }
 
@@ -113,6 +110,10 @@ pub async fn record_result(
         validate_report(report)?;
     }
     let mut tx = state.pool.begin().await?;
+    let _: i64 = sqlx::query_scalar("SELECT id FROM servers WHERE id=$1 FOR UPDATE")
+        .bind(server_id)
+        .fetch_one(&mut *tx)
+        .await?;
     let row = sqlx::query(
         "SELECT status,job FROM diagnostic_jobs WHERE id=$1 AND server_id=$2 FOR UPDATE",
     )
@@ -124,7 +125,7 @@ pub async fn record_result(
     if let Some(report) = &result.report {
         super::service::validate_plugin_report(&row.get::<Value, _>("job"), report)?;
     }
-    let job: DiagnosticJob = serde_json::from_value(row.get("job")).map_err(anyhow::Error::from)?;
+    let job = saved_job(row.get("job"), result.id)?;
     if job.id != result.id || job.plugin != result.plugin {
         return Err(ApiError::BadRequest(
             "取消确认与已知任务或插件不一致".into(),

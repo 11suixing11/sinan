@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use serde_json::Value;
+use serde_json::{Value, json};
 use sqlx::{
     PgPool,
     migrate::{Migration, Migrator},
@@ -33,6 +33,24 @@ pub(super) async fn legacy_snapshot(pool: &PgPool) -> Result<BTreeMap<&'static s
         snapshot.insert(table, value);
     }
     Ok(snapshot)
+}
+
+pub(super) fn append_expected_server_defaults(
+    snapshot: &mut BTreeMap<&'static str, Value>,
+) -> Result<()> {
+    let servers = snapshot
+        .get_mut("servers")
+        .and_then(Value::as_array_mut)
+        .context("legacy servers")?;
+    // Extend only the expected legacy state; compare every actual column unchanged.
+    for server in servers {
+        server["asset_settings"] = json!({});
+        server["telemetry_settings"] = json!({"persist_interval_secs":60});
+        server["static_info_received_at"] = Value::Null;
+        server["probe_revision"] = json!(0);
+        server["probe_fingerprint"] = Value::Null;
+    }
+    Ok(())
 }
 
 #[sqlx::test(migrations = false)]
@@ -95,11 +113,7 @@ async fn failed_enablement_backfill_rolls_back_and_can_be_retried_idempotently(
 
     all.run(&pool).await?;
     // Later server columns add only their explicit legacy defaults.
-    for server in before.get_mut("servers").unwrap().as_array_mut().unwrap() {
-        server["asset_settings"] = serde_json::json!({});
-        server["telemetry_settings"] = serde_json::json!({"persist_interval_secs":60});
-        server["static_info_received_at"] = serde_json::Value::Null;
-    }
+    append_expected_server_defaults(&mut before)?;
     let enabled: (i64, String, bool) = sqlx::query_as(
         "SELECT server_id,source,enabled FROM server_plugins WHERE plugin='sing-box'",
     )

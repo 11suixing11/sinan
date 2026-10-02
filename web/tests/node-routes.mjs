@@ -27,7 +27,7 @@ try {
       if (path === '/api/dashboard/access') data = { authenticated:true, public_dashboard:false }
       else if (path === '/api/plugins/sing-box/servers') data = [1,2].map(id => ({ id, name:`服务器${id}`, enabled:true, online:true, agent_supported:true }))
       else if (path === '/api/plugins/sing-box/nodes') data = nodes
-      else if (path === '/api/plugins/sing-box/proxy-resources') data = nodes.map(node => ({ ...node, kind:'direct', server_name:`服务器${node.server_id}`, enabled:true, available:true, role:'direct', entry_node_id:null, tcp:true, udp:true, legacy:false, active_generation:null, pending_generation:null, minimum_generation:0, stage:'direct', last_error:null, reference_count:0 }))
+      else if (path === '/api/plugins/sing-box/proxy-resources') data = nodes.map(node => ({ ...node, kind:'direct', server_name:`服务器${node.server_id}`, enabled:true, available:true, role:'direct', entry_node_id:null, tcp:true, udp:true, legacy:false, active_generation:null, pending_generation:null, minimum_generation:0, stage:'direct', last_error:null, reference_count:0, entry_eligible:true }))
       else if (path === '/api/plugins/sing-box/subscription-sources') data = []
       else if (path === '/api/plugins/sing-box/usage') data = { total:'0', uplink:'0', downlink:'0', by_node:[], by_user:[] }
       else if (['policy-groups','package-groups','chains'].some(key => path === `/api/plugins/sing-box/${key}`)) data = []

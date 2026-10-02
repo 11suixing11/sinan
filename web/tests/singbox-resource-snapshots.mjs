@@ -26,7 +26,7 @@ try {
       page.on('pageerror', error => totals.errors.push(error.message))
       const hosts = [1, 2].map(id => ({ id, name: `TEST_ONLY 服务器 ${id}`, enabled: true, online: true, agent_supported: true, read_only: false }))
       const nodes = [1, 2].map(id => ({ id, name: `TEST_ONLY 节点 ${id}`, server_id: id, protocol: 'vless-reality', public_host: '127.0.0.1', port: 20000 + id, sni: 'localhost', enabled: true }))
-      const direct = node => ({ ...node, kind: 'direct', server_name: `TEST_ONLY 服务器 ${node.server_id}`, role: 'direct', available: true, tcp: true, udp: true, entry_node_id: null, stage: 'direct', active_generation: null, pending_generation: null, minimum_generation: 0, reference_count: 0, last_error: null, legacy: false })
+      const direct = node => ({ ...node, kind: 'direct', server_name: `TEST_ONLY 服务器 ${node.server_id}`, role: 'direct', available: true, tcp: true, udp: true, entry_node_id: null, stage: 'direct', active_generation: null, pending_generation: null, minimum_generation: 0, reference_count: 0, entry_eligible: true, last_error: null, legacy: false })
       const resources = nodes.map(direct); resources.push({ ...direct(nodes[0]), id: 7, kind: 'chain', name: 'TEST_ONLY 链路', role: 'chain_entry', entry_node_id: 1, stage: 'active', active_generation: 1 })
       const source = { id: 10, name: 'TEST_ONLY 来源', kind: 'inline', source_host: null, url_configured: false, authorization_configured: false, content_configured: true, settings_revision: 1, identity_epoch: 1, archived: false, current_revision_id: 100, refresh_interval_seconds: 86400, last_success_at: 1, supported_count: 1, unsupported_count: 0, dependency_ids: [], active_job_id: null }
       const sources = [source], writes = [], gates = new Map(), failures = new Set()
@@ -34,7 +34,7 @@ try {
       const status = { module: 'singbox', target_rev: 2, applied_rev: 2, last_result_rev: 2, healthy: true, last_error: null, updated_at: 1 }
       const operation = { supported: true, online: true, retiring: false, operations: [] }
       const detail = { resource: resources.at(-1), node: nodes[0], hops: [{ position: 0, kind: 'subscription', node_id: 101, server_id: null, source_id: 10, version_id: 201, update_mode: 'pinned', name: 'TEST_ONLY 外部段', protocol: 'trojan', server: '127.0.0.1', port: 443, present: true, latest_version_id: 202 }], versions: [{ generation: 1, stage: 'active', created_at: 1, last_error: null }] }
-      const control = { page, writes, hosts, sources, status,
+      const control = { page, writes, hosts, sources, status, tasks,
         hold(path) { let release; const promise = new Promise(resolve => { release = resolve }); const gate = { promise, release, reached: 0 }; gates.set(path, gate); return gate },
         fail(path) { failures.add(path); gates.get(path)?.release(); gates.delete(path) },
         recover(path) { failures.delete(path); gates.get(path)?.release(); gates.delete(path) },
@@ -155,6 +155,34 @@ try {
       const dialog = page.getByRole('dialog'); await dialog.getByLabel('任务名称').fill('TEST_ONLY 周期草稿')
       await block(control, '/api/latency-tasks', () => nodesRefresh(page), () => forceForm(dialog.locator('form')), () => dialog.getByRole('button', { name: '保存任务', exact: true }).click(), async () => assert.equal(await dialog.getByLabel('任务名称').inputValue(), 'TEST_ONLY 周期草稿'))
       assert.equal(writes[0].body.revision, 1); assert.equal(writes[0].body.spec.enabled, false)
+    })
+    await fixture('/latency', async ({ page, writes, tasks }) => {
+      const row = page.getByRole('row').filter({ hasText: 'TEST_ONLY 周期任务' })
+      await wait(() => row.getByRole('button', { name: '编辑', exact: true }).isEnabled(), 'Initial task revision')
+      delete tasks[0].revision
+      const read = page.waitForResponse(response => new URL(response.url()).pathname === '/api/latency-tasks' && response.request().method() === 'GET')
+      await nodesRefresh(page); await read
+      for (const label of ['编辑', '启用', '删除']) {
+        const button = row.getByRole('button', { name: label, exact: true })
+        await wait(() => button.isDisabled(), 'Missing task revisions fail closed')
+        await forceClick(button); ++totals.blocked
+      }
+      assert.equal(await page.getByRole('dialog').count(), 0); assert.equal(writes.length, 0)
+      tasks[0].revision = 1
+      const restored = page.waitForResponse(response => new URL(response.url()).pathname === '/api/latency-tasks' && response.request().method() === 'GET')
+      await nodesRefresh(page); await restored
+      await row.getByRole('button', { name: '编辑', exact: true }).click()
+      const dialog = page.getByRole('dialog'); await dialog.getByLabel('任务名称').fill('TEST_ONLY 原修订草稿')
+      tasks[0].revision = 2
+      await nodesRefresh(page)
+      await dialog.getByText('此任务已不存在或已改变，请重新确认；当前草稿已保留。', { exact: true }).waitFor()
+      await forceForm(dialog.locator('form')); assert.equal(writes.length, 0); ++totals.blocked
+      assert.equal(await dialog.getByLabel('任务名称').inputValue(), 'TEST_ONLY 原修订草稿')
+      await dialog.getByRole('button', { name: '取消', exact: true }).click()
+      await row.getByRole('button', { name: '编辑', exact: true }).click()
+      await page.getByRole('dialog').getByRole('button', { name: '保存任务', exact: true }).click()
+      await wait(() => writes.length === 1, 'Explicit current revision selection permits one write'); ++totals.recovered
+      assert.equal(writes[0].body.revision, 2)
     })
     await fixture('/system/plugins', async control => {
       const { page, hosts } = control; hosts[0].enabled = false

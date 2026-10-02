@@ -2,12 +2,13 @@ import { useState } from 'react'
 import { api } from '../api'
 import { Badge, ErrorNotice, Loading } from '../components'
 import { time } from '../format'
-import { useAction, useResource } from '../hooks'
+import { resourceWriteError, useAction, useResource } from '../hooks'
+import { diagnosticActive, diagnosticCancellable, diagnosticCancelError, diagnosticUnconfirmed } from '../diagnostics'
 import type { DiagnosticRecord, DiagnosticView, TcpQualityTarget } from '../types'
 import DiagnosticSections from './DiagnosticSections'
 
 const regions = [{ value: 'configured', label: '全部已配置目标' }, { value: 'east_asia', label: '东亚' }, { value: 'southeast_asia', label: '东南亚' }, { value: 'europe', label: '欧洲' }, { value: 'americas', label: '美洲' }, { value: 'other', label: '其他地区' }]
-const statuses = { queued: '等待设备领取', running: '设备正在测试', cancel_requested: '等待设备确认取消', cancelled: '设备已确认取消', succeeded: '测试已完成', failed: '测试失败' }
+const statuses = { queued: '等待设备领取', running: '设备正在测试', cleaning: '等待设备确认清理', cancel_requested: '等待设备确认取消', cancelled: '设备已确认取消', succeeded: '测试已完成', failed: '测试失败' }
 const regionLabel = (value?: string | null) => regions.find(region => region.value === value)?.label ?? '地区未知'
 const numeric = (value: unknown, unit = '') => typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)}${unit}` : '未知'
 function object(value: unknown): Record<string, unknown> {
@@ -32,20 +33,22 @@ function targetResults(record: DiagnosticRecord) {
   return results
 }
 
-function Report({ record, serverId, cancelSupported, reload }: { record: DiagnosticRecord; serverId: number; cancelSupported: boolean; reload: () => void }) {
+function Report({ record, serverId, cancelSupported, writeError, reload }: { record: DiagnosticRecord; serverId: number; cancelSupported: boolean; writeError: (id: string) => string; reload: () => void }) {
   const cancel = useAction()
   const copy = useAction()
   const metadata = record.job.tcpquality
   const report = parsed(record.report?.text)
   const engine = object(report.engine)
   const results = targetResults(record)
-  const canCancel = !record.agent_completed && record.status !== 'cancelled' && record.status !== 'cancel_requested'
+  const canCancel = diagnosticCancellable(record)
   return <article className="quality-report">
     <div className="quality-report-heading"><Badge tone={record.status === 'succeeded' ? 'good' : record.status === 'failed' ? 'bad' : 'warm'}>{statuses[record.status]}</Badge><span className="subtle">{time(record.created_at)} · IPv{record.job.options.ip_version} · 每目标 {record.job.options.count ?? '未知'} 次 · {record.job.options.concurrency ?? '未知'} 并发 · {regionLabel(metadata?.region)}</span></div>
     <p className="helper">工具版本：{record.job.version ?? '未知'}。{typeof engine.source_commit === 'string' && `执行源码：${engine.source_commit}。`}此结果只代表本次目标和参数下的 TCP 连接，不进行排名。</p>
     <p className="helper">开始时间：{typeof report.started_at_ms === 'number' ? time(report.started_at_ms / 1000) : '等待设备回报'} · 结束时间：{typeof report.finished_at_ms === 'number' ? time(report.finished_at_ms / 1000) : '尚未回报'}。缺失或未执行的指标显示未知。</p>
+    {record.status === 'cleaning' && <p className="helper">测试执行已停止或正在停止，等待设备确认进程、排队任务和挂载已清理。已有报告仍可查看；断连或 Agent 重启后继续清理，确认前不能开始下一项诊断。</p>}
+    {['failed', 'succeeded'].includes(record.status) && diagnosticUnconfirmed(record) && <p className="helper">已有执行结果尚未取得设备停止与清理确认，仍占用诊断位置。报告保留，可请求取消；确认清理完成前不能开始下一项诊断。</p>}
     {record.status === 'cancel_requested' && <p className="notice">等待设备确认取消。Agent 断连或重启后继续处理；确认清理完成前，此服务器不能开始下一项诊断。</p>}
-    {canCancel && <button className="button button-secondary" disabled={!cancelSupported || cancel.busy} onClick={() => void cancel.run(() => api(`/api/servers/${serverId}/diagnostics/${record.id}/cancel`, 'POST'), reload)}>{cancel.busy ? '提交取消请求…' : '请求取消测试'}</button>}
+    {canCancel && <button className="button button-secondary" disabled={cancel.busy || Boolean(writeError(record.id))} onClick={() => { if (writeError(record.id)) return; void cancel.run(() => api(`/api/servers/${serverId}/diagnostics/${record.id}/cancel`, 'POST'), reload) }}>{cancel.busy ? '提交取消请求…' : '请求取消测试'}</button>}
     {canCancel && !cancelSupported && <p className="helper">此 Agent 尚不支持确认式取消，请先升级。</p>}
     <ErrorNotice message={cancel.error} />
     {record.cancel_error && <div className="notice">{record.cancel_error}</div>}
@@ -72,11 +75,21 @@ export default function TcpQuality({ serverId }: { serverId: number }) {
   const [concurrency, setConcurrency] = useState(1)
   const data = diagnostics.data
   const readiness = diagnostics.error ? undefined : data?.plugins.find(plugin => plugin.plugin === 'tcpquality')
-  const active = data?.reports.some(record => ['queued', 'running', 'cancel_requested'].includes(record.status))
+  const active = data?.reports.some(diagnosticActive)
   const currentTargets = targets.error ? undefined : targets.data
   const selected = currentTargets?.filter(target => region === 'configured' || target.region === region)
   const reports = data?.reports.filter(record => record.job.plugin === 'tcpquality') ?? []
-  const submit = () => void run.run(() => api<DiagnosticRecord>(`/api/servers/${serverId}/diagnostics/tcpquality`, 'POST', { region, ip_version: ipVersion, count, concurrency }), diagnostics.reload)
+  const cancelError = (id: string) => resourceWriteError(diagnostics) || diagnosticCancelError(diagnostics.getCurrent(), id)
+  const createError = () => {
+    const stale = resourceWriteError(diagnostics, targets)
+    if (stale) return stale
+    const current = diagnostics.getCurrent()!, readiness = current.plugins.find(plugin => plugin.plugin === 'tcpquality')
+    if (!readiness?.ready) return readiness?.reason || '当前设备尚不能执行 TCP 诊断，请刷新后确认。'
+    if (current.reports.some(diagnosticActive)) return '此服务器已有诊断任务或正在等待设备确认清理，请等待设备完成。'
+    const selected = targets.getCurrent()?.filter(target => region === 'configured' || target.region === region)
+    return !selected?.length || selected.length > 8 ? '请确认本次选择包含 1 至 8 个已配置目标。' : ''
+  }
+  const submit = () => void run.run(() => { const error = createError(); if (error) throw new Error(error); return api<DiagnosticRecord>(`/api/servers/${serverId}/diagnostics/tcpquality`, 'POST', { region, ip_version: ipVersion, count, concurrency }) }, diagnostics.reload)
   return <section className="panel"><div className="panel-heading"><h2>TCP 连接诊断</h2></div><div className="panel-body quality-body tcp-quality-body">
     <ErrorNotice message={diagnostics.error || targets.error || run.error || configure.error} retry={() => { diagnostics.reload(); targets.reload() }} />
     {!data ? diagnostics.loading && <Loading /> : <>
@@ -89,13 +102,13 @@ export default function TcpQuality({ serverId }: { serverId: number }) {
         <label>IP 版本<select aria-label="IP 版本" value={ipVersion} onChange={event => setIpVersion(event.target.value)} disabled={run.busy || active}><option value="4">IPv4</option><option value="6">IPv6</option></select></label>
         <label>每目标连接次数<select aria-label="每目标连接次数" value={count} onChange={event => setCount(Number(event.target.value))} disabled={run.busy || active}><option value={4}>4 次</option><option value={8}>8 次</option></select></label>
         <label>最大并发<select aria-label="最大并发" value={concurrency} onChange={event => setConcurrency(Number(event.target.value))} disabled={run.busy || active}><option value={1}>1</option><option value={2}>2</option></select></label>
-        <button className="button button-primary" disabled={!readiness?.ready || run.busy || active || configure.busy || targets.loading || !!targets.error || !selected?.length || selected.length > 8} onClick={submit}>{run.busy ? '创建任务…' : '开始 TCP 诊断'}</button>
+        <button className="button button-primary" disabled={Boolean(createError()) || run.busy || configure.busy} onClick={submit}>{run.busy ? '创建任务…' : '开始 TCP 诊断'}</button>
       </div>
       <p className="helper">{selected ? `本次将冻结 ${selected.length} 个目标` : '尚未取得目标列表，本次目标数未知'}；单次允许 1 至 8 个。IPv4/IPv6 不可解析或连接失败会保留原因。不同目标、地区或参数的结果不做横向排名。</p>
       <details><summary>配置目标地区</summary><p className="helper">地区由管理员标注，不根据 IP 推断。仅使用自有或获准使用的目标；在服务器概况的拨测配置中添加、停用或修改目标。</p>
         {!currentTargets ? <p className="helper">尚未取得已启用的 TCP 拨测目标，当前目标配置未知。</p> : !currentTargets.length ? <p className="helper">没有已启用的 TCP 拨测目标。</p> : <div className="table-wrap"><table><thead><tr><th>目标</th><th>运营商</th><th>地区</th></tr></thead><tbody>{currentTargets.map(target => <tr key={target.id}><td>{target.name}<small className="helper break-all">{target.target}:{target.port}</small></td><td>{target.carrier || '未知'}</td><td><select aria-label={`${target.name}地区`} value={target.region ?? ''} disabled={configure.busy} onChange={event => void configure.run(() => api(`/api/plugins/tcpquality/servers/${serverId}/targets/${target.id}`, 'PATCH', { region: event.target.value || null }), targets.reload)}><option value="">地区未知</option>{regions.filter(region => region.value !== 'configured').map(region => <option key={region.value} value={region.value}>{region.label}</option>)}</select></td></tr>)}</tbody></table></div>}
       </details>
-      <div className="quality-history"><h3>最近 TCP 报告</h3>{reports.length ? reports.map(record => <Report key={record.id} record={record} serverId={serverId} cancelSupported={data.cancel_supported} reload={diagnostics.reload} />) : <p className="helper">尚无 TCP 诊断报告。</p>}</div>
+      <div className="quality-history"><h3>最近 TCP 报告</h3>{reports.length ? reports.map(record => <Report key={record.id} record={record} serverId={serverId} cancelSupported={data.cancel_supported} writeError={cancelError} reload={diagnostics.reload} />) : <p className="helper">尚无 TCP 诊断报告。</p>}</div>
     </>}
   </div></section>
 }

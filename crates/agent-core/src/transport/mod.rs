@@ -173,6 +173,7 @@ pub async fn run_with_diagnostics(
         capabilities.push(sinan_protocol::RUNTIME_OPERATIONS_CAPABILITY.into());
     }
     capabilities.push(sinan_protocol::RETIREMENT_CAPABILITY.into());
+    capabilities.push(sinan_protocol::PROBE_LEASE_CAPABILITY.into());
     capabilities.push(sinan_protocol::release::ARTIFACT_SIGNATURE_CAPABILITY.into());
     capabilities.extend(
         [
@@ -212,6 +213,7 @@ pub async fn run_with_diagnostics(
     let (outgoing_tx, mut outgoing_rx) = mpsc::channel(64);
     let cancellation = if !diagnostics.is_empty() && services.supports_confirmed_cancellation() {
         capabilities.push(sinan_protocol::DIAGNOSTIC_CANCEL_CAPABILITY.into());
+        capabilities.push(sinan_protocol::DIAGNOSTIC_COMPLETION_CAPABILITY.into());
         Some(Arc::new(
             diagnostics::cancellation::CancellationControl::new(
                 state.clone(),
@@ -251,6 +253,7 @@ pub async fn run_with_diagnostics(
         agent_version,
     ));
     tasks.spawn(crate::tasks::run(
+        identity.server_id,
         config.allow_remote_commands,
         state.clone(),
         privileged.clone(),

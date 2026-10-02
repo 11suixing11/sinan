@@ -78,7 +78,7 @@ async fn new_full_is_denied_on_both_routes_but_daily_remains_ready(pool: PgPool)
 }
 
 #[sqlx::test(migrations = "./migrations")]
-async fn queued_full_is_failed_without_finalizing_a_device_or_blocking_daily(
+async fn queued_full_is_failed_without_finalizing_a_device_and_blocks_until_confirmed(
     pool: PgPool,
 ) -> Result<()> {
     let panel = TestPanel::start(pool).await?;
@@ -104,7 +104,10 @@ async fn queued_full_is_failed_without_finalizing_a_device_or_blocking_daily(
         "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r15",
         "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r16",
         "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r17",
-        diagnostics::PLUGIN_VERSION,
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r18",
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r19",
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r20",
+        "a92fca6c0067df29ddd03fdc2fee6f3000f64545-r21",
     ] {
         ids.push(saved_full(&panel, server, version, "queued").await?);
         if ids.len() == 1 {
@@ -190,6 +193,37 @@ async fn queued_full_is_failed_without_finalizing_a_device_or_blocking_daily(
             .await?,
         "succeeded"
     );
+    assert_eq!(
+        panel
+            .admin(
+                Method::POST,
+                &format!("/api/servers/{server}/node-quality/reports"),
+                &cookie,
+                Some(json!({"mode":"daily"}))
+            )
+            .await?
+            .status(),
+        StatusCode::CONFLICT
+    );
+    // Every remaining pre-gate device task still needs an actual terminal
+    // acknowledgement; rejecting its panel queue never proves cleanup.
+    for id in ids.iter().skip(1) {
+        let error: String = sqlx::query_scalar("SELECT error FROM diagnostic_jobs WHERE id=$1")
+            .bind(id)
+            .fetch_one(&panel.state.pool)
+            .await?;
+        assert_eq!(
+            update(
+                &panel,
+                &ack,
+                &id.to_string(),
+                json!({"id":id,"status":"failed","error":error})
+            )
+            .await?
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+    }
     assert_eq!(
         panel
             .admin(

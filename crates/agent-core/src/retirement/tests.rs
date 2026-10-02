@@ -340,6 +340,7 @@ async fn acknowledged_usage_is_preserved_while_keys_and_configuration_are_remove
             address_family: None,
             error: Some("TEST_ONLY_probe_error".into()),
             attempts: None,
+            execution: None,
         })?;
         state.save_telemetry(&sinan_protocol::TelemetrySample {
             id: Uuid::new_v4(),
@@ -503,8 +504,53 @@ struct DiagnosticServices {
     runtime: FakeServiceManager,
     job_running: AtomicBool,
     fail_stop: AtomicBool,
+    cleanup_confirmed: AtomicBool,
+    fail_cleanup: AtomicBool,
+    hang_cleanup: AtomicBool,
+    cleanup_supported: AtomicBool,
+    stopped_units: Mutex<Vec<String>>,
+    cleanup_targets: Mutex<Vec<(String, PathBuf)>>,
+}
+impl DiagnosticServices {
+    fn new(running: bool) -> Self {
+        Self {
+            runtime: FakeServiceManager::default(),
+            job_running: AtomicBool::new(running),
+            fail_stop: AtomicBool::new(false),
+            cleanup_confirmed: AtomicBool::new(true),
+            fail_cleanup: AtomicBool::new(false),
+            hang_cleanup: AtomicBool::new(false),
+            cleanup_supported: AtomicBool::new(true),
+            stopped_units: Mutex::new(Vec::new()),
+            cleanup_targets: Mutex::new(Vec::new()),
+        }
+    }
 }
 impl ServiceManager for DiagnosticServices {
+    fn supports_confirmed_cancellation(&self) -> bool {
+        self.cleanup_supported.load(Ordering::SeqCst)
+    }
+    fn diagnostic_cleanup_confirmed<'a>(
+        &'a self,
+        unit: &'a str,
+        directory: &'a Path,
+    ) -> BoxFuture<'a, bool> {
+        Box::pin(async move {
+            self.cleanup_targets
+                .lock()
+                .unwrap()
+                .push((unit.into(), directory.into()));
+            if self.hang_cleanup.load(Ordering::SeqCst) {
+                return std::future::pending().await;
+            }
+            ensure!(
+                !self.fail_cleanup.load(Ordering::SeqCst),
+                "injected diagnostic cleanup evidence failure"
+            );
+            Ok(self.cleanup_confirmed.load(Ordering::SeqCst)
+                && !self.job_running.load(Ordering::SeqCst))
+        })
+    }
     fn reload<'a>(&'a self, unit: &'a str) -> sinan_adapter_sdk::BoxFuture<'a, ()> {
         self.runtime.reload(unit)
     }
@@ -517,6 +563,7 @@ impl ServiceManager for DiagnosticServices {
     fn stop<'a>(&'a self, unit: &'a str) -> sinan_adapter_sdk::BoxFuture<'a, ()> {
         Box::pin(async move {
             if unit.starts_with("sinan-diagnostic-") {
+                self.stopped_units.lock().unwrap().push(unit.into());
                 ensure!(
                     !self.fail_stop.swap(false, Ordering::SeqCst),
                     "injected diagnostic stop failure"
@@ -573,11 +620,8 @@ async fn diagnostic_shutdown_failure_prevents_success_and_can_be_retried() -> Re
     fixture.state.lock().unwrap().set_json("diagnostics:active", &serde_json::json!({
         "Started": { "spec": spec, "service": service, "started_at": 0, "plugin": "test", "start_error": null, "expires_at": null }
     }))?;
-    let services = Arc::new(DiagnosticServices {
-        runtime: FakeServiceManager::default(),
-        job_running: AtomicBool::new(true),
-        fail_stop: AtomicBool::new(true),
-    });
+    let services = Arc::new(DiagnosticServices::new(true));
+    services.fail_stop.store(true, Ordering::SeqCst);
     let retirement = Retirement::new(
         fixture.config.clone(),
         fixture.state.clone(),
@@ -597,6 +641,264 @@ async fn diagnostic_shutdown_failure_prevents_success_and_can_be_retried() -> Re
     retirement.prepare().await?;
     assert!(!services.job_running.load(Ordering::SeqCst));
     retirement.complete(&fixture.identity).await?;
+    assert!(!fixture.config.identity_dir.join("device.key").exists());
+    Ok(())
+}
+
+fn saved_diagnostic(fixture: &Fixture, id: Uuid) -> serde_json::Value {
+    let directory = fixture
+        .config
+        .runtime_root
+        .join("diagnostics")
+        .join(id.to_string());
+    let binary = fixture.config.install_root.join("diagnostic/test/tool");
+    serde_json::json!({
+        "Started": {
+            "spec": {
+                "id": id.to_string(), "version": "test", "binary_path": binary,
+                "job_dir": directory, "timeout_secs": 60, "options": {}
+            },
+            "service": {
+                "unit": format!("sinan-diagnostic-{id}.service"), "program": binary,
+                "args": [], "working_directory": directory, "timeout_secs": 60
+            },
+            "started_at": 0, "plugin": "test", "start_error": null, "expires_at": null,
+            "terminal_update": {
+                "id": id, "status": "failed", "report": {"text": "retained original report"},
+                "error": "original diagnostic failure"
+            },
+            "cleanup_error": "waiting for proof"
+        }
+    })
+}
+
+#[tokio::test]
+async fn inactive_diagnostic_without_cleanup_proof_blocks_retirement_and_preserves_evidence()
+-> Result<()> {
+    for case in 0..4 {
+        let fixture = Fixture::new()?;
+        let id = Uuid::new_v4();
+        let saved = saved_diagnostic(&fixture, id);
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .set_json("diagnostics:active", &saved)?;
+        let services = Arc::new(DiagnosticServices::new(case == 3));
+        services
+            .cleanup_confirmed
+            .store(case != 0, Ordering::SeqCst);
+        services.fail_cleanup.store(case == 1, Ordering::SeqCst);
+        services.hang_cleanup.store(case == 2, Ordering::SeqCst);
+        services
+            .cleanup_supported
+            .store(case != 3, Ordering::SeqCst);
+        {
+            let first = Retirement::new(
+                fixture.config.clone(),
+                fixture.state.clone(),
+                vec![Arc::new(FakeAdapter::default())],
+                Arc::new(SystemOps),
+                services.clone(),
+            )?;
+            first.request(
+                &fixture.identity,
+                RetirementRequest {
+                    request_id: Uuid::new_v4(),
+                },
+            )?;
+            assert!(
+                tokio::time::timeout(Duration::from_secs(2), first.prepare())
+                    .await?
+                    .is_err(),
+                "case {case}"
+            );
+            assert_eq!(first.read()?.unwrap().phase, Phase::Requested);
+            assert!(first.complete(&fixture.identity).await.is_err());
+            assert!(first.deliver_receipt().await.is_err());
+            if case == 3 {
+                assert!(!services.job_running.load(Ordering::SeqCst));
+                assert_eq!(
+                    *services.stopped_units.lock().unwrap(),
+                    vec![format!("sinan-diagnostic-{id}.service")]
+                );
+                assert!(services.cleanup_targets.lock().unwrap().is_empty());
+            }
+            assert!(fixture.config.identity_dir.join("device.key").exists());
+            assert!(
+                fixture
+                    .config
+                    .runtime_root
+                    .join("demo@main/current")
+                    .exists()
+            );
+            assert_eq!(
+                fixture
+                    .state
+                    .lock()
+                    .unwrap()
+                    .get_json::<serde_json::Value>("diagnostics:active")?
+                    .unwrap(),
+                saved
+            );
+        }
+        services.cleanup_confirmed.store(true, Ordering::SeqCst);
+        services.fail_cleanup.store(false, Ordering::SeqCst);
+        services.hang_cleanup.store(false, Ordering::SeqCst);
+        services.cleanup_supported.store(true, Ordering::SeqCst);
+        let recovered = Retirement::new(
+            fixture.config.clone(),
+            fixture.state.clone(),
+            vec![Arc::new(FakeAdapter::default())],
+            Arc::new(SystemOps),
+            services.clone(),
+        )?;
+        recovered.prepare().await?;
+        assert_eq!(recovered.read()?.unwrap().phase, Phase::Stopped);
+        assert!(!services.job_running.load(Ordering::SeqCst));
+        assert!(
+            services
+                .cleanup_targets
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|(unit, directory)| {
+                    unit == &format!("sinan-diagnostic-{id}.service")
+                        && directory
+                            == &fixture
+                                .config
+                                .runtime_root
+                                .join("diagnostics")
+                                .join(id.to_string())
+                })
+        );
+        recovered.complete(&fixture.identity).await?;
+        assert!(!fixture.config.identity_dir.join("device.key").exists());
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn corrupted_diagnostic_target_cannot_stop_or_clear_an_unrelated_resource_during_retirement()
+-> Result<()> {
+    for case in 0..6 {
+        let fixture = Fixture::new()?;
+        let id = Uuid::new_v4();
+        let mut saved = saved_diagnostic(&fixture, id);
+        match case {
+            0 => saved["Started"]["service"]["unit"] = serde_json::json!("sshd.service"),
+            1 => {
+                saved["Started"]["service"]["working_directory"] =
+                    serde_json::json!(fixture.root.join("outside"))
+            }
+            2 => {
+                saved["Started"]["spec"]["job_dir"] =
+                    serde_json::json!(fixture.root.join("outside"))
+            }
+            3 => {
+                saved["Started"]["service"]["program"] =
+                    serde_json::json!(fixture.root.join("outside"))
+            }
+            4 => saved["Started"]["service"]["timeout_secs"] = serde_json::json!(61),
+            5 => {
+                let outside = serde_json::json!(fixture.root.join("outside"));
+                saved["Started"]["spec"]["binary_path"] = outside.clone();
+                saved["Started"]["service"]["program"] = outside;
+            }
+            _ => unreachable!(),
+        }
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .set_json("diagnostics:active", &saved)?;
+        let services = Arc::new(DiagnosticServices::new(true));
+        let retirement = Retirement::new(
+            fixture.config.clone(),
+            fixture.state.clone(),
+            vec![Arc::new(FakeAdapter::default())],
+            Arc::new(SystemOps),
+            services.clone(),
+        )?;
+        retirement.request(
+            &fixture.identity,
+            RetirementRequest {
+                request_id: Uuid::new_v4(),
+            },
+        )?;
+        assert!(retirement.prepare().await.is_err(), "case {case}");
+        assert!(
+            services.stopped_units.lock().unwrap().is_empty(),
+            "case {case}"
+        );
+        assert!(
+            services.cleanup_targets.lock().unwrap().is_empty(),
+            "case {case}"
+        );
+        assert!(services.job_running.load(Ordering::SeqCst));
+        assert!(fixture.config.identity_dir.join("device.key").exists());
+        assert!(
+            fixture
+                .config
+                .runtime_root
+                .join("demo@main/current")
+                .exists()
+        );
+        assert_eq!(retirement.read()?.unwrap().phase, Phase::Requested);
+        assert_eq!(
+            fixture
+                .state
+                .lock()
+                .unwrap()
+                .get_json::<serde_json::Value>("diagnostics:active")?
+                .unwrap(),
+            saved
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn diagnostic_cleanup_is_rechecked_before_retirement_deletes_credentials() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let id = Uuid::new_v4();
+    fixture
+        .state
+        .lock()
+        .unwrap()
+        .set_json("diagnostics:active", &saved_diagnostic(&fixture, id))?;
+    let services = Arc::new(DiagnosticServices::new(false));
+    let retirement = Retirement::new(
+        fixture.config.clone(),
+        fixture.state.clone(),
+        vec![Arc::new(FakeAdapter::default())],
+        Arc::new(SystemOps),
+        services.clone(),
+    )?;
+    retirement.request(
+        &fixture.identity,
+        RetirementRequest {
+            request_id: Uuid::new_v4(),
+        },
+    )?;
+    retirement.prepare().await?;
+    services.cleanup_confirmed.store(false, Ordering::SeqCst);
+    assert!(retirement.complete(&fixture.identity).await.is_err());
+    assert_eq!(retirement.read()?.unwrap().phase, Phase::Clearing);
+    assert!(fixture.config.identity_dir.join("device.key").exists());
+    assert!(
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .get_json::<serde_json::Value>("diagnostics:active")?
+            .is_some()
+    );
+    assert!(retirement.deliver_receipt().await.is_err());
+    services.cleanup_confirmed.store(true, Ordering::SeqCst);
+    // Local cleanup succeeds even while the panel cannot receive the receipt.
+    assert!(retirement.recover_completion().await.is_err());
+    assert_eq!(retirement.read()?.unwrap().phase, Phase::Completed);
     assert!(!fixture.config.identity_dir.join("device.key").exists());
     Ok(())
 }
@@ -829,6 +1131,7 @@ async fn requested_retirement_quiesces_task_update_and_telemetry_workers() -> Re
     let (_clients, receiver) = watch::channel(Some(client));
     let mut workers = JoinSet::new();
     workers.spawn(crate::tasks::run(
+        fixture.identity.server_id,
         true,
         fixture.state.clone(),
         Arc::new(SystemOps),

@@ -70,7 +70,7 @@ async fn missing_authorization_cannot_enable_and_legacy_executor_never_receives_
         .error_for_status()?
         .json()
         .await?;
-    assert_eq!(current[0]["enabled"], true);
+    assert_eq!(current[0]["enabled"], false);
     assert_eq!(
         current[0]["monitor"]["authorization"]["identity"]["target"],
         "probe.example.com"
@@ -98,7 +98,16 @@ async fn expiry_revocation_and_retargeting_preserve_history_and_discard_late_sam
         .await?;
     let id = spec["id"].as_str().unwrap().to_owned();
     let endpoint = format!("{}/api/agent/v1/probe-results", panel.base);
-    let sample = json!({"id":Uuid::new_v4(),"probe_id":id,"sampled_at":sinan_protocol::telemetry::now_millis(),"latency_ms":0.0,"loss_percent":0.0,"error":null,"address_family":"ipv4"});
+    let issued = probe_support::issued(
+        &panel.state.pool,
+        &panel.client,
+        &panel.base,
+        server,
+        &ack.session_token,
+    )
+    .await?;
+    let mut sample = json!({"id":Uuid::new_v4(),"probe_id":id,"sampled_at":sinan_protocol::telemetry::now_millis(),"latency_ms":0.0,"loss_percent":0.0,"error":null,"address_family":"ipv4"});
+    sample["execution"] = json!(probe_support::execution(&issued, Uuid::parse_str(&id)?)?);
     panel
         .client
         .post(&endpoint)
@@ -143,6 +152,11 @@ async fn expiry_revocation_and_retargeting_preserve_history_and_discard_late_sam
         1
     );
     let mut expired = spec;
+    expired.as_object_mut().unwrap().remove("revision");
+    expired
+        .as_object_mut()
+        .unwrap()
+        .remove("execution_authorized");
     expired["monitor"]["authorization"]["expires_at"] = json!(now_timestamp() - 1);
     sqlx::query("UPDATE network_probes SET spec=$2 WHERE id=$1")
         .bind(Uuid::parse_str(&id)?)

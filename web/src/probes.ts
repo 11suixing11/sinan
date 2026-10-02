@@ -3,7 +3,7 @@ export type ProbeMonitoring = { network: ProbeNetwork; region: string; ip_versio
 export type ProbeIdentity = { kind: 'tcp' | 'icmp'; target: string; port: number | null; address_family: 'any' | 'ipv4' | 'ipv6' }
 export type ProbeAuthorization = { kind: 'owned' | 'consent'; source: string; scope: string; enabled: boolean; expires_at: number | null; identity: ProbeIdentity }
 export type ProbeMonitor = { network?: ProbeNetwork; region: string; address_family: ProbeIdentity['address_family']; authorization: ProbeAuthorization | null }
-export type Probe = { task_id?: string; id: string; name: string; kind: 'tcp' | 'icmp'; target: string; port: number | null; interval_secs: number; carrier: string; enabled: boolean; monitor?: ProbeMonitor | null; execution_authorized?: boolean | null }
+export type Probe = { revision?: number | null; task_id?: string; id: string; name: string; kind: 'tcp' | 'icmp'; target: string; port: number | null; interval_secs: number; carrier: string; enabled: boolean; monitor?: ProbeMonitor | null; execution_authorized?: boolean | null }
 export type ProbeResult = { id: string; probe_id: string; sampled_at: number; latency_ms: number | null; loss_percent: number; error: string | null; address_family?: 'ipv4' | 'ipv6' | null; attempts?: 4 }
 export type ProbeOverview = { server_id: number; probe: Probe; results: ProbeResult[] }
 export type ProbeField = 'latency_ms' | 'loss_percent'
@@ -91,4 +91,14 @@ export function probeSlots(results: ProbeResult[], probe: Probe, now: number, co
     if (!slots[index] || point.sampled_at > slots[index]!.sampled_at) slots[index] = point
   }
   return slots
+}
+
+// A persisted revision is required for edits and deletion; unavailable/stale reads
+// cannot supply execution authority or overwrite a newer administrator's draft.
+export const probeRevisionMatches = (draft: { revision?: number | null }, current: { revision?: number | null } | undefined) => Boolean(current && Number.isSafeInteger(draft.revision) && (draft.revision ?? 0) > 0 && current.revision === draft.revision)
+
+export function probeWriteError(probe: Probe, current: Probe | undefined): string {
+  if (!probeRevisionMatches(probe, current))
+    return '此拨测已不存在或已改变，请刷新后重新确认；当前草稿已保留。'
+  return ''
 }

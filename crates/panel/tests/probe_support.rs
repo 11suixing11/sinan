@@ -29,3 +29,45 @@ pub fn authorized(value: Value) -> Value {
     authorize(&mut spec);
     json!(spec)
 }
+
+#[allow(dead_code)]
+pub async fn issued(
+    pool: &sqlx::PgPool,
+    client: &reqwest::Client,
+    base: &str,
+    server: i64,
+    token: &str,
+) -> anyhow::Result<sinan_protocol::ProbeLease> {
+    sqlx::query("UPDATE servers SET capabilities=capabilities || $2 WHERE id=$1")
+        .bind(server)
+        .bind(json!([sinan_protocol::PROBE_LEASE_CAPABILITY]))
+        .execute(pool)
+        .await?;
+    Ok(client
+        .get(format!("{base}/api/agent/v1/probe-lease"))
+        .bearer_auth(token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?)
+}
+
+#[allow(dead_code)]
+pub fn execution(
+    lease: &sinan_protocol::ProbeLease,
+    id: uuid::Uuid,
+) -> anyhow::Result<sinan_protocol::ProbeExecution> {
+    Ok(sinan_protocol::ProbeExecution {
+        lease_id: lease.id,
+        revision: lease.revision,
+        issued_at: lease.issued_at,
+        expires_at: lease.expires_at,
+        probe: lease
+            .probes
+            .iter()
+            .find(|probe| probe.spec.id == id)
+            .ok_or_else(|| anyhow::anyhow!("fixture target was not actually issued"))?
+            .clone(),
+    })
+}

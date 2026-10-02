@@ -15,6 +15,13 @@ impl DiagnosticWorker {
             return Ok(());
         };
         for request in control.pending()? {
+            // A historical cancellation must not block protection of the device's
+            // current owner. Its durable intent waits until that owner is clean.
+            if let Some(Checkpoint::Started { spec, .. }) = self.active()?
+                && spec.id != request.job.id.to_string()
+            {
+                continue;
+            }
             // Finish only the cleanup already in flight; retirement owns the rest.
             if self.retiring() {
                 break;
@@ -45,21 +52,21 @@ impl DiagnosticWorker {
         request: &DiagnosticCancelRequest,
     ) -> Result<Option<DiagnosticReport>> {
         let job = &request.job;
-        let adapter = self
-            .adapters
-            .get(&job.plugin)
-            .context("cancel plugin is no longer registered")?;
+        let adapter = self.adapters.get(&job.plugin);
         let unit = format!("sinan-diagnostic-{}.service", job.id);
         let directory = self
             .config
             .runtime_root
             .join("diagnostics")
             .join(job.id.to_string());
+        let mut frozen_report = None;
+        let mut had_frozen_outcome = false;
         let spec = match self.active()? {
             Some(Checkpoint::Started {
                 spec,
                 service,
                 plugin,
+                terminal_update,
                 ..
             }) if spec.id == job.id.to_string() => {
                 ensure!(
@@ -70,6 +77,9 @@ impl DiagnosticWorker {
                         && spec.job_dir == directory,
                     "saved cancellation target differs from the known task"
                 );
+                super::super::finalization::validate_saved_target(&self.config, &spec, &service)?;
+                had_frozen_outcome = terminal_update.is_some();
+                frozen_report = terminal_update.and_then(|update| update.report);
                 spec
             }
             Some(Checkpoint::Preparing(known)) if known.id == job.id => {
@@ -77,29 +87,30 @@ impl DiagnosticWorker {
                     known == *job,
                     "cancel request differs from the preparing task"
                 );
-                self.cancellation_spec(job, directory.clone(), adapter.as_ref())
+                self.cancellation_spec(
+                    job,
+                    directory.clone(),
+                    adapter
+                        .context("cancel plugin is no longer registered")?
+                        .as_ref(),
+                )
             }
-            _ => self.cancellation_spec(job, directory.clone(), adapter.as_ref()),
+            _ => self.cancellation_spec(
+                job,
+                directory.clone(),
+                adapter
+                    .context("cancel plugin is no longer registered")?
+                    .as_ref(),
+            ),
         };
         // The durable request binds this generated unit to the authenticated task.
         // Never accept a unit name from the wire, and never start a unit to cancel it.
-        if self.bounded(self.services.job_status(&unit)).await? != JobStatus::Missing {
-            self.bounded(self.services.stop(&unit))
-                .await
-                .context("停止诊断单元失败")?;
-        }
-        ensure!(
-            self.bounded(
-                self.services
-                    .diagnostic_cleanup_confirmed(&unit, &directory)
-            )
-            .await?,
-            "设备仍有活动进程或挂载，等待清理确认"
-        );
-        ensure!(
-            self.bounded(self.services.job_status(&unit)).await? != JobStatus::Running,
-            "诊断仍有排队或活动任务"
-        );
+        self.bounded(super::super::finalization::stop_and_confirm(
+            self.services.as_ref(),
+            &unit,
+            &directory,
+        ))
+        .await?;
         // The service has stopped, so collect its final chapter snapshots before
         // removing the active checkpoint. Failures do not erase saved chapters.
         if let Err(error) = tokio::time::timeout(
@@ -117,6 +128,15 @@ impl DiagnosticWorker {
             .into_iter()
             .find(|update| update.id == job.id)
             .and_then(|update| update.report);
+        if had_frozen_outcome {
+            return Ok(frozen_report.or(existing));
+        }
+        if let Some(report) = existing {
+            return Ok(Some(report));
+        }
+        let Some(adapter) = adapter else {
+            return Ok(None);
+        };
         let collected = self.bounded(adapter.collect(&spec)).await;
         let report = collected
             .ok()
@@ -126,7 +146,7 @@ impl DiagnosticWorker {
                 text: output.text,
                 report_url: output.report_url,
             });
-        Ok(report.or(existing))
+        Ok(report)
     }
 
     fn cancellation_spec(

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { api } from '../api'
 import { Badge, Confirm, Empty, ErrorNotice, Field, Icon, Loading, Modal, PageHeader, Refresh } from '../components'
 import { resourceWriteError, useAction, useResource } from '../hooks'
-import { changeProbe, authorizationState, monitoringOf, withMonitoring, bindProbeAuthorization, familyLabel, latency, loss, lossLabel, networkLabel, networks, probeState, probeValue } from '../probes'
+import { probeRevisionMatches, changeProbe, authorizationState, monitoringOf, withMonitoring, bindProbeAuthorization, familyLabel, latency, loss, lossLabel, networkLabel, networks, probeState, probeValue } from '../probes'
 import type { Probe, ProbeOverview } from '../probes'
 import { time } from '../format'
 import ProbeMonitoringFields from './ProbeMonitoringFields'
@@ -37,8 +37,8 @@ export default function LatencyTasks() {
   const writeError = (task?: Task, serverIds?: number[]) => {
     const stale = resourceWriteError(tasks, servers)
     if (stale) return stale
-    const current = task?.id && tasks.getCurrent()?.find(value => value.id === task.id)
-    if (task?.id && (!current || current.revision !== task.revision)) return '此任务已不存在或已改变，请重新确认；当前草稿已保留。'
+    const current = tasks.getCurrent()?.find(value => value.id === task?.id)
+    if (task?.id && !probeRevisionMatches(task, current)) return '此任务已不存在或已改变，请重新确认；当前草稿已保留。'
     return serverIds?.some(id => !servers.getCurrent()?.some(server => server.id === id)) ? '已选服务器已不存在，原选择仍保留，请明确调整后再保存。' : ''
   }
   const toggle = (task: Task) => { if (writeError(task)) return; void action.run(() => api(`/api/latency-tasks/${task.id}`, 'PATCH', { spec: { ...task.spec, enabled: !task.spec.enabled }, default_enabled: task.default_enabled, server_ids: task.server_ids, revision: task.revision }), tasks.reload) }
@@ -55,6 +55,6 @@ export default function LatencyTasks() {
     })}
     <section className="panel"><div className="panel-heading"><h2>延迟任务</h2><span className="subtle">{tasks.data?.length ?? '—'} / 32 个任务</span></div>{!tasks.data && tasks.loading ? <Loading /> : !tasks.data?.length ? <Empty icon="activity" title="尚未配置统一延迟任务" description="添加检测目标，再选择需要持续观测线路的服务器。缺少目标授权的旧任务保持暂停，历史仍可查看。" /> : <div className="table-wrap"><table><thead><tr><th>任务 / 线路</th><th>检测目标</th><th>间隔</th><th>服务器</th><th>状态</th><th>操作</th></tr></thead><tbody>{tasks.data.map(task => <tr key={task.id}><td>{task.spec.name}<small>{`${networkLabel(task.spec)} · ${task.spec.monitor?.region || '地区未配置'}${task.spec.carrier ? ` · ${task.spec.carrier}` : ''}`}</small></td><td>{task.spec.kind.toUpperCase()}<small className="mono">{task.spec.target}{task.spec.port && ` · ${task.spec.port}`}</small></td><td>{task.spec.interval_secs} 秒</td><td>{task.server_ids.length} 台<small>{task.default_enabled ? '默认分配新服务器' : '手动分配'}</small></td><td><Badge tone={task.spec.enabled && !authorizationState(task.spec) ? 'good' : 'neutral'}>{authorizationState(task.spec) ?? (task.spec.enabled ? '已启用' : '已暂停')}</Badge></td><td><div className="monitoring-actions"><button className="text-button" disabled={Boolean(writeError(task))} onClick={() => { if (!writeError(task)) setEditing(task) }}>编辑</button><button className="text-button" disabled={action.busy || Boolean(writeError(task))} onClick={() => toggle(task)}>{task.spec.enabled ? '暂停' : '启用'}</button><button className="text-button danger-text" disabled={Boolean(writeError(task))} onClick={() => { if (!writeError(task)) setRemoving(task) }}>删除</button></div></td></tr>)}</tbody></table></div>}</section>
     {editing && servers.data && <Editor key={editing.id || 'new'} task={editing} servers={servers.data} writeError={ids => writeError(editing, ids)} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh() }} />}
-    {removing && <Confirm title="删除延迟任务" busy={action.busy} confirmDisabled={Boolean(writeError(removing))} error={writeError(removing) || action.error} onClose={() => setRemoving(null)} onConfirm={() => { if (writeError(removing)) return; void action.run(() => api(`/api/latency-tasks/${removing.id}`, 'DELETE'), () => { setRemoving(null); tasks.reload() }) }}>确认删除“{removing.spec.name}”？所有已分配服务器将在同步后停止检测，该任务将从看板移除。</Confirm>}
+    {removing && <Confirm title="删除延迟任务" busy={action.busy} confirmDisabled={Boolean(writeError(removing))} error={writeError(removing) || action.error} onClose={() => setRemoving(null)} onConfirm={() => { if (writeError(removing)) return; void action.run(() => api(`/api/latency-tasks/${removing.id}`, 'DELETE', { revision: removing.revision }), () => { setRemoving(null); tasks.reload() }) }}>确认删除“{removing.spec.name}”？所有已分配服务器将在同步后停止检测，该任务将从看板移除。</Confirm>}
   </>
 }

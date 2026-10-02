@@ -22,7 +22,7 @@ try {
     page.on('pageerror',error=>errors.push(error.message))
     const host=(id,name,server_id)=>({id,name,server_id,protocol:'vless-reality',port:20000+id,public_host:`node${id}.example.com`,sni:'www.example.com',enabled:true})
     const nodes=[host(1,'备用入口',1),host(2,'受管中段',2),host(3,'受管出口',3),host(4,'原链路专用入口',1)]
-    const direct=node=>({...node,kind:'direct',server_name:`测试服务器 ${node.server_id}`,role:'direct',entry_node_id:null,tcp:true,udp:true,available:true,legacy:false,active_generation:null,pending_generation:null,minimum_generation:0,stage:'direct',last_error:null,reference_count:0})
+    const direct=node=>({...node,kind:'direct',server_name:`测试服务器 ${node.server_id}`,role:'direct',entry_node_id:null,tcp:true,udp:true,available:true,legacy:false,active_generation:null,pending_generation:null,minimum_generation:0,stage:'direct',last_error:null,reference_count:0, entry_eligible:true})
     const resources=nodes.slice(0,3).map(direct)
     resources.push({...direct(nodes[3]),id:7,kind:'chain',name:'原两跳链路',role:'chain_entry',entry_node_id:4,legacy:true,active_generation:1,stage:'active'})
     const source={id:10,name:'测试机场',kind:'inline',source_host:null,archived:false,settings_revision:1,identity_epoch:1,current_revision_id:100,last_success_at:1,supported_count:1,unsupported_count:0,dependency_ids:[],active_job_id:null,refresh_interval_seconds:86400}

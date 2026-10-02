@@ -39,6 +39,7 @@ MAX_MEMBERS = 100000
 PREPARE_SECONDS = 600
 BUILD_SECONDS = 3600
 EXPORT_SECONDS = 600
+CHILD_CLEANUP_SECONDS = 5
 SHA256 = re.compile(r'[0-9a-f]{64}')
 NAME = re.compile(r'[a-z0-9][a-z0-9+.-]*')
 VERSION = re.compile(r'[A-Za-z0-9][A-Za-z0-9.+:~_-]*')
@@ -73,6 +74,12 @@ PENDING = [
 ]
 META_DIR = 'usr/share/sinan-rootfs'
 PROVENANCE_KIND = 'sinan-nodequality-debian12-preparation'
+CAPACITY_KIND = 'sinan-nodequality-factory-capacity'
+DEFAULT_MAX_OUTPUT = 4 * 1024 * 1024 * 1024
+DEFAULT_RESERVE_FREE = 512 * 1024 * 1024
+DEFAULT_RESERVE_INODES = 1024
+MAX_FACTORY_OUTPUT = 16 * 1024 * 1024 * 1024
+CAPACITY_POLL_SECONDS = 0.25
 
 
 @contextlib.contextmanager
@@ -144,11 +151,14 @@ def decode(content):
 
 
 class Deadline:
-    def __init__(self, seconds):
+    def __init__(self, seconds, capacity=None):
         self.end = time.monotonic() + seconds
+        self.capacity = capacity
 
     def check(self):
         require(time.monotonic() < self.end, 'overall operation deadline exceeded')
+        if self.capacity is not None:
+            self.capacity.check()
 
     def remaining(self):
         self.check()
@@ -159,6 +169,13 @@ def relative(value):
     require(isinstance(value, str) and value and '\\' not in value
             and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._+~/-]*', value), 'unsafe relative input path')
     require(all(part not in ('', '.', '..') for part in value.split('/')), 'input path traversal')
+    return value
+
+
+def main_pool_path(archive, value):
+    require(archive in SIGNERS, 'unsupported Debian archive')
+    prefix = 'pool/updates/main/' if archive == 'debian-security' else 'pool/main/'
+    require(relative(value).startswith(prefix), 'package/source path differs from its Debian main archive')
     return value
 
 
@@ -295,11 +312,49 @@ def expanded_index(path, limit, deadline):
     return bytes(content)
 
 
+def index_records(path, limit, deadline):
+    """Read authenticated compressed indices one bounded paragraph at a time."""
+    require(type(limit) is int and 0 < limit <= MAX_INDEX, 'invalid expanded index limit')
+    raw, _ = open_regular(path, MAX_INDEX)
+    with raw:
+        if str(path).endswith('.xz'):
+            stream = lzma.LZMAFile(raw)
+        elif str(path).endswith('.gz'):
+            stream = gzip.GzipFile(fileobj=raw)
+        else:
+            raise ValueError('only fixed gzip/xz Debian indices are supported')
+        with stream:
+            total, paragraph, pending = 0, bytearray(), b''
+            while True:
+                deadline.check()
+                chunk = stream.read(min(65536, limit - total + 1))
+                if not chunk:
+                    break
+                total += len(chunk)
+                require(total <= limit, 'expanded Debian index exceeds its limit')
+                lines = (pending + chunk).split(b'\n')
+                pending = lines.pop()
+                for line in lines:
+                    deadline.check()
+                    if line.endswith(b'\r'):
+                        line = line[:-1]
+                    if line:
+                        paragraph.extend(line + b'\n')
+                    elif paragraph:
+                        yield from control_records(bytes(paragraph))
+                        paragraph.clear()
+                    require(len(paragraph) <= MAX_LOCK, 'Debian control record exceeds its limit')
+                require(len(paragraph) + len(pending) <= MAX_LOCK, 'Debian control record exceeds its limit')
+            if pending:
+                paragraph.extend(pending)
+            if paragraph:
+                yield from control_records(bytes(paragraph))
+
+
 def validate_lock(lock):
     require(isinstance(lock, dict) and set(lock) == {'schema', 'arch', 'source_epoch', 'builder',
             'keyring', 'repositories', 'packages', 'sources'}, 'invalid rootfs input lock fields')
     require(type(lock['schema']) is int and lock['schema'] == 1 and lock['arch'] in ARCHES, 'unsupported lock identity')
-    require(type(lock['source_epoch']) is int and 0 < lock['source_epoch'] < 2**32, 'fixed source epoch required')
     builder = lock['builder']
     require(isinstance(builder, dict) and set(builder) == {'image_sha256', 'arch', 'tools'}, 'invalid builder identity')
     require(builder['arch'] == lock['arch'] and SHA256.fullmatch(builder['image_sha256'] or ''), 'fixed native builder image required')
@@ -312,6 +367,17 @@ def validate_lock(lock):
         require(isinstance(tool['version'], str) and 0 < len(tool['version']) <= 128, 'fixed build tool version required')
         descriptor({'blob': tool['name'], 'sha256': tool['sha256'], 'size': tool['size']}, MAX_ARCHIVE)
         seen_tools.add(tool['name'])
+    return validate_materials({key: value for key, value in lock.items() if key != 'builder'})
+
+
+def validate_materials(materials):
+    """Validate collected source inputs without inventing a builder identity."""
+    require(isinstance(materials, dict) and set(materials) == {'schema', 'arch', 'source_epoch',
+            'keyring', 'repositories', 'packages', 'sources'}, 'invalid source material fields')
+    require(type(materials['schema']) is int and materials['schema'] == 1
+            and materials['arch'] in ARCHES, 'unsupported material identity')
+    lock = materials
+    require(type(lock['source_epoch']) is int and 0 < lock['source_epoch'] < 2**32, 'fixed source epoch required')
     descriptor(lock['keyring'], MAX_LOCK)
     require(isinstance(lock['repositories'], list) and 2 <= len(lock['repositories']) <= 3, 'main and security snapshots required')
     repos, timestamps = {}, {}
@@ -345,7 +411,7 @@ def validate_lock(lock):
         require(row['repository'] in repos and NAME.fullmatch(row['name'] or '') and VERSION.fullmatch(row['version'] or ''), 'invalid package identity')
         require(row['architecture'] in (lock['arch'], 'all') and row['name'] not in seen, 'duplicate/foreign binary package')
         require(NAME.fullmatch(row['source_name'] or '') and VERSION.fullmatch(row['source_version'] or ''), 'fixed corresponding source identity required')
-        require(relative(row['filename']).startswith('pool/main/'), 'only authenticated Debian main package paths are accepted')
+        main_pool_path(repos[row['repository']]['archive'], row['filename'])
         descriptor({key: row[key] for key in ('blob', 'sha256', 'size')}, MAX_ARCHIVE)
         seen.add(row['name'])
     require(set(TOOL_PACKAGES.values()) <= seen, 'open-source tool/base package inventory is incomplete')
@@ -356,7 +422,7 @@ def validate_lock(lock):
         pair = (row['name'], row['version'])
         require(row['repository'] in repos and NAME.fullmatch(row['name'] or '') and VERSION.fullmatch(row['version'] or '')
                 and pair not in source_pairs, 'duplicate/invalid corresponding source identity')
-        require(relative(row['directory']).startswith('pool/main/'), 'invalid corresponding source directory')
+        main_pool_path(repos[row['repository']]['archive'], row['directory'])
         require(isinstance(row['files'], list) and 0 < len(row['files']) <= 64, 'complete source file inventory required')
         names = set()
         for value in row['files']:
@@ -378,7 +444,7 @@ def verify_tools(lock, approved_image, required, deadline=None):
             require(file_identity(tool['path'], MAX_ARCHIVE, deadline) == {'sha256': tool['sha256'], 'size': tool['size']}, 'build tool bytes differ from the approved lock')
 
 
-def run_bounded(arguments, deadline, output_limit, stderr=subprocess.STDOUT, extra_env=None):
+def run_bounded(arguments, deadline, output_limit, stderr=subprocess.STDOUT, extra_env=None, capacity=None):
     environment = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C', 'LANG': 'C', 'TZ': 'UTC'}
     if extra_env:
         require(set(extra_env) == {'SOURCE_DATE_EPOCH', 'DEBIAN_FRONTEND'}
@@ -387,11 +453,14 @@ def run_bounded(arguments, deadline, output_limit, stderr=subprocess.STDOUT, ext
         environment.update(extra_env)
     require(hasattr(os, 'waitid') and hasattr(os, 'WNOWAIT'), 'bounded child collection requires waitid/WNOWAIT')
     process, selector = None, None
+    output = bytearray()
+    capacity = capacity or deadline.capacity
     try:
+        if capacity is not None:
+            capacity.check(force=True)
         with deferred_signals():
             process = subprocess.Popen(arguments, env=environment, stdin=subprocess.DEVNULL,
                                        stdout=subprocess.PIPE, stderr=stderr, start_new_session=True)
-        output = bytearray()
         selector = selectors.DefaultSelector()
         selector.register(process.stdout, selectors.EVENT_READ)
         while selector.get_map():
@@ -403,9 +472,13 @@ def run_bounded(arguments, deadline, output_limit, stderr=subprocess.STDOUT, ext
                 output.extend(chunk)
                 require(len(output) <= output_limit, 'trusted command output exceeds its limit')
             deadline.check()
+            if capacity is not None:
+                capacity.check()
         # Observe completion without reaping the session leader. Its PID then
         # cannot be reused before this function removes remaining group members.
         while True:
+            if capacity is not None:
+                capacity.check()
             result = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
             if result is not None:
                 require(result.si_code == os.CLD_EXITED and result.si_status == 0,
@@ -413,6 +486,21 @@ def run_bounded(arguments, deadline, output_limit, stderr=subprocess.STDOUT, ext
                 break
             time.sleep(min(0.01, deadline.remaining()))
         return bytes(output)
+    except BaseException as error:
+        # Preserve original types (including cancellation and disk failure).
+        # Logs remain bounded and are evidence, never executable instructions.
+        error.factory_command = {'argv': list(arguments), 'output': bytes(output[:output_limit]),
+                                 'output_truncated': len(output) > output_limit,
+                                 'returncode': None}
+        if process is not None:
+            try:
+                result = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                if result is not None:
+                    error.factory_command['returncode'] = (result.si_status if result.si_code == os.CLD_EXITED
+                                                           else -result.si_status)
+            except OSError:
+                pass
+        raise
     finally:
         original = sys.exc_info()[1]
         failure = None
@@ -420,7 +508,8 @@ def run_bounded(arguments, deadline, output_limit, stderr=subprocess.STDOUT, ext
         if selector is not None:
             actions.append(selector.close)
         if process is not None:
-            actions.extend((process.stdout.close, lambda: os.killpg(process.pid, signal.SIGKILL), process.wait))
+            actions.extend((process.stdout.close, lambda: os.killpg(process.pid, signal.SIGKILL),
+                            lambda: process.wait(timeout=CHILD_CLEANUP_SECONDS)))
         previous_mask = None
         try:
             previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM, signal.SIGHUP})
@@ -434,6 +523,8 @@ def run_bounded(arguments, deadline, output_limit, stderr=subprocess.STDOUT, ext
                 pass
             except BaseException as error:
                 failure = failure or error
+        if original is not None and hasattr(original, 'factory_command') and process is not None:
+            original.factory_command['cleanup_returncode'] = process.returncode
         if previous_mask is not None:
             try:
                 signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
@@ -489,9 +580,233 @@ def all_descriptors(lock):
     return result
 
 
+def capacity_plan(operation, materials, parent, max_output_bytes=DEFAULT_MAX_OUTPUT,
+                  reserve_free_bytes=DEFAULT_RESERVE_FREE,
+                  reserve_free_inodes=DEFAULT_RESERVE_INODES):
+    """Conservative admission, not input authentication or builder approval."""
+    validate_materials({key: value for key, value in materials.items() if key != 'builder'})
+    require(operation in ('prepare', 'build', 'export'), 'unknown factory operation')
+    require(type(max_output_bytes) is int and MAX_LOCK <= max_output_bytes <= MAX_FACTORY_OUTPUT,
+            'invalid factory output budget')
+    require(type(reserve_free_bytes) is int and DEFAULT_RESERVE_FREE <= reserve_free_bytes <= MAX_FACTORY_OUTPUT,
+            'invalid factory free-disk reserve')
+    require(type(reserve_free_inodes) is int and DEFAULT_RESERVE_INODES <= reserve_free_inodes <= MAX_MEMBERS,
+            'invalid factory free-inode reserve')
+    parent = private_directory(parent)
+    disk = os.statvfs(parent)
+    block = disk.f_frsize
+    require(type(block) is int and 0 < block <= MAX_METADATA, 'unsupported factory block size')
+    require(disk.f_bavail >= 0 and disk.f_favail >= 0, 'invalid factory capacity observation')
+
+    def rounded(size):
+        return ((size + block - 1) // block) * block
+
+    files, directories = {}, {''}
+
+    def account(name, size):
+        relative(name)
+        require(name not in files or files[name] == size, 'conflicting preparation destination')
+        files[name] = size
+        directory = PurePosixPath(name).parent
+        while str(directory) != '.':
+            directories.add(directory.as_posix())
+            directory = directory.parent
+
+    descriptors = all_descriptors(materials)
+    if operation == 'prepare':
+        for value, _limit in descriptors:
+            account('input-cache/' + value['blob'], value['size'])
+        for repo in materials['repositories']:
+            prefix = 'mirrors/' + repo['id'] + '/'
+            account(prefix + 'bookworm-archive-keyring.gpg', materials['keyring']['size'])
+            account(prefix + 'dists/' + repo['suite'] + '/InRelease', repo['inrelease']['size'])
+            for index in repo['indices']:
+                account(prefix + 'dists/' + repo['suite'] + '/' + index['path'], index['size'])
+            for package in materials['packages']:
+                if package['repository'] == repo['id']:
+                    account(prefix + package['filename'], package['size'])
+        payload = sum(files.values())
+        allocated = sum(rounded(size) for size in files.values()) + len(directories) * block
+        members = len(files) + len(directories)
+        # Lock, inventory, receipts, two bounded Release scratch files and logs.
+        scratch = 8 * MAX_LOCK + 4 * MAX_METADATA
+        scratch_members = 32
+    elif operation == 'build':
+        payload = MAX_EXPANDED
+        members = MAX_MEMBERS
+        # Every member may consume a block tail, including directories/links.
+        allocated = payload + members * block
+        scratch = (sum(rounded(row['size']) for row in materials['packages'])
+                   + sum(MAX_INDEX for repo in materials['repositories']
+                         for row in repo['indices'] if row['kind'] == 'Packages')
+                   + 8 * MAX_LOCK + 4 * MAX_METADATA)
+        scratch_members = len(materials['packages']) + 128
+    else:
+        payload = MAX_ARCHIVE + MAX_LOCK + 4 * MAX_METADATA
+        members = 16
+        allocated = payload + members * block
+        scratch = 4 * MAX_LOCK + 4 * MAX_METADATA
+        scratch_members = 32
+    required_bytes = allocated + rounded(scratch)
+    required_inodes = members + scratch_members
+    free_bytes = disk.f_bavail * block
+    free_inodes = disk.f_favail
+    reasons = []
+    if required_bytes > max_output_bytes:
+        reasons.append('output_budget')
+    if free_bytes < required_bytes + reserve_free_bytes:
+        reasons.append('free_disk_reserve')
+    if free_inodes < required_inodes + reserve_free_inodes:
+        reasons.append('free_inode_reserve')
+    return {'schema': 1, 'kind': CAPACITY_KIND + '-plan', 'operation': operation,
+            'arch': materials['arch'], 'output_parent': str(parent),
+            'device': parent.stat().st_dev, 'block_size': block,
+            'input_descriptors_sha256': digest(canonical([value for value, _ in descriptors])),
+            'materials_sha256': digest(canonical(materials)),
+            'destinations_sha256': digest(canonical({'files': files, 'directories': sorted(directories)})),
+            'payload_bytes': payload, 'payload_allocated_bytes': allocated,
+            'scratch_bytes': rounded(scratch), 'required_bytes': required_bytes,
+            'required_inodes': required_inodes, 'max_output_bytes': max_output_bytes,
+            'reserve_free_bytes': reserve_free_bytes, 'reserve_free_inodes': reserve_free_inodes,
+            'observed_free_bytes': free_bytes, 'observed_free_inodes': free_inodes,
+            'admitted': not reasons, 'reasons': reasons,
+            'source_authenticated': False, 'builder_approved': False,
+            'reproducibility_verified': False, 'full_ready': False}
+
+
+class FactoryCapacity:
+    """Bounded polling protection; no filesystem quota or exclusive reservation."""
+    def __init__(self, output, plan, deadline):
+        require(plan['admitted'] is True, 'factory capacity plan rejected: ' + ','.join(plan['reasons']))
+        self.output = private_directory(output)
+        self.parent = private_directory(self.output.parent)
+        require(str(self.parent) == plan['output_parent'] and self.parent.stat().st_dev == plan['device'],
+                'factory output parent differs from admission')
+        self.plan, self.deadline = plan, deadline
+        self.parent_identity = self.identity(self.parent)
+        self.output_identity = self.identity(self.output)
+        require(self.output_identity[0] == plan['device'], 'factory output crosses a filesystem')
+        self.next_check = 0
+        self.last = None
+        self.peak_bytes = self.peak_inodes = 0
+        self.check(force=True)
+
+    @staticmethod
+    def identity(path):
+        metadata = path.lstat()
+        require(stat.S_ISDIR(metadata.st_mode) and not path.is_symlink(), 'factory directory identity changed')
+        return metadata.st_dev, metadata.st_ino
+
+    def check(self, force=False, additional_bytes=0, additional_inodes=0):
+        require(type(additional_bytes) is int and additional_bytes >= 0
+                and type(additional_inodes) is int and additional_inodes >= 0, 'invalid prospective capacity')
+        now = time.monotonic()
+        if not force and additional_bytes == 0 and additional_inodes == 0 and now < self.next_check:
+            return self.last
+        require(now < self.deadline.end, 'overall operation deadline exceeded')
+        require(self.identity(self.parent) == self.parent_identity
+                and self.identity(self.output) == self.output_identity, 'factory directory identity changed')
+        if sys.platform == 'linux':
+            ensure_no_mounts(self.output)
+        size, members, stack = 0, 0, [(self.output, self.output_identity)]
+        while stack:
+            require(time.monotonic() < self.deadline.end, 'overall operation deadline exceeded')
+            folder, expected = stack.pop()
+            try:
+                descriptor_fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            except FileNotFoundError:
+                require(folder != self.output, 'factory output disappeared')
+                continue
+            try:
+                metadata = os.fstat(descriptor_fd)
+                require(stat.S_ISDIR(metadata.st_mode) and (metadata.st_dev, metadata.st_ino) == expected,
+                        'factory output contains a foreign filesystem or changed directory')
+                size += max(metadata.st_size, metadata.st_blocks * 512)
+                members += 1
+                with os.scandir(descriptor_fd) as children:
+                    for child in children:
+                        require(time.monotonic() < self.deadline.end, 'overall operation deadline exceeded')
+                        try:
+                            metadata = child.stat(follow_symlinks=False)
+                        except FileNotFoundError:
+                            # A controlled builder can remove its own temporary file.
+                            continue
+                        require(metadata.st_dev == self.plan['device'], 'factory output contains a foreign filesystem')
+                        if stat.S_ISDIR(metadata.st_mode):
+                            stack.append((folder / child.name, (metadata.st_dev, metadata.st_ino)))
+                        else:
+                            size += max(metadata.st_size, metadata.st_blocks * 512)
+                            members += 1
+                        require(size + additional_bytes <= self.plan['max_output_bytes'], 'factory output budget exceeded')
+                        require(members + len(stack) <= max(MAX_MEMBERS, self.plan['required_inodes']) + 4096,
+                                'factory output member scan exceeds limit')
+            finally:
+                os.close(descriptor_fd)
+        require(self.identity(self.parent) == self.parent_identity
+                and self.identity(self.output) == self.output_identity, 'factory directory identity changed')
+        disk = os.statvfs(self.output)
+        require(disk.f_frsize == self.plan['block_size'] and disk.f_bavail >= 0 and disk.f_favail >= 0,
+                'factory filesystem observation changed')
+        self.peak_bytes = max(self.peak_bytes, size)
+        self.peak_inodes = max(self.peak_inodes, members)
+        free_bytes, free_inodes = disk.f_bavail * disk.f_frsize, disk.f_favail
+        self.last = {'output_bytes': size, 'output_inodes': members,
+                     'free_bytes': free_bytes, 'free_inodes': free_inodes,
+                     'peak_output_bytes': self.peak_bytes, 'peak_output_inodes': self.peak_inodes}
+        require(size + additional_bytes <= self.plan['max_output_bytes'], 'factory output budget exceeded')
+        require(free_bytes >= self.plan['reserve_free_bytes'] + additional_bytes, 'factory free-disk reserve crossed')
+        require(free_inodes >= self.plan['reserve_free_inodes'] + additional_inodes, 'factory free-inode reserve crossed')
+        self.next_check = time.monotonic() + CAPACITY_POLL_SECONDS
+        return self.last
+
+    def write(self, path, content, mode=0o644):
+        require(len(content) <= MAX_LOCK, 'factory control file exceeds its reader limit')
+        path = Path(path).absolute()
+        require(path.parent == self.output and relative(path.name) == path.name,
+                'factory control write must remain in the owned output')
+        self.check(force=True, additional_bytes=len(content) + self.plan['block_size'], additional_inodes=1)
+        descriptor_fd = os.open(self.output, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            metadata = os.fstat(descriptor_fd)
+            require((metadata.st_dev, metadata.st_ino) == self.output_identity, 'factory directory identity changed')
+            with os.fdopen(os.open(path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                   mode, dir_fd=descriptor_fd), 'wb') as stream:
+                os.fchmod(stream.fileno(), mode)
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+        finally:
+            os.close(descriptor_fd)
+        self.check(force=True)
+
+    def finish(self):
+        observation = self.check(force=True)
+        self.write(self.output / 'factory-capacity.json', canonical({
+            'schema': 1, 'kind': CAPACITY_KIND + '-observation', 'plan_sha256': digest(canonical(self.plan) + b'\n'),
+            'observation': observation, 'poll_seconds': CAPACITY_POLL_SECONDS,
+            'hard_quota': False, 'source_authenticated': False,
+            'builder_approved': False, 'full_ready': False}) + b'\n')
+
+
+def admit_factory(operation, materials, requested_output, max_output_bytes,
+                  reserve_free_bytes, reserve_free_inodes):
+    plan = capacity_plan(operation, materials, Path(requested_output).absolute().parent,
+                         max_output_bytes, reserve_free_bytes, reserve_free_inodes)
+    require(plan['admitted'], 'factory capacity plan rejected: ' + ','.join(plan['reasons'])
+            + '; required_bytes=' + str(plan['required_bytes']) + '; free_bytes=' + str(plan['observed_free_bytes']))
+    return plan
+
+
 def verify_inputs(lock, cache, approved_image, deadline):
-    repos = validate_lock(lock)
+    validate_lock(lock)
     verify_tools(lock, approved_image, {'gpgv'}, deadline)
+    return verify_authenticated_sources({key: value for key, value in lock.items() if key != 'builder'}, cache, deadline)
+
+
+def verify_authenticated_sources(materials, cache, deadline):
+    """Authenticate Debian source bytes; this API never approves a builder."""
+    repos = validate_materials(materials)
+    lock = materials
     for value, limit in all_descriptors(lock):
         checked_blob(cache, value, limit, deadline)
     keyring = input_path(cache, lock['keyring']['blob'])
@@ -499,7 +814,8 @@ def verify_inputs(lock, cache, approved_image, deadline):
     wanted_binaries = {(item['repository'], item['name'], item['version'], item['architecture'])
                        for item in lock['packages']}
     wanted_sources = {(item['repository'], item['name'], item['version']) for item in lock['sources']}
-    with tempfile.TemporaryDirectory(prefix='sinan-rootfs-signatures-') as name:
+    scratch_parent = deadline.capacity.output if deadline.capacity is not None else None
+    with tempfile.TemporaryDirectory(prefix='sinan-rootfs-signatures-', dir=scratch_parent) as name:
         scratch = Path(name)
         for repo in lock['repositories']:
             deadline.check()
@@ -507,7 +823,7 @@ def verify_inputs(lock, cache, approved_image, deadline):
             status = run_bounded(['/usr/bin/gpgv', '--homedir', str(scratch), '--keyring', str(keyring),
                                   '--status-fd', '1', '--output', str(output),
                                   str(input_path(cache, repo['inrelease']['blob']))],
-                                 Deadline(min(30, deadline.remaining())), 65536, stderr=subprocess.DEVNULL)
+                                 Deadline(min(30, deadline.remaining()), capacity=deadline.capacity), 65536, stderr=subprocess.DEVNULL)
             signers = valid_signers(status, repo['archive'], repo['timestamp'])
             rows = list(control_records(read_regular(output, MAX_LOCK, deadline)))
             require(len(rows) == 1 and rows[0].get('Origin') == 'Debian'
@@ -517,8 +833,7 @@ def verify_inputs(lock, cache, approved_image, deadline):
                                'inrelease_sha256': repo['inrelease']['sha256']})
             for index in repo['indices']:
                 require(sums.get(index['path']) == {key: index[key] for key in ('sha256', 'size')}, 'index is not covered by signed Release')
-                content = expanded_index(input_path(cache, index['blob']), MAX_INDEX, deadline)
-                for row in control_records(content):
+                for row in index_records(input_path(cache, index['blob']), MAX_INDEX, deadline):
                     deadline.check()
                     if index['kind'] == 'Packages':
                         key = (repo['id'], row.get('Package'), row.get('Version'), row.get('Architecture'))
@@ -583,12 +898,20 @@ def ensure_no_mounts(path):
                 'cleanup blocked by remaining mount; owned output retained')
 
 
-def cleanup_output(output, guard_mounts=False):
+def cleanup_output(output, guard_mounts=False, capacity=None, expected_identity=None):
     original = sys.exc_info()[1]
     removed = False
     try:
         with deferred_signals():
             output = private_directory(output)
+            if expected_identity is not None:
+                require(FactoryCapacity.identity(output) == expected_identity[0]
+                        and FactoryCapacity.identity(output.parent) == expected_identity[1],
+                        'cleanup blocked by replaced owned directory')
+            if capacity is not None:
+                require(capacity.identity(output) == capacity.output_identity
+                        and capacity.identity(output.parent) == capacity.parent_identity,
+                        'cleanup blocked by replaced owned directory')
             if guard_mounts:
                 ensure_no_mounts(output)
             shutil.rmtree(output)
@@ -599,48 +922,124 @@ def cleanup_output(output, guard_mounts=False):
         if removed:
             # A deferred second signal arrived after successful deletion;
             # retain the original interruption without claiming leftover data.
-            return
+            return True
         if hasattr(original, 'add_note'):
             original.add_note('Owned output cleanup failed; retained at ' + str(output))
         try:
             print('Cleanup failed; owned output retained: ' + str(output) + ' (' + type(error).__name__ + ')', file=sys.stderr)
         except BaseException:
             pass
+    return removed
+
+
+def preserve_factory_failure(output, operation, error, capacity):
+    """Best-effort independent, new evidence; never overwrite an earlier run."""
+    evidence = None
+    try:
+        parent = private_directory(output.parent)
+        if capacity is not None:
+            require(FactoryCapacity.identity(parent) == capacity.parent_identity,
+                    'failure evidence parent identity changed')
+        command = getattr(error, 'factory_command', None)
+        raw_output = command['output'] if command is not None else b''
+        require(len(raw_output) <= MAX_LOCK, 'failure command evidence exceeds limit')
+        receipt = {'schema': 1, 'kind': CAPACITY_KIND + '-failure', 'operation': operation,
+                   'output_directory': str(output), 'error_type': type(error).__name__,
+                   'error': str(error)[:1024], 'command': None,
+                   'capacity': capacity.last if capacity is not None else None,
+                   'cleanup': 'pending', 'full_ready': False}
+        if command is not None:
+            receipt['command'] = {key: value for key, value in command.items() if key != 'output'}
+            receipt['command']['output'] = {'path': 'command.log', **{'size': len(raw_output), 'sha256': digest(raw_output)}}
+        reserve_bytes = capacity.plan['reserve_free_bytes'] if capacity is not None else DEFAULT_RESERVE_FREE
+        reserve_inodes = capacity.plan['reserve_free_inodes'] if capacity is not None else DEFAULT_RESERVE_INODES
+        receipt['reserve_free_bytes'], receipt['reserve_free_inodes'] = reserve_bytes, reserve_inodes
+        raw_receipt = canonical(receipt) + b'\n'
+        require(len(raw_receipt) <= MAX_METADATA, 'failure receipt exceeds limit')
+        disk = os.statvfs(parent)
+        require(disk.f_bavail * disk.f_frsize >= reserve_bytes + len(raw_output) + len(raw_receipt) + 4 * disk.f_frsize
+                and disk.f_favail >= reserve_inodes + 4, 'insufficient reserved capacity for bounded failure evidence')
+        with deferred_signals():
+            evidence = Path(tempfile.mkdtemp(prefix=output.name + '-failure-', dir=parent))
+        write_new(evidence / 'failure.json', raw_receipt, 0o600)
+        if command is not None:
+            write_new(evidence / 'command.log', raw_output, 0o600)
+        print('Factory failure evidence retained: ' + str(evidence), file=sys.stderr)
+        return evidence, receipt, FactoryCapacity.identity(evidence)
+    except BaseException as recording_error:
+        if hasattr(error, 'add_note'):
+            error.add_note('Factory failure evidence could not be completed: ' + type(recording_error).__name__)
+        if evidence is not None:
+            try:
+                print('Partial factory failure evidence retained: ' + str(evidence), file=sys.stderr)
+            except BaseException:
+                pass
+        return None
+
+
+def record_factory_cleanup(evidence, removed, error):
+    if evidence is None:
+        return
+    directory, receipt, identity = evidence
+    try:
+        require(FactoryCapacity.identity(directory) == identity, 'failure evidence directory changed')
+        disk = os.statvfs(directory)
+        require(disk.f_bavail * disk.f_frsize >= receipt['reserve_free_bytes'] + 2 * disk.f_frsize
+                and disk.f_favail >= receipt['reserve_free_inodes'] + 1, 'insufficient reserved capacity for cleanup evidence')
+        write_new(directory / 'cleanup.json', canonical({'schema': 1,
+            'output_directory': receipt['output_directory'], 'removed': removed,
+            'retained': not removed}) + b'\n', 0o600)
+    except BaseException as recording_error:
+        if error is not None and hasattr(error, 'add_note'):
+            error.add_note('Cleanup evidence could not be completed: ' + type(recording_error).__name__)
 
 
 def copy_locked(cache, value, target, limit, deadline):
     source = checked_blob(cache, value, limit, deadline)
-    target.parent.mkdir(parents=True, exist_ok=True)
     input_stream, metadata = open_regular(source, limit)
-    with input_stream, target.open('xb') as output:
+    length, sha256 = 0, hashlib.sha256()
+    with input_stream:
         require(metadata.st_size == value['size'], 'locked input changed before copying')
-        os.fchmod(output.fileno(), 0o644)
-        length, sha256 = 0, hashlib.sha256()
-        while True:
-            deadline.check()
-            chunk = input_stream.read(min(65536, limit - length + 1))
-            if not chunk:
-                break
-            length += len(chunk)
-            require(length <= limit, 'copied locked input exceeds byte limit')
-            sha256.update(chunk)
-            output.write(chunk)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open('xb', buffering=0) as output:
+            os.fchmod(output.fileno(), 0o644)
+            while True:
+                deadline.check()
+                chunk = input_stream.read(min(65536, value['size'] - length + 1))
+                if not chunk:
+                    break
+                length += len(chunk)
+                require(length <= value['size'] and length <= limit, 'copied locked input exceeds byte limit')
+                if deadline.capacity is not None:
+                    deadline.capacity.check(additional_bytes=len(chunk) + deadline.capacity.plan['block_size'])
+                require(output.write(chunk) == len(chunk), 'short locked input write')
+                sha256.update(chunk)
         require(length == value['size'] and sha256.hexdigest() == value['sha256'],
                 'locked input changed while copying')
     require(file_identity(target, limit, deadline) == {key: value[key] for key in ('sha256', 'size')}, 'copied locked input changed')
 
 
-def prepare(lock_path, cache, output, approved_image):
+def prepare(lock_path, cache, output, approved_image, max_output_bytes=DEFAULT_MAX_OUTPUT,
+            reserve_free_bytes=DEFAULT_RESERVE_FREE, reserve_free_inodes=DEFAULT_RESERVE_INODES):
     deadline = Deadline(PREPARE_SECONDS)
     lock_bytes = read_regular(lock_path, MAX_LOCK, deadline)
     lock = decode(lock_bytes)
-    inventory, signatures = verify_inputs(lock, cache, approved_image, deadline)
+    validate_lock(lock)
+    verify_tools(lock, approved_image, {'gpgv'}, deadline)
+    plan = admit_factory('prepare', lock, output, max_output_bytes, reserve_free_bytes, reserve_free_inodes)
     requested_output, output = output, None
+    capacity = None
+    owned_identity, evidence = None, None
     complete = False
     try:
         with deferred_signals():
             output = reserve_output(requested_output)
-        write_new(output / 'inputs-lock.json', lock_bytes)
+            owned_identity = FactoryCapacity.identity(output), FactoryCapacity.identity(output.parent)
+            capacity = FactoryCapacity(output, plan, deadline)
+        deadline.capacity = capacity
+        capacity.write(output / 'capacity-plan.json', canonical(plan) + b'\n')
+        inventory, signatures = verify_inputs(lock, cache, approved_image, deadline)
+        capacity.write(output / 'inputs-lock.json', lock_bytes)
         for value, limit in all_descriptors(lock):
             target = output / 'input-cache' / value['blob']
             if not target.exists():
@@ -658,17 +1057,26 @@ def prepare(lock_path, cache, output, approved_image):
             for row in lock['packages']:
                 if row['repository'] == repo['id']:
                     copy_locked(cache, {key: row[key] for key in ('blob', 'sha256', 'size')}, mirror / row['filename'], MAX_ARCHIVE, deadline)
-        write_new(output / 'source-inventory.json', canonical(inventory) + b'\n')
+        capacity.write(output / 'source-inventory.json', canonical(inventory) + b'\n')
         receipt = {'schema': 1, 'arch': lock['arch'], 'inputs_lock_sha256': digest(lock_bytes),
                    'source_inventory_sha256': file_identity(output / 'source-inventory.json', MAX_LOCK, deadline)['sha256'],
                    'approved_builder_image_sha256': approved_image, 'signatures': signatures,
                    'full_ready': False, 'reproducibility_verified': False}
-        write_new(output / 'prepared.json', canonical(receipt) + b'\n')
+        capacity.write(output / 'prepared.json', canonical(receipt) + b'\n')
+        capacity.finish()
         complete = True
         return receipt
+    except BaseException as error:
+        if output is not None:
+            evidence = preserve_factory_failure(output, 'prepare', error, capacity)
+        raise
     finally:
         if not complete and output is not None:
-            cleanup_output(output)
+            removed = cleanup_output(output, guard_mounts=sys.platform == 'linux', capacity=capacity,
+                                     expected_identity=owned_identity)
+            if evidence is None and removed and sys.exc_info()[1] is not None:
+                evidence = preserve_factory_failure(output, 'prepare', sys.exc_info()[1], capacity)
+            record_factory_cleanup(evidence, removed, sys.exc_info()[1])
 
 
 def verify_mirrors(directory, lock, deadline):
@@ -853,10 +1261,12 @@ def normalize_created_tree(tree):
         require(not path.exists() or (path.is_dir() and not path.is_symlink() and not any(path.iterdir())), 'rootfs contains private account state')
 
 
-def build(prepared_dir, output, approved_image):
+def build(prepared_dir, output, approved_image, max_output_bytes=DEFAULT_MAX_OUTPUT,
+          reserve_free_bytes=DEFAULT_RESERVE_FREE, reserve_free_inodes=DEFAULT_RESERVE_INODES):
     deadline = Deadline(BUILD_SECONDS)
-    prepared = verify_prepared(prepared_dir, approved_image, _deadline=deadline)
-    lock = prepared['lock']
+    prepared_dir = private_directory(prepared_dir)
+    lock = decode(read_regular(prepared_dir / 'inputs-lock.json', MAX_LOCK, deadline))
+    validate_lock(lock)
     native = {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(platform.machine())
     require(sys.platform == 'linux' and os.geteuid() == 0 and native == lock['arch'], 'build requires a dedicated native root Debian Linux builder')
     release_path = Path('/etc/os-release')
@@ -874,17 +1284,24 @@ def build(prepared_dir, output, approved_image):
         fields[key] = value.strip('"\'')
     require(fields.get('ID') == 'debian' and fields.get('VERSION_ID') == '12', 'native builder must run Debian 12')
     verify_tools(lock, approved_image, set(TOOL_PATHS), deadline)
+    capacity_plan_value = admit_factory('build', lock, output, max_output_bytes, reserve_free_bytes, reserve_free_inodes)
     requested_output, output = output, None
+    capacity, owned_identity, evidence = None, None, None
     complete = False
     try:
         with deferred_signals():
             output = reserve_output(requested_output)
+            owned_identity = FactoryCapacity.identity(output), FactoryCapacity.identity(output.parent)
+            capacity = FactoryCapacity(output, capacity_plan_value, deadline)
+        deadline.capacity = capacity
+        capacity.write(output / 'capacity-plan.json', canonical(capacity_plan_value) + b'\n')
+        prepared = verify_prepared(prepared_dir, approved_image, _deadline=deadline)
         tree = output / 'tree'
         plan = build_plan(prepared, tree)
-        write_new(output / 'build-plan.json', canonical({'schema': 1, 'argv': plan, 'source_epoch': lock['source_epoch']}) + b'\n')
+        capacity.write(output / 'build-plan.json', canonical({'schema': 1, 'argv': plan, 'source_epoch': lock['source_epoch']}) + b'\n')
         log = run_bounded(plan, deadline, MAX_LOCK, extra_env={
             'SOURCE_DATE_EPOCH': str(lock['source_epoch']), 'DEBIAN_FRONTEND': 'noninteractive'})
-        write_new(output / 'build.log', log, 0o600)
+        capacity.write(output / 'build.log', log, 0o600)
         normalize_created_tree(tree)
         installed = installed_packages(tree, prepared)
         entries = tree_entries(tree, deadline)
@@ -892,12 +1309,20 @@ def build(prepared_dir, output, approved_image):
                    'source_inventory_sha256': prepared['source_inventory_sha256'], 'build_tool_sha256': prepared['build_tool_sha256'],
                    'builder': lock['builder'], 'tree_entries_sha256': digest(canonical(entries)), 'installed_packages': installed,
                    'build_log_sha256': digest(log), 'full_ready': False, 'reproducibility_verified': False}
-        write_new(output / 'build-receipt.json', canonical(receipt) + b'\n')
+        capacity.write(output / 'build-receipt.json', canonical(receipt) + b'\n')
+        capacity.finish()
         complete = True
         return receipt
+    except BaseException as error:
+        if output is not None:
+            evidence = preserve_factory_failure(output, 'build', error, capacity)
+        raise
     finally:
         if not complete and output is not None:
-            cleanup_output(output, guard_mounts=True)
+            removed = cleanup_output(output, guard_mounts=True, capacity=capacity, expected_identity=owned_identity)
+            if evidence is None and removed and sys.exc_info()[1] is not None:
+                evidence = preserve_factory_failure(output, 'build', sys.exc_info()[1], capacity)
+            record_factory_cleanup(evidence, removed, sys.exc_info()[1])
 
 
 def license_inventory(tree, entries, installed):
@@ -952,8 +1377,62 @@ class CheckedReader:
                 and self.value.hexdigest() == self.entry['sha256'], 'exported tree file changed')
 
 
-def export(tree, prepared_dir, output, approved_image, outer_reserve_bytes):
+class CapacityWriter:
+    def __init__(self, stream, capacity, limit):
+        self.stream, self.capacity, self.limit = stream, capacity, limit
+
+    def write(self, content):
+        require(self.stream.tell() + len(content) <= self.limit, 'rootfs exceeds remaining outer archive budget')
+        self.capacity.check(additional_bytes=len(content) + self.capacity.plan['block_size'])
+        count = self.stream.write(content)
+        require(count == len(content), 'short rootfs archive write')
+        return count
+
+    def tell(self):
+        return self.stream.tell()
+
+    def flush(self):
+        return self.stream.flush()
+
+
+def export(tree, prepared_dir, output, approved_image, outer_reserve_bytes,
+           max_output_bytes=DEFAULT_MAX_OUTPUT, reserve_free_bytes=DEFAULT_RESERVE_FREE,
+           reserve_free_inodes=DEFAULT_RESERVE_INODES):
     deadline = Deadline(EXPORT_SECONDS)
+    require(type(outer_reserve_bytes) is int and 0 < outer_reserve_bytes < MAX_ARCHIVE, 'explicit outer runner/license/tar reserve required')
+    directory = private_directory(prepared_dir)
+    lock = decode(read_regular(directory / 'inputs-lock.json', MAX_LOCK, deadline))
+    validate_lock(lock)
+    verify_tools(lock, approved_image, {'gpgv'}, deadline)
+    plan = admit_factory('export', lock, output, max_output_bytes, reserve_free_bytes, reserve_free_inodes)
+    requested_output, output = output, None
+    capacity, owned_identity, evidence = None, None, None
+    complete = False
+    try:
+        with deferred_signals():
+            output = reserve_output(requested_output)
+            owned_identity = FactoryCapacity.identity(output), FactoryCapacity.identity(output.parent)
+            capacity = FactoryCapacity(output, plan, deadline)
+        deadline.capacity = capacity
+        capacity.write(output / 'capacity-plan.json', canonical(plan) + b'\n')
+        result = export_into(tree, prepared_dir, output, approved_image, outer_reserve_bytes, deadline, capacity)
+        capacity.finish()
+        complete = True
+        return result
+    except BaseException as error:
+        if output is not None:
+            evidence = preserve_factory_failure(output, 'export', error, capacity)
+        raise
+    finally:
+        if not complete and output is not None:
+            removed = cleanup_output(output, guard_mounts=sys.platform == 'linux', capacity=capacity,
+                                     expected_identity=owned_identity)
+            if evidence is None and removed and sys.exc_info()[1] is not None:
+                evidence = preserve_factory_failure(output, 'export', sys.exc_info()[1], capacity)
+            record_factory_cleanup(evidence, removed, sys.exc_info()[1])
+
+
+def export_into(tree, prepared_dir, output, approved_image, outer_reserve_bytes, deadline, capacity):
     prepared = verify_prepared(prepared_dir, approved_image, _deadline=deadline)
     tree = private_directory(tree)
     entries = tree_entries(tree, deadline)
@@ -1002,14 +1481,11 @@ def export(tree, prepared_dir, output, approved_image, outer_reserve_bytes):
     stream_size = sum(512 + ((entry.get('size', 0) + 511) // 512) * 512 for entry in entries) + 1024
     stream_size += (-stream_size) % 10240
     require(expanded <= MAX_EXPANDED and stream_size <= MAX_STREAM, 'export expansion/tar stream budget exceeded')
-    requested_output, output = output, None
-    complete = False
-    try:
-        with deferred_signals():
-            output = reserve_output(requested_output)
+    with contextlib.ExitStack():
         archive_path = output / 'rootfs.tar.gz'
-        with archive_path.open('xb') as destination:
-            with gzip.GzipFile(filename='', mode='wb', fileobj=destination, mtime=0, compresslevel=9) as compressed:
+        with archive_path.open('xb', buffering=0) as destination:
+            bounded_destination = CapacityWriter(destination, capacity, MAX_ARCHIVE - outer_reserve_bytes)
+            with gzip.GzipFile(filename='', mode='wb', fileobj=bounded_destination, mtime=0, compresslevel=9) as compressed:
                 with tarfile.open(fileobj=compressed, mode='w', format=tarfile.USTAR_FORMAT) as archive:
                     for entry in entries:
                         deadline.check()
@@ -1035,29 +1511,26 @@ def export(tree, prepared_dir, output, approved_image, outer_reserve_bytes):
                                     archive.addfile(member, reader)
                                     reader.finish()
                         require(destination.tell() <= MAX_ARCHIVE - outer_reserve_bytes, 'rootfs exceeds remaining outer archive budget')
+        capacity.check(force=True)
         archive_identity = file_identity(archive_path, MAX_ARCHIVE, deadline)
         manifest = {'schema': 1, 'arch': prepared['arch'], 'archive': archive_identity,
                     'expanded_size': expanded, 'stream_size': stream_size,
                     'entries_sha256': digest(canonical(entries)), 'entries': entries}
         manifest_bytes = canonical(manifest) + b'\n'
         require(len(manifest_bytes) <= MAX_LOCK, 'export manifest exceeds byte limit')
-        write_new(output / 'rootfs-manifest.json', manifest_bytes)
+        capacity.write(output / 'rootfs-manifest.json', manifest_bytes)
         require(archive_identity['size'] + len(manifest_bytes) + outer_reserve_bytes <= MAX_ARCHIVE,
                 'rootfs plus manifest/reserved outer members exceeds 256 MiB')
         for name, content in virtual.items():
-            write_new(output / PurePosixPath(name).name, content)
+            capacity.write(output / PurePosixPath(name).name, content)
         receipt = {'schema': 1, 'arch': prepared['arch'], 'archive': archive_identity,
                    'manifest': {'sha256': digest(manifest_bytes), 'size': len(manifest_bytes)},
                    'inputs_lock_sha256': prepared['inputs_lock_sha256'], 'source_inventory_sha256': digest(source_bytes),
                    'license_inventory_sha256': digest(license_bytes), 'provenance_sha256': digest(canonical(provenance) + b'\n'),
                    'build_tool_sha256': prepared['build_tool_sha256'], 'outer_reserve_bytes': outer_reserve_bytes,
                    'full_ready': False, 'reproducibility_verified': False}
-        write_new(output / 'export-receipt.json', canonical(receipt) + b'\n')
-        complete = True
+        capacity.write(output / 'export-receipt.json', canonical(receipt) + b'\n')
         return receipt
-    finally:
-        if not complete and output is not None:
-            cleanup_output(output)
 
 
 def verify_export(rootfs_directory, prepared, arch):
@@ -1111,6 +1584,10 @@ def verify_export(rootfs_directory, prepared, arch):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='operation', required=True)
+    plan_parser = commands.add_parser('plan', help='schema-only capacity planning; no authentication or approval')
+    plan_parser.add_argument('--materials', type=Path, required=True)
+    plan_parser.add_argument('--phase', choices=('prepare', 'build', 'export'), required=True)
+    plan_parser.add_argument('--output-parent', type=Path, required=True)
     prepare_parser = commands.add_parser('prepare')
     prepare_parser.add_argument('--lock', type=Path, required=True)
     prepare_parser.add_argument('--cache', type=Path, required=True)
@@ -1125,13 +1602,21 @@ def main():
     export_parser.add_argument('--outer-reserve-bytes', type=int, required=True)
     for value in (prepare_parser, build_parser, export_parser):
         value.add_argument('--approved-builder-image-sha256', required=True)
+    for value in (plan_parser, prepare_parser, build_parser, export_parser):
+        value.add_argument('--max-output-bytes', type=int, default=DEFAULT_MAX_OUTPUT)
+        value.add_argument('--reserve-free-bytes', type=int, default=DEFAULT_RESERVE_FREE)
+        value.add_argument('--reserve-free-inodes', type=int, default=DEFAULT_RESERVE_INODES)
     args = parser.parse_args()
-    if args.operation == 'prepare':
-        result = prepare(args.lock, args.cache, args.output, args.approved_builder_image_sha256)
+    capacity_options = (args.max_output_bytes, args.reserve_free_bytes, args.reserve_free_inodes)
+    if args.operation == 'plan':
+        materials = decode(read_regular(args.materials, MAX_LOCK))
+        result = capacity_plan(args.phase, materials, args.output_parent, *capacity_options)
+    elif args.operation == 'prepare':
+        result = prepare(args.lock, args.cache, args.output, args.approved_builder_image_sha256, *capacity_options)
     elif args.operation == 'build':
-        result = build(args.prepared, args.output, args.approved_builder_image_sha256)
+        result = build(args.prepared, args.output, args.approved_builder_image_sha256, *capacity_options)
     else:
-        result = export(args.tree, args.prepared, args.output, args.approved_builder_image_sha256, args.outer_reserve_bytes)
+        result = export(args.tree, args.prepared, args.output, args.approved_builder_image_sha256, args.outer_reserve_bytes, *capacity_options)
     print(json.dumps(result, sort_keys=True))
 
 

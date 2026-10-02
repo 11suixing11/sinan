@@ -46,9 +46,19 @@ pub const DIAGNOSTIC_SERVICE_CAPABILITY: &str = "diagnostic:job-service";
 #[serde(rename_all = "snake_case")]
 pub enum DiagnosticStatus {
     Running,
+    Cleaning,
     Succeeded,
     Failed,
 }
+
+impl DiagnosticStatus {
+    pub const fn is_terminal(self) -> bool {
+        matches!(self, Self::Succeeded | Self::Failed)
+    }
+}
+
+/// Devices advertise this only when all execution outcomes await cleanup proof.
+pub const DIAGNOSTIC_COMPLETION_CAPABILITY: &str = "diagnostic:confirmed-completion";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiagnosticReport {

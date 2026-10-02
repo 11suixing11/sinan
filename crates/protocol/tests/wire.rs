@@ -363,6 +363,7 @@ fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
     assert_eq!(serde_json::from_value::<DiagnosticJob>(wire).unwrap(), job);
     for status in [
         DiagnosticStatus::Running,
+        DiagnosticStatus::Cleaning,
         DiagnosticStatus::Succeeded,
         DiagnosticStatus::Failed,
     ] {
@@ -388,6 +389,42 @@ fn diagnostic_http_payloads_roundtrip_and_accept_additive_fields() {
     assert!(
         serde_json::from_value::<DiagnosticUpdate>(json!({"id":job.id,"status":"queued"})).is_err()
     );
+}
+
+#[test]
+fn cleaning_wire_retains_report_and_reason_without_claiming_completion() {
+    let update = DiagnosticUpdate {
+        id: Uuid::from_u128(199),
+        status: DiagnosticStatus::Cleaning,
+        report: Some(DiagnosticReport {
+            text: "saved partial output".into(),
+            report_url: None,
+        }),
+        error: Some("cleanup is awaiting process and mount confirmation".into()),
+    };
+    let wire = serde_json::to_value(&update).unwrap();
+    assert_eq!(wire["status"], "cleaning");
+    assert_eq!(
+        serde_json::from_value::<DiagnosticUpdate>(wire).unwrap(),
+        update
+    );
+    assert!(!DiagnosticStatus::Running.is_terminal());
+    assert!(!DiagnosticStatus::Cleaning.is_terminal());
+    assert!(DiagnosticStatus::Succeeded.is_terminal());
+    assert!(DiagnosticStatus::Failed.is_terminal());
+    assert_eq!(
+        sinan_protocol::DIAGNOSTIC_COMPLETION_CAPABILITY,
+        "diagnostic:confirmed-completion"
+    );
+    for status in ["queued", "cancel_requested", "cancelled"] {
+        assert!(
+            serde_json::from_value::<DiagnosticUpdate>(json!({
+                "id": update.id,
+                "status": status,
+            }))
+            .is_err()
+        );
+    }
 }
 
 #[test]

@@ -127,6 +127,7 @@ fn probes_survive_restart_and_partial_ack_with_panel_clock_offset() -> Result<()
         address_family: None,
         error: Some("ICMP tool unavailable".into()),
         attempts: None,
+        execution: None,
     };
     let next = ProbeResult {
         id: Uuid::new_v4(),

@@ -9,7 +9,8 @@ use anyhow::Result;
 use business_support::TestPanel;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
-use sinan_protocol::{AgentSettings, ProbeSpec};
+use sinan_panel::probes::ConfiguredProbe;
+use sinan_protocol::AgentSettings;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -97,11 +98,12 @@ async fn creation_preserves_defaults_and_persists_initial_monitoring(pool: PgPoo
         )
         .await?
         .error_for_status()?
-        .json::<Vec<ProbeSpec>>()
+        .json::<Vec<ConfiguredProbe>>()
         .await?;
     assert_eq!(probes.len(), 2);
     assert_ne!(probes[0].id, probes[1].id);
     assert!(probes.iter().all(|p| p.id != Uuid::nil() && p.valid()));
+    assert!(probes.iter().all(|p| p.revision == Some(1)));
     assert!(probes.iter().any(|p| p.target == "::1" && p.port.is_none()));
     panel
         .admin(

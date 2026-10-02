@@ -228,4 +228,6 @@ pub struct ProbeResult {
     pub address_family: Option<ProbeAddressFamily>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attempts: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution: Option<super::ProbeExecution>,
 }

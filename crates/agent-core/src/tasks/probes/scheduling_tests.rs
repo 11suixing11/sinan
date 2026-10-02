@@ -1,5 +1,9 @@
 use super::*;
 use sinan_adapter_sdk::{BoxFuture, CommandOutput};
+use sinan_protocol::{
+    AuthorizedProbe, ProbeAddressFamily, ProbeAuthorization, ProbeAuthorizationKind, ProbeLease,
+    ProbeMonitor, ProbeNetwork,
+};
 use std::{
     path::Path,
     sync::{
@@ -9,10 +13,11 @@ use std::{
 };
 
 #[derive(Default)]
-struct ControlledOps {
-    active: AtomicUsize,
-    peak: AtomicUsize,
-    calls: AtomicUsize,
+pub(super) struct ControlledOps {
+    pub(super) active: AtomicUsize,
+    pub(super) peak: AtomicUsize,
+    pub(super) starts: AtomicUsize,
+    pub(super) release: tokio::sync::Notify,
 }
 
 struct Active<'a>(&'a AtomicUsize);
@@ -25,12 +30,12 @@ impl Drop for Active<'_> {
 impl Privileged for ControlledOps {
     fn execute<'a>(&'a self, _: &'a Path, args: &'a [String]) -> BoxFuture<'a, CommandOutput> {
         Box::pin(async move {
-            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.starts.fetch_add(1, Ordering::SeqCst);
             let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
             self.peak.fetch_max(active, Ordering::SeqCst);
             let _active = Active(&self.active);
             if !args.last().unwrap().contains("127.0.0.1") {
-                std::future::pending::<()>().await;
+                self.release.notified().await;
             }
             Ok(CommandOutput {
                 success: true,
@@ -67,7 +72,7 @@ impl Privileged for ControlledOps {
     }
 }
 
-async fn until(condition: impl Fn() -> bool) -> Result<()> {
+pub(super) async fn until(condition: impl Fn() -> bool) -> Result<()> {
     timeout(Duration::from_secs(5), async {
         while !condition() {
             tokio::time::sleep(Duration::from_millis(25)).await;
@@ -75,6 +80,62 @@ async fn until(condition: impl Fn() -> bool) -> Result<()> {
     })
     .await
     .context("probe scheduler did not make progress")
+}
+
+pub(super) fn authorize(mut spec: ProbeSpec) -> ProbeSpec {
+    if spec.monitor.is_none() {
+        let identity = spec.identity();
+        spec.monitor = Some(ProbeMonitor {
+            network: ProbeNetwork::Other,
+            region: "local fixture".into(),
+            address_family: ProbeAddressFamily::Any,
+            authorization: Some(ProbeAuthorization {
+                kind: ProbeAuthorizationKind::Owned,
+                source: "operator-owned loopback".into(),
+                scope: "controlled test fixture".into(),
+                enabled: true,
+                expires_at: None,
+                identity,
+            }),
+        });
+    }
+    spec
+}
+
+pub(super) fn accepted(
+    session: &Arc<PanelClient>,
+    specs: &[ProbeSpec],
+    revision: u64,
+    duration: Duration,
+) -> AcceptedLease {
+    let now = Instant::now();
+    let issued_at = now_timestamp();
+    AcceptedLease {
+        snapshot: ProbeLease {
+            id: Uuid::new_v4(),
+            server_id: 7,
+            revision,
+            issued_at,
+            expires_at: issued_at + 90,
+            probes: specs
+                .iter()
+                .cloned()
+                .map(|spec| AuthorizedProbe {
+                    authorization: spec
+                        .monitor
+                        .as_ref()
+                        .unwrap()
+                        .authorization
+                        .clone()
+                        .unwrap(),
+                    spec,
+                })
+                .collect(),
+        },
+        received: now,
+        deadline: now + duration,
+        session: session.clone(),
+    }
 }
 
 #[tokio::test]
@@ -97,250 +158,40 @@ async fn slow_probes_do_not_delay_results_and_configuration_changes_cancel_work(
             port: None,
             interval_secs: 3600,
             carrier: String::new(),
+            enabled: true,
             monitor: None,
             execution_authorized: None,
-            enabled: true,
         })
+        .map(authorize)
         .collect();
-    for spec in &mut specs {
-        authorize_fixture(spec);
-    }
-    state
-        .lock()
-        .unwrap()
-        .set_json("probes:configuration", &(now_timestamp(), &specs))?;
-    let worker = tokio::spawn(sample_loop(state.clone(), ops.clone(), retirement.clone()));
+    let client = Arc::new(PanelClient::new("http://127.0.0.1:1", "fixture-session")?);
+    let (_clients, clients) = watch::channel(Some(client.clone()));
+    let (leases, lease_receiver) =
+        watch::channel(Some(accepted(&client, &specs, 1, Duration::from_secs(90))));
+    let worker = tokio::spawn(sample_loop(
+        state.clone(),
+        ops.clone(),
+        clients,
+        lease_receiver,
+        retirement.clone(),
+    ));
     until(|| state.lock().unwrap().probe_results().unwrap().len() == 1).await?;
     until(|| ops.active.load(Ordering::SeqCst) == 4).await?;
-    // Reconfigure a completed target before its hour-long interval, freeing one slot.
-    specs[0].name = "changed".into();
-    specs[1].enabled = false;
-    specs[5].enabled = false;
-    state
-        .lock()
-        .unwrap()
-        .set_json("probes:configuration", &(now_timestamp(), &specs))?;
+    // Remove a slow target and let a new ready target take the freed slot,
+    // without shortening the already completed target's persisted interval.
+    specs.retain(|spec| ![Uuid::from_u128(2), Uuid::from_u128(6)].contains(&spec.id));
+    let mut next = specs[0].clone();
+    next.id = Uuid::from_u128(7);
+    specs.push(next);
+    leases.send_replace(Some(accepted(&client, &specs, 2, Duration::from_secs(90))));
     until(|| state.lock().unwrap().probe_results().unwrap().len() == 2).await?;
     assert!(ops.peak.load(Ordering::SeqCst) <= 4);
-    for spec in &mut specs {
-        spec.enabled = false;
-    }
-    state
-        .lock()
-        .unwrap()
-        .set_json("probes:configuration", &(now_timestamp(), &specs))?;
+    leases.send_replace(Some(accepted(&client, &[], 3, Duration::from_secs(90))));
     until(|| ops.active.load(Ordering::SeqCst) == 0).await?;
     // Cancelled measurements release the gate used by retirement and persist no results.
     let guard = timeout(Duration::from_secs(1), retirement.gate.write()).await?;
     assert_eq!(state.lock().unwrap().probe_results()?.len(), 2);
     drop(guard);
-    worker.abort();
-    assert!(worker.await.unwrap_err().is_cancelled());
-    Ok(())
-}
-
-#[tokio::test]
-async fn cached_legacy_targets_are_inert_and_revocation_aborts_active_measurement() -> Result<()> {
-    let state = Arc::new(Mutex::new(crate::State::open(Path::new(":memory:"))?));
-    let ops = Arc::new(ControlledOps::default());
-    let retirement = Arc::new(crate::retirement::Retirement::new(
-        crate::Config::default(),
-        state.clone(),
-        vec![],
-        ops.clone(),
-        Arc::new(crate::fake::FakeServiceManager::default()),
-    )?);
-    let mut spec = ProbeSpec {
-        id: Uuid::new_v4(),
-        name: "cached legacy fixture".into(),
-        kind: ProbeKind::Icmp,
-        target: "127.0.0.2".into(),
-        port: None,
-        interval_secs: 3600,
-        carrier: String::new(),
-        enabled: true,
-        monitor: None,
-        execution_authorized: Some(true),
-    };
-    state.lock().unwrap().set_json(
-        "probes:configuration",
-        &(now_timestamp(), vec![spec.clone()]),
-    )?;
-    let worker = tokio::spawn(sample_loop(state.clone(), ops.clone(), retirement.clone()));
-    tokio::time::sleep(Duration::from_millis(250)).await;
-    assert_eq!(ops.active.load(Ordering::SeqCst), 0);
-    assert!(state.lock().unwrap().probe_results()?.is_empty());
-    authorize_fixture(&mut spec);
-    state.lock().unwrap().set_json(
-        "probes:configuration",
-        &(now_timestamp(), vec![spec.clone()]),
-    )?;
-    until(|| ops.active.load(Ordering::SeqCst) == 1).await?;
-    spec.monitor
-        .as_mut()
-        .unwrap()
-        .authorization
-        .as_mut()
-        .unwrap()
-        .enabled = false;
-    state
-        .lock()
-        .unwrap()
-        .set_json("probes:configuration", &(now_timestamp(), vec![spec]))?;
-    until(|| ops.active.load(Ordering::SeqCst) == 0).await?;
-    assert!(state.lock().unwrap().probe_results()?.is_empty());
-    let guard = timeout(Duration::from_secs(1), retirement.gate.write()).await?;
-    drop(guard);
-    worker.abort();
-    assert!(worker.await.unwrap_err().is_cancelled());
-    Ok(())
-}
-
-#[tokio::test]
-async fn authorization_expiry_cancels_a_cached_measurement_without_panel_refresh() -> Result<()> {
-    let state = Arc::new(Mutex::new(crate::State::open(Path::new(":memory:"))?));
-    let ops = Arc::new(ControlledOps::default());
-    let retirement = Arc::new(crate::retirement::Retirement::new(
-        crate::Config::default(),
-        state.clone(),
-        vec![],
-        ops.clone(),
-        Arc::new(crate::fake::FakeServiceManager::default()),
-    )?);
-    let mut spec = ProbeSpec {
-        id: Uuid::new_v4(),
-        name: "expiring fixture".into(),
-        kind: ProbeKind::Icmp,
-        target: "127.0.0.2".into(),
-        port: None,
-        interval_secs: 3600,
-        carrier: String::new(),
-        enabled: true,
-        monitor: None,
-        execution_authorized: None,
-    };
-    authorize_fixture(&mut spec);
-    spec.monitor
-        .as_mut()
-        .unwrap()
-        .authorization
-        .as_mut()
-        .unwrap()
-        .expires_at = Some(now_timestamp() + 3);
-    state
-        .lock()
-        .unwrap()
-        .set_json("probes:configuration", &(now_timestamp(), vec![spec]))?;
-    let worker = tokio::spawn(sample_loop(state.clone(), ops.clone(), retirement.clone()));
-    until(|| ops.active.load(Ordering::SeqCst) == 1).await?;
-    until(|| ops.active.load(Ordering::SeqCst) == 0).await?;
-    assert!(state.lock().unwrap().probe_results()?.is_empty());
-    worker.abort();
-    assert!(worker.await.unwrap_err().is_cancelled());
-    Ok(())
-}
-
-#[test]
-fn expired_leases_future_cache_times_and_invalid_authorizations_fail_closed() -> Result<()> {
-    let mut state = crate::State::open(Path::new(":memory:"))?;
-    let mut spec: ProbeSpec = serde_json::from_value(
-        serde_json::json!({"id":Uuid::new_v4(),"name":"TEST_ONLY","kind":"tcp","target":"127.0.0.1","port":443,"interval_secs":30,"carrier":"","enabled":true}),
-    )?;
-    authorize_fixture(&mut spec);
-    state.set_json(
-        "probes:configuration",
-        &(now_timestamp(), vec![spec.clone()]),
-    )?;
-    assert_eq!(leased_configuration(&state)?, vec![spec.clone()]);
-    for fetched in [
-        now_timestamp() - CONFIGURATION_LEASE_SECS,
-        now_timestamp() + 3600,
-    ] {
-        state.set_json("probes:configuration", &(fetched, vec![spec.clone()]))?;
-        assert!(leased_configuration(&state)?.is_empty());
-    }
-    let mut unauthorized = spec;
-    unauthorized
-        .monitor
-        .as_mut()
-        .unwrap()
-        .authorization
-        .as_mut()
-        .unwrap()
-        .scope
-        .clear();
-    state.set_json(
-        "probes:configuration",
-        &(now_timestamp(), vec![unauthorized]),
-    )?;
-    assert!(leased_configuration(&state)?.is_empty());
-    state.set_json(
-        "probes:configuration",
-        &"TEST_ONLY invalid cached structure",
-    )?;
-    assert!(leased_configuration(&state).is_err());
-    Ok(())
-}
-
-#[tokio::test]
-async fn lease_expiry_cancels_work_and_persistence_failure_does_not_stop_the_scheduler()
--> Result<()> {
-    let state = Arc::new(Mutex::new(crate::State::open(Path::new(":memory:"))?));
-    let ops = Arc::new(ControlledOps::default());
-    let retirement = Arc::new(crate::retirement::Retirement::new(
-        crate::Config::default(),
-        state.clone(),
-        vec![],
-        ops.clone(),
-        Arc::new(crate::fake::FakeServiceManager::default()),
-    )?);
-    let mut spec: ProbeSpec = serde_json::from_value(
-        serde_json::json!({"id":Uuid::new_v4(),"name":"TEST_ONLY","kind":"icmp","target":"127.0.0.2","port":null,"interval_secs":30,"carrier":"","enabled":true}),
-    )?;
-    authorize_fixture(&mut spec);
-    state.lock().unwrap().set_json(
-        "probes:configuration",
-        &(now_timestamp(), vec![spec.clone()]),
-    )?;
-    let worker = tokio::spawn(sample_loop(state.clone(), ops.clone(), retirement));
-    until(|| ops.active.load(Ordering::SeqCst) == 1).await?;
-    state.lock().unwrap().set_json(
-        "probes:configuration",
-        &(
-            now_timestamp() - CONFIGURATION_LEASE_SECS,
-            vec![spec.clone()],
-        ),
-    )?;
-    until(|| ops.active.load(Ordering::SeqCst) == 0).await?;
-    assert!(state.lock().unwrap().probe_results()?.is_empty());
-    assert!(!worker.is_finished());
-    // A storage failure is isolated to the bounded probe outbox, not task lifetime.
-    {
-        let state = state.lock().unwrap();
-        state.connection.execute_batch("CREATE TABLE TEST_ONLY_storage_fill(payload BLOB); CREATE TRIGGER TEST_ONLY_probe_storage_full BEFORE INSERT ON probe_outbox BEGIN INSERT INTO TEST_ONLY_storage_fill VALUES(zeroblob(65536)); END;")?;
-        let pages: i64 = state
-            .connection
-            .query_row("PRAGMA page_count", [], |row| row.get(0))?;
-        state
-            .connection
-            .execute_batch(&format!("PRAGMA max_page_count={pages}"))?;
-    }
-    spec.target = "127.0.0.1".into();
-    authorize_fixture(&mut spec);
-    state.lock().unwrap().set_json(
-        "probes:configuration",
-        &(now_timestamp(), vec![spec.clone()]),
-    )?;
-    until(|| ops.calls.load(Ordering::SeqCst) == 2).await?;
-    spec.name = "TEST_ONLY after storage failure".into();
-    state
-        .lock()
-        .unwrap()
-        .set_json("probes:configuration", &(now_timestamp(), vec![spec]))?;
-    until(|| ops.calls.load(Ordering::SeqCst) == 3).await?;
-    tokio::task::yield_now().await;
-    assert!(!worker.is_finished());
-    assert!(state.lock().unwrap().probe_results()?.is_empty());
     worker.abort();
     assert!(worker.await.unwrap_err().is_cancelled());
     Ok(())

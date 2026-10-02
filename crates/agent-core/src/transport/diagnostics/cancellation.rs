@@ -3,7 +3,7 @@ use sinan_protocol::{DiagnosticCancelRequest, DiagnosticCancelResult, Envelope};
 use tokio::sync::mpsc;
 
 mod actions;
-const PENDING: &str = "diagnostics:cancellations";
+pub(super) const PENDING: &str = "diagnostics:cancellations";
 const RESULTS: &str = "diagnostics:cancellation-results";
 
 pub struct CancellationControl {
@@ -34,7 +34,11 @@ impl CancellationControl {
 
     pub fn request(&self, request: DiagnosticCancelRequest) -> Result<()> {
         ensure!(
-            request.server_id == self.server_id && self.plugins.contains(&request.job.plugin),
+            request.server_id == self.server_id
+                && self.plugins.contains(&request.job.plugin)
+                && !request.job.id.is_nil()
+                && safe_component(&request.job.version)
+                && (1..=3600).contains(&request.job.timeout_secs),
             "cancel request does not match this device or a registered plugin"
         );
         let mut state = self
