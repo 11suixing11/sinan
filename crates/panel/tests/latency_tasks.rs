@@ -304,9 +304,21 @@ async fn authorization_metadata_is_scoped_immutable_and_revocation_preserves_his
         probe.monitor.as_ref().unwrap().network,
         sinan_protocol::ProbeNetwork::Telecom
     );
+    let issued = probe_support::issued(
+        &panel.state.pool,
+        &panel.client,
+        &panel.base,
+        server,
+        &ack.session_token,
+    )
+    .await?;
+    assert!(issued.valid());
+    let execution = probe_support::execution(&issued, probe.id)?;
+    assert!(execution.valid());
     let result = json!({"id":uuid::Uuid::new_v4(),"probe_id":probe.id,
-        "sampled_at":sinan_protocol::telemetry::now_millis()-1000,"latency_ms":null,
-        "loss_percent":100.0,"error":"TEST_ONLY TCP connection refused","address_family":"ipv4","attempts":4});
+        "sampled_at":sinan_protocol::telemetry::now_millis(),"latency_ms":null,
+        "loss_percent":100.0,"error":"TEST_ONLY TCP connection refused","address_family":"ipv4","attempts":4,
+        "execution":execution});
     let endpoint = format!("{}/api/agent/v1/probe-results", panel.base);
     for _ in 0..2 {
         panel
@@ -374,6 +386,33 @@ async fn authorization_metadata_is_scoped_immutable_and_revocation_preserves_his
         .error_for_status()?
         .json()
         .await?;
-    assert_eq!(history, vec![result]);
+    assert_eq!(history, vec![result.clone()]);
+    panel
+        .admin(
+            Method::PATCH,
+            "/api/settings",
+            &cookie,
+            Some(
+                json!({"public_dashboard":true,"offline_alerts":false,"offline_minutes":2,
+                "telegram_enabled":false,"telegram_chat_id":""}),
+            ),
+        )
+        .await?
+        .error_for_status()?;
+    let public: Vec<Value> = panel
+        .client
+        .get(format!(
+            "{}/api/dashboard/servers/{server}/probe-results?probe_id={}",
+            panel.base, probe.id
+        ))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let mut anonymous = result;
+    anonymous.as_object_mut().unwrap().remove("execution");
+    anonymous["error"] = json!("检测未完成");
+    assert_eq!(public, vec![anonymous]);
     Ok(())
 }

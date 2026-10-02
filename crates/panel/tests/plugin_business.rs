@@ -260,11 +260,7 @@ async fn migration_preserves_imported_subscription_credentials_access_and_accoun
         .bind(server).execute(&pool).await?;
     let mut legacy = migration_recovery::legacy_snapshot(&pool).await?;
     // New columns have explicit legacy defaults; every preexisting value stays identical.
-    for server in legacy.get_mut("servers").unwrap().as_array_mut().unwrap() {
-        server["asset_settings"] = json!({});
-        server["telemetry_settings"] = json!({"persist_interval_secs":60});
-        server["static_info_received_at"] = Value::Null;
-    }
+    migration_recovery::append_expected_server_defaults(&mut legacy)?;
     for node in legacy.get_mut("nodes").unwrap().as_array_mut().unwrap() {
         node["protocol_config"] = json!({"type":"vless-reality"});
         node["enabled"] = json!(true);
