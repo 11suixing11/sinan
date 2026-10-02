@@ -194,7 +194,7 @@ try {
       assert.deepEqual(control.writes[0].body.items[0].hops, [{ kind: 'managed', node_id: 2 }])
     })
     await fixture('/plugins/sing-box/nodes', async control => {
-      await control.page.getByRole('row').filter({ hasText: 'TEST_ONLY 原链路' }).getByRole('button', { name: '删除', exact: true }).click()
+      await originalChain(control.page).getByRole('button', { name: '删除', exact: true }).click()
       control.resources.splice(control.resources.findIndex(value => value.kind === 'chain'), 1); await refresh(control.page)
       const dialog = control.page.getByRole('dialog'); await dialog.getByText('此代理资源已不存在，请重新选择；当前草稿已保留。', { exact: true }).waitFor()
       await forceClick(dialog.getByRole('button', { name: '确认删除', exact: true })); assert.equal(control.writes.length, 0); ++totals.blocked
