@@ -190,7 +190,7 @@ try {
     assert.equal(await download.locator('.d-overview-value strong').innerText(), '—')
     assert.equal(await download.getByText('暂无实时流量', { exact: true }).count(), 0, 'Missing rates cannot claim a measured zero')
     rateMode = 'measured'
-    await advance(3000)
+    await advance(4000)
     const fullReads = count('/api/dashboard/servers'), liveReads = count('/api/dashboard/live')
     await advance(10_000)
     assert.equal(count('/api/dashboard/servers'), fullReads, 'Live ticks do not re-fetch asset metadata')
