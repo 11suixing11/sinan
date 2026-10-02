@@ -1519,7 +1519,11 @@ async fn retired_node_cleanup_keeps_damaged_ordered_owners_and_bounded_public_re
         assert_eq!(response.status(), StatusCode::CONFLICT);
         let error: Value = response.json().await?;
         no_private_fields(&error);
-        assert!(error["error"].as_str().is_some_and(|value| value.contains("仍被")));
+        assert!(
+            error["error"]
+                .as_str()
+                .is_some_and(|value| value.contains("仍被"))
+        );
         assert_eq!(error["references"]["policies"], json!([]));
         assert_eq!(
             error["references"]["chains"],
@@ -1559,7 +1563,11 @@ async fn retired_node_cleanup_keeps_damaged_ordered_owners_and_bounded_public_re
         assert_eq!(response.status(), StatusCode::CONFLICT);
         let error: Value = response.json().await?;
         no_private_fields(&error);
-        assert!(error["error"].as_str().is_some_and(|value| value.contains("仍被")));
+        assert!(
+            error["error"]
+                .as_str()
+                .is_some_and(|value| value.contains("仍被"))
+        );
         assert!(error.get("references").is_none());
     }
     assert_eq!(state(&pool).await?, before);
