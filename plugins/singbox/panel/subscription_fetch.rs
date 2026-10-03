@@ -105,6 +105,34 @@ pub(crate) enum Outcome {
     },
 }
 
+/// Parses `subscription-userinfo`; a malformed header yields nothing rather than a guess.
+pub(crate) fn parse_traffic(value: &str) -> Option<serde_json::Value> {
+    if value.len() > 4096 {
+        return None;
+    }
+    let mut fields = serde_json::Map::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for field in value.split(';') {
+        let Some((key, value)) = field.trim().split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        if !matches!(key, "upload" | "download" | "total" | "expire") {
+            continue;
+        }
+        let value = value.trim();
+        if !seen.insert(key) || value.is_empty() || !value.bytes().all(|v| v.is_ascii_digit()) {
+            return None;
+        }
+        let number = value.parse::<i64>().ok()?;
+        if key == "expire" && number == 0 {
+            continue;
+        }
+        fields.insert(key.into(), number.into());
+    }
+    (!fields.is_empty()).then_some(serde_json::Value::Object(fields))
+}
+
 pub(crate) fn validate_url(input: &str) -> Result<Url, Failure> {
     if input.is_empty()
         || input.len() > MAX_URL_BYTES

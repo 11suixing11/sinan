@@ -2,12 +2,16 @@ pub(crate) mod fetch;
 mod jobs;
 pub mod models;
 mod mutations;
+mod previews;
 mod service;
 mod snapshots;
 pub mod worker;
 
 pub use jobs::{cancel, get_job, refresh};
 pub use mutations::{create, remove, update};
+pub use previews::{
+    adopt, commit as commit_preview, create as create_preview, remove as remove_preview,
+};
 pub use service::{get, historical_nodes, history, list, nodes};
 
 pub fn routes() -> axum::Router<crate::AppState> {
@@ -23,6 +27,22 @@ pub fn routes() -> axum::Router<crate::AppState> {
         )
         .route("/ordered-subscription-sources/{id}/refresh", post(refresh))
         .route("/ordered-subscription-sources/{id}/nodes", route_get(nodes))
+        .route(
+            "/ordered-subscription-sources/{id}/nodes/{node_id}",
+            axum::routing::patch(adopt),
+        )
+        .route(
+            "/ordered-subscription-source-previews",
+            post(create_preview),
+        )
+        .route(
+            "/ordered-subscription-source-previews/{id}",
+            axum::routing::delete(remove_preview),
+        )
+        .route(
+            "/ordered-subscription-source-previews/{id}/commit",
+            post(commit_preview),
+        )
         .route(
             "/ordered-subscription-sources/{id}/revisions",
             route_get(history),

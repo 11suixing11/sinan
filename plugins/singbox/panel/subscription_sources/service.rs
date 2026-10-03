@@ -87,6 +87,10 @@ async fn view(connection: &mut PgConnection, row: SourceRow) -> ApiResult<Source
         identity_epoch: row.identity_epoch,
         archived: row.archived,
         refresh_interval_secs: row.refresh_interval_secs,
+        user_agent: row.user_agent,
+        auto_refresh: row.auto_refresh,
+        traffic: row.traffic,
+        changes: row.changes,
         last_attempt_at: row.last_attempt_at,
         last_success_at: row.last_success_at,
         latest_success,
@@ -135,6 +139,8 @@ pub async fn get(
 #[derive(FromRow)]
 struct NodeRow {
     id: Uuid,
+    public_id: i64,
+    adopted: bool,
     source_id: i64,
     identity_epoch: i64,
     version_id: Uuid,
@@ -147,7 +153,7 @@ struct NodeRow {
     public_preview: Value,
 }
 
-async fn node_page(
+pub(super) async fn node_page(
     connection: &mut PgConnection,
     source: SourceRow,
     history: Option<Uuid>,
@@ -163,10 +169,10 @@ async fn node_page(
         None => None,
     };
     let rows = if let Some(revision) = history {
-        sqlx::query_as::<_, NodeRow>("SELECT n.id,n.source_id,n.identity_epoch,v.id AS version_id,v.source_revision_id,TRUE AS present_in_latest,m.identity_state,v.supported,v.reasons,v.capabilities,m.public_preview FROM singbox_subscription_revision_nodes m JOIN singbox_ordered_external_nodes n ON n.id=m.node_id JOIN singbox_ordered_external_node_versions v ON v.id=m.version_id WHERE m.source_revision_id=$1 ORDER BY m.ordinal LIMIT 5000")
+        sqlx::query_as::<_, NodeRow>("SELECT n.id,n.public_id,n.adopted,n.source_id,n.identity_epoch,v.id AS version_id,v.source_revision_id,TRUE AS present_in_latest,m.identity_state,v.supported,v.reasons,v.capabilities,m.public_preview FROM singbox_subscription_revision_nodes m JOIN singbox_ordered_external_nodes n ON n.id=m.node_id JOIN singbox_ordered_external_node_versions v ON v.id=m.version_id WHERE m.source_revision_id=$1 ORDER BY m.ordinal LIMIT 5000")
             .bind(revision).fetch_all(&mut *connection).await?
     } else {
-        sqlx::query_as::<_, NodeRow>("SELECT n.id,n.source_id,n.identity_epoch,v.id AS version_id,v.source_revision_id,COALESCE(n.last_seen_revision=$3,FALSE) AS present_in_latest,n.identity_state,v.supported,v.reasons,v.capabilities,m.public_preview FROM singbox_ordered_external_nodes n JOIN singbox_ordered_external_node_versions v ON v.id=n.latest_version JOIN singbox_subscription_revision_nodes m ON m.node_id=n.id AND m.source_revision_id=n.last_seen_revision WHERE n.source_id=$1 AND n.identity_epoch=$2 AND (n.identity_state='unique' OR n.last_seen_revision=$3) ORDER BY COALESCE(n.last_seen_revision=$3,FALSE) DESC,n.created_at,n.id LIMIT 5000")
+        sqlx::query_as::<_, NodeRow>("SELECT n.id,n.public_id,n.adopted,n.source_id,n.identity_epoch,v.id AS version_id,v.source_revision_id,COALESCE(n.last_seen_revision=$3,FALSE) AS present_in_latest,n.identity_state,v.supported,v.reasons,v.capabilities,m.public_preview FROM singbox_ordered_external_nodes n JOIN singbox_ordered_external_node_versions v ON v.id=n.latest_version JOIN singbox_subscription_revision_nodes m ON m.node_id=n.id AND m.source_revision_id=n.last_seen_revision WHERE n.source_id=$1 AND n.identity_epoch=$2 AND (n.identity_state='unique' OR n.last_seen_revision=$3) ORDER BY COALESCE(n.last_seen_revision=$3,FALSE) DESC,n.created_at,n.id LIMIT 5000")
             .bind(source.id).bind(source.identity_epoch).bind(source.current_success_revision).fetch_all(&mut *connection).await?
     };
     let mut nodes = Vec::with_capacity(rows.len());
@@ -199,6 +205,8 @@ async fn node_page(
             && row.supported;
         nodes.push(NodeView {
             id: row.id,
+            public_id: row.public_id,
+            adopted: row.adopted,
             source_id: row.source_id,
             identity_epoch: row.identity_epoch,
             version_id: row.version_id,

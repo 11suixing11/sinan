@@ -4,7 +4,7 @@
 //! network policy lives in `crate::subscription_fetch`.
 
 use super::parse::{ImportError, MAX_BODY};
-use crate::subscription_fetch::{self as shared, Failure, FailureKind};
+use crate::subscription_fetch::{self as shared, Failure, FailureKind, parse_traffic};
 use reqwest::Url;
 use std::collections::BTreeMap;
 
@@ -52,33 +52,6 @@ fn code(failure: Failure) -> ImportError {
 
 pub(super) fn validate_user_agent(value: &str) -> Result<(), ImportError> {
     shared::validate_user_agent(value).map_err(code)
-}
-
-pub(super) fn parse_traffic(value: &str) -> Option<serde_json::Value> {
-    if value.len() > 4096 {
-        return None;
-    }
-    let mut fields = serde_json::Map::new();
-    let mut seen = std::collections::BTreeSet::new();
-    for field in value.split(';') {
-        let Some((key, value)) = field.trim().split_once('=') else {
-            continue;
-        };
-        let key = key.trim();
-        if !matches!(key, "upload" | "download" | "total" | "expire") {
-            continue;
-        }
-        let value = value.trim();
-        if !seen.insert(key) || value.is_empty() || !value.bytes().all(|v| v.is_ascii_digit()) {
-            return None;
-        }
-        let number = value.parse::<i64>().ok()?;
-        if key == "expire" && number == 0 {
-            continue;
-        }
-        fields.insert(key.into(), number.into());
-    }
-    (!fields.is_empty()).then_some(serde_json::Value::Object(fields))
 }
 
 pub(super) fn validate_url(value: &str) -> Result<Url, ImportError> {
@@ -142,32 +115,6 @@ pub(super) async fn download(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn subscription_traffic_is_partial_bounded_and_never_guesses_missing_fields() {
-        assert_eq!(
-            parse_traffic("upload=12; download=30; total=100; expire=2000000000"),
-            Some(
-                serde_json::json!({"upload":12,"download":30,"total":100,"expire":2000000000_i64})
-            )
-        );
-        assert_eq!(
-            parse_traffic("total=0; expire=0; unknown=value"),
-            Some(serde_json::json!({"total":0}))
-        );
-        for invalid in [
-            "upload=-1",
-            "total=1.5",
-            "total=9223372036854775808",
-            "download=1; download=2",
-            "expire=0; expire=1",
-            "unknown=value",
-            "upload=+1",
-        ] {
-            assert!(parse_traffic(invalid).is_none(), "{invalid}");
-        }
-        assert!(parse_traffic(&" ".repeat(4097)).is_none());
-    }
 
     #[test]
     fn stored_error_codes_stay_in_this_stack_vocabulary() {

@@ -1299,6 +1299,29 @@ pub(super) fn node(value: Value, ordinal: usize, name: Option<&str>) -> ParsedNo
     }
 }
 
+/// Applies the provider id taken before conversion. Only supported nodes use
+/// it for identity; an invalid id makes the node unsupported.
+pub(super) fn attach_provider(
+    mut parsed: ParsedNode,
+    provider: Result<Option<String>, ParseReason>,
+) -> ParsedNode {
+    match provider {
+        Ok(provider) => {
+            if parsed.outbound.is_some() {
+                parsed.provider_metadata_id = provider;
+            }
+        }
+        Err(reason) => {
+            parsed.preview.parse_status = ParseStatus::Unsupported;
+            parsed.preview.unsupported_reasons.push(reason);
+            parsed.outbound = None;
+            parsed.content_digest = None;
+            parsed.identity_fingerprint = None;
+        }
+    }
+    parsed
+}
+
 pub(super) fn rejected(preview: NodePreview) -> ParsedNode {
     ParsedNode {
         preview,
@@ -1333,7 +1356,12 @@ pub(super) fn parse_document(
             continue;
         }
         let name = value.get("tag").and_then(Value::as_str);
-        nodes.push(node(value.clone(), nodes.len(), name));
+        let mut definition = value.clone();
+        let provider = super::take_provider_id(&mut definition);
+        nodes.push(attach_provider(
+            node(definition, nodes.len(), name),
+            provider,
+        ));
     }
     let mut warnings = Vec::new();
     if ignored || object.keys().any(|key| key != "outbounds") {

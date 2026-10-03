@@ -593,3 +593,57 @@ fn clash_protocol_conversion_preserves_transport_and_rejects_non_equivalent_secu
     .expect("preview");
     assert!(!public.contains("TEST_ONLY"));
 }
+
+#[test]
+fn provider_ids_are_read_from_sing_box_json_and_mihomo_like_numbered_sources() {
+    let mut first = ss("first", PASSWORD);
+    first["provider_id"] = json!("provider-node-1");
+    let batch = parse(&json_source(vec![first.clone()]));
+    assert_eq!(batch.supported_count, 1);
+    assert_eq!(
+        batch.nodes[0].provider_metadata_id.as_deref(),
+        Some("provider-node-1")
+    );
+    // The provider id is metadata, not part of the connection configuration.
+    let mut plain = first;
+    plain.as_object_mut().unwrap().remove("provider_id");
+    assert_eq!(
+        batch.nodes[0].content_digest,
+        parse(&json_source(vec![plain])).nodes[0].content_digest
+    );
+    let yaml = format!(
+        "proxies:\n  - name: first\n    type: ss\n    server: edge.example.com\n    port: 443\n    cipher: aes-128-gcm\n    password: {PASSWORD}\n    provider_id: provider-node-1\n"
+    );
+    let clash = parse(&yaml);
+    assert_eq!(clash.supported_count, 1);
+    assert_eq!(
+        clash.nodes[0].provider_metadata_id.as_deref(),
+        Some("provider-node-1")
+    );
+}
+
+#[test]
+fn invalid_provider_ids_make_only_that_node_unsupported() {
+    for invalid in [
+        json!(""),
+        json!("   "),
+        json!(7),
+        json!("a".repeat(257)),
+        json!("bad\nid"),
+    ] {
+        let mut node = ss("broken", PASSWORD);
+        node["provider_id"] = invalid.clone();
+        let batch = parse(&json_source(vec![node, ss("kept", "TEST_ONLY-other")]));
+        assert_eq!(batch.supported_count, 1, "{invalid}");
+        let broken = &batch.nodes[0];
+        assert_eq!(broken.preview.parse_status, ParseStatus::Unsupported);
+        assert!(broken.outbound.is_none() && broken.provider_metadata_id.is_none());
+        assert!(
+            broken
+                .preview
+                .unsupported_reasons
+                .iter()
+                .any(|reason| reason.code == "invalid_provider_identity")
+        );
+    }
+}

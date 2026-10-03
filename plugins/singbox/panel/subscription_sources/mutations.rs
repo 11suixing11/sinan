@@ -19,7 +19,7 @@ fn input_error(error: SourceFailure) -> ApiError {
     ApiError::BadRequest(error.message)
 }
 
-fn source_name(value: &str) -> ApiResult<String> {
+pub(super) fn source_name(value: &str) -> ApiResult<String> {
     if value.contains("://") || value.chars().any(char::is_control) {
         return Err(ApiError::BadRequest(
             "来源名称不能包含链接或控制字符".into(),
@@ -28,14 +28,14 @@ fn source_name(value: &str) -> ApiResult<String> {
     business::name(value)
 }
 
-fn content(content: &str) -> ApiResult<()> {
+pub(super) fn content(content: &str) -> ApiResult<()> {
     if content.trim().is_empty() || content.len() > MAX_CONTENT_BYTES {
         return Err(ApiError::BadRequest("订阅内容须非空且不超过 2 MiB".into()));
     }
     Ok(())
 }
 
-fn normalize_input(input: &mut SourceInput) -> ApiResult<Option<String>> {
+pub(super) fn normalize_input(input: &mut SourceInput) -> ApiResult<Option<String>> {
     match input {
         SourceInput::Url { url, auth_headers } => {
             let parsed = fetch::validate_url(url).map_err(input_error)?;
@@ -50,7 +50,7 @@ fn normalize_input(input: &mut SourceInput) -> ApiResult<Option<String>> {
     }
 }
 
-fn interval(input: &SourceInput, value: Option<i64>) -> ApiResult<i64> {
+pub(super) fn interval(input: &SourceInput, value: Option<i64>) -> ApiResult<i64> {
     let value = match input {
         SourceInput::Inline { .. } => value.unwrap_or(0),
         SourceInput::Url { .. } => value.unwrap_or(DEFAULT_REFRESH_SECS),
@@ -60,20 +60,24 @@ fn interval(input: &SourceInput, value: Option<i64>) -> ApiResult<i64> {
         SourceInput::Url { .. } => !(MIN_REFRESH_SECS..=MAX_REFRESH_SECS).contains(&value),
     } {
         return Err(ApiError::BadRequest(
-            "URL 来源周期须为 3600–604800 秒；粘贴或上传来源周期须为 0".into(),
+            "URL 来源周期须为 300–2592000 秒；粘贴或上传来源周期须为 0".into(),
         ));
     }
     Ok(value)
 }
 
-fn digest(value: &Value) -> ApiResult<String> {
+pub(super) fn user_agent(value: &str) -> ApiResult<()> {
+    fetch::validate_user_agent(value).map_err(input_error)
+}
+
+pub(super) fn digest(value: &Value) -> ApiResult<String> {
     Ok(format!(
         "{:x}",
         Sha256::digest(serde_json::to_vec(value).map_err(anyhow::Error::from)?)
     ))
 }
 
-async fn receipt(
+pub(super) async fn receipt(
     connection: &mut PgConnection,
     key: Uuid,
     hash: &str,
@@ -99,7 +103,7 @@ async fn receipt(
     }
 }
 
-async fn save_receipt(
+pub(super) async fn save_receipt(
     connection: &mut PgConnection,
     key: Uuid,
     operation: &str,
@@ -121,6 +125,11 @@ pub async fn create(
     let host = normalize_input(&mut input.input)?;
     let refresh_interval_secs = interval(&input.input, input.refresh_interval_secs)?;
     input.refresh_interval_secs = Some(refresh_interval_secs);
+    if let Some(value) = &input.user_agent {
+        user_agent(value)?;
+    }
+    let auto_refresh = input.auto_refresh.unwrap_or(true);
+    input.auto_refresh = Some(auto_refresh);
     let hash = digest(&json!({"operation":"create","body":input}))?;
     let mut tx = state.pool.begin().await?;
     if let Some(previous) = receipt(&mut tx, input.request_id, &hash).await? {
@@ -144,8 +153,8 @@ pub async fn create(
         SourceInput::Url { .. } => "url",
         SourceInput::Inline { .. } => "inline",
     };
-    let id: i64 = sqlx::query_scalar("INSERT INTO singbox_ordered_subscription_sources(name,kind,host,input_config,refresh_interval_secs,next_refresh_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$6,$6) RETURNING id")
-        .bind(&input.name).bind(kind).bind(host).bind(json!(input.input)).bind(refresh_interval_secs).bind(now_timestamp()).fetch_one(&mut *tx).await?;
+    let id: i64 = sqlx::query_scalar("INSERT INTO singbox_ordered_subscription_sources(name,kind,host,input_config,refresh_interval_secs,next_refresh_at,created_at,updated_at,user_agent,auto_refresh) VALUES($1,$2,$3,$4,$5,$6,$6,$6,$7,$8) RETURNING id")
+        .bind(&input.name).bind(kind).bind(host).bind(json!(input.input)).bind(refresh_interval_secs).bind(now_timestamp()).bind(&input.user_agent).bind(auto_refresh).fetch_one(&mut *tx).await?;
     let source = service::load_source(&mut tx, id, true).await?;
     let job_id = jobs::enqueue(&mut tx, &source).await?;
     let result = MutationReceipt {
@@ -183,6 +192,9 @@ fn normalize_patch(input: &mut UpdateSource) -> ApiResult<()> {
             }
             InputUpdate::Inline { content: value, .. } => content(value)?,
         }
+    }
+    if let Some(UserAgentUpdate::Replace { value }) = &input.user_agent {
+        user_agent(value)?;
     }
     Ok(())
 }
@@ -264,10 +276,21 @@ pub async fn update(
     )?;
     let name = input.name.as_deref().unwrap_or(&old.name);
     let archived = input.archived.unwrap_or(old.archived);
-    let changed = import_content
+    let agent = match &input.user_agent {
+        None => old.user_agent.clone(),
+        Some(UserAgentUpdate::Clear) => None,
+        Some(UserAgentUpdate::Replace { value }) => Some(value.clone()),
+    };
+    let auto_refresh = input.auto_refresh.unwrap_or(old.auto_refresh);
+    // A different User-Agent can change what the provider returns, so fetch
+    // again; it does not change which source this is.
+    let refetch = import_content || (kind == "url" && agent != old.user_agent);
+    let changed = refetch
         || name != old.name
         || period != old.refresh_interval_secs
-        || archived != old.archived;
+        || archived != old.archived
+        || agent != old.user_agent
+        || auto_refresh != old.auto_refresh;
     let mut result = MutationReceipt {
         source_id: id,
         settings_revision: old.settings_revision,
@@ -287,16 +310,18 @@ pub async fn update(
         jobs::supersede(&mut tx, id).await?;
         let due = if archived {
             None
-        } else if import_content || old.archived || had_active {
+        } else if refetch || old.archived || had_active {
             Some(now_timestamp())
-        } else if period != old.refresh_interval_secs && kind == "url" {
+        } else if kind == "url" && !auto_refresh {
+            None
+        } else if kind == "url" && (period != old.refresh_interval_secs || !old.auto_refresh) {
             Some(now_timestamp() + period)
         } else {
             old.next_refresh_at
         };
-        sqlx::query("UPDATE singbox_ordered_subscription_sources SET name=$2,kind=$3,host=$4,input_config=$5,settings_revision=$6,last_error=CASE WHEN identity_epoch<>$7 THEN NULL ELSE last_error END,last_attempt_at=CASE WHEN identity_epoch<>$7 THEN NULL ELSE last_attempt_at END,identity_epoch=$7,archived=$8,refresh_interval_secs=$9,next_refresh_at=$10,conditional_etag=NULL,conditional_last_modified=NULL,conditional_settings_revision=NULL,conditional_identity_epoch=NULL,updated_at=$11 WHERE id=$1")
-            .bind(id).bind(name).bind(kind).bind(host).bind(json!(replacement)).bind(result.settings_revision).bind(result.identity_epoch).bind(archived).bind(period).bind(due).bind(now_timestamp()).execute(&mut *tx).await?;
-        if !archived && (import_content || old.archived || had_active) {
+        sqlx::query("UPDATE singbox_ordered_subscription_sources SET name=$2,kind=$3,host=$4,input_config=$5,settings_revision=$6,last_error=CASE WHEN identity_epoch<>$7 THEN NULL ELSE last_error END,last_attempt_at=CASE WHEN identity_epoch<>$7 THEN NULL ELSE last_attempt_at END,identity_epoch=$7,archived=$8,refresh_interval_secs=$9,next_refresh_at=$10,conditional_etag=NULL,conditional_last_modified=NULL,conditional_settings_revision=NULL,conditional_identity_epoch=NULL,updated_at=$11,user_agent=$12,auto_refresh=$13 WHERE id=$1")
+            .bind(id).bind(name).bind(kind).bind(host).bind(json!(replacement)).bind(result.settings_revision).bind(result.identity_epoch).bind(archived).bind(period).bind(due).bind(now_timestamp()).bind(&agent).bind(auto_refresh).execute(&mut *tx).await?;
+        if !archived && (refetch || old.archived || had_active) {
             let source = service::load_source(&mut tx, id, false).await?;
             result.job_id = jobs::enqueue(&mut tx, &source).await?;
         }

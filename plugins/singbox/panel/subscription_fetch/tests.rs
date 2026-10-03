@@ -834,3 +834,27 @@ async fn real_tls_transport_failure_is_classified_without_exposing_the_url() {
     assert_eq!(failure.kind, FailureKind::Tls);
     assert!(!failure.message.contains("private-marker"));
 }
+
+#[test]
+fn subscription_traffic_is_partial_bounded_and_never_guesses_missing_fields() {
+    assert_eq!(
+        parse_traffic("upload=12; download=30; total=100; expire=2000000000"),
+        Some(serde_json::json!({"upload":12,"download":30,"total":100,"expire":2000000000_i64}))
+    );
+    assert_eq!(
+        parse_traffic("total=0; expire=0; unknown=value"),
+        Some(serde_json::json!({"total":0}))
+    );
+    for invalid in [
+        "upload=-1",
+        "total=1.5",
+        "total=9223372036854775808",
+        "download=1; download=2",
+        "expire=0; expire=1",
+        "unknown=value",
+        "upload=+1",
+    ] {
+        assert!(parse_traffic(invalid).is_none(), "{invalid}");
+    }
+    assert!(parse_traffic(&" ".repeat(4097)).is_none());
+}

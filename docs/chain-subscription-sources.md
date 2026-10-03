@@ -104,9 +104,18 @@ URL 来源支持手动刷新及可配置周期刷新，默认每日一次；上�
 | `GET /ordered-subscription-source-jobs/{id}` | 脱敏任务阶段和结果，禁止回传原始正文 |
 | `POST /ordered-subscription-source-jobs/{id}/cancel` | 提交取消意图；运行中的任务先显示等待工作退出，最终状态由后台确认 |
 | `GET /ordered-subscription-sources/{id}/nodes` | 节点公开预览、稳定 ID、版本、可选性及拒绝原因 |
+| `PATCH /ordered-subscription-sources/{id}/nodes/{node_id}` | 采用或取消采用节点（`adopted`），携带来源设置修订、身份代次和当前版本；采用只决定节点库可见性，不影响链路选点 |
+| `POST /ordered-subscription-source-previews`、`DELETE /ordered-subscription-source-previews/{id}` | 预览来源：下载并解析后暂存十分钟，返回节点及能否选用；每位管理员最多 8 份 |
+| `POST /ordered-subscription-source-previews/{id}/commit` | 按预览时的正文创建来源，只采用所选节点；`request_id` 幂等 |
 | `GET /ordered-subscription-sources/{id}/revisions`、`GET /ordered-subscription-sources/{id}/revisions/{revision}/nodes` | 有界成功批次历史及不可变节点预览；历史行不用于新引用 |
 | `DELETE /ordered-subscription-sources/{id}` | 当前/待应用/恢复依赖冲突返回 409 和清单；解除依赖后按历史证据保留政策清理，不能级联删除发布证明 |
 | `POST /ordered-proxy-resources/chain/{id}/apply-node-versions` | 同节点的版本应用，携带当前路径代数；不得用于换身份或重排路径 |
+
+2026-10-03 起（ADR 0079 阶段三 S1a），有序来源补上了数字编号来源的能力：
+- 设置：请求标识 `user_agent`（未设置时不发送）、自动刷新开关 `auto_refresh`；刷新周期放宽为 300–2592000 秒。
+- 状态：上游流量信息 `traffic` 与变更摘要 `changes`。
+- 节点：采用标记 `adopted`，以及与数字编号来源共用序列的数字别名 `public_id`。
+- 解析器：读取 sing-box JSON 和 Mihomo 节点上的 `provider_id`，解析器版本升为 `sinan-subscription-v2`。
 
 来源接口是 ADR 0055 本步范围；最后一行路径版本应用仍待后续实现。当前两跳链路不接受外部节点，界面预览的“可用于选点”只表示来源资格，不能据此认为已有链路创建或发布能力。实际字段及请求收据见 [HTTP API](api.md#订阅来源)。
 

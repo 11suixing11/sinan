@@ -33,7 +33,10 @@ pub(super) async fn enqueue(
         .bind(id).bind(source.id).bind(source.settings_revision).bind(source.identity_epoch).bind(PARSER_VERSION).bind(now).execute(&mut *connection).await?;
     sqlx::query("UPDATE singbox_ordered_subscription_sources SET next_refresh_at=$2 WHERE id=$1")
         .bind(source.id)
-        .bind((source.kind == "url").then_some(now + source.refresh_interval_secs))
+        .bind(
+            (source.kind == "url" && source.auto_refresh)
+                .then_some(now + source.refresh_interval_secs),
+        )
         .execute(connection)
         .await?;
     Ok(Some(id))

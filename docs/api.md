@@ -208,30 +208,34 @@
 
 ## 订阅来源
 
-本步接口位于 `/api/plugins/sing-box`，见 [ADR 0072](adr/0072-subscription-source-lifecycle.md) 与 [验收边界](acceptance/subscription-sources.md)。仅管理员使用；来源节点不是对用户授权的公开入口，当前受管两跳创建仍不接受订阅跳。
+本节是有序来源接口（UUID 节点身份），位于 `/api/plugins/sing-box`；数字编号来源 `/subscription-sources` 另见[节点库说明](node-catalog.md)。见 [ADR 0072](adr/0072-subscription-source-lifecycle.md) 与 [验收边界](acceptance/subscription-sources.md)。仅管理员使用；来源节点不是对用户授权的公开入口，当前受管两跳创建仍不接受订阅跳。
 
 | 方法与相对路径 | 请求／行为 |
 | --- | --- |
-| `GET /subscription-sources`、`GET /subscription-sources/{id}` | 脱敏来源数组／详情，包含实际成功批次与任务状态 |
-| `POST /subscription-sources` | `{request_id,name,input,refresh_interval_secs?}`；新来源及获取／解析任务，首次 202，原请求重放 200 |
-| `PATCH /subscription-sources/{id}` | `{request_id,settings_revision,name?,refresh_interval_secs?,archived?,input?}`；设置 CAS 与不可变请求收据，返回 200 |
-| `POST /subscription-sources/{id}/refresh` | `{settings_revision}`；URL 手动刷新，首次 202，同代活动任务返回原任务，不并行重复下载 |
-| `GET /subscription-source-jobs/{id}` | 脱敏任务与固定错误分类，不返回原文或底层网络错误 |
-| `POST /subscription-source-jobs/{id}/cancel` | 提交取消意图；`cancelling` 仍持运行所有权，最终确认后才 `cancelled` |
-| `GET /subscription-sources/{id}/nodes` | 当前源设置代数、实际成功批次与节点预览，含缺失和身份不唯一 |
-| `GET /subscription-sources/{id}/revisions` | 最近至多 100 个不可变成功批次 |
-| `GET /subscription-sources/{id}/revisions/{revision}/nodes` | 指定批次的历史节点预览，全部不用于新引用 |
-| `DELETE /subscription-sources/{id}` | `{settings_revision}`；来源软删除、取消工作，保留批次、版本及请求收据；不复活旧请求 |
+| `GET /ordered-subscription-sources`、`GET /ordered-subscription-sources/{id}` | 脱敏来源数组／详情，包含实际成功批次与任务状态 |
+| `POST /ordered-subscription-sources` | `{request_id,name,input,refresh_interval_secs?,user_agent?,auto_refresh?}`；新来源及获取／解析任务，首次 202，原请求重放 200 |
+| `PATCH /ordered-subscription-sources/{id}` | `{request_id,settings_revision,name?,refresh_interval_secs?,archived?,input?,user_agent?,auto_refresh?}`；设置 CAS 与不可变请求收据，返回 200 |
+| `POST /ordered-subscription-sources/{id}/refresh` | `{settings_revision}`；URL 手动刷新，首次 202，同代活动任务返回原任务，不并行重复下载 |
+| `GET /ordered-subscription-source-jobs/{id}` | 脱敏任务与固定错误分类，不返回原文或底层网络错误 |
+| `POST /ordered-subscription-source-jobs/{id}/cancel` | 提交取消意图；`cancelling` 仍持运行所有权，最终确认后才 `cancelled` |
+| `GET /ordered-subscription-sources/{id}/nodes` | 当前源设置代数、实际成功批次与节点预览，含缺失和身份不唯一 |
+| `PATCH /ordered-subscription-sources/{id}/nodes/{node_id}` | `{adopted,settings_revision,identity_epoch,node_version_id}`；采用或取消采用，版本必须是节点当前版本；采用要求节点属于未归档来源的最近成功批次、身份唯一且受支持 |
+| `POST /ordered-subscription-source-previews` | `{input,user_agent?}`；下载并解析，暂存十分钟，返回 201 `{id,expires_at,format,supported_count,unsupported_count,warnings,nodes}`，节点含 `key,selectable,identity_state,capabilities` 与公开预览；每位管理员最多 8 份 |
+| `DELETE /ordered-subscription-source-previews/{id}` | 放弃预览，204 |
+| `POST /ordered-subscription-source-previews/{id}/commit` | `{request_id,name,selected,refresh_interval_secs?,auto_refresh?}`；按暂存正文创建来源和首个成功批次，只采用所选的可选节点；首次 201，重放 200，预览已用或过期 409 |
+| `GET /ordered-subscription-sources/{id}/revisions` | 最近至多 100 个不可变成功批次 |
+| `GET /ordered-subscription-sources/{id}/revisions/{revision}/nodes` | 指定批次的历史节点预览，全部不用于新引用 |
+| `DELETE /ordered-subscription-sources/{id}` | `{settings_revision}`；来源软删除、取消工作，保留批次、版本及请求收据；不复活旧请求 |
 
-创建 `input` 为 `{"kind":"url","url":"https://source.example.invalid/subscription?token=<示例>","auth_headers":{"Authorization":"Bearer <示例>"}}` 或 `{"kind":"inline","content":"<有界配置正文>"}`。URL 刷新周期默认 86400 秒，允许 3600–604800；inline 不周期下载。未删除来源（含归档）最多 128 个，超限明确拒绝，软删历史不占额度。认证头仅 Authorization、Cookie、X-API-Key，大小写规范化，最多三项及总计 8 KiB。正文最大 2 MiB，来源写入路由允许 3 MiB JSON 外壳而不放宽其它接口。
+创建 `input` 为 `{"kind":"url","url":"https://source.example.invalid/subscription?token=<示例>","auth_headers":{"Authorization":"Bearer <示例>"}}` 或 `{"kind":"inline","content":"<有界配置正文>"}`。URL 刷新周期默认 86400 秒，允许 300–2592000；inline 不周期下载。`auto_refresh=false` 时只在手动刷新或修改输入后下载。`user_agent` 为 1–256 字节可打印 ASCII，未设置时不发送 User-Agent；更新时用 `{"action":"replace","value":"…"}` 或 `{"action":"clear"}`，更换后重新下载但不改变身份 epoch。未删除来源（含归档）最多 128 个，超限明确拒绝，软删历史不占额度。认证头仅 Authorization、Cookie、X-API-Key，大小写规范化，最多三项及总计 8 KiB。正文最大 2 MiB，来源写入路由允许 3 MiB JSON 外壳而不放宽其它接口。
 
 更新 URL 输入可以省略地址保留旧值；认证省略保留，显式 `auth_headers={"action":"replace","value":{...}}` 替换或 `{"action":"clear"}` 移除。空字符串不是清除指令。inline 更新必须给出 `identity_action="update"|"replace"`，分别表示同源更新和明确更换来源。URL、认证或输入类型更换建立新身份 epoch；名称和周期只提高设置 revision。旧成功批次携带原 epoch／revision，不能冒称新来源解析结果。
 
 创建／更新收据均为 `{source_id,settings_revision,identity_epoch,job_id}`，job_id 可为 null。相同 request_id 与相同规范化内容返回原收据，异内容 409；删除不移除收据。网络结果不确定时客户端保留并重放原键与原请求，不换键重建；成功保存立即清除敏感输入。
 
-来源公开字段包含 `id,name,kind,host,configured,auth_configured,settings_revision,identity_epoch,archived,refresh_interval_secs,last_attempt_at,last_success_at,latest_success,active_job,last_error,counts,stale_reason,dependencies`。`latest_success`／历史批次为 `{id,source_id,settings_revision,identity_epoch,parser_version,format,parsed_at,counts}`；不返回原文、URL 路径／查询、认证、规范化配置、内容或身份摘要。
+来源公开字段包含 `id,name,kind,host,configured,auth_configured,settings_revision,identity_epoch,archived,refresh_interval_secs,user_agent,auto_refresh,traffic,changes,last_attempt_at,last_success_at,latest_success,active_job,last_error,counts,stale_reason,dependencies`。`latest_success`／历史批次为 `{id,source_id,settings_revision,identity_epoch,parser_version,format,parsed_at,counts}`；不返回原文、URL 路径／查询、认证、规范化配置、内容或身份摘要。
 
-节点读取外壳为 `{source_id,current_settings_revision,current_identity_epoch,success_revision,nodes}`；节点包含 UUID 身份／版本、公开端点与参数类别、`present_in_latest,identity_state,supported,selectable,reasons,capabilities`。identity_state 为 unique（可明确匹配）、ambiguous（多个相同校验身份）或 unresolved（尚无可校验身份，不等同多个账号）。`selectable` 只表示当前来源下的导入资格，不能解释成运行时支持、网络在线或当前已有混合链路能力；客户端以服务端判定为准。任务状态为 queued／running／cancelling／succeeded／unchanged／failed／cancelled／superseded，阶段为 queued／fetch／parse／store／done。错误只有固定 stage／kind／message 与可选 http_status。
+节点读取外壳为 `{source_id,current_settings_revision,current_identity_epoch,success_revision,nodes}`；节点包含 UUID 身份／版本、数字别名 `public_id`、采用标记 `adopted`、公开端点与参数类别、`present_in_latest,identity_state,supported,selectable,reasons,capabilities`。identity_state 为 unique（可明确匹配）、ambiguous（多个相同校验身份）或 unresolved（尚无可校验身份，不等同多个账号）。`selectable` 只表示当前来源下的导入资格，不能解释成运行时支持、网络在线或当前已有混合链路能力；客户端以服务端判定为准。任务状态为 queued／running／cancelling／succeeded／unchanged／failed／cancelled／superseded，阶段为 queued／fetch／parse／store／done。错误只有固定 stage／kind／message 与可选 http_status。`traffic` 是提供方 `subscription-userinfo` 的 upload/download/total/expire 与记录时间；`changes` 是相对上次成功的 added/updated/missing/unsupported 计数，304 时归零（unsupported 保留）。
 
 刷新失败保留成功；304 只沿用匹配当前条件缓存代数的成功批次。取消、输入修改、归档和删除均使旧任务结果失效；同步有界解析实际退出后才释放任务。归档停止新刷新和引用，历史保持。当前旧两跳没有外部节点引用，空 dependencies 不替代后续混合路径当前／待应用／恢复引用保护。
 

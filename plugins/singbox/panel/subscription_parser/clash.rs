@@ -675,15 +675,17 @@ pub(super) fn parse_document(
             continue;
         }
         let ordinal = nodes.len();
-        let node = match convert(value) {
+        let mut definition = value.clone();
+        let provider = super::take_provider_id(&mut definition);
+        let node = match convert(&definition) {
             Ok(converted) => outbound::node(
                 converted,
                 ordinal,
-                value.get("name").and_then(Value::as_str),
+                definition.get("name").and_then(Value::as_str),
             ),
-            Err(reason) => rejected(value, ordinal, reason),
+            Err(reason) => rejected(&definition, ordinal, reason),
         };
-        nodes.push(node);
+        nodes.push(outbound::attach_provider(node, provider));
     }
     let warnings = if ignored
         || object

@@ -17,6 +17,7 @@ pub(crate) struct FetchConfig {
     pub auth_headers: BTreeMap<String, String>,
     pub etag: Option<String>,
     pub last_modified: Option<String>,
+    pub user_agent: Option<String>,
 }
 
 pub(crate) enum FetchOutcome {
@@ -24,10 +25,12 @@ pub(crate) enum FetchOutcome {
         body: Vec<u8>,
         etag: Option<String>,
         last_modified: Option<String>,
+        traffic: Option<serde_json::Value>,
     },
     NotModified {
         etag: Option<String>,
         last_modified: Option<String>,
+        traffic: Option<serde_json::Value>,
     },
 }
 
@@ -73,6 +76,10 @@ pub(crate) fn validate_auth_headers(
     shared::validate_auth_headers(input).map_err(source_failure)
 }
 
+pub(crate) fn validate_user_agent(input: &str) -> Result<(), SourceFailure> {
+    shared::validate_user_agent(input).map_err(source_failure)
+}
+
 pub(crate) fn validate_url(input: &str) -> Result<Url, SourceFailure> {
     shared::validate_url(input).map_err(source_failure)
 }
@@ -83,7 +90,7 @@ pub(crate) async fn fetch(config: &FetchConfig) -> Result<FetchOutcome, SourceFa
         auth_headers: &config.auth_headers,
         etag: config.etag.as_deref(),
         last_modified: config.last_modified.as_deref(),
-        user_agent: None,
+        user_agent: config.user_agent.as_deref(),
     };
     Ok(
         match shared::fetch(&request).await.map_err(source_failure)? {
@@ -91,19 +98,21 @@ pub(crate) async fn fetch(config: &FetchConfig) -> Result<FetchOutcome, SourceFa
                 body,
                 etag,
                 last_modified,
-                ..
+                traffic,
             } => FetchOutcome::Modified {
                 body,
                 etag,
                 last_modified,
+                traffic: traffic.as_deref().and_then(shared::parse_traffic),
             },
             shared::Outcome::NotModified {
                 etag,
                 last_modified,
-                ..
+                traffic,
             } => FetchOutcome::NotModified {
                 etag,
                 last_modified,
+                traffic: traffic.as_deref().and_then(shared::parse_traffic),
             },
         },
     )

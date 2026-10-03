@@ -12,7 +12,8 @@ pub use outbound::{ExternalProtocol, NormalizedOutbound};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub const PARSER_VERSION: &str = "sinan-subscription-v1";
+// v2 reads provider-assigned node ids, so v1 cache validators no longer apply.
+pub const PARSER_VERSION: &str = "sinan-subscription-v2";
 pub const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_NODES: usize = 5000;
 pub const MAX_DEPTH: usize = 64;
@@ -221,6 +222,28 @@ pub fn parse_subscription(body: &[u8], hint: FormatHint) -> Result<ParsedSubscri
 
 pub(super) fn hex_digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+/// Removes a provider-assigned node id. The rules match numbered sources so
+/// that their provider keys stay valid after migration.
+pub(super) fn take_provider_id(
+    value: &mut serde_json::Value,
+) -> Result<Option<String>, ParseReason> {
+    let Some(object) = value.as_object_mut() else {
+        return Ok(None);
+    };
+    match object.remove("provider_id") {
+        None => Ok(None),
+        Some(serde_json::Value::String(id))
+            if !id.trim().is_empty() && id.len() <= 256 && !id.chars().any(char::is_control) =>
+        {
+            Ok(Some(id))
+        }
+        Some(_) => Err(ParseReason::new(
+            "invalid_provider_identity",
+            "节点的提供方编号无效",
+        )),
+    }
 }
 
 pub(super) fn display_name(value: Option<&str>, ordinal: usize) -> String {
