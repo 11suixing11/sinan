@@ -8,6 +8,8 @@
 
 ## 入口、整合与待验条件
 
+- [已完成测试材料清理与最新制品保留](test-material-cleanup.md)
+
 - [NeXus 精确容器上下文与交付收尾](nexus-app-context.md)
 
 - [NodeFlare 看板重新对齐与后台汇率](dashboard-nodeflare-refresh.md)

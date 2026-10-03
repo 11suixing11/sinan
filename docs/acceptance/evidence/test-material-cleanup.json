@@ -1,0 +1,129 @@
+{
+  "schema": 1,
+  "kind": "completed_test_material_cleanup",
+  "baseline": "4d4eae3448b036897aa040d16e1dedec5285b12b",
+  "observed_at": "2026-10-03T04:11:06.963457+00:00",
+  "local": {
+    "initial_removed_items": 4,
+    "remaining_removed_directories": 86,
+    "old_loose_files_removed": 32,
+    "stopped_test_vms_deleted": 2,
+    "old_vm_disks_absent": true,
+    "all_listed_items_absent": true,
+    "postflight": {
+      "observed_at": "2026-10-03T03:47:36.362623+00:00",
+      "available_bytes": 26777047040,
+      "management_reserve_bytes": 4294967296,
+      "management_reserve_eligible": true,
+      "test_source_preserved": true,
+      "latest_web_dist_preserved": true,
+      "credential_backup_preserved": true,
+      "latest_available_release_preserved": true,
+      "product_tests_run": 0
+    }
+  },
+  "arm64_build_host": {
+    "deleted_items": 19,
+    "actual_reclaimed_task_allocated_bytes": 5371465728,
+    "latest_retained_allocated_bytes": 324337664,
+    "retained_metadata_unchanged": true,
+    "retained_payload_hashes_unchanged": true,
+    "filesystem_available_bytes": 75148582912,
+    "ssh_exit": 0
+  },
+  "amd64_test_host": {
+    "old_test_containers_removed": 12,
+    "dedicated_test_volumes_removed": 2,
+    "old_test_directories_removed": 6,
+    "old_images_removed": 1,
+    "observed_filesystem_available_delta_bytes": 10296856576,
+    "final_available_bytes": 24436457472,
+    "root_owned_directories_removed": 3,
+    "temporary_cleanup_containers_removed": true,
+    "production_container_bindings_preserved": true,
+    "latest_builder_retained": true,
+    "old_image_retained_count": 1,
+    "retained_image_reason": "dependent_layer_or_remove_failed",
+    "original_permission_and_guard_failures_preserved": true,
+    "global_prune": false
+  },
+  "dedicated_node": {
+    "cleanup_performed": false,
+    "inspection_authenticated": false,
+    "network_attempts": 1,
+    "ssh_exit": 255,
+    "elapsed_ms": 10020,
+    "failure_category": "banner",
+    "bindings_unchanged": true,
+    "agent_socket_unchanged": true
+  },
+  "receipts": {
+    "initial-plan.json": {
+      "sha256": "7829975a06d1bb2beea71654d792ef1b186ec2eff6e0301ed9d627732c4ba50e",
+      "bytes": 1152
+    },
+    "initial-result.json": {
+      "sha256": "82b468405804320a839e00b84368305377963d9a47f8ca59041dd4a6ce49e7df",
+      "bytes": 751
+    },
+    "remaining-local-plan.json": {
+      "sha256": "4ec71829476f078b9884c36d982b5952a63ae470563dbcf08e095e300d750c90",
+      "bytes": 15617
+    },
+    "remaining-local-result.json": {
+      "sha256": "68929bda6f2ce7ffbf1f7dcbac9b32a05f43e95f3bb9eecbb1cca9a3199e3563",
+      "bytes": 13492
+    },
+    "old-loose-files-result.json": {
+      "sha256": "2c8cd743ccb497c5ebbdb324da87fc142daab3bcd9d08325b6751a10387ad8ed",
+      "bytes": 75
+    },
+    "vm-result.json": {
+      "sha256": "d50f1147e059b07d2503bef7658d246535f64216b404c405687930313356e90b",
+      "bytes": 124
+    },
+    "local-postflight.json": {
+      "sha256": "0e05f73bbf6a4457379d66b7bffed44e7b0686e107ff326cb45a3ab1943831d0",
+      "bytes": 352
+    },
+    "osga-result.json": {
+      "sha256": "f45f4707e55c2ecad6025c1685120ac254989a285862d98f39c3c62e0e4ceff9",
+      "bytes": 6248
+    },
+    "lucius-plan.json": {
+      "sha256": "6329b2a347e1307778a146ef428a73da33a0b9f664b4af993bc02fbda5811cf0",
+      "bytes": 9543
+    },
+    "lucius-result.json": {
+      "sha256": "19a4af80359a2e4555361f7dbe5b3cd47d5f142f31fdecde8d2b965d187449a4",
+      "bytes": 4790
+    },
+    "lucius-supplement-result.json": {
+      "sha256": "be8cbb8e6b3c0eb7b3bc39bdf0753d0c6cd74502d6d8fb4755833d87e6b46b14",
+      "bytes": 686
+    },
+    "lucius-root-owned-cleanup.json": {
+      "sha256": "59d788246ee9ad974343a74d0376bd8eddb448d025a7d6061de05c2f6c095b7c",
+      "bytes": 3536
+    },
+    "lucius-root-owned-cleanup-r2.json": {
+      "sha256": "e43b6912b8af58aa00e96f6a214feff93d62181f57d7f4df9ad6e058f3adc993",
+      "bytes": 143228
+    },
+    "aws-cleanup-readiness.json": {
+      "sha256": "5349c494791f82e98b05087aa1794d3196a4cb13db4dc323bbc8a5ed631f745c",
+      "bytes": 943
+    }
+  },
+  "source_and_test_cases_preserved": true,
+  "committed_acceptance_summaries_preserved": true,
+  "latest_available_signed_artifacts_preserved": true,
+  "credential_backups_preserved": true,
+  "other_project_data_deleted": false,
+  "product_tests_run": 0,
+  "native_build_started": false,
+  "server_installation_started": false,
+  "ci_resumed": false,
+  "full_nodequality_accepted": false,
+  "all_machines_cleaned": false
+}
