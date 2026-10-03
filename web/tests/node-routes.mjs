@@ -46,7 +46,7 @@ try {
     await page.waitForFunction(() => document.querySelector('[aria-label="按服务器筛选"]')?.value === '2')
     assert.equal(await catalogRows.count(), 1)
     assert.match(await catalogRows.innerText(), /服务器2节点/)
-    assert.equal(await page.getByRole('navigation', { name:'主导航' }).getByRole('link', { name:'代理节点', exact:true }).getAttribute('aria-current'), 'page')
+    assert.equal(await page.getByRole('navigation', { name: '主导航', includeHidden: true }).getByRole('link', { name: '代理节点', exact: true, includeHidden: true }).getAttribute('aria-current'), 'page')
     await page.getByRole('button', { name:'创建节点', exact:true }).first().click()
     assert.equal(await page.getByRole('dialog').locator('[name=server_id]').inputValue(), '2')
     await page.getByRole('dialog').getByRole('button', { name:'取消', exact:true }).click()
@@ -58,7 +58,9 @@ try {
     assert.equal(await page.getByRole('button', { name:'创建节点', exact:true }).first().isDisabled(), true)
     assert.equal(await catalogRows.count(), 0)
     await page.evaluate(() => { location.hash = '/plugins/sing-box/nodes?kind=chains' })
-    await page.getByLabel('按类型筛选').waitFor()
+    // The legacy chains route opens the chain section and keeps the catalog type filter on chains.
+    await page.locator('nav[aria-label="节点视图"] a[aria-current="page"]').filter({ hasText: /^链路/ }).waitFor()
+    await page.getByLabel('按类型筛选').waitFor({ state: 'attached' })
     assert.equal(await page.getByLabel('按类型筛选').inputValue(), 'chain')
     assert.equal(await catalogRows.count(), 0)
     await page.getByRole('button', { name:'创建链路', exact:true }).click()
@@ -67,7 +69,7 @@ try {
     await chain.getByLabel('入口方式', { exact:true }).selectOption('existing')
     assert.equal(await chain.getByLabel('已有入口', { exact:true }).locator('option').count(), 3)
     await chain.getByRole('button', { name:'收起编辑器', exact:true }).click()
-    for (const query of ['server=0','server=1&server=2','server=9007199254740992','server=1e2','kind=unknown','other=1']) {
+    for (const query of ['server=0','server=1&server=2','server=9007199254740992','server=1e2','kind=unknown','view=unknown','view=chains&view=sources','other=1']) {
       await page.evaluate(query => { location.hash = '/plugins/sing-box/nodes?' + query }, query)
       await page.getByRole('heading', { name:'这个页面不存在', exact:true }).waitFor()
       assert.equal(await page.locator('.node-editor').count(), 0)

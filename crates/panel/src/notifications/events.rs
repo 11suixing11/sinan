@@ -135,7 +135,7 @@ pub(super) async fn observe(
         }
     }
     let event: i64 = sqlx::query_scalar("INSERT INTO server_alert_events(server_id,server_name,last_seen,opened_at,category,source_key,details,message) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id")
-        .bind(server.id).bind(&server.name).bind(server.last_seen).bind(now).bind(observation.category)
+        .bind(server.id).bind(&server.name).bind(server.last_contact_at.or(server.last_seen)).bind(now).bind(observation.category)
         .bind(observation.key).bind(observation.details).bind(observation.message).fetch_one(&mut **tx).await?;
     enqueue(
         tx,

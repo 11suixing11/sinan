@@ -489,7 +489,7 @@ async fn append_only_0035_preserves_all_existing_migrations_grants_and_history(
         sqlx::query_scalar::<_, i64>("SELECT MAX(version) FROM _sqlx_migrations")
             .fetch_one(&pool)
             .await?,
-        49
+        50
     );
     Ok(())
 }

@@ -6,6 +6,14 @@ import { resolve, extname, sep } from 'node:path'
 
 const catalogView = resources => resources.map(resource => ({ ...resource, original_name: resource.name, tags: [], note: '', sort_order: resource.id, revision: '1'.repeat(64), metadata_revision: 0 }))
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
+
+// Narrow screens fold the main navigation behind the menu button.
+async function openNav(page, name) {
+  await page.locator('.sidebar').waitFor()
+  const menu = page.getByRole('button', { name: '菜单', exact: true })
+  if (await menu.isVisible() && await menu.getAttribute('aria-expanded') !== 'true') await menu.click()
+  await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name, exact: true }).click()
+}
 const root = fileURLToPath(new URL('../dist/', import.meta.url))
 const server = createServer(async (request, response) => {
   const path = new URL(request.url, 'http://127.0.0.1').pathname
@@ -129,7 +137,7 @@ try {
     const catalogRows = page.locator(width < 768 ? '.catalog-card' : '.catalog-table tbody tr')
     await catalogRows.filter({hasText:'原两跳链路'}).getByRole('link',{name:'详情',exact:true}).waitFor()
     assert.equal(await catalogRows.filter({hasText:'受管出口'}).count(),0)
-    await page.getByRole('link',{name:'策略与套餐',exact:true}).click()
+    await openNav(page,'策略与套餐')
     assert.equal(await page.getByRole('button',{name:'两跳链路',exact:true}).count(),0)
     await page.getByRole('button',{name:'创建策略组'}).click()
     await dialog.getByLabel('名称',{exact:true}).fill('链路策略')
@@ -138,7 +146,7 @@ try {
     await dialog.getByRole('button',{name:'保存',exact:true}).click()
     await dialog.waitFor({state:'hidden'})
     assert.deepEqual(policies[0].chain_ids,[8])
-    await page.getByRole('link',{name:'代理用户',exact:true}).click()
+    await openNav(page,'代理用户')
     await page.getByLabel('授权 备用入口').waitFor()
     assert.equal(await page.getByLabel('授权 原链路专用入口').count(),0)
     assert.equal(await page.getByLabel('授权 同步名称链路').count(),0)

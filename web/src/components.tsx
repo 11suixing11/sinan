@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { FormEvent, ReactNode } from 'react'
 import { errorMessage } from './api'
 import { resourceRefreshingMessage } from './hooks'
@@ -10,6 +11,7 @@ const paths: Record<string, ReactNode> = {
   box: <><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 5v9l9 5 9-5V8M12 13v9m-4-17 9 5" /></>,
   plus: <path d="M12 5v14M5 12h14" />,
   close: <path d="m6 6 12 12M6 18 18 6" />,
+  menu: <path d="M4 7h16M4 12h16M4 17h16" />,
   arrow: <path d="M5 12h14m-6-6 6 6-6 6" />,
   back: <path d="M19 12H5m6-6-6 6 6 6" />,
   copy: <><rect x="8" y="8" width="12" height="13" rx="2" /><path d="M16 8V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h4" /></>,
@@ -36,6 +38,10 @@ export function ErrorNotice({ message, retry }: { message?: string; retry?: () =
   }, [message, transient])
   return message && (!transient || showRefresh) ? <div className="notice notice-error" role="alert"><span>{message}</span>{retry && <button className="text-button" type="button" onClick={retry}>重试</button>}</div> : null
 }
+/** Explains why a click made during a background refresh did nothing. */
+export function RefreshNotice() {
+  return <div className="notice" role="status"><span>最新信息正在同步，本次操作未执行；请稍候再试。</span></div>
+}
 export function Empty({ icon = 'box', title, description, children }: { icon?: string; title: string; description: string; children?: ReactNode }) { return <div className="empty"><span className="empty-icon"><Icon name={icon} size={27} /></span><h3>{title}</h3><p>{description}</p>{children}</div> }
 export function Loading() { return <div className="loading" role="status"><span className="spinner" />正在加载…</div> }
 export function Refresh({ onClick }: { onClick: () => void }) { return <button className="button button-secondary" onClick={onClick}><Icon name="refresh" size={16} /><span>刷新</span></button> }
@@ -43,6 +49,7 @@ export function Stat({ label, value, note, icon }: { label: string; value: React
 export function Meter({ value }: { value?: number }) { return <span className="meter"><span style={{ width: `${Math.min(100, Math.max(0, value ?? 0))}%` }} /></span> }
 export function Modal({ title, children, onClose, busy = false, wide = false, className = '' }: { title: string; children: ReactNode; onClose: () => void; busy?: boolean; wide?: boolean; className?: string }) {
   const dialog = useRef<HTMLDivElement>(null)
+  const titleId = useId()
   const close = useRef(onClose); close.current = onClose
   const pending = useRef(busy); pending.current = busy
   useEffect(() => {
@@ -62,11 +69,21 @@ export function Modal({ title, children, onClose, busy = false, wide = false, cl
     const overflow = document.body.style.overflow; document.body.style.overflow = 'hidden'
     return () => { document.removeEventListener('keydown', key); document.body.style.overflow = overflow; previous?.focus() }
   }, [])
-  return <div className="modal-shade" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose() }}><div ref={dialog} className={`modal ${wide ? 'modal-wide' : ''} ${className}`} role="dialog" aria-modal="true" aria-labelledby="modal-title"><header><h2 id="modal-title">{title}</h2><button className="icon-button" aria-label="关闭对话框" disabled={busy} onClick={onClose}><Icon name="close" /></button></header>{children}</div></div>
+  // Dialogs render at the document root so hidden page sections, such as inactive
+  // tabs, never hide a dialog that one of their components opened.
+  return createPortal(<div className="modal-shade" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose() }}>
+    <div ref={dialog} className={`modal ${wide ? 'modal-wide' : ''} ${className}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <header><h2 id={titleId}>{title}</h2><button className="icon-button" aria-label="关闭对话框" disabled={busy} onClick={onClose}><Icon name="close" /></button></header>
+      {children}
+    </div>
+  </div>, document.body)
 }
 export function FormDialog({ title, children, onClose, onSubmit, busy, disabled = false, submitDisabled = false, error, retry, submitLabel = '保存', wide = false, className = '' }: { title: string; children: ReactNode; onClose: () => void; onSubmit: (data: FormData) => void; busy: boolean; disabled?: boolean; submitDisabled?: boolean; error?: string; retry?: () => void; submitLabel?: string; wide?: boolean; className?: string }) {
   const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (!busy && !disabled && !submitDisabled) onSubmit(new FormData(event.currentTarget)) }
-  return <Modal title={title} onClose={onClose} busy={busy} wide={wide} className={className}><form onSubmit={submit}><div className="modal-body"><ErrorNotice message={error} retry={retry} /><fieldset disabled={busy || disabled}>{children}</fieldset></div><footer><button className="button button-secondary" type="button" onClick={onClose} disabled={busy}>取消</button><button className="button button-primary" disabled={busy || disabled || submitDisabled}>{busy && <span className="spinner" />}{busy ? '正在保存…' : submitLabel}</button></footer></form></Modal>
+  // A background refresh only holds the submit; the draft stays editable so typing
+  // and draft rows are never lost to a briefly disabled fieldset.
+  const locked = busy || (disabled && error !== resourceRefreshingMessage)
+  return <Modal title={title} onClose={onClose} busy={busy} wide={wide} className={className}><form onSubmit={submit}><div className="modal-body"><ErrorNotice message={error} retry={retry} /><fieldset disabled={locked}>{children}</fieldset></div><footer><button className="button button-secondary" type="button" onClick={onClose} disabled={busy}>取消</button><button className="button button-primary" disabled={busy || disabled || submitDisabled}>{busy && <span className="spinner" />}{busy ? '正在保存…' : submitLabel}</button></footer></form></Modal>
 }
 export function Confirm({ title, children, busy, disabled = false, confirmDisabled = false, confirmLabel = '确认删除', busyLabel = '正在删除…', error, retry, onClose, onConfirm }: { title: string; children: ReactNode; busy: boolean; disabled?: boolean; confirmDisabled?: boolean; confirmLabel?: string; busyLabel?: string; error?: string; retry?: () => void; onClose: () => void; onConfirm: () => void }) { return <Modal title={title} onClose={onClose} busy={busy}><div className="modal-body"><ErrorNotice message={error} retry={retry} /><p className="confirm-copy">{children}</p></div><footer><button className="button button-secondary" disabled={busy} onClick={onClose}>取消</button><button className="button button-danger" disabled={busy || disabled || confirmDisabled} onClick={() => { if (!busy && !disabled && !confirmDisabled) onConfirm() }}>{busy ? busyLabel : confirmLabel}</button></footer></Modal> }
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label> }

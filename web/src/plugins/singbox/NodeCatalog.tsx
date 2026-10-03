@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
-import { Badge, Confirm, Empty, ErrorNotice, Field, FormDialog, Loading, Modal } from '../../components'
+import { Badge, Confirm, Empty, ErrorNotice, Field, FormDialog, Loading, Modal, RefreshNotice } from '../../components'
 import { bytes, totalBytes } from '../../format'
-import { resourceWriteError, useAction, useResource } from '../../hooks'
+import { resourceWriteError, useAction, useRefreshNotice } from '../../hooks'
+import type { ResourceState } from '../../hooks'
 import type { Node, PluginServer, Usage } from '../../types'
 import type { ProxyResource, ResourceKey } from './resourceTypes'
 import { endpoint, resourceLink, roleNames, stageName } from './resourceTypes'
@@ -15,10 +16,12 @@ import './catalog.css'
 
 const root = '/api/plugins/sing-box'
 const kinds = { direct: '直连节点', chain: '链路', external: '外部节点' }
-type Props = { nodes: Node[]; servers: PluginServer[]; getServers: () => PluginServer[] | undefined; usage?: Usage; server: string; getServer: () => string; onServer: (id: string) => void; excludedKeys: string[]; metadataTarget: ResourceKey | null; onMetadataOpened: () => void; kind: string; onKind: (kind: string) => void; initialServerRole?: 'any' | 'entry' | 'middle' | 'exit'; refreshRevision: number; onChanged: () => void; managedWriteError: () => string; onEdit: (node: Node) => void; onDelete: (node: ProxyResource) => void; onDeployment: (id: number) => void }
+type Props = { query: ResourceState<unknown>; nodes: Node[]; servers: PluginServer[]; getServers: () => PluginServer[] | undefined; usage?: Usage; server: string; getServer: () => string; onServer: (id: string) => void; excludedKeys: string[]; metadataTarget: ResourceKey | null; onMetadataOpened: () => void; kind: string; onKind: (kind: string) => void; initialServerRole?: 'any' | 'entry' | 'middle' | 'exit'; onChanged: () => void; managedWriteError: () => string; onEdit: (node: Node) => void; onDelete: (node: ProxyResource) => void; onDeployment: (id: number) => void }
 
+// The catalog reads its data from the node page's shared snapshot, so it refreshes
+// together with the chain and resource lists it is filtered against.
 export default function NodeCatalog(props: Props) {
-  const query = useResource<unknown>(`${root}/node-catalog`)
+  const query = props.query
   const history = useRef<CatalogNode[] | undefined>(undefined)
   const view = validatedSnapshot(query, validCatalog, history.current)
   if (view.fresh) history.current = view.data
@@ -33,9 +36,6 @@ export default function NodeCatalog(props: Props) {
   const [details, setDetails] = useState<CatalogNode | null>(null)
   const [clone, setClone] = useState<{ node: CatalogNode; scope: string } | null>(null)
   const action = useAction()
-  // The catalog already loads on mount; only later parent refreshes need another read.
-  const refreshRevision = useRef(props.refreshRevision)
-  useEffect(() => { if (refreshRevision.current === props.refreshRevision) return; refreshRevision.current = props.refreshRevision; catalog.reload() }, [props.refreshRevision, catalog.reload])
   const all = catalog.data ?? []
   const visible = filterCatalog(all.filter(node => !props.excludedKeys.includes(catalogKey(node))), { ...filter, server: props.server, serverRole: props.initialServerRole }).sort((a, b) => sort === 'name' ? a.name.localeCompare(b.name, 'zh-CN') || catalogKey(a).localeCompare(catalogKey(b)) : sort === 'protocol' ? (a.protocol ?? '').localeCompare(b.protocol ?? '') || a.name.localeCompare(b.name) : a.sort_order - b.sort_order || a.kind.localeCompare(b.kind) || a.id - b.id)
   const pages = Math.max(1, Math.ceil(visible.length / size)), currentPage = Math.min(page, pages)
@@ -44,11 +44,16 @@ export default function NodeCatalog(props: Props) {
   const scope = () => JSON.stringify({ ...filterRef.current, server: props.getServer(), serverRole: props.initialServerRole ?? 'any' })
   const stale = () => resourceWriteError(catalog) || props.managedWriteError()
   const mutationError = (nodes: CatalogNode[]) => stale() || catalogMutationError(catalog.getCurrent?.(), nodes, props.getServer(), props.initialServerRole)
-  const refresh = () => { catalog.reload(); props.onChanged() }
+  // Row and batch actions clicked before a refresh visibly disables them are reported.
+  const refreshNotice = useRefreshNotice()
+  const unavailable = Boolean(stale())
+  const refresh = props.onChanged
   const change = (key: keyof typeof filter, value: string) => { filterRef.current = { ...filterRef.current, [key]: value }; setFilter(filterRef.current); if (key === 'kind') props.onKind(value); setPage(1) }
   const toggle = (node: CatalogNode) => setSelection(value => value.includes(catalogKey(node)) ? value.filter(key => key !== catalogKey(node)) : value.length < 200 ? [...value, catalogKey(node)] : value)
-  const openBatch = (mode: string, nodes = selected) => { if (mutationError(nodes)) return; action.clearError(); setBatch({ mode, nodes, scope: scope() }) }
-  useEffect(() => { if (!props.metadataTarget) return; const node = catalog.getCurrent?.()?.find(node => catalogKey(node) === catalogKey(props.metadataTarget!)); if (node) openBatch('metadata', [node]); props.onMetadataOpened() }, [props.metadataTarget])
+  const openBatch = (mode: string, nodes = selected) => { if (!refreshNotice.allows(mutationError(nodes))) return; action.clearError(); setBatch({ mode, nodes, scope: scope() }) }
+  const openClone = (node: CatalogNode) => { if (refreshNotice.allows(mutationError([node]))) setClone({ node, scope: scope() }) }
+  const remove = (node: CatalogNode) => { if (!refreshNotice.allows(mutationError([node]))) return; if (node.kind === 'external') openBatch('delete', [node]); else props.onDelete(node as ProxyResource) }
+  useEffect(() => { if (!props.metadataTarget) return; const node = (catalog.getCurrent?.() ?? catalog.data)?.find(node => catalogKey(node) === catalogKey(props.metadataTarget!)); if (node) openBatch('metadata', [node]); props.onMetadataOpened() }, [props.metadataTarget])
   const apply = (items: object[]) => api(`${root}/node-catalog/batch`, 'POST', { items })
   const move = (node: CatalogNode, offset: number) => {
     if (mutationError([node])) return
@@ -66,9 +71,9 @@ export default function NodeCatalog(props: Props) {
   const actions = (node: CatalogNode) => {
     const managed = node.kind !== 'external' ? props.nodes.find(value => value.id === (node.entry_node_id ?? node.id)) : undefined
     return <div className="row-actions catalog-actions">{node.kind === 'external' ? <button className="text-button" onClick={() => setDetails(node)}>详情</button> : <><a className="text-button" href={resourceLink(node as ProxyResource)}>详情</a><button className="text-button" onClick={() => props.onDeployment(node.server_id!)}>部署</button>{node.kind === 'direct' && <button className="text-button" disabled={!managed} onClick={() => managed && props.onEdit(managed)}>编辑</button>}</>}
-      <button className="text-button" disabled={Boolean(stale())} onClick={() => openBatch('metadata', [node])}>整理</button>
-      {node.kind === 'direct' && <button className="text-button" disabled={Boolean(stale())} onClick={() => { if (!mutationError([node])) setClone({ node, scope: scope() }) }}>复制</button>}
-      <button className="text-button danger-text" disabled={Boolean(stale())} onClick={() => { if (mutationError([node])) return; if (node.kind === 'external') openBatch('delete', [node]); else props.onDelete(node as ProxyResource) }}>删除</button>
+      <button className="text-button" disabled={unavailable} onClick={() => openBatch('metadata', [node])}>整理</button>
+      {node.kind === 'direct' && <button className="text-button" disabled={unavailable} onClick={() => openClone(node)}>复制</button>}
+      <button className="text-button danger-text" disabled={unavailable} onClick={() => remove(node)}>删除</button>
       {sort === 'custom' && <><button className="text-button" aria-label={`上移 ${node.name}`} disabled={action.busy || Boolean(stale()) || catalogKey(node) === catalogKey(visible[0])} onClick={() => move(node, -1)}>↑</button><button className="text-button" aria-label={`下移 ${node.name}`} disabled={action.busy || Boolean(stale()) || catalogKey(node) === catalogKey(visible.at(-1)!)} onClick={() => move(node, 1)}>↓</button></>}
     </div>
   }
@@ -89,10 +94,17 @@ export default function NodeCatalog(props: Props) {
       <select aria-label="节点排序" value={sort} onChange={event => { setSort(event.target.value); setPage(1) }}><option value="custom">自定义顺序</option><option value="name">名称</option><option value="protocol">协议</option></select>
     </div>
     <div className="catalog-selection"><label><input type="checkbox" aria-label="选择本页节点" checked={!!rows.length && rows.every(node => selection.includes(catalogKey(node)))} onChange={event => setSelection(event.target.checked ? [...new Set([...selection, ...rows.map(catalogKey)])].slice(0, 200) : selection.filter(key => !rows.some(node => catalogKey(node) === key)))} /> 本页</label><span>已选 {selected.length} 项</span><button className="text-button" disabled={!visible.length || visible.length > 200} onClick={() => setSelection(visible.map(catalogKey))}>选择筛选结果（{visible.length}）</button><button className="text-button" onClick={() => setSelection([])} disabled={!selection.length}>清空</button>
-      {selected.length > 0 && <div className="row-actions"><button className="text-button" disabled={Boolean(stale())} onClick={() => openBatch('rename')}>批量改名</button><button className="text-button" disabled={Boolean(stale())} onClick={() => openBatch('tags')}>批量标签</button><button className="text-button" disabled={Boolean(stale())} onClick={() => openBatch('enable')}>启用</button><button className="text-button" disabled={Boolean(stale())} onClick={() => openBatch('disable')}>停用</button><button className="text-button danger-text" disabled={Boolean(stale())} onClick={() => openBatch('delete')}>批量删除</button></div>}
+      {selected.length > 0 && <div className="row-actions">
+        <button className="text-button" disabled={unavailable} onClick={() => openBatch('rename')}>批量改名</button>
+        <button className="text-button" disabled={unavailable} onClick={() => openBatch('tags')}>批量标签</button>
+        <button className="text-button" disabled={unavailable} onClick={() => openBatch('enable')}>启用</button>
+        <button className="text-button" disabled={unavailable} onClick={() => openBatch('disable')}>停用</button>
+        <button className="text-button danger-text" disabled={unavailable} onClick={() => openBatch('delete')}>批量删除</button>
+      </div>}
     </div>
     <ErrorNotice message={catalog.error || (!batch ? action.error : '')} retry={catalog.reload} />
-    {catalog.loading && !catalog.data ? <Loading /> : !rows.length ? <Empty icon="nodes" title="没有符合条件的节点" description="创建受管节点，或从下方订阅来源导入外部节点。" /> : <>
+    {refreshNotice.visible && <RefreshNotice />}
+    {catalog.loading && !catalog.data ? <Loading /> : !rows.length ? <Empty icon="nodes" title="没有符合条件的节点" description="创建受管节点，或在“订阅来源”中导入外部节点。" /> : <>
       <div className="table-wrap catalog-table"><table><thead><tr><th>选择</th><th>节点 / 链路</th><th>服务器 / 来源</th><th>公开地址</th><th>状态</th><th>累计流量</th><th>操作</th></tr></thead><tbody>{rows.map(node => <tr key={catalogKey(node)} data-resource-key={catalogKey(node)}><td><input type="checkbox" aria-label={`选择 ${node.name}`} checked={selection.includes(catalogKey(node))} onChange={() => toggle(node)} /></td><td>{title(node)}</td><td>{node.kind === 'external' ? node.source_name : <a href={`#/servers/${node.server_id}`}>{node.server_name}</a>}</td><td><code>{publicEndpoint(node)}</code><small>{node.udp ? 'TCP / UDP' : '仅 TCP'}</small></td><td>{status(node)}</td><td>{traffic(node)}</td><td>{actions(node)}</td></tr>)}</tbody></table></div>
       <div className="catalog-cards">{rows.map(node => <article key={catalogKey(node)} className="catalog-card" data-resource-key={catalogKey(node)}><div className="catalog-card-heading"><input type="checkbox" aria-label={`选择 ${node.name}`} checked={selection.includes(catalogKey(node))} onChange={() => toggle(node)} />{title(node)}</div><div className="catalog-card-meta"><span>{node.server_name ?? node.source_name}</span><code>{publicEndpoint(node)}</code>{status(node)}<span>{traffic(node)}</span></div>{actions(node)}</article>)}</div>
     </>}

@@ -122,7 +122,7 @@ try {
       await block(control, `${prefix}/nodes`, () => nodesRefresh(page), () => forceForm(editor.locator('form')), () => editor.getByRole('button', { name: '保存 1 条链路', exact: true }).click(), async () => assert.equal(await editor.getByLabel('链路名称', { exact: true }).inputValue(), 'TEST_ONLY 链路草稿'))
       assert.deepEqual(writes[0].body.items[0].hops, [{ kind: 'managed', node_id: 2 }])
     })
-    for (const creating of [false, true]) await fixture('/plugins/sing-box/nodes', async control => {
+    for (const creating of [false, true]) await fixture('/plugins/sing-box/nodes?view=sources', async control => {
       const { page, writes } = control, sourcePanel = page.locator('.subscription-sources')
       await sourcePanel.getByRole('button', { name: creating ? '添加来源' : '设置与更新', exact: true }).first().click()
       const dialog = page.getByRole('dialog'); await dialog.getByLabel('来源名称', { exact: true }).fill('TEST_ONLY 来源草稿')
@@ -139,7 +139,7 @@ try {
         assert.deepEqual(writes[1].body.selected, ['node-0'])
       }
     })
-    await fixture('/plugins/sing-box/nodes', async control => {
+    await fixture('/plugins/sing-box/nodes?view=sources', async control => {
       const { page } = control
       await page.locator('.subscription-sources').getByRole('button', { name: '删除', exact: true }).click()
       const button = page.getByRole('dialog').getByRole('button', { name: '确认删除', exact: true })

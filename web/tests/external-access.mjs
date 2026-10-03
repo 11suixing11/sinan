@@ -138,7 +138,7 @@ try {
       await forceSubmit(dialog); assert.equal(writes.length, 0, 'A disappeared user cannot receive the old external authorization')
       assert.equal(await dialog.getByLabel('搜索外部节点').inputValue(), 'TEST_ONLY 保留草稿')
       users = structuredClone(userRows); await parentRefresh(); await wait(() => save.isEnabled(), 'Only the original restored user can resume')
-      await page.evaluate(() => { const form = document.querySelector('.external-user-access form'); const choice = [...document.querySelectorAll('.user-roster button')].find(button => button.textContent.includes('TEST_ONLY 第二用户')); choice.click(); form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
+      await page.evaluate(() => { const form = document.querySelector('[role="dialog"] form'); const choice = [...document.querySelectorAll('.user-roster button')].find(button => button.textContent.includes('TEST_ONLY 第二用户')); choice.click(); form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
       assert.equal(writes.length, 0, 'Same-event user switch never redirects the original draft to the new user')
       await dialog.waitFor({ state: 'hidden' })
       await page.getByRole('button', { name: /TEST_ONLY 用户/ }).click()

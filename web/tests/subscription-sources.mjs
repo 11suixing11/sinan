@@ -123,6 +123,8 @@ try {
       await route.fulfill({ json: value })
     })
     const manager = page.getByRole('region', { name: '订阅来源管理', exact: true }), dialog = page.getByRole('dialog')
+    // Sources and chain creation live in separate node page sections.
+    const view = name => page.getByRole('navigation', { name: '节点视图', exact: true }).getByRole('link', { name, exact: true }).click()
     const enable = async locator => { await locator.waitFor(); const deadline = Date.now() + 8000; while (await locator.isDisabled() && Date.now() < deadline) await page.waitForTimeout(20); assert.equal(await locator.isDisabled(), false) }
     const reloadList = async () => { const response = page.waitForResponse(response => new URL(response.url()).pathname === sourceRoot && response.request().method() === 'GET'); await manager.getByRole('button', { name: '刷新来源列表', exact: true }).click(); await response }
     const force = async label => page.evaluate(label => { const region = document.querySelector('[aria-label="订阅来源管理"]'); const button = [...region.querySelectorAll('button')].find(button => button.textContent.trim() === label); assertButton(button); function assertButton(button) { if (!button) throw new Error('Missing force target'); const key = Object.keys(button).find(key => key.startsWith('__reactProps')); if (!key || typeof button[key].onClick !== 'function') throw new Error('Missing actual click handler'); button[key].onClick() } }, label)
@@ -146,11 +148,12 @@ try {
       await mkdir(process.env.SINAN_UI_SCREENSHOT_DIR, { recursive: true })
       await page.screenshot({ animations: 'disabled', path: resolve(process.env.SINAN_UI_SCREENSHOT_DIR, `sources-${name}-${width}.png`) })
     }
-    await page.goto(`${origin}/#/plugins/sing-box/nodes`)
+    await page.goto(`${origin}/#/plugins/sing-box/nodes?view=sources`)
     await enable(manager.getByRole('button', { name: '添加订阅来源', exact: true }))
     assert.equal(await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '订阅来源', exact: true }).count(), 0)
     assert.equal(await page.locator('.stat').filter({ hasText: '代理资源' }).locator('strong').innerText(), '2')
-    await page.getByRole('button', { name: '创建两跳链路', exact: true }).click(); await dialog.locator('[name=name]').fill('必须保留的两跳草稿'); await dialog.getByRole('button', { name: '取消', exact: true }).click()
+    await view('链路'); await page.getByRole('button', { name: '创建两跳链路', exact: true }).click(); await dialog.locator('[name=name]').fill('必须保留的两跳草稿'); await dialog.getByRole('button', { name: '取消', exact: true }).click()
+    await view('订阅来源')
     await manager.locator('[data-source-id="1"]').getByRole('button', { name: '查看来源', exact: true }).click()
     await dialog.getByText('外部示例节点', { exact: true }).waitFor()
     await dialog.getByText('端点未知', { exact: true }).waitFor()
@@ -252,7 +255,7 @@ try {
     await enable(manager.locator('[data-source-id="1"]').getByRole('button', { name: '删除来源', exact: true })); await manager.locator('[data-source-id="1"]').getByRole('button', { name: '删除来源', exact: true }).click(); await dialog.getByRole('button', { name: '确认删除', exact: true }).click(); await dialog.getByRole('alert').filter({ hasText: '#7' }).waitFor()
     assert.equal(await manager.locator('[data-source-id="1"]').count(), 1)
     deleteConflict = false; await dialog.getByRole('button', { name: '确认删除', exact: true }).click(); await dialog.waitFor({ state: 'hidden' }); await manager.locator('[data-source-id="1"]').waitFor({ state: 'hidden' })
-    oldNodesFailure = false; await page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).click(); await enable(page.getByRole('button', { name: '创建两跳链路', exact: true })); await page.getByRole('button', { name: '创建两跳链路', exact: true }).click()
+    oldNodesFailure = false; await page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).click(); await view('链路'); await enable(page.getByRole('button', { name: '创建两跳链路', exact: true })); await page.getByRole('button', { name: '创建两跳链路', exact: true }).click()
     assert.equal(await dialog.locator('[name=name]').inputValue(), '必须保留的两跳草稿')
     assert.equal(await dialog.locator('[name=exit_node_id] option').filter({ hasText: '外部示例节点' }).count(), 0)
     await dialog.getByRole('button', { name: '取消', exact: true }).click()

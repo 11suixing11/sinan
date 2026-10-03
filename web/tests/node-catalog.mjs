@@ -177,6 +177,7 @@ try {
       await cloneSave.click(); await dialog.waitFor({ state: 'hidden' }); await row('TEST_ONLY 保留副本草稿').waitFor()
       assert.equal(writes.length, cloneBefore + 1)
       // Preview credentials are removed from the DOM; expiry and parent failure block commit.
+      await page.getByRole('navigation', { name: '节点视图', exact: true }).getByRole('link', { name: '订阅来源', exact: true }).click()
       await page.getByRole('region', { name: '订阅来源', exact: true }).getByRole('button', { name: '添加来源', exact: true }).first().click()
       await dialog.getByLabel('来源名称').fill('导入测试'); await dialog.getByLabel('来源类型').selectOption('inline'); await dialog.getByLabel('配置内容').fill('TEST_ONLY provider data')
       previewExpiry = Math.floor(await page.evaluate(() => Date.now()) / 1000) + 600

@@ -120,7 +120,8 @@ try {
       control.recover(path); await refreshReads(control.page); await button.click()
       await control.page.getByRole('region', { name: '创建链路', exact: true }).waitFor(); assert.equal(control.writes.length, 0)
     })
-    for (const hash of ['/plugins/sing-box/nodes', '/plugins/sing-box/nodes?kind=chains']) {
+    // The chains filter opens the chain section by default; these scenarios act on catalog rows.
+    for (const hash of ['/plugins/sing-box/nodes', '/plugins/sing-box/nodes?kind=chains&view=catalog']) {
       for (const dependency of ['nodes', 'proxy-resources', 'servers']) {
         for (const mode of ['new', 'existing']) await fixture(hash, async control => {
           const editor = await openDraft(control.page, mode)

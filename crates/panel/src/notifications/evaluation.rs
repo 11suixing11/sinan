@@ -37,8 +37,9 @@ pub async fn evaluate(pool: &PgPool, started_at: i64, now: i64) -> anyhow::Resul
         if settings.offline_alerts && server.asset_settings.offline_notify {
             keep.push("offline".into());
             let threshold = i64::from(settings.offline_minutes) * 60;
+            // A clean disconnect backdates last_seen; the threshold counts from the real contact.
             if now.saturating_sub(started_at) >= threshold
-                && let Some(seen) = server.last_seen
+                && let Some(seen) = server.last_contact_at.or(server.last_seen)
             {
                 // Between the online and offline thresholds, retain the previous state.
                 if online || now.saturating_sub(seen) >= threshold {

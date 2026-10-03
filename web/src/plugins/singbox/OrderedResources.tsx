@@ -8,10 +8,10 @@ import { protocolNames } from './ProtocolFields'
 import Chains, { deleteProxyResource, proxyDeleteError, proxyWriteError, validNodeList, validServerList } from './Chains'
 import type { ProxyWriteSnapshot } from './Chains'
 import { dateText, filterProxyResources, proxyResourceKey, validatedSnapshot, validProxyResource, validProxyResources } from './groupTypes'
-import type { ProxyResource, ProxyResourceFilter, ProxyResourceServerRole, ResourceEndpoint } from './groupTypes'
+import type { ProxyResource, ProxyResourceServerRole, ResourceEndpoint } from './groupTypes'
+import { nodeHash } from './nodeRoute'
 import NodeDeployment from './NodeDeployment'
 import { installationView } from './Settings'
-import Sources from './Sources'
 import ChainLifecycle, { publicPathText } from './ChainLifecycle'
 import ChainResourceEditor from './ChainResourceEditor'
 import ChainVersionEditor from './ChainVersionEditor'
@@ -67,7 +67,28 @@ function ResourceDetail({ selected, snapshot, onClose }: { selected: ProxyResour
   </div><footer><Refresh onClick={query.reload} /><button className="button button-secondary" onClick={onClose}>关闭</button></footer></Modal>
 }
 
-export default function OrderedResources({ resourcesQuery, nodesQuery, serversQuery, usage, flatKeys, hideFlatRows = false, onOrganize, selected, onCloseSelected, filter, kind, initialServerRole = 'any', getServerId, onEdit, onChanged }: { resourcesQuery: ResourceState<unknown>; nodesQuery: ResourceState<Node[]>; serversQuery: ResourceState<PluginServer[]>; usage: ResourceState<Usage>; flatKeys: string[]; hideFlatRows?: boolean; onOrganize?: (resource: ProxyResource) => void; selected?: ProxyResource; onCloseSelected: () => void; filter: string; kind: ProxyResourceFilter; initialServerRole?: ProxyResourceServerRole; getServerId: () => number | undefined; onEdit: (node: Node) => void; onChanged: () => void }) {
+type Props = {
+  resourcesQuery: ResourceState<unknown>
+  nodesQuery: ResourceState<Node[]>
+  serversQuery: ResourceState<PluginServer[]>
+  usage: ResourceState<Usage>
+  flatKeys: string[]
+  hideFlatRows?: boolean
+  onOrganize?: (resource: ProxyResource) => void
+  selected?: ProxyResource
+  onCloseSelected: () => void
+  filter: string
+  initialServerRole?: ProxyResourceServerRole
+  getServerId: () => number | undefined
+  onEdit: (node: Node) => void
+  onChanged: () => void
+  onAddSource: () => void
+}
+
+// The chain section of the node page; direct nodes are managed in the catalog.
+const kind = 'chains'
+
+export default function OrderedResources({ resourcesQuery, nodesQuery, serversQuery, usage, flatKeys, hideFlatRows = false, onOrganize, selected, onCloseSelected, filter, initialServerRole = 'any', getServerId, onEdit, onChanged, onAddSource }: Props) {
   const history = useRef<{ resources?: ProxyResource[]; nodes?: Node[]; servers?: PluginServer[] }>({})
   const resources = validatedSnapshot(resourcesQuery, validProxyResources, history.current.resources)
   const nodes = validatedSnapshot(nodesQuery, validNodeList, history.current.nodes)
@@ -84,7 +105,6 @@ export default function OrderedResources({ resourcesQuery, nodesQuery, serversQu
   const [chainEditorOpen, setChainEditorOpen] = useState(false), [versionEditorOpen, setVersionEditorOpen] = useState(false)
   const [editPending, setEditPending] = useState(false), [versionPending, setVersionPending] = useState(false)
   const [replacement, setReplacement] = useState<{ generation: number; resource: ProxyResource } | undefined>(undefined)
-  const [sourceCreate, setSourceCreate] = useState(0)
   const [deployment, setDeployment] = useState<number | null>(null)
   const [batchSaved, setBatchSaved] = useState(0)
   const [serverRole, setServerRole] = useState(initialServerRole)
@@ -96,21 +116,27 @@ export default function OrderedResources({ resourcesQuery, nodesQuery, serversQu
   const writeError = proxyWriteError(snapshot)
   const deleteError = deleting ? proxyDeleteError(resources, deleting) : ''
   const refresh = onChanged
-  const route = (category: ProxyResourceFilter) => { const params = new URLSearchParams(); if (category !== 'all') params.set('kind', category); if (filter) params.set('server', filter); if (serverRole !== 'any') params.set('role', serverRole); return `#/plugins/sing-box/nodes${params.size ? `?${params}` : ''}` }
   const remove = (resource: ProxyResource) => { if (action.busy || proxyDeleteError(resources, resource)) return; action.clearError(); setDeleting(resource) }
   const editChain = (resource: ProxyResource) => { if (proxyDeleteError(resources, resource) || editPending && chainEditor?.id !== resource.id) return; setChainEditor(current => current?.id === resource.id ? current : resource); setChainEditorOpen(true) }
   const editVersions = (resource: ProxyResource) => { if (proxyDeleteError(resources, resource) || versionPending && versionEditor?.id !== resource.id) return; setVersionEditor(current => current?.id === resource.id ? current : resource); setVersionEditorOpen(true) }
   return <section aria-label="有序链路与资源引用">
-    <nav className="resource-tabs" aria-label="节点资源类型">{(['all', 'direct', 'chains'] as const).map(category => <a className={`button ${kind === category ? 'button-primary' : 'button-secondary'}`} key={category} href={route(category)} aria-current={kind === category ? 'page' : undefined}>{category === 'all' ? '全部' : category === 'direct' ? '直连节点' : '链路'}</a>)}</nav>
-    <div className="row-actions"><Chains snapshot={snapshot} serverId={filter ? Number(filter) : undefined} getServerId={getServerId} refresh={refresh} onCreated={result => setBatchSaved(result.chain_ids.length)} replacement={replacement} onAddSource={() => setSourceCreate(value => value + 1)} /></div>
+    <div className="row-actions"><Chains snapshot={snapshot} serverId={filter ? Number(filter) : undefined} getServerId={getServerId} refresh={refresh} onCreated={result => setBatchSaved(result.chain_ids.length)} replacement={replacement} onAddSource={onAddSource} /></div>
     <ErrorNotice message={resources.error} retry={refresh} />
     {(editPending || versionPending) && <p className="notice" role="status">有未确认的链路操作，原草稿与精确请求保留在当前页面内存。{editPending && <button className="text-button" onClick={() => setChainEditorOpen(true)}>继续确认公开信息修改</button>}{versionPending && <button className="text-button" onClick={() => setVersionEditorOpen(true)}>继续确认节点版本更新</button>}</p>}
-    {filter && <Field label="链路中的服务器角色" hint="直连按所在服务器匹配；链路按完整有序受管段匹配，订阅段无需 Agent。"><select value={serverRole} onChange={event => { const value = event.target.value as ProxyResourceServerRole; setServerRole(value); const params = new URLSearchParams(); if (kind !== 'all') params.set('kind', kind); if (filter) params.set('server', filter); if (value !== 'any') params.set('role', value); window.location.hash = `/plugins/sing-box/nodes${params.size ? `?${params}` : ''}` }}><option value="any">任一段</option><option value="entry">作为入口</option><option value="middle">作为中间段</option><option value="exit">作为最终出口</option></select></Field>}
+    {filter && <Field label="链路中的服务器角色" hint="直连按所在服务器匹配；链路按完整有序受管段匹配，订阅段无需 Agent。"><select value={serverRole} onChange={event => { const value = event.target.value as ProxyResourceServerRole; setServerRole(value); window.location.hash = nodeHash({ server: filter, role: value, view: 'chains' }).slice(1) }}><option value="any">任一段</option><option value="entry">作为入口</option><option value="middle">作为中间段</option><option value="exit">作为最终出口</option></select></Field>}
     {batchSaved > 0 && <div className="notice" role="status"><span>{batchSaved} 条链路已原子创建，尚未授权给代理用户；受管依赖与入口仍需应用。</span><a className="text-button" href="#/plugins/sing-box/groups">管理策略组与套餐</a></div>}
     {all.some(resource => resource.chain_refs.length && flatKeys.includes(proxyResourceKey(resource))) && <p className="helper">资源引用：{all.filter(resource => resource.chain_refs.length && flatKeys.includes(proxyResourceKey(resource))).map(resource => <button className="text-button" key={proxyResourceKey(resource)} onClick={() => setDetail(resource)}>{resource.name} · {resource.chain_refs.length} 个引用</button>)}</p>}
     <section className="panel"><div className="panel-heading"><h2>有序链路与资源引用 <span className="count">{visible.length}</span></h2></div>
-      <div className="panel-body"><p className="helper">{filter ? `筛选范围：${{ any: '任一受管段', entry: '入口', middle: '中间受管段', exit: '最终受管出口' }[serverRole]}属于${filterServer ? `「${filterServer.name}」` : `服务器 #${filter}`}的${kind === 'chains' ? '链路' : '资源'}。` : kind === 'chains' ? '筛选范围：全部服务器的链路。' : '筛选范围：全部服务器的代理资源。'}{filter && <a className="text-button" href={kind === 'all' ? '#/plugins/sing-box/nodes' : `#/plugins/sing-box/nodes?kind=${kind}`}>{kind === 'chains' ? '查看全部链路' : '查看全部资源'}</a>}</p>{writeError && <p className="helper" role="status">{writeError} 已取得的列表保留供查看，资源状态等待确认。</p>}</div>
-      {resourcesQuery.loading && !resources.data ? <Loading /> : !visible.length ? <Empty icon="nodes" title={filter ? kind === 'chains' ? '此服务器暂无已确认关联的链路' : '此服务器暂无代理资源' : '创建你的第一个代理资源'} description={enabledServers.length ? '填写端口或使用自动分配。为代理用户授权后，等待设备成功应用配置，再连接节点。' : '先在系统的插件设置中为服务器启用 sing-box，再创建代理节点。'}>{!enabledServers.length && <a className="button button-primary" href="#/system/plugins">插件设置</a>}</Empty> : <div className="table-wrap"><table className="proxy-resource-table"><thead><tr><th>资源</th><th>入口或直连监听</th><th>出口</th><th>资源与授权</th><th>累计流量</th><th>操作</th></tr></thead><tbody>{visible.map(resource => {
+      <div className="panel-body">
+        <p className="helper">
+          {filter
+            ? `筛选范围：${{ any: '任一受管段', entry: '入口', middle: '中间受管段', exit: '最终受管出口' }[serverRole]}属于${filterServer ? `「${filterServer.name}」` : `服务器 #${filter}`}的链路。`
+            : '筛选范围：全部服务器的链路。'}
+          {filter && <a className="text-button" href={nodeHash({ kind })}>查看全部链路</a>}
+        </p>
+        {writeError && <p className="helper" role="status">{writeError} 已取得的列表保留供查看，资源状态等待确认。</p>}
+      </div>
+      {resourcesQuery.loading && !resources.data ? <Loading /> : !visible.length ? <Empty icon="nodes" title={filter ? '此服务器暂无已确认关联的链路' : '尚未创建链路'} description={enabledServers.length ? '填写端口或使用自动分配。为代理用户授权后，等待设备成功应用配置，再连接节点。' : '先在系统的插件设置中为服务器启用 sing-box，再创建代理节点。'}>{!enabledServers.length && <a className="button button-primary" href="#/system/plugins">插件设置</a>}</Empty> : <div className="table-wrap"><table className="proxy-resource-table"><thead><tr><th>资源</th><th>入口或直连监听</th><th>出口</th><th>资源与授权</th><th>累计流量</th><th>操作</th></tr></thead><tbody>{visible.map(resource => {
         const node = nodes.data?.find(node => node.id === resource.entry.id)
         const record = usage.data?.by_node.find(record => record.node_id === resource.entry.id)
         return <tr key={proxyResourceKey(resource)} data-resource-key={proxyResourceKey(resource)}><td><strong>{resource.name}</strong><small>{resource.kind === 'direct' ? '直连节点' : resource.path_kind === 'legacy' ? '受管两跳链路' : '有序混合链路'}</small><small><code>{proxyResourceKey(resource)}</code></small>{filter && resource.kind === 'chain' && resource.entry.server_id !== Number(filter) && resource.exit?.server_id === Number(filter) && <small>本服务器作为出口</small>}{resource.chain_refs.length > 0 && <small>共享端点 · {new Set(resource.chain_refs.map(ref => ref.id)).size} 条链路引用</small>}</td>
@@ -121,7 +147,6 @@ export default function OrderedResources({ resourcesQuery, nodesQuery, serversQu
     </section>
     {deployment !== null && <NodeDeployment serverId={deployment} server={servers.fresh ? servers.data?.find(server => server.id === deployment) : undefined} onClose={() => setDeployment(null)} />}
     <p className="helper">普通节点需为代理用户授权并等待设备成功应用配置；出口可使用内部连接凭据监听，无需为出口单独授权用户。两端状态仅表示设备应用与健康信息，尚未验证公网可达或链路连通。</p>
-    <Sources createRequest={sourceCreate} />
     {(selected || detail) && <ResourceDetail key={proxyResourceKey((selected || detail)!)} selected={(selected || detail)!} snapshot={snapshot} onClose={() => { setDetail(null); if (selected) onCloseSelected() }} />}
     {chainEditor && <ChainResourceEditor key={chainEditor.id} resource={chainEditor} snapshot={resources} open={chainEditorOpen} onClose={() => { setChainEditorOpen(false); if (!editPending) setChainEditor(null) }} onSaved={() => { setChainEditorOpen(false); setChainEditor(null) }} onPending={setEditPending} refresh={refresh} />}
     {versionEditor && <ChainVersionEditor key={versionEditor.id} resource={versionEditor} snapshot={resources} open={versionEditorOpen} onClose={() => { setVersionEditorOpen(false); if (!versionPending) setVersionEditor(null) }} onSaved={() => { setVersionEditorOpen(false); setVersionEditor(null) }} onPending={setVersionPending} refresh={refresh} />}

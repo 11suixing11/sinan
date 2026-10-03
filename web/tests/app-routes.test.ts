@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import { resolveRoute } from '../src/app/routes'
-import { currentNavigation } from '../src/app/navigation'
+import { currentNavigation, navigation } from '../src/app/navigation'
+import { nodeHash } from '../src/plugins/singbox/nodeRoute'
 
 test('dashboard aliases keep the public read-only route after shell extraction', () => {
   for (const path of ['/', '/dashboard', '/overview']) expect(resolveRoute(path)).toEqual({ page: 'dashboard' })
@@ -36,4 +37,25 @@ test('combined node filters and old chain entry use the same page without replac
   expect(resolveRoute('/plugins/sing-box/chains')).toEqual({ page: 'nodes', chains: true })
   expect(resolveRoute('/plugins/sing-box')).toEqual({ page: 'singbox-overview' })
   for (const query of ['server=42&role=exit&role=entry', 'server=01', 'kind=chains&kind=direct', 'server=42&kind=chains&other=1']) expect(resolveRoute(`/plugins/sing-box/nodes?${query}`)).toEqual({ page: 'not-found' })
+})
+
+test('node page sections are addressable and malformed sections are refused', () => {
+  expect(resolveRoute('/plugins/sing-box/nodes?view=sources')).toEqual({ page: 'nodes', chains: false, view: 'sources' })
+  expect(resolveRoute('/plugins/sing-box/nodes?server=42&view=chains')).toEqual({ page: 'nodes', serverId: 42, chains: false, view: 'chains' })
+  expect(resolveRoute('/plugins/sing-box/nodes?kind=chains&view=catalog')).toEqual({ page: 'nodes', chains: true, view: 'catalog' })
+  for (const query of ['view=unknown', 'view=chains&view=sources', 'view=']) expect(resolveRoute(`/plugins/sing-box/nodes?${query}`)).toEqual({ page: 'not-found' })
+  expect(nodeHash({ view: 'catalog' })).toBe('#/plugins/sing-box/nodes')
+  expect(nodeHash({ server: '2', view: 'chains' })).toBe('#/plugins/sing-box/nodes?server=2&view=chains')
+  expect(nodeHash({ kind: 'chains', view: 'chains' })).toBe('#/plugins/sing-box/nodes?kind=chains')
+  expect(nodeHash({ kind: 'chains', view: 'catalog' })).toBe('#/plugins/sing-box/nodes?kind=chains&view=catalog')
+  expect(nodeHash({ server: '3', role: 'middle', view: 'chains' })).toBe('#/plugins/sing-box/nodes?server=3&role=middle&view=chains')
+  for (const view of ['catalog', 'chains', 'sources'] as const) expect(resolveRoute(nodeHash({ server: '7', view }).slice(1))).toMatchObject({ page: 'nodes', serverId: 7 })
+})
+
+test('navigation groups follow administrator tasks and keep every destination', () => {
+  expect([...new Set(navigation.map(item => item.group))]).toEqual(['概览', '服务器', '代理服务', '扩展插件', '系统'])
+  expect(navigation).toHaveLength(15)
+  expect(new Set(navigation.map(item => item.path)).size).toBe(navigation.length)
+  expect(currentNavigation(resolveRoute('/plugins/sing-box/nodes?view=sources'))?.label).toBe('代理节点')
+  expect(currentNavigation(resolveRoute('/plugins/sing-box/nodes?view=sources'))?.group).toBe('代理服务')
 })

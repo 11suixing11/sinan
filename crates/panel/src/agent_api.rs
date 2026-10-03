@@ -96,7 +96,7 @@ async fn connection(mut socket: WebSocket, state: AppState) -> anyhow::Result<()
             .bind(expires_at)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE servers SET last_seen=$2 WHERE id=$1")
+        sqlx::query("UPDATE servers SET last_seen=$2,last_contact_at=$2 WHERE id=$1")
             .bind(server_id)
             .bind(now_timestamp())
             .execute(&mut *tx)
@@ -151,7 +151,7 @@ async fn connection(mut socket: WebSocket, state: AppState) -> anyhow::Result<()
                         WsMessage::Pong(_) => {},
                         _ => anyhow::bail!("expected text message"),
                     }
-                    sqlx::query("UPDATE servers SET last_seen=$2 WHERE id=$1 AND deleted_at IS NULL").bind(server_id).bind(now_timestamp()).execute(&state.pool).await?;
+                    sqlx::query("UPDATE servers SET last_seen=$2,last_contact_at=$2 WHERE id=$1 AND deleted_at IS NULL").bind(server_id).bind(now_timestamp()).execute(&state.pool).await?;
                 }
                 notification = receiver.recv() => {
                     let Some(notification) = notification else { break; };
@@ -172,9 +172,12 @@ async fn connection(mut socket: WebSocket, state: AppState) -> anyhow::Result<()
         .is_some_and(|entry| entry.id == connection_id)
     {
         connections.remove(&server_id);
-        sqlx::query("UPDATE servers SET last_seen=$2 WHERE id=$1")
+        // Leave the online window at once; offline alerts measure from the real contact time.
+        let now = now_timestamp();
+        sqlx::query("UPDATE servers SET last_seen=$2,last_contact_at=$3 WHERE id=$1")
             .bind(server_id)
-            .bind(now_timestamp() - 61)
+            .bind(now - 61)
+            .bind(now)
             .execute(&state.pool)
             .await?;
     }

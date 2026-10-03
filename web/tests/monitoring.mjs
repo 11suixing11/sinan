@@ -5,6 +5,14 @@ import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
+
+// Narrow screens fold the main navigation behind the menu button.
+async function openNav(page, name) {
+  await page.locator('.sidebar').waitFor()
+  const menu = page.getByRole('button', { name: '菜单', exact: true })
+  if (await menu.isVisible() && await menu.getAttribute('aria-expanded') !== 'true') await menu.click()
+  await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name, exact: true }).click()
+}
 const root = fileURLToPath(new URL('../dist/', import.meta.url))
 const server = createServer(async (request, response) => {
   const path = new URL(request.url, 'http://127.0.0.1').pathname
@@ -130,7 +138,7 @@ try {
     await page.getByRole('button', { name: '删除', exact: true }).click()
     await page.getByRole('dialog').getByRole('button', { name: '确认删除' }).click()
     await page.getByRole('heading', { name: '尚未配置统一延迟任务' }).waitFor()
-    await page.getByRole('link', { name: '看板与通知', exact: true }).click()
+    await openNav(page, '看板与通知')
     await page.getByRole('heading', { name: '看板与通知', exact: true }).waitFor()
     assert.equal(await page.getByRole('textbox', { name: /^机器人令牌/ }).inputValue(), '')
     await page.getByLabel('到期提前提醒（天）', { exact: false }).fill('7')
@@ -175,7 +183,7 @@ try {
     await page.getByRole('button', { name: '删除', exact: true }).click()
     await page.getByRole('dialog').getByRole('button', { name: '确认删除' }).click()
     await page.getByText('尚未配置资源规则。', { exact: false }).waitFor()
-    await page.getByRole('link', { name: '告警通知', exact: true }).click()
+    await openNav(page, '告警通知')
     await page.getByText(/^测试事件 offline/).waitFor()
     assert.equal(await page.locator('tbody tr').count(), 4)
     await page.getByLabel('事件类型').selectOption('resource')

@@ -76,7 +76,7 @@ try {
 
     await page.goto(`${origin}/#/system/plugins`)
     await page.getByRole('heading', { name: 'sing-box 安装与运行状态', exact: true }).waitFor()
-    assert.equal(await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '服务器插件', exact: true }).getAttribute('aria-current'), 'page')
+    assert.equal(await page.getByRole('navigation', { name: '主导航', includeHidden: true }).getByRole('link', { name: '服务器插件', exact: true, includeHidden: true }).getAttribute('aria-current'), 'page')
     assert.equal(await page.title(), '服务器插件 · 司南')
     const row = page.locator('tbody tr').filter({ has: page.getByRole('link', { name, exact: true }) })
     await row.getByText('设备支持 sing-box', { exact: true }).waitFor()

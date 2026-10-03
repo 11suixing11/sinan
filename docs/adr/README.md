@@ -52,6 +52,7 @@
 - [ADR 0045：混合链路的执行与验证](0045-mixed-path-execution.md)
 - [ADR 0054：链路写入时复核资源快照与原选择](0054-chain-resource-snapshot-writes.md)
 - [ADR 0077：代理流量按天汇总与数据保留](0077-usage-daily-rollup-and-retention.md)
+- [ADR 0078：管理界面重排、节点页分区与离线时间](0078-admin-layout-and-node-sections.md)
 
 ## 诊断、IP 查询与执行保护
 

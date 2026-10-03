@@ -30,6 +30,14 @@ try {
       return dialog
     }
     const closeResourceDetail = () => page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).click()
+    // Narrow screens fold the main navigation behind the menu button.
+    const navigate = async name => {
+      await page.locator('.sidebar').waitFor()
+      const toggle = page.getByRole('button', { name: '菜单', exact: true })
+      if (await toggle.isVisible() && await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
+      await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name, exact: true }).click()
+    }
+    const showView = name => page.getByRole('navigation', { name: '节点视图', exact: true }).getByRole('link', { name, exact: true }).click()
     page.on('pageerror', error => errors.push(error.message))
     const metadata = { id: 1, name: '纯监控验收服务器', enabled: false, source: null, read_only: false, online: true, agent_supported: false, installation: { state: 'not_enabled', reason: '尚未启用插件；设备支持此插件不代表已安装', target_rev: 0, applied_rev: 0 } }
     const entry = { id: 1, name: metadata.name, online: true, device_public_key: 'test-only-key', static_info: { runtime_version: 'test-only-runtime' }, latest_metrics: { network_interfaces: { eth0: { received_bytes: 1024, transmitted_bytes: 2048 } } }, last_seen: now, manifest_rev: 0, capabilities: [] }
@@ -151,7 +159,7 @@ try {
     await page.waitForTimeout(150)
     assert.equal(await page.locator('[data-plugin="sing-box"]').count(), 0)
     assert.equal(requests.slice(supportedStart).some(path => path.endsWith('/deployments') || path.endsWith('/nodes')), false)
-    await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '服务器插件', exact: true }).click()
+    await navigate('服务器插件')
     await page.getByText('设备支持 sing-box', { exact: true }).waitFor()
     await page.getByRole('button', { name: '启用并安装 sing-box', exact: true }).click()
     await page.getByText('管理员明确启用', { exact: true }).waitFor()
@@ -180,7 +188,7 @@ try {
     await page.getByText('安装状态待确认', { exact: true }).waitFor()
     assert.equal(await page.getByText('已安装并运行', { exact: true }).count(), 0)
     Object.assign(metadata, { source: 'legacy_nodes', read_only: true, agent_supported: true })
-    await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '服务器插件', exact: true }).click()
+    await navigate('服务器插件')
     await page.getByText('保留已有启用记录', { exact: true }).waitFor()
     await page.getByText('兼容已有代理节点', { exact: true }).waitFor()
     assert.equal(await page.getByRole('button', { name: '启用并安装 sing-box', exact: true }).count(), 0)
@@ -196,7 +204,7 @@ try {
     assert.equal(requests.slice(scopedStart).includes('/api/plugins/sing-box/servers'), false)
     assert.equal(await page.getByText('已安装并运行', { exact: true }).count(), 0)
 
-    await page.getByRole('link', { name: '代理服务', exact: true }).click()
+    await navigate('代理服务')
     await page.getByRole('heading', { name: '代理服务', exact: true }).waitFor()
     await page.getByText('安装状态待确认', { exact: true }).waitFor()
     await page.getByRole('link', { name: '管理此服务器节点', exact: true }).click()
@@ -254,12 +262,12 @@ try {
     node.enabled = true
     chainFixtures = true
     await refreshPage()
-    await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '链路', exact: true }).click()
+    await showView('链路')
     await page.getByRole('heading', { name: '代理节点', exact: true, level: 1 }).waitFor()
     await page.getByRole('heading', { name: /^有序链路与资源引用/, level: 2 }).waitFor()
-    // The Nodes component and these headings remain mounted across category hash changes.
-    await page.locator('nav[aria-label="节点资源类型"] a[aria-current="page"]').filter({ hasText: /^链路$/ }).waitFor()
-    assert.equal(await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '链路', exact: true }).getAttribute('aria-current'), 'page')
+    // The Nodes component and these headings remain mounted across section hash changes.
+    await page.locator('nav[aria-label="节点视图"] a[aria-current="page"]').filter({ hasText: /^链路/ }).waitFor()
+    assert.equal(await page.getByRole('navigation', { name: '节点视图', exact: true }).getByRole('link', { name: '链路', exact: true }).getAttribute('aria-current'), 'page')
     assert.equal(await page.locator('nav[aria-label="主导航"]').getByRole('link', { name: '两跳链路', exact: true }).count(), 0)
     const chainMutationStart = mutations.length
     await page.getByRole('button', { name: '创建两跳链路', exact: true }).click()
@@ -272,7 +280,7 @@ try {
     await page.getByText('未授权验收链路', { exact: true }).waitFor()
     assert.deepEqual(mutations.slice(chainMutationStart), [{ path: '/api/plugins/sing-box/chains/ordered-batch', method: 'POST' }])
     // The server query includes any managed segment and never shows unrelated chains.
-    assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=chains&server=1')
+    assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?server=1&view=chains')
     await page.getByText(`筛选范围：任一受管段属于「${metadata.name}」的链路。`, { exact: false }).waitFor()
     const reverseRow = page.locator('[data-resource-key="chain:11"]')
     await reverseRow.locator('td').first().locator('strong').filter({ hasText: /^本服务器作为出口$/ }).waitFor()
@@ -302,13 +310,13 @@ try {
     await page.getByText('两端状态仅表示设备应用与健康信息，尚未验证公网可达或链路连通。', { exact: false }).waitFor()
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
 
-    await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '直连节点', exact: true }).click()
+    await showView('节点库')
     await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption('2')
-    await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '链路', exact: true }).click()
-    await page.locator('nav[aria-label="节点资源类型"] a[aria-current="page"]').filter({ hasText: /^链路$/ }).waitFor()
+    await showView('链路')
+    await page.locator('nav[aria-label="节点视图"] a[aria-current="page"]').filter({ hasText: /^链路/ }).waitFor()
     await page.waitForFunction(() => document.querySelector('select[aria-label="按服务器筛选"]')?.value === '2')
     await page.getByText('未授权验收链路', { exact: true }).waitFor()
-    assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=chains&server=2')
+    assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?server=2&view=chains')
     assert.equal(await page.locator('.proxy-resource-table').getByRole('row').count(), 2)
     assert.equal(await reverseRow.count(), 0, 'The unrelated reverse chain is absent in the server=2 scope')
     await createdRow.locator('small').filter({ hasText: /^本服务器作为出口$/ }).waitFor()
@@ -368,23 +376,26 @@ try {
     assert.deepEqual(mutations.slice(chainMutationStart), [{ path: '/api/plugins/sing-box/chains/ordered-batch', method: 'POST' }])
     pluginServersFailure = false
     chainFixtures = false
-    await page.getByRole('navigation', { name: '节点资源类型', exact: true }).getByRole('link', { name: '直连节点', exact: true }).click()
-    assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?kind=direct&server=1')
-    // Tabs preserve the server scope and the component keeps pending drafts. The
+    await showView('节点库')
+    assert.equal(new URL(page.url()).hash, '#/plugins/sing-box/nodes?server=1')
+    // Sections preserve the server scope and the component keeps pending drafts. The
     // shared exit belongs to server 2, so explicitly clear scope and refresh the
     // changed fixtures rather than expecting a route change to remount loaders.
-    await page.getByRole('link', { name: '查看全部资源', exact: true }).click()
+    await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption('')
     const recoveredResources = page.waitForResponse(response => new URL(response.url()).pathname === '/api/plugins/sing-box/proxy-resources' && response.request().method() === 'GET' && response.status() === 200)
     await refreshPage()
     await recoveredResources
-    const currentCatalog = page.locator(width < 768 ? '.catalog-card' : '.catalog-table tbody tr')
-    const direct3 = page.locator(`${width < 768 ? '.catalog-card' : '.catalog-table tbody tr'}[data-resource-key="direct:3"]`)
-    await direct3.waitFor()
+    const catalogSelector = width < 768 ? '.catalog-card' : '.catalog-table tbody tr'
+    const currentCatalog = page.locator(catalogSelector)
+    // All node page reads publish together, so wait for the refreshed snapshot as a whole.
+    await page.waitForFunction(selector => document.querySelectorAll(selector).length === 1, catalogSelector)
+    await page.locator(`${catalogSelector}[data-resource-key="direct:3"]`).waitFor()
     assert.equal(await currentCatalog.count(), 1)
-    assert.equal(await page.locator(`${width < 768 ? '.catalog-card' : '.catalog-table tbody tr'}[data-resource-key="direct:2"]`).count(),0)
+    assert.equal(await page.locator(`${catalogSelector}[data-resource-key="direct:2"]`).count(),0)
+    await showView('链路')
     await page.getByText('普通节点需为代理用户授权并等待设备成功应用配置', { exact: false }).waitFor()
     await page.getByText('出口可使用内部连接凭据监听，无需为出口单独授权用户。', { exact: false }).waitFor()
-    await page.goto(`${origin}/#/plugins/sing-box/nodes`)
+    await page.goto(`${origin}/#/plugins/sing-box/nodes?view=chains`)
     await page.getByRole('button', { name: /· 1 个引用$/ }).waitFor()
     chainsFailure = true
     await page.reload()
@@ -409,13 +420,13 @@ try {
     await enrollment.getByRole('link', { name: '安装服务器插件', exact: true }).click()
     await page.getByRole('heading', { name: '代理服务', exact: true }).waitFor()
 
-    await page.getByRole('link', { name: '代理用户', exact: true }).click()
+    await navigate('代理用户')
     await page.getByRole('heading', { name: '代理用户', exact: true }).waitFor()
     assert.equal(await page.getByRole('button', { name: '创建代理用户', exact: true }).count(), 2)
-    await page.getByRole('link', { name: '系统管理员', exact: true }).click()
+    await navigate('系统管理员')
     await page.getByRole('heading', { name: '系统管理员', exact: true }).waitFor()
     assert.equal(await page.getByRole('button', { name: '创建代理用户', exact: true }).count(), 0)
-    assert.equal(await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '统计仪表盘', exact: true }).getAttribute('href'), '#/statistics')
+    assert.equal(await page.getByRole('navigation', { name: '主导航', includeHidden: true }).getByRole('link', { name: '统计仪表盘', exact: true, includeHidden: true }).getAttribute('href'), '#/statistics')
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
     assert.deepEqual(errors, [])
     assert.equal(requests.some(path => ['/api/nodes', '/api/users', '/api/usage'].includes(path)), false)

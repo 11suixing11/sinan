@@ -18,7 +18,7 @@ use sinan_protocol::{AgentSettings, EnrollRequest, EnrollResponse, ProbeSpec, no
 use sqlx::{FromRow, PgPool, Row};
 use uuid::Uuid;
 
-pub(crate) const SERVER_COLUMNS: &str = "id, name, device_public_key, static_info, last_seen, last_heartbeat_at, NULLIF(metrics_sampled_at,0) AS metrics_sampled_at, latest_metrics, agent_settings, asset_settings, manifest_rev, capabilities";
+pub(crate) const SERVER_COLUMNS: &str = "id, name, device_public_key, static_info, last_seen, last_contact_at, last_heartbeat_at, NULLIF(metrics_sampled_at,0) AS metrics_sampled_at, latest_metrics, agent_settings, asset_settings, manifest_rev, capabilities";
 
 #[derive(Serialize, FromRow)]
 pub struct Server {
@@ -27,6 +27,10 @@ pub struct Server {
     pub device_public_key: Option<String>,
     pub static_info: Value,
     pub last_seen: Option<i64>,
+    /// Real time of the last message; `last_seen` is backdated on a clean disconnect.
+    #[serde(skip)]
+    #[sqlx(default)]
+    pub last_contact_at: Option<i64>,
     pub last_heartbeat_at: Option<i64>,
     pub metrics_sampled_at: Option<i64>,
     #[sqlx(skip)]

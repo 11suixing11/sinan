@@ -76,6 +76,9 @@ try {
     })
 
     const createButton = page.getByRole('button', { name: '创建两跳链路', exact: true })
+    // The server filter lives in the catalog section; chain creation lives in the chain section.
+    const showView = name => page.getByRole('navigation', { name: '节点视图', exact: true }).getByRole('link', { name, exact: true }).click()
+    const scope = async server => { await showView('节点库'); await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption(server); await showView('链路') }
     const refreshButton = page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true })
     const oldRow = page.getByRole('row').filter({ has: page.getByText(previous.name, { exact: true }) })
     const refreshLists = async () => {
@@ -287,13 +290,13 @@ try {
     await page.goto(`${origin}/#/plugins/sing-box/nodes?kind=chains&server=2`)
     await page.waitForFunction(() => document.querySelector('select[aria-label="按服务器筛选"]')?.value === '2')
     // The cancelled server=1 draft survives this route change and must not silently retarget server=2.
-    await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption('2')
+    await scope('2')
     assert.equal(await createButton.isDisabled(), true)
     await noWrites(() => forceOpeners(false), 'The preserved entry draft conflicts with the current server filter')
     assert.equal(await page.getByRole('dialog').count(), 0)
     await page.goto(`${origin}/#/plugins/sing-box/nodes`)
     await page.waitForFunction(() => document.querySelector('select[aria-label="按服务器筛选"]')?.value === '')
-    await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption('')
+    await scope('')
     await enabled(createButton); await createButton.click()
     assert.equal(await creating.locator('[name="name"]').inputValue(), '可关闭的草稿')
     assert.equal(await creating.locator('[name="server_id"]').inputValue(), '1')
@@ -303,7 +306,7 @@ try {
     assert.equal(writes.length, 2, 'Explicitly choosing the new scope edits only the local draft')
     await page.goto(`${origin}/#/plugins/sing-box/nodes?kind=chains&server=2`)
     await page.waitForFunction(() => document.querySelector('select[aria-label="按服务器筛选"]')?.value === '2')
-    await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption('2')
+    await scope('2')
     await enabled(createButton)
     const retained = page.getByRole('row').filter({ has: page.getByText('完整保留的创建草稿', { exact: true }) })
     await retained.waitFor()

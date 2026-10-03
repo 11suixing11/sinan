@@ -49,6 +49,7 @@ pub(super) fn append_expected_server_defaults(
         server["static_info_received_at"] = Value::Null;
         server["probe_revision"] = json!(0);
         server["probe_fingerprint"] = Value::Null;
+        server["last_contact_at"] = Value::Null;
     }
     Ok(())
 }

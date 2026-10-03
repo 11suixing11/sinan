@@ -45,7 +45,6 @@
 .statistics-rank-meter > span { display: block; height: 100%; background: #89ac77; }
 .statistics-rankings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 body:has(.statistics-page) { min-width: 320px; }
-@media (min-width: 801px) { .app-shell:has(.statistics-page) .sidebar nav { min-height: 0; overflow-y: auto; scrollbar-width: thin; } }
 @media (max-width: 1150px) { .statistics-grid { grid-template-columns: minmax(0, 1fr); } .statistics-traffic-totals .stat > strong { font-size: 22px; } }
 @media (max-width: 600px) {
   .statistics-section-heading { align-items: flex-start; }
@@ -61,4 +60,3 @@ body:has(.statistics-page) { min-width: 320px; }
   .statistics-page .panel-heading { flex-wrap: wrap; }
   .statistics-ranking ol { padding: 6px 16px; }
 }
-@media (max-width: 380px) { .app-shell:has(.statistics-page) .sidebar nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
