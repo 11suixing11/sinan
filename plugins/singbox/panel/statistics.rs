@@ -8,6 +8,15 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use sqlx::{FromRow, Row};
 
+// Whole days before today read the per-day rollup (ADR 0077); today stays exact
+// up to now from the ledger, so later-dated records remain excluded.
+const WINDOW_USAGE: &str = "WITH usage AS (
+    SELECT user_id,node_id,day,uplink,downlink,last_period_end FROM singbox_usage_daily
+    WHERE day >= $1 AND day < $3
+    UNION ALL
+    SELECT user_id,node_id,period_end/86400*86400,uplink,downlink,period_end FROM usage_records
+    WHERE period_end >= $3 AND period_end <= $2)";
+
 #[derive(Serialize, FromRow)]
 struct UsageBucket {
     day: Option<i64>,
@@ -39,37 +48,39 @@ pub async fn summary(
     )
     .fetch_one(&mut *tx)
     .await?;
-    let buckets: Vec<UsageBucket> = sqlx::query_as(
-        "SELECT period_end/86400*86400 AS day,SUM(uplink)::text AS uploaded,
+    let today = window.now / 86_400 * 86_400;
+    let buckets: Vec<UsageBucket> = sqlx::query_as(&format!(
+        "{WINDOW_USAGE} SELECT day,SUM(uplink)::text AS uploaded,
          SUM(downlink)::text AS downloaded,SUM(uplink+downlink)::text AS total,
          COUNT(DISTINCT user_id) AS recorded_users,COUNT(DISTINCT node_id) AS recorded_nodes,
-         MAX(period_end) AS last_record_at FROM usage_records
-         WHERE period_end >= $1 AND period_end <= $2
-         GROUP BY GROUPING SETS ((period_end/86400*86400),()) ORDER BY day NULLS FIRST",
-    )
+         MAX(last_period_end) AS last_record_at FROM usage
+         GROUP BY GROUPING SETS ((day),()) ORDER BY day NULLS FIRST"
+    ))
     .bind(window.from)
     .bind(window.now)
+    .bind(today)
     .fetch_all(&mut *tx)
     .await?;
-    let users = sqlx::query(
-        "SELECT u.id,u.name,u.deleted_at IS NOT NULL AS deleted,SUM(r.uplink)::text AS uploaded,
+    let users = sqlx::query(&format!(
+        "{WINDOW_USAGE} SELECT u.id,u.name,u.deleted_at IS NOT NULL AS deleted,SUM(r.uplink)::text AS uploaded,
          SUM(r.downlink)::text AS downloaded,SUM(r.uplink+r.downlink)::text AS total
-         FROM usage_records r JOIN users u ON u.id=r.user_id WHERE r.period_end >= $1 AND r.period_end <= $2
-         GROUP BY u.id ORDER BY SUM(r.uplink+r.downlink) DESC,u.id LIMIT 8",
-    )
+         FROM usage r JOIN users u ON u.id=r.user_id
+         GROUP BY u.id ORDER BY SUM(r.uplink+r.downlink) DESC,u.id LIMIT 8"
+    ))
     .bind(window.from)
     .bind(window.now)
+    .bind(today)
     .fetch_all(&mut *tx)
     .await?;
-    let nodes = sqlx::query(
-        "SELECT n.id,n.name,(n.deleted_at IS NOT NULL OR s.deleted_at IS NOT NULL) AS deleted,
+    let nodes = sqlx::query(&format!(
+        "{WINDOW_USAGE} SELECT n.id,n.name,(n.deleted_at IS NOT NULL OR s.deleted_at IS NOT NULL) AS deleted,
          SUM(r.uplink)::text AS uploaded,SUM(r.downlink)::text AS downloaded,SUM(r.uplink+r.downlink)::text AS total
-         FROM usage_records r JOIN nodes n ON n.id=r.node_id JOIN servers s ON s.id=n.server_id
-         WHERE r.period_end >= $1 AND r.period_end <= $2
-         GROUP BY n.id,s.deleted_at ORDER BY SUM(r.uplink+r.downlink) DESC,n.id LIMIT 8",
-    )
+         FROM usage r JOIN nodes n ON n.id=r.node_id JOIN servers s ON s.id=n.server_id
+         GROUP BY n.id,s.deleted_at ORDER BY SUM(r.uplink+r.downlink) DESC,n.id LIMIT 8"
+    ))
     .bind(window.from)
     .bind(window.now)
+    .bind(today)
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;

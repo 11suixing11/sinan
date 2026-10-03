@@ -118,11 +118,12 @@ pub async fn summary(
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         .execute(&mut *tx)
         .await?;
-    let totals = sqlx::query("SELECT COALESCE(SUM(uplink),0)::text AS uplink,COALESCE(SUM(downlink),0)::text AS downlink,(COALESCE(SUM(uplink),0)+COALESCE(SUM(downlink),0))::text AS total FROM usage_records WHERE ($1::bigint IS NULL OR user_id=$1) AND ($2::bigint IS NULL OR node_id=$2)")
+    // All-time totals read the per-day rollup that the ledger trigger maintains (ADR 0077).
+    let totals = sqlx::query("SELECT COALESCE(SUM(uplink),0)::text AS uplink,COALESCE(SUM(downlink),0)::text AS downlink,(COALESCE(SUM(uplink),0)+COALESCE(SUM(downlink),0))::text AS total FROM singbox_usage_daily WHERE ($1::bigint IS NULL OR user_id=$1) AND ($2::bigint IS NULL OR node_id=$2)")
         .bind(query.user_id).bind(query.node_id).fetch_one(&mut *tx).await?;
-    let users = sqlx::query("SELECT u.id,u.name,u.deleted_at IS NOT NULL AS deleted,SUM(r.uplink)::text AS uplink,SUM(r.downlink)::text AS downlink FROM usage_records r JOIN users u ON u.id=r.user_id WHERE ($1::bigint IS NULL OR r.user_id=$1) AND ($2::bigint IS NULL OR r.node_id=$2) GROUP BY u.id ORDER BY u.id")
+    let users = sqlx::query("SELECT u.id,u.name,u.deleted_at IS NOT NULL AS deleted,SUM(r.uplink)::text AS uplink,SUM(r.downlink)::text AS downlink FROM singbox_usage_daily r JOIN users u ON u.id=r.user_id WHERE ($1::bigint IS NULL OR r.user_id=$1) AND ($2::bigint IS NULL OR r.node_id=$2) GROUP BY u.id ORDER BY u.id")
         .bind(query.user_id).bind(query.node_id).fetch_all(&mut *tx).await?;
-    let nodes = sqlx::query("SELECT n.id,n.name,(n.deleted_at IS NOT NULL OR s.deleted_at IS NOT NULL) AS deleted,SUM(r.uplink)::text AS uplink,SUM(r.downlink)::text AS downlink FROM usage_records r JOIN nodes n ON n.id=r.node_id JOIN servers s ON s.id=n.server_id WHERE ($1::bigint IS NULL OR r.user_id=$1) AND ($2::bigint IS NULL OR r.node_id=$2) GROUP BY n.id,s.deleted_at ORDER BY n.id")
+    let nodes = sqlx::query("SELECT n.id,n.name,(n.deleted_at IS NOT NULL OR s.deleted_at IS NOT NULL) AS deleted,SUM(r.uplink)::text AS uplink,SUM(r.downlink)::text AS downlink FROM singbox_usage_daily r JOIN nodes n ON n.id=r.node_id JOIN servers s ON s.id=n.server_id WHERE ($1::bigint IS NULL OR r.user_id=$1) AND ($2::bigint IS NULL OR r.node_id=$2) GROUP BY n.id,s.deleted_at ORDER BY n.id")
         .bind(query.user_id).bind(query.node_id).fetch_all(&mut *tx).await?;
     tx.commit().await?;
     let by_user: Vec<_> = users.iter().map(|row| json!({"user_id":row.get::<i64,_>("id"),"name":row.get::<String,_>("name"),"deleted":row.get::<bool,_>("deleted"),"uplink":row.get::<String,_>("uplink"),"downlink":row.get::<String,_>("downlink")})).collect();

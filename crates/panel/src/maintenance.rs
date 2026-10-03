@@ -62,6 +62,17 @@ pub async fn run(state: AppState) {
         {
             tracing::error!(%error, "expired session cleanup failed");
         }
+        if let Err(error) =
+            crate::servers::purge_expired_enrollments(&state.pool, sinan_protocol::now_timestamp())
+                .await
+        {
+            tracing::error!(%error, "expired enrollment token cleanup failed");
+        }
+        if let Err(error) =
+            crate::commands::purge_finished(&state.pool, sinan_protocol::now_timestamp()).await
+        {
+            tracing::error!(%error, "finished command retention failed");
+        }
         let now = sinan_protocol::now_timestamp();
         if let Err(error) = crate::notifications::evaluate(&state.pool, state.started_at, now).await
         {

@@ -317,6 +317,16 @@ pub async fn issue_enrollment(
     ))
 }
 
+/// Expired enrollment tokens can never validate again; keep a short grace period
+/// for troubleshooting and then remove them in bounded batches (ADR 0077).
+pub(crate) async fn purge_expired_enrollments(pool: &PgPool, now: i64) -> anyhow::Result<u64> {
+    Ok(sqlx::query("DELETE FROM enrollment_tokens WHERE token_hash IN (SELECT token_hash FROM enrollment_tokens WHERE expires_at < $1 ORDER BY expires_at LIMIT 500)")
+        .bind(now - 7 * 86_400)
+        .execute(pool)
+        .await?
+        .rows_affected())
+}
+
 pub async fn validate_enrollment(pool: &PgPool, token: &str) -> ApiResult<i64> {
     if token.is_empty() || token.len() > 512 {
         return Err(ApiError::Unauthorized);
@@ -396,4 +406,35 @@ fn validate_mirror(asset: &AssetSettings, panel: &str) -> ApiResult<()> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[sqlx::test]
+    async fn only_long_expired_enrollment_tokens_are_purged(pool: PgPool) -> anyhow::Result<()> {
+        let server: i64 =
+            sqlx::query_scalar("INSERT INTO servers(name) VALUES('TEST_ONLY') RETURNING id")
+                .fetch_one(&pool)
+                .await?;
+        let now = 10_000_000;
+        for (token, expires_at, consumed_at) in [
+            ("expired-unused", now - 8 * 86_400, None),
+            ("expired-consumed", now - 8 * 86_400, Some(now - 9 * 86_400)),
+            ("recently-expired", now - 86_400, None),
+            ("valid", now + 3_600, None),
+        ] {
+            sqlx::query("INSERT INTO enrollment_tokens(token_hash,server_id,expires_at,consumed_at) VALUES($1,$2,$3,$4)")
+                .bind(token).bind(server).bind(expires_at).bind(consumed_at).execute(&pool).await?;
+        }
+        assert_eq!(purge_expired_enrollments(&pool, now).await?, 2);
+        let mut remaining: Vec<String> =
+            sqlx::query_scalar("SELECT token_hash FROM enrollment_tokens")
+                .fetch_all(&pool)
+                .await?;
+        remaining.sort();
+        assert_eq!(remaining, ["recently-expired", "valid"]);
+        Ok(())
+    }
 }

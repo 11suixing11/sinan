@@ -66,6 +66,17 @@ async fn expire_queued(pool: &sqlx::PgPool, server: i64) -> ApiResult<()> {
     Ok(())
 }
 
+/// Removes old finished commands in bounded batches (ADR 0077). A device keeps
+/// retrying an unacknowledged result, so a claimed command is removable only
+/// after its result has been recorded; the newest 100 per server always stay.
+pub(crate) async fn purge_finished(pool: &sqlx::PgPool, now: i64) -> anyhow::Result<u64> {
+    Ok(sqlx::query("DELETE FROM remote_commands WHERE id IN (SELECT id FROM (SELECT id,state,finished_at,result_digest,claimed_at,row_number() OVER (PARTITION BY server_id ORDER BY requested_at DESC,id DESC) AS position FROM remote_commands) c WHERE c.position > 100 AND c.state IN ('succeeded','failed','cancelled','expired','interrupted') AND c.finished_at < $1 AND (c.result_digest IS NOT NULL OR c.claimed_at IS NULL) ORDER BY c.finished_at LIMIT 500)")
+        .bind(now - 90 * 86_400)
+        .execute(pool)
+        .await?
+        .rows_affected())
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateCommand {
@@ -220,4 +231,73 @@ pub async fn complete(
     }
     tx.commit().await?;
     Ok(Json(TaskAck { ids: vec![id] }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn insert(
+        pool: &sqlx::PgPool,
+        server: i64,
+        requested_at: i64,
+        state: &str,
+        (claimed_at, finished_at, result): (Option<i64>, Option<i64>, bool),
+    ) -> anyhow::Result<Uuid> {
+        let id = Uuid::new_v4();
+        sqlx::query("INSERT INTO remote_commands(id,server_id,requested_at,spec,state,lifecycle_version,claimed_at,finished_at,result,result_digest) VALUES($1,$2,$3,'{}'::jsonb,$4,1,$5,$6,$7,$8)")
+            .bind(id).bind(server).bind(requested_at).bind(state).bind(claimed_at).bind(finished_at)
+            .bind(result.then(|| json!({"fixture": true}))).bind(result.then_some("TEST_ONLY")).execute(pool).await?;
+        Ok(id)
+    }
+
+    #[sqlx::test]
+    async fn finished_commands_are_purged_without_dropping_unacknowledged_results(
+        pool: sqlx::PgPool,
+    ) -> anyhow::Result<()> {
+        let server: i64 =
+            sqlx::query_scalar("INSERT INTO servers(name) VALUES('TEST_ONLY') RETURNING id")
+                .fetch_one(&pool)
+                .await?;
+        let now = 100_000_000;
+        let old = now - 91 * 86_400;
+        let removable = insert(&pool, server, 1, "succeeded", (Some(2), Some(old), true)).await?;
+        let never_claimed = insert(&pool, server, 2, "expired", (None, Some(old), false)).await?;
+        // Claimed by a device whose result never arrived: it may still be retried.
+        let pending_result =
+            insert(&pool, server, 3, "cancelled", (Some(4), Some(old), false)).await?;
+        let recent = insert(
+            &pool,
+            server,
+            4,
+            "failed",
+            (Some(5), Some(now - 86_400), true),
+        )
+        .await?;
+        let running = insert(&pool, server, 5, "running", (Some(6), None, false)).await?;
+        // The newest 100 per server stay even when they qualify by age.
+        let mut newest = Vec::new();
+        for index in 0..100 {
+            newest.push(
+                insert(
+                    &pool,
+                    server,
+                    1_000 + index,
+                    "succeeded",
+                    (Some(1), Some(old), true),
+                )
+                .await?,
+            );
+        }
+        assert_eq!(purge_finished(&pool, now).await?, 2);
+        let remaining: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM remote_commands")
+            .fetch_all(&pool)
+            .await?;
+        assert!(!remaining.contains(&removable) && !remaining.contains(&never_claimed));
+        for id in [pending_result, recent, running].iter().chain(&newest) {
+            assert!(remaining.contains(id));
+        }
+        assert_eq!(remaining.len(), 103);
+        Ok(())
+    }
 }
