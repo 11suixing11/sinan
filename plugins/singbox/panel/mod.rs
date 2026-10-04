@@ -25,6 +25,7 @@ pub mod proxy_users;
 pub mod publisher;
 pub mod runtime_operations;
 pub mod settings;
+pub mod source_migration;
 pub mod sources;
 pub mod statistics;
 mod subscription_fetch;

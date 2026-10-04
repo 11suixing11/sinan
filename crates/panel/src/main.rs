@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod source_migration;
+
 use sinan_panel::{AppState, config::Config, maintenance::supervise, router};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 
@@ -16,6 +18,11 @@ async fn telemetry_history(pool: PgPool) {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    // Maintenance commands run only when invoked; the service ignores other arguments.
+    if args.first().map(String::as_str) == Some("source-migration") {
+        std::process::exit(source_migration::run(&args[1..]).await?);
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),

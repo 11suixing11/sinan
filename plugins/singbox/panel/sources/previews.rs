@@ -118,6 +118,7 @@ pub(super) async fn create(
     request: Result<Json<CreatePreview>, axum::extract::rejection::JsonRejection>,
 ) -> ApiResult<(StatusCode, Json<Preview>)> {
     let admin_id = require_admin(&state, &headers).await?;
+    super::super::source_migration::ensure_numbered_writable(&state.pool).await?;
     let Json(request) = request.map_err(|_| bad("预览请求字段或大小不符合要求"))?;
     let permit = parse::try_admit()
         .map_err(|_| ApiError::Conflict("正在处理其他导入预览，请稍后重试".into()))?;
@@ -246,6 +247,7 @@ pub(super) async fn commit(
     request: Result<Json<CommitPreview>, axum::extract::rejection::JsonRejection>,
 ) -> ApiResult<(StatusCode, Json<model::Source>)> {
     let admin_id = require_admin(&state, &headers).await?;
+    super::super::source_migration::ensure_numbered_writable(&state.pool).await?;
     let Json(request) = request.map_err(|_| bad("保存预览请求字段不符合要求"))?;
     let name = super::super::business::name(&request.name)?;
     let interval = refresh_interval(request.refresh_interval_seconds.unwrap_or(86400))?;

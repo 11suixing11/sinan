@@ -74,6 +74,12 @@ pub async fn batch(
             }
         }
     }
+    // Numbered sources are read-only once migrated; new subscription hops use ordered chains.
+    if !source_ids.is_empty() && super::super::source_migration::migrated(&mut tx).await? {
+        return Err(ApiError::Conflict(
+            "订阅来源已迁移，混合链路不能再新增订阅跳；请改用有序链路".into(),
+        ));
+    }
     sqlx::query(
         "SELECT id FROM singbox_subscription_sources WHERE id=ANY($1) ORDER BY id FOR UPDATE",
     )

@@ -305,6 +305,36 @@ impl ExternalOutbound {
         Ok(value)
     }
 
+    /// Client-facing form of a typed outbound from ordered subscription sources.
+    /// Its serde layout is the sing-box outbound shape. The ordered parser fills
+    /// a few options with their defaults when a node omits them; those defaults
+    /// are left out again here, so the result is what numbered sources accept.
+    /// Any other option `validate` does not accept makes the node unusable in
+    /// client subscriptions, as it was for numbered sources.
+    pub fn from_normalized(outbound: &NormalizedOutbound) -> Result<Self> {
+        let mut value = serde_json::to_value(outbound)
+            .map_err(|_| ExternalError("outbound is not serializable"))?;
+        let defaults: &[(&str, Value)] = match outbound {
+            NormalizedOutbound::Hysteria2 { .. } => &[
+                ("server_ports", json!([])),
+                ("bbr_profile", json!("standard")),
+                ("disable_chrome_parrot", json!(false)),
+            ],
+            NormalizedOutbound::Tuic { .. } => &[("udp_relay_mode", json!(""))],
+            _ => &[],
+        };
+        if let Some(object) = value.as_object_mut() {
+            for (key, default) in defaults {
+                if object.get(*key) == Some(default) {
+                    object.remove(*key);
+                }
+            }
+        }
+        let outbound = Self(value);
+        outbound.validate()?;
+        Ok(outbound)
+    }
+
     pub fn to_outbound(&self, tag: &str, detour: Option<&str>) -> Result<Value> {
         self.render(tag, detour, None)
     }

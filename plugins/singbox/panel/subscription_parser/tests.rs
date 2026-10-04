@@ -194,6 +194,28 @@ fn all_supported_protocols_preserve_their_semantic_parameters() {
     assert!(!preview.contains(UUID));
     assert!(!preview.contains("/transport"));
     assert!(!preview.contains("01ab"));
+    // After the source migration, ordered-source versions reach client
+    // subscriptions through the numbered-source validator. Only options that
+    // numbered sources never accepted (here Hysteria2 port hopping) are left out.
+    let client = |outbound: &NormalizedOutbound| {
+        sinan_compiler::external::ExternalOutbound::from_normalized(outbound).is_ok()
+    };
+    let rejected: Vec<_> = batch
+        .nodes
+        .iter()
+        .map(|node| node.outbound.as_ref().expect("supported"))
+        .filter(|outbound| !client(outbound))
+        .map(NormalizedOutbound::protocol)
+        .collect();
+    assert_eq!(rejected, [ExternalProtocol::Hysteria2]);
+    let defaults = parse(&json_source(vec![
+        json!({"type":"hysteria2","server":"hy.example.com","server_port":443,"password":PASSWORD,"tls":{"enabled":true}}),
+        json!({"type":"tuic","server":"tuic.example.com","server_port":443,"uuid":UUID,"password":PASSWORD,"tls":{"enabled":true}}),
+    ]));
+    assert_eq!(defaults.nodes.len(), 2);
+    for node in &defaults.nodes {
+        assert!(client(node.outbound.as_ref().expect("supported")));
+    }
     let invalid = parse(&json_source(vec![
         json!({"type":"tuic","server":"tuic.example.com","server_port":443,"uuid":UUID,"password":PASSWORD,"udp_relay_mode":"quic","udp_over_stream":true,"tls":{"enabled":true}}),
         json!({"type":"vless","server":"v.example.com","server_port":443,"uuid":UUID,"tls":{"enabled":true,"reality":{"enabled":true,"public_key":URL_SAFE_NO_PAD.encode([9u8;32]),"short_id":"01ab"}}}),

@@ -198,6 +198,20 @@ async fn load(tx: &mut Transaction<'_, Postgres>, user_id: i64) -> ApiResult<Sna
     })
 }
 
+/// Digest of a user's rendered subscription, for comparing before and after
+/// a migration; an unavailable format records its reason instead.
+pub(crate) async fn content_digest(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: i64,
+    format: &str,
+) -> ApiResult<String> {
+    let snapshot = load(tx, user_id).await?;
+    Ok(match snapshot.content(user_id, format) {
+        Ok(content) => crate::auth::hash_token(&content),
+        Err(error) => format!("unavailable: {error}"),
+    })
+}
+
 fn content_type(format: &str) -> &'static str {
     if format == "singbox" {
         "application/json; charset=utf-8"

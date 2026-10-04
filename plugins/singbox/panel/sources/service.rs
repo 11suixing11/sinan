@@ -12,7 +12,7 @@ use sqlx::{FromRow, PgConnection, PgPool};
 use tokio::sync::OwnedSemaphorePermit;
 use uuid::Uuid;
 
-const SCHEDULER_LOCK: i64 = 831_240_051;
+pub(crate) const SCHEDULER_LOCK: i64 = 831_240_051;
 
 pub(super) async fn queue(pool: &PgPool, source_id: i64) -> ApiResult<Job> {
     let mut tx = pool.begin().await?;
@@ -50,6 +50,10 @@ pub(super) fn kick(state: &AppState) {
 }
 
 pub async fn refresh_due(state: &AppState) -> anyhow::Result<()> {
+    // After the source migration numbered sources are a read-only archive.
+    if super::super::source_migration::migrated(&mut *state.pool.acquire().await?).await? {
+        return Ok(());
+    }
     let now = sinan_protocol::now_timestamp();
     sqlx::query("DELETE FROM singbox_source_previews WHERE expires_at <= $1")
         .bind(now)

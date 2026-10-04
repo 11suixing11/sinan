@@ -317,13 +317,13 @@ async fn adoption_uses_the_current_version_and_keeps_chain_selection_unchanged(
         "/ordered-subscription-sources/{id}/nodes/{}",
         node["id"].as_str().context("node")?
     );
-    let body = |adopted: bool, version: &Value| json!({"adopted":adopted,"settings_revision":1,"identity_epoch":1,"node_version_id":version});
+    let body = |adopted: bool, version: &Value, metadata: i64| json!({"adopted":adopted,"settings_revision":1,"identity_epoch":1,"node_version_id":version,"metadata_revision":metadata});
     call(
         &panel,
         &cookie,
         Method::PATCH,
         &path,
-        Some(body(true, &json!(Uuid::new_v4()))),
+        Some(body(true, &json!(Uuid::new_v4()), 0)),
         StatusCode::CONFLICT,
     )
     .await?;
@@ -332,17 +332,27 @@ async fn adoption_uses_the_current_version_and_keeps_chain_selection_unchanged(
         &cookie,
         Method::PATCH,
         &path,
-        Some(body(true, &node["version_id"])),
+        Some(body(true, &node["version_id"], 0)),
         StatusCode::OK,
     )
     .await?;
     assert_eq!(adopted["adopted"], true);
+    // Adoption shares the catalog metadata revision, so a stale page is refused.
+    call(
+        &panel,
+        &cookie,
+        Method::PATCH,
+        &path,
+        Some(body(false, &node["version_id"], 0)),
+        StatusCode::CONFLICT,
+    )
+    .await?;
     let released = call(
         &panel,
         &cookie,
         Method::PATCH,
         &path,
-        Some(body(false, &node["version_id"])),
+        Some(body(false, &node["version_id"], 1)),
         StatusCode::OK,
     )
     .await?;

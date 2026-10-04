@@ -401,6 +401,10 @@ pub async fn commit(
 
 #[derive(FromRow)]
 struct AdoptionRow {
+    public_id: i64,
+    adopted: bool,
+    metadata_revision: i64,
+    metadata_deleted: bool,
     identity_epoch: i64,
     identity_state: String,
     latest_version: Option<Uuid>,
@@ -409,6 +413,8 @@ struct AdoptionRow {
 }
 
 /// Adopting puts a node into the catalog; it never changes chain selection.
+/// Adoption and catalog removal share the catalog metadata revision, like
+/// numbered sources, so an old page cannot revive a removed node.
 pub async fn adopt(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -417,21 +423,27 @@ pub async fn adopt(
 ) -> ApiResult<Json<NodeView>> {
     auth::require_admin(&state, &headers).await?;
     let mut tx = state.pool.begin().await?;
+    super::super::entitlements::lock(&mut tx).await?;
     let source = super::service::load_source(&mut tx, source_id, true).await?;
     let AdoptionRow {
+        public_id,
+        adopted,
+        metadata_revision,
+        metadata_deleted,
         identity_epoch: epoch,
         identity_state,
         latest_version,
         last_seen_revision: last_seen,
         supported,
-    } = sqlx::query_as("SELECT n.identity_epoch,n.identity_state,n.latest_version,n.last_seen_revision,v.supported FROM singbox_ordered_external_nodes n LEFT JOIN singbox_ordered_external_node_versions v ON v.id=n.latest_version WHERE n.id=$1 AND n.source_id=$2 FOR UPDATE OF n")
+    } = sqlx::query_as("SELECT n.public_id,n.adopted,COALESCE(m.revision,0) AS metadata_revision,m.deleted_at IS NOT NULL AS metadata_deleted,n.identity_epoch,n.identity_state,n.latest_version,n.last_seen_revision,v.supported FROM singbox_ordered_external_nodes n LEFT JOIN singbox_ordered_external_node_versions v ON v.id=n.latest_version LEFT JOIN singbox_node_metadata m ON m.kind='external' AND m.id=n.public_id WHERE n.id=$1 AND n.source_id=$2 FOR UPDATE OF n")
         .bind(node_id).bind(source_id).fetch_optional(&mut *tx).await?.ok_or(ApiError::NotFound)?;
     if source.settings_revision != input.settings_revision
         || epoch != input.identity_epoch
         || latest_version != Some(input.node_version_id)
+        || metadata_revision != input.metadata_revision
     {
         return Err(ApiError::Conflict(
-            "来源或节点版本已变化，请刷新后重新确认采用状态".into(),
+            "来源、节点版本或管理设置已变化，请刷新后重新确认采用状态".into(),
         ));
     }
     if input.adopted
@@ -445,6 +457,17 @@ pub async fn adopt(
         return Err(ApiError::Conflict(
             "此节点当前不可采用：须属于未归档来源的最近成功批次，且身份唯一、受支持".into(),
         ));
+    }
+    if !input.adopted {
+        super::super::catalog::ensure_external_removable(&mut tx, public_id).await?;
+    }
+    if adopted != input.adopted || (input.adopted && metadata_deleted) {
+        let next = metadata_revision
+            .checked_add(1)
+            .filter(|next| *next <= super::super::business::MAX_SAFE_INTEGER)
+            .ok_or_else(|| ApiError::Conflict("节点管理修订号已达上限".into()))?;
+        sqlx::query("INSERT INTO singbox_node_metadata(kind,id,revision) VALUES('external',$1,$2) ON CONFLICT(kind,id) DO UPDATE SET revision=$2,deleted_at=CASE WHEN $3 THEN NULL ELSE singbox_node_metadata.deleted_at END")
+            .bind(public_id).bind(next).bind(input.adopted).execute(&mut *tx).await?;
     }
     sqlx::query("UPDATE singbox_ordered_external_nodes SET adopted=$2 WHERE id=$1")
         .bind(node_id)

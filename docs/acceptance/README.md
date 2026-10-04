@@ -16,6 +16,7 @@
 - [2026-10-03 重新架构阶段一：插件编译边界](rearchitecture-phase1-20261003.md)
 - [2026-10-03 重新架构阶段二：订阅抓取合一](rearchitecture-phase2-20261003.md)
 - [2026-10-03 阶段三 S1a：补齐有序来源的能力](rearchitecture-s1a-20261003.md)
+- [2026-10-04 阶段三 S1b 后端：来源迁移命令与使用方切换](rearchitecture-s1b-20261004.md)
 
 - [已完成测试材料清理与最新制品保留](test-material-cleanup.md)
 

@@ -221,7 +221,7 @@ struct PreparedNode {
     reasons: Value,
 }
 
-pub(super) fn identity_keys(parsed: &ParsedSubscription) -> Vec<Option<String>> {
+pub(crate) fn identity_keys(parsed: &ParsedSubscription) -> Vec<Option<String>> {
     let mut provider_counts = BTreeMap::<&str, usize>::new();
     let mut fingerprint_counts = BTreeMap::<&str, usize>::new();
     for node in &parsed.nodes {

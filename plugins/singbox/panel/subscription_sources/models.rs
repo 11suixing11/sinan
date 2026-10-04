@@ -225,6 +225,8 @@ pub struct AdoptNode {
     pub settings_revision: i64,
     pub identity_epoch: i64,
     pub node_version_id: Uuid,
+    /// Catalog metadata revision of the node; 0 when it has none yet.
+    pub metadata_revision: i64,
 }
 
 #[derive(Clone, Deserialize, Serialize)]

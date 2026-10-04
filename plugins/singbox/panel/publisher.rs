@@ -122,6 +122,90 @@ async fn publish_server(state: &AppState, server_id: i64) -> anyhow::Result<()> 
     Ok(())
 }
 
+/// One server's desired bundle and the evidence recorded with it.
+struct Compiled {
+    plan: super::ordered_paths::publication::Plan,
+    prepared: super::mixed_paths::Prepared,
+    source: serde_json::Value,
+    bundle: String,
+    hash: String,
+}
+
+async fn compile(
+    state: &AppState,
+    tx: &mut Transaction<'_, Postgres>,
+    server_id: i64,
+    at: i64,
+) -> anyhow::Result<Compiled> {
+    let nodes = snapshot(tx, server_id, at).await?;
+    let relays = super::chains::load(tx, server_id, at).await?;
+    let plan =
+        super::ordered_paths::publication::plan(state, tx, server_id, at, nodes, relays).await?;
+    // Shared local controller credentials belong to this new desired bundle only.
+    // Existing deployments and in-flight receipts retain their immutable old bytes.
+    if let Some(control) = &plan.probe_control {
+        synchronize_path_secret_on(tx, server_id, &control.secret).await?;
+    }
+    let source = super::ordered_paths::publication::source(&plan)?;
+    let prepared = super::mixed_paths::compile_on(tx, server_id, &plan.nodes, &plan.legacy).await?;
+    let native = sinan_compiler::compile_server_with_paths_on_config(
+        &plan.nodes,
+        &plan.legacy,
+        &plan.paths,
+        &plan.accepts,
+        plan.probe_control.as_ref(),
+        &prepared.compiled,
+    )?;
+    let mut files = BTreeMap::from([("config.json".into(), native)]);
+    if let Some(probes) = &plan.probe_plan {
+        files.insert("runtime-probes.json".into(), serde_json::to_string(probes)?);
+    }
+    if !prepared.evidence.is_empty() {
+        files.insert(
+            "runtime-constraints.json".into(),
+            serde_json::to_string(&prepared.compiled.constraints)?,
+        );
+        files.insert(
+            "path-checks.json".into(),
+            serde_json::to_string(&prepared.compiled.checks)?,
+        );
+        files.insert(
+            "path-features.json".into(),
+            serde_json::to_string(&prepared.compiled.features)?,
+        );
+    }
+    let bundle = serde_json::to_string(&Bundle { files })?;
+    let hash = crate::auth::hash_token(&bundle);
+    Ok(Compiled {
+        plan,
+        prepared,
+        source,
+        bundle,
+        hash,
+    })
+}
+
+/// The bundle digest a publication would produce now. Everything runs in a
+/// transaction that is rolled back, so nothing is written or sent.
+pub(crate) async fn bundle_digest(
+    state: &AppState,
+    server_id: i64,
+    at: i64,
+) -> anyhow::Result<Option<String>> {
+    let mut tx = state.pool.begin().await?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        .execute(&mut *tx)
+        .await?;
+    super::entitlements::lock(&mut tx).await?;
+    if !super::settings::is_enabled(&mut tx, server_id).await? {
+        tx.rollback().await?;
+        return Ok(None);
+    }
+    let compiled = compile(state, &mut tx, server_id, at).await?;
+    tx.rollback().await?;
+    Ok(Some(compiled.hash))
+}
+
 async fn publish_server_transaction(
     state: &AppState,
     server_id: i64,
@@ -151,47 +235,13 @@ async fn publish_server_transaction(
         tx.commit().await?;
         return Ok(None);
     }
-    let nodes = snapshot(&mut tx, server_id, at).await?;
-    let relays = super::chains::load(&mut tx, server_id, at).await?;
-    let plan =
-        super::ordered_paths::publication::plan(state, &mut tx, server_id, at, nodes, relays)
-            .await?;
-    // Shared local controller credentials belong to this new desired bundle only.
-    // Existing deployments and in-flight receipts retain their immutable old bytes.
-    if let Some(control) = &plan.probe_control {
-        synchronize_path_secret_on(&mut tx, server_id, &control.secret).await?;
-    }
-    let source = super::ordered_paths::publication::source(&plan)?;
-    let prepared =
-        super::mixed_paths::compile_on(&mut tx, server_id, &plan.nodes, &plan.legacy).await?;
-    let native = sinan_compiler::compile_server_with_paths_on_config(
-        &plan.nodes,
-        &plan.legacy,
-        &plan.paths,
-        &plan.accepts,
-        plan.probe_control.as_ref(),
-        &prepared.compiled,
-    )?;
-    let mut files = BTreeMap::from([("config.json".into(), native)]);
-    if let Some(probes) = &plan.probe_plan {
-        files.insert("runtime-probes.json".into(), serde_json::to_string(probes)?);
-    }
-    if !prepared.evidence.is_empty() {
-        files.insert(
-            "runtime-constraints.json".into(),
-            serde_json::to_string(&prepared.compiled.constraints)?,
-        );
-        files.insert(
-            "path-checks.json".into(),
-            serde_json::to_string(&prepared.compiled.checks)?,
-        );
-        files.insert(
-            "path-features.json".into(),
-            serde_json::to_string(&prepared.compiled.features)?,
-        );
-    }
-    let bundle = serde_json::to_string(&Bundle { files })?;
-    let hash = crate::auth::hash_token(&bundle);
+    let Compiled {
+        plan,
+        prepared,
+        source,
+        bundle,
+        hash,
+    } = compile(state, &mut tx, server_id, at).await?;
     let previous = sqlx::query("SELECT rev,bundle_sha256 FROM deployments WHERE server_id=$1 AND module=$2 ORDER BY rev DESC LIMIT 1")
         .bind(server_id).bind(MODULE).fetch_optional(&mut *tx).await?;
     if let Some(previous) = previous.filter(|row| row.get::<String, _>("bundle_sha256") == hash) {
