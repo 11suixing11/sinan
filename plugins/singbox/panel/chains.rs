@@ -83,14 +83,6 @@ pub struct Chain {
 }
 const SELECT: &str = "SELECT c.id,c.name,c.entry_node_id,c.exit_node_id,(n.enabled AND e.enabled AND n.deleted_at IS NULL AND e.deleted_at IS NULL AND n.protocol='vless-reality' AND e.protocol='vless-reality' AND ns.deleted_at IS NULL AND es.deleted_at IS NULL) AS available FROM singbox_live_chains c JOIN nodes n ON n.id=c.entry_node_id JOIN nodes e ON e.id=c.exit_node_id JOIN servers ns ON ns.id=n.server_id JOIN servers es ON es.id=e.server_id WHERE c.path_kind='legacy'";
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ChainRequest {
-    pub name: String,
-    pub entry_node_id: i64,
-    pub exit_node_id: i64,
-}
-
 pub async fn list(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -103,53 +95,13 @@ pub async fn list(
     ))
 }
 
-pub async fn create(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(request): Json<ChainRequest>,
-) -> ApiResult<(StatusCode, Json<Chain>)> {
+/// Two-hop chains are no longer created; new chains are ordered (ADR 0079
+/// phase 3, step S1d). Existing two-hop chains stay listed and removable.
+pub async fn create(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<StatusCode> {
     require_admin(&state, &headers).await?;
-    let name = super::business::name(&request.name)?;
-    if request.entry_node_id <= 0
-        || request.exit_node_id <= 0
-        || request.entry_node_id == request.exit_node_id
-    {
-        return Err(ApiError::BadRequest(
-            "请选择不同服务器上的入口节点和出口节点".into(),
-        ));
-    }
-    let mut tx = state.pool.begin().await?;
-    super::entitlements::lock(&mut tx).await?;
-    let servers: Vec<i64> = sqlx::query_scalar("SELECT DISTINCT n.server_id FROM nodes n JOIN servers s ON s.id=n.server_id WHERE n.id=ANY($1) AND n.deleted_at IS NULL AND s.deleted_at IS NULL AND n.protocol='vless-reality' ORDER BY n.server_id")
-        .bind(vec![request.entry_node_id, request.exit_node_id]).fetch_all(&mut *tx).await?;
-    if servers.len() != 2 {
-        return Err(ApiError::BadRequest(
-            "两跳仅支持 VLESS + Reality 节点；入口和出口必须属于两台不同服务器，且均未删除".into(),
-        ));
-    }
-    for server in &servers {
-        super::business::lock_server(&mut tx, *server).await?;
-    }
-    // A dedicated entry prevents silently turning an existing direct grant into a chain.
-    // Exits may be shared, but cannot themselves be chain entries (no cycles/nesting).
-    let conflict: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_live_chains WHERE entry_node_id=ANY($1) OR exit_node_id=$2) OR EXISTS(SELECT 1 FROM accesses WHERE node_id=$2) OR EXISTS(SELECT 1 FROM singbox_policy_nodes WHERE node_id=$2) OR EXISTS(SELECT 1 FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.managed_node_id=$2) OR EXISTS(SELECT 1 FROM singbox_chains c WHERE c.path_kind='ordered' AND (c.deleted_at IS NULL OR c.phase<>'retired') AND c.entry_node_id=ANY($1)) OR EXISTS(SELECT 1 FROM singbox_ordered_chain_hops h JOIN singbox_chains c ON c.id=h.chain_id WHERE c.path_kind='ordered' AND (c.deleted_at IS NULL OR c.phase<>'retired') AND h.managed_node_id=$2 AND (h.generation=ANY(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation]) OR EXISTS(SELECT 1 FROM unnest(ARRAY[c.desired_generation,c.applied_generation,c.candidate_generation,c.recovery_generation]) AS selected(generation) WHERE selected.generation IS NOT NULL AND NOT EXISTS(SELECT 1 FROM singbox_ordered_chain_versions v WHERE v.chain_id=c.id AND v.generation=selected.generation))))")
-        .bind(vec![request.entry_node_id, request.exit_node_id]).bind(request.entry_node_id).fetch_one(&mut *tx).await?;
-    if conflict {
-        return Err(ApiError::Conflict(
-            "入口需要使用尚未授权的独立节点；不支持重复入口、嵌套或循环链路".into(),
-        ));
-    }
-    let id: i64 = sqlx::query_scalar("INSERT INTO singbox_chains(name,entry_node_id,exit_node_id,relay_uuid) VALUES($1,$2,$3,$4) RETURNING id")
-        .bind(name).bind(request.entry_node_id).bind(request.exit_node_id).bind(Uuid::new_v4()).fetch_one(&mut *tx).await?;
-    super::mixed_paths::seed_legacy_on(&mut tx, id).await?;
-    seed_legacy_projection_on(&mut tx, id).await?;
-    super::business::mark_dirty(&mut tx, &servers).await?;
-    let value = sqlx::query_as(&format!("{SELECT} AND c.id=$1"))
-        .bind(id)
-        .fetch_one(&mut *tx)
-        .await?;
-    tx.commit().await?;
-    Ok((StatusCode::CREATED, Json(value)))
+    Err(ApiError::Conflict(
+        "不再新建两跳链路；请使用“创建链路”创建有序链路".into(),
+    ))
 }
 
 pub async fn remove(
@@ -252,7 +204,9 @@ pub(crate) async fn load(
         .collect()
 }
 
-/// Preserve rich resource history for new legacy chains without moving their traffic pipeline.
+/// The rich resource history a legacy chain received when it was created; only
+/// test fixtures create legacy chains now.
+#[cfg(test)]
 async fn seed_legacy_projection_on(tx: &mut Transaction<'_, Postgres>, id: i64) -> ApiResult<()> {
     use super::ordered_paths::{
         models::{Capabilities, FrozenHop, FrozenVersion},

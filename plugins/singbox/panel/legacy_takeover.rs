@@ -77,7 +77,7 @@ struct Target {
 }
 
 /// Compiled fields of a node; the display name and grants are not frozen.
-fn compiled(node: &Node) -> ApiResult<Value> {
+pub(crate) fn compiled(node: &Node) -> ApiResult<Value> {
     let mut value = serde_json::to_value(node).map_err(anyhow::Error::from)?;
     if let Some(fields) = value.as_object_mut() {
         fields.remove("name");

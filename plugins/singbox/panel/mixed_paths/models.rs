@@ -222,6 +222,9 @@ pub(crate) fn servers(path: &Path) -> Vec<i64> {
     hosts
 }
 
+/// The mixed generation a legacy chain received when it was created; only
+/// test fixtures create legacy chains now.
+#[cfg(test)]
 pub(crate) async fn seed_legacy_on(tx: &mut Transaction<'_, Postgres>, id: i64) -> ApiResult<()> {
     let (entry,exit,identity):(i64,i64,Uuid)=sqlx::query_as("SELECT entry_node_id,exit_node_id,relay_uuid FROM singbox_live_chains WHERE id=$1 AND path_kind='legacy'").bind(id).fetch_one(&mut **tx).await?;
     let entry = node_on(tx, entry).await?;
@@ -264,7 +267,8 @@ pub(crate) async fn validate_frozen_on(
                 "同一入口服务器最多保留 64 条混合链路，以预留候选验证预算".into(),
             ));
         }
-        let scopes:i64=sqlx::query_scalar("SELECT COUNT(DISTINCT c.id) FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id LEFT JOIN singbox_chain_hops h ON h.chain_id=c.id WHERE c.path_kind='mixed' AND (n.server_id=$1 OR h.managed_server_id=$1)").bind(server).fetch_one(&mut **tx).await?;
+        // Converted chains keep their scopes on the device as tombstones.
+        let scopes:i64=sqlx::query_scalar("SELECT (SELECT COUNT(DISTINCT c.id) FROM singbox_chains c JOIN nodes n ON n.id=c.entry_node_id LEFT JOIN singbox_chain_hops h ON h.chain_id=c.id WHERE c.path_kind='mixed' AND (n.server_id=$1 OR h.managed_server_id=$1))+(SELECT COUNT(*) FROM singbox_retired_path_scopes t JOIN singbox_chains c ON c.id=t.chain_id WHERE t.server_id=$1 AND c.path_kind<>'mixed')").bind(server).fetch_one(&mut **tx).await?;
         if scopes > 1024 {
             return Err(ApiError::Conflict(
                 "服务器的路径恢复记录已达到上限，无法再建立新的链路引用".into(),

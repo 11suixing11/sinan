@@ -711,3 +711,98 @@ fn combined_pipelines_reject_competing_public_entry_and_frozen_listener_paramete
     base.config = serde_json::to_string(&native).unwrap();
     assert!(compile_server_with_paths_on_config(&nodes, &[], &[], &[accept], None, &base).is_err());
 }
+
+#[test]
+fn converting_chain_keeps_its_mixed_route_while_its_ordered_candidate_is_probed() {
+    use sinan_compiler::{compile_server_with_paths_on_config, paths as numeric};
+    use std::collections::BTreeMap;
+    let mut entry = node(5, true);
+    entry.port = 8443;
+    let nodes = vec![entry];
+    let mixed = numeric::Path {
+        chain_id: 22,
+        generation: 3,
+        entry_server_id: 1,
+        entry_node_id: 5,
+        active: true,
+        hops: vec![numeric::Hop::External {
+            node_id: 51,
+            version_id: 52,
+            outbound: sinan_compiler::external::ExternalOutbound(
+                json!({"type":"http","server":"numeric.example.com","server_port":8080}),
+            ),
+        }],
+    };
+    let mixed_control = numeric::Control {
+        secret: control().secret,
+        test_url: "https://panel.example.com/health".into(),
+    };
+    let base = numeric::compile(
+        1,
+        &nodes,
+        &[],
+        &[mixed],
+        &[],
+        Default::default(),
+        Some(&mixed_control),
+    )
+    .unwrap();
+    assert_eq!(base.routes, BTreeMap::from([(5, 22)]));
+    let candidate = |chain_id, active| OrderedPath {
+        chain_id,
+        generation: 4,
+        entry_node_id: 5,
+        entry_server_id: 1,
+        hops: vec![http(31)],
+        active,
+    };
+    let merged: Value = serde_json::from_str(
+        &compile_server_with_paths_on_config(
+            &nodes,
+            &[],
+            &[candidate(22, false)],
+            &[],
+            Some(&control()),
+            &base,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let rules = merged["route"]["rules"].as_array().unwrap();
+    let entry_rules: Vec<_> = rules
+        .iter()
+        .filter(|rule| rule["inbound"] == json!(["node-5"]))
+        .collect();
+    // The mixed route still carries users; the candidate adds no blanket reject
+    // in front of it and no route of its own.
+    assert!(
+        entry_rules
+            .iter()
+            .any(|rule| rule["outbound"] == "path-22-g3-h0")
+    );
+    assert!(
+        entry_rules
+            .iter()
+            .all(|rule| rule["action"] != "reject" || rule.get("network").is_some())
+    );
+    assert!(
+        entry_rules
+            .iter()
+            .all(|rule| rule["outbound"] != "chain-22-g4-h1")
+    );
+    assert!(
+        merged["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|outbound| outbound["tag"] == "chain-22-g4-h1")
+    );
+    // Routing the candidate, or another chain's candidate on the same entry,
+    // would select the entry twice.
+    for path in [candidate(22, true), candidate(23, false)] {
+        assert!(
+            compile_server_with_paths_on_config(&nodes, &[], &[path], &[], Some(&control()), &base)
+                .is_err()
+        );
+    }
+}

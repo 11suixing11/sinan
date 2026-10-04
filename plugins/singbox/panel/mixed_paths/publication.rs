@@ -25,7 +25,10 @@ pub async fn compile_on(
     nodes: &[Node],
     legacy: &[Relay],
 ) -> anyhow::Result<Prepared> {
-    let rows=sqlx::query("SELECT v.*,c.active_generation,c.pending_generation,c.minimum_generation,c.deleted_at,singbox_path_resources_available(c.id) AS available FROM singbox_chain_versions v JOIN singbox_chains c ON c.id=v.chain_id WHERE c.path_kind='mixed' ORDER BY v.chain_id,v.generation").fetch_all(&mut **tx).await?;
+    // A chain under conversion is still compiled here: before the switch it is a
+    // mixed chain as usual; after it, only its active generation is kept on the
+    // dependencies (see `switched` below). Its managed hops must still be live.
+    let rows=sqlx::query("SELECT v.*,c.active_generation,c.pending_generation,c.minimum_generation,c.deleted_at,m.state AS conversion,CASE WHEN c.path_kind='mixed' THEN singbox_path_resources_available(c.id) ELSE NOT EXISTS(SELECT 1 FROM singbox_chain_hops h LEFT JOIN nodes n ON n.id=h.managed_node_id LEFT JOIN servers s ON s.id=h.managed_server_id WHERE h.chain_id=c.id AND h.generation=c.active_generation AND h.kind='managed' AND (n.deleted_at IS NOT NULL OR NOT n.enabled OR s.deleted_at IS NOT NULL)) END AS available FROM singbox_chain_versions v JOIN singbox_chains c ON c.id=v.chain_id LEFT JOIN singbox_mixed_conversions m ON m.chain_id=c.id AND m.state IN ('preparing','switched') WHERE c.path_kind='mixed' OR m.chain_id IS NOT NULL ORDER BY v.chain_id,v.generation").fetch_all(&mut **tx).await?;
     let mut paths = Vec::new();
     let mut blocked = BTreeSet::new();
     let mut retired = BTreeMap::<String, u64>::new();
@@ -53,6 +56,21 @@ pub async fn compile_on(
         let candidate = Some(generation) == pending;
         let old = Some(generation) == active;
         let entry = server == path.entry_server_id;
+        if row.get::<Option<String>, _>("conversion").as_deref() == Some("switched") {
+            // The entry routes the ordered candidate now. Like an ordered recovery
+            // generation, the old identities stay on the dependencies until the
+            // ordered barrier; every floor of the scope is in the tombstones.
+            if !entry && old && live {
+                path.active = false;
+                evidence.push(Evidence {
+                    chain: path.chain_id,
+                    generation,
+                    role: "dependency",
+                });
+                paths.push(path);
+            }
+            continue;
+        }
         if entry {
             blocked.insert(path.entry_node_id);
         }
@@ -127,6 +145,18 @@ pub async fn compile_on(
     }
     for id in entry_active {
         blocked.remove(&id);
+    }
+    let tombstones: Vec<(String, i64)> =
+        sqlx::query_as("SELECT scope,floor FROM singbox_retired_path_scopes WHERE server_id=$1")
+            .bind(server)
+            .fetch_all(&mut **tx)
+            .await?;
+    for (scope, floor) in tombstones {
+        let floor: u64 = floor.try_into()?;
+        retired
+            .entry(scope)
+            .and_modify(|value| *value = (*value).max(floor))
+            .or_insert(floor);
     }
     let control = sqlx::query_as::<_, (String, String)>(
         "SELECT secret,test_url FROM singbox_path_controls WHERE server_id=$1",

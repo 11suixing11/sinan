@@ -83,7 +83,9 @@ pub async fn detail(
     let node = node.view()?;
     let mut hops = Vec::new();
     let mut versions = Vec::new();
+    let mut conversion = None;
     if kind == "chain" {
+        conversion = crate::mixed_conversion::conversion(&mut tx, id).await?;
         let rows=sqlx::query("SELECT h.*,n.name AS managed_name,n.protocol AS managed_protocol,n.public_host AS managed_host,n.port AS managed_port,n.enabled AS managed_enabled,n.deleted_at AS managed_deleted,ms.deleted_at AS managed_server_deleted,s.archived AS source_archived,s.deleted_at AS source_deleted,s.identity_epoch AS source_epoch,e.identity_epoch AS node_epoch,e.name AS external_name,e.present,e.identity_unique,e.current_version_id,v.config_json,v.name AS version_name FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id LEFT JOIN nodes n ON n.id=h.managed_node_id LEFT JOIN servers ms ON ms.id=h.managed_server_id LEFT JOIN singbox_subscription_sources s ON s.id=h.source_id LEFT JOIN singbox_external_nodes e ON e.id=h.external_node_id LEFT JOIN singbox_external_node_versions v ON v.id=h.external_version_id WHERE h.chain_id=$1 AND h.generation=COALESCE(c.pending_generation,c.active_generation) ORDER BY h.position").bind(id).fetch_all(&mut *tx).await?;
         for h in rows {
             let managed = h.get::<String, _>("kind") == "managed";
@@ -94,7 +96,7 @@ pub async fn detail(
         versions=rows.into_iter().map(|v|json!({"generation":v.get::<i64,_>("generation"),"stage":v.get::<String,_>("stage"),"last_error":v.get::<Option<String>,_>("last_error"),"created_at":v.get::<i64,_>("created_at")})).collect();
     }
     Ok(Json(
-        json!({"resource":resource,"node":node,"hops":hops,"versions":versions}),
+        json!({"resource":resource,"node":node,"hops":hops,"versions":versions,"conversion":conversion}),
     ))
 }
 

@@ -160,7 +160,9 @@ async fn compile(
     if let Some(probes) = &plan.probe_plan {
         files.insert("runtime-probes.json".into(), serde_json::to_string(probes)?);
     }
-    if !prepared.evidence.is_empty() {
+    // Retired floors alone (tombstones of converted chains) still need the
+    // constraint file: devices reject bundles that omit a committed floor.
+    if !prepared.evidence.is_empty() || !prepared.compiled.constraints.retired.is_empty() {
         files.insert(
             "runtime-constraints.json".into(),
             serde_json::to_string(&prepared.compiled.constraints)?,

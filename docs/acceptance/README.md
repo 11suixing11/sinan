@@ -19,6 +19,7 @@
 - [2026-10-04 阶段三 S1b 后端：来源迁移命令与使用方切换](rearchitecture-s1b-20261004.md)
 - [2026-10-04 阶段三 S1b 界面：来源界面合并](rearchitecture-s1b-ui-20261004.md)
 - [2026-10-04 阶段三 S1c：旧两跳接管](rearchitecture-s1c-20261004.md)
+- [2026-10-04 阶段三 S1d：mixed 链路转换与统一创建入口](rearchitecture-s1d-20261004.md)
 
 - [已完成测试材料清理与最新制品保留](test-material-cleanup.md)
 

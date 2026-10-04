@@ -83,6 +83,7 @@ export default function Nodes({ serverId, chainsOnly = false, view, selected, in
   const [deployment, setDeployment] = useState<number | null>(null)
   const [saved, setSaved] = useState<number | null>(null)
   const [sourceCreate, setSourceCreate] = useState(0)
+  const [orderedCreate, setOrderedCreate] = useState(0)
 
   const enabledServers = servers.data?.filter(server => server.enabled) ?? []
   const pageGuard = resourceWriteError(nodes, resources, servers)
@@ -97,7 +98,8 @@ export default function Nodes({ serverId, chainsOnly = false, view, selected, in
   const inventoryCount = all.length + orderedOnly
   const chainCount = ordered.data?.filter(resource => resource.kind === 'chain').length
   const catalogCount = validCatalog(catalog.data) ? catalog.data.length : undefined
-  const canCreateChain = canCreate && Boolean(nodes.data && resources.data && !nodes.error && !resources.error)
+  // The header form depends on the source migration, so it waits for that state.
+  const canCreateChain = canCreate && migrated !== undefined && Boolean(nodes.data && resources.data && !nodes.error && !resources.error)
   const refresh = () => { reads.nodes.reload(); migrationQuery.reload() }
   // Section links keep the current server scope; the catalog type filter stays local.
   const routeHash = (target: NodeView) => nodeHash({ server: filter || undefined, role: initialServerRole, view: target })
@@ -136,8 +138,14 @@ export default function Nodes({ serverId, chainsOnly = false, view, selected, in
   const openChainEditor = () => {
     if (!refreshNotice.allows(creationError())) return
     action.clearError()
-    setCreatingChain(true)
     setCreatedChains([])
+    // After the source migration new chains are ordered: open that form in the chain view.
+    if (migrated) {
+      setOrderedCreate(value => value + 1)
+      if (activeView !== 'chains') window.location.hash = routeHash('chains').slice(1)
+      return
+    }
+    setCreatingChain(true)
   }
   const confirmDelete = (resource: ProxyResource) => {
     if (!refreshNotice.allows(writeError(resource))) return
@@ -223,7 +231,7 @@ export default function Nodes({ serverId, chainsOnly = false, view, selected, in
         onOrganize={resource => setCatalogMetadata({ kind: resource.kind, id: resource.id })}
         flatKeys={all.map(resource => `${resource.kind}:${resource.id}`)} selected={selectedOrdered} onCloseSelected={closeDetail}
         filter={filter} initialServerRole={initialServerRole} getServerId={() => currentFilter.current ? Number(currentFilter.current) : undefined}
-        onEdit={edit} onChanged={refresh} onAddSource={() => setSourceCreate(value => value + 1)} />
+        onEdit={edit} onChanged={refresh} onAddSource={() => setSourceCreate(value => value + 1)} createRequest={orderedCreate} />
     </div>
     <div className="node-view" hidden={activeView !== 'sources'}>
       {migrationQuery.error && <ErrorNotice message={`订阅来源迁移状态读取失败：${migrationQuery.error}`} retry={migrationQuery.reload} />}

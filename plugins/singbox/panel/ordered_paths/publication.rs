@@ -107,7 +107,9 @@ pub(crate) async fn plan(
     mut nodes: Vec<Node>,
     mut legacy: Vec<Relay>,
 ) -> ApiResult<Plan> {
-    let chains=sqlx::query_as::<_,ChainRow>(&format!("SELECT {CHAIN_COLUMNS} FROM singbox_chains WHERE path_kind='ordered' AND (deleted_at IS NULL OR phase<>'retired') ORDER BY id")).fetch_all(&mut **tx).await?;
+    // A mixed chain under conversion contributes its unrouted candidate only; its
+    // entry and users belong to the mixed route until the switch.
+    let chains=sqlx::query_as::<_,ChainRow>(&format!("SELECT {CHAIN_COLUMNS} FROM singbox_chains WHERE (path_kind='ordered' AND (deleted_at IS NULL OR phase<>'retired')) OR id IN (SELECT chain_id FROM singbox_mixed_conversions WHERE state='preparing') ORDER BY id")).fetch_all(&mut **tx).await?;
     let mut paths = Vec::new();
     let mut accepts = Vec::new();
     let mut dependencies = Vec::new();
@@ -137,6 +139,7 @@ pub(crate) async fn plan(
             .map(|version| version.snapshot.entry.server_id);
         if !versions.values().any(|version|version.snapshot.entry.server_id==server || version.snapshot.hops.iter().any(|hop|matches!(hop,FrozenHop::Managed{endpoint,..}if endpoint.server_id==server))){continue;}
         versioned = true;
+        let converting = chain.path_kind == "mixed";
         let live = storage::chain_is_structurally_available(tx, chain.id).await?;
         let granted: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM singbox_eligible_accesses($2) WHERE node_id=$1)",
@@ -145,6 +148,10 @@ pub(crate) async fn plan(
         .bind(at)
         .fetch_one(&mut **tx)
         .await?;
+        if converting && (!live || chain.deleted_at.is_some()) {
+            // The lifecycle returns it to mixed; the mixed route retires it.
+            continue;
+        }
         if !live || chain.deleted_at.is_some() || chain.phase == "retiring" {
             if let Some(node) = nodes.iter_mut().find(|node| node.id == chain.entry_node_id) {
                 node.users.clear();
@@ -168,7 +175,9 @@ pub(crate) async fn plan(
             ));
             continue;
         }
-        if !granted && let Some(node) = nodes.iter_mut().find(|node| node.id == chain.entry_node_id)
+        if !granted
+            && !converting
+            && let Some(node) = nodes.iter_mut().find(|node| node.id == chain.entry_node_id)
         {
             node.users.clear();
         }
@@ -191,7 +200,7 @@ pub(crate) async fn plan(
                     .flatten()
                     .filter(|generation| *generation >= chain.minimum_generation)
             });
-        if entry_server == Some(server) {
+        if entry_server == Some(server) && !converting {
             let route_snapshot = route_generation.and_then(|generation| versions.get(&generation));
             if let Some(node) = nodes.iter_mut().find(|node| node.id == chain.entry_node_id) {
                 let users = std::mem::take(&mut node.users);

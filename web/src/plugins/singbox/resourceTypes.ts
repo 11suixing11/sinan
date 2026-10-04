@@ -14,7 +14,9 @@ export type HopView = {
   source_id: number | null; version_id: number | null; update_mode: 'follow_node' | 'pinned' | null
   name: string; protocol: string; server: string; port: number; present: boolean; latest_version_id: number | null
 }
-export type ResourceDetail = { resource: ProxyResource; node: Node; hops: HopView[]; versions: { generation: number; stage: string; last_error: string | null; created_at: number }[] }
+export type MixedConversion = { state: 'preparing' | 'switched' | 'completed' | 'reverted'; mixed_generation: number; ordered_generation: number; attempts: number; started_at: number; switched_at: number | null; finished_at: number | null; last_error: string | null }
+export type ConversionCheck = { chain_id: number; ready: boolean; reasons: string[]; messages: string[]; mixed_generation: number | null; ordered_generation: number | null }
+export type ResourceDetail = { resource: ProxyResource; node: Node; hops: HopView[]; versions: { generation: number; stage: string; last_error: string | null; created_at: number }[]; conversion?: MixedConversion | null }
 export type HopInput = { kind: 'managed'; node_id: number } | SubscriptionHopReference
 export type EntryInput = { mode: 'new'; server_id: number; public_host: string; sni: string; port: number | null } | { mode: 'existing'; node_id: number }
 export type ChainInput = { name: string; entry: EntryInput; hops: HopInput[] }

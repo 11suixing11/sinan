@@ -255,7 +255,7 @@ export async function deleteProxyResource(resource: Pick<ProxyResource, 'kind' |
   return write(`${root}/ordered-proxy-resources/${resource.kind}/${resource.id}`)
 }
 
-export default function Chains({ snapshot, serverId, getServerId, refresh, onCreated, onAddSource, replacement }: { snapshot: ProxyWriteSnapshot; serverId?: number; getServerId?: () => number | undefined; refresh: () => void; onCreated: (result: ChainBatchResult) => void; onAddSource?: () => void; replacement?: { generation: number; resource: ProxyResource } }) {
+export default function Chains({ snapshot, serverId, getServerId, refresh, onCreated, onAddSource, replacement, openRequest }: { snapshot: ProxyWriteSnapshot; serverId?: number; getServerId?: () => number | undefined; refresh: () => void; onCreated: (result: ChainBatchResult) => void; onAddSource?: () => void; replacement?: { generation: number; resource: ProxyResource }; openRequest?: number }) {
   const action = useAction()
   const [creating, setCreating] = useState(false)
   const [draft, setDraft] = useState<ChainBatchDraft>({ mode: 'new', server_id: '', public_host: '', sni: '', entry_node_id: '', exit_node_id: '', rows: [{ name: '', port: '' }] })
@@ -310,6 +310,13 @@ export default function Chains({ snapshot, serverId, getServerId, refresh, onCre
     if (!draft.hops) update({ hops: [{ kind: 'managed', node_id: draft.exit_node_id }] })
     open()
   }
+  // A new request from the page header opens the ordered form once.
+  const openedRequest = useRef(openRequest ?? 0)
+  useEffect(() => {
+    if (!openRequest || openRequest === openedRequest.current) return
+    openedRequest.current = openRequest
+    openOrdered()
+  })
   const submit = () => {
     if (!creating || action.busy || proxyWriteError(snapshot) || filterError() || chainBatchSelectionError(draft, writeSnapshot)) return
     void action.run(async () => {

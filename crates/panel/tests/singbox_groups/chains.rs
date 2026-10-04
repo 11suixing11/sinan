@@ -252,10 +252,11 @@ async fn chain_rejects_existing_direct_grants_cycles_nesting_and_same_server(
     let user = id(&panel.create_user(&cookie, "Direct").await?)?;
     panel.grant(&cookie, user, na2).await?;
     ordered_negative_inputs(&panel).await?;
+    // Two-hop creation is closed (ADR 0079 phase 3, S1d): every request is refused.
     for (entry, exit, status) in [
-        (na, na2, StatusCode::BAD_REQUEST),
+        (na, na2, StatusCode::CONFLICT),
         (na2, nb, StatusCode::CONFLICT),
-        (na, na, StatusCode::BAD_REQUEST),
+        (na, na, StatusCode::CONFLICT),
     ] {
         assert_eq!(
             panel
@@ -384,7 +385,8 @@ async fn chains_reject_modern_protocol_at_either_endpoint(pool: PgPool) -> Resul
             &cookie,
             Some(json!({"name":"Invalid protocol", "entry_node_id":entry_node, "exit_node_id":exit_node})),
         ).await?;
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        // Two-hop creation is closed (ADR 0079 phase 3, S1d).
+        assert_eq!(response.status(), StatusCode::CONFLICT);
     }
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM singbox_chains")
         .fetch_one(&pool)

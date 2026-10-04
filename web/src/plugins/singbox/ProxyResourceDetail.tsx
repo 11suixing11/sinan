@@ -7,6 +7,7 @@ import type { Node } from '../../types'
 import type { ProxyResource, ResourceDetail, ResourceKey } from './resourceTypes'
 import { endpoint, resourceLink, roleNames, stageName } from './resourceTypes'
 import { protocolNames } from './ProtocolFields'
+import ChainConversion from './ChainConversion'
 
 export default function ProxyResourceDetail({ selected, onClose, onChanged, onEdit, onDelete, onDeployment }: { selected: ResourceKey; onClose: () => void; onChanged: () => void; onEdit: (node: Node) => void; onDelete: (resource: ProxyResource) => void; onDeployment: (serverId: number) => void }) {
   const base = `/api/plugins/sing-box/proxy-resources/${selected.kind}/${selected.id}`
@@ -40,6 +41,7 @@ export default function ProxyResourceDetail({ selected, onClose, onChanged, onEd
           <p className="helper">更新按当前所选节点的明确版本生成候选。受管段、入口和路径验证依次确认后切换；更新失败或来源缺失会保留可恢复版本。路径验证只证明当次目标可达。</p>
           <h3>应用版本</h3><p className="helper">已应用：{resource.active_generation ?? '尚无'} · 候选：{resource.pending_generation ?? '尚无'} · 最低可恢复版本：{resource.minimum_generation}</p>
           <div className="table-wrap"><table><thead><tr><th>版本</th><th>阶段</th><th>创建时间</th></tr></thead><tbody>{data.versions.map(version => <tr key={version.generation}><td>第 {version.generation} 代</td><td>{stageName(version.stage)}{version.last_error && <small>{version.last_error}</small>}</td><td>{time(version.created_at)}</td></tr>)}</tbody></table></div>
+          {!resource.legacy && <ChainConversion base={base} conversion={data.conversion} writeError={writeError} onChanged={changed} />}
           {renaming && <form className="resource-rename" onSubmit={event => { event.preventDefault(); if (writeError()) return; const form = new FormData(event.currentTarget); const name = String(form.get('name')).trim(); void action.run(() => api(base, 'PATCH', { name, ...(form.get('sync_subscription') === 'on' ? { subscription_name: name } : {}) }), () => { setRenaming(false); changed() }) }}><Field label="链路名称"><input name="name" required maxLength={128} defaultValue={resource.name} disabled={action.busy} /></Field><label className="group-choice"><input name="sync_subscription" type="checkbox" disabled={action.busy} /><span>同步修改订阅显示名称<small>当前订阅名称：{data.node.name}。默认只更改管理名称。</small></span></label><button className="button button-primary button-small" disabled={action.busy || Boolean(writeError())}>保存名称</button><button type="button" className="text-button" disabled={action.busy} onClick={() => setRenaming(false)}>取消修改</button></form>}
         </> : <p className="helper">{resource.role === 'managed_hop' ? '此节点也被链路用作受管代理段。更改连接参数前，需处理链路对原端点的依赖。' : '此节点可以直接授权给代理用户，也可以作为新链路的受管段。'}监听地址 {data.node.settings?.listen ?? '::'}，监听端口 {data.node.port}。</p>}
       </> : !detail.error && <p>找不到此资源。</p>}

@@ -177,7 +177,10 @@
 | `GET /api/plugins/sing-box/proxy-resources/{kind}/{id}` | `kind=direct|chain`；类型与 ID 一起标识资源 |
 | `DELETE /api/plugins/sing-box/proxy-resources/direct/{id}` | 与旧节点删除共用策略和链路引用保护 |
 | `DELETE /api/plugins/sing-box/proxy-resources/chain/{id}` | 无策略引用时删除链路及专用入口；共享出口、历史流量和创建收据保持 |
-| `POST /api/plugins/sing-box/chains/batch` | 至多 32 行原子创建，一次请求保存全部入口／链路或整批回滚 |
+| `POST /api/plugins/sing-box/chains/batch` | 至多 32 行原子创建 mixed 链路，一次请求保存全部入口／链路或整批回滚；来源迁移后返回 409，新链路改用 `POST /chains/ordered-batch` |
+| `POST /api/plugins/sing-box/chains` | 旧两跳创建已停用，返回 409；已有两跳链路的读取和删除不变 |
+| `GET /api/plugins/sing-box/proxy-resources/chain/{id}/conversion` | mixed 链路转为有序链路的条件检查，见下文“mixed 链路转换” |
+| `POST /api/plugins/sing-box/proxy-resources/chain/{id}/conversion` | `{expected_generation}`；开始转换，首次 202 |
 
 资源包含 `kind,id,name,entry,exit,available,unavailable_reasons,policy_group_ids,user_count,chain_refs`。公开端点包含节点／服务器 ID 和名称、协议、公开地址、监听 `port`、实际公开 `public_port`、SNI、启用／删除状态，以及 `online,desired_revision,applied_revision,applied_observed_at`；不包含私钥、内部 relay UUID、用户身份或完整配置。`public_port` 使用已有节点设置的有效覆盖值，未覆盖则沿用监听端口；损坏设置、协议配置解析失败或与协议标记不一致，让对应资源不可用并说明原因，不使整个列表失去可读性。`available` 表示结构及插件配置可用，在线和应用观察另列，不表示端到端连通。`user_count` 是未删除代理用户的授权并集人数，不是当前套餐资格人数。退役或软删端点的链路仍可读取与明确清理。
 
@@ -202,13 +205,13 @@
 }
 ```
 
-旧入口可使用 `entry={"mode":"existing","node_id":1}`，须未授权且未被链路或普通策略引用。本步只支持一个受管 Reality hop；额外跳或订阅引用明确拒绝，不会缩短路径。端口省略或 null 才自动分配，每行独立入口，出口可以共享。整批规范化请求绑定 `request_id`；首次返回 201，重放返回 200，响应均为 `{request_id,chain_ids,entry_node_ids}` 且 ID 顺序对应请求行。相同键不同内容返回 409；删除后重放只返回原 ID，不重新创建。客户端应保留结果不确定时的原键与请求，不循环提交单行。
+旧入口可使用 `entry={"mode":"existing","node_id":1}`，须未授权且未被链路或普通策略引用。每条链路入口之后有 1–8 个有序跳，可以是受管 Reality 节点，或数字编号来源的订阅节点 `{"kind":"subscription","source_id","external_node_id","node_version_id","update_mode"}`；订阅跳只在来源迁移前可用。端口省略或 null 才自动分配，每行独立入口，出口可以共享。整批规范化请求绑定 `request_id`；首次返回 201，重放返回 200，响应均为 `{request_id,chain_ids,entry_node_ids}` 且 ID 顺序对应请求行。相同键不同内容返回 409；删除后重放只返回原 ID，不重新创建。客户端应保留结果不确定时的原键与请求，不循环提交单行。
 
 引用冲突响应为 `{error,references}`，`references` 包含公开策略／链路 ID、名称及角色，不能泄露凭据。旧 `/chains/{id}` DELETE 继续只解除关系并保留入口，新完整资源删除同时清理入口，两种语义不同。创建不自动授予任何代理用户权限。
 
 ## 订阅来源
 
-本节是有序来源接口（UUID 节点身份），位于 `/api/plugins/sing-box`；数字编号来源 `/subscription-sources` 另见[节点库说明](node-catalog.md)。见 [ADR 0072](adr/0072-subscription-source-lifecycle.md) 与 [验收边界](acceptance/subscription-sources.md)。仅管理员使用；来源节点不是对用户授权的公开入口，当前受管两跳创建仍不接受订阅跳。
+本节是有序来源接口（UUID 节点身份），位于 `/api/plugins/sing-box`；数字编号来源 `/subscription-sources` 另见[节点库说明](node-catalog.md)，来源迁移后只读。见 [ADR 0072](adr/0072-subscription-source-lifecycle.md) 与 [验收边界](acceptance/subscription-sources.md)。仅管理员使用；来源节点不是对用户授权的公开入口。有序链路（`/chains/ordered-batch`）的订阅跳使用本节的节点；迁移前的 mixed 链路使用数字编号来源的节点。
 
 | 方法与相对路径 | 请求／行为 |
 | --- | --- |
@@ -243,8 +246,19 @@
 
 - 节点库、用户外部授权和用户订阅迁移前读数字编号来源，迁移后读有序来源。节点和版本编号不变；授权中的 `source_id` 变为对应有序来源的编号。
 - 迁移后数字编号来源的接口只读：`/subscription-sources` 的创建、修改、刷新、取消、删除、预览和节点采用返回 409，读取接口保留一个版本；来源详情新增 `migrated_to`，为对应的有序来源编号，迁移前为 null。
-- 迁移后新建 mixed 链路不能再使用订阅跳，返回 409；已有 mixed 链路继续读取原版本，等待逐条转换。
-- `GET /source-migration` 返回 `{migrated,migrated_at}`，仅管理员可读。界面据此切换：迁移前两套来源照常可写；迁移后数字编号来源折叠为只读存档，mixed 链路编辑器不再提供订阅段；状态未确认时数字编号来源的写操作保持禁用。
+- 迁移后不再新建 mixed 链路，`/chains/batch` 一律返回 409；已有 mixed 链路继续读取原版本，等待逐条转换（S1d）。
+- `GET /source-migration` 返回 `{migrated,migrated_at}`，仅管理员可读。界面据此切换：迁移前两套来源照常可写，页头“创建链路”打开 mixed 链路编辑器；迁移后数字编号来源折叠为只读存档，页头“创建链路”改为打开有序链路表单；状态未确认时数字编号来源的写操作和页头“创建链路”保持禁用。
+
+### mixed 链路转换（ADR 0079 阶段三 S1d）
+
+管理员在 mixed 链路详情中逐条把链路转为有序链路，见[迁移方案](rearchitecture-phase3-plan.md#13-s1dmixed-链路转换与统一创建入口2026-10-04)。转换是设备上的一次真实切换，不保证字节一致。
+
+- `GET /proxy-resources/chain/{id}/conversion` 运行全部检查，并在回滚的事务中试建有序候选，不写入任何数据。返回 `{chain_id,ready,reasons,messages,mixed_generation,ordered_generation}`：`reasons` 是固定代码，`messages` 是对应的中文说明，`mixed_generation` 是当前 mixed 活动代。
+- `POST /proxy-resources/chain/{id}/conversion` 请求 `{expected_generation}`，须等于检查时看到的 mixed 活动代。全部检查通过才开始，返回 202 和同样的结构，`ordered_generation` 为新建的有序候选代；否则返回 409 并列出原因。
+- 原因代码：`not_mixed`、`deleted`、`mixed_update_pending`、`conversion_in_progress`、`generation_changed`、`no_active_generation`、`mixed_not_ready`（当前路径未在全部服务器确认可用）、`entry_direct_grants`、`entry_policy_node_grants`（有序入口只接受整条链路的授权）、`probe_target_invalid`、`generation_unreadable`、`generation_mismatch`、`sources_not_migrated`（含订阅跳而来源尚未迁移）、`entry_unavailable`、`capabilities_missing`（参与服务器缺少 `runtime:checkpoint-v1`、`runtime:barrier-v1` 或 `runtime:path-probe-v1`）、`candidate_rejected`（有序候选无法创建，`messages` 给出面板的拒绝说明），以及按段的 `hop_{n}_deleted|moved|disabled|not_reality|changed|unreadable|unavailable|unmapped|subscription_unavailable`。
+- 跳映射：受管跳冻结为受管端点版本；订阅跳按数字编号找到迁移后的同编号节点和版本。`pinned` 保持原版本；`follow_node` 从该节点的最新版本继续跟随，因为数字编号来源在迁移后不再更新。
+- `GET /proxy-resources/chain/{id}` 的链路详情新增 `conversion`：`{state,mixed_generation,ordered_generation,attempts,started_at,switched_at,finished_at,last_error}` 或 null。`state` 为 `preparing`（mixed 活动代继续承载用户，有序候选准备并探测）、`switched`（入口已切到有序候选，旧代保留在依赖服务器上直到恢复屏障）、`completed` 或 `reverted`（切换前失败，链路保持 mixed，`last_error` 说明原因，可以再次转换）。切换后链路从 mixed 资源列表移到有序资源列表，此接口对它返回 404。
+- 转换期间 mixed 链路不能应用新的节点版本，跟随更新也暂停。
 
 刷新失败保留成功；304 只沿用匹配当前条件缓存代数的成功批次。取消、输入修改、归档和删除均使旧任务结果失效；同步有界解析实际退出后才释放任务。归档停止新刷新和引用，历史保持。当前旧两跳没有外部节点引用，空 dependencies 不替代后续混合路径当前／待应用／恢复引用保护。
 

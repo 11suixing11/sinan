@@ -37,6 +37,8 @@ try {
     const source={id:10,name:'测试机场',kind:'inline',source_host:null,archived:false,settings_revision:1,identity_epoch:1,current_revision_id:100,last_success_at:1,supported_count:1,unsupported_count:0,dependency_ids:[],active_job_id:null,refresh_interval_seconds:86400}
     const external={id:101,source_id:10,node_version_id:201,source_revision_id:100,identity_epoch:1,name:'机场中间节点',protocol:'trojan',server:'transit.example.com',port:443,transport:'tcp',tcp:true,udp:false,selectable:true,present:true,identity_unique:true,reason:null}
     let created=false, generation=1, stage='active', renamed='机场混合链路', writes=[]
+    let conversionCheck={chain_id:8,ready:false,reasons:['mixed_update_pending'],messages:['混合链路正在应用新版本，请等待完成后再转换'],mixed_generation:1,ordered_generation:null}, conversion=null
+    const conversions=[]
     await page.route('**/api/**',async route=>{
       const request=route.request(),path=new URL(request.url()).pathname,method=request.method()
       requests.push(`${method} ${path}`)
@@ -69,9 +71,13 @@ try {
         writes.push(request.postDataJSON());assert.deepEqual(writes.at(-1),{expected_generation:1,versions:[{position:0,node_version_id:202}]})
         generation=2;stage='waiting_dependencies';Object.assign(resources.find(r=>r.kind==='chain'&&r.id===8),{pending_generation:2,stage});return reply({generation,stage})
       }
+      if(path==='/api/plugins/sing-box/proxy-resources/chain/8/conversion'){
+        if(method==='POST'){conversions.push(request.postDataJSON());conversion={state:'preparing',mixed_generation:2,ordered_generation:3,attempts:1,started_at:1,switched_at:null,finished_at:null,last_error:null};return route.fulfill({status:202,json:{...conversionCheck,ordered_generation:3}})}
+        return reply(conversionCheck)
+      }
       if(path==='/api/plugins/sing-box/proxy-resources/chain/8'){
         if(method==='PATCH'){const body=request.postDataJSON();assert.equal(Object.hasOwn(body,'subscription_name'),body.name==='同步名称链路');renamed=body.name;if(body.subscription_name)nodes.find(n=>n.id===20).name=body.subscription_name;resources.find(r=>r.kind==='chain'&&r.id===8).name=renamed}
-        return reply({resource:{...resources.find(r=>r.kind==='chain'&&r.id===8),name:renamed},node:nodes.find(n=>n.id===20),hops:[{position:0,kind:'subscription',node_id:101,server_id:null,source_id:10,version_id:201,update_mode:'pinned',name:external.name,protocol:'trojan',server:external.server,port:443,present:true,latest_version_id:202},{position:1,kind:'managed',node_id:2,server_id:2,source_id:null,version_id:null,update_mode:null,name:'受管中段',protocol:'vless-reality',server:'node2.example.com',port:20002,present:true,latest_version_id:null}],versions:[{generation,stage,last_error:null,created_at:1}]})
+        return reply({resource:{...resources.find(r=>r.kind==='chain'&&r.id===8),name:renamed},node:nodes.find(n=>n.id===20),hops:[{position:0,kind:'subscription',node_id:101,server_id:null,source_id:10,version_id:201,update_mode:'pinned',name:external.name,protocol:'trojan',server:external.server,port:443,present:true,latest_version_id:202},{position:1,kind:'managed',node_id:2,server_id:2,source_id:null,version_id:null,update_mode:null,name:'受管中段',protocol:'vless-reality',server:'node2.example.com',port:20002,present:true,latest_version_id:null}],versions:[{generation,stage,last_error:null,created_at:1}],conversion})
       }
       if(path==='/api/plugins/sing-box/policy-groups'){
         if(method==='POST'){const body=request.postDataJSON();policies.push({id:1,...body,member_count:0});return reply(policies[0])}return reply(policies)
@@ -131,6 +137,21 @@ try {
     await dialog.getByLabel('同步修改订阅显示名称',{exact:false}).check()
     await dialog.getByRole('button',{name:'保存名称'}).click()
     await dialog.getByRole('heading',{name:'链路：同步名称链路'}).waitFor()
+    // Conversion into an ordered chain: the check explains blockers, and a
+    // start names the mixed generation the check saw.
+    const converting=dialog.getByRole('region',{name:'转为有序链路'})
+    const start=converting.getByRole('button',{name:'开始转换',exact:true})
+    await converting.getByRole('button',{name:'检查转换条件'}).click()
+    await converting.getByText('混合链路正在应用新版本，请等待完成后再转换').waitFor()
+    assert.equal(await start.isDisabled(),true)
+    conversionCheck={chain_id:8,ready:true,reasons:[],messages:[],mixed_generation:2,ordered_generation:null}
+    await converting.getByRole('button',{name:'检查转换条件'}).click()
+    await converting.getByText('可以转换：将以混合第 2 代为基础创建有序候选。').waitFor()
+    await start.click()
+    await converting.getByText('正在准备有序候选',{exact:true}).waitFor()
+    assert.deepEqual(conversions,[{expected_generation:2}])
+    assert.equal(await start.isDisabled(),true)
+    assert.equal(await converting.getByRole('button',{name:'检查转换条件'}).isDisabled(),true)
     assert.equal(await dialog.evaluate(el=>el.scrollWidth<=el.clientWidth),true)
     if(process.env.SINAN_UI_SCREENSHOT_DIR){await dialog.evaluate(element=>{element.scrollTop=0});await page.screenshot({path:resolve(process.env.SINAN_UI_SCREENSHOT_DIR,`mixed-chain-detail-${width}.png`)})}
     await dialog.getByRole('button',{name:'关闭',exact:true}).click()
@@ -155,5 +176,5 @@ try {
     assert.deepEqual(errors,[])
     await page.close()
   }
-  console.log('PASS: mixed resources, ordered subscription intermediate, independent batch entries, request retry, version apply, deep link, policy grants and responsive layouts')
+  console.log('PASS: mixed resources, ordered subscription intermediate, independent batch entries, request retry, version apply, conversion check and start, deep link, policy grants and responsive layouts')
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve))}

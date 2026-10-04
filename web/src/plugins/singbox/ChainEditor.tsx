@@ -16,8 +16,9 @@ const empty = (serverId: number): Draft => ({ key: assignmentRequestId(), name: 
 const managedNode = (current: CurrentResources, id: number) => current.nodes.find(node => node.id === id && node.enabled !== false && node.protocol === 'vless-reality' && current.servers.some(server => server.id === node.server_id && server.enabled) && current.resources.some(resource => resource.kind === 'direct' && resource.id === node.id && resource.server_id === node.server_id && resource.enabled && resource.available && resource.protocol === node.protocol))
 const existingEntry = (current: CurrentResources, id: number) => { const node = managedNode(current, id); return node && current.entryServerIds.includes(node.server_id) && current.resources.some(resource => resource.kind === 'direct' && resource.id === node.id && resource.reference_count === 0 && resource.entry_eligible === true) ? node : undefined }
 
-// Mixed chains. After the source migration they no longer take subscription
-// hops; ordered chains use subscription nodes instead.
+// Mixed chains, created only before the source migration; afterwards the page
+// header opens the ordered form and the panel refuses new mixed chains. The
+// migrated checks below cover a migration that lands while this editor is open.
 export default function ChainEditor({ nodes, resources, servers, availableServers, writeError, getCurrent, onClose, onSaved, sourcesMigrated }: { nodes: Node[]; resources: ProxyResource[]; servers: PluginServer[]; availableServers: PluginServer[]; writeError: () => string; getCurrent: () => CurrentResources; onClose: () => void; onSaved: (receipt: ChainReceipt) => void; sourcesMigrated?: boolean }) {
   const [drafts, setDrafts] = useState<Draft[]>([empty(servers[0]?.id ?? 0)])
   const [selectingSource, setSelectingSource] = useState<string | null>(null)

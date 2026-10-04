@@ -13,6 +13,7 @@ pub mod deployments;
 pub mod entitlements;
 pub mod external_access;
 pub mod legacy_takeover;
+pub mod mixed_conversion;
 pub mod mixed_paths;
 mod node_protocol;
 mod node_settings;
@@ -73,6 +74,10 @@ pub fn router() -> Router<AppState> {
         .route("/chains", get(chains::list).post(chains::create))
         .route("/chains/ordered-batch", post(ordered_paths::create_batch))
         .route("/chains/{id}", delete(chains::remove))
+        .route(
+            "/proxy-resources/chain/{id}/conversion",
+            get(mixed_conversion::precheck).post(mixed_conversion::convert),
+        )
         .route("/ordered-proxy-resources", get(proxy_resources::list))
         .route(
             "/ordered-proxy-resources/{kind}/{id}",

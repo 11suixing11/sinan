@@ -7,8 +7,9 @@ import { catalogResourceFixtures, flatResourceFixtures, proxyResourceFixtures } 
 import { sourceMigrationFixture, sourceNodePageFixture, sourceRevisionFixture, subscriptionSourceFixture } from './subscription-source-fixtures.mjs'
 
 // After the source migration numbered sources are a read-only archive, and the
-// mixed chain editor no longer offers subscription hops. Until the state is
-// confirmed, numbered-source writes stay blocked. Owned fixtures only.
+// page header creates ordered chains instead of mixed ones. Until the state is
+// confirmed, numbered-source writes and the header form stay blocked. Owned
+// fixtures only.
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
 const dist = fileURLToPath(new URL('../dist/', import.meta.url))
 const server = createServer(async (request, response) => {
@@ -75,12 +76,18 @@ try {
     await numberedPanel.getByText('已加入', { exact: true }).waitFor()
     assert.equal(await numberedPanel.getByRole('button', { name: /节点库/ }).count(), 0)
 
-    // The mixed chain editor no longer takes subscription hops.
-    await page.locator('header.page-header').getByRole('button', { name: '创建链路', exact: true }).click()
-    const editor = page.getByRole('region', { name: '创建链路', exact: true })
-    await editor.getByText('订阅来源已迁移：混合链路不再新增订阅段', { exact: false }).waitFor()
-    assert.equal(await editor.getByRole('button', { name: '从订阅来源添加一段', exact: true }).count(), 0)
-    await editor.getByRole('button', { name: '收起编辑器', exact: true }).click()
+    // After the migration the page header opens the ordered chain form in the
+    // chain view; the mixed editor stays closed.
+    const header = page.locator('header.page-header').getByRole('button', { name: '创建链路', exact: true })
+    await header.click()
+    const orderedForm = page.getByRole('dialog', { name: '创建有序链路', exact: true })
+    await orderedForm.waitFor()
+    assert.match(page.url(), /view=chains/)
+    assert.equal(await page.getByRole('region', { name: '创建链路', exact: true }).count(), 0)
+    await orderedForm.getByRole('button', { name: '取消', exact: true }).click()
+    await orderedForm.waitFor({ state: 'detached' })
+    await page.goto(`${origin}/#/plugins/sing-box/nodes?view=sources`)
+    await manager.getByRole('heading', { level: 2 }).filter({ hasText: /^订阅来源/ }).waitFor()
 
     // Unknown state: the error is shown and numbered-source writes stay blocked.
     migration = 'error'
@@ -89,6 +96,7 @@ try {
     await numberedPanel.getByRole('heading', { name: '订阅来源', exact: true }).waitFor()
     assert.equal(await numberedPanel.getByRole('button', { name: '添加来源', exact: true }).isDisabled(), true)
     assert.equal(await archive.count(), 0)
+    assert.equal(await header.isDisabled(), true, 'the header form waits for the migration state')
 
     // Before the migration both panels are writable as before.
     migration = sourceMigrationFixture(false)
@@ -98,11 +106,17 @@ try {
     while (await add.isDisabled() && Date.now() < deadline) await page.waitForTimeout(20)
     assert.equal(await add.isDisabled(), false)
     await manager.getByRole('heading', { level: 2 }).filter({ hasText: '有序链路订阅来源' }).waitFor()
+    // Before the migration the header still opens the mixed editor.
+    while (await header.isDisabled() && Date.now() < deadline) await page.waitForTimeout(20)
+    await header.click()
+    const editor = page.getByRole('region', { name: '创建链路', exact: true })
+    await editor.getByRole('button', { name: '从订阅来源添加一段', exact: true }).waitFor()
+    await editor.getByRole('button', { name: '收起编辑器', exact: true }).click()
 
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true)
     assert.deepEqual(writes, [])
     assert.deepEqual(errors, [])
     await page.close()
   }
-  console.log('PASS: migrated numbered sources are a read-only archive, mixed chains hide subscription hops, unknown migration state blocks numbered writes, pre-migration panels stay writable, desktop/mobile')
+  console.log('PASS: migrated numbered sources are a read-only archive, the header opens the ordered form after the migration, unknown migration state blocks numbered writes and the header form, pre-migration panels stay writable, desktop/mobile')
 } finally { if (browser) await browser.close(); await new Promise(resolve => server.close(resolve)) }

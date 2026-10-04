@@ -74,10 +74,11 @@ pub async fn batch(
             }
         }
     }
-    // Numbered sources are read-only once migrated; new subscription hops use ordered chains.
-    if !source_ids.is_empty() && super::super::source_migration::migrated(&mut tx).await? {
+    // After the source migration new chains are ordered (ADR 0079 phase 3, S1d);
+    // a replay of an earlier batch above still returns its receipt.
+    if super::super::source_migration::migrated(&mut tx).await? {
         return Err(ApiError::Conflict(
-            "订阅来源已迁移，混合链路不能再新增订阅跳；请改用有序链路".into(),
+            "订阅来源已迁移，不再新建混合链路；请使用“创建链路”创建有序链路".into(),
         ));
     }
     sqlx::query(

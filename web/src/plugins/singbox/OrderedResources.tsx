@@ -83,12 +83,14 @@ type Props = {
   onEdit: (node: Node) => void
   onChanged: () => void
   onAddSource: () => void
+  /** Each increment opens the ordered creation form (the page header's “创建链路”). */
+  createRequest?: number
 }
 
 // The chain section of the node page; direct nodes are managed in the catalog.
 const kind = 'chains'
 
-export default function OrderedResources({ resourcesQuery, nodesQuery, serversQuery, usage, flatKeys, hideFlatRows = false, onOrganize, selected, onCloseSelected, filter, initialServerRole = 'any', getServerId, onEdit, onChanged, onAddSource }: Props) {
+export default function OrderedResources({ resourcesQuery, nodesQuery, serversQuery, usage, flatKeys, hideFlatRows = false, onOrganize, selected, onCloseSelected, filter, initialServerRole = 'any', getServerId, onEdit, onChanged, onAddSource, createRequest }: Props) {
   const history = useRef<{ resources?: ProxyResource[]; nodes?: Node[]; servers?: PluginServer[] }>({})
   const resources = validatedSnapshot(resourcesQuery, validProxyResources, history.current.resources)
   const nodes = validatedSnapshot(nodesQuery, validNodeList, history.current.nodes)
@@ -120,7 +122,7 @@ export default function OrderedResources({ resourcesQuery, nodesQuery, serversQu
   const editChain = (resource: ProxyResource) => { if (proxyDeleteError(resources, resource) || editPending && chainEditor?.id !== resource.id) return; setChainEditor(current => current?.id === resource.id ? current : resource); setChainEditorOpen(true) }
   const editVersions = (resource: ProxyResource) => { if (proxyDeleteError(resources, resource) || versionPending && versionEditor?.id !== resource.id) return; setVersionEditor(current => current?.id === resource.id ? current : resource); setVersionEditorOpen(true) }
   return <section aria-label="有序链路与资源引用">
-    <div className="row-actions"><Chains snapshot={snapshot} serverId={filter ? Number(filter) : undefined} getServerId={getServerId} refresh={refresh} onCreated={result => setBatchSaved(result.chain_ids.length)} replacement={replacement} onAddSource={onAddSource} /></div>
+    <div className="row-actions"><Chains snapshot={snapshot} serverId={filter ? Number(filter) : undefined} getServerId={getServerId} refresh={refresh} onCreated={result => setBatchSaved(result.chain_ids.length)} replacement={replacement} onAddSource={onAddSource} openRequest={createRequest} /></div>
     <ErrorNotice message={resources.error} retry={refresh} />
     {(editPending || versionPending) && <p className="notice" role="status">有未确认的链路操作，原草稿与精确请求保留在当前页面内存。{editPending && <button className="text-button" onClick={() => setChainEditorOpen(true)}>继续确认公开信息修改</button>}{versionPending && <button className="text-button" onClick={() => setVersionEditorOpen(true)}>继续确认节点版本更新</button>}</p>}
     {filter && <Field label="链路中的服务器角色" hint="直连按所在服务器匹配；链路按完整有序受管段匹配，订阅段无需 Agent。"><select value={serverRole} onChange={event => { const value = event.target.value as ProxyResourceServerRole; setServerRole(value); window.location.hash = nodeHash({ server: filter, role: value, view: 'chains' }).slice(1) }}><option value="any">任一段</option><option value="entry">作为入口</option><option value="middle">作为中间段</option><option value="exit">作为最终出口</option></select></Field>}
