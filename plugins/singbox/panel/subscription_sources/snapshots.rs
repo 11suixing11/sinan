@@ -2,12 +2,12 @@ use super::{models::*, worker::Claim};
 use crate::{
     AppState,
     error::{ApiError, ApiResult},
-    plugins::singbox::subscription_parser::{ParseStatus, ParsedSubscription},
+    subscription_parser::{ParseStatus, ParsedSubscription},
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sinan_protocol::now_timestamp;
-use sqlx::{PgConnection, Postgres, QueryBuilder, Transaction};
+use sqlx::{FromRow, PgConnection, Postgres, QueryBuilder, Transaction};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
@@ -137,6 +137,7 @@ pub(super) async fn unchanged(
     claim: &Claim,
     etag: Option<String>,
     last_modified: Option<String>,
+    traffic: Option<Value>,
 ) -> ApiResult<()> {
     let Some(previous) = claim.previous_revision else {
         return failure(
@@ -180,10 +181,30 @@ pub(super) async fn unchanged(
         )
         .await;
     }
-    sqlx::query("UPDATE singbox_ordered_subscription_sources SET last_success_at=$2,last_error=NULL,conditional_etag=COALESCE($3,conditional_etag),conditional_last_modified=COALESCE($4,conditional_last_modified),updated_at=$2 WHERE id=$1")
-        .bind(claim.source_id).bind(now_timestamp()).bind(etag).bind(last_modified).execute(&mut *tx).await?;
+    let now = now_timestamp();
+    sqlx::query("UPDATE singbox_ordered_subscription_sources SET last_success_at=$2,last_error=NULL,conditional_etag=COALESCE($3,conditional_etag),conditional_last_modified=COALESCE($4,conditional_last_modified),changes=jsonb_build_object('added',0,'updated',0,'missing',0,'unsupported',COALESCE((SELECT (counts->>'unsupported')::bigint FROM singbox_subscription_source_revisions WHERE id=$5),0)),updated_at=$2 WHERE id=$1")
+        .bind(claim.source_id).bind(now).bind(etag).bind(last_modified).bind(previous).execute(&mut *tx).await?;
+    save_traffic(&mut tx, claim.source_id, traffic, now).await?;
     finish(&mut tx, claim, "unchanged", None, Some(previous)).await?;
     tx.commit().await?;
+    Ok(())
+}
+
+/// Stores the provider's `subscription-userinfo` report; absence keeps the last one.
+pub(super) async fn save_traffic(
+    connection: &mut PgConnection,
+    source: i64,
+    traffic: Option<Value>,
+    now: i64,
+) -> ApiResult<()> {
+    if let Some(mut traffic) = traffic {
+        traffic["updated_at"] = now.into();
+        sqlx::query("UPDATE singbox_ordered_subscription_sources SET traffic=$2 WHERE id=$1")
+            .bind(source)
+            .bind(traffic)
+            .execute(connection)
+            .await?;
+    }
     Ok(())
 }
 
@@ -200,7 +221,7 @@ struct PreparedNode {
     reasons: Value,
 }
 
-fn identity_keys(parsed: &ParsedSubscription) -> Vec<Option<String>> {
+pub(crate) fn identity_keys(parsed: &ParsedSubscription) -> Vec<Option<String>> {
     let mut provider_counts = BTreeMap::<&str, usize>::new();
     let mut fingerprint_counts = BTreeMap::<&str, usize>::new();
     for node in &parsed.nodes {
@@ -228,32 +249,49 @@ fn identity_keys(parsed: &ParsedSubscription) -> Vec<Option<String>> {
         .collect()
 }
 
-pub(super) async fn save(
-    state: &AppState,
-    claim: &Claim,
+/// Where a parsed batch is recorded: the source, its settings and the job
+/// that produced it (a worker job, or a synthetic job for a committed preview).
+pub(super) struct Target<'a> {
+    pub source_id: i64,
+    pub job_id: Uuid,
+    pub settings_revision: i64,
+    pub identity_epoch: i64,
+    pub parser_version: &'a str,
+}
+
+pub(super) struct Persisted {
+    pub revision: Uuid,
+    /// Node id for every parsed node, in parser order.
+    pub nodes: Vec<Uuid>,
+}
+
+#[derive(FromRow)]
+struct Previous {
+    id: Uuid,
+    identity_key: String,
+    present: bool,
+    content_digest: Option<String>,
+    name: Option<String>,
+}
+
+/// Writes one immutable revision with its nodes, versions and membership,
+/// and records the change summary against the previous success.
+pub(super) async fn persist(
+    tx: &mut PgConnection,
+    target: &Target<'_>,
     parsed: ParsedSubscription,
-    etag: Option<String>,
-    last_modified: Option<String>,
-) -> ApiResult<()> {
-    if parsed.parser_version != claim.parser_version {
-        return failure(
-            state,
-            claim,
-            SourceFailure::new("parse", "superseded", "解析器版本已改变，未更新来源"),
-        )
-        .await;
-    }
+    now: i64,
+) -> ApiResult<Persisted> {
     let keys = identity_keys(&parsed);
-    let lookup: Vec<&str> = keys.iter().filter_map(Option::as_deref).collect();
-    let Some(mut tx) = guard(state, claim).await? else {
-        return Ok(());
-    };
-    let existing:Vec<(Uuid,String)>=sqlx::query_as("SELECT id,identity_key FROM singbox_ordered_external_nodes WHERE source_id=$1 AND identity_epoch=$2 AND identity_state='unique' AND identity_key=ANY($3)")
-        .bind(claim.source_id).bind(claim.identity_epoch).bind(&lookup).fetch_all(&mut *tx).await?;
-    let existing: BTreeMap<String, Uuid> =
-        existing.into_iter().map(|(id, key)| (key, id)).collect();
+    let previous: Vec<Previous> = sqlx::query_as("SELECT n.id,n.identity_key,COALESCE(n.last_seen_revision=s.current_success_revision,FALSE) AS present,v.content_digest,m.public_preview->>'name' AS name FROM singbox_ordered_external_nodes n JOIN singbox_ordered_subscription_sources s ON s.id=n.source_id LEFT JOIN singbox_ordered_external_node_versions v ON v.id=n.latest_version LEFT JOIN singbox_subscription_revision_nodes m ON m.node_id=n.id AND m.source_revision_id=n.last_seen_revision WHERE n.source_id=$1 AND n.identity_epoch=$2 AND n.identity_state='unique'")
+        .bind(target.source_id).bind(target.identity_epoch).fetch_all(&mut *tx).await?;
+    let mut previous: BTreeMap<String, Previous> = previous
+        .into_iter()
+        .map(|node| (node.identity_key.clone(), node))
+        .collect();
     let mut prepared = Vec::with_capacity(parsed.nodes.len());
     let mut counts = NodeCounts::default();
+    let (mut added, mut updated) = (0i64, 0i64);
     for (node, key) in parsed.nodes.into_iter().zip(keys) {
         let identity_state = if key.is_some() {
             "unique"
@@ -262,14 +300,27 @@ pub(super) async fn save(
         } else {
             "unresolved"
         };
-        let id = key
+        let known = key.as_ref().and_then(|key| previous.remove(key));
+        let id = known
             .as_ref()
-            .and_then(|key| existing.get(key))
-            .copied()
+            .map(|node| node.id)
             .unwrap_or_else(Uuid::new_v4);
         let supported = node.preview.parse_status == ParseStatus::Supported
             && node.outbound.is_some()
             && node.content_digest.is_some();
+        if key.is_some() {
+            match &known {
+                None => added += 1,
+                Some(old)
+                    if !old.present
+                        || old.content_digest != node.content_digest
+                        || old.name.as_deref() != Some(node.preview.name.as_str()) =>
+                {
+                    updated += 1
+                }
+                Some(_) => {}
+            }
+        }
         counts.supported += i64::from(supported);
         counts.unsupported += i64::from(!supported);
         counts.ambiguous += i64::from(identity_state == "ambiguous");
@@ -303,24 +354,29 @@ pub(super) async fn save(
     }
     let ids: Vec<Uuid> = prepared.iter().map(|node| node.id).collect();
     counts.missing=sqlx::query_scalar("SELECT COUNT(*) FROM singbox_ordered_external_nodes WHERE source_id=$1 AND identity_epoch=$2 AND identity_state='unique' AND NOT(id=ANY($3))")
-        .bind(claim.source_id).bind(claim.identity_epoch).bind(&ids).fetch_one(&mut *tx).await?;
+        .bind(target.source_id).bind(target.identity_epoch).bind(&ids).fetch_one(&mut *tx).await?;
+    let changes = json!({
+        "added": added,
+        "updated": updated,
+        "missing": previous.values().filter(|node| node.present).count(),
+        "unsupported": counts.unsupported,
+    });
     let revision = Uuid::new_v4();
-    let now = now_timestamp();
     let format = serde_json::to_value(parsed.format)
         .map_err(anyhow::Error::from)?
         .as_str()
         .ok_or_else(|| ApiError::BadRequest("解析格式无效".into()))?
         .to_owned();
     sqlx::query("INSERT INTO singbox_subscription_source_revisions(id,source_id,job_id,settings_revision,identity_epoch,parser_version,format,raw_digest,parsed_at,counts,warnings) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)")
-        .bind(revision).bind(claim.source_id).bind(claim.job_id).bind(claim.settings_revision).bind(claim.identity_epoch).bind(&claim.parser_version).bind(format).bind(parsed.raw_digest).bind(now).bind(json!(counts)).bind(json!(parsed.warnings)).execute(&mut *tx).await?;
+        .bind(revision).bind(target.source_id).bind(target.job_id).bind(target.settings_revision).bind(target.identity_epoch).bind(target.parser_version).bind(format).bind(parsed.raw_digest).bind(now).bind(json!(counts)).bind(json!(parsed.warnings)).execute(&mut *tx).await?;
     if !prepared.is_empty() {
         let mut nodes = QueryBuilder::<Postgres>::new(
             "INSERT INTO singbox_ordered_external_nodes(id,source_id,identity_epoch,identity_key,identity_state,created_at) ",
         );
         nodes.push_values(&prepared, |mut row, node| {
             row.push_bind(node.id)
-                .push_bind(claim.source_id)
-                .push_bind(claim.identity_epoch)
+                .push_bind(target.source_id)
+                .push_bind(target.identity_epoch)
                 .push_bind(&node.key)
                 .push_bind(node.identity_state)
                 .push_bind(now);
@@ -370,14 +426,54 @@ pub(super) async fn save(
             .execute(&mut *tx)
             .await?;
     }
+    sqlx::query("UPDATE singbox_ordered_subscription_sources SET changes=$2 WHERE id=$1")
+        .bind(target.source_id)
+        .bind(changes)
+        .execute(&mut *tx)
+        .await?;
+    Ok(Persisted {
+        revision,
+        nodes: ids,
+    })
+}
+
+pub(super) async fn save(
+    state: &AppState,
+    claim: &Claim,
+    parsed: ParsedSubscription,
+    etag: Option<String>,
+    last_modified: Option<String>,
+    traffic: Option<Value>,
+) -> ApiResult<()> {
+    if parsed.parser_version != claim.parser_version {
+        return failure(
+            state,
+            claim,
+            SourceFailure::new("parse", "superseded", "解析器版本已改变，未更新来源"),
+        )
+        .await;
+    }
+    let Some(mut tx) = guard(state, claim).await? else {
+        return Ok(());
+    };
+    let now = now_timestamp();
+    let target = Target {
+        source_id: claim.source_id,
+        job_id: claim.job_id,
+        settings_revision: claim.settings_revision,
+        identity_epoch: claim.identity_epoch,
+        parser_version: &claim.parser_version,
+    };
+    let persisted = persist(&mut tx, &target, parsed, now).await?;
     if InstantDeadline::expired(claim) {
         return Err(ApiError::Conflict(
             "来源结果保存超过期限，未提交批次".into(),
         ));
     }
     sqlx::query("UPDATE singbox_ordered_subscription_sources SET current_success_revision=$2,last_success_at=$3,last_error=NULL,conditional_etag=$4,conditional_last_modified=$5,conditional_settings_revision=$6,conditional_identity_epoch=$7,updated_at=$3 WHERE id=$1")
-        .bind(claim.source_id).bind(revision).bind(now).bind(etag).bind(last_modified).bind(claim.settings_revision).bind(claim.identity_epoch).execute(&mut *tx).await?;
-    finish(&mut tx, claim, "succeeded", None, Some(revision)).await?;
+        .bind(claim.source_id).bind(persisted.revision).bind(now).bind(etag).bind(last_modified).bind(claim.settings_revision).bind(claim.identity_epoch).execute(&mut *tx).await?;
+    save_traffic(&mut tx, claim.source_id, traffic, now).await?;
+    finish(&mut tx, claim, "succeeded", None, Some(persisted.revision)).await?;
     tx.commit().await?;
     Ok(())
 }

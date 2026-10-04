@@ -1,3 +1,8 @@
+#![forbid(unsafe_code)]
+//! sing-box business plugin: proxy users, nodes, chains, sources and publication.
+//!
+//! The plugin reaches panel services only through the `sinan-panel-host` API.
+
 pub mod accesses;
 mod activity;
 pub mod agent;
@@ -7,6 +12,9 @@ pub mod chains;
 pub mod deployments;
 pub mod entitlements;
 pub mod external_access;
+pub mod host_support;
+pub mod legacy_takeover;
+pub mod mixed_conversion;
 pub mod mixed_paths;
 mod node_protocol;
 mod node_settings;
@@ -22,19 +30,26 @@ pub mod publisher;
 pub mod runtime_operations;
 mod secret_access;
 pub mod settings;
+pub mod source_migration;
 pub mod sources;
 pub mod statistics;
+mod subscription_fetch;
 pub mod subscription_parser;
 pub mod subscription_sources;
 pub mod subscriptions;
 pub mod usage;
 
-pub(super) use activity::runtime_activity_on;
+pub use activity::runtime_activity_on;
 
-use crate::AppState;
 use axum::{
     Router,
     routing::{delete, get, post},
+};
+#[cfg(test)]
+pub(crate) use sinan_panel_host::config;
+pub(crate) use sinan_panel_host::{
+    AppState, agent_api, artifacts, auth, control_center, error, fleet, ip_quality,
+    network_configuration, passkeys, plugin_api, releases, runtime_control,
 };
 
 pub async fn run(state: AppState) {
@@ -63,6 +78,10 @@ pub fn router() -> Router<AppState> {
         .route("/chains", get(chains::list).post(chains::create))
         .route("/chains/ordered-batch", post(ordered_paths::create_batch))
         .route("/chains/{id}", delete(chains::remove))
+        .route(
+            "/proxy-resources/chain/{id}/conversion",
+            get(mixed_conversion::precheck).post(mixed_conversion::convert),
+        )
         .route("/ordered-proxy-resources", get(proxy_resources::list))
         .route(
             "/ordered-proxy-resources/{kind}/{id}",
@@ -121,6 +140,7 @@ pub fn router() -> Router<AppState> {
         .route("/usage", get(usage::summary))
         .merge(catalog::router())
         .merge(sources::router())
+        .route("/source-migration", get(source_migration::state))
         .merge(portal::router())
         .merge(mixed_paths::router());
     let management = management.merge(operations_workflows::router());

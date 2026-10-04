@@ -217,7 +217,8 @@ async fn reality_chains_reject_non_reality_endpoints_but_can_share_hosts_with_mo
                 Some(json!({"name":"Not a Reality pair","entry_node_id":n,"exit_node_id":e})),
             )
             .await?;
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        // Two-hop creation is closed (ADR 0079 phase 3, S1d).
+        assert_eq!(response.status(), StatusCode::CONFLICT);
     }
     let chain = id(&panel
         .import_legacy_chain(&cookie, "Reality pair", entry, exit)

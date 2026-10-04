@@ -527,14 +527,9 @@ async fn legacy_configuration_lock_uses_public_identity_and_releases_after_share
     let exit_server = panel.create_server(&cookie, "Legacy exit").await?;
     let entry = id(&panel.create_node(&cookie, entry_server, "Entry").await?)?;
     let exit = id(&panel.create_node(&cookie, exit_server, "Exit").await?)?;
-    let created = call(
-        &panel,
-        &cookie,
-        Method::POST,
-        "/chains",
-        Some(json!({"name":"Legacy owner","entry_node_id":entry,"exit_node_id":exit})),
-    )
-    .await?;
+    let created = panel
+        .import_legacy_chain(&cookie, "Legacy owner", entry, exit)
+        .await?;
     let chain = id(&created)?;
     let expected = json!([{"id":chain,"name":"Legacy owner"}]);
     for node in [entry, exit] {

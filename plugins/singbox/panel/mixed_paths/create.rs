@@ -74,6 +74,13 @@ pub async fn batch(
             }
         }
     }
+    // After the source migration new chains are ordered (ADR 0079 phase 3, S1d);
+    // a replay of an earlier batch above still returns its receipt.
+    if super::super::source_migration::migrated(&mut tx).await? {
+        return Err(ApiError::Conflict(
+            "订阅来源已迁移，不再新建混合链路；请使用“创建链路”创建有序链路".into(),
+        ));
+    }
     sqlx::query(
         "SELECT id FROM singbox_subscription_sources WHERE id=ANY($1) ORDER BY id FOR UPDATE",
     )

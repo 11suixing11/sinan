@@ -1,5 +1,5 @@
 use super::*;
-use crate::plugins::ddns::{model::Provider, providers::RecordClient};
+use crate::{model::Provider, providers::RecordClient};
 use axum::{
     Router,
     body::{Body, to_bytes},
@@ -102,7 +102,7 @@ pub(super) fn request() -> Request {
     }
 }
 
-#[sqlx::test]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn official_record_executor_creates_updates_deletes_and_blocks_changed_remote_snapshot(
     pool: sqlx::PgPool,
 ) {
@@ -177,7 +177,7 @@ async fn official_record_executor_creates_updates_deletes_and_blocks_changed_rem
     task.abort();
 }
 
-#[sqlx::test]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn provider_failure_after_write_start_is_distinguished_from_precondition_rejection(
     pool: sqlx::PgPool,
 ) {

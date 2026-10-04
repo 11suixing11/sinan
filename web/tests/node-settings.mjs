@@ -46,6 +46,7 @@ try {
       else if (path === '/api/plugins/sing-box/subscription-sources') value = []
       else if (path === '/api/plugins/sing-box/nodes' && method === 'GET') value = nodes
       else if (path === '/api/plugins/sing-box/ordered-proxy-resources' && method === 'GET') value = proxyResourceFixtures(nodes, pluginServers)
+      else if (path === '/api/plugins/sing-box/source-migration' && method === 'GET') value = { migrated: false, migrated_at: null }
       else if (path === '/api/plugins/sing-box/ordered-subscription-sources' && method === 'GET') value = []
       else if (path === '/api/plugins/sing-box/subscription-sources' && method === 'GET') value = []
       else if (path === '/api/plugins/sing-box/nodes' && method === 'POST') {

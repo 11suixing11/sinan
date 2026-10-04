@@ -92,7 +92,7 @@ try {
     assert.deepEqual(mutations, [])
     await openCatalog('/artifacts')
     assert.equal(await cards.count(), 5)
-    assert.equal(await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '插件目录' }).getAttribute('aria-current'), 'page')
+    assert.equal(await page.getByRole('navigation', { name: '主导航', includeHidden: true }).getByRole('link', { name: '插件目录', exact: true, includeHidden: true }).getAttribute('aria-current'), 'page')
     assert.equal(await page.title(), '插件目录 · 司南')
     assert.equal(await page.getByRole('link', { name: '制品', exact: true }).count(), 0)
     assert.equal(await page.locator('.catalog-grid, .catalog-unknown').locator('form, input').count(), 0)

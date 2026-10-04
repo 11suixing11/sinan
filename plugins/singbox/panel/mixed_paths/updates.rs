@@ -36,6 +36,13 @@ pub async fn apply_versions(
     auth::require_admin(&state, &headers).await?;
     let mut tx = state.pool.begin().await?;
     super::super::entitlements::lock(&mut tx).await?;
+    let converting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_mixed_conversions WHERE chain_id=$1 AND state='preparing')")
+        .bind(id).fetch_one(&mut *tx).await?;
+    if converting {
+        return Err(ApiError::Conflict(
+            "链路正在转换为有序链路，请等待转换结束".into(),
+        ));
+    }
     let (path, inputs, active, stage) = base_on(&mut tx, id, request.expected_generation).await?;
     if stage != "active" && stage != "failed" {
         return Err(ApiError::Conflict(
@@ -138,7 +145,7 @@ async fn queue_on(
 pub async fn follow_updates(state: &AppState) -> ApiResult<()> {
     let mut tx = state.pool.begin().await?;
     super::super::entitlements::lock(&mut tx).await?;
-    let ids=sqlx::query_as::<_,(i64,i64)>("SELECT id,active_generation FROM singbox_live_chains WHERE path_kind='mixed' AND active_generation IS NOT NULL AND pending_generation IS NULL ORDER BY id").fetch_all(&mut *tx).await?;
+    let ids=sqlx::query_as::<_,(i64,i64)>("SELECT id,active_generation FROM singbox_live_chains c WHERE path_kind='mixed' AND active_generation IS NOT NULL AND pending_generation IS NULL AND NOT EXISTS(SELECT 1 FROM singbox_mixed_conversions m WHERE m.chain_id=c.id AND m.state='preparing') ORDER BY id").fetch_all(&mut *tx).await?;
     for (id, generation) in ids {
         let (path, inputs, active, _) = base_on(&mut tx, id, generation).await?;
         let mut updates = Vec::new();

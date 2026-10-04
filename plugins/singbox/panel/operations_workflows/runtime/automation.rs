@@ -71,7 +71,7 @@ fn artifact_identity(state: &AppState, artifact: &Artifact) -> ApiResult<Value> 
     )
 }
 
-pub(crate) async fn automation_candidate(
+pub async fn automation_candidate(
     state: &AppState,
     tx: &mut Transaction<'_, Postgres>,
     server: i64,
@@ -144,7 +144,7 @@ pub(crate) async fn automation_candidate(
     )
 }
 
-pub(crate) async fn enqueue_automation_deployment_tx(
+pub async fn enqueue_automation_deployment_tx(
     state: &AppState,
     tx: &mut Transaction<'_, Postgres>,
     server: i64,
@@ -203,7 +203,7 @@ pub(crate) async fn enqueue_automation_deployment_tx(
     Ok(request.id)
 }
 
-pub(crate) async fn cancel_automation_deployment_tx(
+pub async fn cancel_automation_deployment_tx(
     tx: &mut Transaction<'_, Postgres>,
     request: Uuid,
 ) -> ApiResult<()> {
@@ -212,7 +212,7 @@ pub(crate) async fn cancel_automation_deployment_tx(
     Ok(())
 }
 
-pub(crate) async fn automation_dispatch_matches_tx(
+pub async fn automation_dispatch_matches_tx(
     tx: &mut Transaction<'_, Postgres>,
     server: i64,
     request: Uuid,
@@ -295,7 +295,7 @@ async fn checkpoint_once(
     Ok(Some(checkpoint.request_id))
 }
 
-pub(crate) async fn automation_deployment_receipt(
+pub async fn automation_deployment_receipt(
     tx: &mut Transaction<'_, Postgres>,
     request_id: Uuid,
 ) -> ApiResult<Value> {
@@ -410,7 +410,7 @@ pub(crate) async fn automation_deployment_receipt(
 
 #[path = "automation/reconciliation.rs"]
 mod reconciliation;
-pub(crate) use reconciliation::{
+pub use reconciliation::{
     reconcile_automation_deployment_tx, request_automation_deployment_checkpoint_tx,
 };
 

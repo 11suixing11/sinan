@@ -2,7 +2,7 @@ use super::{
     Failure, Provider, id,
     records::{RecordClient, canonical, relative},
 };
-use crate::plugins::ddns::dns_records::Request;
+use crate::dns_records::Request;
 use reqwest::Method;
 use serde_json::{Value, json};
 

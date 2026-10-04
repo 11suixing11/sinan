@@ -145,7 +145,7 @@ async fn usage(
     Ok(())
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn quota_reset_preserves_ledger_and_late_batches_still_charge(pool: PgPool) -> Result<()> {
     let (server, user, node, _) = fixture(&pool).await?;
     let at = sinan_protocol::now_timestamp();
@@ -192,7 +192,7 @@ async fn quota_reset_preserves_ledger_and_late_batches_still_charge(pool: PgPool
     Ok(())
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn extension_creates_snapshot_without_resetting_cycle_or_used_bytes(
     pool: PgPool,
 ) -> Result<()> {
@@ -235,7 +235,7 @@ async fn extension_creates_snapshot_without_resetting_cycle_or_used_bytes(
     Ok(())
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn preview_fingerprint_changes_after_late_usage_and_group_changes(
     pool: PgPool,
 ) -> Result<()> {
@@ -276,7 +276,7 @@ async fn preview_fingerprint_changes_after_late_usage_and_group_changes(
     Ok(())
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn rotation_requires_exact_new_applied_identity_and_recent_device_evidence(
     pool: PgPool,
 ) -> Result<()> {

@@ -1,7 +1,10 @@
 use crate::error::{ApiError, ApiResult};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sinan_compiler::{client::ExternalClientNode, external::ExternalOutbound};
+use sinan_compiler::{
+    client::ExternalClientNode,
+    external::{ExternalOutbound, NormalizedOutbound},
+};
 use sqlx::{FromRow, PgConnection};
 use std::collections::BTreeMap;
 
@@ -101,6 +104,9 @@ pub struct NodeState {
     pub sort_order: i64,
 }
 
+/// A version read through `singbox_external_version_configs`: a numbered-source
+/// configuration (also kept for imported versions), or an ordered-source
+/// typed outbound.
 #[derive(FromRow)]
 pub struct Version {
     pub id: i64,
@@ -108,15 +114,42 @@ pub struct Version {
     pub source_id: i64,
     pub identity_epoch: i64,
     pub parser_version: String,
-    pub config_json: Value,
-    pub config_sha256: String,
+    pub ordered: bool,
+    pub config_json: Option<Value>,
+    pub config_sha256: Option<String>,
+    pub normalized_config: Option<Value>,
+    pub content_digest: Option<String>,
 }
 impl Version {
     pub fn outbound(&self) -> Option<ExternalOutbound> {
-        let value = ExternalOutbound(self.config_json.clone());
+        if let (Some(config), Some(sha256)) = (&self.config_json, &self.config_sha256) {
+            let value = ExternalOutbound(config.clone());
+            value.capabilities().ok()?;
+            let serialized = serde_json::to_vec(&value).ok()?;
+            return (super::super::sources::parse::digest(&serialized) == *sha256).then_some(value);
+        }
+        // Typed outbounds are checked against their stored content digest first.
+        let typed: NormalizedOutbound =
+            serde_json::from_value(self.normalized_config.clone()?).ok()?;
+        let serialized = serde_json::to_vec(&typed).ok()?;
+        if super::super::sources::parse::digest(&serialized) != *self.content_digest.as_ref()? {
+            return None;
+        }
+        let value = ExternalOutbound::from_normalized(&typed).ok()?;
         value.capabilities().ok()?;
-        let serialized = serde_json::to_vec(&value).ok()?;
-        (super::super::sources::parse::digest(&serialized) == self.config_sha256).then_some(value)
+        Some(value)
+    }
+
+    /// New grants require the parser that currently produces this kind of
+    /// version. A version imported from numbered sources is still served from
+    /// its original outbound, so the numbered parser's version applies to it.
+    fn current_parser(&self) -> bool {
+        self.parser_version
+            == if self.ordered && self.config_json.is_none() {
+                super::super::subscription_parser::PARSER_VERSION
+            } else {
+                super::super::sources::parse::PARSER_VERSION
+            }
     }
 }
 
@@ -163,7 +196,7 @@ impl NodeState {
         if version.outbound().is_none() {
             return Some("invalid_version");
         }
-        if new_access && version.parser_version != super::super::sources::parse::PARSER_VERSION {
+        if new_access && !version.current_parser() {
             return Some("parser_update_required");
         }
         None
@@ -207,7 +240,7 @@ pub async fn states(
     connection: &mut PgConnection,
     ids: Option<&[i64]>,
 ) -> ApiResult<BTreeMap<i64, NodeState>> {
-    let rows: Vec<NodeState> = sqlx::query_as("SELECT n.id,n.source_id,n.identity_epoch,n.current_version_id,COALESCE(m.name_override,n.name) AS name,s.name AS source_name,n.adopted,n.present,n.identity_unique,s.identity_epoch AS source_epoch,s.archived AS source_archived,s.deleted_at IS NOT NULL AS source_deleted,s.last_error AS source_last_error,COALESCE(m.enabled,TRUE) AS enabled,m.deleted_at IS NOT NULL AS deleted,COALESCE(m.revision,0) AS metadata_revision,COALESCE(m.sort_order,0) AS sort_order FROM singbox_external_nodes n JOIN singbox_subscription_sources s ON s.id=n.source_id LEFT JOIN singbox_node_metadata m ON m.kind='external' AND m.id=n.id WHERE ($1::BIGINT[] IS NULL OR n.id=ANY($1)) ORDER BY n.id")
+    let rows: Vec<NodeState> = sqlx::query_as("SELECT n.id,n.source_id,n.identity_epoch,n.current_version_id,COALESCE(m.name_override,n.name) AS name,n.source_name,n.adopted,n.present,n.identity_unique,n.source_epoch,n.source_archived,n.source_deleted_at IS NOT NULL AS source_deleted,n.source_last_error,COALESCE(m.enabled,TRUE) AS enabled,m.deleted_at IS NOT NULL AS deleted,COALESCE(m.revision,0) AS metadata_revision,COALESCE(m.sort_order,0) AS sort_order FROM singbox_external_node_states n LEFT JOIN singbox_node_metadata m ON m.kind='external' AND m.id=n.id WHERE ($1::BIGINT[] IS NULL OR n.id=ANY($1)) ORDER BY n.id")
         .bind(ids).fetch_all(connection).await?;
     Ok(rows.into_iter().map(|row| (row.id, row)).collect())
 }
@@ -216,7 +249,7 @@ pub async fn versions(
     connection: &mut PgConnection,
     ids: Vec<i64>,
 ) -> ApiResult<BTreeMap<i64, Version>> {
-    let rows:Vec<Version> = sqlx::query_as("SELECT id,external_node_id,source_id,identity_epoch,parser_version,config_json,config_sha256 FROM singbox_external_node_versions WHERE id=ANY($1)")
+    let rows:Vec<Version> = sqlx::query_as("SELECT id,external_node_id,source_id,identity_epoch,parser_version,ordered,config_json,config_sha256,normalized_config,content_digest FROM singbox_external_version_configs WHERE id=ANY($1)")
         .bind(ids).fetch_all(connection).await?;
     Ok(rows.into_iter().map(|row| (row.id, row)).collect())
 }

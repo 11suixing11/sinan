@@ -31,9 +31,11 @@ pub struct Source {
     pub unsupported_count: i32,
     pub active_job_id: Option<Uuid>,
     pub dependency_ids: Vec<i64>,
+    /// The ordered source this numbered source moved to, once migrated.
+    pub migrated_to: Option<i64>,
 }
 
-const SOURCE_SELECT: &str = "SELECT s.id,s.name,s.kind,s.source_host,s.secret_url IS NOT NULL AS url_configured,s.secret_authorization IS NOT NULL AS authorization_configured,s.secret_content IS NOT NULL AS content_configured,s.settings_revision,s.identity_epoch,s.refresh_interval_seconds,s.auto_refresh,s.user_agent,s.traffic,s.changes,(s.last_error IS NOT NULL OR COALESCE(r.identity_epoch<>s.identity_epoch,FALSE)) AS stale,s.archived,s.current_revision_id,s.last_attempt_at,s.last_success_at,s.last_error,COALESCE(r.supported_count,0) AS supported_count,COALESCE(r.unsupported_count,0) AS unsupported_count,(SELECT j.id FROM singbox_source_jobs j WHERE j.source_id=s.id AND j.state IN ('queued','running')) AS active_job_id,ARRAY(SELECT DISTINCT h.chain_id FROM singbox_chain_hops h JOIN singbox_chains c ON c.id=h.chain_id WHERE h.source_id=s.id AND c.deleted_at IS NULL ORDER BY h.chain_id) AS dependency_ids FROM singbox_subscription_sources s LEFT JOIN singbox_source_revisions r ON r.id=s.current_revision_id";
+const SOURCE_SELECT: &str = "SELECT s.id,s.name,s.kind,s.source_host,s.secret_url IS NOT NULL AS url_configured,s.secret_authorization IS NOT NULL AS authorization_configured,s.secret_content IS NOT NULL AS content_configured,s.settings_revision,s.identity_epoch,s.refresh_interval_seconds,s.auto_refresh,s.user_agent,s.traffic,s.changes,(s.last_error IS NOT NULL OR COALESCE(r.identity_epoch<>s.identity_epoch,FALSE)) AS stale,s.archived,s.current_revision_id,s.last_attempt_at,s.last_success_at,s.last_error,COALESCE(r.supported_count,0) AS supported_count,COALESCE(r.unsupported_count,0) AS unsupported_count,(SELECT j.id FROM singbox_source_jobs j WHERE j.source_id=s.id AND j.state IN ('queued','running')) AS active_job_id,ARRAY(SELECT DISTINCT h.chain_id FROM singbox_chain_hops h JOIN singbox_chains c ON c.id=h.chain_id WHERE h.source_id=s.id AND c.deleted_at IS NULL ORDER BY h.chain_id) AS dependency_ids,(SELECT m.b_source_id FROM singbox_source_id_map m WHERE m.a_source_id=s.id) AS migrated_to FROM singbox_subscription_sources s LEFT JOIN singbox_source_revisions r ON r.id=s.current_revision_id";
 
 pub(super) async fn list_on(pool: &PgPool) -> ApiResult<Vec<Source>> {
     Ok(sqlx::query_as(&format!(

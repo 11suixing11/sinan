@@ -2,7 +2,7 @@ use super::{
     provider::{Mock, record},
     *,
 };
-use crate::plugins::ddns::{history, lifecycle, model::AddressSource, worker};
+use crate::{history, lifecycle, model::AddressSource, worker};
 
 #[test]
 fn manual_sources_do_not_depend_on_agent_freshness_but_keep_lifecycle_guards() {
@@ -103,7 +103,7 @@ async fn guarded_value_restore_preserves_external_comment_and_records_exact_snap
     assert_eq!(mock.writes(), 2);
 }
 
-#[sqlx::test]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn history_completion_is_atomic_bounded_redacted_and_survives_rule_removal(
     pool: sqlx::PgPool,
 ) {
@@ -168,9 +168,9 @@ async fn history_completion_is_atomic_bounded_redacted_and_survives_rule_removal
     assert_eq!(history::list(&pool, rule.id).await.unwrap().len(), 256);
 }
 
-#[sqlx::test]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn rollback_rechecks_provider_and_pauses_automatic_reconciliation(pool: sqlx::PgPool) {
-    use crate::plugins::ddns::{load, rollback, settings};
+    use crate::{load, rollback, settings};
     let now = sinan_protocol::now_timestamp();
     let server: i64 = sqlx::query_scalar("INSERT INTO servers(name,static_info,last_seen,static_info_received_at) VALUES('TEST_ONLY rollback',$1,$2,$2) RETURNING id")
         .bind(json!({"ip_addresses":[public_ip(9)]})).bind(now).fetch_one(&pool).await.unwrap();
@@ -245,7 +245,7 @@ async fn rollback_rechecks_provider_and_pauses_automatic_reconciliation(pool: sq
 
 #[test]
 fn credential_payloads_validate_provider_and_never_serialize_secret_fields() {
-    use crate::plugins::ddns::{credentials, model::Provider};
+    use crate::{credentials, model::Provider};
     let mut rule = rule();
     rule.config.credential_id = Some(Uuid::new_v4());
     credentials::populate(
@@ -266,11 +266,11 @@ fn credential_payloads_validate_provider_and_never_serialize_secret_fields() {
     assert!(credentials::populate(&mut rule, &json!({"access_key_id":"short"})).is_err());
 }
 
-#[sqlx::test]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn unavailable_credential_reference_stops_before_provider_io_instead_of_using_legacy_secret(
     pool: sqlx::PgPool,
 ) {
-    use crate::plugins::ddns::{load, settings};
+    use crate::{load, settings};
     let now = sinan_protocol::now_timestamp();
     let server: i64 = sqlx::query_scalar("INSERT INTO servers(name,static_info,last_seen,static_info_received_at) VALUES('TEST_ONLY credential failure',$1,$2,$2) RETURNING id")
         .bind(json!({"ip_addresses":[public_ip(9)]})).bind(now).fetch_one(&pool).await.unwrap();

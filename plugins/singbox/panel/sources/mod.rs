@@ -10,6 +10,7 @@ mod structured;
 mod uri;
 
 pub use model::{FrozenExternalVersion, latest_follow_version_on, load_version_on};
+pub(crate) use service::SCHEDULER_LOCK;
 pub use service::refresh_due;
 
 use crate::{
@@ -73,6 +74,7 @@ async fn create(
     request: Result<Json<CreateSource>, axum::extract::rejection::JsonRejection>,
 ) -> ApiResult<(StatusCode, Json<Source>)> {
     require_admin(&state, &headers).await?;
+    super::source_migration::ensure_numbered_writable(&state.pool).await?;
     let Json(request) = request.map_err(|_| bad("来源请求字段或大小不符合要求"))?;
     let name = super::business::name(&request.name)?;
     let interval = refresh_interval(request.refresh_interval_seconds.unwrap_or(86400))?;
@@ -124,6 +126,7 @@ async fn update(
     request: Result<Json<PatchSource>, axum::extract::rejection::JsonRejection>,
 ) -> ApiResult<Json<Source>> {
     require_admin(&state, &headers).await?;
+    super::source_migration::ensure_numbered_writable(&state.pool).await?;
     let Json(request) = request.map_err(|_| bad("来源请求字段或大小不符合要求"))?;
     if !(1..=super::business::MAX_SAFE_INTEGER).contains(&request.settings_revision) {
         return Err(bad("来源修订号必须是可精确表示的正整数"));
@@ -246,6 +249,7 @@ async fn refresh(
     Path(id): Path<i64>,
 ) -> ApiResult<(StatusCode, Json<Job>)> {
     require_admin(&state, &headers).await?;
+    super::source_migration::ensure_numbered_writable(&state.pool).await?;
     let source = model::get_on(&state.pool, id).await?;
     if source.kind != "url" {
         return Err(bad("内容来源请通过“更新内容”提交新版本"));
@@ -288,6 +292,7 @@ async fn cancel(
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Job>> {
     require_admin(&state, &headers).await?;
+    super::source_migration::ensure_numbered_writable(&state.pool).await?;
     let mut tx = state.pool.begin().await?;
     super::entitlements::lock(&mut tx).await?;
     let changed = sqlx::query("UPDATE singbox_source_jobs SET state='cancelled',phase='finished',finished_at=$2 WHERE id=$1 AND state IN ('queued','running')")
@@ -314,6 +319,7 @@ async fn remove(
     Path(id): Path<i64>,
 ) -> ApiResult<StatusCode> {
     require_admin(&state, &headers).await?;
+    super::source_migration::ensure_numbered_writable(&state.pool).await?;
     let mut tx = state.pool.begin().await?;
     super::entitlements::lock(&mut tx).await?;
     let exists: Option<i64> = sqlx::query_scalar(

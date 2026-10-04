@@ -23,6 +23,8 @@ export type SubscriptionSource = {
   unsupported_count: number
   active_job_id: string | null
   dependency_ids: number[]
+  /** The ordered source this one moved to, once the source migration ran. */
+  migrated_to?: number | null
 }
 
 export type ExternalNodePreview = {

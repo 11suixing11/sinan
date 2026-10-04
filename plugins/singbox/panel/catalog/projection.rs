@@ -17,7 +17,7 @@ pub async fn list(
     Ok(Json(catalog_on(&mut tx).await?))
 }
 
-pub(super) async fn catalog_on(tx: &mut Transaction<'_, Postgres>) -> ApiResult<Vec<Value>> {
+pub(crate) async fn catalog_on(tx: &mut Transaction<'_, Postgres>) -> ApiResult<Vec<Value>> {
     let mut resources = super::super::mixed_paths::resources::resources_on(tx).await?;
     // Private values contribute to concurrency tokens, never to the public projection.
     let nodes: Vec<(i64, Value)> =
@@ -41,12 +41,24 @@ pub(super) async fn catalog_on(tx: &mut Transaction<'_, Postgres>) -> ApiResult<
             ]),
         );
     }
-    let external = sqlx::query("SELECT e.id,e.source_id,e.identity_epoch,e.name,e.present,e.identity_unique,e.current_version_id,s.name AS source_name,s.identity_epoch AS source_epoch,s.archived,s.deleted_at AS source_deleted,s.settings_revision,v.config_json,v.config_sha256,(SELECT COUNT(DISTINCT h.chain_id) FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.external_node_id=e.id) AS reference_count FROM singbox_external_nodes e JOIN singbox_subscription_sources s ON s.id=e.source_id LEFT JOIN singbox_external_node_versions v ON v.id=e.current_version_id WHERE e.adopted ORDER BY e.id")
+    // External nodes come from numbered sources until the source migration and
+    // from ordered sources after it; ids are the public numeric ids either way.
+    let external = sqlx::query("SELECT e.id,e.source_id,e.identity_epoch,e.name,e.present,e.identity_unique,e.current_version_id,e.source_name,e.source_epoch,e.source_archived AS archived,e.source_deleted_at AS source_deleted,e.source_settings_revision AS settings_revision,(SELECT COUNT(DISTINCT h.chain_id) FROM singbox_chain_hops h JOIN singbox_live_chains c ON c.id=h.chain_id WHERE h.external_node_id=e.id)+(SELECT COUNT(DISTINCT h.chain_id) FROM singbox_ordered_chain_hops h JOIN singbox_ordered_external_nodes o ON o.id=h.external_node_id JOIN singbox_chains c ON c.id=h.chain_id WHERE o.public_id=e.id AND c.path_kind='ordered' AND c.phase<>'retired' AND h.generation IN (c.applied_generation,c.candidate_generation,c.recovery_generation,c.desired_generation)) AS reference_count FROM singbox_external_node_states e WHERE e.adopted ORDER BY e.id")
         .fetch_all(&mut **tx).await?;
+    let versions = super::super::external_access::model::versions(
+        tx,
+        external
+            .iter()
+            .filter_map(|row| row.get::<Option<i64>, _>("current_version_id"))
+            .collect(),
+    )
+    .await?;
     for row in external {
         let id: i64 = row.get("id");
-        let config: Option<Value> = row.get("config_json");
-        let outbound = config.map(sinan_compiler::external::ExternalOutbound);
+        let version = row
+            .get::<Option<i64>, _>("current_version_id")
+            .and_then(|id| versions.get(&id));
+        let outbound = version.and_then(|version| version.outbound());
         let capabilities = outbound.as_ref().and_then(|v| v.capabilities().ok());
         let available = row.get::<bool, _>("present")
             && row.get::<bool, _>("identity_unique")
@@ -84,7 +96,10 @@ pub(super) async fn catalog_on(tx: &mut Transaction<'_, Postgres>) -> ApiResult<
             json!([
                 &resource,
                 row.get::<i64, _>("settings_revision"),
-                row.get::<Option<String>, _>("config_sha256")
+                version.and_then(|version| version
+                    .config_sha256
+                    .clone()
+                    .or_else(|| version.content_digest.clone()))
             ]),
         );
         resources.push(resource);

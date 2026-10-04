@@ -6,6 +6,14 @@ import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
+
+// Narrow screens fold the main navigation behind the menu button.
+async function openNav(page, name) {
+  await page.locator('.sidebar').waitFor()
+  const menu = page.getByRole('button', { name: '菜单', exact: true })
+  if (await menu.isVisible() && await menu.getAttribute('aria-expanded') !== 'true') await menu.click()
+  await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name, exact: true }).click()
+}
 const root = fileURLToPath(new URL('../dist/', import.meta.url))
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.txt': 'text/plain' }
 const server = createServer(async (request, response) => {
@@ -152,7 +160,7 @@ try {
     assert.equal(await page.locator('.server-display').count(), 0)
     assert.equal(await page.evaluate(() => document.body.classList.contains('has-server-display')), false)
     assert.equal(await page.locator('.sidebar').evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(251, 252, 249)')
-    await page.getByRole('link', { name: '服务器看板', exact: true }).click()
+    await openNav(page, '服务器看板')
     await page.locator('.d-card').first().waitFor()
     probeFailure = true
     await page.getByRole('button', { name: '刷新服务器', exact: true }).click()

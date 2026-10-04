@@ -7,7 +7,7 @@ use super::{
 use crate::{
     AppState,
     error::ApiResult,
-    plugins::singbox::subscription_parser::{self, FormatHint, PARSER_VERSION},
+    subscription_parser::{self, FormatHint, PARSER_VERSION},
 };
 use sinan_protocol::now_timestamp;
 use sqlx::{FromRow, PgConnection};
@@ -29,6 +29,7 @@ pub(super) struct Claim {
     pub etag: Option<String>,
     pub last_modified: Option<String>,
     pub previous_revision: Option<Uuid>,
+    pub user_agent: Option<String>,
     pub work_deadline: Instant,
 }
 
@@ -90,7 +91,11 @@ async fn claim_due(state: &AppState, local: &BTreeSet<Uuid>) -> ApiResult<Vec<Cl
         .execute(&mut *tx)
         .await?;
     expire(&mut tx, &local.iter().copied().collect::<Vec<_>>()).await?;
-    let due = sqlx::query_as::<_, SourceRow>(&format!("SELECT {SOURCE_COLUMNS} FROM singbox_ordered_subscription_sources WHERE deleted_at IS NULL AND NOT archived AND next_refresh_at<=$1 ORDER BY next_refresh_at,id LIMIT 16 FOR UPDATE SKIP LOCKED"))
+    sqlx::query("DELETE FROM singbox_ordered_source_previews WHERE expires_at<=$1")
+        .bind(now_timestamp())
+        .execute(&mut *tx)
+        .await?;
+    let due = sqlx::query_as::<_, SourceRow>(&format!("SELECT {SOURCE_COLUMNS} FROM singbox_ordered_subscription_sources WHERE deleted_at IS NULL AND NOT archived AND auto_refresh AND next_refresh_at<=$1 ORDER BY next_refresh_at,id LIMIT 16 FOR UPDATE SKIP LOCKED"))
         .bind(now_timestamp()).fetch_all(&mut *tx).await?;
     for source in due {
         jobs::enqueue(&mut tx, &source).await?;
@@ -169,6 +174,7 @@ async fn claim_due(state: &AppState, local: &BTreeSet<Uuid>) -> ApiResult<Vec<Cl
             previous_revision: cache_matches
                 .then_some(source.current_success_revision)
                 .flatten(),
+            user_agent: source.user_agent,
             work_deadline: Instant::now() + Duration::from_secs(30),
         });
     }
@@ -216,6 +222,7 @@ async fn process(state: &AppState, claim: Claim) -> ApiResult<()> {
             body: content.as_bytes().to_vec(),
             etag: None,
             last_modified: None,
+            traffic: None,
         },
         SourceInput::Url { url, auth_headers } => {
             let config = FetchConfig {
@@ -223,6 +230,7 @@ async fn process(state: &AppState, claim: Claim) -> ApiResult<()> {
                 auth_headers: auth_headers.clone(),
                 etag: claim.etag.clone(),
                 last_modified: claim.last_modified.clone(),
+                user_agent: claim.user_agent.clone(),
             };
             let result = tokio::select! { result=fetch::fetch(&config)=>result, error=interrupted(state,&claim)=>Err(error) };
             match result {
@@ -235,7 +243,8 @@ async fn process(state: &AppState, claim: Claim) -> ApiResult<()> {
         FetchOutcome::NotModified {
             etag,
             last_modified,
-        } => match snapshots::unchanged(state, &claim, etag, last_modified).await {
+            traffic,
+        } => match snapshots::unchanged(state, &claim, etag, last_modified, traffic).await {
             Ok(()) => Ok(()),
             Err(_) => {
                 snapshots::failure(
@@ -254,6 +263,7 @@ async fn process(state: &AppState, claim: Claim) -> ApiResult<()> {
             body,
             etag,
             last_modified,
+            traffic,
         } => {
             if !stage(state, &claim, "parse").await? {
                 return snapshots::failure(
@@ -304,7 +314,7 @@ async fn process(state: &AppState, claim: Claim) -> ApiResult<()> {
                 )
                 .await;
             }
-            match snapshots::save(state, &claim, parsed, etag, last_modified).await {
+            match snapshots::save(state, &claim, parsed, etag, last_modified, traffic).await {
                 Ok(()) => Ok(()),
                 Err(_) => {
                     snapshots::failure(

@@ -4,7 +4,7 @@ use sinan_protocol::{
 };
 use sqlx::PgPool;
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn interrupted_mutation_is_reconciled_only_with_its_new_verified_read_and_keeps_original_result(
     pool: PgPool,
 ) -> anyhow::Result<()> {
@@ -130,7 +130,7 @@ async fn fixture(
     Ok((server, request.id, binding))
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn cancellation_never_fabricates_a_device_result_or_cancels_dispatched_execution(
     pool: PgPool,
 ) -> anyhow::Result<()> {
@@ -151,7 +151,7 @@ async fn cancellation_never_fabricates_a_device_result_or_cancels_dispatched_exe
     Ok(())
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn expiry_and_interruption_keep_unknown_result_distinct_from_definitive_failure(
     pool: PgPool,
 ) -> anyhow::Result<()> {
@@ -181,7 +181,7 @@ async fn expiry_and_interruption_keep_unknown_result_distinct_from_definitive_fa
     Ok(())
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn success_requires_a_fresh_exact_checkpoint_and_current_fixed_artifact(
     pool: PgPool,
 ) -> anyhow::Result<()> {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
-import { Field, FormDialog } from '../../components'
-import { resourceWriteError, useAction, useResource } from '../../hooks'
+import { Field, FormDialog, RefreshNotice } from '../../components'
+import { resourceWriteError, useAction, useRefreshNotice, useResource } from '../../hooks'
 import type { Node, PluginServer } from '../../types'
 import { assignmentRequestId, proxyResourceKey, validatedSnapshot, validProxyResources } from './groupTypes'
 import type { Chain, ProxyResource, ResourceSnapshot } from './groupTypes'
@@ -255,7 +255,7 @@ export async function deleteProxyResource(resource: Pick<ProxyResource, 'kind' |
   return write(`${root}/ordered-proxy-resources/${resource.kind}/${resource.id}`)
 }
 
-export default function Chains({ snapshot, serverId, getServerId, refresh, onCreated, onAddSource, replacement }: { snapshot: ProxyWriteSnapshot; serverId?: number; getServerId?: () => number | undefined; refresh: () => void; onCreated: (result: ChainBatchResult) => void; onAddSource?: () => void; replacement?: { generation: number; resource: ProxyResource } }) {
+export default function Chains({ snapshot, serverId, getServerId, refresh, onCreated, onAddSource, replacement, openRequest }: { snapshot: ProxyWriteSnapshot; serverId?: number; getServerId?: () => number | undefined; refresh: () => void; onCreated: (result: ChainBatchResult) => void; onAddSource?: () => void; replacement?: { generation: number; resource: ProxyResource }; openRequest?: number }) {
   const action = useAction()
   const [creating, setCreating] = useState(false)
   const [draft, setDraft] = useState<ChainBatchDraft>({ mode: 'new', server_id: '', public_host: '', sni: '', entry_node_id: '', exit_node_id: '', rows: [{ name: '', port: '' }] })
@@ -297,12 +297,26 @@ export default function Chains({ snapshot, serverId, getServerId, refresh, onCre
   const selectionError = writeError || chainBatchSelectionError(draft, writeSnapshot)
   const update = (value: Partial<ChainBatchDraft>) => { action.clearError(); setDraft(current => ({ ...current, ...value })) }
   const rowUpdate = (index: number, value: Partial<ChainBatchDraft['rows'][number]>) => update({ rows: draft.rows.map((row, i) => i === index ? { ...row, ...value } : row) })
+  // A click made before a refresh visibly disables the buttons is reported, not ignored.
+  const refreshNotice = useRefreshNotice()
   const open = () => {
-    if (action.busy || proxyWriteError(snapshot) || filterError()) return
+    if (action.busy || !refreshNotice.allows(proxyWriteError(snapshot) || filterError())) return
     action.clearError()
     if (!draft.server_id) { const selected = getServerId ? getServerId() : serverId; setDraft(current => ({ ...current, server_id: (selected === undefined ? enabledServers[0] : enabledServers.find(server => server.id === selected))?.id.toString() ?? '' })) }
     setCreating(true)
   }
+  const openOrdered = () => {
+    if (action.busy || !refreshNotice.allows(proxyWriteError(snapshot))) return
+    if (!draft.hops) update({ hops: [{ kind: 'managed', node_id: draft.exit_node_id }] })
+    open()
+  }
+  // A new request from the page header opens the ordered form once.
+  const openedRequest = useRef(openRequest ?? 0)
+  useEffect(() => {
+    if (!openRequest || openRequest === openedRequest.current) return
+    openedRequest.current = openRequest
+    openOrdered()
+  })
   const submit = () => {
     if (!creating || action.busy || proxyWriteError(snapshot) || filterError() || chainBatchSelectionError(draft, writeSnapshot)) return
     void action.run(async () => {
@@ -319,7 +333,8 @@ export default function Chains({ snapshot, serverId, getServerId, refresh, onCre
   return <>
     {creating && selectedSources.map(id => <SourceObservation key={id} id={id} observe={observe} />)}
     <button className="button button-primary" disabled={action.busy || Boolean(writeError)} onClick={open}>创建两跳链路</button>
-    <button className="button button-secondary" disabled={action.busy || Boolean(writeError)} onClick={() => { if (action.busy || proxyWriteError(snapshot)) return; if (!draft.hops) update({ hops: [{ kind: 'managed', node_id: draft.exit_node_id }] }); open() }}>创建有序链路</button>
+    <button className="button button-secondary" disabled={action.busy || Boolean(writeError)} onClick={openOrdered}>创建有序链路</button>
+    {refreshNotice.visible && <RefreshNotice />}
     {creating && <FormDialog wide className="chain-editor" title={draft.hops ? '创建有序链路' : '创建两跳链路'} onClose={() => setCreating(false)} onSubmit={submit} busy={action.busy} disabled={Boolean(writeError)} submitDisabled={Boolean(selectionError)} error={writeError || selectionError || action.error} retry={writeError || selectionError ? refresh : undefined} submitLabel={lastRequestId && unchanged ? '重试原批次' : '创建未授权链路'}>
       <p className="helper">入口固定为受管 Reality；入口后可按顺序选择 1–8 个受管或订阅节点，最后一跳为出口。一次批量提交全部创建或全部拒绝。完整路径承载与运行时能力由面板在提交时校验，不以解析或 TCP/UDP 字段推断连通。</p>
       <Field label="入口方式"><select name="entry_mode" value={draft.mode} onChange={event => update({ mode: event.target.value as 'new' | 'existing', rows: event.target.value === 'existing' ? draft.rows.slice(0, 1) : draft.rows })}><option value="new">新建 Reality 专用入口</option><option value="existing">使用现有未授权入口（单条）</option></select></Field>

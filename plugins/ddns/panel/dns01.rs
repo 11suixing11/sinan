@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 /// DNS credentials remain inside the plugin and are never included in results.
-pub(crate) async fn present(
+pub async fn present(
     state: &AppState,
     rule_id: Uuid,
     challenge_id: Uuid,
@@ -69,7 +69,7 @@ pub(crate) async fn present(
         .ok_or_else(|| ApiError::Conflict("提供方验证记录标识无效".into()))
 }
 
-pub(crate) async fn cleanup(
+pub async fn cleanup(
     state: &AppState,
     rule_id: Uuid,
     challenge_id: Uuid,

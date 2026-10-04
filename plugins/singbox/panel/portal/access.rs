@@ -99,7 +99,7 @@ pub(super) async fn view(
         .bind(id)
         .fetch_one(&mut *tx)
         .await?;
-    let usage = sqlx::query("SELECT COALESCE(SUM(uplink),0)::text AS uplink,COALESCE(SUM(downlink),0)::text AS downlink FROM usage_records WHERE user_id=$1")
+    let usage = sqlx::query("SELECT COALESCE(SUM(uplink),0)::text AS uplink,COALESCE(SUM(downlink),0)::text AS downlink FROM singbox_usage_daily WHERE user_id=$1")
         .bind(id).fetch_one(&mut *tx).await?;
     let credentials = sqlx::query("SELECT id,name,created_at,last_used_at FROM passkey_credentials WHERE account_id=$1 ORDER BY created_at,id")
         .bind(account).fetch_all(&mut *tx).await?;

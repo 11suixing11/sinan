@@ -10,7 +10,17 @@
 
 ## 入口、整合与待验条件
 
+- [2026-10-04 其余分支与 main 整合](branch-main-integration-20261004.md)
 - [2026-10-03 全仓缺陷扫描与修复（按严重程度清单）](defect-scan-20261003.md)
+- [2026-10-03 代理流量按天汇总与数据保留（D5–D7）](usage-rollup-retention.md)
+- [2026-10-03 管理界面重排与 D12–D16](ui-relayout-20261003.md)
+- [2026-10-03 重新架构阶段一：插件编译边界](rearchitecture-phase1-20261003.md)
+- [2026-10-03 重新架构阶段二：订阅抓取合一](rearchitecture-phase2-20261003.md)
+- [2026-10-03 阶段三 S1a：补齐有序来源的能力](rearchitecture-s1a-20261003.md)
+- [2026-10-04 阶段三 S1b 后端：来源迁移命令与使用方切换](rearchitecture-s1b-20261004.md)
+- [2026-10-04 阶段三 S1b 界面：来源界面合并](rearchitecture-s1b-ui-20261004.md)
+- [2026-10-04 阶段三 S1c：旧两跳接管](rearchitecture-s1c-20261004.md)
+- [2026-10-04 阶段三 S1d：mixed 链路转换与统一创建入口](rearchitecture-s1d-20261004.md)
 
 - [已完成测试材料清理与最新制品保留](test-material-cleanup.md)
 

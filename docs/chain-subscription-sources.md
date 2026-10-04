@@ -84,7 +84,7 @@ URL 来源支持手动刷新及可配置周期刷新，默认每日一次；上�
 
 上游 URL 仅由面板来源服务获取，Agent 不收到订阅 URL，也不自行刷新机场订阅。入口只取得链路选中各段所需的出站秘密，受管内部节点只接收自己的 relay 身份；其他服务器、代理用户接口和客户端订阅不接收机场账户配置。当前部署包与数据库秘密字段没有既有应用层加密保证，不能声称已加密；数据库、备份、签名配置传输与设备配置目录沿用现有保护边界。
 
-下载器访问 HTTPS 公网目标，拒绝 userinfo、本地文件及非网络协议；检查所有 A/AAAA 和特殊 IPv6 表达，不允许私网、回环、链路本地、保留地址。连接绑定到已检查地址并保留原主机 TLS 校验，防止检查后重新解析。关闭环境代理、自动重定向和 Referer；只接受最多三个同源 HTTPS 重定向，每跳重新校验，认证头不跨源传递。来源跨域迁移通过明确修改地址完成，不能被响应自动带走。
+下载器访问 HTTPS 公网目标，拒绝 userinfo、本地文件及非网络协议；检查所有 A/AAAA 和特殊 IPv6 表达，不允许私网、回环、链路本地、保留地址。连接绑定到已检查地址并保留原主机 TLS 校验，防止检查后重新解析。关闭环境代理、自动重定向和 Referer；只接受最多三个同源 HTTPS 重定向，每跳重新校验，认证头不跨源传递。来源跨域迁移通过明确修改地址完成，不能被响应自动带走。下载与数字编号来源共用同一个抓取器，规则取两边并集（例如也拦截 `.internal`、支持 deflate），见 [ADR 0085 阶段二](adr/0085-rearchitecture-plugins-sources-chains.md)。
 
 默认总下载期限 20 秒，正文及解压后各不超过 2 MiB，最多 5000 个节点，结构深度 64，标量长度 64 KiB；并发最多四个来源、单源只有一个运行任务。JSON/YAML 重复关键字段、非法类型、递归别名、过量展开及资源超限拒绝。YAML 采用有界事件解析，不先无限构建对象；允许受限非递归锚点/别名，累计展开仍受结构/节点预算。具体 YAML 依赖及替代方案见 ADR 0040，源码阶段再锁定版本并验证最坏输入资源成本。
 
@@ -104,9 +104,20 @@ URL 来源支持手动刷新及可配置周期刷新，默认每日一次；上�
 | `GET /ordered-subscription-source-jobs/{id}` | 脱敏任务阶段和结果，禁止回传原始正文 |
 | `POST /ordered-subscription-source-jobs/{id}/cancel` | 提交取消意图；运行中的任务先显示等待工作退出，最终状态由后台确认 |
 | `GET /ordered-subscription-sources/{id}/nodes` | 节点公开预览、稳定 ID、版本、可选性及拒绝原因 |
+| `PATCH /ordered-subscription-sources/{id}/nodes/{node_id}` | 采用或取消采用节点（`adopted`），携带来源设置修订、身份代次和当前版本；采用只决定节点库可见性，不影响链路选点 |
+| `POST /ordered-subscription-source-previews`、`DELETE /ordered-subscription-source-previews/{id}` | 预览来源：下载并解析后暂存十分钟，返回节点及能否选用；每位管理员最多 8 份 |
+| `POST /ordered-subscription-source-previews/{id}/commit` | 按预览时的正文创建来源，只采用所选节点；`request_id` 幂等 |
 | `GET /ordered-subscription-sources/{id}/revisions`、`GET /ordered-subscription-sources/{id}/revisions/{revision}/nodes` | 有界成功批次历史及不可变节点预览；历史行不用于新引用 |
 | `DELETE /ordered-subscription-sources/{id}` | 当前/待应用/恢复依赖冲突返回 409 和清单；解除依赖后按历史证据保留政策清理，不能级联删除发布证明 |
 | `POST /ordered-proxy-resources/chain/{id}/apply-node-versions` | 同节点的版本应用，携带当前路径代数；不得用于换身份或重排路径 |
+
+2026-10-03 起（ADR 0085 阶段三 S1a），有序来源补上了数字编号来源的能力：
+- 设置：请求标识 `user_agent`（未设置时不发送）、自动刷新开关 `auto_refresh`；刷新周期放宽为 300–2592000 秒。
+- 状态：上游流量信息 `traffic` 与变更摘要 `changes`。
+- 节点：采用标记 `adopted`，以及与数字编号来源共用序列的数字别名 `public_id`。
+- 解析器：读取 sing-box JSON 和 Mihomo 节点上的 `provider_id`，解析器版本升为 `sinan-subscription-v2`。
+
+2026-10-04 起（S1b 后端），数字编号来源可以用 `sinan-panel source-migration` 显式迁入有序来源，迁移后节点库、外部授权和用户订阅改读有序来源，数字编号来源只读；命令、取舍和回滚条件见[迁移方案第 11 节](rearchitecture-phase3-plan.md#11-s1b来源迁移工具与使用方切换)。界面已合并：有序来源界面可设置请求标识与自动刷新，显示用量与变化，可预览后导入、将节点加入或移出节点库；迁移后数字编号来源只读。
 
 来源接口是 ADR 0055 本步范围；最后一行路径版本应用仍待后续实现。当前两跳链路不接受外部节点，界面预览的“可用于选点”只表示来源资格，不能据此认为已有链路创建或发布能力。实际字段及请求收据见 [HTTP API](api.md#订阅来源)。
 

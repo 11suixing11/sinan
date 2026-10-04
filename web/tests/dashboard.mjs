@@ -7,6 +7,14 @@ import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
+
+// Narrow screens fold the main navigation behind the menu button.
+async function openNav(page, name) {
+  await page.locator('.sidebar').waitFor()
+  const menu = page.getByRole('button', { name: '菜单', exact: true })
+  if (await menu.isVisible() && await menu.getAttribute('aria-expanded') !== 'true') await menu.click()
+  await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name, exact: true }).click()
+}
 const root = fileURLToPath(new URL('../dist/', import.meta.url))
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.txt': 'text/plain' }
 const host = createServer(async (request, response) => {
@@ -69,7 +77,7 @@ try {
     })
     await installControlCenterFixtures(page)
     await page.goto(`${origin}/#/servers`)
-    await page.getByRole('link', { name: '服务器看板', exact: true }).click()
+    await openNav(page, '服务器看板')
     await page.getByRole('region', { name: '服务器总览', exact: true }).waitFor()
     await page.locator('.d-card').first().waitFor()
     assert(page.url().endsWith('/#/dashboard'))

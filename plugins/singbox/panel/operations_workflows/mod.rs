@@ -4,7 +4,7 @@ mod mutations;
 mod runtime;
 mod snapshots;
 pub(super) use client::apply_definition;
-pub(crate) use runtime::{
+pub use runtime::{
     automation_candidate, automation_deployment_receipt, automation_dispatch_matches_tx,
     cancel_automation_deployment_tx, enqueue_automation_deployment_tx,
     reconcile_automation_deployment_tx, request_automation_deployment_checkpoint_tx,

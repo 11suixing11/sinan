@@ -6,7 +6,7 @@ mod updates;
 
 pub use create::batch;
 pub use models::*;
-pub use publication::{advance, compile_on, record_deployment_on};
+pub use publication::{Prepared, advance, compile_on, record_deployment_on};
 pub use resources::{detail, list, remove, update};
 pub use updates::{apply_versions, follow_updates};
 

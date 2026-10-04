@@ -6,7 +6,7 @@ import { mkdir, readFile } from 'node:fs/promises'
 import { resolve, extname, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { flatResourceFixtures, proxyResourceFixtures } from './proxy-resource-fixtures.mjs'
-import { sourceJobFixture, sourceNodeFixture, sourceNodePageFixture, sourceRevisionFixture, sourceUuid, subscriptionSourceFixture } from './subscription-source-fixtures.mjs'
+import { sourceJobFixture, sourceNodeFixture, sourceNodePageFixture, sourcePreviewFixture, sourceRevisionFixture, sourceUuid, subscriptionSourceFixture } from './subscription-source-fixtures.mjs'
 
 // Exercise the built UI, with strict owned fixtures. No upstream requests or parser execution.
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
@@ -22,7 +22,7 @@ let browser
 try {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   browser = await chromium.launch({ headless: true, ...(process.env.SINAN_CHROME_PATH ? { executablePath: process.env.SINAN_CHROME_PATH } : {}) })
-  const origin = `http://127.0.0.1:${server.address().port}`, prefix = '/api/plugins/sing-box', sourceRoot = `${prefix}/ordered-subscription-sources`, jobRoot = `${prefix}/ordered-subscription-source-jobs`
+  const origin = `http://127.0.0.1:${server.address().port}`, prefix = '/api/plugins/sing-box', sourceRoot = `${prefix}/ordered-subscription-sources`, jobRoot = `${prefix}/ordered-subscription-source-jobs`, previewRoot = `${prefix}/ordered-subscription-source-previews`
   for (const width of [1440, 390, 320]) {
     const page = await browser.newPage({ viewport: { width, height: 1000 } })
     page.setDefaultTimeout(8000)
@@ -32,7 +32,7 @@ try {
     const nodes = [1, 2].map(id => ({ id, name: `受管监听 ${id}`, server_id: id, protocol: 'vless-reality', enabled: true, public_host: `managed${id}.example.com`, sni: 'www.example.com', port: 20000 + id }))
     const revision = sourceRevisionFixture(1, { counts: { supported: 2, unsupported: 1, ambiguous: 1, missing: 1 } }), olderRevision = sourceRevisionFixture(1, { id: sourceUuid(100), parsed_at: 1790860700 })
     const preview = [sourceNodeFixture(), sourceNodeFixture({ id: sourceUuid(302), version_id: sourceUuid(402), ordinal: 1, name: '不支持的示例', supported: false, selectable: false, identity_state: 'unresolved', parse_status: 'unsupported', protocol: null, server: null, server_port: null, sni: null, transport: null, capabilities: { tcp: false, udp: false }, unsupported_reasons: [{ code: 'unsupported_transport', message: '传输参数尚不支持' }] }), sourceNodeFixture({ id: sourceUuid(303), version_id: sourceUuid(403), ordinal: 2, name: '缺失的示例', present_in_latest: false, selectable: false, source_revision_id: olderRevision.id, reasons: ['当前成功批次缺失，保留历史版本'] }), sourceNodeFixture({ id: sourceUuid(304), version_id: sourceUuid(404), ordinal: 3, name: '不唯一的示例', identity_state: 'ambiguous', selectable: false, reasons: ['节点身份不唯一'] })]
-    let sources = [subscriptionSourceFixture({ latest_success: revision, counts: revision.counts })], listMode = 'ok', oldNodesFailure = false, createMode = 'lose', patchMode = 'normal', deleteConflict = true, allocations = 0, nextSource = 2
+    let sources = [subscriptionSourceFixture({ latest_success: revision, counts: revision.counts, traffic: { upload: 1073741824, download: 1073741824, total: 10737418240, expire: 1793452800, updated_at: 1790860800 }, changes: { added: 1, updated: 2, missing: 1, unsupported: 1 } })], listMode = 'ok', oldNodesFailure = false, createMode = 'lose', patchMode = 'normal', deleteConflict = true, allocations = 0, nextSource = 2
     let heldEntered, heldRelease
     const heldStarted = new Promise(resolve => { heldEntered = resolve }), heldDone = new Promise(resolve => { heldRelease = resolve })
     let timeoutEntered, timeoutRelease
@@ -52,6 +52,7 @@ try {
       } else if (method === 'GET' && path === `${prefix}/proxy-resources`) value = flatResourceFixtures(nodes, servers)
       else if (method === 'GET' && path === `${prefix}/node-catalog`) value = catalogResourceFixtures(flatResourceFixtures(nodes, servers))
       else if (method === 'GET' && path === `${prefix}/ordered-proxy-resources`) value = proxyResourceFixtures(nodes, servers)
+      else if (method === 'GET' && path === `${prefix}/source-migration`) value = { migrated: false, migrated_at: null }
       else if (method === 'GET' && path === `${prefix}/subscription-sources`) value = []
       else if (method === 'GET' && path === `${prefix}/usage`) value = { total: '0', uplink: '0', downlink: '0', by_node: [], by_user: [] }
       else if (method === 'GET' && path === sourceRoot) {
@@ -80,11 +81,11 @@ try {
         let item, job_id = null
         if (method === 'POST') {
           assert(body.input.kind === 'inline' || body.input.kind === 'url')
-          if (body.input.kind === 'url') { assert.equal(body.input.url, 'https://subscription.example.com/private?token=TEST_ONLY'); assert.deepEqual(body.input.auth_headers, { authorization: 'Bearer TEST_ONLY', cookie: 'session=TEST_ONLY', 'x-api-key': 'TEST_ONLY' }) }
+          if (body.input.kind === 'url') { assert.equal(body.input.url, 'https://subscription.example.com/private?token=TEST_ONLY'); assert.deepEqual(body.input.auth_headers, { authorization: 'Bearer TEST_ONLY', cookie: 'session=TEST_ONLY', 'x-api-key': 'TEST_ONLY' }); assert.equal(body.user_agent, 'TEST-agent/1'); assert.equal(body.auto_refresh, false) }
           else assert.match(body.input.content, /TEST_ONLY_FILE/)
           const sourceId = nextSource++, job = sourceJobFixture(sourceId)
           jobs.set(job.id, job); job_id = job.id
-          item = subscriptionSourceFixture({ id: sourceId, name: body.name, kind: body.input.kind, host: body.input.kind === 'url' ? 'subscription.example.com' : null, auth_configured: body.input.kind === 'url', refresh_interval_secs: body.input.kind === 'url' ? body.refresh_interval_secs : 0, latest_success: null, active_job: job, counts: { supported: 0, unsupported: 0, ambiguous: 0, missing: 0 }, last_success_at: null })
+          item = subscriptionSourceFixture({ id: sourceId, name: body.name, kind: body.input.kind, host: body.input.kind === 'url' ? 'subscription.example.com' : null, auth_configured: body.input.kind === 'url', refresh_interval_secs: body.input.kind === 'url' ? body.refresh_interval_secs : 0, user_agent: body.user_agent ?? null, auto_refresh: body.auto_refresh ?? true, latest_success: null, active_job: job, counts: { supported: 0, unsupported: 0, ambiguous: 0, missing: 0 }, last_success_at: null })
           sources.push(item); allocations++
         } else {
           item = sources.find(source => source.id === Number(path.split('/').at(-1))); assert(item)
@@ -93,6 +94,8 @@ try {
           if (body.name !== undefined) item.name = body.name
           if (body.refresh_interval_secs !== undefined) item.refresh_interval_secs = body.refresh_interval_secs
           if (body.archived !== undefined) item.archived = body.archived
+          if (body.auto_refresh !== undefined) item.auto_refresh = body.auto_refresh
+          if (body.user_agent) item.user_agent = body.user_agent.action === 'clear' ? null : body.user_agent.value
           if (body.input) {
             if (body.input.kind === 'inline') { assert(['update', 'replace'].includes(body.input.identity_action)); if (body.input.identity_action === 'replace') item.identity_epoch++ }
             else { assert.equal(body.input.kind, 'url'); assert.equal(body.input.url, 'https://replacement.example.com/new?token=TEST_ONLY_REPLACE'); assert.deepEqual(body.input.auth_headers, { action: 'clear' }); item.identity_epoch++; item.host = 'replacement.example.com'; item.auth_configured = false }
@@ -118,12 +121,27 @@ try {
         assert.deepEqual(request.postDataJSON(), { settings_revision: sources.find(source => source.id === 1).settings_revision })
         if (deleteConflict) { await route.fulfill({ status: 409, json: { error: '来源仍被当前路径「引用示例」#7 引用；请先解除引用。' } }); return }
         sources = sources.filter(source => source.id !== 1); await route.fulfill({ status: 204, body: '' }); return
+      } else if (method === 'PATCH' && /^\/api\/plugins\/sing-box\/ordered-subscription-sources\/1\/nodes\/[0-9a-f-]+$/.test(path)) {
+        const body = request.postDataJSON(), node = preview.find(item => item.id === path.split('/').at(-1)); assert(node)
+        assert.deepEqual(body, { adopted: !node.adopted, settings_revision: sources.find(source => source.id === 1).settings_revision, identity_epoch: node.identity_epoch, node_version_id: node.version_id, metadata_revision: node.metadata_revision })
+        node.adopted = body.adopted; node.metadata_revision++; value = node
+      } else if (method === 'POST' && path === previewRoot) {
+        assert.deepEqual(request.postDataJSON(), { input: { kind: 'url', url: 'https://subscription.example.com/private?token=TEST_ONLY', auth_headers: {} }, user_agent: 'TEST-agent/1' })
+        await route.fulfill({ status: 201, json: sourcePreviewFixture({ expires_at: Math.floor(Date.now() / 1000) + 600 }) }); return
+      } else if (method === 'POST' && path === `${previewRoot}/${sourceUuid(900)}/commit`) {
+        const body = request.postDataJSON(), sourceId = nextSource++
+        assert.match(body.request_id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+        assert.deepEqual({ ...body, request_id: null }, { request_id: null, name: '预览来源', selected: ['node-0'], refresh_interval_secs: 86400, auto_refresh: true })
+        sources.push(subscriptionSourceFixture({ id: sourceId, name: body.name, user_agent: 'TEST-agent/1', latest_success: sourceRevisionFixture(sourceId) }))
+        await route.fulfill({ status: 201, json: { source_id: sourceId, settings_revision: 1, identity_epoch: 1, job_id: sourceUuid(950) } }); return
       } else { errors.push(`Unexpected API: ${method} ${path}`); await route.fulfill({ status: 404, json: { error: '夹具拒绝未知接口' } }); return }
       // Public read fixtures deliberately contain no raw input or authentication values.
       if (method === 'GET' && path.startsWith(sourceRoot)) assert(!JSON.stringify(value).includes('TEST_ONLY'))
       await route.fulfill({ json: value })
     })
     const manager = page.getByRole('region', { name: '订阅来源管理', exact: true }), dialog = page.getByRole('dialog')
+    // Sources and chain creation live in separate node page sections.
+    const view = name => page.getByRole('navigation', { name: '节点视图', exact: true }).getByRole('link', { name, exact: true }).click()
     const enable = async locator => { await locator.waitFor(); const deadline = Date.now() + 8000; while (await locator.isDisabled() && Date.now() < deadline) await page.waitForTimeout(20); assert.equal(await locator.isDisabled(), false) }
     const reloadList = async () => { const response = page.waitForResponse(response => new URL(response.url()).pathname === sourceRoot && response.request().method() === 'GET'); await manager.getByRole('button', { name: '刷新来源列表', exact: true }).click(); await response }
     const force = async label => page.evaluate(label => { const region = document.querySelector('[aria-label="订阅来源管理"]'); const button = [...region.querySelectorAll('button')].find(button => button.textContent.trim() === label); assertButton(button); function assertButton(button) { if (!button) throw new Error('Missing force target'); const key = Object.keys(button).find(key => key.startsWith('__reactProps')); if (!key || typeof button[key].onClick !== 'function') throw new Error('Missing actual click handler'); button[key].onClick() } }, label)
@@ -148,11 +166,12 @@ try {
       await page.screenshot({ animations: 'disabled', path: resolve(process.env.SINAN_UI_SCREENSHOT_DIR, `sources-${name}-${width}.png`) })
     }
     await installControlCenterFixtures(page)
-    await page.goto(`${origin}/#/plugins/sing-box/nodes`)
+    await page.goto(`${origin}/#/plugins/sing-box/nodes?view=sources`)
     await enable(manager.getByRole('button', { name: '添加订阅来源', exact: true }))
     assert.equal(await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '订阅来源', exact: true }).count(), 0)
     assert.equal(await page.locator('.stat').filter({ hasText: '代理资源' }).locator('strong').innerText(), '2')
-    await page.getByRole('button', { name: '创建两跳链路', exact: true }).click(); await dialog.locator('[name=name]').fill('必须保留的两跳草稿'); await dialog.getByRole('button', { name: '取消', exact: true }).click()
+    await view('链路'); await page.getByRole('button', { name: '创建两跳链路', exact: true }).click(); await dialog.locator('[name=name]').fill('必须保留的两跳草稿'); await dialog.getByRole('button', { name: '取消', exact: true }).click()
+    await view('订阅来源')
     await manager.locator('[data-source-id="1"]').getByRole('button', { name: '查看来源', exact: true }).click()
     await dialog.getByText('外部示例节点', { exact: true }).waitFor()
     await dialog.getByText('端点未知', { exact: true }).waitFor()
@@ -167,6 +186,17 @@ try {
     assert.equal(await dialog.getByText('可供后续路径引用', { exact: true }).count(), 0)
     await dialog.getByRole('button', { name: '关闭来源详情', exact: true }).click()
     await shot('list')
+    await manager.locator('[data-source-id="1"]').getByText('来源用量：2.0 GiB', { exact: false }).waitFor()
+    await manager.locator('[data-source-id="1"]').getByText('新增 1 · 更新 2 · 缺失 1', { exact: false }).waitFor()
+    await manager.locator('[data-source-id="1"]').getByRole('button', { name: '查看来源', exact: true }).click()
+    const adoptRow = dialog.locator(`[data-source-node-id="${sourceUuid(301)}"]`)
+    await enable(adoptRow.getByRole('button', { name: '加入节点库', exact: true }))
+    assert.equal(await dialog.locator(`[data-source-node-id="${sourceUuid(302)}"]`).getByRole('button', { name: '加入节点库', exact: true }).isDisabled(), true)
+    await dialog.getByText('不发送', { exact: true }).waitFor()
+    await adoptRow.getByRole('button', { name: '加入节点库', exact: true }).click()
+    await adoptRow.getByRole('button', { name: '移出节点库', exact: true }).waitFor(); await adoptRow.getByText('已加入节点库', { exact: true }).waitFor()
+    assert.equal(preview[0].adopted, true)
+    await dialog.getByRole('button', { name: '关闭来源详情', exact: true }).click()
     for (const mode of ['failed', 'malformed']) {
       listMode = mode; await reloadList(); await manager.getByText('来源修改暂不可用，已读取的历史信息仍可查看。', { exact: true }).waitFor()
       const before = writes.length; await force('添加订阅来源'); await force('抓取并解析'); await force('删除来源'); assert.equal(writes.length, before)
@@ -183,6 +213,7 @@ try {
     await dialog.locator('[name=source_name]').fill('URL 新来源')
     await dialog.locator('[name=source_url]').fill('https://subscription.example.com/private?token=TEST_ONLY')
     await dialog.locator('[name=source_authorization]').fill('Bearer TEST_ONLY'); await dialog.locator('[name=source_cookie]').fill('session=TEST_ONLY'); await dialog.locator('[name=source_apiKey]').fill('TEST_ONLY')
+    await dialog.locator('[name=source_user_agent]').fill('TEST-agent/1'); await dialog.locator('[name=source_auto_refresh]').uncheck()
     await shot('url-editor')
     await dialog.getByRole('button', { name: '保存来源', exact: true }).click(); await dialog.getByRole('alert').filter({ hasText: '无法连接面板' }).waitFor()
     const firstCreate = writes.find(write => write.path === sourceRoot && write.method === 'POST')
@@ -192,6 +223,7 @@ try {
     const createWrites = writes.filter(write => write.path === sourceRoot && write.method === 'POST')
     assert.equal(createWrites.length, 2); assert.equal(createWrites[1].serialized, firstCreate.serialized); assert.equal(allocations, 1)
     await manager.getByText('URL 新来源', { exact: true }).waitFor()
+    await manager.locator('[data-source-id="2"]').getByText('自动刷新已关闭', { exact: false }).waitFor()
     await manager.getByRole('button', { name: '添加订阅来源', exact: true }).click()
     assert.equal(await dialog.locator('[name=source_url]').inputValue(), ''); assert.equal(await dialog.locator('[name=source_authorization]').inputValue(), '')
     await dialog.locator('[name=source_name]').fill('文件来源'); await dialog.getByRole('combobox', { name: '订阅输入方式', exact: true }).selectOption('inline')
@@ -254,7 +286,18 @@ try {
     await enable(manager.locator('[data-source-id="1"]').getByRole('button', { name: '删除来源', exact: true })); await manager.locator('[data-source-id="1"]').getByRole('button', { name: '删除来源', exact: true }).click(); await dialog.getByRole('button', { name: '确认删除', exact: true }).click(); await dialog.getByRole('alert').filter({ hasText: '#7' }).waitFor()
     assert.equal(await manager.locator('[data-source-id="1"]').count(), 1)
     deleteConflict = false; await dialog.getByRole('button', { name: '确认删除', exact: true }).click(); await dialog.waitFor({ state: 'hidden' }); await manager.locator('[data-source-id="1"]').waitFor({ state: 'hidden' })
-    oldNodesFailure = false; await page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).click(); await enable(page.getByRole('button', { name: '创建两跳链路', exact: true })); await page.getByRole('button', { name: '创建两跳链路', exact: true }).click()
+    await enable(manager.getByRole('button', { name: '导入并选择节点', exact: true })); await manager.getByRole('button', { name: '导入并选择节点', exact: true }).click()
+    await dialog.locator('[name=import_name]').fill('预览来源'); await dialog.locator('[name=import_url]').fill('https://subscription.example.com/private?token=TEST_ONLY')
+    await dialog.getByText('认证头与请求标识（可选）', { exact: true }).click(); await dialog.locator('[name=import_user_agent]').fill('TEST-agent/1')
+    await dialog.getByRole('button', { name: '获取并预览', exact: true }).click(); await dialog.getByText('预览不支持', { exact: true }).waitFor()
+    assert.equal(await dialog.locator('[name=import_url]').count(), 0)
+    assert.equal(await dialog.getByRole('checkbox', { name: '加入 预览节点甲', exact: true }).isChecked(), true)
+    assert.equal(await dialog.getByRole('checkbox', { name: '加入 预览不支持', exact: true }).isDisabled(), true)
+    await shot('import-preview')
+    await dialog.getByRole('button', { name: '保存来源并加入节点库（1）', exact: true }).click(); await dialog.waitFor({ state: 'hidden' })
+    await manager.getByText('预览来源', { exact: true }).waitFor()
+    assert.equal(writes.filter(write => write.path.startsWith(previewRoot)).length, 2)
+    oldNodesFailure = false; await page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true }).click(); await view('链路'); await enable(page.getByRole('button', { name: '创建两跳链路', exact: true })); await page.getByRole('button', { name: '创建两跳链路', exact: true }).click()
     assert.equal(await dialog.locator('[name=name]').inputValue(), '必须保留的两跳草稿')
     assert.equal(await dialog.locator('[name=exit_node_id] option').filter({ hasText: '外部示例节点' }).count(), 0)
     await dialog.getByRole('button', { name: '取消', exact: true }).click()
@@ -263,5 +306,5 @@ try {
     assert.deepEqual(errors, [])
     await page.close()
   }
-  console.log('PASS: Sources public preview, unsupported/missing/ambiguous/history, fresh write guards, original create/PATCH replays, cleared URL/auth/file, independent old-node failure, pending cancellation, replacement failure cache, archive/restore/refusal/delete, preserved two-hop draft, desktop/mobile')
+  console.log('PASS: Sources usage/changes, catalog adoption, User-Agent and auto-refresh settings, preview import, public preview, unsupported/missing/ambiguous/history, fresh write guards, original create/PATCH replays, cleared URL/auth/file, independent old-node failure, pending cancellation, replacement failure cache, archive/restore/refusal/delete, preserved two-hop draft, desktop/mobile')
 } finally { if (browser) await browser.close(); await new Promise(resolve => server.close(resolve)) }

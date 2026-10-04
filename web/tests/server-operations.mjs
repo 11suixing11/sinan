@@ -6,6 +6,14 @@ import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const { chromium } = await import(process.env.SINAN_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.SINAN_PLAYWRIGHT_MODULE).href : 'playwright')
+
+// Narrow screens fold the main navigation behind the menu button.
+async function openNav(page, name) {
+  await page.locator('.sidebar').waitFor()
+  const menu = page.getByRole('button', { name: '菜单', exact: true })
+  if (await menu.isVisible() && await menu.getAttribute('aria-expanded') !== 'true') await menu.click()
+  await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name, exact: true }).click()
+}
 const root = fileURLToPath(new URL('../dist/', import.meta.url))
 const server = createServer(async (request, response) => {
   const path = new URL(request.url, 'http://127.0.0.1').pathname
@@ -105,7 +113,7 @@ try {
     const settingsWrite = writes.find(write => write.path === '/api/settings').body
     assert.equal(settingsWrite.offline_minutes, 8)
     assert.equal(Object.hasOwn(settingsWrite, 'telegram_token'), false)
-    await page.getByRole('link', { name: '服务器', exact: true }).click()
+    await openNav(page, '服务器')
     assert.equal(await page.getByRole('link', { name: '打开服务器看板', exact: true }).count(), 0)
     await page.getByRole('button', { name: '编辑', exact: true }).click()
     let dialog = page.getByRole('dialog')
@@ -129,7 +137,7 @@ try {
     await dialog.waitFor({ state: 'detached' })
     const correction = writes.find(write => write.path.endsWith('traffic-correction')).body
     assert.equal(correction.baseline_uploaded, '100'); assert.equal(correction.uploaded, '999')
-    await page.getByRole('link', { name: '告警通知', exact: true }).click()
+    await openNav(page, '告警通知')
     await page.getByText('持续离线', { exact: true }).waitFor()
     await page.getByText('模拟网络失败', { exact: true }).waitFor()
     await page.getByRole('button', { name: /退出登录/ }).click()
@@ -139,7 +147,7 @@ try {
     await page.getByLabel('管理员密码', { exact: true }).fill('TEST_ONLY')
     await page.getByRole('button', { name: '登录面板' }).click()
     await page.getByText('持续离线', { exact: true }).waitFor()
-    assert.equal(await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '告警通知', exact: true }).getAttribute('aria-current'), 'page')
+    assert.equal(await page.getByRole('navigation', { name: '主导航', includeHidden: true }).getByRole('link', { name: '告警通知', exact: true, includeHidden: true }).getAttribute('aria-current'), 'page')
     assert.deepEqual(errors, [])
     results.push({ width, publicAccess: 'passed', revocation: 'passed', sessions: 'passed', settings: 'passed', operations: 'passed' })
     await context.close()

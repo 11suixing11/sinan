@@ -794,14 +794,7 @@ async fn batch_rejects_unauthorized_entries_and_invalid_managed_topologies(
     )
     .await?;
     assert_eq!(status, StatusCode::CREATED, "{created}");
-    call(
-        &panel,
-        &cookie,
-        Method::POST,
-        "/chains",
-        Some(json!({"name":"AB","entry_node_id":na,"exit_node_id":nb})),
-    )
-    .await?;
+    panel.import_legacy_chain(&cookie, "AB", na, nb).await?;
     let before = state(&pool).await?;
     for item in [
         existing_entry("Cycle", nb, na),

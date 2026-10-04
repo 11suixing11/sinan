@@ -14,7 +14,7 @@ use std::{
 
 const RESPONSE_LIMIT: usize = 256 * 1024;
 
-pub(super) use crate::plugins::cloud_api::Failure;
+pub(super) use crate::cloud_api::Failure;
 
 pub(super) struct Cloudflare {
     client: Client,

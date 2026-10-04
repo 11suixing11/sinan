@@ -531,3 +531,57 @@ async fn monitoring_only_sessions_and_tokens_keep_private_server_fields_hidden(
     );
     Ok(())
 }
+
+#[sqlx::test]
+async fn offline_alert_threshold_counts_from_the_real_disconnect(pool: PgPool) -> Result<()> {
+    let panel = TestPanel::start(pool).await?;
+    let cookie = panel.admin_cookie().await?;
+    panel
+        .admin(
+            Method::PATCH,
+            "/api/settings",
+            &cookie,
+            Some(preferences(false)),
+        )
+        .await?
+        .error_for_status()?;
+    let (id, socket, _) = panel.authenticated_device(&cookie, "正常断开").await?;
+    drop(socket);
+    // The panel shows the device offline at once by moving last_seen past the
+    // online window, while recording the real time of the last contact.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    let contact = loop {
+        let (seen, contact): (Option<i64>, Option<i64>) =
+            sqlx::query_as("SELECT last_seen,last_contact_at FROM servers WHERE id=$1")
+                .bind(id)
+                .fetch_one(&panel.state.pool)
+                .await?;
+        if let (Some(seen), Some(contact)) = (seen, contact)
+            && contact - seen == 61
+        {
+            break contact;
+        }
+        anyhow::ensure!(
+            tokio::time::Instant::now() < deadline,
+            "disconnect was not recorded"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    };
+    let alerts = || {
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM server_alert_events WHERE server_id=$1")
+            .bind(id)
+            .fetch_one(&panel.state.pool)
+    };
+    // Measured from the backdated last_seen, two minutes would already have passed.
+    notifications::evaluate(&panel.state.pool, contact - 600, contact + 60).await?;
+    assert_eq!(alerts().await?, 0);
+    notifications::evaluate(&panel.state.pool, contact - 600, contact + 120).await?;
+    assert_eq!(alerts().await?, 1);
+    let recorded: Option<i64> =
+        sqlx::query_scalar("SELECT last_seen FROM server_alert_events WHERE server_id=$1")
+            .bind(id)
+            .fetch_one(&panel.state.pool)
+            .await?;
+    assert_eq!(recorded, Some(contact));
+    Ok(())
+}

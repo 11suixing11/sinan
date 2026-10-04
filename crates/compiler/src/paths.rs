@@ -74,6 +74,8 @@ pub struct Compiled {
     pub checks: Vec<PathCheck>,
     pub constraints: Constraints,
     pub features: Vec<String>,
+    /// Public entry node to chain for every active route in `config`.
+    pub routes: BTreeMap<i64, i64>,
 }
 
 fn invalid(path: &Path, reason: &str) -> CompileError {
@@ -264,6 +266,7 @@ pub fn compile(
     };
     let mut needs_dns = false;
     let mut features = BTreeSet::new();
+    let mut routes = BTreeMap::new();
     for path in sorted {
         let networks = validate(path)?;
         if !seen.insert((path.chain_id, path.generation)) {
@@ -379,6 +382,7 @@ pub fn compile(
             constraints
                 .active
                 .insert(scope(path.chain_id), path.generation);
+            routes.insert(entry.id, path.chain_id);
             if !networks.udp {
                 config["route"]["rules"]
                     .as_array_mut()
@@ -449,5 +453,6 @@ pub fn compile(
         checks,
         constraints,
         features: features.into_iter().collect(),
+        routes,
     })
 }

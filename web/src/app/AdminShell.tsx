@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { useResource } from '../hooks'
 import GlobalSearch from '../control-center/GlobalSearch'
 import Reauthentication from '../control-center/Reauthentication'
@@ -6,6 +7,7 @@ import type { ReactNode } from 'react'
 import { Brand, ErrorNotice, Icon } from '../components'
 import { navigation } from './navigation'
 import type { NavigationItem } from './navigation'
+import './shell.css'
 
 type Props = {
   current?: NavigationItem
@@ -20,23 +22,54 @@ export default function AdminShell({ current, busy, error, onLogout, children }:
   const features: Record<string, string[]> = { servers: ['servers'], fleet: ['servers'], statistics: ['monitoring'], dashboard: ['monitoring'], latency: ['monitoring'], notifications: ['monitoring'], 'network-workbench': ['diagnostics'], 'network-configuration': ['network'], operations: ['operations', 'recovery', 'cloud'], alicloud: ['cloud'], ddns: ['dns'], 'singbox-overview': ['proxy'], nodes: ['proxy'], 'proxy-users': ['proxy'], groups: ['proxy'] }
   const globalPages = new Set(['statistics', 'dashboard', 'latency', 'notifications', 'alicloud', 'singbox-overview', 'nodes', 'proxy-users', 'groups'])
   const visibleNavigation = navigation.filter(item => item.page === 'control-center' || item.page === 'security' || actor.data?.role === 'owner' || ((!globalPages.has(item.page) || actor.data?.all_servers) && features[item.page]?.some(feature => actor.data?.capabilities.includes(`${feature}:read`))))
+  const [menuOpen, setMenuOpen] = useState(false)
+  const sidebar = useRef<HTMLElement>(null)
+  const toggle = useRef<HTMLButtonElement>(null)
+
+  // The compact menu closes after navigation, on Escape and on outside clicks.
+  useEffect(() => {
+    const close = () => setMenuOpen(false)
+    window.addEventListener('hashchange', close)
+    return () => window.removeEventListener('hashchange', close)
+  }, [])
+  useEffect(() => {
+    if (!menuOpen) return
+    const key = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setMenuOpen(false)
+      toggle.current?.focus()
+    }
+    const pointer = (event: MouseEvent) => {
+      if (event.target instanceof Node && !sidebar.current?.contains(event.target)) setMenuOpen(false)
+    }
+    document.addEventListener('keydown', key)
+    document.addEventListener('mousedown', pointer)
+    return () => {
+      document.removeEventListener('keydown', key)
+      document.removeEventListener('mousedown', pointer)
+    }
+  }, [menuOpen])
+
   return <div className="app-shell">
     <Reauthentication /><Appearance />
-    <aside className="sidebar">
-      <a href="#/servers" className="brand-link" aria-label="司南首页"><Brand /></a>
-      <div className="nav-caption">控制面板</div>
-      <nav aria-label="主导航">
+    <aside ref={sidebar} className={menuOpen ? 'sidebar menu-open' : 'sidebar'}>
+      <div className="sidebar-header">
+        <a href="#/servers" className="brand-link" aria-label="司南首页"><Brand /></a>
+        <button ref={toggle} type="button" className="menu-toggle" aria-expanded={menuOpen}
+          aria-controls="admin-navigation" onClick={() => setMenuOpen(open => !open)}>
+          <Icon name={menuOpen ? 'close' : 'menu'} size={18} /><span>菜单</span>
+        </button>
+      </div>
+      <nav id="admin-navigation" aria-label="主导航">
         {visibleNavigation.map((item, index) => <div className="nav-entry" key={item.path}>
           {visibleNavigation[index - 1]?.group !== item.group && <div className="nav-group-label">{item.group}</div>}
           <a href={`#${item.path}`} className={current?.path === item.path ? 'active' : ''}
             aria-current={current?.path === item.path ? 'page' : undefined}>
-            <Icon name={item.icon} size={20} /><span>{item.label}</span>
-            {current?.path === item.path && <span className="nav-active-dot" />}
+            <Icon name={item.icon} size={18} /><span>{item.label}</span>
           </a>
         </div>)}
       </nav>
       <div className="sidebar-bottom">
-        <div className="sidebar-note"><span className="status-dot" /><span>自托管控制面板</span></div>
         <button className="logout-button" disabled={busy} onClick={onLogout}>
           <span className="admin-avatar">管</span>
           <span><strong>{actor.data?.display_name ?? '管理员'}</strong><small>{actor.data?.role === 'viewer' ? '只读 · ' : actor.data?.role === 'operator' ? '运维 · ' : ''}退出登录</small></span>
@@ -46,7 +79,10 @@ export default function AdminShell({ current, busy, error, onLogout, children }:
     </aside>
     <div className="main-layout">
       <div className="topbar">
-        <div>控制面板<span>/</span><strong>{current?.label ?? '页面不存在'}</strong></div>
+        <nav aria-label="当前位置" className="breadcrumb">
+          {current && <><span>{current.group}</span><span aria-hidden="true">/</span></>}
+          <strong aria-current="page">{current?.label ?? '页面不存在'}</strong>
+        </nav>
         <GlobalSearch />
         <span className="topbar-status"><span className="status-dot" />管理员会话已登录</span>
       </div>

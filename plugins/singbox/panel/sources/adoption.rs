@@ -28,6 +28,7 @@ pub(super) async fn update(
     request: Result<Json<AdoptNode>, axum::extract::rejection::JsonRejection>,
 ) -> ApiResult<Json<model::NodePreview>> {
     require_admin(&state, &headers).await?;
+    super::super::source_migration::ensure_numbered_writable(&state.pool).await?;
     let Json(request) = request.map_err(|_| bad("采用请求字段不符合要求"))?;
     if [
         request.settings_revision,

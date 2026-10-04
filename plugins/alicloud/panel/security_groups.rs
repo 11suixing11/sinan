@@ -27,7 +27,7 @@ use sinan_protocol::now_timestamp;
 use sqlx::{FromRow, PgPool, Postgres, Row, Transaction, types::Json as DbJson};
 use uuid::Uuid;
 
-pub(crate) fn routes() -> Router<AppState> {
+pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/operations/cloud/{id}/security-groups", get(inventory))
         .route(

@@ -69,6 +69,7 @@ try {
           else if (['/api/me', '/api/dashboard/access'].includes(path)) value = { authenticated: true, public_dashboard: false }
           else if (path === `${prefix}/servers`) value = hosts
           else if (path === `${prefix}/nodes`) value = nodes
+          else if (path === `${prefix}/source-migration`) value = { migrated: false, migrated_at: null }
           else if ([`${prefix}/ordered-proxy-resources`, `${prefix}/ordered-subscription-sources`].includes(path)) value = []
           else if (path === `${prefix}/proxy-resources`) value = resources
       else if (path === `${prefix}/node-catalog`) value = catalogResourceFixtures(resources)
@@ -122,7 +123,8 @@ try {
       control.recover(path); await refreshReads(control.page); await button.click()
       await control.page.getByRole('region', { name: '创建链路', exact: true }).waitFor(); assert.equal(control.writes.length, 0)
     })
-    for (const hash of ['/plugins/sing-box/nodes', '/plugins/sing-box/nodes?kind=chains']) {
+    // The chains filter opens the chain section by default; these scenarios act on catalog rows.
+    for (const hash of ['/plugins/sing-box/nodes', '/plugins/sing-box/nodes?kind=chains&view=catalog']) {
       for (const dependency of ['nodes', 'proxy-resources', 'servers']) {
         for (const mode of ['new', 'existing']) await fixture(hash, async control => {
           const editor = await openDraft(control.page, mode)

@@ -1,6 +1,6 @@
 use super::*;
 use crate::auth::{hash_token, random_token};
-use crate::plugins::cloud_api::test_support::{Mock, Reply};
+use crate::cloud_api::test_support::{Mock, Reply};
 
 const BASE: &str = "sg-base";
 const EXTRA: &str = "sg-extra";
@@ -149,7 +149,7 @@ fn baseline_is_protected_and_explicit_deny_or_unsupported_groups_are_rejected() 
     denied.groups[0].kind = "enterprise".into();
     assert!(impact(&denied, &[BASE.into(), EXTRA.into()]).is_err());
 }
-#[sqlx::test]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn official_join_is_verified_once_and_confirmation_cannot_replay(
     pool: PgPool,
 ) -> anyhow::Result<()> {
@@ -188,7 +188,7 @@ async fn official_join_is_verified_once_and_confirmation_cannot_replay(
     mock.exhausted();
     Ok(())
 }
-#[sqlx::test]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn uncertain_join_is_not_repeated_and_read_only_reconciliation_preserves_unknown(
     pool: PgPool,
 ) -> anyhow::Result<()> {
@@ -226,7 +226,7 @@ async fn uncertain_join_is_not_repeated_and_read_only_reconciliation_preserves_u
     mock.exhausted();
     Ok(())
 }
-#[sqlx::test]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn leaving_a_verified_owned_extra_keeps_every_baseline_group(
     pool: PgPool,
 ) -> anyhow::Result<()> {
@@ -273,7 +273,7 @@ async fn leaving_a_verified_owned_extra_keeps_every_baseline_group(
     mock.exhausted();
     Ok(())
 }
-#[sqlx::test]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn fresh_membership_change_stale_account_and_changed_link_refuse_confirmation(
     pool: PgPool,
 ) -> anyhow::Result<()> {
@@ -310,7 +310,7 @@ async fn fresh_membership_change_stale_account_and_changed_link_refuse_confirmat
     mock.exhausted();
     Ok(())
 }
-#[sqlx::test]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn queued_cloud_operations_are_blocked_by_unknown_membership_mutations(
     pool: PgPool,
 ) -> anyhow::Result<()> {
@@ -326,7 +326,7 @@ async fn queued_cloud_operations_are_blocked_by_unknown_membership_mutations(
     );
     Ok(())
 }
-#[sqlx::test]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn global_account_scope_creator_and_token_restrictions_are_enforced_before_remote_reads(
     pool: PgPool,
 ) -> anyhow::Result<()> {
@@ -404,7 +404,7 @@ async fn global_account_scope_creator_and_token_restrictions_are_enforced_before
     ));
     Ok(())
 }
-#[sqlx::test]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn group_policy_changed_after_confirmation_snapshot_blocks_join_and_leave(
     pool: PgPool,
 ) -> anyhow::Result<()> {

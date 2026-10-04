@@ -7,7 +7,7 @@ pub(super) use preflight::{
 };
 pub(crate) use preflight::{ordinary_shape_changes_tx, publisher_ready_tx};
 mod rollouts;
-pub(crate) use automation::{
+pub use automation::{
     automation_candidate, automation_deployment_receipt, automation_dispatch_matches_tx,
     cancel_automation_deployment_tx, enqueue_automation_deployment_tx,
     reconcile_automation_deployment_tx, request_automation_deployment_checkpoint_tx,

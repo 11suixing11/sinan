@@ -28,6 +28,7 @@
 ## 开发与设计
 
 - [仓库目录与维护约定](repository.md)：修改入口、模块归属、脚本及测试的位置。
+- [重新架构阶段三：来源与链路统一迁移方案](rearchitecture-phase3-plan.md)：S1 代码准备已实施；生产来源迁移、接管、转换与实机验收另行安排。
 - [本地开发、构建与检查](dev.md)：Rust、PostgreSQL、Bun 与条件测试。
 - [HTTP API](api.md)、[面板与 Agent 协议](protocol.md)、[术语表](glossary.md)：公共契约。
 - [架构决策索引](adr/README.md)、[执行中的问题与选择](open-questions.md)：设计依据及范围变更。
@@ -38,6 +39,7 @@
 
 ## 发布与验收
 
+- [2026-10-04 其余分支与 main 整合](acceptance/branch-main-integration-20261004.md)：迁移编号、架构与安全合并取舍，集中验证另记。
 - [签名发布与信任根](release.md)：签署、发布身份和公钥轮换。
 - [真实 Reality 验收](e2e.md)：专用环境操作及证据要求。
 - [验收索引](acceptance/README.md)：按主题定位源码检查、隔离测试与实机证据。

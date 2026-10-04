@@ -1,5 +1,5 @@
 use super::{aliyun::AliDns, huawei::Huawei, tencent::Tencent};
-use crate::plugins::ddns::{
+use crate::{
     cloudflare::{Cloudflare, Failure},
     dns_records::Request,
     model::{Provider, domain, identifier, token},
@@ -37,9 +37,7 @@ impl RecordClient {
         } else {
             let key = value["access_key_id"].as_str().unwrap_or_default();
             let secret = value["access_key_secret"].as_str().unwrap_or_default();
-            if !crate::plugins::cloud_api::credential(key)
-                || !crate::plugins::cloud_api::credential(secret)
-            {
+            if !crate::cloud_api::credential(key) || !crate::cloud_api::credential(secret) {
                 return Err("authentication_failed".into());
             }
             (key.into(), secret.into())
@@ -209,7 +207,7 @@ pub(super) fn canonical(
     zone_name: &str,
 ) -> Result<Value, Failure> {
     let mut result = match provider {
-        Provider::Cloudflare => crate::plugins::ddns::dns_record_spec::snapshot(value),
+        Provider::Cloudflare => crate::dns_record_spec::snapshot(value),
         Provider::Aliyun => {
             json!({"id":super::id(&value["RecordId"])? ,"name":full(value["RR"].as_str().ok_or(Failure::from("invalid_response"))?,zone_name),"type":value["Type"],"content":value["Value"],"ttl":value["TTL"],"line":value["Line"],"proxied":false,"provider_state":if value["Status"].as_str().is_some_and(|value|value.eq_ignore_ascii_case("enable")){"active"}else{"disabled"}})
         }
@@ -264,10 +262,9 @@ pub(super) fn canonical(
     {
         result["weight"] = weight.clone();
     }
-    result["name"] =
-        crate::plugins::ddns::dns_record_spec::name(result["name"].as_str().unwrap_or_default())
-            .ok_or(Failure::from("invalid_response"))?
-            .into();
+    result["name"] = crate::dns_record_spec::name(result["name"].as_str().unwrap_or_default())
+        .ok_or(Failure::from("invalid_response"))?
+        .into();
     if result["id"].as_str().is_none_or(|id| {
         id.is_empty()
             || id.len() > 128

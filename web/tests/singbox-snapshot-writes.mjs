@@ -78,6 +78,7 @@ try {
         else if (method === 'GET' && !url.search && [1, 2, 3].some(id => path === `${prefix}/users/${id}/client-template` && users.some(user => user.id === id))) value = templateFixture
         else if (method === 'GET' && path === `${prefix}/users`) value = users
         else if (method === 'GET' && path === `${prefix}/nodes`) value = nodes
+        else if (method === 'GET' && path === `${prefix}/source-migration`) value = { migrated: false, migrated_at: null }
         else if (method === 'GET' && [`${prefix}/ordered-proxy-resources`, `${prefix}/ordered-subscription-sources`].includes(path)) value = []
         else if (method === 'GET' && path === `${prefix}/proxy-resources`) value = resources
         else if (method === 'GET' && path === `${prefix}/policy-groups`) value = policies

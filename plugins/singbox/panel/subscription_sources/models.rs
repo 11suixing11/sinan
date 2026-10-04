@@ -6,8 +6,8 @@ use uuid::Uuid;
 
 pub const MAX_CONTENT_BYTES: usize = 2 * 1024 * 1024;
 pub const DEFAULT_REFRESH_SECS: i64 = 86_400;
-pub const MIN_REFRESH_SECS: i64 = 3_600;
-pub const MAX_REFRESH_SECS: i64 = 604_800;
+pub const MIN_REFRESH_SECS: i64 = 300;
+pub const MAX_REFRESH_SECS: i64 = 2_592_000;
 
 fn deserialize_auth_headers<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
 where
@@ -157,6 +157,9 @@ pub struct CreateSource {
     pub name: String,
     pub input: SourceInput,
     pub refresh_interval_secs: Option<i64>,
+    /// Absent means no User-Agent header, as before this field existed.
+    pub user_agent: Option<String>,
+    pub auto_refresh: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -166,6 +169,13 @@ pub enum HeaderUpdate {
         #[serde(deserialize_with = "deserialize_auth_headers")]
         value: BTreeMap<String, String>,
     },
+    Clear,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+pub enum UserAgentUpdate {
+    Replace { value: String },
     Clear,
 }
 
@@ -198,12 +208,25 @@ pub struct UpdateSource {
     pub refresh_interval_secs: Option<i64>,
     pub archived: Option<bool>,
     pub input: Option<InputUpdate>,
+    pub user_agent: Option<UserAgentUpdate>,
+    pub auto_refresh: Option<bool>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourceRevisionInput {
     pub settings_revision: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdoptNode {
+    pub adopted: bool,
+    pub settings_revision: i64,
+    pub identity_epoch: i64,
+    pub node_version_id: Uuid,
+    /// Catalog metadata revision of the node; 0 when it has none yet.
+    pub metadata_revision: i64,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -264,6 +287,10 @@ pub struct SourceView {
     pub identity_epoch: i64,
     pub archived: bool,
     pub refresh_interval_secs: i64,
+    pub user_agent: Option<String>,
+    pub auto_refresh: bool,
+    pub traffic: Value,
+    pub changes: Value,
     pub last_attempt_at: Option<i64>,
     pub last_success_at: Option<i64>,
     pub latest_success: Option<RevisionView>,
@@ -277,6 +304,10 @@ pub struct SourceView {
 #[derive(Clone, Serialize)]
 pub struct NodeView {
     pub id: Uuid,
+    pub public_id: i64,
+    pub adopted: bool,
+    /// Catalog metadata revision shared with the node catalog; 0 when none.
+    pub metadata_revision: i64,
     pub source_id: i64,
     pub identity_epoch: i64,
     pub version_id: Uuid,
@@ -327,9 +358,13 @@ pub(super) struct SourceRow {
     pub conditional_last_modified: Option<String>,
     pub conditional_settings_revision: Option<i64>,
     pub conditional_identity_epoch: Option<i64>,
+    pub user_agent: Option<String>,
+    pub auto_refresh: bool,
+    pub traffic: Value,
+    pub changes: Value,
 }
 
-pub(super) const SOURCE_COLUMNS: &str = "id,name,kind,host,input_config,settings_revision,identity_epoch,archived,deleted_at,refresh_interval_secs,next_refresh_at,last_attempt_at,last_success_at,current_success_revision,last_error,conditional_etag,conditional_last_modified,conditional_settings_revision,conditional_identity_epoch";
+pub(super) const SOURCE_COLUMNS: &str = "id,name,kind,host,input_config,settings_revision,identity_epoch,archived,deleted_at,refresh_interval_secs,next_refresh_at,last_attempt_at,last_success_at,current_success_revision,last_error,conditional_etag,conditional_last_modified,conditional_settings_revision,conditional_identity_epoch,user_agent,auto_refresh,traffic,changes";
 pub(super) const REVISION_COLUMNS: &str =
     "id,source_id,settings_revision,identity_epoch,parser_version,format,parsed_at,counts";
 pub(super) const JOB_COLUMNS: &str = "id,source_id,settings_revision,identity_epoch,parser_version,status,stage,created_at,started_at,finished_at,source_revision_id,error";

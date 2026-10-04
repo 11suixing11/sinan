@@ -1,5 +1,5 @@
 use super::{Account, Cloud, Group, Resource, Snapshot};
-use crate::plugins::cloud_api::Failure;
+use crate::cloud_api::Failure;
 use serde_json::{Value, json};
 use std::{collections::BTreeSet, time::Duration};
 

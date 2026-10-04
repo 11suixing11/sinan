@@ -1,0 +1,1805 @@
+{
+  "recorded_at": "2026-10-04T18:28:17.404612+08:00",
+  "merge_inputs": {
+    "main": "f32aa5421b82e0fa05245140efb76dd0b07f2fa3",
+    "branches": [
+      {
+        "name": "claude/sinan-scan-refactor-odrgr3",
+        "sha": "c8ce3f2ca90ed8f4d7147e2793c7c2e80fe787e0"
+      },
+      {
+        "name": "fix/open-issues-20261002",
+        "sha": "fc1fe7e45e4e84bde1a68c75e3f7c59ee7a9e6c4"
+      },
+      {
+        "name": "fix/pr148-cloud-guards-20261002",
+        "sha": "2765ec74aec111ffa37f19d2602477a29d8cfe1d"
+      },
+      {
+        "name": "fix/remaining-issues-20261001",
+        "sha": "22893ee22656f68243197ab13fe5e19a6a2656e4"
+      },
+      {
+        "name": "fix/remaining-issues-integration-20261001",
+        "sha": "c24ca3228942d07386e97f8d813fb0a3966d5221"
+      },
+      {
+        "name": "integrate/pr157-20261003",
+        "sha": "82b1d17df72a72049f34f936d08d01cc40e23e3a"
+      },
+      {
+        "name": "remediation/all-diagnostics-20261001",
+        "sha": "58dce7799d9aa6757d9dcb1473e1e463268bcdcc"
+      }
+    ]
+  },
+  "final_source": {
+    "stage": "all_remaining_branches_integrated_final_affected_scope_frozen",
+    "source_files": 1363,
+    "sha256": "d5007b52325474c048080d98926fa0554632c3ebfc8d7f5eb1d5e7539dc1f970",
+    "algorithm": "sorted repo-relative path NUL raw bytes NUL; tracked + nonignored existing untracked; excludes docs, Markdown, CI, dist and git/license metadata",
+    "main_parent": "f32aa5421b82e0fa05245140efb76dd0b07f2fa3",
+    "branch_parent": "c8ce3f2ca90ed8f4d7147e2793c7c2e80fe787e0",
+    "frozen_at": "2026-10-04T10:19:56.877415+00:00"
+  },
+  "full_rust_source": {
+    "stage": "all_remaining_branches_integrated_after_clippy_test_fixture_repair",
+    "source_files": 1363,
+    "sha256": "8245bb17a5a056946e86606bd23b6ffb5ea808df3461c858830884338c66ddd7",
+    "algorithm": "sorted repo-relative path NUL raw bytes NUL; tracked + nonignored existing untracked; excludes docs, Markdown, CI, dist and git/license metadata",
+    "main_parent": "f32aa5421b82e0fa05245140efb76dd0b07f2fa3",
+    "branch_parent": "c8ce3f2ca90ed8f4d7147e2793c7c2e80fe787e0",
+    "frozen_at": "2026-10-04T09:57:40.376926+00:00"
+  },
+  "input_note": "Whole Rust batch ran on 8245bb17. Final changes are the single agent-core lease fixture and assembly route-policy compatibility/assertions; affected scopes were rerun. Web product and Python tooling inputs are unchanged by these final changes.",
+  "migrations": {
+    "main_parent": "f32aa5421b82e0fa05245140efb76dd0b07f2fa3",
+    "preserved_original_migrations": 58,
+    "total_unique_migrations": 64,
+    "changed_original_files": [],
+    "sequence_contiguous": true
+  },
+  "rust": {
+    "first_batch": {
+      "groups": 136,
+      "passed": 1290,
+      "failed": 1,
+      "ignored": 25
+    },
+    "final_distinct": {
+      "passed": 1291,
+      "failed": 0,
+      "ignored": 25
+    },
+    "counting_note": "The 16 lease cases replace their first-batch results; the one prior failure becomes pass. The 2 policy cases were also rechecked and are not added twice.",
+    "ignored_tests": [
+      "health::tests::obfuscated_quic_health_checks_certificate_and_custom_alpn",
+      "real_check_stats_cumulative_reads_and_reload_generation",
+      "fleet::runtime_permissions::tests::actual_runtime_identity_cannot_read_root_only_certificate_directory",
+      "system::cleanup::acceptance::real_systemd_diagnostic_cancellation_confirms_process_and_private_mount_cleanup",
+      "system::jobs::lock_tests::real_systemd_diagnostic_lock_blocks_unprivileged_open_and_preserves_held_inode",
+      "system::jobs::tests::budgets::real_systemd_diagnostic_resource_budget_restricts_memory_and_children",
+      "system::jobs::tests::queued::real_systemd_diagnostic_queued_start_stays_running_until_executed",
+      "system::jobs::tests::real_systemd_diagnostic_jobs_survive_manager_recreation_and_enforce_timeout",
+      "system::jobs::tests::real_systemd_diagnostic_preflight_reads_resources_and_enforces_exclusive_execution",
+      "system::syscall_protection::tests::acceptance::real_systemd_swap_syscalls_are_denied_before_payload_and_inherited",
+      "tasks::probes::tests::icmp_measures_real_ipv4_and_ipv6_loopback",
+      "upstream_runtime_accepts_compiled_server_and_client",
+      "official_runtime_accepts_protocol_settings",
+      "upstream_accepts_every_protocol_and_acme_provider",
+      "official_runtime_accepts_all_transports_and_both_relay_formats",
+      "exact_native_checks_three_and_four_hops_acceptances_and_legacy_bytes",
+      "official_runtime_checks_imported_protocols_and_nested_paths",
+      "pinned_native_runtime_accepts_entry_exit_and_client_configs",
+      "actual_challenges_persistence_and_expired_certificate_renewal",
+      "clash_delay_checks_the_compiled_path_and_fails_when_external_middle_stops",
+      "external_middle_hop_carries_tcp_udp_and_never_bypasses_a_stopped_hop",
+      "virtual_authenticator_browser_roundtrip",
+      "imported_subscription_keeps_real_connection_authorization_and_counters_after_migration",
+      "all_protocols_authenticate_account_and_revoke_with_real_runtime",
+      "panel_reality_keys_match_upstream_generated_key_format"
+    ],
+    "steps": [
+      {
+        "command": "cargo fmt --all --check (full freeze)",
+        "result": "passed",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "test_summaries": []
+      },
+      {
+        "command": "python3 tools/check-core-boundary.py (full freeze)",
+        "result": "passed",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "test_summaries": []
+      },
+      {
+        "command": "cargo clippy --workspace --all-targets --locked -- -D warnings",
+        "result": "passed",
+        "log_sha256": "f111626e323a7a8d7804976235bc46a8947312f4ebad82ead6a583145badf407",
+        "test_summaries": []
+      },
+      {
+        "command": "cargo test --workspace --locked --no-fail-fast",
+        "result": "first_batch_one_failure_then_affected_retest",
+        "log_sha256": "edbe53a8572431f0b32c1a46913c46ab030a36c0189cb5510dd990fa0ecf038c",
+        "test_summaries": []
+      },
+      {
+        "command": "cargo fmt --all --check (final freeze)",
+        "result": "passed",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "test_summaries": []
+      },
+      {
+        "command": "python3 tools/check-core-boundary.py (final freeze)",
+        "result": "passed",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "test_summaries": []
+      },
+      {
+        "command": "cargo clippy -p sinan-agent-core -p sinan-panel --all-targets --locked -- -D warnings",
+        "result": "passed",
+        "log_sha256": "da0cc8fe664f0b4135b2acc96ad8c4689fe28e37e906dc4813426c011162b64b",
+        "test_summaries": []
+      },
+      {
+        "command": "cargo test -p sinan-agent-core --lib tasks::probes::lease_tests:: --locked",
+        "result": "passed",
+        "log_sha256": "5b490383cf3d47031ee88a91d1689d5bbbc80ba295b35bef3d267aa685d2e7bc",
+        "test_summaries": [
+          "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 269 filtered out; finished in 6.95s"
+        ]
+      },
+      {
+        "command": "cargo test -p sinan-panel --lib integration_policy::tests --locked",
+        "result": "passed",
+        "log_sha256": "b2a04e96e33b27d8221a63cfc9fa6ede1cd9729ed42fa7b9b254defb1b53bbd6",
+        "test_summaries": [
+          "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+        ]
+      },
+      {
+        "command": "cargo build -p sinan-panel --locked --bin sinan-panel",
+        "result": "passed",
+        "log_sha256": "52a8c67ebe44f50b5ea78872635ee6ac47c83546980dd08e9419cc125b881bd7",
+        "test_summaries": []
+      },
+      {
+        "command": "temporary native binary smoke: fresh 64 migrations, authentication, protected routes, current embedded assets",
+        "result": "passed",
+        "log_sha256": "a5f8dc20b709bc06daef395b1a53f72d996f5d5c4956320a90249f0079534238",
+        "test_summaries": []
+      }
+    ]
+  },
+  "frontend": {
+    "build_source_label": "working-tree-sha256:1d10f4fb4497e569906e1a210f48461027089ac5369c3ca6a17bdf476fdce6f4",
+    "bun": {
+      "passed": 184,
+      "failed": 0,
+      "expect_calls": 2412,
+      "files": 32
+    },
+    "browser": {
+      "passed": 8,
+      "failed": 0,
+      "shell_cases_passed": 6,
+      "shell_cases_failed": 0,
+      "distinct_suite_count": 8,
+      "initial_suite_passed": 7,
+      "initial_suite_failed": 1,
+      "supplemental_suite_passed": 1,
+      "supplemental_suite_failed": 0
+    },
+    "web_product_source": {
+      "files": 233,
+      "sha256": "1a0568b1de76b5cfc5417ac0b58ac800fe7180636987d25bfdfdbd5ece72100d",
+      "unchanged_since_initial_bun_and_build": true,
+      "source_differences_since_initial": [
+        {
+          "path": "web/tests/singbox-business.mjs",
+          "before_sha256": "b20418fd55c12b7d3601325aac1d6f2c67b9a771629b92dbe733bb3777c2cd94",
+          "after_sha256": "8a407e690b6f0d680acf09ef4e10d02a787b253db2237ea43a5032bff68ae591"
+        }
+      ]
+    },
+    "dist": {
+      "files": 63,
+      "sha256": "70473c61e7642ab5166751e3b02fb93da4c3213df3260ae6a93595628937012e",
+      "entries": [
+        {
+          "path": "assets/Alicloud-CJQ_HU_y.js",
+          "bytes": 43800,
+          "sha256": "37d679a10fff4ee31a20ee5a28cb7964d4e198205c2a04d6471add1a30287c8d"
+        },
+        {
+          "path": "assets/Alicloud-E31sYXs0.css",
+          "bytes": 1877,
+          "sha256": "6b1a338a42b62aad7d72a6d38aa0013a94464b5cbd75987a10005c9a5b467c8a"
+        },
+        {
+          "path": "assets/ChainLifecycle-l3WtBg5p.js",
+          "bytes": 3779,
+          "sha256": "4927408700a452dc7e15b77c3f709bc96a065f36fed1a9aa2d90e45513b3a8f3"
+        },
+        {
+          "path": "assets/ControlCenter-CCt9HeYV.js",
+          "bytes": 25014,
+          "sha256": "f0ac0da4a71393019aaf7ebbb8bf325c1d4c666ac4b554a589a504aeda785aef"
+        },
+        {
+          "path": "assets/Ddns-BmDozxxt.js",
+          "bytes": 49615,
+          "sha256": "00bb738cf8876b910ef8345706e0c9eb9d82083844a167a89fb17d1adfd37a29"
+        },
+        {
+          "path": "assets/Ddns-CkhL-CqE.css",
+          "bytes": 1490,
+          "sha256": "a9d1ca0dd56dbeb0440430b87e8a95941862cf0e26a6b372468ffbc409fcc8ed"
+        },
+        {
+          "path": "assets/FleetOperations-AONMcNpv.css",
+          "bytes": 1331,
+          "sha256": "c73e4190a3466dc76dcbadd1f8862ebb5a3c238e835e3b724e4592f6783082ed"
+        },
+        {
+          "path": "assets/FleetOperations-DbisOsiB.js",
+          "bytes": 57003,
+          "sha256": "c09589f2fe6b4b672d39d69b747a6946da23b3d7329d3bddcf54e15acb909357"
+        },
+        {
+          "path": "assets/FormDraftToolbar-uTyp0aFc.js",
+          "bytes": 943,
+          "sha256": "da99ce8b2d2270be139e384112b642d0cc6f5cb71563fdd1e986edf0869e6f91"
+        },
+        {
+          "path": "assets/Groups-CkiYiW6c.js",
+          "bytes": 12876,
+          "sha256": "9eb7a5b725ba34ceb9281befa62ec6dc37513463bb0904bf64b39a1e251c0b43"
+        },
+        {
+          "path": "assets/LatencyTasks-B7YWsHUL.js",
+          "bytes": 10308,
+          "sha256": "0d8027e3e00117e94049d5ac8b983f0425a66a530dc0a38acbb1b9c3f8f2085f"
+        },
+        {
+          "path": "assets/NetworkConfiguration-CEMNmtIR.js",
+          "bytes": 42418,
+          "sha256": "9dc8be74b341287dd33db690f6ff1355bef67440626af0698b9aa0f55e3c9988"
+        },
+        {
+          "path": "assets/NetworkConfiguration-Kj7Lm4l_.css",
+          "bytes": 2162,
+          "sha256": "67f8c50b0c10648bbe469acb79adbbb9216e6f0600d483d43311ecb79f54aaa5"
+        },
+        {
+          "path": "assets/NetworkWorkbench-BfxzBrYK.css",
+          "bytes": 2014,
+          "sha256": "5da0263c8f46c70f1d7e91cd20e44bb00d3a12a3b8a9a00868804d850b86e453"
+        },
+        {
+          "path": "assets/NetworkWorkbench-CIhalzay.js",
+          "bytes": 37345,
+          "sha256": "324de5cc075550754573817b22458e6cc609496b8d4be0cc11aca4849afcef3f"
+        },
+        {
+          "path": "assets/Nodes-NxreOeJ2.js",
+          "bytes": 201010,
+          "sha256": "a29f82073108da189b984bdcb0c6964cd9fd86caf8591e2bd90d946c22317aab"
+        },
+        {
+          "path": "assets/Notifications-D0VbvBJI.js",
+          "bytes": 3562,
+          "sha256": "18292b3c98fa65f7c2559932d298e7782564ec88c4deec3c94bb3825de631063"
+        },
+        {
+          "path": "assets/OperationReview-CIpxWyyo.js",
+          "bytes": 4917,
+          "sha256": "f54dfa0ec7ae524be5d66f20eea78471d29d434101a715722c50d7d04c56a360"
+        },
+        {
+          "path": "assets/OperationsPage-C4SuYTu1.css",
+          "bytes": 2966,
+          "sha256": "be489d8fbcc9d7001fe75e81b83de7820627a5d50b90d9c15f13ed0d365853b1"
+        },
+        {
+          "path": "assets/OperationsPage-khdkQs3-.js",
+          "bytes": 86926,
+          "sha256": "67ef694d5ec29516578751b9611f3a3ed8b44124a2a3ea3c2377a99412e6009b"
+        },
+        {
+          "path": "assets/Overview-DdZ2uENY.js",
+          "bytes": 4171,
+          "sha256": "693ac1c85949f82fe37a1d0288c43035a7e2902afad552e0c2ce835e0558bd5e"
+        },
+        {
+          "path": "assets/PluginCatalog-BhfDUr8T.js",
+          "bytes": 6303,
+          "sha256": "804ec1c26f77b8ef2c52c84b8787fb0feb50d1dd9cf3a217b4da3b7bc7c51026"
+        },
+        {
+          "path": "assets/Plugins-snU3PjFN.js",
+          "bytes": 699,
+          "sha256": "2c92ada4f8d64b5943d02a7fddc1bd8beb62663d46ab3c080efdc797035bd535"
+        },
+        {
+          "path": "assets/ProbeMonitoringFields-CbxxpdQI.js",
+          "bytes": 3478,
+          "sha256": "3df8bcee25118ea81ed22fe029291a14fe5a3ca6172cfb1dec416ab29fe318c2"
+        },
+        {
+          "path": "assets/ProtocolFields-Dh4IVmyR.js",
+          "bytes": 21008,
+          "sha256": "3f73dd1d5210bb24e7dedc62974c49db679ac25e0cfe1584c6952e406b1fbed8"
+        },
+        {
+          "path": "assets/ProxyUsers-DT8pqPGp.js",
+          "bytes": 51306,
+          "sha256": "f6395539ff742b47943307c08e51ea1ad25c9c8868ed469698006f8be8ddffa9"
+        },
+        {
+          "path": "assets/RuntimeOperations-DIhFtwzV.js",
+          "bytes": 25114,
+          "sha256": "5dcc869568edbdf88c312f24d4423308e7c047daa97e9044fcb92e60c023de8d"
+        },
+        {
+          "path": "assets/Security-DRugL-kL.js",
+          "bytes": 8075,
+          "sha256": "0d7574e0fdfcb9236562858b49e679ccc2a72ddf12042babab31496b4605a90e"
+        },
+        {
+          "path": "assets/ServerDetail-NLaIuHqy.js",
+          "bytes": 28337,
+          "sha256": "80199d3b9ab1af8784f95fecc8ed3abd7a6a2a7546b89c1273887d58432f8e14"
+        },
+        {
+          "path": "assets/ServerDisplay-DGgkEUkp.css",
+          "bytes": 26280,
+          "sha256": "8063fff03f8e794058d59a1bc53590b2cacc057b9f7ca225c6597e6584f11d95"
+        },
+        {
+          "path": "assets/ServerDisplay-pXtRhEKw.js",
+          "bytes": 57095,
+          "sha256": "bd5b0e97e2853e08c88ed4d18c15cf6a99a264846d0825255b68b8363926d427"
+        },
+        {
+          "path": "assets/ServerEdit-COXDl4VK.js",
+          "bytes": 30257,
+          "sha256": "9f96f9e72c48b76a3d553d58db97dc6bfb269448d521c013e70274612128f624"
+        },
+        {
+          "path": "assets/ServerNavigation-LJWL9xGD.js",
+          "bytes": 921,
+          "sha256": "2f12fecb7cd0170c51386ea3d172ac55d00a1419a8d635d823cd46cf18b3ccdf"
+        },
+        {
+          "path": "assets/ServerPicker-C6y_JobY.js",
+          "bytes": 1702,
+          "sha256": "f0059d25cb69543549646a86ed03b336252a9f4efc4b3ddca7cfdac8db28286f"
+        },
+        {
+          "path": "assets/ServerToolPage-Cfp5Kugl.js",
+          "bytes": 42422,
+          "sha256": "7ac25c7c47aaef6f17cd6d360e0c1e70703c4d2740697f0f8e2ad15ec84aec3d"
+        },
+        {
+          "path": "assets/Servers-CxdiViCr.js",
+          "bytes": 11445,
+          "sha256": "0ad4a3036ee375501b0dc0d66a930b5e0632494316616c40a444e8f40a91c3f0"
+        },
+        {
+          "path": "assets/Settings-Bn5bxzcP.js",
+          "bytes": 31539,
+          "sha256": "af4bc81b475d9a7699c1efe03361c722f7141d1cdd7ea9ca2fa8f6e554d6dc49"
+        },
+        {
+          "path": "assets/Settings-Cv16uXfB.js",
+          "bytes": 3411,
+          "sha256": "37afcff30b7cb6b8b03360def3de52d18e9b30ef8a6fb87d1d7112ac891c274a"
+        },
+        {
+          "path": "assets/Statistics-C3pwjMto.js",
+          "bytes": 8731,
+          "sha256": "b5d213ae642bcc2497d94eab5ee1b535a91c9da6499a95f9d44b8127ccfb41bd"
+        },
+        {
+          "path": "assets/UserPortal-CaO0Z0Vi.js",
+          "bytes": 7092,
+          "sha256": "b403abf8cb688ffa1b7a31fc550b124dc0375d480250160146501915a3409680"
+        },
+        {
+          "path": "assets/UserPortal-DE_HviZN.css",
+          "bytes": 420,
+          "sha256": "24a2272bddb66286c276b799a196a447319aa35d6268bdfa3cf20a2a55217563"
+        },
+        {
+          "path": "assets/currency-CRD7ID1U.js",
+          "bytes": 2030,
+          "sha256": "b40696abad7a30c4a7a73068ab34fdac8a3444dbbed05a859ef52e5725e56f57"
+        },
+        {
+          "path": "assets/groupTypes-CGNvmS0y.js",
+          "bytes": 7784,
+          "sha256": "ef67f6c10c9c349ec371496f0335b477d131bdc4d0f59a4eeadd584d0cc64e18"
+        },
+        {
+          "path": "assets/index-3uMDMd80.css",
+          "bytes": 81788,
+          "sha256": "3f070201ef012273ce69bf4f3741108b7e5720944eb2486bc4c8a84b621a8e79"
+        },
+        {
+          "path": "assets/index-CaMH637b.js",
+          "bytes": 5425,
+          "sha256": "0b81b0d47117e89a333adb5f31fcb37c232ca04c9c4982b5eae0fbcb548b3fb6"
+        },
+        {
+          "path": "assets/index-VJZxoSoy.js",
+          "bytes": 275578,
+          "sha256": "0d6dbf66d1499af58562ed7112b26416a18c95d63bf3785763bf706a7304ce10"
+        },
+        {
+          "path": "assets/probes-38FTjSqh.js",
+          "bytes": 7530,
+          "sha256": "bdd0443fb742d735dcabef52db3a5edd9f3ed1ee0afb36d4f99be75196ad67d3"
+        },
+        {
+          "path": "assets/server-assets-OE577G1x.js",
+          "bytes": 2732,
+          "sha256": "7c1083345733e3a05fca6707e1750be86bfa76c74c259e293d63900bea902487"
+        },
+        {
+          "path": "display-icons/os-alma.svg",
+          "bytes": 5190,
+          "sha256": "c8b1686f341a1ed3e3c9638f396539e50334f0c7e11fd4a5a7d1b286686d636d"
+        },
+        {
+          "path": "display-icons/os-alpine.webp",
+          "bytes": 2200,
+          "sha256": "25c7dd641ef59d4cc6355672a4d8f6f3368d6c98e848e6cf1c99c7d521b386bf"
+        },
+        {
+          "path": "display-icons/os-arch.svg",
+          "bytes": 915,
+          "sha256": "9605f694e3fd91c1329c246cbe5ed1105e13ca39928569e23f2c6993fc2ed463"
+        },
+        {
+          "path": "display-icons/os-centos.svg",
+          "bytes": 1634,
+          "sha256": "22364a4fe637a35a829cbc92c2bd6f3ce912b47aedb7e64c59714c63d9ceeba9"
+        },
+        {
+          "path": "display-icons/os-debian.svg",
+          "bytes": 5828,
+          "sha256": "ea5542edfa154f61e1eded2f7ad1b161e64735fb421d6831e478772f85dd7cde"
+        },
+        {
+          "path": "display-icons/os-fedora.svg",
+          "bytes": 1682,
+          "sha256": "08dacee944d8472123c96d5fa7041512c53f2b9969c81bac798c46b9ffc40227"
+        },
+        {
+          "path": "display-icons/os-gentoo.svg",
+          "bytes": 3430,
+          "sha256": "6fd85109e4873b62d8b49615a0981337e0b58ac250c185c85dfedac2bafabf23"
+        },
+        {
+          "path": "display-icons/os-macos.svg",
+          "bytes": 725,
+          "sha256": "3de3719e3bc9f696ac964b15c703d972cecd712d1c13fc85a800c92e4dd5fedb"
+        },
+        {
+          "path": "display-icons/os-nix.svg",
+          "bytes": 915,
+          "sha256": "2a5d3e942d5db27c4f33ec21601c458f869d18d53e831422027a8a4828da3784"
+        },
+        {
+          "path": "display-icons/os-rocky.svg",
+          "bytes": 411,
+          "sha256": "bfc0bdb756bc06ee977480cfcc28adc32980aded075de0d46f11b0dbc83447f1"
+        },
+        {
+          "path": "display-icons/os-ubuntu.svg",
+          "bytes": 2652,
+          "sha256": "edd92d1b8239902f3001fabfdb3c479ed2f8036186a03c5b21b61227345e0d4f"
+        },
+        {
+          "path": "display-icons/os-unknown.svg",
+          "bytes": 300,
+          "sha256": "986825609c5a3bfc8aa20b6468119246ff8e3b787a6c329186d83ac98051dc14"
+        },
+        {
+          "path": "display-icons/os-windows.svg",
+          "bytes": 179,
+          "sha256": "0f6b74d8d8ede1ec0e454b3c6fcdfba65fbe989af9a49ad4ff0c498f4dc3afbb"
+        },
+        {
+          "path": "index.html",
+          "bytes": 552,
+          "sha256": "5934082b0563d91d237cf585c5782ee40c4b93d107285fd2d58defea6681153f"
+        },
+        {
+          "path": "notices/NodeFlare.txt",
+          "bytes": 1379,
+          "sha256": "1a3a2e3d60f2a46379bae01ee1e95b8150635126f0f62c5723dc73fe545106d6"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "name": "bun-version",
+        "exit_code": 0,
+        "elapsed_seconds": 0.0,
+        "log": ".local/cloud/branch-integration-validation/frontend/bun-version.log",
+        "log_sha256": "b99b4c7cdf236f59bc9f65d963deaecae3b16a7dad87939cacb9057f7664daee"
+      },
+      {
+        "name": "node-version",
+        "exit_code": 0,
+        "elapsed_seconds": 0.02,
+        "log": ".local/cloud/branch-integration-validation/frontend/node-version.log",
+        "log_sha256": "b7677d3ec37ee1897ba07dc2cfe8292fe421c9ac93396cca5bbece486d1a2a41"
+      },
+      {
+        "name": "chromium-version",
+        "exit_code": 0,
+        "elapsed_seconds": 0.16,
+        "log": ".local/cloud/branch-integration-validation/frontend/chromium-version.log",
+        "log_sha256": "351a5b39f40600fdc78e0d5d098f0049857fa4ff7e917adab5fc6a61edefb1dc"
+      },
+      {
+        "name": "install",
+        "exit_code": 0,
+        "elapsed_seconds": 2.17,
+        "log": ".local/cloud/branch-integration-validation/frontend/install.log",
+        "log_sha256": "d6c378f20949c0ee1787b694f2f63f1fe3061d60a2ea1c929a6c7603d6c1442d"
+      },
+      {
+        "name": "bun-tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.27,
+        "log": ".local/cloud/branch-integration-validation/frontend/bun-tests.log",
+        "log_sha256": "2e340b14116dfea9150b3f8da9f03726a891f5dc9be5e0acb31becca8351c57a"
+      },
+      {
+        "name": "build",
+        "exit_code": 0,
+        "elapsed_seconds": 16.65,
+        "log": ".local/cloud/branch-integration-validation/frontend/build.log",
+        "log_sha256": "1744273b3bff483308c3957e2bc171923149a3c020483b1dd622731e317b726d"
+      },
+      {
+        "name": "browser-source-migration",
+        "exit_code": 0,
+        "elapsed_seconds": 4.99,
+        "log": ".local/cloud/branch-integration-validation/frontend/browser-source-migration.log",
+        "log_sha256": "74d232b9a009db2742bb992102d21fe820c3ec93017aca6c90b56867596a2022"
+      },
+      {
+        "name": "browser-node-routes",
+        "exit_code": 0,
+        "elapsed_seconds": 3.48,
+        "log": ".local/cloud/branch-integration-validation/frontend/browser-node-routes.log",
+        "log_sha256": "e864a6eefa1e7f7d831331878a929300343e3e67fb2b4be0a8c06183cc9ea95a"
+      },
+      {
+        "name": "browser-node-settings",
+        "exit_code": 0,
+        "elapsed_seconds": 8.83,
+        "log": ".local/cloud/branch-integration-validation/frontend/browser-node-settings.log",
+        "log_sha256": "41f64ea40d7daeeda2e8ae48f7d1aa78dbc923efc9e6aef6c2045153f5786a37"
+      },
+      {
+        "name": "browser-ordered-chains",
+        "exit_code": 0,
+        "elapsed_seconds": 18.12,
+        "log": ".local/cloud/branch-integration-validation/frontend/browser-ordered-chains.log",
+        "log_sha256": "b2ea8acb20acb8a3fabda87cf7fa3348d95edea46d801f71f6821c4fff1599a2"
+      },
+      {
+        "name": "browser-subscription-sources",
+        "exit_code": 0,
+        "elapsed_seconds": 35.01,
+        "log": ".local/cloud/branch-integration-validation/frontend/browser-subscription-sources.log",
+        "log_sha256": "87ae83f16411eed2f20057f39f9875aa9861afaa8bbb2bb1360afd72e96d274b"
+      },
+      {
+        "name": "browser-mixed-chains",
+        "exit_code": 0,
+        "elapsed_seconds": 23.77,
+        "log": ".local/cloud/branch-integration-validation/frontend/browser-mixed-chains.log",
+        "log_sha256": "51f77547581684511f97f61eaf73406345ba621163af7934326215a3e5428313"
+      },
+      {
+        "name": "browser-singbox-business",
+        "exit_code": 1,
+        "elapsed_seconds": 55.88,
+        "log": ".local/cloud/branch-integration-validation/frontend/browser-singbox-business.log",
+        "log_sha256": "5b4abd3fb9f6172e190a0ed5d2f0a5f9287c9199c7a0a0a1d3756d133b80aff5"
+      },
+      {
+        "name": "browser-admin-refresh",
+        "exit_code": 0,
+        "elapsed_seconds": 13.45,
+        "log": ".local/cloud/branch-integration-validation/frontend/browser-admin-refresh.log",
+        "log_sha256": "67f146e5604a992870ed6a0b58a7e314684bb521176ab90720c5d2ff4a8ea4cb"
+      },
+      {
+        "name": "browser-admin-shell",
+        "exit_code": 0,
+        "elapsed_seconds": 13.7,
+        "log": ".local/cloud/branch-integration-validation/frontend/browser-admin-shell.log",
+        "log_sha256": "92912fd70de8f49d73f36c81e27d272f63375798aeb43735e68544506c1f9e84"
+      },
+      {
+        "name": "browser-singbox-business-retest",
+        "exit_code": 0,
+        "elapsed_seconds": 45.32,
+        "log_sha256": "ebc4f9174e186811b75d4e4699d2befc709e59a289ce1565c2a6e2d452999eaa",
+        "source_label": "working-tree-sha256:05e5167e81345804cd80629bc4e6ce8ee386670f2d03120602f051d720304a3b"
+      }
+    ],
+    "note": "Initial 8 browser suites: 7 passed/1 fixture race. Only failed singbox-business rerun after semantic empty-state wait; original count=2 assertion remains. Product source and dist bytes unchanged.",
+    "shell_cases": [
+      {
+        "id": "admin-shell-owner-320",
+        "status": "passed",
+        "role": "owner",
+        "width": 320,
+        "navigation_count": 20,
+        "theme": "dark",
+        "density": "compact",
+        "geometry": {
+          "viewport": 320,
+          "document": 320
+        },
+        "screenshot": "admin-shell-owner-320.png",
+        "no_writes": true,
+        "no_external_requests": true,
+        "no_js_errors": true
+      },
+      {
+        "id": "admin-shell-viewer-320",
+        "status": "passed",
+        "role": "viewer",
+        "width": 320,
+        "navigation_count": 4,
+        "theme": "dark",
+        "density": "compact",
+        "geometry": {
+          "viewport": 320,
+          "document": 320
+        },
+        "screenshot": "admin-shell-viewer-320.png",
+        "no_writes": true,
+        "no_external_requests": true,
+        "no_js_errors": true
+      },
+      {
+        "id": "admin-shell-owner-390",
+        "status": "passed",
+        "role": "owner",
+        "width": 390,
+        "navigation_count": 20,
+        "theme": "dark",
+        "density": "compact",
+        "geometry": {
+          "viewport": 390,
+          "document": 390
+        },
+        "screenshot": "admin-shell-owner-390.png",
+        "no_writes": true,
+        "no_external_requests": true,
+        "no_js_errors": true
+      },
+      {
+        "id": "admin-shell-viewer-390",
+        "status": "passed",
+        "role": "viewer",
+        "width": 390,
+        "navigation_count": 4,
+        "theme": "dark",
+        "density": "compact",
+        "geometry": {
+          "viewport": 390,
+          "document": 390
+        },
+        "screenshot": "admin-shell-viewer-390.png",
+        "no_writes": true,
+        "no_external_requests": true,
+        "no_js_errors": true
+      },
+      {
+        "id": "admin-shell-owner-1440",
+        "status": "passed",
+        "role": "owner",
+        "width": 1440,
+        "navigation_count": 20,
+        "theme": "light",
+        "density": "compact",
+        "geometry": {
+          "viewport": 1440,
+          "document": 1440
+        },
+        "screenshot": "admin-shell-owner-1440.png",
+        "no_writes": true,
+        "no_external_requests": true,
+        "no_js_errors": true
+      },
+      {
+        "id": "admin-shell-viewer-1440",
+        "status": "passed",
+        "role": "viewer",
+        "width": 1440,
+        "navigation_count": 4,
+        "theme": "light",
+        "density": "compact",
+        "geometry": {
+          "viewport": 1440,
+          "document": 1440
+        },
+        "screenshot": "admin-shell-viewer-1440.png",
+        "no_writes": true,
+        "no_external_requests": true,
+        "no_js_errors": true
+      }
+    ],
+    "runtime_versions": {
+      "bun": "1.4.2",
+      "node": "v24.19.0",
+      "chromium": "Chromium 151.0.7922.173 built on Debian GNU/Linux 13 (trixie)"
+    }
+  },
+  "python": {
+    "python_version": "Python 3.12.14",
+    "warnings": "error::ResourceWarning",
+    "commands_completed": 52,
+    "total_test_methods_run": 985,
+    "successful_test_methods": 887,
+    "skipped_events": 187,
+    "counting_note": "unittest skipped events include method, class setup and subTest skips; they are not directly subtractable from testsRun",
+    "total_failed": 0,
+    "total_errors": 0,
+    "warning_markers": 0,
+    "skipped_event_categories": {
+      "privileged_root_or_sudo_fixture_unavailable": 10,
+      "powershell_tool_unavailable": 14,
+      "native_tcp_artifact_matrix_not_run": 1,
+      "verified_readonly_upstream_or_canonical_source_cache_unavailable": 148,
+      "bc_tool_unavailable": 12,
+      "real_owned_loop_filesystem_fixture_not_opted_in": 2
+    },
+    "bc_skip_prerequisite_note": {
+      "events": 12,
+      "commands": [
+        "python3 -W error::ResourceWarning tools/test-nodequality-ranking-policy.py -v",
+        "python3 -W error::ResourceWarning tools/test-nodequality-ip-score-policy.py -v",
+        "python3 -W error::ResourceWarning tools/test-nodequality-native-ip-score-policy.py -v"
+      ],
+      "events_per_command": 4,
+      "prerequisites": [
+        "actual bc tool",
+        "previously verified readonly 17-file canonical upstream source cache"
+      ],
+      "execution_order": "Each skipped method checks the runtime tools before production() checks the readonly canonical cache. Installing bc alone would advance to the cache gate and would not execute these methods. Pure local jq score-helper contracts already passed."
+    },
+    "source_files": 184,
+    "source_sha256": "0de7d5e5ac8cdd08556998018ef800add0214b2877ae48c5464a768996970123",
+    "commands": [
+      {
+        "name": "unittest-discovery",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tests",
+          "-p",
+          "test_*.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 217,
+        "skipped_events": 25,
+        "successful_test_methods": 193,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "a6883a8ef4a046a7a4ee38e84c11ab1b8589a9262991c1cb9eb241a7f7f7219a"
+      },
+      {
+        "name": "recovery",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "scripts/test-recovery.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 6,
+        "skipped_events": 0,
+        "successful_test_methods": 6,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "14541c69b048a239cedf46df1f2bd369e19820f1e76a5983ae71ea8a54fb3246"
+      },
+      {
+        "name": "operations-clis-official-age",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "scripts/test-operations-clis.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 18,
+        "skipped_events": 0,
+        "successful_test_methods": 18,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "9856466500359e74dcbd16014cadf3820aab33a2e72a2712e5fa72359e0705ef"
+      },
+      {
+        "name": "panel-manager",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-panel-manager.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 12,
+        "skipped_events": 0,
+        "successful_test_methods": 12,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "f1aa86f8b3ec0bafa40905d74fa5c8aaf58721bab2ed873f2af00f64e48c135b"
+      },
+      {
+        "name": "test-build-scripts",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-build-scripts.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 8,
+        "skipped_events": 0,
+        "successful_test_methods": 8,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "c6ae1f8bbe9bd9ba5735086502986373ebfc46df7fa3d27eca9cceeb5be98d0f"
+      },
+      {
+        "name": "test-init-env",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-init-env.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 3,
+        "skipped_events": 0,
+        "successful_test_methods": 3,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "8f2c492378713e082232711a6640a3e490499adc2fcc7dd508cba56519d08370"
+      },
+      {
+        "name": "test-e2e-driver",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "scripts/test-e2e-driver.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 26,
+        "skipped_events": 0,
+        "successful_test_methods": 26,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "394ae92763686dc2a453b717f835cdf2a48ea4ca7562ef22e989491415ca8ac3"
+      },
+      {
+        "name": "test-e2e-traffic-evidence",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "scripts/test-e2e-traffic-evidence.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 20,
+        "skipped_events": 0,
+        "successful_test_methods": 20,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "eb563479abe1178941fd6880ce6d33d0ea75046a08a1c3c416c71a6bc4871578"
+      },
+      {
+        "name": "test-e2e-runtime",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "scripts/test-e2e-runtime.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 3,
+        "skipped_events": 0,
+        "successful_test_methods": 3,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "666c2091e4c7289559be551afd6545ca0783fb2d8e995adc2aea220b077b8461"
+      },
+      {
+        "name": "test-ci-signed-release",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "scripts/test-ci-signed-release.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 8,
+        "skipped_events": 0,
+        "successful_test_methods": 8,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "b25d28c3619182c8e46b72930f8dc02e2913cd6ef85eebe34e57d8051999b73a"
+      },
+      {
+        "name": "test-nodequality",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 41,
+        "skipped_events": 0,
+        "successful_test_methods": 41,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "bb20fedfd3674a16a06ff4b2de02484a515ef0b26709fcf89806835657bd5b8c"
+      },
+      {
+        "name": "test-diagnostic-modes",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-diagnostic-modes.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 7,
+        "skipped_events": 0,
+        "successful_test_methods": 7,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "b66e05f3c742ce2e8603ea63589dd72c2812a291fdc2b455958575b6cb4782ff"
+      },
+      {
+        "name": "test-nodequality-sources",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-sources.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 17,
+        "skipped_events": 0,
+        "successful_test_methods": 17,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "83de01add50e9214b03562594fcd80e2830535e2bdb320d4389e2775e0e3b76e"
+      },
+      {
+        "name": "test-nodequality-report-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-report-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 6,
+        "skipped_events": 0,
+        "successful_test_methods": 6,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "5586d7ffe539780bda8cabf0922b6546eba657f8834db68deec48e4a9c7f122b"
+      },
+      {
+        "name": "test-nodequality-swap-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-swap-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 10,
+        "skipped_events": 2,
+        "successful_test_methods": 8,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "629667614b2dd270af8a8e71b22e179acd86ac06b7161a40e08dbc21bbda6314"
+      },
+      {
+        "name": "test-nodequality-dependency-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-dependency-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 11,
+        "skipped_events": 3,
+        "successful_test_methods": 8,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "9248449819db22c1de2f6ba650c9cc54007603814d7c089e725246290cc209c7"
+      },
+      {
+        "name": "test-nodequality-data-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-data-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 6,
+        "skipped_events": 1,
+        "successful_test_methods": 5,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "b3dc9b2997f640a0033944ceb03b8896afda1c42529fb8e9ea802c53b32d8350"
+      },
+      {
+        "name": "test-nodequality-loader-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-loader-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 10,
+        "skipped_events": 3,
+        "successful_test_methods": 7,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "e851d6da4be3e2117ec98819e7005b77b6cec825b501be66875fdfb6f3d3ca99"
+      },
+      {
+        "name": "test-nodequality-ranking-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-ranking-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 8,
+        "skipped_events": 5,
+        "successful_test_methods": 3,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "0684931025d56c606cbd586fe3dca9a096278a0e5b0e3d1465be9b63c93bfb69"
+      },
+      {
+        "name": "test-nodequality-ip-score-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-ip-score-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 10,
+        "skipped_events": 5,
+        "successful_test_methods": 5,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "01d67bcb3fc7613457f1b38c99f41a42359d821c9d71c54da529d7625e71714c"
+      },
+      {
+        "name": "test-nodequality-netflix-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-netflix-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 16,
+        "skipped_events": 35,
+        "successful_test_methods": 6,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "aed9202f96785d16b142fbcd1d09e15affc83d4ad7036a5480137a9676e63338"
+      },
+      {
+        "name": "test-nodequality-rootfs",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-rootfs.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 21,
+        "skipped_events": 0,
+        "successful_test_methods": 21,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "a16c259293a2c424fc8a109c4134dd2fe24ff77faa43c6da016c69aa46c06cf0"
+      },
+      {
+        "name": "test-nodequality-rootfs-build",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-rootfs-build.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 40,
+        "skipped_events": 0,
+        "successful_test_methods": 40,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "742a062e6bbce95b73d676b4e7179fbabdff3d78cd414cd6e62e5408a98ce44a"
+      },
+      {
+        "name": "test-nodequality-rootfs-artifact",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-rootfs-artifact.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 0,
+        "skipped_events": 1,
+        "successful_test_methods": 0,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "a1e05fbc9b3c839cf455fc1a41711db8ffb307828e618dae541e172adc549a6a"
+      },
+      {
+        "name": "test-nodequality-node-query",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-node-query.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 15,
+        "skipped_events": 0,
+        "successful_test_methods": 15,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "06c54718a12a09da3c8579ce975f54a9512d1c2495f21b84826b23d82d357e37"
+      },
+      {
+        "name": "test-nodequality-node-query-artifact",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-node-query-artifact.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 0,
+        "skipped_events": 1,
+        "successful_test_methods": 0,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "2695aacdb99e18694939e193c5b01bf27417a98310be309e6dd0d6acddcb671e"
+      },
+      {
+        "name": "test-bootstrap-artifact-contracts",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-bootstrap-artifact-contracts.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 8,
+        "skipped_events": 0,
+        "successful_test_methods": 8,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "a2dae462bf864c14b1ce74c8b0e75ac4f09c14537b5f68e527e8cfa277e3790e"
+      },
+      {
+        "name": "test-nodequality-native",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-native.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 42,
+        "skipped_events": 0,
+        "successful_test_methods": 42,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "2878fd3b993de0fc6f29ed3e08349b7f2cda20ef8276316595892cd2cd532caf"
+      },
+      {
+        "name": "test-nodequality-native-sources",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-native-sources.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 16,
+        "skipped_events": 0,
+        "successful_test_methods": 16,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "3b46e5b978c60b209ca1c5555bd12b34808d2ff8926917bfdd755ce1faa21ba1"
+      },
+      {
+        "name": "test-nodequality-native-rootfs-artifact",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-native-rootfs-artifact.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 0,
+        "skipped_events": 1,
+        "successful_test_methods": 0,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "a1e05fbc9b3c839cf455fc1a41711db8ffb307828e618dae541e172adc549a6a"
+      },
+      {
+        "name": "test-nodequality-rootfs-capacity",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-rootfs-capacity.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 43,
+        "skipped_events": 2,
+        "successful_test_methods": 41,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "a33fd8342265aeadd441b3fb4a8fcbd7d0ddc5ed99f06ca6b13f20367cca9877"
+      },
+      {
+        "name": "test-ipquality-artifact",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-ipquality-artifact.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 19,
+        "skipped_events": 0,
+        "successful_test_methods": 19,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "b5379ec9423ea3352cf010326b6e40004e1997ccaeed6d0f62b15baf20069b59"
+      },
+      {
+        "name": "test-ipquality-build",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-ipquality-build.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 16,
+        "skipped_events": 0,
+        "successful_test_methods": 16,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "6366cb5e10feb49af046d19a80ac771a6e8e0e3ce3b6da613b22d93846d024a3"
+      },
+      {
+        "name": "test-ipquality-inputs",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-ipquality-inputs.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 43,
+        "skipped_events": 0,
+        "successful_test_methods": 43,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "6d1fc27bd14dce4fdff597ef03dd68bef3b1d23630413b3ed6d0aefd4759218c"
+      },
+      {
+        "name": "test-ipquality-inputs-capacity",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-ipquality-inputs-capacity.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 16,
+        "skipped_events": 0,
+        "successful_test_methods": 16,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "4ba1360d50498a922e8c90e84c20acbfd8ce85afe707c49c06a31966454bd419"
+      },
+      {
+        "name": "test-ipquality-profile",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-ipquality-profile.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 30,
+        "skipped_events": 0,
+        "successful_test_methods": 30,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "4b7e1b7c580aa8d8daa9a0aedd606567d1471567b3de657e31df6ffe6bd8f768"
+      },
+      {
+        "name": "test-ipquality-runner",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-ipquality-runner.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 6,
+        "skipped_events": 0,
+        "successful_test_methods": 6,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "9cbfa992abafa34d8de4dbcbb0b41872d56f53337c2dbe7936e2fa33b21655d6"
+      },
+      {
+        "name": "test-managed-paths-preparation",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-managed-paths-preparation.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 17,
+        "skipped_events": 0,
+        "successful_test_methods": 17,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "28bf0bd7fe4a751385b1e07778d274b329ae9c0782ccf17e46c968656b276bb3"
+      },
+      {
+        "name": "test-managed-paths-fixtures",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-managed-paths-fixtures.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 21,
+        "skipped_events": 0,
+        "successful_test_methods": 21,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "37ede966cce46b1f31de0a984ca7b58df3c7dae89bca0c2bbc45def0c67e513c"
+      },
+      {
+        "name": "test-managed-paths-linux-contracts",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-managed-paths-linux-contracts.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 31,
+        "skipped_events": 0,
+        "successful_test_methods": 31,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "041005f7ce0d8462449797cc56cf9c8887fb1592f3a7e413653b1fb67901f4b4"
+      },
+      {
+        "name": "test-ordered-paths-native-contracts",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-ordered-paths-native-contracts.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 17,
+        "skipped_events": 0,
+        "successful_test_methods": 17,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "e3df434cf5ba2ba51f28ab0101a97b35de2e41b9d220db62ef739a94906a3a54"
+      },
+      {
+        "name": "test-nodequality-native-browser-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-native-browser-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 8,
+        "skipped_events": 2,
+        "successful_test_methods": 6,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "4080fe0c5fac5a429db6d9e016f36dfcc787d71bb6bc9a120742023da5b7f6aa"
+      },
+      {
+        "name": "test-nodequality-native-data-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-native-data-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 6,
+        "skipped_events": 1,
+        "successful_test_methods": 5,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "4ab52769417221558db0e3faf43aa3c85513351fbb410c57399bdb73807327e3"
+      },
+      {
+        "name": "test-nodequality-native-dependency-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-native-dependency-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 11,
+        "skipped_events": 3,
+        "successful_test_methods": 8,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "0aa08eacde3698d1f05a1fe0e866e02016858ebc07dc81de938d1b35d4f62492"
+      },
+      {
+        "name": "test-nodequality-native-ip-score-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-native-ip-score-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 10,
+        "skipped_events": 5,
+        "successful_test_methods": 5,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "deba36784cbd8b5d24751c91d4ff406dafc1d2cdf3e5129aa246a9b5a44b2d7f"
+      },
+      {
+        "name": "test-nodequality-native-netflix-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-native-netflix-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 17,
+        "skipped_events": 43,
+        "successful_test_methods": 4,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "0eee0b9a287e10a5037438d76f5e86b29f190f6444c1aab9403124f0912d6fc7"
+      },
+      {
+        "name": "test-nodequality-native-report-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-native-report-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 14,
+        "skipped_events": 0,
+        "successful_test_methods": 14,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "269c15ce02de4a5323a91d16b39d6bac9ab8c6b464c816b267cea77bde71020e"
+      },
+      {
+        "name": "test-nodequality-native-fixture-process",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-native-fixture-process.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 4,
+        "skipped_events": 0,
+        "successful_test_methods": 4,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "d7aa72a0455236027506d73932961896292518932fcdec44825e7c2744bced1f"
+      },
+      {
+        "name": "test-nodequality-native-watcher",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-native-watcher.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 24,
+        "skipped_events": 0,
+        "successful_test_methods": 24,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "10f23436189abe6088bf1ec76555861f573ef0244930fa0202acee8dd4d1b3e3"
+      },
+      {
+        "name": "test-nodequality-access-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-access-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 11,
+        "skipped_events": 39,
+        "successful_test_methods": 2,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "dedb30c78271c085b46ab5a43ced4ff5af80254ed54141767c9d665fa21bcfbd"
+      },
+      {
+        "name": "test-nodequality-query-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-query-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 6,
+        "skipped_events": 4,
+        "successful_test_methods": 2,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "8c484e3b2119bb63784b1c4d06796f960aba4d4422c9d5fefb60faab726c8078"
+      },
+      {
+        "name": "test-nodequality-openai-policy",
+        "command": [
+          "python3",
+          "-W",
+          "error::ResourceWarning",
+          "tools/test-nodequality-openai-policy.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "tests": 10,
+        "skipped_events": 6,
+        "successful_test_methods": 4,
+        "failure_count": 0,
+        "error_count": 0,
+        "log_sha256": "dfa45980f702aa84aa0063afe03cc75155da1dfa9aa15f96a9eb325b00cc9db5"
+      }
+    ],
+    "note": "All 48 CI Python fixture/contract commands plus 4 main groups ran locally. Official age supplements replaced the earlier skipped operations-cli run. Final Rust/browser repairs did not change Python tool inputs."
+  },
+  "native_smoke": {
+    "binary_sha256": "01672098b2ae55b1c0f7551089bf416c083e983faa0b4f884a4fd97d74c4fc0c",
+    "dist_files_checked": 63,
+    "authenticated_get_endpoints": [
+      "/api/servers",
+      "/api/control-center/me",
+      "/api/control-center/health",
+      "/api/fleet/templates",
+      "/api/network-workbench/catalog",
+      "/api/network-configuration/documents",
+      "/api/operations/templates",
+      "/api/plugins/sing-box/nodes",
+      "/api/plugins/sing-box/users",
+      "/api/plugins/sing-box/chains",
+      "/api/plugins/sing-box/source-migration",
+      "/api/plugins/alicloud"
+    ],
+    "anonymous_denied_endpoints": [
+      "/api/servers",
+      "/api/control-center/me",
+      "/api/control-center/health",
+      "/api/fleet/templates",
+      "/api/network-workbench/catalog",
+      "/api/network-configuration/documents",
+      "/api/operations/templates",
+      "/api/plugins/sing-box/nodes",
+      "/api/plugins/sing-box/users",
+      "/api/plugins/sing-box/chains",
+      "/api/plugins/sing-box/source-migration",
+      "/api/plugins/alicloud"
+    ],
+    "started_at_utc": "2026-10-04T10:24:11Z",
+    "recovery_material_verified_before_listen": true,
+    "boot_migrations": {
+      "successful": 64,
+      "max_version": 64
+    },
+    "result": "passed",
+    "process_stopped": true
+  },
+  "tools": {
+    "minisign": {
+      "url": "https://deb.debian.org/debian/pool/main/m/minisign/minisign_0.11-1_amd64.deb",
+      "package_sha256": "878264fbb6cfd39c7a67262f712ca73d1bfd0d8533f37c2a92c4af2b42b062fd",
+      "actual_version": "minisign 0.11"
+    },
+    "postgres": "postgres (PostgreSQL) 16.15",
+    "age": {
+      "url": "https://deb.debian.org/debian/pool/main/a/age/age_1.2.1-1+b5_amd64.deb",
+      "bytes": 1665976,
+      "sha256": "a87ab5ba69a99bc6d8c95935ae467fa877daef50d11d9dabe0520ae01411f85c"
+    }
+  },
+  "initial_issues_and_repairs": [
+    {
+      "issue": "Core boundary: native HTTP header and connection-fixture account token after host move",
+      "repair": "Use exact reqwest USER_AGENT.as_str exception with adjacent-business negative tests; rename native fixture account without changing URI decoding"
+    },
+    {
+      "issue": "Clippy items_after_test_module",
+      "repair": "Move unchanged iso_time function before test module"
+    },
+    {
+      "issue": "Clippy duplicate_mod in mixed_conversion",
+      "repair": "Reuse business_support::release_fixture without duplicate module loading"
+    },
+    {
+      "issue": "Lazy proxy-user fixture asserted 2 create buttons before empty-state fetch completed",
+      "repair": "Wait for semantic empty-state title, retain exact count=2"
+    },
+    {
+      "issue": "Lease test raced independent target authorization deadline against lease deadline",
+      "repair": "Put target authorization beyond lease only in fixture; preserve 3s lease, deducted 2s request age, 1500ms cancellation, empty outbox and expired-delivery assertions"
+    },
+    {
+      "issue": "Assembly high-risk cloud root differed from main",
+      "repair": "Restore original slashed path-prefix condition and test exact root, resource mutation, preview and read distinctions"
+    }
+  ],
+  "conditions_not_executed": [
+    "GitHub Actions remain paused; no CI run was triggered or retried",
+    "Production source migration rehearsal and real subscription refresh",
+    "Real DNS/cloud mutations, external notifications and authorized observer integrations",
+    "Complete NodeQuality native execution, license gates and real-device/hardware acceptance",
+    "Production-scale upgrade timing and platform/tool/source-cache conditional cases listed in skips"
+  ],
+  "cleanup": {
+    "status": "completed",
+    "completed_at": "2026-10-04T18:31:20.748588+08:00",
+    "removed_exact_paths": [
+      "/workspace/sinan/target",
+      "/workspace/sinan/web/node_modules",
+      "/workspace/sinan/.local/cloud/branch-integration-validation"
+    ],
+    "owned_postgres": "16.15 fixture on 127.0.0.1:55440 stopped with pg_ctl; task-only database cluster deleted",
+    "native_process": "stopped by SIGINT and wait in smoke finally",
+    "frontend_processes": "fixture HTTP and browser processes closed in finally; no active cargo/panel/Chromium test process remains",
+    "temporary_directory_baseline_diff": 0,
+    "raw_materials_deleted": [
+      "raw logs and failure snapshots",
+      "browser screenshots",
+      "task-only minisign/age packages and extraction",
+      "Bun dependency/cache copy",
+      "temporary unsigned native binaries and compilation directory",
+      "isolated PostgreSQL data and local test keys"
+    ],
+    "preserved": [
+      "current repository source and tests",
+      "this bounded evidence and historical acceptance records",
+      "latest web/dist and notices",
+      "preexisting developer toolchains, caches, effective credentials and other-project data"
+    ],
+    "note": "Bounded input/results/hashes retained here. Preexisting toolchains/caches/credentials and unrelated data are unchanged; no global prune or broad process kill."
+  },
+  "branch_cleanup_protocol": {
+    "normal_main_push": true,
+    "main_force_push": false,
+    "delete_only_after_all_snapshotted_heads_are_ancestors": true,
+    "atomic_deletion_exact_head_leases": true,
+    "expected_remote_branches_after_deletion": [
+      "main"
+    ],
+    "actual_completion_record": "Verified by Git immediately after push/deletion; final response reports the resulting main commit. This evidence file is committed before the deletion operation."
+  }
+}

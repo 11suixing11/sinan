@@ -51,6 +51,9 @@
 - [ADR 0040：有序混合链路与机场订阅来源](0040-mixed-chains-and-subscriptions.md)
 - [ADR 0045：混合链路的执行与验证](0045-mixed-path-execution.md)
 - [ADR 0054：链路写入时复核资源快照与原选择](0054-chain-resource-snapshot-writes.md)
+- [ADR 0083：代理流量按天汇总与数据保留](0083-usage-daily-rollup-and-retention.md)
+- [ADR 0084：管理界面重排、节点页分区与离线时间](0084-admin-layout-and-node-sections.md)
+- [ADR 0085：重新架构：插件边界、订阅来源与链路模型（已接受，分阶段实施）](0085-rearchitecture-plugins-sources-chains.md)
 
 ## 诊断、IP 查询与执行保护
 

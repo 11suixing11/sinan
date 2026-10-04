@@ -53,6 +53,7 @@ try {
       else if (method === 'GET' && path === `${prefix}/usage`) value = { total: '0', uplink: '0', downlink: '0', by_node: [], by_user: [] }
       else if (method === 'GET' && path === `${prefix}/ordered-proxy-resources`) value = resources()
       else if (method === 'GET' && /^\/api\/plugins\/sing-box\/ordered-proxy-resources\/(direct|chain)\/[1-9]\d*$/.test(path)) { const [, kind, id] = path.match(/\/(direct|chain)\/(\d+)$/); value = resources().find(resource => resource.kind === kind && resource.id === Number(id)); if (!value) { await route.fulfill({ status: 404, json: { error: '资源已删除' } }); return } }
+      else if (method === 'GET' && path === `${prefix}/source-migration`) value = { migrated: false, migrated_at: null }
       else if (method === 'GET' && path === `${prefix}/ordered-subscription-sources`) { if (sourceFailure) { await route.fulfill({ status: 503, json: { error: '来源读取失败' } }); return } value = [getSource()] }
       else if (method === 'GET' && path === `${prefix}/ordered-subscription-sources/1`) value = getSource()
       else if (method === 'GET' && path === `${prefix}/ordered-subscription-sources/1/nodes`) value = sourceNodePageFixture({ current_identity_epoch: source.identity_epoch, nodes: sourceNodes })
@@ -100,19 +101,25 @@ try {
     const fieldSelect = (scope, label) => scope.locator('label.field').filter({ has: page.getByText(label, { exact: true }) }).locator('select')
     const poll = () => page.clock.fastForward(5000)
     const shot = async name => { if (!process.env.SINAN_UI_SCREENSHOT_DIR) return; await mkdir(process.env.SINAN_UI_SCREENSHOT_DIR, { recursive: true }); await page.locator('[role=dialog]').evaluateAll(dialogs => { for (const dialog of dialogs) for (const animation of (dialog.closest('.modal-shade') ?? dialog).getAnimations({ subtree: true })) if (animation.effect?.getComputedTiming().iterations !== Infinity) animation.finish() }); await page.screenshot({ animations: 'disabled', path: resolve(process.env.SINAN_UI_SCREENSHOT_DIR, `ordered-${name}-${width}.png`) }) }
+    // The server filter lives in the catalog section; chains and sources have their own sections.
+    const showView = name => page.getByRole('navigation', { name: '节点视图', exact: true }).getByRole('link', { name, exact: true }).click()
+    const scope = async server => { await showView('节点库'); await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption(server); await showView('链路') }
     await installControlCenterFixtures(page)
     await page.goto(`${origin}/#/plugins/sing-box/nodes`)
+    await showView('链路')
     const create = page.getByRole('button', { name: '创建有序链路', exact: true }); await enabled(create)
-    await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption('3')
+    await scope('3')
     await page.locator('[data-resource-key="chain:11"]').waitFor(); await page.getByLabel('链路中的服务器角色', { exact: false }).selectOption('middle'); await page.locator('[data-resource-key="chain:11"]').waitFor()
-    await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption('')
+    await scope('')
     await page.locator('[data-resource-key="chain:11"]').getByRole('button', { name: '详情', exact: true }).click()
     let dialog = page.getByRole('dialog'); await dialog.getByText('已应用代 1', { exact: true }).waitFor(); await dialog.getByText('候选代 2', { exact: true }).waitFor()
     assert.match(await dialog.innerText(), new RegExp(sourceUuid(401))); assert.match(await dialog.innerText(), new RegExp(sourceUuid(405))); assert.equal(await dialog.getByText('指定目标验证成功', { exact: true }).count(), 0)
     await shot('versions'); await dialog.getByRole('button', { name: '关闭', exact: true }).click()
+    await showView('订阅来源')
     await page.locator('[data-source-id="1"]').getByRole('button', { name: '查看来源', exact: true }).click(); dialog = page.getByRole('dialog')
     const refs = dialog.getByRole('region', { name: '来源路径引用', exact: true }); await refs.getByText(/候选代 2/).waitFor(); await refs.getByRole('link', { name: '「已有四段路径」#11', exact: true }).first().click()
     dialog = page.getByRole('dialog'); await dialog.getByRole('heading', { name: '资源详情：已有四段路径', exact: true }).waitFor(); assert.match(page.url(), /nodes\/chain\/11$/); await dialog.getByRole('button', { name: '关闭', exact: true }).click()
+    await showView('链路')
     await enabled(create); await create.click(); dialog = page.getByRole('dialog')
     await dialog.locator('[name=server_id]').selectOption('1'); await dialog.locator('[name=public_host]').fill('entry.example.com'); await dialog.locator('[name=sni]').fill('www.example.com'); await dialog.locator('[name=name]').fill('新四段甲')
     const shared = dialog.getByRole('group', { name: '共享有序路径', exact: true })

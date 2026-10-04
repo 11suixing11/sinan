@@ -2,7 +2,7 @@ use super::{
     billing,
     model::{Account, Resource, Snapshot, Target},
 };
-use crate::plugins::cloud_api::{Failure, aliyun::Aliyun};
+use crate::cloud_api::{Failure, aliyun::Aliyun};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -60,16 +60,16 @@ impl Cloud {
             }
             let key = value["access_key_id"]
                 .as_str()
-                .filter(|v| crate::plugins::cloud_api::credential(v))
+                .filter(|v| crate::cloud_api::credential(v))
                 .ok_or(Failure::from("credential_invalid"))?;
             let secret = value["access_key_secret"]
                 .as_str()
-                .filter(|v| crate::plugins::cloud_api::credential(v))
+                .filter(|v| crate::cloud_api::credential(v))
                 .ok_or(Failure::from("credential_invalid"))?;
             resolved.access_key_id = key.into();
             resolved.access_key_secret = secret.into();
-        } else if !crate::plugins::cloud_api::credential(&account.access_key_id)
-            || !crate::plugins::cloud_api::credential(&account.access_key_secret)
+        } else if !crate::cloud_api::credential(&account.access_key_id)
+            || !crate::cloud_api::credential(&account.access_key_secret)
         {
             return Err("credential_invalid".into());
         }

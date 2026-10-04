@@ -108,7 +108,8 @@ try {
             for (const notice of [added, ...added.querySelectorAll('.notice-error, .loading')]) if (notice.matches('.notice-error, .loading')) window.testNotices.push(notice.textContent)
           }
         })
-        window.testObserver.observe(document.querySelector('.content'), { childList: true, subtree: true })
+        // Dialogs render at the document root, so observe the whole body for inserted notices.
+        window.testObserver.observe(document.body, { childList: true, subtree: true })
       })
       const readPath = `${prefix}/${pageName === 'groups' ? 'policy-groups' : 'users'}`
       const brief = hold(readPath)

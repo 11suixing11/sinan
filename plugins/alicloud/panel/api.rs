@@ -124,8 +124,8 @@ impl AccountWrite {
                 ));
             }
         } else if self.legacy_credentials
-            && crate::plugins::cloud_api::credential(key)
-            && crate::plugins::cloud_api::credential(secret)
+            && crate::cloud_api::credential(key)
+            && crate::cloud_api::credential(secret)
         {
             return Ok((key.into(), secret.into(), None));
         }

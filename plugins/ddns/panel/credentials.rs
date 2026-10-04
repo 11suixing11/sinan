@@ -80,9 +80,7 @@ pub(super) fn populate(rule: &mut Rule, value: &Value) -> ApiResult<()> {
     } else {
         let key = value["access_key_id"].as_str().unwrap_or_default();
         let secret = value["access_key_secret"].as_str().unwrap_or_default();
-        if !crate::plugins::cloud_api::credential(key)
-            || !crate::plugins::cloud_api::credential(secret)
-        {
+        if !crate::cloud_api::credential(key) || !crate::cloud_api::credential(secret) {
             return Err(ApiError::Conflict("DNS 凭据不含有效的访问密钥对".into()));
         }
         rule.api_token.clear();

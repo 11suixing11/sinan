@@ -95,6 +95,77 @@ class CoreBoundaryTests(unittest.TestCase):
             (root / "new.sql").write_text("SELECT quota FROM state")
             self.assertFalse(boundary.check(root))
 
+    def test_panel_host_passes_and_its_exceptions_stay_scoped(self):
+        root = SCRIPT.parents[1]
+        self.assertTrue(boundary.check(root / "crates/panel-host", boundary.HOST_EXCEPTIONS))
+        relative, source = "src/exchange/fetch.rs", '.user_agent("Sinan-exchange-rates/1")'
+        self.assertFalse(boundary.violations(relative, source, boundary.HOST_EXCEPTIONS))
+        self.assertTrue(boundary.violations(relative, source))
+        self.assertTrue(boundary.violations("src/servers.rs", source, boundary.HOST_EXCEPTIONS))
+        self.assertTrue(boundary.violations(relative, source + "; user_id", boundary.HOST_EXCEPTIONS))
+        self.assertTrue(boundary.violations("src/lib.rs", "pub mod singbox;", boundary.HOST_EXCEPTIONS))
+
+    def test_host_external_limits_and_cloud_fields_have_expression_scoped_exceptions(self):
+        relative = "src/network_workbench/reports.rs"
+        fixtures = (
+            '#[serde(rename = "daily_quota")]',
+            'r.get("daily_quota")',
+            'credential_ref,daily_quota,cache_seconds',
+            'daily_quota=EXCLUDED.daily_quota,cache_seconds=EXCLUDED.cache_seconds',
+            'CASE WHEN quota_day<>$2 THEN 1 ELSE requests_today+1 END,',
+            'END,quota_day=$2 WHERE id=$1 AND NOT disabled AND (',
+            'AND (quota_day<>$2 OR requests_today<daily_quota) RETURNING requests_today"',
+            'AND NOT disabled AND quota_day=$2 AND requests_today<daily_quota RETURNING requests_today"',
+        )
+        for native in fixtures:
+            with self.subTest(native=native):
+                self.assertFalse(boundary.violations(relative, native, boundary.HOST_EXCEPTIONS))
+                self.assertTrue(boundary.violations("src/control_center/search.rs", native, boundary.HOST_EXCEPTIONS))
+                self.assertTrue(boundary.violations(relative, native + "; user_id=1", boundary.HOST_EXCEPTIONS))
+        self.assertTrue(boundary.violations(relative, 'pub daily_quota: i32', boundary.HOST_EXCEPTIONS))
+        self.assertTrue(boundary.violations(relative, 'FROM users WHERE quota_day=$2', boundary.HOST_EXCEPTIONS))
+        relative = "src/operations/hetzner/client/tests.rs"
+        native = 'raw["user_data"]'
+        self.assertFalse(boundary.violations(relative, native, boundary.HOST_EXCEPTIONS))
+        self.assertTrue(boundary.violations(relative, native + "; user_id=1", boundary.HOST_EXCEPTIONS))
+        self.assertTrue(boundary.violations("src/servers.rs", native, boundary.HOST_EXCEPTIONS))
+
+    def test_host_http_header_exception_is_native_and_expression_scoped(self):
+        relative = "src/network_workbench/http_probe.rs"
+        native = "reqwest::header::USER_AGENT.as_str()"
+        self.assertFalse(boundary.violations(relative, native, boundary.HOST_EXCEPTIONS))
+        self.assertTrue(boundary.violations(relative, native + "; user_id=1", boundary.HOST_EXCEPTIONS))
+        self.assertTrue(boundary.violations("src/control_center/search.rs", native, boundary.HOST_EXCEPTIONS))
+        self.assertTrue(boundary.violations(relative, '"User-Agent"', boundary.HOST_EXCEPTIONS))
+        self.assertTrue(boundary.violations(relative, "reqwest::header::USER_AGENT", boundary.HOST_EXCEPTIONS))
+        self.assertTrue(boundary.violations(relative, "reqwest::header::USER_AGENT_PROXY.as_str()", boundary.HOST_EXCEPTIONS))
+
+    def test_plugins_depend_on_the_host_and_never_the_reverse(self):
+        self.assertTrue(boundary.check_dependencies(SCRIPT.parents[1]))
+        manifests = {
+            "crates/agent-core/Cargo.toml": "[dependencies]\nsinan-protocol.workspace = true\n",
+            "crates/panel-host/Cargo.toml": "[dependencies]\nsinan-protocol.workspace = true\n",
+            "plugins/ddns/panel/Cargo.toml": "[dependencies]\nsinan-panel-host.workspace = true\n",
+        }
+        broken = {
+            "crates/panel-host/Cargo.toml": "[dev-dependencies]\nsinan-plugin-singbox.workspace = true\n",
+            "plugins/ddns/panel/Cargo.toml": "[dependencies]\nsinan-plugin-singbox.workspace = true\n",
+            "crates/agent-core/Cargo.toml": "[target.'cfg(unix)'.dependencies]\nsinan-adapter-singbox.workspace = true\n",
+        }
+        for path, manifest in broken.items():
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                for relative, text in {**manifests, path: manifest}.items():
+                    (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                    (root / relative).write_text(text)
+                self.assertFalse(boundary.check_dependencies(root))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for relative, text in manifests.items():
+                (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                (root / relative).write_text(text)
+            self.assertTrue(boundary.check_dependencies(root))
+
 
 if __name__ == "__main__":
     unittest.main()

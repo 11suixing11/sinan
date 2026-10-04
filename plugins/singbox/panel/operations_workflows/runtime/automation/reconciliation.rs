@@ -18,7 +18,7 @@ async fn unknown_binding(
         .fetch_optional(&mut **tx)
         .await?
         .ok_or(ApiError::NotFound)?;
-    crate::plugins::singbox::business::lock_server(tx, server).await?;
+    crate::business::lock_server(tx, server).await?;
     let row = sqlx::query("SELECT automation_job_id,spec,result,dispatched_at,reconciled_at FROM runtime_operations WHERE id=$1 FOR UPDATE").bind(original).fetch_one(&mut **tx).await?;
     let job: Uuid = row
         .get::<Option<Uuid>, _>("automation_job_id")
@@ -81,7 +81,7 @@ async fn unknown_binding(
     })
 }
 
-pub(crate) async fn request_automation_deployment_checkpoint_tx(
+pub async fn request_automation_deployment_checkpoint_tx(
     tx: &mut Transaction<'_, Postgres>,
     original: Uuid,
 ) -> ApiResult<RuntimeCheckpointRequest> {
@@ -104,7 +104,7 @@ pub(crate) async fn request_automation_deployment_checkpoint_tx(
     Ok(checkpoint)
 }
 
-pub(crate) async fn reconcile_automation_deployment_tx(
+pub async fn reconcile_automation_deployment_tx(
     tx: &mut Transaction<'_, Postgres>,
     original: Uuid,
     checkpoint: Uuid,

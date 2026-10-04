@@ -1,5 +1,5 @@
 use super::*;
-use crate::{config::Config, plugins::singbox::subscription_parser::parse_subscription};
+use crate::{config::Config, subscription_parser::parse_subscription};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
@@ -57,6 +57,7 @@ async fn success(state: &AppState) -> (i64, Uuid) {
         parsed("TEST_ONLY-password-original"),
         Some("TEST_ONLY-etag".into()),
         None,
+        None,
     )
     .await
     .expect("first success");
@@ -70,7 +71,7 @@ async fn success(state: &AppState) -> (i64, Uuid) {
     (source, revision)
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn late_parse_results_cannot_cross_settings_epoch_archive_or_cancel(pool: PgPool) {
     let state = state(pool).await;
     for change in ["settings", "epoch", "archive", "cancel"] {
@@ -100,6 +101,7 @@ async fn late_parse_results_cannot_cross_settings_epoch_archive_or_cancel(pool: 
             &state,
             &claim,
             parsed("TEST_ONLY-password-late"),
+            None,
             None,
             None,
         )
@@ -142,7 +144,7 @@ async fn late_parse_results_cannot_cross_settings_epoch_archive_or_cancel(pool: 
     }
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn source_failure_categories_preserve_last_success_and_immutable_credentials(pool: PgPool) {
     let state = state(pool).await;
     let (source, previous) = success(&state).await;
@@ -170,7 +172,7 @@ async fn source_failure_categories_preserve_last_success_and_immutable_credentia
     }
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn conditional_304_reuses_only_matching_epoch_and_does_not_create_new_versions(pool: PgPool) {
     let state = state(pool).await;
     let (source, previous) = success(&state).await;
@@ -178,9 +180,15 @@ async fn conditional_304_reuses_only_matching_epoch_and_does_not_create_new_vers
     let claim = one_claim(&state).await;
     assert_eq!(claim.previous_revision, Some(previous));
     assert!(claim.etag.is_some());
-    snapshots::unchanged(&state, &claim, Some("TEST_ONLY-etag-next".into()), None)
-        .await
-        .expect("304");
+    snapshots::unchanged(
+        &state,
+        &claim,
+        Some("TEST_ONLY-etag-next".into()),
+        None,
+        None,
+    )
+    .await
+    .expect("304");
     assert_eq!(
         sqlx::query_scalar::<_, String>(
             "SELECT status FROM singbox_subscription_source_jobs WHERE id=$1"
@@ -201,9 +209,15 @@ async fn conditional_304_reuses_only_matching_epoch_and_does_not_create_new_vers
     enqueue(&state, source).await;
     let late = one_claim(&state).await;
     sqlx::query("UPDATE singbox_ordered_subscription_sources SET identity_epoch=2,settings_revision=2,last_success_at=1,conditional_etag=NULL,conditional_settings_revision=NULL,conditional_identity_epoch=NULL WHERE id=$1").bind(source).execute(&state.pool).await.expect("replace source");
-    snapshots::unchanged(&state, &late, Some("TEST_ONLY-late-etag".into()), None)
-        .await
-        .expect("late 304");
+    snapshots::unchanged(
+        &state,
+        &late,
+        Some("TEST_ONLY-late-etag".into()),
+        None,
+        None,
+    )
+    .await
+    .expect("late 304");
     let(current,time,etag):(Uuid,i64,Option<String>)=sqlx::query_as("SELECT current_success_revision,last_success_at,conditional_etag FROM singbox_ordered_subscription_sources WHERE id=$1").bind(source).fetch_one(&state.pool).await.expect("source");
     assert_eq!(current, previous);
     assert_eq!(time, 1);
@@ -211,7 +225,7 @@ async fn conditional_304_reuses_only_matching_epoch_and_does_not_create_new_vers
     let new = seed(&state).await;
     let empty = one_claim(&state).await;
     assert_eq!(empty.source_id, new);
-    snapshots::unchanged(&state, &empty, None, None)
+    snapshots::unchanged(&state, &empty, None, None, None)
         .await
         .expect("unexpected 304");
     let error: Value =
@@ -223,7 +237,7 @@ async fn conditional_304_reuses_only_matching_epoch_and_does_not_create_new_vers
     assert_eq!(error["kind"], "unexpected_304");
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn active_source_slots_renew_through_cancelling_and_release_only_on_terminal_ack(
     pool: PgPool,
 ) {
@@ -285,7 +299,7 @@ async fn active_source_slots_renew_through_cancelling_and_release_only_on_termin
     );
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../../crates/panel/migrations")]
 async fn restart_expired_claim_and_monotonic_deadline_fence_old_success(pool: PgPool) {
     let state = state(pool).await;
     let (source, previous) = success(&state).await;
@@ -303,9 +317,16 @@ async fn restart_expired_claim_and_monotonic_deadline_fence_old_success(pool: Pg
             .expect("restart cleanup")
             .is_empty()
     );
-    snapshots::save(&state, &old, parsed("TEST_ONLY-password-late"), None, None)
-        .await
-        .expect("old result");
+    snapshots::save(
+        &state,
+        &old,
+        parsed("TEST_ONLY-password-late"),
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("old result");
     assert_eq!(
         sqlx::query_scalar::<_, Uuid>(
             "SELECT current_success_revision FROM singbox_ordered_subscription_sources WHERE id=$1"
@@ -323,6 +344,7 @@ async fn restart_expired_claim_and_monotonic_deadline_fence_old_success(pool: Pg
         &state,
         &deadline,
         parsed("TEST_ONLY-password-too-late"),
+        None,
         None,
         None,
     )

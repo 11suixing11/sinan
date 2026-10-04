@@ -2,7 +2,7 @@ use super::model::acceptance_name;
 use super::{ManagedAcceptance, OrderedPath, PathHop, ProbeControl};
 use crate::{Access, CompileError, Node, Relay};
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Legacy-only calls retain their original bytes and accounting identities.
 pub fn compile_server_with_paths(
@@ -34,6 +34,7 @@ pub fn compile_server_with_paths(
         internal_accepts,
         probe_control,
         &original,
+        &BTreeMap::new(),
     )
 }
 
@@ -58,9 +59,13 @@ pub fn compile_server_with_paths_on_config(
         internal_accepts,
         probe_control,
         &base.config,
+        &base.routes,
     )
 }
 
+/// `routes` maps each public entry the base configuration already routes to
+/// its chain. A chain being converted keeps that route while its ordered
+/// candidate is prepared and probed without routing.
 fn overlay(
     _nodes: &[Node],
     legacy_relays: &[Relay],
@@ -68,6 +73,7 @@ fn overlay(
     internal_accepts: &[ManagedAcceptance],
     probe_control: Option<&ProbeControl>,
     original: &str,
+    routes: &BTreeMap<i64, i64>,
 ) -> Result<String, CompileError> {
     let mut config: Value = serde_json::from_str(original)?;
     let mut paths: Vec<_> = paths.iter().collect();
@@ -90,6 +96,7 @@ fn overlay(
                 .filter(|relay| _nodes.iter().any(|node| node.id == relay.entry_node_id))
                 .map(|relay| relay.entry_node_id),
         )
+        .chain(routes.keys().copied())
         .collect();
     for path in &paths {
         let tag = format!("node-{}", path.entry_node_id);
@@ -103,7 +110,8 @@ fn overlay(
             relay.entry_node_id == path.entry_node_id
                 && relay.chain_id == path.chain_id
                 && !path.active
-        }) {
+        }) && !(routes.get(&path.entry_node_id) == Some(&path.chain_id) && !path.active)
+        {
             return Err(super::validate::error(
                 path,
                 None,

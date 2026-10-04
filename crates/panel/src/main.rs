@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+mod legacy_takeover;
+mod source_migration;
+
 use sinan_panel::{AppState, config::Config, maintenance::supervise, router};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 
@@ -51,11 +54,19 @@ async fn network_workbench(state: AppState) {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    // Maintenance commands run only when invoked; the service ignores other arguments.
+    match args.first().map(String::as_str) {
+        Some("source-migration") => std::process::exit(source_migration::run(&args[1..]).await?),
+        Some("legacy-takeover") => std::process::exit(legacy_takeover::run(&args[1..]).await?),
+        _ => {}
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
+    sinan_panel::plugins::install();
     let config = Config::from_env()?;
     let listen = config.listen;
     let pool = PgPoolOptions::new()

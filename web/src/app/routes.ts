@@ -3,6 +3,7 @@ import { isCatalogPath } from '../plugins/catalog'
 import { nodeRoute } from '../plugins/singbox/nodeRoute'
 import { resourceRoute } from '../plugins/singbox/resourceTypes'
 import type { ResourceKey } from '../plugins/singbox/resourceTypes'
+import type { NodeView } from '../plugins/singbox/nodeRoute'
 
 type ServerSection = 'ip-info' | 'node-quality' | 'tcp-quality' | 'plugins' | 'ddns' | 'fleet' | 'network-workbench' | 'network-configuration' | 'operations'
 type SimplePage = 'singbox-overview' | 'servers' | 'statistics' | 'latency' | 'alicloud' | 'ddns'
@@ -12,7 +13,7 @@ export type AppRoute =
   | { page: 'dashboard'; serverId?: number }
   | { page: 'proxy-portal'; account: string; activation?: string }
   | { page: 'server'; serverId: number; section?: ServerSection }
-  | { page: 'nodes'; serverId?: number; chains?: boolean; selected?: ResourceKey; kind?: 'direct'; serverRole?: 'any' | 'entry' | 'middle' | 'exit' }
+  | { page: 'nodes'; serverId?: number; chains?: boolean; selected?: ResourceKey; kind?: 'direct'; serverRole?: 'any' | 'entry' | 'middle' | 'exit'; view?: NodeView }
   | { page: SimplePage }
 
 const pages: Readonly<Record<string, SimplePage>> = {
@@ -51,7 +52,8 @@ export function resolveRoute(path: string): AppRoute {
   if (node) {
     if (node.resource) return { page: 'nodes', selected: node.resource }
     return { page: 'nodes', ...(node.serverId === undefined ? {} : { serverId: node.serverId }), chains: node.chains,
-      ...(node.kind === 'direct' ? { kind: 'direct' as const } : {}), ...(node.serverRole ? { serverRole: node.serverRole } : {}) }
+      ...(node.kind === 'direct' ? { kind: 'direct' as const } : {}), ...(node.serverRole ? { serverRole: node.serverRole } : {}),
+      ...(node.view ? { view: node.view } : {}) }
   }
   const resource = resourceRoute(path)
   if (resource) return { page: 'nodes', selected: resource }

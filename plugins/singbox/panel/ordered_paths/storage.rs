@@ -46,6 +46,22 @@ pub(crate) async fn chain(
     .await?
     .ok_or(ApiError::NotFound)
 }
+/// The lifecycle also drives the candidate of a mixed chain under conversion;
+/// that chain stays mixed until its entry switches.
+pub(crate) async fn lifecycle_chain(
+    connection: &mut PgConnection,
+    id: i64,
+    lock: bool,
+) -> ApiResult<ChainRow> {
+    sqlx::query_as(&format!(
+        "SELECT {CHAIN_COLUMNS} FROM singbox_chains WHERE id=$1 AND (path_kind IN ('legacy','ordered') OR EXISTS(SELECT 1 FROM singbox_mixed_conversions m WHERE m.chain_id=singbox_chains.id AND m.state='preparing')){}",
+        if lock { " FOR UPDATE" } else { "" }
+    ))
+    .bind(id)
+    .fetch_optional(connection)
+    .await?
+    .ok_or(ApiError::NotFound)
+}
 pub(crate) async fn version(
     connection: &mut PgConnection,
     id: i64,

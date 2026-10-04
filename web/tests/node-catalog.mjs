@@ -55,6 +55,7 @@ try {
       else if (path === `${apiRoot}/nodes`) value = managedNodes
       else if (path === `${apiRoot}/proxy-resources`) value = catalog.filter(row => row.kind === 'direct')
       else if (path === `${apiRoot}/ordered-proxy-resources`) value = proxyResourceFixtures(managedNodes, [...pluginServers, ...(!pluginServers.length ? [{ id: 1, name: '服务器', enabled: false, online: false }] : [])])
+      else if (path === `${apiRoot}/source-migration`) value = { migrated: false, migrated_at: null }
       else if (path === `${apiRoot}/ordered-subscription-sources`) value = []
       else if (path === `${apiRoot}/servers`) value = pluginServers
       else if (path === `${apiRoot}/usage`) value = { total: '0', uplink: '0', downlink: '0', by_node: [], by_user: [] }
@@ -179,6 +180,7 @@ try {
       await cloneSave.click(); await dialog.waitFor({ state: 'hidden' }); await row('TEST_ONLY 保留副本草稿').waitFor()
       assert.equal(writes.length, cloneBefore + 1)
       // Preview credentials are removed from the DOM; expiry and parent failure block commit.
+      await page.getByRole('navigation', { name: '节点视图', exact: true }).getByRole('link', { name: '订阅来源', exact: true }).click()
       await page.getByRole('region', { name: '订阅来源', exact: true }).getByRole('button', { name: '添加来源', exact: true }).first().click()
       await dialog.getByLabel('来源名称').fill('导入测试'); await dialog.getByLabel('来源类型').selectOption('inline'); await dialog.getByLabel('配置内容').fill('TEST_ONLY provider data')
       previewExpiry = Math.floor(await page.evaluate(() => Date.now()) / 1000) + 600

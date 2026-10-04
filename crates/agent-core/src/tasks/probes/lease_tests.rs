@@ -548,7 +548,9 @@ async fn acceptance_deducts_request_latency_and_never_restarts_the_lease_clock()
     let client = local_client()?;
     let mut snapshot = accepted(&client, &[spec(1, false)], 1, Duration::from_secs(90)).snapshot;
     snapshot.expires_at = snapshot.issued_at + 3;
-    snapshot.probes[0].authorization.expires_at = Some(snapshot.expires_at);
+    // Keep target authorization beyond the lease so its independent sample
+    // timeout cannot race the monotonic lease cancellation being asserted here.
+    snapshot.probes[0].authorization.expires_at = Some(snapshot.expires_at + 60);
     snapshot.probes[0]
         .spec
         .monitor

@@ -1,10 +1,9 @@
 use super::*;
-use crate::plugins::{
+use crate::{
     cloud_api::test_support::{Mock, Reply},
-    ddns::{
-        dns_record_actions::confirmed_status, dns_record_reconcile::desired_matches,
-        dns_record_spec::normalize_for,
-    },
+    dns_record_actions::confirmed_status,
+    dns_record_reconcile::desired_matches,
+    dns_record_spec::normalize_for,
 };
 
 const ZONE: &str = "00000000000000000000000000000001";

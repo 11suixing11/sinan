@@ -27,7 +27,28 @@ pub(crate) async fn start_candidate(
     state: &AppState,
     tx: &mut Transaction<'_, Postgres>,
     chain: &ChainRow,
+    frozen: FrozenVersion,
+) -> ApiResult<i64> {
+    prepare_candidate(state, tx, chain, frozen, false).await
+}
+
+/// The candidate of a mixed chain under conversion. The chain stays mixed, and
+/// its mixed generation keeps routing, until the candidate passes its probe.
+pub(crate) async fn start_conversion_candidate(
+    state: &AppState,
+    tx: &mut Transaction<'_, Postgres>,
+    chain: &ChainRow,
+    frozen: FrozenVersion,
+) -> ApiResult<i64> {
+    prepare_candidate(state, tx, chain, frozen, true).await
+}
+
+async fn prepare_candidate(
+    state: &AppState,
+    tx: &mut Transaction<'_, Postgres>,
+    chain: &ChainRow,
     mut frozen: FrozenVersion,
+    converting: bool,
 ) -> ApiResult<i64> {
     if chain.deleted_at.is_some() || chain.candidate_generation.is_some() {
         return Err(ApiError::Conflict(
@@ -80,7 +101,11 @@ pub(crate) async fn start_candidate(
     )
     .await?;
     storage::pin_runtimes(state, tx, chain.id, generation, &frozen).await?;
-    sqlx::query("UPDATE singbox_chains SET path_kind='ordered',exit_node_id=NULL,relay_uuid=NULL,desired_generation=$2,candidate_generation=$2,recovery_generation=applied_generation,phase='preparing_dependencies',restore_step=NULL,last_error=NULL WHERE id=$1").bind(chain.id).bind(generation).execute(&mut **tx).await?;
+    if converting {
+        sqlx::query("UPDATE singbox_chains SET desired_generation=$2,candidate_generation=$2,applied_generation=NULL,recovery_generation=NULL,phase='preparing_dependencies',route_enabled=FALSE,restore_step=NULL,last_error=NULL WHERE id=$1 AND path_kind='mixed'").bind(chain.id).bind(generation).execute(&mut **tx).await?;
+    } else {
+        sqlx::query("UPDATE singbox_chains SET path_kind='ordered',exit_node_id=NULL,relay_uuid=NULL,desired_generation=$2,candidate_generation=$2,recovery_generation=applied_generation,phase='preparing_dependencies',restore_step=NULL,last_error=NULL WHERE id=$1").bind(chain.id).bind(generation).execute(&mut **tx).await?;
+    }
     storage::reserve_probe_capacity(state, tx, frozen.entry.server_id).await?;
     super::publication::validate_candidate(tx, &path, &frozen).await?;
     super::super::business::mark_dirty(tx, &servers.into_iter().collect::<Vec<_>>()).await?;
@@ -175,6 +200,10 @@ async fn fail_candidate(
     chain: &ChainRow,
     reason: &str,
 ) -> ApiResult<()> {
+    if chain.path_kind == "mixed" {
+        // A conversion that fails before its entry switched keeps the mixed route.
+        return crate::mixed_conversion::revert(tx, chain, reason).await;
+    }
     let unknown_barrier:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM runtime_control_requests q JOIN singbox_path_deployment_dependencies d ON d.server_id=q.server_id AND d.module=q.module AND d.revision=(q.request_json->'expected'->'binding'->>'revision')::bigint WHERE q.kind='barrier' AND d.chain_id=$1 AND d.generation=$2 AND d.role='entry' AND d.route_active AND NOT EXISTS(SELECT 1 FROM runtime_control_receipts f WHERE f.request_id=q.request_id))").bind(chain.id).bind(chain.candidate_generation).fetch_one(&mut **tx).await?;
     if unknown_barrier {
         // An orphan/expired command may already have committed its device floor.
@@ -319,10 +348,15 @@ async fn follow_updates(
 async fn advance(state: &AppState, id: i64) -> ApiResult<Option<Action>> {
     let mut tx = state.pool.begin().await?;
     super::super::entitlements::lock(&mut tx).await?;
-    let chain = storage::chain(&mut tx, id, true).await?;
-    if chain.path_kind != "ordered" || chain.phase == "retired" {
+    let chain = storage::lifecycle_chain(&mut tx, id, true).await?;
+    // A mixed chain here is under conversion and has not switched yet.
+    let converting = chain.path_kind == "mixed";
+    if (chain.path_kind != "ordered" && !converting) || chain.phase == "retired" {
         tx.commit().await?;
         return Ok(None);
+    }
+    if !converting {
+        crate::mixed_conversion::settle(&mut tx, &chain).await?;
     }
     let servers = storage::referenced_servers(&mut tx, id).await?;
     super::super::proxy_resources::lock_cleanup_servers(&mut tx, &servers).await?;
@@ -341,7 +375,24 @@ async fn advance(state: &AppState, id: i64) -> ApiResult<Option<Action>> {
             .execute(&mut *tx)
             .await?;
     }
-    if (!live || chain.deleted_at.is_some() || (chain.last_granted && !granted))
+    if converting {
+        // Grants of a converting chain stay with its mixed route; losing the
+        // chain or its resources returns it to mixed, which retires it.
+        if !live || chain.deleted_at.is_some() {
+            crate::mixed_conversion::revert(
+                &mut tx,
+                &chain,
+                if chain.deleted_at.is_some() {
+                    "链路在转换期间被删除，已撤下有序候选"
+                } else {
+                    "受管资源在转换期间停用或退役，已撤下有序候选"
+                },
+            )
+            .await?;
+            tx.commit().await?;
+            return Ok(None);
+        }
+    } else if (!live || chain.deleted_at.is_some() || (chain.last_granted && !granted))
         && chain.phase != "retiring"
     {
         sqlx::query("UPDATE singbox_chains SET phase='retiring',route_enabled=FALSE,last_error=$2 WHERE id=$1").bind(id).bind(if chain.deleted_at.is_some(){"链路已删除，等待存活依赖撤销确认"}else if !live{"受管资源已停用或退役，等待撤销确认"}else{"用户资格已撤销，等待依赖撤销确认"}).execute(&mut *tx).await?;
@@ -356,7 +407,10 @@ async fn advance(state: &AppState, id: i64) -> ApiResult<Option<Action>> {
             .candidate_generation
             .unwrap_or(chain.desired_generation)
     };
-    let frozen = storage::version(&mut tx, id, generation).await?.snapshot;
+    let selected = storage::version(&mut tx, id, generation).await?;
+    // A legacy generation has no probe bindings; it is confirmed by server health.
+    let legacy_generation = selected.legacy;
+    let frozen = selected.snapshot;
     let entry = frozen.entry.server_id;
     let managed: Vec<i64> = frozen
         .hops
@@ -754,6 +808,7 @@ async fn advance(state: &AppState, id: i64) -> ApiResult<Option<Action>> {
                         }
                     }
                     if vector_ready
+                        && !legacy_generation
                         && !qualified(&mut tx, id).await?
                         && let Some(expected) = checkpoint_for_stage(
                             &mut tx,
@@ -876,6 +931,14 @@ pub(crate) async fn qualified(connection: &mut PgConnection, id: i64) -> ApiResu
             _ => None,
         }),
     ));
+    if version.legacy {
+        // ADR 0040: a taken-over two-hop generation keeps the two-hop rule. Both
+        // servers are healthy, applied and without pending changes; no probe or
+        // checkpoint record is required.
+        let servers: Vec<i64> = servers.into_iter().collect();
+        return Ok(sqlx::query_scalar("SELECT COUNT(*)=$2 FROM server_module_status m JOIN servers s ON s.id=m.server_id WHERE m.server_id=ANY($1) AND m.module='singbox' AND m.healthy AND m.applied_rev=m.target_rev AND s.dirty_at IS NULL AND s.deleted_at IS NULL")
+            .bind(&servers).bind(servers.len() as i64).fetch_one(connection).await?);
+    }
     let mut observed_vector = Vec::<(i64, Value)>::new();
     for server in servers {
         let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_path_deployment_dependencies d JOIN server_module_status m ON m.server_id=d.server_id AND m.module=d.module JOIN servers s ON s.id=m.server_id JOIN runtime_module_checkpoints r ON r.server_id=m.server_id AND r.module=m.module JOIN runtime_deployment_bindings b ON b.server_id=d.server_id AND b.module=d.module AND b.rev=d.revision WHERE d.chain_id=$1 AND d.generation=$2 AND d.server_id=$3 AND d.module='singbox' AND d.revision=m.target_rev AND d.revision=m.applied_rev AND m.healthy AND s.dirty_at IS NULL AND s.deleted_at IS NULL AND r.checkpoint_json->>'healthy'='true' AND r.checkpoint_json->'binding'->>'binding_digest'=b.binding_digest AND r.checkpoint_json->'binding'->>'deployment_id'=b.deployment_id::text AND r.checkpoint_json->'binding'->>'bundle_sha256'=b.bundle_sha256 AND (r.checkpoint_json->'binding'->>'revision')::bigint=d.revision AND ($4 OR EXISTS(SELECT 1 FROM singbox_chain_runtime_requirements p JOIN singbox_runtime_manifest_facts f ON f.server_id=p.server_id AND f.module='singbox' AND f.revision=d.revision AND f.artifact_sha256=p.artifact_sha256 AND f.runtime_version=p.runtime_version WHERE p.chain_id=$1 AND p.generation=$2 AND p.server_id=$3)))").bind(id).bind(generation).bind(server).bind(version.legacy).fetch_one(&mut *connection).await?;
@@ -884,9 +947,6 @@ pub(crate) async fn qualified(connection: &mut PgConnection, id: i64) -> ApiResu
         }
         let observed=sqlx::query_scalar("SELECT checkpoint_json FROM runtime_module_checkpoints WHERE server_id=$1 AND module='singbox'").bind(server).fetch_one(&mut *connection).await?;
         observed_vector.push((server, observed));
-    }
-    if version.legacy {
-        return Ok(true);
     }
     Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_path_probes p JOIN runtime_control_requests q ON q.request_id=p.request_id JOIN runtime_control_receipts f ON f.request_id=q.request_id JOIN runtime_module_checkpoints r ON r.server_id=p.server_id AND r.module='singbox' WHERE p.chain_id=$1 AND p.generation=$2 AND p.stage='switched' AND p.state='verified' AND p.server_id=$3 AND p.dependency_vector=$4 AND f.outcome='verified' AND q.kind='probe' AND q.request_json->'expected'=r.checkpoint_json AND f.result_json->'observed'=r.checkpoint_json AND f.result_json->>'success'='true' AND f.result_json->>'probe_id'=p.probe_id::text)").bind(id).bind(generation).bind(version.snapshot.entry.server_id).bind(json!(observed_vector)).fetch_one(connection).await?)
 }
@@ -905,7 +965,7 @@ async fn act(state: &AppState, action: Action) -> ApiResult<()> {
         } => {
             let mut tx = state.pool.begin().await?;
             super::super::entitlements::lock(&mut tx).await?;
-            let chain = storage::chain(&mut tx, chain_id, true).await?;
+            let chain = storage::lifecycle_chain(&mut tx, chain_id, true).await?;
             if chain.phase != expected_phase
                 || (matches!(expected_phase.as_str(), "restoring" | "applied")
                     && chain.applied_generation != Some(generation))
@@ -1041,12 +1101,18 @@ async fn act(state: &AppState, action: Action) -> ApiResult<()> {
                         .await?;
                     } else if expected_phase == "applied" {
                     } else if stage == "candidate" {
-                        probe_row(&mut tx, chain_id, generation, "switched", server).await?;
-                        sqlx::query("UPDATE singbox_chains SET route_enabled=TRUE WHERE id=$1")
-                            .bind(chain_id)
-                            .execute(&mut *tx)
-                            .await?;
-                        phase(&mut tx, &chain, "switching_entry").await?;
+                        // A converting chain hands its entry over here; this is the
+                        // last point at which it can return to mixed.
+                        if chain.path_kind != "mixed"
+                            || crate::mixed_conversion::switch(&mut tx, &chain).await?
+                        {
+                            probe_row(&mut tx, chain_id, generation, "switched", server).await?;
+                            sqlx::query("UPDATE singbox_chains SET route_enabled=TRUE WHERE id=$1")
+                                .bind(chain_id)
+                                .execute(&mut *tx)
+                                .await?;
+                            phase(&mut tx, &chain, "switching_entry").await?;
+                        }
                     } else {
                         phase(&mut tx, &chain, "fixing_barrier").await?;
                     }
@@ -1075,7 +1141,7 @@ async fn act(state: &AppState, action: Action) -> ApiResult<()> {
         } => {
             let mut tx = state.pool.begin().await?;
             super::super::entitlements::lock(&mut tx).await?;
-            let chain = storage::chain(&mut tx, chain_id, true).await?;
+            let chain = storage::lifecycle_chain(&mut tx, chain_id, true).await?;
             if chain.phase != expected_phase
                 || chain
                     .candidate_generation
@@ -1255,7 +1321,7 @@ async fn act(state: &AppState, action: Action) -> ApiResult<()> {
 }
 pub async fn tick(state: &AppState) -> ApiResult<()> {
     capture_committed_floors(state).await?;
-    let ids:Vec<i64>=sqlx::query_scalar("SELECT id FROM singbox_chains WHERE path_kind='ordered' AND (deleted_at IS NULL OR phase<>'retired') ORDER BY id").fetch_all(&state.pool).await?;
+    let ids:Vec<i64>=sqlx::query_scalar("SELECT id FROM singbox_chains WHERE (path_kind='ordered' AND (deleted_at IS NULL OR phase<>'retired')) OR id IN (SELECT chain_id FROM singbox_mixed_conversions WHERE state='preparing') ORDER BY id").fetch_all(&state.pool).await?;
     let mut first = None;
     for id in ids {
         match advance(state, id).await {

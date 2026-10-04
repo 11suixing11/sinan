@@ -54,6 +54,7 @@ try {
       else if (method === 'GET' && pathname === `${prefix}/nodes`) value = nodes
       else if (method === 'GET' && pathname === `${prefix}/servers`) value = servers
       else if (method === 'GET' && pathname === `${prefix}/usage`) value = {total:'0',uplink:'0',downlink:'0',by_node:[],by_user:[]}
+      else if (method === 'GET' && pathname === `${prefix}/source-migration`) value = { migrated: false, migrated_at: null }
       else if (method === 'GET' && [ `${prefix}/subscription-sources`, `${prefix}/ordered-subscription-sources` ].includes(pathname)) value = []
       else if (method === 'GET' && pathname === `${prefix}/proxy-resources`) value = flatResourceFixtures(nodes, [...servers,...baseServers.filter(base => !servers.some(server => server.id === base.id))], chains)
       else if (method === 'GET' && pathname === `${prefix}/node-catalog`) value = catalogResourceFixtures(flatResourceFixtures(nodes, [...servers,...baseServers.filter(base => !servers.some(server => server.id === base.id))], chains))
@@ -77,6 +78,9 @@ try {
     })
 
     const createButton = page.getByRole('button', { name: '创建两跳链路', exact: true })
+    // The server filter lives in the catalog section; chain creation lives in the chain section.
+    const showView = name => page.getByRole('navigation', { name: '节点视图', exact: true }).getByRole('link', { name, exact: true }).click()
+    const scope = async server => { await showView('节点库'); await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption(server); await showView('链路') }
     const refreshButton = page.locator('header.page-header').getByRole('button', { name: '刷新', exact: true })
     const oldRow = page.getByRole('row').filter({ has: page.getByText(previous.name, { exact: true }) })
     const refreshLists = async () => {
@@ -290,14 +294,14 @@ try {
     await page.goto(`${origin}/#/plugins/sing-box/nodes?kind=chains&server=2`)
     await page.waitForFunction(() => document.querySelector('select[aria-label="按服务器筛选"]')?.value === '2')
     // The cancelled server=1 draft survives this route change and must not silently retarget server=2.
-    await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption('2')
+    await scope('2')
     assert.equal(await createButton.isDisabled(), true)
     await noWrites(() => forceOpeners(false), 'The preserved entry draft conflicts with the current server filter')
     assert.equal(await page.getByRole('dialog').count(), 0)
     await installControlCenterFixtures(page)
     await page.goto(`${origin}/#/plugins/sing-box/nodes`)
     await page.waitForFunction(() => document.querySelector('select[aria-label="按服务器筛选"]')?.value === '')
-    await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption('')
+    await scope('')
     await enabled(createButton); await createButton.click()
     assert.equal(await creating.locator('[name="name"]').inputValue(), '可关闭的草稿')
     assert.equal(await creating.locator('[name="server_id"]').inputValue(), '1')
@@ -308,7 +312,7 @@ try {
     await installControlCenterFixtures(page)
     await page.goto(`${origin}/#/plugins/sing-box/nodes?kind=chains&server=2`)
     await page.waitForFunction(() => document.querySelector('select[aria-label="按服务器筛选"]')?.value === '2')
-    await page.getByRole('combobox', { name: '按服务器筛选', exact: true }).selectOption('2')
+    await scope('2')
     await enabled(createButton)
     const retained = page.getByRole('row').filter({ has: page.getByText('完整保留的创建草稿', { exact: true }) })
     await retained.waitFor()

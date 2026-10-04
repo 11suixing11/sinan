@@ -2,27 +2,29 @@ import { useEffect, useRef, useState } from 'react'
 import { Badge, ErrorNotice, Loading, Modal } from '../../components'
 import { useAction, useResource } from '../../hooks'
 import { dateText, validatedSnapshot } from './groupTypes'
-import { cancelSourceJob, sourceMetadataError } from './sourceRequests'
+import { adoptSourceNode, cancelSourceJob, sourceMetadataError } from './sourceRequests'
 import type { SourceEditorMode, SourceSnapshot } from './sourceRequests'
-import { sourceFormatText, sourceJobActive, sourceJobRoot, sourceRoot, sourceStageText, sourceStatusText, validSourceHistory, validSourceJob, validSourceNodePage, validSubscriptionSource } from './orderedSourceTypes'
+import { sourceFormatText, sourceInterval, sourceJobActive, sourceJobRoot, sourceRoot, sourceStageText, sourceStatusText, validSourceHistory, validSourceJob, validSourceNodePage, validSubscriptionSource } from './orderedSourceTypes'
 import type { SourceHistory, SourceJob, SourceNode, SourceNodePage, SubscriptionSource } from './orderedSourceTypes'
+import { SourceUsage } from './SourceUsage'
 
 function nodeAddress(node: SourceNode) {
   if (!node.server || node.server_port === null) return '端点未知'
   const host = node.server.replace(/^\[|\]$/g, '')
   return `${host.includes(':') ? `[${host}]` : host}:${node.server_port}`
 }
-function SourceNodeRow({ node, historical, fresh }: { node: SourceNode; historical: boolean; fresh: boolean }) {
+function SourceNodeRow({ node, historical, fresh, busy, onAdopt }: { node: SourceNode; historical: boolean; fresh: boolean; busy: boolean; onAdopt: (node: SourceNode) => void }) {
   const identity = { unique: '身份唯一', ambiguous: '身份不唯一', unresolved: '身份尚未确认' }[node.identity_state]
   const reasons = [...new Set([...node.reasons, ...node.unsupported_reasons.map(reason => `${reason.code}：${reason.message}`)])]
   return <tr data-source-node-id={node.id}>
-    <td><strong>{node.name}</strong><small>节点 <code>{node.id}</code></small><small>版本 <code>{node.version_id}</code></small></td>
+    <td><strong>{node.name}</strong><small>编号 #{node.public_id}</small><small>节点 <code>{node.id}</code></small><small>版本 <code>{node.version_id}</code></small></td>
     <td><code>{nodeAddress(node)}</code><small>{node.protocol ?? '协议未知'} · {node.transport ?? '传输未知'}</small><small>SNI：{node.sni ?? '未知'}</small></td>
     <td><Badge tone={node.supported ? 'good' : 'warm'}>{node.supported ? '解析支持' : '不支持解析'}</Badge><small>{identity}</small><small>{node.present_in_latest ? historical ? '所选批次存在' : '当前批次存在' : '当前批次缺失'}</small><small>{historical ? '历史版本仅供查看' : !fresh ? '引用资格待确认' : node.selectable ? '可供后续路径引用' : '当前不可引用'}</small></td>
     <td><small>TCP {node.capabilities.tcp ? '支持' : '不支持'} · UDP {node.capabilities.udp ? '支持' : '不支持'}</small>{reasons.map((reason, index) => <small key={index}>{reason}</small>)}</td>
+    <td>{node.adopted ? <Badge tone="good">已加入节点库</Badge> : <small>未加入节点库</small>}{!historical && <button type="button" className="text-button" disabled={!fresh || busy || !node.adopted && !node.selectable} onClick={() => onAdopt(node)}>{node.adopted ? '移出节点库' : '加入节点库'}</button>}</td>
   </tr>
 }
-export default function SourceDetailDrawer({ selected, snapshot, refresh, onClose, edit, remove }: { selected: SubscriptionSource; snapshot: SourceSnapshot; refresh: () => void; onClose: () => void; edit: (mode: SourceEditorMode, source: SubscriptionSource) => void; remove: (source: SubscriptionSource) => void }) {
+export default function SourceDetailDrawer({ selected, snapshot, refresh, onClose, edit, remove, onCatalogChange }: { selected: SubscriptionSource; snapshot: SourceSnapshot; refresh: () => void; onClose: () => void; edit: (mode: SourceEditorMode, source: SubscriptionSource) => void; remove: (source: SubscriptionSource) => void; onCatalogChange?: () => void }) {
   const query = useResource<unknown>(`${sourceRoot}/${selected.id}`)
   const sourceHistory = useRef(selected)
   const sourceResult = validatedSnapshot(query, validSubscriptionSource, sourceHistory.current)
@@ -61,6 +63,13 @@ export default function SourceDetailDrawer({ selected, snapshot, refresh, onClos
   const nodeRows = currentNodes?.nodes ?? []
   const pages = Math.max(1, Math.ceil(nodeRows.length / 50)), boundedPage = Math.min(page, pages - 1)
   const openEditor = (mode: SourceEditorMode) => { if (!fresh || action.busy) return; edit(mode, source) }
+  // Adoption only changes catalog visibility; it never changes chain selection.
+  const adopt = (node: SourceNode) => {
+    if (!fresh || !nodesFresh || action.busy || revision) return
+    const current = currentNodes?.nodes.find(item => item.id === node.id && item.version_id === node.version_id)
+    if (!current || current.adopted !== node.adopted || current.metadata_revision !== node.metadata_revision) return
+    void action.run(() => adoptSourceNode(snapshot, source, current, !current.adopted), () => { nodesQuery.reload(); onCatalogChange?.() })
+  }
   const cancel = () => {
     if (!fresh || action.busy || !activeJob || !job.fresh) return
     void action.run(() => cancelSourceJob(job, activeJob.id), receipt => { setLastJob(receipt); reload() })
@@ -69,7 +78,8 @@ export default function SourceDetailDrawer({ selected, snapshot, refresh, onClos
     <ErrorNotice message={sourceResult.error || (!sameSource ? '来源详情标识不一致，请刷新确认。' : '') || action.error} retry={reload} />
     {!fresh && <p className="helper" role="status">当前显示历史来源信息，等待最新设置确认；修改操作暂不可用。</p>}
     <div className="source-detail-actions"><button className="button button-secondary" disabled={!fresh || action.busy || source.archived} onClick={() => openEditor('metadata')}>修改名称与周期</button>{source.kind === 'inline' && <button className="button button-secondary" disabled={!fresh || action.busy || source.archived} onClick={() => openEditor('update')}>更新同一来源内容</button>}<button className="button button-secondary" disabled={!fresh || action.busy || source.archived} onClick={() => openEditor('replace')}>更换来源</button><button className="button button-secondary" disabled={!fresh || action.busy} onClick={() => openEditor(source.archived ? 'unarchive' : 'archive')}>{source.archived ? '恢复来源' : '归档来源'}</button><button className="button button-secondary danger-text" disabled={!fresh || action.busy} onClick={() => { if (fresh && !action.busy) remove(source) }}>删除来源</button></div>
-    <dl className="source-facts"><div><dt>输入来源</dt><dd>{source.kind === 'url' ? `HTTPS · ${source.host ?? '主机未知'}` : '粘贴或文件内容'}</dd></div><div><dt>设置 / 身份代次</dt><dd>{source.settings_revision} / {source.identity_epoch}</dd></div><div><dt>认证信息</dt><dd>{source.auth_configured ? '已配置（不回填）' : '未配置'}</dd></div><div><dt>自动刷新</dt><dd>{source.kind === 'url' ? `每 ${source.refresh_interval_secs} 秒` : '仅手动更新'}</dd></div><div><dt>最后尝试</dt><dd>{dateText(source.last_attempt_at)}</dd></div><div><dt>最后成功</dt><dd>{dateText(source.last_success_at)}</dd></div></dl>
+    <dl className="source-facts"><div><dt>输入来源</dt><dd>{source.kind === 'url' ? `HTTPS · ${source.host ?? '主机未知'}` : '粘贴或文件内容'}</dd></div><div><dt>设置 / 身份代次</dt><dd>{source.settings_revision} / {source.identity_epoch}</dd></div><div><dt>认证信息</dt><dd>{source.auth_configured ? '已配置（不回填）' : '未配置'}</dd></div><div><dt>自动刷新</dt><dd>{source.kind === 'url' ? source.auto_refresh ? sourceInterval(source.refresh_interval_secs) : '已关闭，仅手动刷新' : '仅手动更新'}</dd></div>{source.kind === 'url' && <div><dt>请求标识</dt><dd>{source.user_agent ?? '不发送'}</dd></div>}<div><dt>最近变化</dt><dd>新增 {source.changes.added} · 更新 {source.changes.updated} · 缺失 {source.changes.missing} · 不支持 {source.changes.unsupported}</dd></div><div><dt>最后尝试</dt><dd>{dateText(source.last_attempt_at)}</dd></div><div><dt>最后成功</dt><dd>{dateText(source.last_success_at)}</dd></div></dl>
+    <SourceUsage traffic={source.traffic} />
     <p><Badge tone={source.archived ? 'neutral' : source.latest_success ? 'good' : 'warm'}>{source.archived ? '已归档' : source.latest_success ? '有成功解析版本' : '尚无成功解析版本'}</Badge></p>
     {source.stale_reason && <p className="notice">{source.stale_reason}</p>}
     {source.last_error && <p className="notice notice-error" role="alert">{source.last_error.stage} / {source.last_error.kind}：{source.last_error.message}{source.last_error.http_status !== null && `（HTTP ${source.last_error.http_status}）`}。上次成功版本保留。</p>}
@@ -80,8 +90,9 @@ export default function SourceDetailDrawer({ selected, snapshot, refresh, onClos
       {currentNodes?.success_revision && <p className="helper">{sourceFormatText[currentNodes.success_revision.format]} · 解析器 {currentNodes.success_revision.parser_version} · 成功版本设置 {currentNodes.success_revision.settings_revision} / 代次 {currentNodes.success_revision.identity_epoch} · 当前设置 {currentNodes.current_settings_revision} / 代次 {currentNodes.current_identity_epoch}</p>}
       {revision && <p className="notice">此历史版本视图仅供查看，不提供新的引用操作。</p>}
       <p className="helper">解析支持、TCP/UDP 语义能力和身份资格分别记录。创建有序链路时明确选择当前可用节点及不可变版本；完整路径通过承载与指定运行验证后才切换入口。</p>
+      <p className="helper">加入节点库后，节点可在代理用户页面分配；是否加入不影响链路选点。仍被链路或用户授权引用的节点不能移出节点库。</p>
       <p className="helper">单次预览最多 5000 个节点，优先显示当前批次；更多历史节点可通过成功版本查看。</p>
-      {nodesQuery.loading && !currentNodes ? <Loading /> : !currentNodes ? <p className="helper">节点预览尚未取得，请刷新确认。</p> : !nodeRows.length ? <p className="helper">当前视图暂无节点，已有历史节点可通过成功版本查看。</p> : <><div className="table-wrap"><table className="source-node-table"><thead><tr><th>节点与版本</th><th>公开端点</th><th>解析与身份</th><th>能力与原因</th></tr></thead><tbody>{nodeRows.slice(boundedPage * 50, (boundedPage + 1) * 50).map(node => <SourceNodeRow key={node.version_id} node={node} historical={Boolean(revision)} fresh={Boolean(nodesFresh)} />)}</tbody></table></div><div className="source-pagination"><button className="button button-secondary" disabled={boundedPage === 0} onClick={() => setPage(Math.max(0, boundedPage - 1))}>上一页</button><span>第 {boundedPage + 1} / {pages} 页 · {nodeRows.length} 个节点 · 每页 50 个</span><button className="button button-secondary" disabled={boundedPage >= pages - 1} onClick={() => setPage(boundedPage + 1)}>下一页</button></div></>}
+      {nodesQuery.loading && !currentNodes ? <Loading /> : !currentNodes ? <p className="helper">节点预览尚未取得，请刷新确认。</p> : !nodeRows.length ? <p className="helper">当前视图暂无节点，已有历史节点可通过成功版本查看。</p> : <><div className="table-wrap"><table className="source-node-table"><thead><tr><th>节点与版本</th><th>公开端点</th><th>解析与身份</th><th>能力与原因</th><th>节点库</th></tr></thead><tbody>{nodeRows.slice(boundedPage * 50, (boundedPage + 1) * 50).map(node => <SourceNodeRow key={node.version_id} node={node} historical={Boolean(revision)} fresh={Boolean(nodesFresh)} busy={action.busy} onAdopt={adopt} />)}</tbody></table></div><div className="source-pagination"><button className="button button-secondary" disabled={boundedPage === 0} onClick={() => setPage(Math.max(0, boundedPage - 1))}>上一页</button><span>第 {boundedPage + 1} / {pages} 页 · {nodeRows.length} 个节点 · 每页 50 个</span><button className="button button-secondary" disabled={boundedPage >= pages - 1} onClick={() => setPage(boundedPage + 1)}>下一页</button></div></>}
     </section>
     <section aria-label="来源路径引用"><h3>来源路径引用</h3>{source.dependencies.length ? <ul className="resource-reasons">{source.dependencies.map(ref => <li key={`${ref.chain_id}:${ref.generation}:${ref.state}:${ref.hop_position}`}><a href={`#/plugins/sing-box/nodes/chain/${ref.chain_id}`} onClick={onClose}>「{ref.chain_name}」#{ref.chain_id}</a> · 第 {ref.hop_position} 跳 · {ref.state === 'applied' ? '已应用' : ref.state === 'candidate' ? '候选' : '恢复'}代 {ref.generation} · 来源代次 {ref.identity_epoch}<small>节点 {ref.external_node_id} · 版本 {ref.node_version_id}</small></li>)}</ul> : <p className="helper">暂无路径引用。</p>}<p className="helper">当前、候选和恢复路径引用未解除时不能删除来源；归档停止刷新和新引用，已应用快照保留，不会自动改接节点。</p></section>
   </div><footer><button className="button button-secondary" onClick={reload}>刷新来源详情</button><button className="button button-secondary" onClick={onClose} disabled={action.busy}>关闭来源详情</button></footer></Modal>
