@@ -46,6 +46,7 @@ try {
       if (method === 'GET' && path === '/api/dashboard/access') value={authenticated:true,public_dashboard:false}
       else if (method === 'GET' && path === '/api/me') value={authenticated:true}
       else if (method === 'GET' && path === `${prefix}/servers`) value=servers
+      else if (method === 'GET' && path === `${prefix}/source-migration`) value={ migrated: false, migrated_at: null }
       else if (method === 'GET' && [ `${prefix}/subscription-sources`, `${prefix}/ordered-subscription-sources` ].includes(path)) value=[]
       else if (method === 'GET' && path === `${prefix}/proxy-resources`) value=flatResourceFixtures(nodes,servers,chains)
       else if (method === 'GET' && path === `${prefix}/node-catalog`) value=catalogResourceFixtures(flatResourceFixtures(nodes,servers,chains))

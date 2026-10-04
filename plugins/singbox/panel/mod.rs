@@ -130,6 +130,7 @@ pub fn router() -> Router<AppState> {
         .route("/usage", get(usage::summary))
         .merge(catalog::router())
         .merge(sources::router())
+        .route("/source-migration", get(source_migration::state))
         .merge(portal::router())
         .merge(mixed_paths::router());
     Router::new()

@@ -59,6 +59,7 @@ try {
       else if(path==='/api/plugins/sing-box/proxy-resources') value=flatResourceFixtures(nodes, servers, chains)
       else if(path==='/api/plugins/sing-box/node-catalog') value=catalogView(flatResourceFixtures(nodes, servers, chains))
       else if(path==='/api/plugins/sing-box/ordered-proxy-resources') value=richResources()
+      else if(path==='/api/plugins/sing-box/source-migration') value={ migrated: false, migrated_at: null }
       else if(path==='/api/plugins/sing-box/subscription-sources' || path==='/api/plugins/sing-box/ordered-subscription-sources') value=[]
       else if(path==='/api/plugins/sing-box/nodes') value=nodes
       else if(path.match(/\/nodes\/\d+$/) && method==='PATCH') {const node=nodes.find(node=>node.id===Number(path.split('/').at(-1))); const body=route.request().postDataJSON(); writes.push({id:node.id,body}); Object.assign(node,body); value=node}

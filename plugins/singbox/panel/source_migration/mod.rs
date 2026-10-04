@@ -7,7 +7,11 @@ mod import;
 mod rehearsal;
 mod rollback;
 
-use crate::error::{ApiError, ApiResult};
+use crate::{
+    AppState, auth,
+    error::{ApiError, ApiResult},
+};
+use axum::{Json, extract::State, http::HeaderMap};
 use serde::Serialize;
 use sqlx::{PgConnection, PgPool};
 
@@ -19,6 +23,29 @@ pub async fn migrated(connection: &mut PgConnection) -> ApiResult<bool> {
     Ok(sqlx::query_scalar("SELECT singbox_sources_migrated()")
         .fetch_one(connection)
         .await?)
+}
+
+/// What the source pages show: numbered sources stay writable until the
+/// migration, and become a read-only archive after it.
+#[derive(Serialize)]
+pub struct MigrationState {
+    pub migrated: bool,
+    pub migrated_at: Option<i64>,
+}
+
+pub async fn state(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> ApiResult<Json<MigrationState>> {
+    auth::require_admin(&state, &headers).await?;
+    let migrated_at: Option<i64> =
+        sqlx::query_scalar("SELECT migrated_at FROM singbox_source_migration")
+            .fetch_one(&state.pool)
+            .await?;
+    Ok(Json(MigrationState {
+        migrated: migrated_at.is_some(),
+        migrated_at,
+    }))
 }
 
 /// Numbered sources stay readable after the migration but accept no writes.

@@ -68,6 +68,7 @@ try {
         else if (path === '/api/latency-tasks') value = tasks
         else if (path === '/api/probes/overview') value = []
         else if (path === `${prefix}/nodes`) value = nodes
+        else if (path === `${prefix}/source-migration`) value = { migrated: false, migrated_at: null }
         else if ([`${prefix}/ordered-proxy-resources`, `${prefix}/ordered-subscription-sources`].includes(path)) value = []
           else if (path === `${prefix}/proxy-resources`) value = resources
         else if (path === `${prefix}/node-catalog`) value = catalogView(resources)

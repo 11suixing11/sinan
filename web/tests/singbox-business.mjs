@@ -94,6 +94,7 @@ try {
         value = node
       } else if (path === '/api/plugins/sing-box/nodes') {
         assert.equal(metadata.enabled, true); value = nodesEmpty ? [] : chainFixtures ? [node, exitNode, ...additionalNodes] : [node, exitNode]
+      } else if (path === '/api/plugins/sing-box/source-migration') { value = { migrated: false, migrated_at: null }
       } else if (['/api/plugins/sing-box/subscription-sources','/api/plugins/sing-box/ordered-subscription-sources'].includes(path)) value = []
       else if (path === '/api/plugins/sing-box/proxy-resources') {
         assert.equal(route.request().method(), 'GET')

@@ -1,6 +1,6 @@
 # ADR 0079：重新架构：插件边界、订阅来源与链路模型
 
-- 状态：已接受。阶段一已实施；阶段二已实施抓取器合并，解析器合并移入阶段三；阶段三按[迁移方案](../rearchitecture-phase3-plan.md)实施代码准备：S1a（补齐有序来源）和 S1b 后端（显式执行的来源迁移命令与使用方切换）已完成，生产迁移另行授权。
+- 状态：已接受。阶段一已实施；阶段二已实施抓取器合并，解析器合并移入阶段三；阶段三按[迁移方案](../rearchitecture-phase3-plan.md)实施代码准备：S1a（补齐有序来源）和 S1b（显式执行的来源迁移命令、使用方切换与界面合并）已完成，生产迁移另行授权。
 - 日期：2026-10-03。
 - 关联：[全仓缺陷扫描](../acceptance/defect-scan-20261003.md) D17；[ADR 0040](0040-mixed-chains-and-subscriptions.md)、[ADR 0072](0072-subscription-source-lifecycle.md)、[ADR 0076](0076-node-catalog-and-external-access.md)、[ADR 0078](0078-admin-layout-and-node-sections.md)。
 

@@ -306,6 +306,8 @@ pub struct NodeView {
     pub id: Uuid,
     pub public_id: i64,
     pub adopted: bool,
+    /// Catalog metadata revision shared with the node catalog; 0 when none.
+    pub metadata_revision: i64,
     pub source_id: i64,
     pub identity_epoch: i64,
     pub version_id: Uuid,

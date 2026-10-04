@@ -7,15 +7,20 @@ export type SourceRevision = { id: string; source_id: number; settings_revision:
 export type SourceJobStatus = 'queued' | 'running' | 'cancelling' | 'succeeded' | 'unchanged' | 'failed' | 'cancelled' | 'superseded'
 export type SourceJob = { id: string; source_id: number; settings_revision: number; identity_epoch: number; parser_version: string; status: SourceJobStatus; stage: 'queued' | 'fetch' | 'parse' | 'store' | 'done'; created_at: number; started_at: number | null; finished_at: number | null; source_revision_id: string | null; error: SourceFailure | null }
 export type SourceDependency = { chain_id: number; chain_name: string; generation: number; state: 'applied' | 'candidate' | 'recovery'; hop_position: number; external_node_id: string; node_version_id: string; identity_epoch: number }
+export const MIN_REFRESH_SECS = 300
+export const MAX_REFRESH_SECS = 2592000
+export type SourceTraffic = { upload?: number; download?: number; total?: number; expire?: number; updated_at?: number }
+export type SourceChanges = { added: number; updated: number; missing: number; unsupported: number }
 export type SubscriptionSource = {
   id: number; name: string; kind: 'url' | 'inline'; host: string | null; configured: boolean; auth_configured: boolean;
   settings_revision: number; identity_epoch: number; archived: boolean; refresh_interval_secs: number;
+  user_agent: string | null; auto_refresh: boolean; traffic: SourceTraffic; changes: SourceChanges;
   last_attempt_at: number | null; last_success_at: number | null; latest_success: SourceRevision | null;
   active_job: SourceJob | null; last_error: SourceFailure | null; stale_reason: string | null; counts: SourceCounts;
   dependencies: SourceDependency[];
 }
 export type SourceNode = {
-  id: string; source_id: number; identity_epoch: number; version_id: string; source_revision_id: string;
+  id: string; public_id: number; adopted: boolean; metadata_revision: number; source_id: number; identity_epoch: number; version_id: string; source_revision_id: string;
   present_in_latest: boolean; identity_state: 'unique' | 'ambiguous' | 'unresolved'; supported: boolean; selectable: boolean;
   reasons: string[]; capabilities: { tcp: boolean; udp: boolean }; ordinal: number; name: string;
   protocol: string | null; server: string | null; server_port: number | null; sni: string | null; transport: string | null;
@@ -33,6 +38,12 @@ const nullableTime = (v: unknown) => v === null || integer(v)
 export const sourceUuid = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)
 const nullableUuid = (v: unknown) => v === null || sourceUuid(v)
 const publicHost = (v: unknown) => v === null || text(v) && v.length > 0 && !/[\s/@?#\\]/.test(v)
+export function validSourceTraffic(v: unknown): v is SourceTraffic {
+  return record(v) && Object.entries(v).every(([key, value]) => ['upload', 'download', 'total', 'expire', 'updated_at'].includes(key) && integer(value))
+}
+export function validSourceChanges(v: unknown): v is SourceChanges {
+  return record(v) && exact(v, 'added updated missing unsupported') && Object.values(v).every(value => integer(value))
+}
 export function validSourceCounts(v: unknown): v is SourceCounts {
   return record(v) && exact(v, 'supported unsupported ambiguous missing') && Object.entries(v).every(([key, value]) => integer(value) && (key === 'missing' || value <= 5000))
 }
@@ -59,10 +70,11 @@ export function validSourceJob(v: unknown): v is SourceJob {
     && (v.error === null || validSourceFailure(v.error))
 }
 export function validSubscriptionSource(v: unknown): v is SubscriptionSource {
-  return record(v) && exact(v, 'id name kind host configured auth_configured settings_revision identity_epoch archived refresh_interval_secs last_attempt_at last_success_at latest_success active_job last_error stale_reason counts dependencies')
+  return record(v) && exact(v, 'id name kind host configured auth_configured settings_revision identity_epoch archived refresh_interval_secs user_agent auto_refresh traffic changes last_attempt_at last_success_at latest_success active_job last_error stale_reason counts dependencies')
     && integer(v.id, 1) && text(v.name) && (v.kind === 'url' || v.kind === 'inline') && publicHost(v.host)
     && typeof v.configured === 'boolean' && typeof v.auth_configured === 'boolean' && integer(v.settings_revision, 1) && integer(v.identity_epoch, 1)
-    && typeof v.archived === 'boolean' && integer(v.refresh_interval_secs) && (v.kind === 'inline' ? v.refresh_interval_secs === 0 : v.refresh_interval_secs >= 3600 && v.refresh_interval_secs <= 604800)
+    && typeof v.archived === 'boolean' && integer(v.refresh_interval_secs) && (v.kind === 'inline' ? v.refresh_interval_secs === 0 : v.refresh_interval_secs >= MIN_REFRESH_SECS && v.refresh_interval_secs <= MAX_REFRESH_SECS)
+    && (v.user_agent === null || text(v.user_agent) && v.user_agent.length > 0 && v.user_agent.length <= 256) && typeof v.auto_refresh === 'boolean' && validSourceTraffic(v.traffic) && validSourceChanges(v.changes)
     && nullableTime(v.last_attempt_at) && nullableTime(v.last_success_at) && nullableText(v.stale_reason) && validSourceCounts(v.counts)
     && (v.latest_success === null || validSourceRevision(v.latest_success) && v.latest_success.source_id === v.id)
     && (v.active_job === null || validSourceJob(v.active_job) && v.active_job.source_id === v.id && sourceJobActive(v.active_job))
@@ -72,8 +84,8 @@ export function validSubscriptionSources(v: unknown): v is SubscriptionSource[] 
   return Array.isArray(v) && v.length <= 128 && v.every(validSubscriptionSource) && new Set(v.map(item => item.id)).size === v.length
 }
 export function validSourceNode(v: unknown): v is SourceNode {
-  return record(v) && exact(v, 'id source_id identity_epoch version_id source_revision_id present_in_latest identity_state supported selectable reasons capabilities ordinal name protocol server server_port sni transport parse_status unsupported_reasons')
-    && sourceUuid(v.id) && integer(v.source_id, 1) && integer(v.identity_epoch, 1) && sourceUuid(v.version_id) && sourceUuid(v.source_revision_id)
+  return record(v) && exact(v, 'id public_id adopted metadata_revision source_id identity_epoch version_id source_revision_id present_in_latest identity_state supported selectable reasons capabilities ordinal name protocol server server_port sni transport parse_status unsupported_reasons')
+    && sourceUuid(v.id) && integer(v.public_id, 1) && typeof v.adopted === 'boolean' && integer(v.metadata_revision) && integer(v.source_id, 1) && integer(v.identity_epoch, 1) && sourceUuid(v.version_id) && sourceUuid(v.source_revision_id)
     && typeof v.present_in_latest === 'boolean' && ['unique', 'ambiguous', 'unresolved'].includes(String(v.identity_state)) && typeof v.supported === 'boolean' && typeof v.selectable === 'boolean'
     && Array.isArray(v.reasons) && v.reasons.every(text) && record(v.capabilities) && exact(v.capabilities, 'tcp udp') && typeof v.capabilities.tcp === 'boolean' && typeof v.capabilities.udp === 'boolean'
     && integer(v.ordinal) && v.ordinal < 5000 && text(v.name) && nullableText(v.protocol) && publicHost(v.server) && publicHost(v.sni) && nullableText(v.transport)
@@ -98,3 +110,39 @@ export function validSourceReceipt(v: unknown): v is SourceReceipt {
 export const sourceStatusText: Record<SourceJobStatus, string> = { queued: '等待处理', running: '处理中', cancelling: '等待取消确认', succeeded: '解析成功', unchanged: '内容未变化', failed: '处理失败', cancelled: '已取消', superseded: '已被新设置取代' }
 export const sourceStageText: Record<SourceJob['stage'], string> = { queued: '排队', fetch: '抓取订阅', parse: '解析节点', store: '保存版本', done: '结束' }
 export const sourceFormatText: Record<string, string> = { uri_list: 'URI 列表', base64_uri_list: 'Base64 URI 列表', sing_box_json: 'sing-box JSON', clash_yaml: 'Clash YAML' }
+export function sourceInterval(seconds: number) {
+  if (seconds % 86400 === 0) return `每 ${seconds / 86400} 天`
+  if (seconds % 3600 === 0) return `每 ${seconds / 3600} 小时`
+  return seconds % 60 === 0 ? `每 ${seconds / 60} 分钟` : `每 ${seconds} 秒`
+}
+
+// Previews let an administrator choose which nodes join the catalog before saving.
+export type OrderedPreviewNode = Omit<SourceNode, 'id' | 'public_id' | 'adopted' | 'metadata_revision' | 'source_id' | 'identity_epoch' | 'version_id' | 'source_revision_id' | 'present_in_latest' | 'supported' | 'reasons'> & { key: string }
+export type OrderedPreview = { id: string; expires_at: number; format: string; supported_count: number; unsupported_count: number; warnings: { code: string; message: string }[]; nodes: OrderedPreviewNode[] }
+export function validOrderedPreview(v: unknown): v is OrderedPreview {
+  return record(v) && exact(v, 'id expires_at format supported_count unsupported_count warnings nodes') && sourceUuid(v.id) && integer(v.expires_at, 1) && Number.isSafeInteger(v.expires_at * 1000)
+    && ['uri_list', 'base64_uri_list', 'sing_box_json', 'clash_yaml'].includes(String(v.format)) && integer(v.supported_count) && integer(v.unsupported_count)
+    && Array.isArray(v.warnings) && v.warnings.every(warning => record(warning) && exact(warning, 'code message') && text(warning.code) && text(warning.message))
+    && Array.isArray(v.nodes) && v.nodes.length <= 5000 && v.nodes.every(node => record(node) && exact(node, 'key selectable identity_state capabilities ordinal name protocol server server_port sni transport parse_status unsupported_reasons')
+      && typeof node.key === 'string' && node.key === `node-${node.ordinal}` && typeof node.selectable === 'boolean' && ['unique', 'ambiguous', 'unresolved'].includes(String(node.identity_state))
+      && record(node.capabilities) && exact(node.capabilities, 'tcp udp') && typeof node.capabilities.tcp === 'boolean' && typeof node.capabilities.udp === 'boolean'
+      && integer(node.ordinal) && node.ordinal < 5000 && text(node.name) && nullableText(node.protocol) && publicHost(node.server) && publicHost(node.sni) && nullableText(node.transport)
+      && (node.server_port === null || integer(node.server_port, 1) && node.server_port <= 65535) && ['supported', 'unsupported'].includes(String(node.parse_status))
+      && (!node.selectable || node.parse_status === 'supported' && node.identity_state === 'unique')
+      && Array.isArray(node.unsupported_reasons) && node.unsupported_reasons.every(reason => record(reason) && exact(reason, 'code message') && text(reason.code) && text(reason.message)))
+    && new Set(v.nodes.map(node => node.key)).size === v.nodes.length
+    && v.nodes.filter(node => node.parse_status === 'supported').length === v.supported_count && v.nodes.filter(node => node.parse_status !== 'supported').length === v.unsupported_count
+}
+export function orderedPreviewError(preview: OrderedPreview, selected: string[], now = Date.now()): string {
+  if (!validOrderedPreview(preview)) return '预览信息不完整，请重新解析；当前选择已保留。'
+  if (!Number.isSafeInteger(now) || preview.expires_at * 1000 <= now) return '导入预览已过期，请重新解析；当前选择已保留。'
+  if (!selected.length || selected.length > 5000 || new Set(selected).size !== selected.length || selected.some(key => !preview.nodes.some(node => node.key === key && node.selectable))) return '请至少选择一个可导入的节点；所选节点须受支持且身份唯一。'
+  return ''
+}
+
+// Numbered sources become a read-only archive once the source migration ran.
+export const sourceMigrationPath = '/api/plugins/sing-box/source-migration'
+export type SourceMigration = { migrated: boolean; migrated_at: number | null }
+export function validSourceMigration(v: unknown): v is SourceMigration {
+  return record(v) && exact(v, 'migrated migrated_at') && typeof v.migrated === 'boolean' && (v.migrated ? integer(v.migrated_at) : v.migrated_at === null)
+}

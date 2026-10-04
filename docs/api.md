@@ -235,7 +235,7 @@
 
 来源公开字段包含 `id,name,kind,host,configured,auth_configured,settings_revision,identity_epoch,archived,refresh_interval_secs,user_agent,auto_refresh,traffic,changes,last_attempt_at,last_success_at,latest_success,active_job,last_error,counts,stale_reason,dependencies`。`latest_success`／历史批次为 `{id,source_id,settings_revision,identity_epoch,parser_version,format,parsed_at,counts}`；不返回原文、URL 路径／查询、认证、规范化配置、内容或身份摘要。
 
-节点读取外壳为 `{source_id,current_settings_revision,current_identity_epoch,success_revision,nodes}`；节点包含 UUID 身份／版本、数字别名 `public_id`、采用标记 `adopted`、公开端点与参数类别、`present_in_latest,identity_state,supported,selectable,reasons,capabilities`。identity_state 为 unique（可明确匹配）、ambiguous（多个相同校验身份）或 unresolved（尚无可校验身份，不等同多个账号）。`selectable` 只表示当前来源下的导入资格，不能解释成运行时支持、网络在线或当前已有混合链路能力；客户端以服务端判定为准。任务状态为 queued／running／cancelling／succeeded／unchanged／failed／cancelled／superseded，阶段为 queued／fetch／parse／store／done。错误只有固定 stage／kind／message 与可选 http_status。`traffic` 是提供方 `subscription-userinfo` 的 upload/download/total/expire 与记录时间；`changes` 是相对上次成功的 added/updated/missing/unsupported 计数，304 时归零（unsupported 保留）。
+节点读取外壳为 `{source_id,current_settings_revision,current_identity_epoch,success_revision,nodes}`；节点包含 UUID 身份／版本、数字别名 `public_id`、采用标记 `adopted`、节点库管理设置修订号 `metadata_revision`（采用接口须原样带回）、公开端点与参数类别、`present_in_latest,identity_state,supported,selectable,reasons,capabilities`。identity_state 为 unique（可明确匹配）、ambiguous（多个相同校验身份）或 unresolved（尚无可校验身份，不等同多个账号）。`selectable` 只表示当前来源下的导入资格，不能解释成运行时支持、网络在线或当前已有混合链路能力；客户端以服务端判定为准。任务状态为 queued／running／cancelling／succeeded／unchanged／failed／cancelled／superseded，阶段为 queued／fetch／parse／store／done。错误只有固定 stage／kind／message 与可选 http_status。`traffic` 是提供方 `subscription-userinfo` 的 upload/download/total/expire 与记录时间；`changes` 是相对上次成功的 added/updated/missing/unsupported 计数，304 时归零（unsupported 保留）。
 
 ### 来源迁移（ADR 0079 阶段三 S1b）
 
@@ -244,6 +244,7 @@
 - 节点库、用户外部授权和用户订阅迁移前读数字编号来源，迁移后读有序来源。节点和版本编号不变；授权中的 `source_id` 变为对应有序来源的编号。
 - 迁移后数字编号来源的接口只读：`/subscription-sources` 的创建、修改、刷新、取消、删除、预览和节点采用返回 409，读取接口保留一个版本；来源详情新增 `migrated_to`，为对应的有序来源编号，迁移前为 null。
 - 迁移后新建 mixed 链路不能再使用订阅跳，返回 409；已有 mixed 链路继续读取原版本，等待逐条转换。
+- `GET /source-migration` 返回 `{migrated,migrated_at}`，仅管理员可读。界面据此切换：迁移前两套来源照常可写；迁移后数字编号来源折叠为只读存档，mixed 链路编辑器不再提供订阅段；状态未确认时数字编号来源的写操作保持禁用。
 
 刷新失败保留成功；304 只沿用匹配当前条件缓存代数的成功批次。取消、输入修改、归档和删除均使旧任务结果失效；同步有界解析实际退出后才释放任务。归档停止新刷新和引用，历史保持。当前旧两跳没有外部节点引用，空 dependencies 不替代后续混合路径当前／待应用／恢复引用保护。
 

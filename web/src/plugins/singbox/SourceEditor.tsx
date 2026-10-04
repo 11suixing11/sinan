@@ -20,7 +20,7 @@ export default function SourceEditor({ session, open, snapshot, refresh, onClose
   const { mode, source } = session
   useEffect(() => {
     reader.current.invalidate(); pending.current = undefined; setInputError(''); action.clearError(); setFileName(''); setFileBusy(false); setFileKey(value => value + 1)
-    setDraft({ ...emptySourceDraft(), name: source?.name ?? '', kind: source?.kind ?? 'url', interval: String(source?.kind === 'url' ? source.refresh_interval_secs : 86400) })
+    setDraft({ ...emptySourceDraft(), name: source?.name ?? '', kind: source?.kind ?? 'url', interval: String(source?.kind === 'url' ? source.refresh_interval_secs : 86400), userAgent: source?.user_agent ?? '', autoRefresh: source?.auto_refresh === false ? 'off' : 'on' })
   // A session is changed only by an explicit editor operation, never by list polling.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.generation])
@@ -36,7 +36,7 @@ export default function SourceEditor({ session, open, snapshot, refresh, onClose
   }
   const switchKind = (kind: 'url' | 'inline') => {
     reader.current.invalidate(); setFileBusy(false); setFileName(''); setFileKey(value => value + 1); setInputError(''); action.clearError()
-    setDraft(current => ({ ...current, kind, url: '', content: '', authorization: '', cookie: '', apiKey: '', authAction: 'preserve' }))
+    setDraft(current => ({ ...current, kind, url: '', content: '', authorization: '', cookie: '', apiKey: '', authAction: 'preserve', interval: kind === 'url' && current.interval === '0' ? '86400' : current.interval }))
   }
   const selectFile = (file?: File) => {
     if (!file || action.busy) return
@@ -80,7 +80,11 @@ export default function SourceEditor({ session, open, snapshot, refresh, onClose
           {fileBusy && <p role="status">正在读取文件…</p>}{fileName && <p className="helper">已读取：{fileName}</p>}
         </>}
       </>}
-      {draft.kind === 'url' && <Field label="自动刷新周期（秒）" hint="最少 1 小时，最多 7 天；默认每天一次。"><input type="number" name="source_interval" required min={3600} max={604800} step={1} value={draft.interval} onChange={event => set('interval', event.target.value)} /></Field>}
+      {draft.kind === 'url' && <>
+        <Field label="请求标识（User-Agent）" hint="可选，1–256 个可打印 ASCII 字符；留空则不发送。部分订阅服务按此返回不同格式。修改它不会更换来源身份。"><input name="source_user_agent" maxLength={256} value={draft.userAgent} onChange={event => set('userAgent', event.target.value)} autoComplete="off" spellCheck={false} /></Field>
+        <label className="source-checkbox"><input type="checkbox" name="source_auto_refresh" checked={draft.autoRefresh === 'on'} onChange={event => set('autoRefresh', event.target.checked ? 'on' : 'off')} />按周期自动刷新</label>
+        <Field label="自动刷新周期（秒）" hint="最少 300 秒（5 分钟），最多 2592000 秒（30 天）；默认每天一次。关闭自动刷新后只在手动刷新或修改输入时抓取。"><input type="number" name="source_interval" required min={300} max={2592000} step={1} value={draft.interval} onChange={event => set('interval', event.target.value)} /></Field>
+      </>}
       {draft.kind === 'inline' && <p className="helper">粘贴或文件来源不自动刷新，需手动更新内容。</p>}
       <ErrorNotice message={inputError} />
       <p className="helper">输入和未确认的原请求仅保存在当前页面内存。保存后会清空敏感输入；抓取或解析失败不抹掉上次成功版本。离开此页面会丢失未确认请求。</p>

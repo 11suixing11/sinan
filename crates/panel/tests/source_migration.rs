@@ -242,6 +242,12 @@ async fn migration_keeps_every_output_and_rollback_restores_it(pool: PgPool) -> 
     let rendered = subscription(&panel, &user).await?;
     ensure!(rendered.contains("TEST_ONLY-first") && !rendered.contains("TEST_ONLY-second"));
 
+    let state = ok(&panel, &cookie, Method::GET, "/source-migration", None).await?;
+    ensure!(
+        state == json!({"migrated":false,"migrated_at":null}),
+        "{state}"
+    );
+
     let at = now_timestamp();
     let before = migration::snapshot(&panel.state, at).await?;
     ensure!(before["bundles"][entry.to_string()].is_string());
@@ -276,6 +282,11 @@ async fn migration_keeps_every_output_and_rollback_restores_it(pool: PgPool) -> 
 
     let report = migration::apply(&pool).await?;
     ensure!(report.migrated && report.ready());
+    let state = ok(&panel, &cookie, Method::GET, "/source-migration", None).await?;
+    ensure!(
+        state["migrated"] == true && state["migrated_at"].is_i64(),
+        "{state}"
+    );
     let after = migration::snapshot(&panel.state, at).await?;
     let differences = migration::compare(&before, &after);
     ensure!(differences.is_empty(), "migration changed {differences:?}");

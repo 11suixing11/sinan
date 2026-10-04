@@ -337,6 +337,11 @@ async fn adoption_uses_the_current_version_and_keeps_chain_selection_unchanged(
     )
     .await?;
     assert_eq!(adopted["adopted"], true);
+    assert_eq!(node["metadata_revision"], 0);
+    assert_eq!(
+        adopted["metadata_revision"], 1,
+        "node pages report the shared catalog revision"
+    );
     // Adoption shares the catalog metadata revision, so a stale page is refused.
     call(
         &panel,

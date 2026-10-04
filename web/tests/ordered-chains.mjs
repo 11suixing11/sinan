@@ -52,6 +52,7 @@ try {
       else if (method === 'GET' && path === `${prefix}/usage`) value = { total: '0', uplink: '0', downlink: '0', by_node: [], by_user: [] }
       else if (method === 'GET' && path === `${prefix}/ordered-proxy-resources`) value = resources()
       else if (method === 'GET' && /^\/api\/plugins\/sing-box\/ordered-proxy-resources\/(direct|chain)\/[1-9]\d*$/.test(path)) { const [, kind, id] = path.match(/\/(direct|chain)\/(\d+)$/); value = resources().find(resource => resource.kind === kind && resource.id === Number(id)); if (!value) { await route.fulfill({ status: 404, json: { error: '资源已删除' } }); return } }
+      else if (method === 'GET' && path === `${prefix}/source-migration`) value = { migrated: false, migrated_at: null }
       else if (method === 'GET' && path === `${prefix}/ordered-subscription-sources`) { if (sourceFailure) { await route.fulfill({ status: 503, json: { error: '来源读取失败' } }); return } value = [getSource()] }
       else if (method === 'GET' && path === `${prefix}/ordered-subscription-sources/1`) value = getSource()
       else if (method === 'GET' && path === `${prefix}/ordered-subscription-sources/1/nodes`) value = sourceNodePageFixture({ current_identity_epoch: source.identity_epoch, nodes: sourceNodes })

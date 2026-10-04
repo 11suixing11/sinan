@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test'
 import { validatedSnapshot } from '../src/plugins/singbox/groupTypes'
-import { cancelSourceJob, deleteSource, emptySourceDraft, prepareSourceMutation, refreshSource, SourceFileReader, sourceAuthHeaders, sourceCommand, sourceMetadataError, sourceMutationReplay, sourceWriteError, submitSourceMutation } from '../src/plugins/singbox/sourceRequests'
+import { adoptSourceNode, cancelSourceJob, deleteSource, emptySourceDraft, prepareSourceMutation, previewCommit, previewInput, refreshSource, SourceFileReader, sourceAuthHeaders, sourceCommand, sourceMetadataError, sourceMutationReplay, sourceWriteError, submitSourceMutation } from '../src/plugins/singbox/sourceRequests'
 import type { SourceSnapshot } from '../src/plugins/singbox/sourceRequests'
-import { MAX_SOURCE_BYTES, sourceJobActive, sourceStatusText, validSourceCounts, validSourceHistory, validSourceJob, validSourceNodePage, validSubscriptionSource, validSubscriptionSources } from '../src/plugins/singbox/orderedSourceTypes'
-import type { SourceJob, SourceNodePage, SubscriptionSource } from '../src/plugins/singbox/orderedSourceTypes'
-import { sourceJobFixture, sourceNodeFixture, sourceNodePageFixture, sourceRevisionFixture, sourceUuid, subscriptionSourceFixture } from './subscription-source-fixtures.mjs'
+import { MAX_SOURCE_BYTES, orderedPreviewError, sourceInterval, sourceJobActive, sourceRoot, sourceStatusText, validOrderedPreview, validSourceCounts, validSourceHistory, validSourceJob, validSourceMigration, validSourceNodePage, validSubscriptionSource, validSubscriptionSources } from '../src/plugins/singbox/orderedSourceTypes'
+import type { OrderedPreview, SourceJob, SourceNode, SourceNodePage, SubscriptionSource } from '../src/plugins/singbox/orderedSourceTypes'
+import { sourceJobFixture, sourceMigrationFixture, sourceNodeFixture, sourceNodePageFixture, sourcePreviewFixture, sourceRevisionFixture, sourceUuid, subscriptionSourceFixture } from './subscription-source-fixtures.mjs'
 const source = () => subscriptionSourceFixture() as SubscriptionSource
 const snapshot = (): SourceSnapshot => ({ data: [source()], fresh: true, error: '' })
 const id = sourceUuid(900)
@@ -153,4 +153,64 @@ test('late file results and late file errors cannot repopulate a replaced or cle
   reader.invalidate(); fail(new Error('late file error'))
   await expect(second).resolves.toBeNull()
   expect(sourceMetadataError(snapshot())).toBe('')
+})
+test('merged source settings carry the User-Agent, automatic refresh and the widened interval', () => {
+  const item = { ...source(), user_agent: 'Old/1' }
+  expect(validSubscriptionSource(item)).toBe(true)
+  for (const secs of [299, 2592001]) expect(validSubscriptionSource({ ...source(), refresh_interval_secs: secs })).toBe(false)
+  for (const secs of [300, 2592000]) expect(validSubscriptionSource({ ...source(), refresh_interval_secs: secs })).toBe(true)
+  for (const key of ['user_agent', 'auto_refresh', 'traffic', 'changes']) { const copy: Record<string, unknown> = { ...source() }; delete copy[key]; expect(validSubscriptionSource(copy)).toBe(false) }
+  expect(validSubscriptionSource({ ...source(), traffic: { upload: 1, download: 2, total: 3, expire: 4, updated_at: 5 } })).toBe(true)
+  expect(validSubscriptionSource({ ...source(), traffic: { upload: 1, secret: 2 } })).toBe(false)
+  expect(sourceInterval(300)).toBe('每 5 分钟'); expect(sourceInterval(7200)).toBe('每 2 小时'); expect(sourceInterval(2592000)).toBe('每 30 天')
+  const created = sourceCommand('create', { ...emptySourceDraft(), name: 'a', url: 'https://subscription.example.com/s', userAgent: ' Agent/1 ', autoRefresh: 'off', interval: '300' }).fields
+  expect(created).toMatchObject({ user_agent: 'Agent/1', auto_refresh: false, refresh_interval_secs: 300 })
+  expect(sourceCommand('create', { ...emptySourceDraft(), name: 'a', url: 'https://subscription.example.com/s' }).fields.user_agent).toBeNull()
+  const draft = { ...emptySourceDraft(), name: 'a', userAgent: 'Old/1' }
+  expect(sourceCommand('metadata', draft, item).fields).toEqual({ name: 'a', refresh_interval_secs: 86400, auto_refresh: true })
+  expect(sourceCommand('metadata', { ...draft, userAgent: 'New/2' }, item).fields.user_agent).toEqual({ action: 'replace', value: 'New/2' })
+  expect(sourceCommand('metadata', { ...draft, userAgent: '' }, item).fields.user_agent).toEqual({ action: 'clear' })
+  expect(sourceCommand('metadata', { ...draft, autoRefresh: 'off' }, item).fields.auto_refresh).toBe(false)
+  for (const bad of ['中文', 'a\tb', 'x'.repeat(257)]) expect(() => sourceCommand('metadata', { ...draft, userAgent: bad }, item)).toThrow('请求标识')
+  for (const interval of ['299', '2592001', '1.5']) expect(() => sourceCommand('metadata', { ...draft, interval }, item)).toThrow('刷新周期')
+})
+test('node pages expose the public id, adoption and the shared catalog revision', () => {
+  for (const key of ['public_id', 'adopted', 'metadata_revision']) { const node: Record<string, unknown> = { ...sourceNodeFixture() }; delete node[key]; expect(validSourceNodePage(sourceNodePageFixture({ nodes: [node] }))).toBe(false) }
+  expect(validSourceNodePage(sourceNodePageFixture({ nodes: [sourceNodeFixture({ public_id: 0 })] }))).toBe(false)
+  expect(validSourceNodePage(sourceNodePageFixture({ nodes: [sourceNodeFixture({ adopted: true, metadata_revision: 3 })] }))).toBe(true)
+})
+test('catalog adoption sends the current version and the shared metadata revision', async () => {
+  const current = snapshot(), node = sourceNodeFixture() as SourceNode, sent: unknown[] = []
+  const adopted = await adoptSourceNode(current, source(), node, true, async (path: string, method: string, body?: unknown) => { sent.push([path, method, body]); return { ...node, adopted: true, metadata_revision: 1 } })
+  expect(adopted.adopted).toBe(true)
+  expect(sent).toEqual([[`${sourceRoot}/1/nodes/${node.id}`, 'PATCH', { adopted: true, settings_revision: 1, identity_epoch: 1, node_version_id: node.version_id, metadata_revision: 0 }]])
+  await expect(adoptSourceNode(current, source(), { ...node, selectable: false }, true, async () => node)).rejects.toThrow('不可加入')
+  await expect(adoptSourceNode(current, source(), node, true, async () => ({ ...node, adopted: false }))).rejects.toThrow('尚未确认')
+  await expect(adoptSourceNode({ ...current, fresh: false }, source(), node, true, async () => node)).rejects.toThrow()
+  // Removing from the catalog stays possible on an archived source; adopting does not.
+  const archived = { ...source(), archived: true }, view = { data: [archived], fresh: true, error: '' }
+  await expect(adoptSourceNode(view, archived, { ...node, adopted: true, selectable: false }, false, async () => ({ ...node, adopted: false }))).resolves.toMatchObject({ adopted: false })
+  await expect(adoptSourceNode(view, archived, node, true, async () => node)).rejects.toThrow('归档')
+  expect(sent).toHaveLength(1)
+})
+test('preview import commits only selectable nodes with the chosen name, interval and request id', () => {
+  const preview = sourcePreviewFixture({ expires_at: 2000 }) as OrderedPreview
+  expect(validOrderedPreview(preview)).toBe(true)
+  expect(validOrderedPreview({ ...preview, nodes: [preview.nodes[0], { ...preview.nodes[1], selectable: true }] })).toBe(false)
+  expect(validOrderedPreview({ ...preview, input_config: {} })).toBe(false)
+  expect(validOrderedPreview({ ...preview, supported_count: 2 })).toBe(false)
+  const draft = { ...emptySourceDraft(), name: '来源' }
+  expect(previewCommit(preview, draft, ['node-0'], id, 1_000_000)).toEqual({ request_id: id, name: '来源', selected: ['node-0'], refresh_interval_secs: 86400, auto_refresh: true })
+  expect(previewCommit(preview, { ...draft, kind: 'inline' }, ['node-0'], id, 1_000_000)).toMatchObject({ refresh_interval_secs: null, auto_refresh: false })
+  for (const selected of [['node-1'], [], ['node-0', 'node-0']]) expect(() => previewCommit(preview, draft, selected, id, 1_000_000)).toThrow('可导入')
+  expect(() => previewCommit(preview, draft, ['node-0'], id, 2_000_000)).toThrow('过期')
+  expect(() => previewCommit(preview, { ...draft, name: 'https://x.example' }, ['node-0'], id, 1_000_000)).toThrow('来源名称')
+  expect(orderedPreviewError(preview, ['node-0'], 1_000_000)).toBe('')
+  expect(previewInput({ ...draft, url: 'https://subscription.example.com/s', userAgent: 'A/1' })).toEqual({ input: { kind: 'url', url: 'https://subscription.example.com/s', auth_headers: {} }, user_agent: 'A/1' })
+  expect(previewInput({ ...draft, kind: 'inline', content: 'trojan://x@exit.example.com:443', userAgent: 'ignored' })).toEqual({ input: { kind: 'inline', content: 'trojan://x@exit.example.com:443' }, user_agent: null })
+})
+test('migration state decoder keeps migrated, not migrated and unknown apart', () => {
+  expect(validSourceMigration(sourceMigrationFixture())).toBe(true)
+  expect(validSourceMigration(sourceMigrationFixture(true))).toBe(true)
+  for (const value of [{ migrated: true, migrated_at: null }, { migrated: false, migrated_at: 5 }, { migrated: false }, null, []]) expect(validSourceMigration(value)).toBe(false)
 })

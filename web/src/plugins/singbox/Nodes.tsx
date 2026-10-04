@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
 import { Confirm, ErrorNotice, Field, FormDialog, Icon, PageHeader, Refresh, RefreshNotice, Stat } from '../../components'
 import { bytes } from '../../format'
-import { resourceWriteError, useAction, useRefreshNotice, useResourceGroup } from '../../hooks'
+import { resourceWriteError, useAction, useRefreshNotice, useResource, useResourceGroup } from '../../hooks'
 import type { Node, PluginServer, Usage } from '../../types'
 import ProtocolFields, { protocolRequest } from './ProtocolFields'
 import { ConnectionFields, nodeSettingsRequest } from './NodeSettingsFields'
@@ -18,6 +18,7 @@ import OrderedResources from './OrderedResources'
 import type { ProxyResourceFilter, ProxyResourceServerRole, ProxyResource as OrderedResource } from './groupTypes'
 import { validatedSnapshot, validProxyResources } from './groupTypes'
 import { validCatalog } from './catalog'
+import { sourceMigrationPath, validSourceMigration } from './orderedSourceTypes'
 import { nodeHash } from './nodeRoute'
 import type { NodeView } from './nodeRoute'
 import './nodes.css'
@@ -51,6 +52,9 @@ export default function Nodes({ serverId, chainsOnly = false, view, selected, in
     catalog: `${root}/node-catalog`,
   })
   const { nodes, resources, servers, usage, catalog } = reads
+  // Undefined until confirmed; numbered sources stay read-only while unknown.
+  const migrationQuery = useResource<unknown>(sourceMigrationPath, 0)
+  const migrated = !migrationQuery.error && validSourceMigration(migrationQuery.data) ? migrationQuery.data.migrated : undefined
   const orderedQuery = reads.ordered
   const orderedHistory = useRef<OrderedResource[] | undefined>(undefined)
   const ordered = validatedSnapshot(orderedQuery, validProxyResources, orderedHistory.current)
@@ -94,7 +98,7 @@ export default function Nodes({ serverId, chainsOnly = false, view, selected, in
   const chainCount = ordered.data?.filter(resource => resource.kind === 'chain').length
   const catalogCount = validCatalog(catalog.data) ? catalog.data.length : undefined
   const canCreateChain = canCreate && Boolean(nodes.data && resources.data && !nodes.error && !resources.error)
-  const refresh = () => reads.nodes.reload()
+  const refresh = () => { reads.nodes.reload(); migrationQuery.reload() }
   // Section links keep the current server scope; the catalog type filter stays local.
   const routeHash = (target: NodeView) => nodeHash({ server: filter || undefined, role: initialServerRole, view: target })
 
@@ -193,7 +197,7 @@ export default function Nodes({ serverId, chainsOnly = false, view, selected, in
     {refreshNotice.visible && <RefreshNotice />}
     {saved !== null && <div className="notice" role="status"><span>资源已保存，正在等待自动发布与设备应用。</span><button className="text-button" onClick={() => setDeployment(saved)}>查看部署进度</button></div>}
     {!!createdChains.length && <div className="notice" role="status"><span>已保存 {createdChains.length} 条链路，正在等待依赖与路径验证。</span><a href={resourceLink({ kind: 'chain', id: createdChains[0] })}>查看链路详情</a></div>}
-    {creatingChain && <ChainEditor writeError={() => writeError()} getCurrent={chainCurrent} nodes={nodes.data ?? []} resources={all}
+    {creatingChain && <ChainEditor writeError={() => writeError()} getCurrent={chainCurrent} nodes={nodes.data ?? []} resources={all} sourcesMigrated={migrated}
       servers={enabledServers.filter(server => !filter || server.id === Number(filter))} availableServers={enabledServers}
       onClose={() => setCreatingChain(false)} onSaved={receipt => { setCreatingChain(false); setCreatedChains(receipt.chain_ids); refresh() }} />}
     <nav className="node-views" aria-label="节点视图">
@@ -222,8 +226,14 @@ export default function Nodes({ serverId, chainsOnly = false, view, selected, in
         onEdit={edit} onChanged={refresh} onAddSource={() => setSourceCreate(value => value + 1)} />
     </div>
     <div className="node-view" hidden={activeView !== 'sources'}>
-      {!creatingChain && <SubscriptionSources onChange={refresh} />}
-      <Sources createRequest={sourceCreate} />
+      {migrationQuery.error && <ErrorNotice message={`订阅来源迁移状态读取失败：${migrationQuery.error}`} retry={migrationQuery.reload} />}
+      {migrated ? <>
+        <Sources createRequest={sourceCreate} migrated onCatalogChange={refresh} />
+        <details className="source-archive"><summary>数字编号来源（已迁移，只读）</summary>{!creatingChain && <SubscriptionSources migrated onChange={refresh} />}</details>
+      </> : <>
+        {!creatingChain && <SubscriptionSources migrated={migrated} onChange={refresh} />}
+        <Sources createRequest={sourceCreate} migrated={migrated} onCatalogChange={refresh} />
+      </>}
     </div>
     {showFlatDetail && selected && <ProxyResourceDetail key={`${selected.kind}-${selected.id}`} selected={selected} onClose={closeDetail} onChanged={refresh}
       onEdit={node => { closeDetail(); edit(node) }}

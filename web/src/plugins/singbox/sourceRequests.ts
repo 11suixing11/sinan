@@ -2,12 +2,13 @@ import { api } from '../../api'
 import { resourceWriteError } from '../../hooks'
 import { assignmentRequestId } from './groupTypes'
 import type { ResourceSnapshot } from './groupTypes'
-import { MAX_SOURCE_BYTES, sourceJobRoot, sourceRoot, sourceUuid, validSourceJob, validSourceReceipt, validSubscriptionSources } from './orderedSourceTypes'
-import type { SourceJob, SourceReceipt, SubscriptionSource } from './orderedSourceTypes'
+import { MAX_REFRESH_SECS, MAX_SOURCE_BYTES, MIN_REFRESH_SECS, orderedPreviewError, sourceJobRoot, sourceRoot, sourceUuid, validOrderedPreview, validSourceJob, validSourceNode, validSourceReceipt, validSubscriptionSources } from './orderedSourceTypes'
+import type { OrderedPreview, SourceJob, SourceNode, SourceReceipt, SubscriptionSource } from './orderedSourceTypes'
 
 export type SourceEditorMode = 'create' | 'metadata' | 'update' | 'replace' | 'archive' | 'unarchive'
-export type SourceDraft = { name: string; kind: 'url' | 'inline'; url: string; content: string; interval: string; authorization: string; cookie: string; apiKey: string; authAction: 'preserve' | 'replace' | 'clear' }
-export const emptySourceDraft = (): SourceDraft => ({ name: '', kind: 'url', url: '', content: '', interval: '86400', authorization: '', cookie: '', apiKey: '', authAction: 'preserve' })
+export type SourceDraft = { name: string; kind: 'url' | 'inline'; url: string; content: string; interval: string; authorization: string; cookie: string; apiKey: string; authAction: 'preserve' | 'replace' | 'clear'; userAgent: string; autoRefresh: 'on' | 'off' }
+export const emptySourceDraft = (): SourceDraft => ({ name: '', kind: 'url', url: '', content: '', interval: '86400', authorization: '', cookie: '', apiKey: '', authAction: 'preserve', userAgent: '', autoRefresh: 'on' })
+export const previewRoot = '/api/plugins/sing-box/ordered-subscription-source-previews'
 export type SourceCommand = { mode: SourceEditorMode; source_id?: number; settings_revision?: number; expected_identity_epoch?: number; fields: Record<string, unknown> }
 export type PendingSourceMutation = { command: string; path: string; method: 'POST' | 'PATCH'; request_id: string; serialized: string; attempted: boolean }
 export type SourceSnapshot = ResourceSnapshot<SubscriptionSource[]>
@@ -38,6 +39,18 @@ function contentText(content: string) {
   if (encoder.encode(content).length > MAX_SOURCE_BYTES) throw new Error('订阅内容不能超过 2 MiB。')
   return content
 }
+// Printable ASCII only, as the panel sends it verbatim as the User-Agent header.
+export function userAgentText(value: string) {
+  const text = value.trim()
+  if (!text) return null
+  if (text.length > 256 || !/^[\x20-\x7e]+$/.test(text)) throw new Error('请求标识需为 1–256 个可打印 ASCII 字符。')
+  return text
+}
+export function refreshInterval(value: string) {
+  const interval = Number(value)
+  if (!Number.isSafeInteger(interval) || interval < MIN_REFRESH_SECS || interval > MAX_REFRESH_SECS) throw new Error(`刷新周期需为 ${MIN_REFRESH_SECS}–${MAX_REFRESH_SECS} 秒。`)
+  return interval
+}
 function urlText(value: string) {
   const text = value.trim()
   if (encoder.encode(text).length > 8192) throw new Error('订阅地址不能超过 8 KiB。')
@@ -46,20 +59,26 @@ function urlText(value: string) {
   if (url.protocol !== 'https:' || !url.hostname || url.username || url.password || url.hash || /[\r\n\u0000]/.test(text)) throw new Error('订阅地址必须为 HTTPS，不能包含用户凭据、片段或换行。')
   return text
 }
-export function sourceCommand(mode: SourceEditorMode, draft: SourceDraft, source?: Pick<SubscriptionSource, 'id' | 'settings_revision' | 'identity_epoch' | 'kind'>): SourceCommand {
+export function sourceCommand(mode: SourceEditorMode, draft: SourceDraft, source?: Pick<SubscriptionSource, 'id' | 'settings_revision' | 'identity_epoch' | 'kind'> & Partial<Pick<SubscriptionSource, 'user_agent' | 'auto_refresh'>>): SourceCommand {
   if (mode !== 'create' && !source) throw new Error('未指定来源。')
   const base = mode === 'create' ? {} : { source_id: source!.id, settings_revision: source!.settings_revision, expected_identity_epoch: source!.identity_epoch }
   if (mode === 'archive' || mode === 'unarchive') return { mode, ...base, fields: { archived: mode === 'archive' } }
   const name = draft.name.trim()
   if (!name || [...name].length > 128 || name.includes('://') || /[\u0000-\u001f\u007f-\u009f]/.test(name)) throw new Error('来源名称需为 1–128 个字符，不能包含链接或控制字符。')
-  const interval = Number(draft.interval)
-  if (draft.kind === 'url' && (!Number.isSafeInteger(interval) || interval < 3600 || interval > 604800)) throw new Error('刷新周期需为 3600–604800 秒。')
+  const interval = draft.kind === 'url' ? refreshInterval(draft.interval) : 0
+  const agent = draft.kind === 'url' ? userAgentText(draft.userAgent) : null
   const fields: Record<string, unknown> = { name }
+  // Changing the User-Agent is a setting; it never starts a new source identity.
+  const requestSettings = () => {
+    fields.auto_refresh = draft.autoRefresh === 'on'
+    if (agent !== (source?.user_agent ?? null)) fields.user_agent = agent === null ? { action: 'clear' } : { action: 'replace', value: agent }
+  }
   if (mode === 'create') {
     fields.input = draft.kind === 'url' ? { kind: 'url', url: urlText(draft.url), auth_headers: sourceAuthHeaders(draft) } : { kind: 'inline', content: contentText(draft.content) }
     fields.refresh_interval_secs = draft.kind === 'url' ? interval : null
+    if (draft.kind === 'url') { fields.user_agent = agent; fields.auto_refresh = draft.autoRefresh === 'on' }
   } else if (mode === 'metadata') {
-    if (source!.kind === 'url') fields.refresh_interval_secs = interval
+    if (source!.kind === 'url') { fields.refresh_interval_secs = interval; requestSettings() }
   } else if (mode === 'update' || mode === 'replace') {
     if (mode === 'update' && (source!.kind !== 'inline' || draft.kind !== 'inline')) throw new Error('只有粘贴或文件来源可以更新同一来源内容。')
     if (draft.kind === 'inline') fields.input = { kind: 'inline', content: contentText(draft.content), identity_action: mode === 'update' ? 'update' : 'replace' }
@@ -70,6 +89,7 @@ export function sourceCommand(mode: SourceEditorMode, draft: SourceDraft, source
       if (!url && headers === null) throw new Error('请填写新订阅地址，或明确替换或清除认证头。')
       fields.input = { kind: 'url', url, auth_headers: headers }
       fields.refresh_interval_secs = interval
+      requestSettings()
     }
   }
   return { mode, ...base, fields }
@@ -153,4 +173,42 @@ export class SourceFileReader {
     try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
     catch { throw new Error('订阅文件必须使用 UTF-8 编码。') }
   }
+}
+export async function adoptSourceNode(snapshot: SourceSnapshot, source: SubscriptionSource, node: SourceNode, adopted: boolean, writer = sourceRequest<unknown>): Promise<SourceNode> {
+  // Removing from the catalog stays possible on an archived source; adopting does not.
+  const error = sourceWriteError(snapshot, source.id, source.settings_revision, !adopted)
+  if (error) throw new Error(error)
+  if (!validSourceNode(node) || node.source_id !== source.id || node.identity_epoch !== source.identity_epoch) throw new Error('节点信息已过期，请刷新来源详情后重新确认。')
+  if (adopted && !node.selectable) throw new Error('此节点当前不可加入节点库：须在最近成功批次中、身份唯一且受支持。')
+  const result = await writer(`${sourceRoot}/${source.id}/nodes/${node.id}`, 'PATCH', { adopted, settings_revision: source.settings_revision, identity_epoch: node.identity_epoch, node_version_id: node.version_id, metadata_revision: node.metadata_revision })
+  if (!validSourceNode(result) || result.id !== node.id || result.adopted !== adopted) throw new Error('节点库状态尚未确认，请刷新来源详情。')
+  return result
+}
+export type PreviewInput = { kind: 'url'; url: string; auth_headers: Record<string, string> } | { kind: 'inline'; content: string }
+export function previewInput(draft: SourceDraft): { input: PreviewInput; user_agent: string | null } {
+  if (draft.kind === 'url') return { input: { kind: 'url', url: urlText(draft.url), auth_headers: sourceAuthHeaders(draft) }, user_agent: userAgentText(draft.userAgent) }
+  return { input: { kind: 'inline', content: contentText(draft.content) }, user_agent: null }
+}
+export async function createOrderedPreview(request: ReturnType<typeof previewInput>, writer = sourceRequest<unknown>): Promise<OrderedPreview> {
+  const preview = await writer(previewRoot, 'POST', request)
+  if (!validOrderedPreview(preview)) throw new Error('面板返回的导入预览格式不完整，请重新解析。')
+  return preview
+}
+export async function discardOrderedPreview(id: string, writer = sourceRequest<unknown>) {
+  if (!sourceUuid(id)) return
+  await writer(`${previewRoot}/${id}`, 'DELETE')
+}
+export type PreviewCommit = { request_id: string; name: string; selected: string[]; refresh_interval_secs: number | null; auto_refresh: boolean }
+export function previewCommit(preview: OrderedPreview, draft: SourceDraft, selected: string[], requestId: string, now = Date.now()): PreviewCommit {
+  const error = orderedPreviewError(preview, selected, now)
+  if (error) throw new Error(error)
+  const name = draft.name.trim()
+  if (!name || [...name].length > 128 || name.includes('://') || /[\u0000-\u001f\u007f-\u009f]/.test(name)) throw new Error('来源名称需为 1–128 个字符，不能包含链接或控制字符。')
+  if (!sourceUuid(requestId)) throw new Error('请求标识无效。')
+  return { request_id: requestId, name, selected: [...selected].sort(), refresh_interval_secs: draft.kind === 'url' ? refreshInterval(draft.interval) : null, auto_refresh: draft.kind === 'url' && draft.autoRefresh === 'on' }
+}
+export async function commitOrderedPreview(preview: OrderedPreview, body: PreviewCommit, writer = sourceRequest<unknown>): Promise<SourceReceipt> {
+  const receipt = await writer(`${previewRoot}/${preview.id}/commit`, 'POST', body)
+  if (!validSourceReceipt(receipt)) throw new Error('保存收据尚未确认，请保留原请求并重试。')
+  return receipt
 }

@@ -32,6 +32,7 @@ try {
       else if (path === '/api/plugins/sing-box/nodes') data = nodes
       else if (path === '/api/plugins/sing-box/proxy-resources') data = nodes.map(node => ({ ...node, kind:'direct', server_name:`服务器${node.server_id}`, enabled:true, available:true, role:'direct', entry_node_id:null, tcp:true, udp:true, legacy:false, active_generation:null, pending_generation:null, minimum_generation:0, stage:'direct', last_error:null, reference_count:0, entry_eligible:true }))
       else if (path === '/api/plugins/sing-box/ordered-proxy-resources') data = proxyResourceFixtures(nodes, servers)
+      else if (path === '/api/plugins/sing-box/source-migration') data = { migrated: false, migrated_at: null }
       else if (path === '/api/plugins/sing-box/ordered-subscription-sources') data = []
       else if (path === '/api/plugins/sing-box/node-catalog') data = catalogView(nodes.map(node => ({ ...node, kind:'direct', server_name:`服务器${node.server_id}`, enabled:true, available:true, role:'direct', entry_node_id:null, tcp:true, udp:true, legacy:false, active_generation:null, pending_generation:null, minimum_generation:0, stage:'direct', last_error:null, reference_count:0, entry_eligible:true })))
       else if (path === '/api/plugins/sing-box/subscription-sources') data = []

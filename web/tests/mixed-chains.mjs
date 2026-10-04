@@ -41,6 +41,7 @@ try {
       const request=route.request(),path=new URL(request.url()).pathname,method=request.method()
       requests.push(`${method} ${path}`)
       const reply=value=>route.fulfill({json:value})
+      if(path==='/api/plugins/sing-box/source-migration')return reply({ migrated: false, migrated_at: null })
       if(path==='/api/plugins/sing-box/ordered-proxy-resources'||path==='/api/plugins/sing-box/ordered-subscription-sources')return reply([])
       if(path==='/api/dashboard/access')return reply({authenticated:true,public_dashboard:false})
       if(path==='/api/plugins/sing-box/servers')return reply([1,2,3].map(id=>({id,name:`测试服务器 ${id}`,enabled:true,online:true,agent_supported:true})))

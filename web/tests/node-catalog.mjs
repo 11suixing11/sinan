@@ -54,6 +54,7 @@ try {
       else if (path === `${apiRoot}/nodes`) value = managedNodes
       else if (path === `${apiRoot}/proxy-resources`) value = catalog.filter(row => row.kind === 'direct')
       else if (path === `${apiRoot}/ordered-proxy-resources`) value = proxyResourceFixtures(managedNodes, [...pluginServers, ...(!pluginServers.length ? [{ id: 1, name: '服务器', enabled: false, online: false }] : [])])
+      else if (path === `${apiRoot}/source-migration`) value = { migrated: false, migrated_at: null }
       else if (path === `${apiRoot}/ordered-subscription-sources`) value = []
       else if (path === `${apiRoot}/servers`) value = pluginServers
       else if (path === `${apiRoot}/usage`) value = { total: '0', uplink: '0', downlink: '0', by_node: [], by_user: [] }

@@ -64,6 +64,7 @@ try {
         else if (method === 'GET' && /^\/api\/plugins\/sing-box\/users\/\d+\/portal$/.test(path)) value = { configuration: { enabled: false, reason: 'TEST_ONLY 未启用', origin }, keys: 0, url: null, activation_expires_at: null }
         else if (method === 'GET' && path === `${prefix}/users`) value = users
         else if (method === 'GET' && path === `${prefix}/nodes`) value = nodes
+        else if (method === 'GET' && path === `${prefix}/source-migration`) value = { migrated: false, migrated_at: null }
         else if (method === 'GET' && [`${prefix}/ordered-proxy-resources`, `${prefix}/ordered-subscription-sources`].includes(path)) value = []
         else if (method === 'GET' && path === `${prefix}/proxy-resources`) value = resources
         else if (method === 'GET' && path === `${prefix}/policy-groups`) value = policies
