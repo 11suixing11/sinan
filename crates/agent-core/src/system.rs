@@ -1,11 +1,16 @@
 mod archive;
 mod command_process;
+mod cpu_ceiling;
 mod execution;
 mod openrc_jobs;
+#[cfg(target_os = "linux")]
+mod terminal;
 pub use openrc_jobs::run_job;
 mod cleanup;
 pub mod deploy;
 mod jobs;
+#[cfg(target_os = "linux")]
+mod managed_files;
 mod publication;
 mod resources;
 mod runtime_process;
@@ -35,6 +40,10 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 pub struct SystemOps;
+
+pub(crate) fn diagnostic_cpu_ceiling_supported() -> bool {
+    cpu_ceiling::supported()
+}
 
 fn ensure_directory(path: &Path) -> Result<()> {
     if path.as_os_str().is_empty() {
@@ -105,6 +114,99 @@ impl SystemOps {
 }
 
 impl Privileged for SystemOps {
+    fn lock_managed_state<'a>(
+        &'a self,
+        path: &'a Path,
+    ) -> sinan_adapter_sdk::BoxFuture<'a, Box<dyn sinan_adapter_sdk::ManagedStateLock>> {
+        Box::pin(async move {
+            #[cfg(target_os = "linux")]
+            {
+                managed_files::lock(path).await
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = path;
+                anyhow::bail!("managed state locking requires Linux")
+            }
+        })
+    }
+    fn snapshot_managed_file<'a>(
+        &'a self,
+        path: &'a Path,
+        maximum: usize,
+    ) -> sinan_adapter_sdk::BoxFuture<'a, serde_json::Value> {
+        Box::pin(async move {
+            #[cfg(target_os = "linux")]
+            {
+                managed_files::snapshot(path, maximum).await
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (path, maximum);
+                anyhow::bail!("managed snapshots require Linux")
+            }
+        })
+    }
+    fn update_managed_file<'a>(
+        &'a self,
+        path: &'a Path,
+        bytes: Option<&'a [u8]>,
+        expected: &'a serde_json::Value,
+        metadata: &'a serde_json::Value,
+    ) -> sinan_adapter_sdk::BoxFuture<'a, serde_json::Value> {
+        Box::pin(async move {
+            #[cfg(target_os = "linux")]
+            {
+                managed_files::update(path, bytes, expected, metadata).await
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (path, bytes, expected, metadata);
+                anyhow::bail!("managed metadata updates require Linux")
+            }
+        })
+    }
+    #[cfg(target_os = "linux")]
+    fn read_managed_file<'a>(&'a self, path: &'a Path, maximum: usize) -> BoxFuture<'a, Vec<u8>> {
+        Box::pin(managed_files::read(path, maximum))
+    }
+    #[cfg(target_os = "linux")]
+    fn replace_managed_file<'a>(
+        &'a self,
+        path: &'a Path,
+        bytes: &'a [u8],
+        previous_hash: &'a str,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(managed_files::replace(path, bytes, previous_hash))
+    }
+    #[cfg(target_os = "linux")]
+    fn upload_managed_file<'a>(
+        &'a self,
+        path: &'a Path,
+        bytes: &'a [u8],
+        previous_hash: Option<&'a str>,
+    ) -> BoxFuture<'a, bool> {
+        Box::pin(managed_files::upload(path, bytes, previous_hash))
+    }
+    #[cfg(target_os = "linux")]
+    fn inspect_managed_file<'a>(
+        &'a self,
+        path: &'a Path,
+        maximum: usize,
+    ) -> BoxFuture<'a, serde_json::Value> {
+        Box::pin(managed_files::inspect(path, maximum))
+    }
+
+    #[cfg(target_os = "linux")]
+    fn open_terminal<'a>(
+        &'a self,
+        account: &'a str,
+        columns: u16,
+        rows: u16,
+    ) -> BoxFuture<'a, Box<dyn sinan_adapter_sdk::TerminalProcess>> {
+        Box::pin(terminal::open(account, columns, rows))
+    }
+
     fn runtime_process<'a>(
         &'a self,
         pid: u32,

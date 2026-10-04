@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 mod resources;
-pub use resources::{CpuWeight, IoWeight, MemoryMax, OomScoreAdjust, TasksMax};
+pub use resources::{CpuMaxPercent, CpuWeight, IoWeight, MemoryMax, OomScoreAdjust, TasksMax};
 use std::{
     collections::BTreeMap,
     future::Future,
@@ -156,7 +156,81 @@ pub trait ManagedProcess: Send {
     fn terminate(&mut self) -> BoxFuture<'_, ()>;
 }
 
+pub trait TerminalProcess: Send {
+    fn read(&mut self) -> BoxFuture<'_, Option<String>>;
+    fn input<'a>(
+        &'a mut self,
+        data: &'a str,
+        columns: Option<u16>,
+        rows: Option<u16>,
+    ) -> BoxFuture<'a, ()>;
+    fn close(&mut self) -> BoxFuture<'_, ()>;
+}
+
+/// An exclusive lock on an existing private state inode, released on drop.
+pub trait ManagedStateLock: Send {}
+
 pub trait Privileged: Send + Sync {
+    fn lock_managed_state<'a>(
+        &'a self,
+        _path: &'a Path,
+    ) -> BoxFuture<'a, Box<dyn ManagedStateLock>> {
+        Box::pin(async { anyhow::bail!("managed state locking is not supported") })
+    }
+    /// Capture bytes and metadata from the same ordinary file descriptor and private parents.
+    fn snapshot_managed_file<'a>(
+        &'a self,
+        _path: &'a Path,
+        _maximum: usize,
+    ) -> BoxFuture<'a, serde_json::Value> {
+        Box::pin(async { anyhow::bail!("managed file snapshots are not supported") })
+    }
+    /// Atomically replace or remove a file only while its captured identity still matches.
+    fn update_managed_file<'a>(
+        &'a self,
+        _path: &'a Path,
+        _bytes: Option<&'a [u8]>,
+        _expected: &'a serde_json::Value,
+        _metadata: &'a serde_json::Value,
+    ) -> BoxFuture<'a, serde_json::Value> {
+        Box::pin(async { anyhow::bail!("managed metadata updates are not supported") })
+    }
+    fn read_managed_file<'a>(&'a self, _path: &'a Path, _maximum: usize) -> BoxFuture<'a, Vec<u8>> {
+        Box::pin(async { anyhow::bail!("managed file reading is not supported") })
+    }
+    fn replace_managed_file<'a>(
+        &'a self,
+        _path: &'a Path,
+        _bytes: &'a [u8],
+        _previous_hash: &'a str,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async { anyhow::bail!("managed file editing is not supported") })
+    }
+
+    fn upload_managed_file<'a>(
+        &'a self,
+        _path: &'a Path,
+        _bytes: &'a [u8],
+        _previous_hash: Option<&'a str>,
+    ) -> BoxFuture<'a, bool> {
+        Box::pin(async { anyhow::bail!("managed file upload is not supported") })
+    }
+    fn inspect_managed_file<'a>(
+        &'a self,
+        _path: &'a Path,
+        _maximum: usize,
+    ) -> BoxFuture<'a, serde_json::Value> {
+        Box::pin(async { anyhow::bail!("managed file inspection is not supported") })
+    }
+    fn open_terminal<'a>(
+        &'a self,
+        _account: &'a str,
+        _columns: u16,
+        _rows: u16,
+    ) -> BoxFuture<'a, Box<dyn TerminalProcess>> {
+        Box::pin(async { anyhow::bail!("interactive terminal is not supported") })
+    }
+
     fn runtime_process<'a>(
         &'a self,
         _pid: u32,
@@ -331,8 +405,26 @@ pub struct ServiceLogs {
 }
 
 pub trait ServiceManager: Send + Sync {
+    fn retire_interactive_sessions(&self) -> BoxFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn start<'a>(&'a self, _unit: &'a str) -> BoxFuture<'a, ()> {
+        Box::pin(async { anyhow::bail!("service start is not supported") })
+    }
+    fn set_startup<'a>(&'a self, _unit: &'a str, _enabled: bool) -> BoxFuture<'a, ()> {
+        Box::pin(async { anyhow::bail!("service startup configuration is not supported") })
+    }
+    fn status_details<'a>(&'a self, unit: &'a str) -> BoxFuture<'a, String> {
+        Box::pin(async move { Ok(format!("active={}", self.is_active(unit).await?)) })
+    }
+
     fn supports_runtime_checkpoint(&self) -> bool {
         false
+    }
+    /// Inspect the configured privilege and service backend without changing it.
+    fn preflight_access<'a>(&'a self, _unit: &'a str) -> BoxFuture<'a, serde_json::Value> {
+        Box::pin(async { anyhow::bail!("service preflight inspection is not supported") })
     }
     fn runtime_instance<'a>(&'a self, _unit: &'a str) -> BoxFuture<'a, RuntimeInstance> {
         Box::pin(async { anyhow::bail!("runtime instance inspection is not supported") })
@@ -343,6 +435,11 @@ pub trait ServiceManager: Send + Sync {
         Box::pin(async { anyhow::bail!("service log reading is not supported") })
     }
     fn supports_confirmed_cancellation(&self) -> bool {
+        false
+    }
+    /// Advertise only when this service backend can enforce a hard CPU ceiling.
+    /// Starting a diagnostic must independently verify its actual controller.
+    fn supports_diagnostic_cpu_ceiling(&self) -> bool {
         false
     }
     /// Proves that the bound diagnostic has no remaining processes or mounts.
@@ -398,6 +495,9 @@ pub struct ServiceJob {
     /// The systemd cgroup task limit; other backends may not enforce this budget.
     #[serde(default)]
     pub tasks_max: TasksMax,
+    /// The hard aggregate CPU bandwidth ceiling; 100 is one logical CPU.
+    #[serde(default)]
+    pub cpu_max_percent: CpuMaxPercent,
     /// The systemd cgroup CPU contention weight.
     #[serde(default)]
     pub cpu_weight: CpuWeight,

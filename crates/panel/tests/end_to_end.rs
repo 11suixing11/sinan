@@ -1,7 +1,10 @@
 #![forbid(unsafe_code)]
 
+mod business_support;
+#[path = "e2e_support/preflight.rs"]
+mod deployment_preflight;
 mod e2e_support;
-mod release_fixture;
+use business_support::release_fixture;
 #[path = "../../protocol/tests/support/release.rs"]
 mod release_support;
 
@@ -40,6 +43,21 @@ async fn published_configuration_usage_and_lost_ack_survive_agent_restart(
         identity::enroll(&config, enrollment["token"].as_str().context("token")?).await?,
         server_id
     );
+    // This fixture explicitly enables only the independent read-only capability.
+    // No runtime deployment bypass is present in the production configuration.
+    let policy_path = config
+        .identity_dir
+        .parent()
+        .context("fixture Agent root")?
+        .join("fleet-policy.json");
+    fs::write(
+        &policy_path,
+        serde_json::to_vec(&sinan_protocol::fleet::AccessPolicy {
+            runtime_inspection: true,
+            ..Default::default()
+        })?,
+    )?;
+    fs::set_permissions(&policy_path, fs::Permissions::from_mode(0o600))?;
     let original_key = fs::read(config.identity_dir.join("device.key"))?;
     let agent = AgentTask::start(config.clone(), adapter.clone(), services.clone());
     eventually("authenticated agent telemetry", 10, || async {
@@ -126,13 +144,72 @@ async fn published_configuration_usage_and_lost_ack_survive_agent_restart(
         0
     );
 
-    // Run the real publisher with its production debounce and real notification transport.
+    // Pause the native transport while the controlled Agent fixture claims the
+    // two real typed requests. This prevents racing a mock service backend that
+    // does not implement system permission inspection. The reserved DNS and
+    // directory/service receipts are TEST_ONLY; no public DNS or host service
+    // permission is being accepted by this accounting/restart scenario.
+    agent.stop().await?;
+    eventually(
+        "Agent paused before controlled deployment preflight",
+        5,
+        || async { Ok(!config.status_socket.exists()) },
+    )
+    .await?;
+    let preflight = deployment_preflight::prepare(&panel, server_id).await?;
+    // Let the production publisher consume the current explicit confirmation
+    // before the real Agent replaces TEST_ONLY read-only fixture declarations
+    // with its actual platform capabilities. Its immutable deployment remains
+    // pending and is applied through the real authenticated WebSocket on restart.
+    eventually("debounced confirmed deployment committed while Agent is paused", 15, || async {
+        let row: Option<(i64, i64)> = sqlx::query_as(
+            "SELECT manifest_rev,(SELECT count(*) FROM deployments d WHERE d.server_id=s.id AND d.module='singbox') FROM servers s WHERE s.id=$1"
+        ).bind(server_id).fetch_optional(&pool).await?;
+        Ok(row.is_some_and(|(revision, count)| revision > 0 && count == 1))
+    }).await?;
+    let confirmed: (Option<i64>, Option<i64>) = sqlx::query_as(
+        "SELECT confirmed_at,confirmed_by FROM singbox_deployment_preflights WHERE id=$1 AND server_id=$2"
+    ).bind(preflight).bind(server_id).fetch_one(&pool).await?;
+    assert!(confirmed.0.is_some() && confirmed.1.is_some());
+    assert!(
+        State::open(&config.state_db)?
+            .get_json::<Prepared>("applied:singbox")?
+            .is_none()
+    );
+    let agent = AgentTask::start(config.clone(), adapter.clone(), services.clone());
+
+    // The real publisher's immutable bundle still crosses its authenticated
+    // WebSocket delivery and the existing adapter/configuration/accounting path.
     eventually("debounced deployment applied over WebSocket", 15, || async {
         let row: Option<(i64, i64, bool)> = sqlx::query_as(
             "SELECT target_rev,applied_rev,healthy FROM server_module_status WHERE server_id=$1 AND module='singbox'"
         ).bind(server_id).fetch_optional(&pool).await?;
         Ok(row.is_some_and(|(target, applied, healthy)| target > 0 && target == applied && healthy))
     }).await?;
+    let actual = panel
+        .api(
+            Method::GET,
+            &format!("/api/servers/{server_id}"),
+            Value::Null,
+        )
+        .await?;
+    assert_eq!(actual["static_info"]["os"], std::env::consts::OS);
+    if std::env::consts::OS != "linux" {
+        assert!(actual["static_info"].get("runtime_libc").is_none());
+        assert!(actual["static_info"].get("libc").is_none());
+        for capability in [
+            sinan_protocol::fleet::OPERATIONS_CAPABILITY,
+            sinan_protocol::fleet::RUNTIME_PREFLIGHT_CAPABILITY,
+        ] {
+            assert!(
+                !actual["capabilities"]
+                    .as_array()
+                    .context("actual Agent capabilities")?
+                    .iter()
+                    .any(|value| value == capability)
+            );
+        }
+    }
     let local = State::open(&config.state_db)?;
     let applied: Prepared = local
         .get_json("applied:singbox")?
