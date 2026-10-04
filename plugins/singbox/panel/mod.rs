@@ -12,6 +12,7 @@ pub mod chains;
 pub mod deployments;
 pub mod entitlements;
 pub mod external_access;
+pub mod legacy_takeover;
 pub mod mixed_paths;
 mod node_protocol;
 mod node_settings;

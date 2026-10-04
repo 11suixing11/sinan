@@ -219,7 +219,9 @@ pub(crate) async fn plan(
                 || retain;
             if entry_server == Some(server) && (active || entry_candidate) {
                 if version.legacy {
-                    if active {
+                    // A legacy relay is compiled only when the old two-hop path would
+                    // compile it: both ends live and the entry has an eligible grant.
+                    if active && granted {
                         legacy.push(legacy_relay(chain.id, &version.snapshot)?);
                     }
                 } else {
@@ -251,7 +253,7 @@ pub(crate) async fn plan(
                             continue;
                         }
                         if version.legacy {
-                            if !legacy.iter().any(|relay| relay.chain_id == chain.id) {
+                            if granted && !legacy.iter().any(|relay| relay.chain_id == chain.id) {
                                 legacy.push(legacy_relay(chain.id, &version.snapshot)?);
                             }
                         } else {

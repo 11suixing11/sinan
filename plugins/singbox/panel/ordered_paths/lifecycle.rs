@@ -356,7 +356,10 @@ async fn advance(state: &AppState, id: i64) -> ApiResult<Option<Action>> {
             .candidate_generation
             .unwrap_or(chain.desired_generation)
     };
-    let frozen = storage::version(&mut tx, id, generation).await?.snapshot;
+    let selected = storage::version(&mut tx, id, generation).await?;
+    // A legacy generation has no probe bindings; it is confirmed by server health.
+    let legacy_generation = selected.legacy;
+    let frozen = selected.snapshot;
     let entry = frozen.entry.server_id;
     let managed: Vec<i64> = frozen
         .hops
@@ -754,6 +757,7 @@ async fn advance(state: &AppState, id: i64) -> ApiResult<Option<Action>> {
                         }
                     }
                     if vector_ready
+                        && !legacy_generation
                         && !qualified(&mut tx, id).await?
                         && let Some(expected) = checkpoint_for_stage(
                             &mut tx,
@@ -876,6 +880,14 @@ pub(crate) async fn qualified(connection: &mut PgConnection, id: i64) -> ApiResu
             _ => None,
         }),
     ));
+    if version.legacy {
+        // ADR 0040: a taken-over two-hop generation keeps the two-hop rule. Both
+        // servers are healthy, applied and without pending changes; no probe or
+        // checkpoint record is required.
+        let servers: Vec<i64> = servers.into_iter().collect();
+        return Ok(sqlx::query_scalar("SELECT COUNT(*)=$2 FROM server_module_status m JOIN servers s ON s.id=m.server_id WHERE m.server_id=ANY($1) AND m.module='singbox' AND m.healthy AND m.applied_rev=m.target_rev AND s.dirty_at IS NULL AND s.deleted_at IS NULL")
+            .bind(&servers).bind(servers.len() as i64).fetch_one(connection).await?);
+    }
     let mut observed_vector = Vec::<(i64, Value)>::new();
     for server in servers {
         let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_path_deployment_dependencies d JOIN server_module_status m ON m.server_id=d.server_id AND m.module=d.module JOIN servers s ON s.id=m.server_id JOIN runtime_module_checkpoints r ON r.server_id=m.server_id AND r.module=m.module JOIN runtime_deployment_bindings b ON b.server_id=d.server_id AND b.module=d.module AND b.rev=d.revision WHERE d.chain_id=$1 AND d.generation=$2 AND d.server_id=$3 AND d.module='singbox' AND d.revision=m.target_rev AND d.revision=m.applied_rev AND m.healthy AND s.dirty_at IS NULL AND s.deleted_at IS NULL AND r.checkpoint_json->>'healthy'='true' AND r.checkpoint_json->'binding'->>'binding_digest'=b.binding_digest AND r.checkpoint_json->'binding'->>'deployment_id'=b.deployment_id::text AND r.checkpoint_json->'binding'->>'bundle_sha256'=b.bundle_sha256 AND (r.checkpoint_json->'binding'->>'revision')::bigint=d.revision AND ($4 OR EXISTS(SELECT 1 FROM singbox_chain_runtime_requirements p JOIN singbox_runtime_manifest_facts f ON f.server_id=p.server_id AND f.module='singbox' AND f.revision=d.revision AND f.artifact_sha256=p.artifact_sha256 AND f.runtime_version=p.runtime_version WHERE p.chain_id=$1 AND p.generation=$2 AND p.server_id=$3)))").bind(id).bind(generation).bind(server).bind(version.legacy).fetch_one(&mut *connection).await?;
@@ -884,9 +896,6 @@ pub(crate) async fn qualified(connection: &mut PgConnection, id: i64) -> ApiResu
         }
         let observed=sqlx::query_scalar("SELECT checkpoint_json FROM runtime_module_checkpoints WHERE server_id=$1 AND module='singbox'").bind(server).fetch_one(&mut *connection).await?;
         observed_vector.push((server, observed));
-    }
-    if version.legacy {
-        return Ok(true);
     }
     Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM singbox_path_probes p JOIN runtime_control_requests q ON q.request_id=p.request_id JOIN runtime_control_receipts f ON f.request_id=q.request_id JOIN runtime_module_checkpoints r ON r.server_id=p.server_id AND r.module='singbox' WHERE p.chain_id=$1 AND p.generation=$2 AND p.stage='switched' AND p.state='verified' AND p.server_id=$3 AND p.dependency_vector=$4 AND f.outcome='verified' AND q.kind='probe' AND q.request_json->'expected'=r.checkpoint_json AND f.result_json->'observed'=r.checkpoint_json AND f.result_json->>'success'='true' AND f.result_json->>'probe_id'=p.probe_id::text)").bind(id).bind(generation).bind(version.snapshot.entry.server_id).bind(json!(observed_vector)).fetch_one(connection).await?)
 }

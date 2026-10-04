@@ -197,12 +197,27 @@ pub(crate) async fn bundle_digest(
         .execute(&mut *tx)
         .await?;
     super::entitlements::lock(&mut tx).await?;
-    if !super::settings::is_enabled(&mut tx, server_id).await? {
-        tx.rollback().await?;
+    let digest = bundle_digest_on(state, &mut tx, server_id, at).await?;
+    tx.rollback().await?;
+    Ok(digest)
+}
+
+/// The same digest inside a caller's transaction, which sees its own
+/// uncommitted changes. Compilation writes only inside a savepoint that is
+/// rolled back.
+pub(crate) async fn bundle_digest_on(
+    state: &AppState,
+    tx: &mut Transaction<'_, Postgres>,
+    server_id: i64,
+    at: i64,
+) -> anyhow::Result<Option<String>> {
+    let mut savepoint = sqlx::Acquire::begin(&mut **tx).await?;
+    if !super::settings::is_enabled(&mut savepoint, server_id).await? {
+        savepoint.rollback().await?;
         return Ok(None);
     }
-    let compiled = compile(state, &mut tx, server_id, at).await?;
-    tx.rollback().await?;
+    let compiled = compile(state, &mut savepoint, server_id, at).await?;
+    savepoint.rollback().await?;
     Ok(Some(compiled.hash))
 }
 
