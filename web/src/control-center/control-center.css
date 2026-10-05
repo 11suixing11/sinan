@@ -77,8 +77,6 @@ body { min-width: 320px; }
 :root[data-theme=dark] .entity-link small{color:#a0a99b}
 :root[data-theme=dark] .eyebrow{color:#6e8978}
 :root[data-theme=dark] .field input::placeholder{color:#b1bbae}
-:root[data-theme=dark] .field input:disabled{color:#a5ae9e}
-:root[data-theme=dark] .field select:disabled{color:#a5ae9e}
 :root[data-theme=dark] .field small{color:#95a28b}
 :root[data-theme=dark] .field-static>span{color:#64795a}
 :root[data-theme=dark] .grant-info small{color:#a1af95}
@@ -151,3 +149,14 @@ body { min-width: 320px; }
 :root[data-theme=dark] .user-row.selected .avatar{color:#708f54}
 :root[data-theme=dark] .user-row>svg{color:#9bb387}
 :root[data-theme=dark] .user-usage span{color:#98a68b}
+
+/* Preserve the existing state and contextual colours above the base companions.
+   Disabled fields retain the original dark input/select palette. */
+:root[data-theme=dark] .node-views a:hover,
+:root[data-theme=dark] .node-views a.active{color:var(--green)}
+:root[data-theme=dark] .icon-button:hover{color:var(--ink)}
+:root[data-theme=dark] .notice.quiet-notice{color:var(--ink)}
+:root[data-theme=dark] .server-setup-steps .is-current{color:#215e49}
+:root[data-theme=dark] .server-setup-steps .is-complete{color:#557762}
+:root[data-theme=dark] .server-enrollment-status.is-online .server-setup-heading>svg{color:#4b773f}
+:root[data-theme=dark] .server-enrollment-command .copy-field code{color:#476540}
